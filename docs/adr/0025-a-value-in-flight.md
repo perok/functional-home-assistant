@@ -5,7 +5,7 @@
 - **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
   `committedSelections`), `runtime/Server.scala` (`swapHost`,
   `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
-  `lib/core/tap.pkl`, `lib/components/surface.pkl`,
+  `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
   `lib/components/slider.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's `ui_<id>` signal
   and URL mirror, which this makes honest.
@@ -224,16 +224,17 @@ stands unchanged.**
 
 Pending's clearing rule is "the committed value catches up". A tab has a
 committed value — `ui_<group>`, which this ADR makes the server write. **A
-service button has none.** `c.tap.service("light/turn_on")` commits an ENTITY
-STATE, not a selection, and `c.tap.toggle` does not even name a target. So a
-button's pending could only clear on `finished` — which is what `busy` already
-does, at which point the migration is a rename that adds a value nobody reads.
+service button has none.** `c.tap.call("light/turn_on", l)` commits an ENTITY
+STATE, not a selection, and `c.tap.toggle(l)` does not say which state it
+wants. So a button's pending could only clear on `finished` — which is what
+`busy` already does, at which point the migration is a rename that adds a value
+nobody reads.
 
-What would unblock it is a target the button can name and an observable the
-server writes for it: an entity-bound signal slot (ADR 0017) already is one, so
-a control with a `checked`/`state` slot and a known target state could commit
-against it. That is a real design, and it is not this one — it needs the tap to
-carry a target, which `toggle` and most `serviceValue` calls do not have.
+What would unblock it is an observable the server writes for the call's target
+and a state the call is known to want: an entity-bound signal slot (ADR 0017)
+already is the first, and every call names its target (ADR 0016), so a control
+whose call implies an end state (`turn_on`, not `toggle`) could commit against
+it. That is a real design, and it is not this one.
 
 The honest consequence: `busy` is NOT superseded. It remains the in-flight
 mechanism for service taps, `pending` is the mechanism for selections, and they

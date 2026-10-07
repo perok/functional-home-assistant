@@ -4,7 +4,9 @@ import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{Access, Dashboard}
+import fh.view.telemetry.Logging
 import io.circe.Json
+import org.typelevel.log4cats.Logger
 
 /** The one entrypoint: slug -> dashboard plus site-wide settings (ADR 0021).
   * One evaluation, but each dashboard decodes on its own, so a bad card is that
@@ -35,7 +37,8 @@ object Site {
     */
   def decode(
       json: Json,
-      sources: Set[os.Path] = Set.empty
+      sources: Set[os.Path] = Set.empty,
+      log: Logger[IO] = Logging.console.getLoggerFromName("fh.view.build.Site")
   ): IO[Decoded] =
     json.asObject.flatMap(_(DashboardsKey)).flatMap(_.asObject) match {
       case None     => missingDashboards.raiseError[IO, Decoded]
@@ -55,7 +58,12 @@ object Site {
               .decode(value, sources, Some(slug))
               .map(_.withAccess(siteAccess))
               .attempt
-              .map(r => slug -> r.leftMap(messageOf))
+              .timed
+              .flatMap { (took, r) =>
+                log
+                  .info(s"dashboard '$slug' decoded in ${took.toMillis} ms")
+                  .as(slug -> r.leftMap(messageOf))
+              }
           }
           .map(
             Decoded(

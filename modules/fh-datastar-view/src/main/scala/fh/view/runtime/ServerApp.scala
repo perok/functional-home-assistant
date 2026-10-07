@@ -23,6 +23,7 @@ import fh.view.build.{
 import com.comcast.ip4s.Ipv4Address
 import fh.view.auth.{
   AuthGate,
+  BearerUsers,
   Ingress,
   IngressUsers,
   AuthRoutes,
@@ -235,12 +236,14 @@ object ServerApp extends IOApp {
       sessionWindows: Server.SessionWindows
   )
 
-  /** `connectAs` is a short-lived connection as a user, never the machine-token
-    * feed nor its address ([[HaOAuth.coreWs]]).
+  /** Both act as a user, never as the machine-token feed nor at its address
+    * ([[HaOAuth.coreWs]]). `connectAs` is a short-lived connection, left only
+    * to ask who a token is: `auth/current_user` has no REST equivalent.
     */
   private[runtime] final case class HaLogin(
       oauth: HaOAuth,
-      connectAs: String => Resource[IO, HomeAssistantApi[IO]]
+      connectAs: String => Resource[IO, HomeAssistantApi[IO]],
+      callAs: ServiceCalls.CallAs
   )
 
   private[runtime] final case class Assembled(
@@ -287,7 +290,8 @@ object ServerApp extends IOApp {
           haCoreUrl,
           token,
           HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
-        )
+        ),
+      ServiceCalls.overRest(client, haCoreUrl)
     )
 
   /** The whole server short of binding a port. */
@@ -376,9 +380,11 @@ object ServerApp extends IOApp {
               .raiseError[IO, HaUser]
           )
       ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
+      // Only the gate's: a login callback resolves its fresh token once.
+      bearerUsers <- BearerUsers.cached(identify).toResource
       gate = new AuthGate(
         authSessions,
-        identify,
+        bearerUsers,
         site.permissionFor,
         ingressUsers,
         edges.trustedProxy
@@ -406,7 +412,7 @@ object ServerApp extends IOApp {
         // back to the feed's identity.
         actions = ServiceCalls.asUser(
           _,
-          login.connectAs,
+          login.callAs,
           authSessions,
           login.oauth
         ),
@@ -539,7 +545,7 @@ object ServerApp extends IOApp {
         ) *>
         tracer
           .span("dashboard.prepare.eval")
-          .surround(DashboardBuild.evalSite(dashboardsDir))
+          .surround(DashboardBuild.evalSite(dashboardsDir, log))
           .attempt
           .flatMap {
             case Right((site, imports)) =>
@@ -759,7 +765,7 @@ object ServerApp extends IOApp {
       importsRef: SignallingRef[IO, Set[Path]],
       log: SelfAwareStructuredLogger[IO] = consoleLog
   ): IO[Unit] =
-    DashboardBuild.evalSite(dashboardsDir).attempt.flatMap {
+    DashboardBuild.evalSite(dashboardsDir, log).attempt.flatMap {
       case Left(err) =>
         site.failSite(Site.messageOf(err)).flatMap(report(_, log))
       case Right((decoded, imports)) =>

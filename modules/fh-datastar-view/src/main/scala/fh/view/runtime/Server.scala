@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import scala.util.chaining.*
 import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
@@ -28,6 +28,7 @@ import fh.view.model.{
   Permission,
   SignalId,
   SlotRead,
+  TapCall,
   Transform
 }
 import fs2.Stream
@@ -210,26 +211,21 @@ class Server(
     case req @ GET -> Root / "sse" / "dashboard" / slug / "recover" =>
       gate.handleStream(req, Some(slug))(recoverStream(slug, _))
 
-    // `domain` is the service's, not always the entity's
-    // (`homeassistant.toggle` on a `light`).
-    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
-      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-        actionResponse(req, slug, entityId)(
-          callService(domain, service, entityId, Json.obj(), req)
-        )
-      )
+    // `domain` is the service's, not always the target's
+    // (`homeassistant.toggle` on a `light`). `kind` is `entity`, `area` or
+    // `floor`; HA expands the last two (issue #389).
+    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id =>
+      tapCall(req, slug, domain, service, kind, id, None)
 
-    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
-      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-        actionResponse(req, slug, entityId)(
-          callService(
-            domain,
-            service,
-            entityId,
-            Json.obj(dataKey -> Server.parseValue(dataValue)),
-            req
-          )
-        )
+    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id / dataKey / dataValue =>
+      tapCall(
+        req,
+        slug,
+        domain,
+        service,
+        kind,
+        id,
+        Some(dataKey -> dataValue)
       )
 
     // The slug is what the rule checks (ADR 0023), and the only way to
@@ -251,21 +247,44 @@ class Server(
       )
   }
 
-  /** An action may only touch an entity its own dashboard names (issue #89);
-    * otherwise anyone admitted to a `Public` dashboard could drive the front
-    * door lock by editing the URL. Decided from the static index, which is
-    * sound because a candidate list is static even though membership is live
-    * (ADR 0003). A missing or failed dashboard permits nothing.
+  /** Refused unless a tap on this dashboard declares exactly this call; the
+    * value itself is free (ADR 0023). A missing or failed dashboard permits
+    * nothing.
     */
-  private def actionResponse(req: Request[IO], slug: String, entityId: String)(
-      handler: IO[Response[IO]]
+  private def tapCall(
+      req: Request[IO],
+      slug: String,
+      domain: String,
+      service: String,
+      kind: String,
+      id: String,
+      data: Option[(String, String)]
   ): IO[Response[IO]] =
-    (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
-      (permission, user) =>
-        if (permission.mayAct(user, entityId)) handler
-        else
-          actionRefused(req, s"$entityId is not on this dashboard")
-    }
+    gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
+      (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
+        (permission, user) =>
+          TapCall
+            .targetOf(kind, id)
+            .map(TapCall(s"$domain/$service", _, data.map(_._1)))
+            .filter(permission.mayCall(user, _)) match {
+            case Some(call) =>
+              callService(
+                domain,
+                service,
+                call.target,
+                data.fold(Json.obj())((k, v) =>
+                  Json.obj(k -> Server.parseValue(v))
+                ),
+                req
+              )
+            case None =>
+              actionRefused(
+                req,
+                s"no tap on this dashboard calls $domain/$service on $kind $id"
+              )
+          }
+      }
+    )
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
     * routes without it sees the same response.
@@ -497,7 +516,7 @@ class Server(
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       control = Stream.fromQueueUnterminated(session.control)
-      reloads = reloadRepaints(session, uiState, rendererOpt)
+      reloads = reloadRepaints(session, rendererOpt)
       // Only when it differs from what the document rendered: health can move
       // between that render and this connect, and the next transition may be
       // hours away.
@@ -770,42 +789,16 @@ class Server(
               // instead would re-send the open surfaces on the next pull.
               val painted =
                 pageAnswers(renderer, open, store.entities, env).map(
-                  renderer.renderBodyTraced(store.entities, uiState, _)
+                  Patches.repaint(renderer, store.entities, uiState, _)
                 )
-              // A popup whose surface this dashboard no longer has is in no
-              // open set and would sit on screen forever.
-              val orphan = Option
-                .when(
-                  uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
-                    renderer.surfaces.openPopup(uiState).isEmpty
-                )(
-                  Datastar.patch(
-                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                    PatchMode.Outer,
-                    None
-                  )
-                )
-                .toList
+              val orphan = Server.orphanedPopup(renderer, uiState)
               val result = (resumedIO, session.vars.get).tupled.flatMap {
                 (resumed, chosen) =>
                   val claim = resumed.fold(store.version)(_ => covered)
                   val record = resumed.fold(
-                    painted.flatMap(p =>
-                      session.holds
-                        .set(p.own.map { case (id, n) =>
-                          id -> Held(Some(n.digest), n.signals)
-                        })
-                        .as(
-                          List(
-                            Datastar
-                              .patch(
-                                p.html,
-                                PatchMode.Inner,
-                                Some("#dashboard")
-                              )
-                          )
-                        )
-                    )
+                    painted.flatMap { case (frames, held) =>
+                      session.holds.set(held).as(frames)
+                    }
                   )(patches =>
                     session.holds
                       .update(
@@ -836,7 +829,6 @@ class Server(
     */
   private def reloadRepaints(
       session: Session,
-      uiState: Map[String, String],
       // The renderer the handler read. Seeded, not taken from the
       // subscription: this merges after the opening block and `discrete` hands
       // a late subscriber only the current value, so a swap in between would
@@ -860,43 +852,38 @@ class Server(
             case (Some(prev), Some(r)) if prev.headHash != r.headHash =>
               IO.pure(List(Server.reloadPatch))
             case (Some(prev), Some(r)) =>
-              (session.open.set(r.surfaces.selectedSurfaces(uiState)) *>
-                (stateStore.current, live.log.get).tupled)
-                .flatMap { case (store, log) =>
-                  pageSnapshot(
-                    session,
-                    r,
-                    r.surfaces.selectedSurfaces(uiState),
-                    store.entities
-                  ).flatMap { fragments =>
-                    val head =
-                      if (prev.styleHash != r.styleHash)
-                        Server.headPatches(r, session.slug)
-                      else Nil
-                    // Traced and claimed as in [[openingPatches]]. `told` too, or
-                    // the keepalive announces a lower version than the swap did.
-                    val painted =
-                      r.renderBodyTraced(store.entities, uiState, fragments)
-                    session.holds.set(painted.own.map { case (id, p) =>
-                      id -> Held(Some(p.digest), p.signals)
-                    }) *>
-                      session.position.set(store.version) *>
-                      session.told
-                        .set(store.version)
-                        .as(
-                          head ++ List(
-                            Datastar.patch(
-                              painted.html,
-                              PatchMode.Inner,
-                              Some("#dashboard")
-                            ),
-                            // A swap rotated the log id; without this a
-                            // reconnect quotes a dead log and repaints.
-                            Server.cursorSignals(r, log.id, store.version)
-                          )
-                        )
+              session.open.get.flatMap { was =>
+                // What is selected NOW, not the `uiState` this stream connected
+                // with: tab clicks and popups since have moved `open`.
+                val ui = prev.surfaces.committedSelections(was)
+                val open = r.surfaces.selectedSurfaces(ui)
+                (session.open.set(open) *>
+                  (stateStore.current, live.log.get).tupled)
+                  .flatMap { case (store, log) =>
+                    pageSnapshot(session, r, open, store.entities).flatMap {
+                      fragments =>
+                        val head =
+                          if (prev.styleHash != r.styleHash)
+                            Server.headPatches(r, session.slug)
+                          else Nil
+                        // Claimed as in [[openingPatches]]. `told` too, or the
+                        // keepalive announces a lower version than the swap did.
+                        val (painted, held) =
+                          Patches.repaint(r, store.entities, ui, fragments)
+                        session.holds.set(held) *>
+                          session.position.set(store.version) *>
+                          session.told
+                            .set(store.version)
+                            .as(
+                              head ++ painted ++
+                                Server.orphanedPopup(r, ui) :+
+                                // A swap rotated the log id; without this a
+                                // reconnect quotes a dead log and repaints.
+                                Server.cursorSignals(r, log.id, store.version)
+                            )
+                    }
                   }
-                }
+              }
           }
           .flatMap(Stream.emits)
       }
@@ -1230,12 +1217,12 @@ class Server(
   private def callService(
       domain: String,
       service: String,
-      entityId: String,
+      target: ServiceTarget,
       serviceData: Json,
       req: Request[IO]
   ): IO[Response[IO]] =
     actions
-      .call(req, domain, service, entityId, serviceData)
+      .call(req, domain, service, target, serviceData)
       .attempt
       .flatMap {
         case Right(_)  => NoContent()
@@ -1830,7 +1817,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.references)
+                Permission(r.access, r.declares)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }
@@ -2602,6 +2589,26 @@ object Server {
       version: Long
   ): SseFrame =
     Datastar.patchSignals(cursorJson(renderer, logId, version).noSpaces)
+
+  /** A popup whose surface this dashboard no longer has is in no open set, so
+    * nothing else would take it off the screen.
+    */
+  private[runtime] def orphanedPopup(
+      renderer: Renderer,
+      uiState: Map[String, String]
+  ): List[SseFrame] =
+    Option
+      .when(
+        uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
+          renderer.surfaces.openPopup(uiState).isEmpty
+      )(
+        Datastar.patch(
+          s"""<div id="${Dashboard.PopupHostId}"></div>""",
+          PatchMode.Outer,
+          None
+        )
+      )
+      .toList
 
   /** A connect's last event: the cursor plus what only the server may assert
     * (ADR 0025) — selections and node variables, the latter total so a

@@ -15,11 +15,15 @@ module components.lock
 import "../core/node.pkl" as nodes
 import "../layout.pkl" as layout
 import "../core/tap.pkl" as tapMod
+import "../core/slot.pkl" as slotMod
 import "../hass.pkl"
 import "../hass/lock.pkl" as hassLock
 import "control.pkl" as control
-import "text.pkl" as textMod
+import "base/button.pkl" as buttonMod
+import "base/text.pkl" as textMod
 import "entity.pkl" as entityMod
+import "base/features.pkl" as featuresMod
+import "tap.pkl" as verbs
 
 /// Release the latch — `lock/open`, which is not the same as unlocking: an
 /// unlocked door is still shut.
@@ -35,15 +39,16 @@ import "entity.pkl" as entityMod
 /// an inline popup (ADR 0024), where the second press is in a DIFFERENT place
 /// rather than the same one. On a wall tablet that is the safer of the two —
 /// HA's two-step can be satisfied by one sleeve brushing the same spot twice.
-function openLatch(l: hass.LockEntity): control.Button =
+function openLatch(l: hass.LockEntity): control.EntityButton =
   control
-    .button("Open", tapMod.openPopupInline(confirmOpen(l)))
-    .entity(l)
+    .entityButton(l)
+    .label("Open")
+    .tapAction(tapMod.openPopupInline(confirmOpen(l)))
     .icon("mdi:door-open")
-    // The DOMAIN's list, from the domain's own module — HA's `canOpen`. It adds
-    // to what the tap already refuses rather than replacing it
-    // ([[tapMod.inertStates]]).
-    .inertWhile(hassLock.CANNOT_OPEN)
+    // The OPENER's own reason, since a popup carries no call: there is nothing
+    // to confirm on a door HA says cannot open. The press inside refuses the
+    // same states through its call ([[verbs.Locks.openLatch]]).
+    .disabled(slotMod.stateIn(l, hassLock.CANNOT_OPEN))
 
 /// What the latch asks before it acts: the lock as it stands, the press that
 /// releases it, and a way out. Not exported — a confirmation is only meaningful
@@ -55,8 +60,8 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
     // and pinned to its domain action rather than the default, which would be
     // more-info opening on top of this popup.
     (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
-    control.button("Open the door", tapMod.service("lock/open")).entity(l)
-    control.button("Cancel", tapMod.closePopup())
+    buttonMod.button("Open the door", verbs.locks.openLatch(l))
+    buttonMod.button("Cancel", tapMod.closePopup())
   }
 }
 
@@ -75,5 +80,5 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
 /// exist to carry a capability's DATA, e.g. a kelvin range).
 function controls(l: hass.LockEntity): nodes.LayoutNode =
   if (l.supportsOpen)
-    entityMod.withFeatures(entityMod.entityCard(l), List(openLatch(l)))
+    featuresMod.withFeatures(entityMod.entityCard(l), List(openLatch(l)))
   else entityMod.entityCard(l)

@@ -11,7 +11,7 @@ import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "../layout.pkl" as layout
-import "control.pkl" as control
+import "base/button.pkl" as buttonMod
 import "history.pkl" as historyMod
 import "entity.pkl" as entityMod
 import "light.pkl" as light
@@ -107,11 +107,11 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
       }
     }
     entityInfo(e)
-    control.button("Close", tapMod.closePopup())
+    buttonMod.button("Close", tapMod.closePopup())
   }
 }
 
-/// Open `e`'s more-info popup — `c.entityCard(e).tapAction(c.moreInfo(e))`, or
+/// Open `e`'s more-info popup — `c.entityCard(e).tapAction(c.tap.moreInfo(e))`, or
 /// `c.entityCard(e) |> c.informative` where the card already names it.
 /// An INLINE popup ([[openPopupInline]]): the body is this entity's, so there is
 /// no registered surface to share and the hoist mints the id.
@@ -129,6 +129,6 @@ function defaultTap(e: hass.Entity): tapMod.TapAction = tapMod.byDomain(e) ?? mo
 
 
 /// The more-info-on-tap addition: `c.entityCard(x) |> c.informative`. Reads the
-/// card's OWN entity, so `x` is named once (where `.tapAction(c.moreInfo(x))` names it
+/// card's OWN entity, so `x` is named once (where `.tapAction(c.tap.moreInfo(x))` names it
 /// twice). See [[moreInfo]].
 informative: Mixin<entityMod.EntityCard> = new { tapAction = moreInfo(entity) }

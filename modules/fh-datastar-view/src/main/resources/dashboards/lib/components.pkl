@@ -31,25 +31,32 @@ import "core/surface.pkl" as surfaceMod
 import "core/predicate.pkl" as pred
 import "core/access.pkl" as accessMod
 import "layout.pkl" as layoutMod
-import "components/text.pkl" as textMod
+import "components/base/text.pkl" as textMod
 import "components/entity.pkl" as entityMod
 import "components/control.pkl" as control
+import "components/base/button.pkl" as buttonMod
+import "components/base/onoff.pkl" as switchMod
+import "components/base/tile.pkl" as tileMod
+import "components/base/features.pkl" as featuresMod
+import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
-import "components/surface.pkl" as surfaces
+import "components/base/surface.pkl" as surfaces
 import "components/history.pkl" as historyMod
 import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
 import "components/progress.pkl" as progressMod
+import "components/tap.pkl" as tapVerbs
 import "recipes.pkl" as recipesMod
 
 // ---- namespaces ----
 // A family that reads better grouped than flat. Typed, so an editor can see
 // through them.
 
-/// What a click DOES: `c.tap.toggle`, `c.tap.service("lock/lock")`,
-/// `c.tap.navigate("under")`, `c.tap.openPopup("detail")`.
-hidden tap: tapMod = tapMod
+/// What a click DOES, each verb naming what it acts on: `c.tap.toggle(l)`,
+/// `c.tap.moreInfo(l)`, `c.tap.lights.off(dump.areas.stue)`,
+/// `c.tap.call("scene/turn_on", s)`, `c.tap.navigate("under")`.
+hidden tap: tapVerbs = tapVerbs
 
 /// The simple tier's explicit fast-path constructors for slot values:
 /// `c.simple.attr("brightness")`, `c.simple.percent("brightness", 1, 255)`.
@@ -92,12 +99,14 @@ typealias Label = textMod.Label
 typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
 typealias EntityInfo = moreinfo.EntityInfo
-typealias Button = control.Button
-typealias Pill = control.Pill
+typealias Button = buttonMod.Button
+typealias EntityButton = control.EntityButton
+typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
 typealias Tabs = surfaces.Tabs
 typealias If = surfaces.If
-typealias Slider = sliderMod.Slider
+typealias Slider = sliderBaseMod.Slider
+typealias EntitySlider = sliderMod.EntitySlider
 typealias SlideAxis = sliderMod.SlideAxis
 /// What a card does with a label too long for its box — `"wrap"`, `"clip"` or
 /// `"scroll"`. An entry's `textOverflow` sets it for a whole dashboard;
@@ -143,22 +152,26 @@ function entityCard(e: hass.Entity): entityMod.EntityCard = entityMod.entityCard
 function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e)
 /// On/off control, styled as a switch.
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
-/// A service/navigate button: `c.button("Close", c.tap.closePopup())`.
-function button(l: String, a: tapMod.TapAction): control.Button = control.button(l, a)
+/// A button that knows only its label and its tap:
+/// `c.button("Close", c.tap.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
+function button(l: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.button(l, a)
+/// A button about an entity — its name and its domain's tap, tinted while it is
+/// on with `.active(c.isOn(l))`: `c.entityButton(l)`.
+function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
 /// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
-function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
-/// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle)`.
-function iconButton(i: String, a: tapMod.TapAction): control.Button = control.iconButton(i, a)
+function pill(l: String, a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(l, a)
+/// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle(l))`.
+function iconButton(i: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.iconButton(i, a)
 /// Value slider — an entity for its domain's default axis, or a capability
-/// group for that axis (`c.slider(l.colourTemp)`).
-function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
+/// group for that axis (`c.entitySlider(l.colourTemp)`).
+function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
 /// bar where the appliance also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
   progressMod.progress(remaining)
-/// One button for a slider's head — a round [[iconButton]] tinted while its
-/// entity is on. See [[Slider.actions]].
-function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
+/// One button for a slider's head — a round [[entityButton]] tinted while its
+/// entity is on. See [[EntitySlider.actions]].
+function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   sliderMod.sliderAction(e, t)
 /// A chart of a sensor's last 24 hours, drawn on the server — `.over("7d")`
 /// for any other window. Numeric sensors only; ask `e.isNumeric` first where
@@ -178,14 +191,16 @@ function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// The same, bound to a DIFFERENT entity than the card's own.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
-/// What a click does by default on any entity card: its domain's service call,
-/// or more-info where the domain has none. Named so an author can put the same
-/// default on a card they built some other way.
-function defaultTap(e: hass.Entity): tapMod.TapAction = moreinfo.defaultTap(e)
-/// Open `e`'s more-info popup — `c.entityCard(e).tapAction(c.moreInfo(e))`, or
-/// `c.entityCard(e) |> c.informative` where the card already names it.
-function moreInfo(e: hass.Entity): tapMod.TapAction = moreinfo.moreInfo(e)
-/// What that popup holds, for composing it somewhere else.
+/// One attribute of the card's entity, live — a bare String on `secondary` is
+/// the text itself: `c.entityCard(l).secondary(c.attr("device_class"))`.
+function attr(attrName: String): slotMod.Slot = slotMod.attr(attrName)
+/// Whether `e`'s state is one of `states`, live — what a button's `disabled`
+/// and a node's `classWhen` take: `c.button(…).disabled(c.stateIn(l, List("open")))`.
+function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
+/// Whether `e` is `on`, live — what a button's `active` takes most often:
+/// `c.entityButton(l).active(c.isOn(l))`.
+function isOn(e: hass.Entity): slotMod.Slot = slotMod.stateIn(e, List("on"))
+/// What `c.tap.moreInfo(e)`'s popup holds, for composing it somewhere else.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 
 // ---- constructors as VALUES ----
@@ -198,7 +213,7 @@ hidden entityCard: (hass.Entity) -> entityMod.EntityCard = entityMod.entityCard
 /// See [[toggle]].
 hidden toggle: (hass.Entity) -> control.Toggle = control.toggle
 /// See [[slider]].
-hidden slider: (hass.Entity) -> sliderMod.Slider = sliderMod.slider
+hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = sliderMod.entitySlider
 
 // ---- the card registry ----
 
@@ -210,7 +225,12 @@ const modules: List<Module> = List(
   layoutMod,
   textMod,
   entityMod,
+  buttonMod,
+  switchMod,
+  tileMod,
+  featuresMod,
   control,
+  sliderBaseMod,
   sliderMod,
   surfaces,
   surfaceMod,

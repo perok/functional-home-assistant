@@ -147,20 +147,19 @@ const local colSpans: String = new Listing {
 /// The BeerCSS theme names its own `shape loading-indicator` instead, so under
 /// it this rule matches nothing.
 const local busyCss: String = """
+  /* `fh-disabled` is the ONE "you cannot use this" look, whatever the reason:
+     a tap in flight (ADR 0019), or a press its entity's state makes
+     meaningless (`Call.disabledWhile`, `tapDisabled`), on any host — a tile
+     dims while refused exactly as it does while busy. Only the in-flight case
+     adds `fh-loading` and the spinner, so the cursor says which it is. */
   .fh-disabled{opacity:.5}
+  .fh-disabled:not(.fh-loading){cursor:not-allowed}
   .fh-loading{cursor:progress}
-  /* A control the ENTITY'S STATE makes meaningless carries a real `disabled`
-     rather than a class (`Button.inertWhile`), so the browser takes it out of
-     the tab order and refuses the press itself. This only has to make that
-     visible; `.fh-disabled` above stays for the in-flight case, which
-     deliberately does NOT disable (ADR 0019). */
+  /* A form control the state refuses also carries a real `disabled`, so the
+     browser takes it out of the tab order and refuses the press itself. This
+     is the look for one that has `disabled` and no class — a button whose own
+     `disabled` reading holds. */
   .fh-cell button:disabled{opacity:.5;cursor:not-allowed}
-  /* The same fact on a host that CANNOT be disabled — an entity card's tap is
-     on an `<article>`, and `disabled` is a form-control attribute. The cursor
-     is the visible half: the card keeps its own opacity, because a tile is a
-     READOUT first and dimming the reading it exists to show would cost more
-     than the guard is worth. */
-  .fh-inert{cursor:not-allowed}
   /* The REFUSED state, and the reason it exists: `data-indicator` clears on
      either outcome, so a rejected action left the control looking exactly like
      a successful one. It stays until the next press on this control, unlike

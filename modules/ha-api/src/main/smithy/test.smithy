@@ -118,10 +118,12 @@ structure PostServiceApiInput {
     @required
     service: String
 
-    // https://developers.home-assistant.io/docs/documenting/yaml-style-guide?_highlight=area_id#service-action-targets
-    entity_id: String
-    area_id: String
-    device_id: String
+    // The service data with its target fields (`entity_id`, `area_id`,
+    // `device_id`) at the top level, as the REST API takes them; a structure
+    // could not also carry the service's own fields.
+    @httpPayload
+    @required
+    data: Document
 }
 
 structure PostServiceApiOutput   {

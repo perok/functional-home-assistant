@@ -7,7 +7,7 @@ import fh.view.FHError
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
 import fh.view.telemetry.Logging
-import org.typelevel.log4cats.LoggerFactory
+import org.typelevel.log4cats.{Logger, LoggerFactory}
 
 /** Pkl sources to a validated [[Dashboard]], for both [[BuildApp]] and the
   * in-memory runtime.
@@ -23,16 +23,21 @@ object DashboardBuild {
       bundledLib: Option[LibPackage.Artifacts] = None,
       loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Unit] =
-    RegistryDump.fetch(api).flatMap { dump =>
-      val log = loggerFactory.getLoggerFromName("fh.view.build.DashboardBuild")
-      // Never fatal: one odd integration must not stop the dump.
-      PklDump
-        .warnings(dump)
-        .traverse_(w => log.warn(s"dump warning: $w")) *>
+    RegistryDump.fetch(api).timed.flatMap { (fetched, dump) =>
+      val log = loggerFactory.getLoggerFromName(LoggerName)
+      log.info(s"registry fetched in ${fetched.toMillis} ms") *>
+        // Never fatal: one odd integration must not stop the dump.
+        PklDump
+          .warnings(dump)
+          .traverse_(w => log.warn(s"dump warning: $w")) *>
         IO.blocking(
           DumpPackage
             .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
-        ).flatMap(_.traverse_(log.info(_)))
+        ).timed
+          .flatMap { (seeded, lines) =>
+            lines.traverse_(log.info(_)) *>
+              log.info(s"dump rendered and seeded in ${seeded.toMillis} ms")
+          }
     }
 
   /** `bundledLib` is needed only for the first dump on a fresh workspace. */
@@ -345,8 +350,19 @@ object DashboardBuild {
   /** An evaluation error raises (no slug to blame); one dashboard's error is a
     * `Left` that costs only that slug.
     */
-  def evalSite(dashboardsDir: os.Path): IO[(Site.Decoded, Set[os.Path])] =
-    evalSource(dashboardsDir, Site.EntryFile).flatMap { r =>
-      Site.decode(r.value, r.imports).map(_ -> r.imports)
+  def evalSite(
+      dashboardsDir: os.Path,
+      log: Logger[IO] = Logging.console.getLoggerFromName(LoggerName)
+  ): IO[(Site.Decoded, Set[os.Path])] =
+    evalSource(dashboardsDir, Site.EntryFile).timed.flatMap { (took, r) =>
+      log.info(
+        s"${Site.EntryFile} evaluated in ${took.toMillis} ms " +
+          s"(${r.imports.size} workspace files)"
+      ) *> Site.decode(r.value, r.imports, log).map(_ -> r.imports)
     }
+
+  /** Issue #406: on a Pi a boot or a reload takes seconds, and these lines say
+    * which phase took them.
+    */
+  private val LoggerName = "fh.view.build.DashboardBuild"
 }

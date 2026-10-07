@@ -133,7 +133,7 @@ val commonSettings = Seq(
   scalaVersion := "3.9.0",
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.1",
-    "io.scalaland" %% "chimney" % "2.0.0",
+    "io.scalaland" %% "chimney" % "2.1.0",
     "com.lihaoyi" %% "pprint" % "0.9.6"
   )
 )
@@ -226,12 +226,12 @@ lazy val `ha-api` = project // todo add api layer here as well
     ),
     libraryDependencies ++= Seq(
       "org.scalameta" %% "munit" % "1.3.6" % Test,
-      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.2.1" % Test,
       // Test-only: without a binding on the classpath slf4j prints two
       // "Failed to load class ... StaticLoggerBinder" lines at the top of
       // every run of this module's suites. The app's binding is not visible
       // here, because a library must not impose one.
-      "ch.qos.logback" % "logback-classic" % "1.6.4" % Test
+      "ch.qos.logback" % "logback-classic" % "1.6.5" % Test
     )
   )
 
@@ -535,7 +535,7 @@ lazy val `fh-datastar-view` = project
       // Kept in this module because it assembles the add-on jar — a binding
       // belongs to the application, not to a library.
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
-      "ch.qos.logback" % "logback-classic" % "1.6.4",
+      "ch.qos.logback" % "logback-classic" % "1.6.5",
       "org.typelevel" %% "otel4s-oteljava" % otel4sVersion,
       "org.http4s" %% "http4s-otel4s-middleware-trace-server" % otelMiddlewareVersion,
       "org.http4s" %% "http4s-otel4s-middleware-trace-client" % otelMiddlewareVersion,
@@ -553,7 +553,7 @@ lazy val `fh-datastar-view` = project
       "org.scalameta" %% "munit" % "1.3.6" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
-      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.2.1" % Test,
       "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
       // Property-based testing for the digest biconditional (ADR 0029):
       // equal input digest ⟺ equal patch bytes must hold over GENERATED node

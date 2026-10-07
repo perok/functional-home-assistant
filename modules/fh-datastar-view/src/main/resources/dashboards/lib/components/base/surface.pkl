@@ -4,14 +4,14 @@
 /// Both are pure composition over `core/surface.pkl` — the backend reads only
 /// structural surface fields and never a card name (ADR 0002/0007). The popup
 /// dialog itself lives in `core/surface.pkl`, with the mechanism that wraps it.
-module components.surface
+module components.base.surface
 
-import "../core/node.pkl" as nodes
-import "../core/slot.pkl" as slotMod
-import "../core/surface.pkl" as surfaceMod
-import "../core/predicate.pkl" as pred
-import "../core/tap.pkl" as tapMod
-import "../layout.pkl" as layout
+import "../../core/node.pkl" as nodes
+import "../../core/slot.pkl" as slotMod
+import "../../core/surface.pkl" as surfaceMod
+import "../../core/predicate.pkl" as pred
+import "../../core/tap.pkl" as tapMod
+import "../../layout.pkl" as layout
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
 /// anchors), so the MD3 tab look (underline active indicator, hover/press
@@ -119,11 +119,11 @@ class Tabs extends nodes.Node {
   // cell is what makes `.columns(n)` on a `Tabs` node WORK — before the split it
   // was accepted and then silently dropped, because a bake owner was denied the
   // wrapper those classes ride on.
-  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  cellClasses { "fh-cols-full" }
   /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
   /// it). The Listing DEFAULT lets a tab amend into existence and add cards
   /// directly — no `new`, no `children`:
-  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.slider(l) } } }
+  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
   /// Each tab's cards are wrapped in a [[Row]] panel; a tab wanting a different
   /// container nests it as the single card: `["X"] { new Column { ... } }`.
   hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
@@ -226,7 +226,7 @@ class If extends nodes.Node {
   // branch `Row`'s business. (Layout transparency was considered and dropped:
   // the branch is always Row-wrapped, so it is a box regardless and could never
   // flow into a grandparent grid.)
-  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  cellClasses { "fh-cols-full" }
   hidden condition: pred.Predicate
   // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
   // backticked for visual pairing (backticks are pure quoting, not identity).

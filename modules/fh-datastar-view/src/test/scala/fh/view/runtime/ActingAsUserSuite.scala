@@ -1,7 +1,7 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
-import cats.effect.{IO, Ref, Resource}
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
+import cats.effect.{IO, Ref}
 import fh.view.FHError
 import fh.view.auth.{AuthSessions, HaAccess, HaOAuth, SessionStore}
 import fh.view.testkit.{FakeHomeAssistant, TestAuth}
@@ -58,13 +58,16 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
       perUser <- FakeHomeAssistant.create(Nil)
       opened <- Ref[IO].of(List.empty[String])
       sessions <- AuthSessions.create(SessionStore.ephemeral)
-      connectAs = (token: String) =>
-        Resource.eval(
-          opened.update(_ :+ token).as(HomeAssistantApi.fromWs(perUser))
-        )
+      callAs: ServiceCalls.CallAs = token =>
+        (domain, service, target, data) =>
+          opened.update(_ :+ token) *>
+            HomeAssistantApi
+              .fromWs(perUser)
+              .callService(domain, service, target, data)
+              .void
       calls = ServiceCalls.asUser(
         HomeAssistantApi.fromWs(shared),
-        connectAs,
+        callAs,
         sessions,
         oauth
       )
@@ -72,11 +75,17 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
 
   private def req(session: Option[String]): Request[IO] =
     session.foldLeft(
-      Request[IO](Method.POST, uri"/sse/action/home/light/toggle/light.a")
+      Request[IO](Method.POST, uri"/sse/call/home/light/toggle/entity/light.a")
     )((r, id) => r.addCookie(AuthSessions.CookieName, id))
 
-  private def toggle(w: Wiring, session: Option[String]): IO[Json] =
-    w.calls.call(req(session), "light", "toggle", "light.a", Json.obj())
+  private def toggle(w: Wiring, session: Option[String]): IO[Unit] =
+    w.calls.call(
+      req(session),
+      "light",
+      "toggle",
+      ServiceTarget.Entity("light.a"),
+      Json.obj()
+    )
 
   private def freshAccess: IO[HaAccess] =
     IO.realTimeInstant.map(now => HaAccess("stored", now.plusSeconds(1800)))
@@ -91,13 +100,12 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     } yield {
       assertEquals(shared.map(_.entityId), Vector("light.a"), clue = shared)
       assertEquals(perUser, Vector.empty, clue = perUser)
-      // Never opened: a socket per action is this shape's cost, and a request
-      // with no session must not pay it.
+      // Nobody's token: a request with no session has no user to act as.
       assertEquals(opened, Nil, clue = opened)
     }
   }
 
-  test("a logged-in tap opens a connection with THAT person's token") {
+  test("a logged-in tap is made with THAT person's token") {
     for {
       w <- wiring(haStub(renewed))
       access <- freshAccess
@@ -139,9 +147,8 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     for {
       w <- wiring(haStub(renewed))
       now <- IO.realTimeInstant
-      // Valid now but not for long enough to survive a connect. A handshake
-      // losing that race gets `auth_invalid`, reported as an ordinary connect
-      // failure indistinguishable from a dead network, so the margin keeps them
+      // Valid now but not for long enough to survive the call. Losing that
+      // race is a 401, which reads as "not allowed", so the margin keeps them
       // apart.
       id <- w.sessions.create(
         user,
