@@ -3,12 +3,14 @@ package fh.view.smoke
 import cats.effect.IO
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
+import com.microsoft.playwright.options.BoundingBox
 import fh.view.runtime.TestServer
 import fh.view.testkit.HouseFixture
 
 /** Popups and the browser's history (ADR 0005): the server shows one popup at a
   * time, and each one opened is a history entry, so Back steps to the popup it
-  * was opened from and every close is going back.
+  * was opened from and every close, a tap on the backdrop included, is going
+  * back.
   */
 class PopupHistorySmokeSuite extends SmokeSuite {
 
@@ -66,6 +68,39 @@ class PopupHistorySmokeSuite extends SmokeSuite {
     IO.blocking(page.evaluate("() => location.href").toString)
 
   private val popupParam = """.*[?&]ui\.popups=.*"""
+
+  /** A point on `target` that `cover` does not cover, if its left or right end
+    * is clear. Inset from the end so a rounded corner does not decide it.
+    */
+  private def beside(
+      target: BoundingBox,
+      cover: BoundingBox
+  ): Option[(Double, Double)] =
+    List(target.x + 12, target.x + target.width - 12)
+      .find(x => x < cover.x || x > cover.x + cover.width)
+      .map(_ -> (target.y + target.height / 2))
+
+  test("a tap beside the popup steps back, and the page behind never gets it") {
+    // The tap lands where "Open first" is, outside the dialog. Without the
+    // backdrop it would reach that button or the page, and the popup would stay.
+    withPageOn(served) { (page, _) =>
+      for {
+        start <- href(page)
+        opener <- IO.blocking(
+          page.getByText("Open first", exactText).boundingBox()
+        )
+        _ <- click(page, "Open first")
+        _ <- showing(page, "First popup")
+        cover <- IO.blocking(dialog(page).boundingBox())
+        point = beside(opener, cover).getOrElse(
+          fail("the dialog covers the whole opener", clues(opener, cover))
+        )
+        _ <- IO.blocking(page.mouse().click(point._1, point._2))
+        _ <- closed(page)
+        _ <- eventually(href(page))(_ == start)
+      } yield ()
+    }
+  }
 
   test("Back steps through the popups opened, and Forward reopens") {
     withPageOn(served) { (page, _) =>
