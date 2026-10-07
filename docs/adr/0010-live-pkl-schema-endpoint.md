@@ -110,8 +110,8 @@ It stays a separate file run as a **subprocess**, not a library on the app
 classpath, for two reasons that are not about jar size: pkl-lsp's `exit`
 notification — which every LSP client sends on disconnect — calls
 `exitProcess(0)`, so an embedded server would let a closed editor tab take down
-the dashboard; and its shaded jar bundles an unrelocated JNA 5.14.0 that
-collides with appdirs' 5.18.1 and fails `assembly`. pkl-lsp is compiled to
+the dashboard; and its shaded jar bundles an unrelocated JNA 5.14.0, which
+fails `assembly` as soon as any other dependency brings its own JNA. pkl-lsp is compiled to
 class file 67, so the image's JDK floor is 23.
 
 Absent, it degrades rather than fails: `/edit` still serves and highlights
