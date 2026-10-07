@@ -4,7 +4,15 @@ import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
 import fh.view.query.QuerySnapshot
-import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotRead, SlotValue}
+import fh.view.model.{
+  Dashboard,
+  DomId,
+  NodeId,
+  SetId,
+  SignalId,
+  SlotRead,
+  SlotValue
+}
 import fh.view.model.DomId.selector
 import io.circe.Json
 
@@ -584,6 +592,33 @@ private[runtime] object Patches {
           t.html
         )
       }
+
+  /** The body and the open popup, and what they leave the session holding. The
+    * popup's host sits outside `#dashboard`: a repaint that stopped there left
+    * the dialog showing what it held before, until a pull happened to re-send
+    * its nodes.
+    */
+  private[runtime] def repaint(
+      renderer: Renderer,
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      fragments: QuerySnapshot
+  ): (List[SseFrame], Map[NodeId, Held]) = {
+    val body = renderer.renderBodyTraced(states, uiState, fragments)
+    val popup = hostFill(
+      renderer,
+      Dashboard.PopupHostId,
+      renderer.surfaces.openPopup(uiState),
+      states,
+      uiState,
+      fragments
+    ).map(_._1)
+    (
+      Datastar.patch(body.html, PatchMode.Inner, Some("#dashboard")) ::
+        popup.map(_.patch.toSse).toList,
+      popup.foldLeft(body.claims)(applied(renderer.ancestry, _, _))
+    )
+  }
 
   /** [[hostFill]]'s `invalidates` when nothing arrives. */
   private[runtime] def hostEvicts(

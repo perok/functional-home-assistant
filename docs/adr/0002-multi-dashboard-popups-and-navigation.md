@@ -139,7 +139,7 @@ A component's click target is a single `onclick` slot holding the **entire**
 Datastar expression (spliced as literal text into
 `data-on:click="{{{onclick}}}"`):
 
-- service call → `@post('/sse/action/<slug>/<domain>/<service>/<entity_id>')`
+- service call → `@post('/sse/call/<slug>/<domain>/<service>/<kind>/<id>')`
 - popup → `@post('/sse/surface/<slug>/open/<id>')` / `@post('/sse/popup/<slug>/close')`
 
 Every one of them names its dashboard: an action so the call can be bounded by
@@ -161,7 +161,7 @@ status-bar preview, and a click that works before Datastar has loaded. (BeerCSS
 styles buttons as `:is(button,.button)`, so the anchor form is visually
 identical.) The `TapAction` also carries the equivalent `onclick`
 (`window.location.assign(new URL('d/<slug>', document.baseURI))`) for cards whose
-root element cannot be an anchor — `entityCard`'s `<article>` — so one authored
+root element cannot be an anchor — `tile`'s `<article>` — so one authored
 `c.tap.navigate('x')` renders correctly wherever it is dropped.
 
 ### Navigation is a real page load
@@ -183,7 +183,7 @@ to re-read, a `<head>` the body patch could not reach (so a differently-themed
 target needed an explicit theme/title morph), and buttons that a browser cannot
 middle-click or open in a new tab.
 
-Remaining gap: only `button` renders the anchor form. A navigating `entityCard`
+Remaining gap: only `button` renders the anchor form. A navigating `tile`
 falls back to the scripted click, so it is not middle-clickable; promoting it
 means wrapping its `<article>` in the template, not a backend change.
 

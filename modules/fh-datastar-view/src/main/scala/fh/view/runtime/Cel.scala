@@ -1,11 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.SlotValue
+import fh.view.model.{ExprValue, SlotValue}
 
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
-import dev.cel.common.types.{MapType, SimpleType}
-import dev.cel.compiler.CelCompilerFactory
+import dev.cel.common.ast.CelExpr
+import dev.cel.common.navigation.CelNavigableAst
+import dev.cel.common.types.{CelType, MapType, SimpleType}
+import dev.cel.compiler.{CelCompiler, CelCompilerFactory}
 import dev.cel.extensions.{CelExtensions, CelOptionalLibrary}
+import dev.cel.parser.CelParserFactory
 import dev.cel.runtime.{
   CelFunctionBinding,
   CelFunctionOverload,
@@ -16,7 +19,8 @@ import dev.cel.runtime.{
 import java.util.Optional
 
 /** CEL on the planner runtime, compiled once at validation. Bindings are
-  * `state`, `attr`, `entity_id`, `domain` and `dashboard_slug` (ADR 0023).
+  * `state`, `attr`, `entity_id`, `domain` and `dashboard_slug` (ADR 0023), plus
+  * the node's expression values the expression reads, typed.
   *
   * Two helpers: `str(x)` renders numbers through [[numToString]], so the engine
   * and the `Simple` tier cannot drift, and lists as `[a,b]`; `num(x)` parses a
@@ -158,28 +162,101 @@ object Cel {
   // The compile-time optimizers were measured and declined: no CPU gain and
   // ~1-2% more allocation per eval, since no shipped shape repeats a subtree.
 
-  def parse(src: String): Either[String, Program] = {
+  /** Every expression has these, so an expression value may not take one. */
+  val fixedNames: Set[String] =
+    Set("state", "attr", "entity_id", "domain", "dashboard_slug")
+
+  /** `env`: the node's expression values the source reads, declared beside
+    * [[fixedNames]] so a name the node does not declare fails here.
+    */
+  def parse(
+      src: String,
+      env: List[(String, ExprValue.Kind)] = Nil
+  ): Either[String, Program] = {
     val trimmed = src.trim
     if (trimmed.isEmpty) Left("empty transform expression")
     else {
-      val result = compiler.compile(trimmed)
+      val result = compilerWith(env).compile(trimmed)
       if (result.hasError) Left(s"invalid CEL: ${result.getErrorString}")
       else Right(runtime.createProgram(result.getAst))
+    }
+  }
+
+  /** Whether `src` type-checks to `bool`, or to `dyn`: an entity read such as
+    * `state` is `dyn`, so `dyn` cannot be refused. One that does not compile
+    * answers true, since [[parse]] reports it already.
+    */
+  def yieldsBool(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
+    resultType(src, env).forall(t =>
+      t == SimpleType.BOOL || t == SimpleType.DYN
+    )
+
+  /** Typed `bool` exactly — not `dyn`, which may be anything. */
+  def isBoolTyped(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
+    resultType(src, env).contains(SimpleType.BOOL)
+
+  /** None when it does not compile; [[parse]] reports that. */
+  private def resultType(
+      src: String,
+      env: List[(String, ExprValue.Kind)]
+  ): Option[CelType] =
+    val result = compilerWith(env).compile(src.trim)
+    Option.when(!result.hasError)(result.getAst.getResultType)
+
+  private def compilerWith(env: List[(String, ExprValue.Kind)]): CelCompiler =
+    if (env.isEmpty) compiler
+    else
+      env
+        .foldLeft(compiler.toCompilerBuilder()) { case (b, (name, kind)) =>
+          b.addVar(name, celType(kind))
+        }
+        .build()
+
+  private def celType(k: ExprValue.Kind): CelType = k match
+    case ExprValue.Kind.Str  => SimpleType.STRING
+    case ExprValue.Kind.Int  => SimpleType.INT
+    case ExprValue.Kind.Dbl  => SimpleType.DOUBLE
+    case ExprValue.Kind.Bool => SimpleType.BOOL
+
+  private val parser = CelParserFactory.standardCelParserBuilder().build()
+
+  /** The names `src` reads, from its parse alone — no declarations needed, and
+    * a word inside a string literal is not one. Empty when it does not parse,
+    * which [[parse]] reports.
+    */
+  def identifiers(src: String): Set[String] = {
+    val result = parser.parse(src.trim)
+    if (result.hasError) Set.empty
+    else {
+      val b = Set.newBuilder[String]
+      CelNavigableAst
+        .fromAst(result.getAst)
+        .getRoot
+        .allNodes()
+        .forEach { n =>
+          if (n.expr().exprKind().getKind == CelExpr.ExprKind.Kind.IDENT)
+            b += n.expr().ident().name()
+        }
+      b.result()
     }
   }
 
   /** On demand, so an expression reading no attribute never forces
     * [[EntityState.javaAttributes]].
     */
-  private final class EntityResolver(entity: EntityState, slug: String)
-      extends CelVariableResolver {
+  private final class EntityResolver(
+      entity: EntityState,
+      slug: String,
+      values: Map[String, Object]
+  ) extends CelVariableResolver {
     def find(name: String): Optional[Object] = name match {
       case "state"     => Optional.ofNullable[Object](entity.state)
       case "attr"      => Optional.ofNullable[Object](entity.javaAttributes)
       case "entity_id" => Optional.ofNullable[Object](entity.entityId)
       case "domain"    => Optional.ofNullable[Object](entity.domain)
       case "dashboard_slug" => Optional.ofNullable[Object](slug)
-      case _                => Optional.empty()
+      case other            =>
+        values.get(other).fold(Optional.empty[Object]())(Optional.of(_))
     }
   }
 
@@ -195,10 +272,11 @@ object Cel {
   def runValue(
       program: Program,
       entity: EntityState,
-      dashboardSlug: String
+      dashboardSlug: String,
+      values: Map[String, Object] = Map.empty
   ): SlotValue =
     try
-      program.eval(new EntityResolver(entity, dashboardSlug)) match
+      program.eval(new EntityResolver(entity, dashboardSlug, values)) match
         case b: java.lang.Boolean => b.booleanValue
         case other                => stringify(other)
     catch case e: Exception => s"cel error: ${errorText(e)}"

@@ -71,7 +71,7 @@ trait HomeAssistantApi[F[_]] {
   def callService(
       domain: String,
       service: String,
-      entityId: String,
+      target: ServiceTarget,
       serviceData: Json
   ): F[Json]
 
@@ -186,17 +186,10 @@ object HomeAssistantApi {
       def callService(
           domain: String,
           service: String,
-          entityId: String,
+          target: ServiceTarget,
           serviceData: Json
       ): IO[Json] =
-        in.sendCommand(
-          `call_service`(
-            domain,
-            service,
-            serviceData,
-            CallServiceTarget(entityId)
-          )
-        )
+        in.sendCommand(`call_service`(domain, service, serviceData, target))
 
       def getStates: IO[List[GetStatesData]] =
         in.sendCommand(`get_states`())

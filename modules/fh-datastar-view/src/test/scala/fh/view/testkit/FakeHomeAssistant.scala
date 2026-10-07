@@ -1,5 +1,6 @@
 package fh.view.testkit
 
+import api.homeassistant.ServiceTarget
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.client.CommandPhase.*
@@ -15,11 +16,13 @@ import io.circe.Json
 import java.time.Instant
 import scala.concurrent.duration.*
 
+/** `entityId` is `""` for an area or floor call, which `group` carries. */
 case class ServiceCall(
     domain: String,
     service: String,
     entityId: String,
-    serviceData: Json
+    serviceData: Json,
+    group: Option[ServiceTarget] = None
 )
 
 /** `callDelay` holds the response open, the window a busy-guard test clicks
@@ -103,12 +106,18 @@ final class FakeHomeAssistant private (
       case cs: `call_service` =>
         calls
           .update(
-            _ :+ ServiceCall(
-              cs.domain,
-              cs.service,
-              cs.target.entity_id,
-              cs.service_data
-            )
+            _ :+ (cs.target match {
+              case ServiceTarget.Entity(id) =>
+                ServiceCall(cs.domain, cs.service, id, cs.service_data)
+              case group =>
+                ServiceCall(
+                  cs.domain,
+                  cs.service,
+                  "",
+                  cs.service_data,
+                  Some(group)
+                )
+            })
           )
           .flatMap(_ => delayedOrFailedResponse)
           .as(Json.obj())

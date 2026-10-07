@@ -69,24 +69,24 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
-  test("a failed slug names no entities, so no action from it reaches HA") {
+  test("a failed slug declares no calls, so no action from it reaches HA") {
     withLiveServer(Some(failed)) { (ts, _) =>
       for {
         resp <- ts.gatedApp.run(
           Request[IO](
             Method.POST,
-            uri"/sse/action/dashboard/light/toggle/light.kitchen"
+            uri"/sse/call/dashboard/light/toggle/entity/light.kitchen"
           )
         )
         body <- resp.bodyText.compile.string
         calls <- ts.fake.recordedCalls
       } yield {
-        // A failed dashboard has no renderer and so names no entity (ADR 0023):
-        // the action is refused, which matters because its page is a
+        // A failed dashboard has no renderer and so declares no call (ADR
+        // 0023): the action is refused, which matters because its page is a
         // diagnostics dump. The refusal is 200 with signals (ADR 0024), so the
         // message proves it.
         assertEquals(resp.status, Status.Ok)
-        assert(body.contains("is not on this dashboard"), clue = body)
+        assert(body.contains("no tap on this dashboard calls"), clue = body)
         assertEquals(calls.map(_.service), Vector.empty, clue = calls)
       }
     }

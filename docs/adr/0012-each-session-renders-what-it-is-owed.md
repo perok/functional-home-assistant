@@ -64,7 +64,7 @@ reaches a node **exclusively** through signal slots. One byte-reading slot re-ad
 from then on every signal-only change to that entity moves the key, misses the cache, and
 re-renders the node to discover its bytes are identical.
 
-The shipped `entityCard` has exactly one such slot: the name, which reads `friendly_name`.
+The shipped `EntityCard` has exactly one such slot: the name, which reads `friendly_name`.
 Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` against
 `resumeSignalsPure`, the same dashboard with the name held as a literal):
 
@@ -83,7 +83,7 @@ and `Transform.Simple` go through the same path, and on the shipped card there i
 byte slot to resolve — the signal slots are evaluated on a signals tick regardless. ("The name,
 an `AttrOrId` off ADR 0028's fast tier" is what this said, and it was wrong twice over: nothing
 in the library ever called that shape, and `slot.labelSlot` bakes the name as a LITERAL off the
-dump, so the shipped `entityCard` may have no byte transform to resolve at all. The measured
+dump, so the shipped `EntityCard` may have no byte transform to resolve at all. The measured
 numbers below stand — they came from `RenderBench`'s own card, not from this sentence — but
 whether the pre-check has anything to do on the shipped card is an open question for this ADR.) Note the values must NOT become the key:
 `RenderInputs.isAtLeast` is a partial order over versions and is what stops a straggler

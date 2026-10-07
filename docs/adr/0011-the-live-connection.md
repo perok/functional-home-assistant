@@ -547,9 +547,18 @@ than two that must agree.
 
 That subsumes what used to be three branches. There is no per-session repaint
 step: a tab panel is simply a surface in `open`, so its nodes are candidates like
-any others. And a popup needs no branch either — its nodes are in `open`, and a
-body repaint replaces `#dashboard` only, while the popup host lives in
-`theme.chrome` outside it, so an open dialog is never disturbed.
+any others. And a resumed popup needs no branch either: its nodes are in `open`, so
+they are reconciled on their own ids and the dialog is never disturbed.
+
+A REPAINT is the one path that has to name the popup. It is not a candidate set: it
+replaces `holds` with what it painted, and the popup host lives in `theme.chrome`,
+outside `#dashboard`. A repaint of the body alone left the dialog showing what it held
+before the disconnect, with its nodes missing from `holds`, until some later pull
+re-sent them. So a repaint fills the host too (`Patches.repaint`), as an `inner` patch,
+which Datastar morphs: the open dialog is reconciled, not replaced. A swap's repaint
+takes the whole selection, the popup and every tab, from the session's open set
+(`SurfaceGraph.committedSelections`) rather than the stream's `uiState`, which is what
+the stream connected with: a tab clicked since would otherwise snap back on every edit.
 
 **Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that
@@ -567,7 +576,8 @@ one per subtree.
 **The one thing still worth its own branch** is a popup claim this dashboard
 cannot serve — renamed, removed, or belonging to another dashboard. That dialog is
 in nobody's open set, so no rule reconciles it, and without a host reset it would
-sit on screen forever.
+sit on screen forever. A connect and a swap both send the reset
+(`Server.orphanedPopup`).
 
 ### The first connect carries no signals
 

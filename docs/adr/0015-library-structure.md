@@ -31,8 +31,10 @@ Three tiers, by AUDIENCE rather than by kind:
 core/       node · slot · icon · tap · surface · predicate   — writing a COMPONENT
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
-components.pkl + components/   text · entity · control ·     — writing a DASHBOARD
-            slider · surface · light · moreinfo
+components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
+            light · lock · moreinfo · history · progress · tap
+  components/base/  button · onoff · tile · slider ·         — the same, knowing no HA
+                    features · text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
@@ -44,6 +46,74 @@ names from the family modules. `entry.pkl` seeds `componentModules` from
 never inherited or re-exported ones — so a facade cannot stand in for the
 families in the card registry.
 
+### Base components, and the HA layer on top
+
+Inside the dashboard tier, `components/base/` holds the cards that know nothing
+about Home Assistant. They take strings, taps and READINGS (a slot naming the
+entity it reads), and never import a `hass` module; `BaseComponentsSuite`
+enforces that. `components/` itself is the HA layer.
+
+An HA component is a THIN subclass of a base one: it holds `entity`, and assigns
+the base's inputs from it (`label`, `tapAction`, `subject`, an entity card's
+`title`/`reading`/`glyph`, and a slider's `position`/`fill`/`commit`
+and the rest). Its own inputs keep the meaning they have
+relative to the entity — `value("brightness")` names an attribute — which is why
+the base's are named differently. It declares no card,
+template or slot of its own, so it is exactly the base card an author could have
+built by hand, and `components.test.pkl` checks that equality. A subclass rather
+than a function, because a Pkl function has no default arguments and its result
+forgets the entity. Every builder after it (`c.entityCard(l).value("brightness")`)
+would then have to name the entity again.
+
+`secondary` is the one input both tiers share, under HA's own name for the line
+below a card's main text. It is the BASE's — a literal, an `Expr` or a reading
+— and the HA cards inherit it rather than shadowing it, so a String is the text
+on every card and an attribute is asked for by name with `c.attr(name)`. One
+word meaning one thing beat keeping the HA cards' shorthand, under which a bare
+String was an attribute name on an entity card and the text on a button.
+
+`subject` is the base's one concession: an optional entity id, placed as the
+subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only the
+HA layer sets it.
+
+`disabled` is a base input on every pressable card — the button, the tile and
+the slider — taking any boolean input (a reading, an `Expr` over the node's
+values, or a condition; ADR 0034). It is ORed with the tap's own refusal
+(`tapDisabled`) inside the shared refusal helpers of `core/tap.pkl`, not in each
+card's template: the click guard, the `fh-disabled` look and the form-control
+`disabled` all read one `refused` expression, so a card that places them
+honours `disabled` with nothing of its own. A tile, an `<article>`, gets the look
+and a refused click; a slider's range is disabled and its commit refuses.
+
+**The slider** is the one split that was not mechanical. The base `Slider`
+(`components/base/slider.pkl`, `c.Slider`) takes a track, not an entity, and
+`EntitySlider` (`c.entitySlider`) fills it:
+
+- `position`, `fill` and `reading` are THREE readings, not one the base derives
+  the rest from. A transform is a CEL string or a `Simple` shape and neither
+  composes, so deriving `fill` from an arbitrary reading would mean splicing CEL
+  or reaching into one `Simple` shape. The HA layer builds all three from one
+  attribute name, which it can.
+- The drag commits through `commit`, a `Call` with a key and no value — the
+  drag supplies it (ADR 0016). As a plain call it refuses only while its target
+  is unavailable, so a cover that is `opening` still takes a new position.
+- `press` is the toggle-only variant on the SAME card: set, the track is one
+  button and there is no input. A second card would make a group's rows two
+  cards for one look. `EntitySlider` sets it for a light that cannot dim.
+- `leadingActions` is how the HA `tapAction` shorthand stays first without an
+  author's `actions` replacing it.
+- What makes a slider "about this entity" stays HA: `SlideAxis`, `sliderSpec`,
+  the RGB and kelvin fills, the `"state"`/`"percent"` readout names and the
+  `valueExpr`/`percentExpr` splice surface.
+- `sliderHead` and `sliderText` do not DECLARE `entity_id`: a declared slot must
+  be on every node, and a base slider may have no subject. Every HA slider still
+  carries it.
+
+The facade's names do not move: `c.button` and `c.entityButton` are found where
+they always were. The registry's are the BASE card's, named for the look like
+its class: `Tile` registers `tile` and `Switch` registers `switch`, and an
+`EntityCard` or a `Toggle` is a node of that card.
+
 `entry.pkl` stays at the package root: every dashboard's first line is
 `amends "@fh-dashboard/entry.pkl"`, and `internal/entry.pkl` would say the
 opposite of what is true. `site.pkl` (ADR 0021) sits beside it for the same
@@ -54,7 +124,7 @@ having gone looking for the library.
 ### Grouped where grouping reads better
 
 `c.tap.*` (what a click does), `c.light.*` (a domain's controls), `c.recipes.*`.
-The everyday cards stay flat — `c.entityCard`, `c.slider`, `c.button` — because
+The everyday cards stay flat — `c.entityCard`, `c.entitySlider`, `c.button` — because
 those are the names an author wants first, and a namespace in front of them buys
 nothing. `c.light` is the shape the next modelled domain follows (`c.cover.*`),
 which is what makes the grouping worth having rather than decorative.

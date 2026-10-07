@@ -39,8 +39,29 @@ object FixtureDashboard {
     "member" -> CardDef(
       """<div class="member">{{name}}: <span>{{state}}</span></div>""",
       slots = List("state")
+    ),
+    "call" -> CardDef(
+      """<button>{{service}}</button>""",
+      slots = List(Dashboard.ServiceSlot)
     )
   )
+
+  /** A tap's route slots and nothing else: what makes a call one this dashboard
+    * declares, and so one the server lets through (ADR 0023).
+    */
+  def call(
+      service: String,
+      e: FixtureEntity,
+      dataKey: Option[String] = None
+  ): LayoutNode.Component =
+    component(
+      "call",
+      (List(
+        Dashboard.ServiceSlot -> lit(service),
+        Dashboard.TargetKindSlot -> lit("entity"),
+        Dashboard.TargetIdSlot -> lit(e.entityId)
+      ) ++ dataKey.map(Dashboard.DataKeySlot -> lit(_)))*
+    )
 
   /** `guard` is every member's presence condition, `None` for always shown. */
   def set(

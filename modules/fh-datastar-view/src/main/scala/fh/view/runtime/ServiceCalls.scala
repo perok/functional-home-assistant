@@ -1,7 +1,9 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
-import cats.effect.{IO, Resource}
+import api.DocumentJson
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
+import api.homeassistant.rest.restApi
+import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.auth.{
@@ -12,7 +14,9 @@ import fh.view.auth.{
   RefreshOutcome
 }
 import io.circe.Json
+import org.http4s.client.Client
 import org.http4s.{Request, Uri}
+import smithy4s.http.RawErrorResponse
 
 import scala.concurrent.duration.*
 
@@ -25,28 +29,70 @@ trait ServiceCalls {
       req: Request[IO],
       domain: String,
       service: String,
-      entityId: String,
+      target: ServiceTarget,
       serviceData: Json
-  ): IO[Json]
+  ): IO[Unit]
 }
 
 object ServiceCalls {
+
+  /** One call as the person holding the token. */
+  type CallAs =
+    String => (
+        domain: String,
+        service: String,
+        target: ServiceTarget,
+        serviceData: Json
+    ) => IO[Unit]
 
   /** Not a legacy path: with no login there is nobody else to be, and ingress
     * authenticates a user without giving us their token.
     */
   def asInstance(api: HomeAssistantApi[IO]): ServiceCalls =
-    (_, domain, service, entityId, serviceData) =>
-      api.callService(domain, service, entityId, serviceData)
+    (_, domain, service, target, serviceData) =>
+      api.callService(domain, service, target, serviceData).void
 
-  /** One socket per action, as the person who pressed: a handshake per tap,
-    * chosen first because it needs no lifecycle; a pool or REST can follow. No
-    * auth session falls back ([[asInstance]]). `connectAs` is shared with
-    * `identify` so the address ranking is written once.
+  /** Over REST, not a socket per tap: HA attributes the call to the token's
+    * user either way, and HTTP needs no handshake and no lifecycle. `core` is
+    * where user tokens are accepted ([[HaOAuth.coreBase]]).
+    */
+  def overRest(client: Client[IO], core: Uri): CallAs =
+    token =>
+      (domain, service, target, serviceData) =>
+        restApi(client, core, token)
+          .use(
+            _.postServiceApi(
+              domain,
+              service,
+              DocumentJson.toDocument(
+                serviceData.deepMerge(target.json)
+              )
+            )
+          )
+          .void
+          .adaptError { case e: RawErrorResponse => refusal(e) }
+
+  /** A bare `vol.Invalid` or unknown service answers `400: Bad Request` with no
+    * message; a service's `Unauthorized` is a 401, which means "not allowed"
+    * only because [[asUser]] refreshes a token before it expires.
+    */
+  private[runtime] def refusal(e: RawErrorResponse): FHError = {
+    val said = io.circe.parser
+      .parse(e.body)
+      .toOption
+      .flatMap(_.hcursor.get[String]("message").toOption)
+    FHError.badCondition(e.code match {
+      case 401  => "Home Assistant does not allow you to do that."
+      case code =>
+        said.getOrElse(s"Home Assistant refused the action (HTTP $code).")
+    })
+  }
+
+  /** As the person who pressed. No auth session falls back ([[asInstance]]).
     */
   def asUser(
       fallback: HomeAssistantApi[IO],
-      connectAs: String => Resource[IO, HomeAssistantApi[IO]],
+      callAs: CallAs,
       sessions: AuthSessions,
       oauth: HaOAuth
   ): ServiceCalls = new ServiceCalls {
@@ -55,24 +101,23 @@ object ServiceCalls {
         req: Request[IO],
         domain: String,
         service: String,
-        entityId: String,
+        target: ServiceTarget,
         serviceData: Json
-    ): IO[Json] =
+    ): IO[Unit] =
       AuthSessions
         .cookieOf(req)
         .flatTraverse(id => sessions.get(id).map(_.tupleLeft(id)))
         .flatMap {
           case None =>
-            fallback.callService(domain, service, entityId, serviceData)
+            fallback.callService(domain, service, target, serviceData).void
           case Some((id, session)) =>
-            tokenFor(id, session).flatMap { token =>
-              connectAs(token)
-                .use(_.callService(domain, service, entityId, serviceData))
-            }
+            tokenFor(id, session).flatMap(
+              callAs(_)(domain, service, target, serviceData)
+            )
         }
 
-    /** The margin is the mechanism: an expired token's `auth_invalid` looks
-      * exactly like a dead network, so refresh early instead of classifying.
+    /** The margin is the mechanism: an expired token would be refused like a
+      * forbidden call ([[refusal]]), so refresh early instead of classifying.
       */
     private def tokenFor(id: String, session: AuthSession): IO[String] =
       IO.realTimeInstant.flatMap { now =>

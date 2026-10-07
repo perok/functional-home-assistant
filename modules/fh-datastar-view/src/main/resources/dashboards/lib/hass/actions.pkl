@@ -44,7 +44,7 @@ class CallByState {
   /// Transitional states ONLY. A state that merely makes the fallback the WRONG
   /// GUESS is not this — a `jammed` lock should still accept a retry, and a
   /// `paused` vacuum should still accept a start.
-  inertWhile: Listing<String> = new {}
+  disabledWhile: Listing<String> = new {}
 }
 
 typealias DomainAction = Call|CallByState
@@ -91,7 +91,7 @@ const ACTIONS: Mapping<String, DomainAction> = new {
     otherwise = "lock/lock"
     // `open`/`jammed` are deliberately absent: locking an open door and
     // retrying a jam are both meaningful presses.
-    inertWhile { "locking"; "unlocking"; "opening" }
+    disabledWhile { "locking"; "unlocking"; "opening" }
   }
   ["vacuum"] = new CallByState {
     whenState = "cleaning"
@@ -99,13 +99,13 @@ const ACTIONS: Mapping<String, DomainAction> = new {
     otherwise = "vacuum/start"
     // `docked`/`idle`/`paused` all start it, which is right; `returning` is the
     // one where starting again fights a dock already under way.
-    inertWhile { "returning" }
+    disabledWhile { "returning" }
   }
   ["lawn_mower"] = new CallByState {
     whenState = "mowing"
     then = "lawn_mower/dock"
     otherwise = "lawn_mower/start_mowing"
-    inertWhile { "returning" }
+    disabledWhile { "returning" }
   }
   // No transitional state: `idle` and `paused` both start, and starting a
   // paused timer is how you resume it.

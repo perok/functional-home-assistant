@@ -1,7 +1,8 @@
 package fh.view.model
 
 import fh.view.query.{Queries, QueryRequest}
-import io.circe.{Decoder, Json}
+import fh.view.runtime.Cel
+import io.circe.{Decoder, DecodingFailure, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 given Configuration =
@@ -17,7 +18,7 @@ given Configuration =
   *
   *   - `transform`: a CEL string or a [[Transform.Simple]] object — the form is
   *     the tier (ADR 0028) — or, on a query slot, a [[Transform.Stage]]. Only
-  *     the slot's own entity is reachable.
+  *     the slot's own entity is reachable, beside its [[values]].
   *   - `default`: used when the transform yields `""`, which keeps a numeric
   *     initialiser like `{bri: {{x}}}` valid while a light is off.
   *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
@@ -38,8 +39,27 @@ case class SlotSource(
     literal: Option[String] = None,
     reads: String = Reads.Live,
     signal: Option[SignalBind] = None,
-    query: Option[QueryTemplate] = None
+    // What the card reads the value AS, set where it binds the slot. Declared
+    // where the binding cannot say it: a `class:` binding is a bool by kind.
+    `type`: SlotType = SlotType.Text,
+    query: Option[QueryTemplate] = None,
+    // Not on the wire: the node's expression values this transform reads,
+    // attached at decode ([[LayoutNode.foldNode]]).
+    values: Map[String, ExprValue] = Map.empty
 ) {
+
+  /** What the compiled program is keyed by: one source compiles differently
+    * against a different set of typed names.
+    */
+  def isBool: Boolean =
+    `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
+
+  def celKey: Option[Transform.CelKey] = transform match
+    case t: String => Some(Transform.CelKey(t, ExprValue.env(values)))
+    case _         => None
+
+  /** Every entity a live value this slot reads can be moved by. */
+  def valueEntities: List[String] = values.values.toList.flatMap(_.entities)
 
   def shape: SlotShape =
     query.fold(SlotShape.State(this))(q => SlotShape.Query(SlotAsk(q, stage)))
@@ -56,12 +76,109 @@ case class SlotSource(
     * the `Simple` arm builds a string, 4.3% of a signals tick's allocation as a
     * `def` (`RenderBench.resumeSignals`).
     */
-  lazy val valueKey: String = transform match {
-    case s: String            => s
-    case sm: Transform.Simple => Transform.Simple.key(sm)
-    case st: Transform.Stage  => Transform.Stage.key(st)
+  lazy val valueKey: String = {
+    val read = transform match {
+      case s: String            => s
+      case sm: Transform.Simple => Transform.Simple.key(sm)
+      case st: Transform.Stage  => Transform.Stage.key(st)
+    }
+    // Two nodes saying the same thing over the same values share a signal.
+    if (values.isEmpty) read
+    else
+      read + values.toList
+        .sortBy(_._1)
+        .map((n, v) => s"|$n=${ExprValue.key(v)}")
+        .mkString
   }
 }
+
+/** A named input of a node's expressions (`expressionValues`): a literal the
+  * build wrote down, a [[Predicate.Tally]] counted live, or a condition decided
+  * live — `c.iff`'s, read as a `bool`.
+  */
+enum ExprValue derives CanEqual:
+  case Text(value: String)
+  // A Pkl `Int`; a `Float` is `Real` even when whole, decoded by spelling.
+  case Whole(value: Long)
+  case Real(value: Double)
+  case Flag(value: Boolean)
+  case Count(tally: Predicate.Tally)
+  case Holds(condition: Predicate)
+
+  def kind: ExprValue.Kind = this match
+    case _: Text             => ExprValue.Kind.Str
+    case _: Whole | _: Count => ExprValue.Kind.Int
+    case _: Real             => ExprValue.Kind.Dbl
+    case _: Flag | _: Holds  => ExprValue.Kind.Bool
+
+  /** Live: what it answers moves with state, so a once-read cannot hold it. */
+  def isLive: Boolean = this match
+    case _: Count | _: Holds => true
+    case _                   => false
+
+  /** Every entity that can move it. */
+  def entities: List[String] = this match
+    case Count(t) => t.referencedEntities
+    case Holds(p) => Predicate.referencedEntities(p)
+    case _        => Nil
+
+object ExprValue:
+
+  /** The CEL type a value is declared as. */
+  enum Kind derives CanEqual:
+    case Str, Int, Dbl, Bool
+
+  def env(values: Map[String, ExprValue]): List[(String, Kind)] =
+    values.toList.sortBy(_._1).map((n, v) => n -> v.kind)
+
+  /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
+  def key(v: ExprValue): String = v match
+    case Text(s)  => s"s:$s"
+    case Whole(n) => s"i:$n"
+    case Real(d)  => s"d:$d"
+    case Flag(b)  => s"b:$b"
+    case Count(t) => s"t:${tallyKey(t)}"
+    case Holds(p) => s"p:${predicateKey(p)}"
+
+  private def tallyKey(t: Predicate.Tally): String =
+    t.candidates.mkString(",") + "/" +
+      t.when.toList
+        .sortBy(_._1)
+        .map((id, p) => s"$id=${predicateKey(p)}")
+        .mkString(";")
+
+  private def predicateKey(p: Predicate): String = p match
+    case Predicate.Cmp(prop, op, v, e) =>
+      s"cmp($prop,$op,${v.noSpaces},${e.getOrElse("")})"
+    case Predicate.And(xs)  => xs.map(predicateKey).mkString("and(", ",", ")")
+    case Predicate.Or(xs)   => xs.map(predicateKey).mkString("or(", ",", ")")
+    case Predicate.Not(x)   => s"not(${predicateKey(x)})"
+    case c: Predicate.Count =>
+      s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
+
+  given Decoder[ExprValue] = Decoder.instance { c =>
+    c.value.fold(
+      Left(DecodingFailure("an expression value cannot be null", c.history)),
+      b => Right(Flag(b)),
+      // By SPELLING, as Pkl wrote it: a `Float` 2.0 and an `Int` 2 have one
+      // value, and an expression typed against the wrong one fails its build.
+      n =>
+        Right(
+          if (n.toString.exists(ch => ch == '.' || ch == 'e' || ch == 'E'))
+            Real(n.toDouble)
+          else n.toLong.fold(Real(n.toDouble))(Whole(_))
+        ),
+      s => Right(Text(s)),
+      _ =>
+        Left(
+          DecodingFailure("an expression value cannot be a list", c.history)
+        ),
+      // A condition carries its `kind`; a tally, which is not one, does not.
+      o =>
+        if (o.contains("kind")) c.as[Predicate].map(Holds(_))
+        else c.as[Predicate.Tally].map(Count(_))
+    )
+  }
 
 /** Untyped params, so the model knows no provider (`Queries.parse` types them).
   */
@@ -155,6 +272,20 @@ object SlotSource:
       else c.as[Transform.Simple]
     }
 
+/** What a card reads a slot's value as. A `Bool` slot decides a class or an
+  * attribute by truthiness, where the string `"false"` is ON, so the build
+  * refuses a reading on one that does not produce a bool.
+  */
+enum SlotType derives CanEqual:
+  case Text, Bool
+
+object SlotType:
+  given Decoder[SlotType] = Decoder[String].emap {
+    case "text" => Right(Text)
+    case "bool" => Right(Bool)
+    case other  => Left(s"unknown slot type: $other")
+  }
+
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the
   * attribute, not the card, so the plain form (no binding, no seed) stays one
   * predicate away. One wire string: `"text"`, `"bind"`, `"style:--_end"`,
@@ -165,8 +296,8 @@ object SlotSource:
   *   - `Attr`: `data-attr:<name>`; a boolean value sets or removes it
   *     ([[SlotValue]]). The attribute, not the property: for `checked` use
   *     `Bind`.
-  *   - `Class`: `data-class:<name>`, present while truthy. `""` is the only
-  *     falsy slot value, so `"false"` reads as on.
+  *   - `Class`: `data-class:<name>`, present while truthy: `false` and `""` are
+  *     off, and `"false"` reads as on.
   *   - `Bind`: two-way `data-bind` on a form control; such a card needs a
   *     client signal in any form.
   *   - `Handler`: no attribute; the value is read by an event handler via
@@ -244,10 +375,17 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** `fh-` layout classes on the node's `.fh-cell` wrapper. An object so it can
-  * grow `grid_options`-style fields without a wire break.
+/** What the renderer puts on the node's `.fh-cell` wrapper: static classes,
+  * `classWhen`'s live ones, and `cssProperty`'s live custom properties — the
+  * live two folded into the component's slots at decode
+  * ([[LayoutNode.foldNode]]). An object so it can grow `grid_options`-style
+  * fields without a wire break.
   */
-case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
+case class Cell(
+    classes: List[String] = Nil,
+    classWhen: Map[String, SlotSource] = Map.empty,
+    properties: Map[String, SlotSource] = Map.empty
+) derives ConfiguredDecoder
 
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
@@ -286,15 +424,25 @@ object Predicate:
       when: Map[String, Predicate] = Map.empty,
       op: Op,
       value: Json
-  ) extends Predicate
+  ) extends Predicate:
+    def tally: Tally = Tally(candidates, when)
+
+  /** A static candidate list and which of it is present: a [[Count]] before the
+    * comparison.
+    */
+  case class Tally(
+      candidates: List[String] = Nil,
+      when: Map[String, Predicate] = Map.empty
+  ) derives ConfiguredDecoder:
+    def referencedEntities: List[String] =
+      candidates ++ when.values.flatMap(Predicate.referencedEntities)
 
   def referencedEntities(p: Predicate): List[String] = p match
-    case Cmp(_, _, _, e)               => e.toList
-    case And(items)                    => items.flatMap(referencedEntities)
-    case Or(items)                     => items.flatMap(referencedEntities)
-    case Not(item)                     => referencedEntities(item)
-    case Count(candidates, when, _, _) =>
-      candidates ++ when.values.flatMap(referencedEntities)
+    case Cmp(_, _, _, e) => e.toList
+    case And(items)      => items.flatMap(referencedEntities)
+    case Or(items)       => items.flatMap(referencedEntities)
+    case Not(item)       => referencedEntities(item)
+    case c: Count        => c.tally.referencedEntities
 
   /** Rejected under an [[Activation.State]], which supplies no subject. A
     * count's guards are bound to their own candidates, so they do not count.
@@ -342,6 +490,45 @@ object LayoutNode:
   def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
     if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
 
+  /** At decode, two things a node declares beside its slots move ONTO them, so
+    * the reverse index, the plan, the seed and the signal frames carry them
+    * with no path of their own:
+    *
+    *   - its live cell classes and properties become slots
+    *     ([[Dashboard.cellClassSlot]], [[Dashboard.cellStyleSlot]]). A set
+    *     keeps its own: it has no slots, so `validate` rejects them there.
+    *   - each expression value goes onto every slot whose expression names it
+    *     ([[SlotSource.values]]), so a slot alone says what it reads.
+    */
+  def foldNode(n: LayoutNode): LayoutNode = n match
+    case c: Component =>
+      val live = c.cell.toList.flatMap(cell =>
+        cell.classWhen.map((cls, src) => Dashboard.cellClassSlot(cls) -> src) ++
+          cell.properties.map((p, src) => Dashboard.cellStyleSlot(p) -> src)
+      )
+      c.copy(
+        slots = (c.slots ++ live).view.mapValues(attachValues(c.values)).toMap,
+        cell =
+          c.cell.map(_.copy(classWhen = Map.empty, properties = Map.empty)),
+        regions = c.regions.view.mapValues(_.map(foldNode)).toMap
+      )
+    case s: SetNode =>
+      s.copy(members = s.members.view.mapValues { m =>
+        m.copy(clauses = m.clauses.map(cl => cl.copy(node = foldNode(cl.node))))
+      }.toMap)
+
+  // By the identifiers the expression PARSES to, so a name inside a string
+  // literal is not a read.
+  private def attachValues(values: Map[String, ExprValue])(
+      s: SlotSource
+  ): SlotSource =
+    s.transform match
+      case t: String if values.nonEmpty && s.literal.isEmpty =>
+        val read = Cel.identifiers(t)
+        val attached = values.filter((n, _) => read.contains(n))
+        if (attached.isEmpty) s else s.copy(values = attached)
+      case _ => s
+
   /** Leaves and containers alike: a container is a template splicing its
     * regions, so a new kind needs no Scala. The injected vars are `id`,
     * `hostId` and `dashboardSlug`.
@@ -357,7 +544,10 @@ object LayoutNode:
       // Node variables (issue #209), resolved by name up the ancestors,
       // nearest wins. No allowed-values list: the write refuses what a reader
       // cannot parse.
-      vars: Map[String, String] = Map.empty
+      vars: Map[String, String] = Map.empty,
+      // Expression values, this node's alone: never resolved up the
+      // ancestors, and attached to the slots that read them ([[foldNode]]).
+      values: Map[String, ExprValue] = Map.empty
   ) extends LayoutNode:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -372,7 +562,9 @@ object LayoutNode:
     lazy val liveEntities: List[String] =
       stateSlots
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
-        .flatMap(s => s.entityId.orElse(subjectEntity))
+        .flatMap(s =>
+          s.entityId.orElse(subjectEntity).toList ++ s.valueEntities
+        )
         .distinct
 
     /** Minus entities reached only through signal slots: what the render key
@@ -384,7 +576,9 @@ object LayoutNode:
         .filter(s =>
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
         )
-        .flatMap(s => s.entityId.orElse(subjectEntity))
+        .flatMap(s =>
+          s.entityId.orElse(subjectEntity).toList ++ s.valueEntities
+        )
         .distinct
 
     /** In the render key but not [[liveEntities]]: otherwise a sensor ticking
@@ -614,7 +808,7 @@ case class Dashboard(
     title: Option[String] = None,
     css: String = "",
     access: Option[Access] = None
-) derives ConfiguredDecoder:
+):
 
   /** Every registered card, not only those used: pruning would have to account
     * for surfaces and set clauses (ADR 0020's open work).
@@ -622,22 +816,59 @@ case class Dashboard(
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
 
-  /** Every entity this dashboard can ever address — the action bound (issue
-    * #89, ADR 0023). Static and sound: a set's candidate list is fixed at build
-    * time (ADR 0003).
+  /** Every entity this dashboard can ever address — what a viewer's variable
+    * value may make a query read (ADR 0023). Static and sound: a set's
+    * candidate list is fixed at build time (ADR 0003). A tap is bounded by
+    * [[calls]] instead.
     */
   lazy val referencedEntities: Set[String] = {
     def fromSlots(
         slots: Map[String, SlotSource],
         subject: Option[String]
     ): List[String] =
-      slots.values.toList.flatMap(_.entityId) ++ subject.toList
+      slots.values.toList.flatMap(s => s.entityId.toList ++ s.valueEntities) ++
+        subject.toList
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
         fromSlots(c.slots, c.subjectEntity) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         set.candidates ++ set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => walk(cl.node))
+    }
+
+    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+  }
+
+  /** Every call a tap of this dashboard declares, as the build spelled it: the
+    * allowlist for the call route (ADR 0023). Read off `tap.pkl`'s route slots.
+    * A service the target's state picks declares every arm of its match, since
+    * which one is posted is the click's to decide.
+    */
+  lazy val calls: Set[TapCall] = {
+    def services(s: SlotSource): List[String] =
+      s.literal.toList ++ (s.transform match {
+        case Transform.Simple.Match(cases, otherwise) =>
+          (cases.values.toList :+ otherwise).collect { case v: String => v }
+        case _ => Nil
+      })
+
+    def of(slots: Map[String, SlotSource]): List[TapCall] = {
+      def lit(name: String) = slots.get(name).flatMap(_.literal)
+      for {
+        kind <- lit(Dashboard.TargetKindSlot).toList
+        id <- lit(Dashboard.TargetIdSlot).toList
+        target <- TapCall.targetOf(kind, id).toList
+        service <- slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
+      } yield TapCall(service, target, lit(Dashboard.DataKeySlot))
+    }
+
+    def walk(n: LayoutNode): List[TapCall] = n match {
+      case c: LayoutNode.Component =>
+        of(c.slots) ++ c.allChildren.flatMap(walk)
+      case set: LayoutNode.SetNode =>
+        set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }
@@ -738,11 +969,15 @@ case class Dashboard(
                     "attribute (disabled, hidden), a string for everything else"
                 )
               case t: String =>
-                Transform.parse(t).left.toOption.map { err =>
-                  val at =
-                    locateTransform(t).fold("")(loc => s" (at $loc)")
-                  s"$nodeId: slot '$name' has an invalid transform$at: $err"
-                }
+                Transform
+                  .parse(Transform.CelKey(t, ExprValue.env(src.values)))
+                  .left
+                  .toOption
+                  .map { err =>
+                    val at =
+                      locateTransform(t).fold("")(loc => s" (at $loc)")
+                    s"$nodeId: slot '$name' has an invalid transform$at: $err"
+                  }
               case _: Transform.Simple => None
               // Only a hand-written wire gets here.
               case st: Transform.Stage =>
@@ -833,6 +1068,56 @@ case class Dashboard(
 
     /** At the declaration, so an unreferenced variable is still wrong loudly.
       */
+    // Attached by `foldNode` to every slot that reads one, so "read by no slot"
+    // is the attachment's absence.
+    def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
+      val read = c.slots.values.flatMap(_.values.keySet).toSet
+      c.values.keys.toList.sorted.flatMap { name =>
+        if (!Dashboard.ExpressionValueName.matches(name))
+          List(
+            s"$nodeId: expression value '$name' is not a name an expression " +
+              "can read — letters, digits and '_', not starting with a digit"
+          )
+        else if (Cel.fixedNames.contains(name))
+          List(
+            s"$nodeId: expression value '$name' would hide the '$name' every " +
+              "expression already reads — rename it"
+          )
+        else if (!read.contains(name))
+          List(
+            s"$nodeId: expression value '$name' is read by no expression on " +
+              "this node — names are the node's own and are not inherited"
+          )
+        else
+          c.values(name) match
+            // A value is shared by content across nodes, so it has no subject.
+            case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
+              List(
+                s"$nodeId: expression value '$name' compares an entity it " +
+                  "does not name — name it with q.entity(e)"
+              )
+            case _ => Nil
+      } ++ c.slots.toList.sortBy(_._1).collect {
+        // The once-cache keys by what a value IS, not by what it counts now.
+        case (slot, src)
+            if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
+          s"$nodeId: slot '$slot' reads a live count or condition but is " +
+            s"read '${Reads.Once}' — it would show the first count forever; " +
+            s"read it '${Reads.Live}'"
+      }
+
+    def typeErrors(
+        nodeId: String,
+        slots: Map[String, SlotSource]
+    ): List[String] =
+      slots.toList.sortBy(_._1).collect {
+        case (name, src)
+            if src.isBool && src.literal.isEmpty && src.query.isEmpty &&
+              !Dashboard.yieldsBool(src) =>
+          s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
+            "produce a bool — compare it (`on > 0`), or use a condition"
+      }
+
     def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
       vars.keys.toList.sorted.flatMap { name =>
         Option
@@ -876,7 +1161,19 @@ case class Dashboard(
         name: String,
         src: SlotSource
     ): List[String] =
-      if (src.signal.isEmpty) Nil
+      if (name.startsWith(Dashboard.CellClassPrefix))
+        cellClassErrors(
+          nodeId,
+          name.stripPrefix(Dashboard.CellClassPrefix),
+          src
+        )
+      else if (name.startsWith(Dashboard.CellStylePrefix))
+        cellStyleErrors(
+          nodeId,
+          name.stripPrefix(Dashboard.CellStylePrefix),
+          src
+        )
+      else if (src.signal.isEmpty) Nil
       else if (src.literal.isDefined)
         List(
           s"$nodeId: slot '$name' is a constant literal and cannot be a " +
@@ -921,12 +1218,61 @@ case class Dashboard(
       }
 
     // Interpolated into a `class` attribute unescaped.
-    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
-      cell.toList.flatMap(_.classes).collect {
-        case cls if !cls.matches("[A-Za-z0-9_-]+") =>
+    def classTokenErrors(nodeId: String, cls: String): List[String] =
+      Option
+        .when(!cls.matches("[A-Za-z0-9_-]+"))(
           s"$nodeId: cell class '$cls' is not a plain CSS class token " +
             "([A-Za-z0-9_-]+)"
-      }
+        )
+        .toList
+
+    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
+      cell.toList.flatMap(_.classes).flatMap(classTokenErrors(nodeId, _))
+
+    // The renderer places the binding itself, so only the shape can be wrong —
+    // and each wrong shape is a class that silently never moves.
+    def cellClassErrors(
+        nodeId: String,
+        cls: String,
+        src: SlotSource
+    ): List[String] =
+      classTokenErrors(nodeId, cls) ++
+        Option
+          .when(
+            !(src.signal.contains(SignalBind.Class(cls)) &&
+              src.literal.isEmpty && src.reads == Reads.Live)
+          )(
+            s"$nodeId: live cell class '$cls' must read live state as a " +
+              s"'class:$cls' signal — anything else is never bound"
+          )
+          .toList
+
+    def cellStyleErrors(
+        nodeId: String,
+        property: String,
+        src: SlotSource
+    ): List[String] =
+      Option
+        .when(!Dashboard.CustomProperty.matches(property))(
+          s"$nodeId: cssProperty '$property' is not a custom property " +
+            "(`--name`) — a plain property would fight the theme's framework"
+        )
+        .toList ++
+        Option
+          .when(
+            !(src.signal.contains(SignalBind.Style(property)) &&
+              src.literal.isEmpty && src.reads == Reads.Live)
+          )(
+            s"$nodeId: cssProperty '$property' must read live state as a " +
+              s"'style:$property' signal — anything else is never bound"
+          )
+          .toList ++
+        Option
+          .when(Dashboard.onlyBool(src))(
+            s"$nodeId: cssProperty '$property' reads a bool, which is no CSS " +
+              "value — use classWhen for an on/off look"
+          )
+          .toList
 
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
@@ -939,7 +1285,7 @@ case class Dashboard(
         inSet: Boolean
     ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars) =>
+        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _) =>
           val wrapErrors =
             if (!noWrap(card)) Nil
             else
@@ -966,12 +1312,23 @@ case class Dashboard(
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
-            varErrors(nodeId, vars) ++ cellErrors(nodeId, cell) ++
+            varErrors(nodeId, vars) ++ valueErrors(nodeId, c) ++
+            typeErrors(nodeId, slots) ++
+            cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
         // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>
           val setId = nodeId
           cellErrors(setId, s.cell) ++
+            s.cell.toList.flatMap(_.classWhen.keys).sorted.map { cls =>
+              s"$setId: a candidate set cannot carry the live cell class " +
+                s"'$cls' — it has no slots to read through; put it on the " +
+                "clause's node"
+            } ++
+            s.cell.toList.flatMap(_.properties.keys).sorted.map { p =>
+              s"$setId: a candidate set cannot carry the cssProperty '$p' — " +
+                "it has no slots to read through; put it on the clause's node"
+            } ++
             s.candidates.filterNot(s.members.contains).map { c =>
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
@@ -1358,16 +1715,15 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(c => scopedSlots(c.node, scope))
 
-  /** The CEL expressions to compile, for both [[validated]] and
-    * `Transforms.from`.
+  /** The CEL expressions to compile, each with the names it is typed against,
+    * for both [[validated]] and `Transforms.from`.
     */
-  def transformStrings: List[String] =
+  def celKeys: List[Transform.CelKey] =
     (slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList
       .filter(_.literal.isEmpty)
-      .map(_.transform)
-      .collect { case t: String => t }
+      .flatMap(_.celKey)
       .distinct
 
   /** [[validate]] plus the compiled transforms and parsed queries, so the
@@ -1386,8 +1742,8 @@ case class Dashboard(
     allQueries.flatMap(r => Queries.parse(r.query).toOption.map(r -> _)).toMap
 
   // Only after `validate` proved each compiles, so a `Left` cannot occur.
-  private def compileTransforms: Map[String, Transform.Compiled] =
-    transformStrings.flatMap(t => Transform.parse(t).toOption.map(t -> _)).toMap
+  private def compileTransforms: Map[Transform.CelKey, Transform.Compiled] =
+    celKeys.flatMap(k => Transform.parse(k).toOption.map(k -> _)).toMap
 
 object Dashboard:
 
@@ -1397,6 +1753,63 @@ object Dashboard:
     */
   val SubjectSlot: String = "entity_id"
 
+  /** A CEL identifier. A reserved word fails the expression's compile. */
+  val ExpressionValueName: scala.util.matching.Regex =
+    "[A-Za-z_][A-Za-z0-9_]*".r
+
+  /** Per tier: CEL by its checked type, `Simple` exactly — only a `match` whose
+    * every outcome is a Boolean is one; every other shape is text.
+    */
+  def yieldsBool(src: SlotSource): Boolean = src.transform match
+    case _: String =>
+      src.celKey.forall(Transform.yieldsBool)
+    case m: Transform.Simple.Match => allBoolean(m)
+    case _: Transform.Simple       => false
+    case _: Transform.Stage        => true
+
+  /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), or a
+    * `match` whose every outcome is a Boolean.
+    */
+  def onlyBool(src: SlotSource): Boolean = src.transform match
+    case _: String =>
+      src.celKey.exists(Transform.isBoolTyped)
+    case m: Transform.Simple.Match => allBoolean(m)
+    case _                         => false
+
+  private def allBoolean(m: Transform.Simple.Match): Boolean =
+    (m.otherwise :: m.cases.values.toList).forall(_.isInstanceOf[Boolean])
+
+  /** Where a live cell class rides among a node's slots. The `:` keeps it out
+    * of any name a card's template could place.
+    */
+  def cellClassSlot(cls: String): String = CellClassPrefix + cls
+  val CellClassPrefix: String = "cell.class:"
+
+  /** [[cellClassSlot]]'s twin for a live custom property (`cssProperty`). */
+  def cellStyleSlot(property: String): String = CellStylePrefix + property
+  val CellStylePrefix: String = "cell.style:"
+
+  /** A CSS custom property name; a plain property would fight the theme. */
+  val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
+
+  given Decoder[Dashboard] =
+    ConfiguredDecoder
+      .derived[Dashboard]
+      .map(d =>
+        d.copy(
+          card = LayoutNode.foldNode(d.card),
+          surfaces = d.surfaces.view
+            .mapValues(s => s.copy(content = LayoutNode.foldNode(s.content)))
+            .toMap
+        )
+      )
+
+  /** `tap.pkl`'s route slots that [[Dashboard.calls]] reads. */
+  val ServiceSlot: String = "service"
+  val TargetKindSlot: String = "targetKind"
+  val TargetIdSlot: String = "targetId"
+  val DataKeySlot: String = "dataKey"
+
   private[model] def rawHole(name: String): scala.util.matching.Regex =
     ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(
       name
@@ -1405,7 +1818,7 @@ object Dashboard:
   /** Constructed only by [[Dashboard.validated]]: the type is the proof. */
   case class Validated(
       dashboard: Dashboard,
-      transforms: Map[String, Transform.Compiled],
+      transforms: Map[Transform.CelKey, Transform.Compiled],
       queries: Map[SlotRead, QueryRequest] = Map.empty,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.

@@ -246,7 +246,7 @@ class WindowChooser extends nodes.Node {
   hidden start: Window = "24h"
   vars = new Mapping { [windowVar] = start }
   // A chooser is a section header over its charts, not a third of a grid row.
-  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  cellClasses { "fh-cols-full" }
 
   function starting(w: Window): WindowChooser = let (self = this) (self) { start = w }
 }

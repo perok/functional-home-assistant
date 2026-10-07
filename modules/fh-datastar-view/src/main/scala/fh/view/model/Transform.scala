@@ -7,9 +7,10 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Slot transforms in [CEL](https://cel.dev), over `state`, `attr`,
   * `entity_id`, `domain` and `dashboard_slug`; only the slot's own entity is
-  * reachable. `attr` is an adapted JVM map, so a raw `attr['x']` on an absent
-  * key is an error: reads are guarded with `attr[?'x']`. `str(x)` renders
-  * numbers exactly as the engine renders a bare numeric result.
+  * reachable, plus what the node's expression values say about others (a count,
+  * as a number). `attr` is an adapted JVM map, so a raw `attr['x']` on an
+  * absent key is an error: reads are guarded with `attr[?'x']`. `str(x)`
+  * renders numbers exactly as the engine renders a bare numeric result.
   *
   * Compiled once at validation. A failing evaluation renders its error message
   * in that one card; `null` renders `""`.
@@ -269,7 +270,19 @@ object Transform {
   private def roundAway(d: Double): Double =
     BigDecimal(d).setScale(0, BigDecimal.RoundingMode.HALF_UP).toDouble
 
+  /** A CEL source and the typed names it compiles against: the node's
+    * expression values it reads, empty for nearly every slot.
+    */
+  case class CelKey(src: String, env: List[(String, ExprValue.Kind)] = Nil)
+      derives CanEqual
+
   def parse(src: String): Either[String, Compiled] = Cel.parse(src)
+
+  def parse(key: CelKey): Either[String, Compiled] = Cel.parse(key.src, key.env)
+
+  def yieldsBool(key: CelKey): Boolean = Cel.yieldsBool(key.src, key.env)
+
+  def isBoolTyped(key: CelKey): Boolean = Cel.isBoolTyped(key.src, key.env)
 
   /** Never throws into the render: a failure returns its message. */
   def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
@@ -278,9 +291,10 @@ object Transform {
   def runValue(
       expr: Compiled,
       entity: EntityState,
-      dashboardSlug: String
+      dashboardSlug: String,
+      values: Map[String, Object] = Map.empty
   ): SlotValue =
-    Cel.runValue(expr, entity, dashboardSlug)
+    Cel.runValue(expr, entity, dashboardSlug, values)
 
   /** How a query's answer becomes the hole's content. Not a [[Simple]]: a chart
     * is not a total static lookup.

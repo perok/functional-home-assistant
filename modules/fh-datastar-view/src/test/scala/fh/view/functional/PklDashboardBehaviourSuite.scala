@@ -49,8 +49,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
-       |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
-       |      tapAction = c.tap.service("light/toggle")
+       |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+       |      tapAction = c.tap.call("light/toggle", entity)
        |    }
        |  }
        |}
@@ -96,7 +96,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // signal.
       assert(html.contains("data-indicator=\"_c_2__busy\""), clue = html)
       assert(
-        html.contains("data-class:fh-disabled=\"$_c_2__busy\""),
+        html.contains(
+          "data-class:fh-disabled=\"$_c_2__busy || $_e.light.kitchen."
+        ),
         clue = html
       )
       assert(
@@ -104,7 +106,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         clue = html
       )
       // Neither guard subsumes the other: busy is this tap's POST in flight,
-      // inert is an entity state that refuses the press.
+      // tapDisabled is an entity state that refuses the press.
       assert(
         html.contains(
           "data-on:click=\"$_c_2__busy ? '' : $_e.light.kitchen."
@@ -113,7 +115,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       )
       assert(
         html.contains(
-          "? '' : @post('sse/action/fixture-home/' + 'light/toggle'"
+          "? '' : @post('sse/call/fixture-home/' + 'light/toggle'"
         ),
         clue = html
       )
@@ -127,24 +129,30 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
+  private val refusal = s"$$_e.${HouseFixture.kitchenLight.entityId}."
+
   test("a slider's value commit carries its own guarded, disabled input") {
     TestServer
       .fromWorkspace("fixture-slider", sliderEntry, entities)
       .use { ts =>
         ts.page().map { html =>
           // The range input commits on `change`, so it owns
-          // `_<id>__busy_change` (`tap.pkl`'s `busyGuardChange` and friends).
+          // `_<id>__busy_change` (`tap.pkl`'s `busyGuardChange` and friends),
+          // ORed with the refusal: the signal reading whether the light is
+          // unavailable, named by what it reads (hash elided).
           assert(
             html.contains("data-indicator=\"_c_0_head_0__busy_change\""),
             clue = html
           )
           assert(
-            html.contains("data-attr:disabled=\"$_c_0_head_0__busy_change\""),
+            html.contains(
+              s"data-attr:disabled=\"$$_c_0_head_0__busy_change || $refusal"
+            ),
             clue = html
           )
           assert(
-            html.contains(
-              "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-slider/light/turn_on/"
+            html.contains(s"data-on:change=\"$refusal") && html.contains(
+              s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/light/turn_on/entity/"
             ),
             clue = html
           )
@@ -152,7 +160,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // itself is frozen through `data-attr:disabled` instead.
           assert(
             html
-              .contains("data-class:fh-disabled=\"$_c_0_head_0__busy_change\""),
+              .contains(
+                s"data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
+              ),
             clue = html
           )
           assert(
@@ -162,7 +172,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0_head_0__busy_change\" data-class:fh-loading=\"$_c_0_head_0__busy_change\" "
+              s"class=\"slider-icon\" data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
             ),
             clue = html
           )
@@ -176,7 +186,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             clue = html
           )
           assert(
-            html.contains(s"""data-class:fh-disabled="$$$button""""),
+            html.contains(s"""data-class:fh-disabled="$$$button || """),
             clue = html
           )
           assert(
@@ -207,7 +217,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    c.button("Toggle", (c.tap.service("light/toggle")) { busyVisual = false })
+         |    c.button("Toggle", (c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey})) { busyVisual = false })
          |  }
          |}
          |""".stripMargin
@@ -219,7 +229,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
          |      busyVisual = false
          |    }
          |  }
@@ -235,7 +245,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
               html.contains("data-on:click=\"$_c_0__busy ? '' : "),
               clue = html
             )
-            assert(!html.contains("data-class:fh-disabled"), clue = html)
+            assert(
+              !html.contains("data-class:fh-disabled=\"$_c_0__busy"),
+              clue = html
+            )
             assert(!html.contains("data-class:fh-loading"), clue = html)
           }
         }
@@ -249,16 +262,21 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
               clue = html
             )
             assert(
-              html.contains("data-attr:disabled=\"$_c_0_head_0__busy_change\""),
-              clue = html
-            )
-            assert(
               html.contains(
-                "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-quiet-slider/light/turn_on/"
+                s"data-attr:disabled=\"$$_c_0_head_0__busy_change || $refusal"
               ),
               clue = html
             )
-            assert(!html.contains("data-class:fh-disabled"), clue = html)
+            assert(
+              html.contains(s"data-on:change=\"$refusal") && html.contains(
+                s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/light/turn_on/entity/"
+              ),
+              clue = html
+            )
+            assert(
+              !html.contains("data-class:fh-disabled=\"$_c_0__busy"),
+              clue = html
+            )
             assert(!html.contains("data-class:fh-loading"), clue = html)
           }
         }
@@ -424,7 +442,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    c.slider(dump.entities.${plug.dumpKey}).readout("percent")
+         |    c.entitySlider(dump.entities.${plug.dumpKey}).readout("percent")
          |  }
          |}
          |""".stripMargin
@@ -440,9 +458,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(
             html.contains(
               "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
-                "$_e.light.plug.t722a9eca ? '' : " +
-                "@post('sse/action/fixture-plug/' + 'light/toggle' + " +
-                "'/light.plug?node=c_0_head_0'"
+                "$_e.light.plug.t9e4d7fac ? '' : " +
+                "@post('sse/call/fixture-plug/' + 'light/toggle' + " +
+                "'/entity/light.plug?node=c_0_head_0'"
             ),
             clue = html
           )
@@ -494,7 +512,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           .split("data-on:click=\"")
           .toList
           .map(_.takeWhile(_ != '"'))
-          .find(_.contains("sse/action"))
+          .find(_.contains("sse/call"))
         (html, click.getOrElse(fail(s"no action click in: $html")))
       })
 
@@ -519,10 +537,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(lockedHtml.contains("'lock/unlock'"), clue = lockedHtml)
           assert(unlockedHtml.contains("'lock/lock'"), clue = unlockedHtml)
 
-          // Transitional states bind the inert class (ADR 0016), so a tap
+          // Transitional states join the disabled look (ADR 0016), so a tap
           // mid-move cannot fight the running command.
           assert(
-            lockedHtml.contains("data-class:fh-inert"),
+            lockedHtml.contains(" || $_e.lock.front_door."),
             clue = lockedHtml
           )
         }
@@ -530,13 +548,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
   }
 
-  test("a lock mid-move is inert, and a lock at rest is not") {
+  test("a lock mid-move is disabled, and a lock at rest is not") {
     (lockPage("locked"), lockPage("unlocking"))
       .mapN {
         case ((restHtml, _), (movingHtml, _)) => {
-          assert(movingHtml.contains("fh-inert"), clue = movingHtml)
           assert(
-            !restHtml.contains("card entity tappable fh-inert"),
+            movingHtml.contains("card entity tappable fh-disabled"),
+            clue = movingHtml
+          )
+          assert(
+            !restHtml.contains("card entity tappable fh-disabled"),
             clue = restHtml
           )
         }

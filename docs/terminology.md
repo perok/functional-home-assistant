@@ -10,7 +10,7 @@ words we coined or bent.
 
 ## Authoring — what a dashboard is written out of
 
-**Card** — a kind of component, named by a string (`"slider"`, `"entityCard"`). In Pkl it is a
+**Card** — a kind of component, named by a string (`"slider"`, `"tile"`). In Pkl it is a
 class; the backend knows it as a template plus a list of slot names it expects.
 
 **Node** — one placed instance of a card in a dashboard's layout tree. Nodes nest.
@@ -34,7 +34,46 @@ scoped to the node that owns the control (`_<nodeId>__<slotName>`). Sharing an i
 would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 
 **Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot. Other
-slots on the same node read it unless they name an entity of their own.
+slots on the same node read it unless they name an entity of their own. A base component has none
+unless the HA layer gives it one (`subject`).
+
+**Reading** — a slot used as an INPUT: a live read (`entityId` + transform) with no binding yet,
+which the card it is handed to binds where it belongs. It reads one entity's state, or the node's
+own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
+readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
+component a reading that names its entity, since a base card has no subject to fall back on.
+
+**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate`: `q.from(xs).where(…).any()`,
+`q.entity(e).stateIs("on")`). Not a reading: it may name many entities and carries no transform.
+It can be an expression value (a CEL `bool`), and every boolean input (`active`, `disabled`,
+`classWhen`) takes one directly. An aggregate the build can settle is a plain `Boolean` instead.
+ADR 0034.
+
+**Base component** vs **HA component** — `components/base/` cards know nothing of Home Assistant:
+they take strings, taps and readings, and import no `hass` module. An HA component is **thin**: a
+subclass that holds an `entity` and assigns the base's inputs from it, declaring no card, template
+or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
+
+**Slot type** / **boolean slot** — what a card reads a slot's value AS (`Slot.type`): text by
+default, or `bool` for a slot its template reads as on/off (a `disabled` ORed into
+`data-attr:disabled`, where the string `"false"` would be truthy). A boolean slot is one whose type
+is `bool`. The CARD sets the type where it binds the slot, beside `signal`, because a reading has no
+binding of its own; a `class:` binding (a live cell class) is a bool by kind. The build refuses a
+reading on a boolean slot that does not produce a bool.
+
+**Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
+(`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
+no template places it. A button's `active` is one (`fh-active`).
+
+**Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
+and kept live (`LayoutNode.cssProperty`) — a live cell class's value-carrying twin, read by the
+card's CSS through inheritance. Only `--…` names. ADR 0034.
+
+**Expression value** — a named input a node's OWN expressions read as a typed CEL variable
+(`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static candidate
+list and which of it is present, counted live, the same thing a state condition's `Count` compares
+— or a **condition**, decided live.
+Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
 word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
@@ -81,14 +120,27 @@ written where the tap is and the build lifts it into the registry. It cannot be 
 derived from the owning node, and the `@@NODE_ID@@` token resolves only to a node's OWN id, so no
 second tap can name it. Sharing means registering it and using `openPopup("detail")`.
 
-**Tap / tap action** — what a click does, as a value rather than a string: a service call, a
-navigation, opening a popup. ADR 0016, 0024.
+**Tap / tap action** — what a click does, as a value rather than a string: a service call on a
+**target** (an entity, an area or a floor), a navigation, opening or closing a popup. A tap names its
+own target and never borrows the card's subject entity, so one card may show an entity and act on
+another. ADR 0016, 0023, 0024.
 
 **Guard** — the attribute on a tappable element that refuses a second click while the first is still
 in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.
 
 **Busy** — per CONTROL: a request is in flight *from this element*. What the guard, the spinner and
 the disabled state read. About whether you may click, not about what is shown.
+
+**Disabled while** — the states of a call's TARGET in which a press is meaningless
+(`Call.disabledWhile`, plus `unavailable` for every service call), so every card that sends the call
+refuses it alike. A card's OWN reason, such as a popup opener that carries no call, is its
+`disabled` reading, ORed with the call's. About the entity's state, not about a request: that is
+busy. The tap carries it as the `tapDisabled` slot.
+
+**`fh-disabled`** — the ONE "you cannot use this" LOOK, whatever the reason: a tap in flight, or a
+press its entity's state makes meaningless. Classes name what the view looks like, not why.
+`fh-loading` and the spinner are the in-flight look on top of it; `fh-error` is the server having
+refused a press (a REFUSAL is always that after-the-fact answer, never the before-the-press state).
 
 **Pending / committed** — per SELECTION GROUP, and a different fact from busy: **pending** is the
 value this client has ASKED for, **committed** is the value the server says is in effect. A control

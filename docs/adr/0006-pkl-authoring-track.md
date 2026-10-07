@@ -73,7 +73,7 @@ finished, and are deleted (issue #23).
    ("class-as-builder") core: hidden typed properties are the authoring surface
    and the class derives the slots; `new c.EntityCard { entity = ... }` stays
    fully supported. On top of the classes, entity-first **factory methods** make
-   the common case read as a call — `c.entityCard(e)`, `c.slider(e)` — with
+   the common case read as a call — `c.entityCard(e)`, `c.entitySlider(e)` — with
    options applied by a **parenthesized amend** of the call result:
    `(c.entityCard(e)) { tapAction = ...; label = ... }` (the outer parens are
    mandatory; the parens-free form is a parse error). Each option is **also a
@@ -189,13 +189,13 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - Containers (grid/row/column)/sectionTitle/entityCard/button/slider (one card:
   give it `children` and it is a group — the slider is the head and the children
   are member rows, which are ordinary nodes, so nesting and mixing card kinds cost
-  nothing; `c.slider(master).withSubSliders(rows)` is the chain form); `expr`,
+  nothing; `c.entitySlider(master).withSubSliders(rows)` is the chain form); `expr`,
   and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
   grid/row/col; the layout-cell builders on the `LayoutNode` base —
   `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
   node-level `cell.classes` (the `fh-` layout contract; model + rationale in
   ADR 0008).
-- the `c.tap` namespace — `service`/`toggle`/`stateService`/`byDomain`/`navigate`,
+- the `c.tap` namespace — `toggle`/`call`/`moreInfo`/`default`/`navigate`,
   named without a `Tap` suffix because the namespace carries the noun (what a card
   clicks by default, and the vendored domain table behind it, is ADR 0016);
   popups/surfaces — `SurfaceDef`,
@@ -244,8 +244,8 @@ slot key remains `"class"`.
   for the caller to choose.
 - Generated-code safety in `PklDump`: every identifier backticked, strings
   escaped (backslash first also neutralizes `\(` interpolation), null
-  `friendly_name` omitted, floor slugs guarded against the module's own
-  `entities`/`areas` names.
+  `friendly_name` omitted, a namespace member slugged `all` renamed
+  `all_<kind>` so it cannot shadow the namespace's own `all` (ADR 0013).
 
 ## Pkl authoring gotchas (spike- and implementation-verified)
 

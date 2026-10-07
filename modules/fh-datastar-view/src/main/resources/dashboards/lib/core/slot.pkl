@@ -8,7 +8,7 @@
 /// spelling).
 /// The builders are the reason a third-party card can look like a shipped one:
 /// `labelSlot` falls back to friendly_name, `valueSlot` appends the entity's
-/// unit, `secondarySlot` keeps the mustache section collapsed when blank.
+/// unit, `secondarySlot` gives every card's second line the same meaning.
 module core.slot
 
 import "../hass.pkl"
@@ -58,6 +58,12 @@ class Slot {
   /// The card's template MUST place [[signalBind]] for this slot, or the value
   /// stops updating; the backend rejects the dashboard if it does not.
   signal: SignalBind? = null
+  /// What the card reads the value AS, set where it binds the slot, beside
+  /// [[signal]]: `"bool"` for a slot its template reads as on/off (a `disabled`
+  /// ORed into `data-attr:disabled`, where the string `"false"` is truthy), and
+  /// the build refuses a reading that does not produce one. Null is text. A
+  /// `class:` binding is a bool by kind and needs none.
+  type: SlotType? = null
   /// Makes this a QUERY slot: the value comes from a provider, not live state.
   /// Build one with a provider's helper (`components/history.pkl`'s
   /// `chartSlot`) or [[querySlot]].
@@ -82,6 +88,9 @@ const function querySlot(
   args: Mapping<String, String|varMod.Ref>
 ): Slot =
   new Slot { query = new Query { provider = name; params = args } }
+
+/// What a card reads a slot's value as — see [[Slot.type]].
+typealias SlotType = "text"|"bool"
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one
@@ -133,9 +142,10 @@ const function asStyle(property: String): SignalBind = "style:" + property
 /// one, so `busy` guards the click expression instead.
 const function asAttr(name: String): SignalBind = "attr:" + name
 
-/// `data-class:<name>` — one class, present while the value is truthy. A
-/// BOOLEAN state: the transform must yield `""` for off, because an empty
-/// string is the only falsy thing a slot can produce — `"false"` reads as ON.
+/// `data-class:<name>` — one class, present while the value is truthy: `false`
+/// and `""` are off, and any other string is on — `"false"` reads as ON. A
+/// card that also paints the value INLINE (`class="… {{x}}"`) needs `""`, since
+/// a boolean would put the word `true` in its class list.
 const function asClass(name: String): SignalBind = "class:" + name
 
 /// NO binding — the value is carried as a signal and read by an EVENT HANDLER
@@ -179,7 +189,7 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 /// of its own — an action URL above all:
 ///
 /// ```
-/// @post('sse/action/{{dashboardSlug}}/' + \(slotRead("service")) + '/{{entity_id}}')
+/// @post('sse/call/{{dashboardSlug}}/' + \(slotRead("service")) + '/entity/{{entity_id}}')
 /// ```
 ///
 /// **The card never learns which tier filled the slot.** A literal reads back
@@ -194,6 +204,15 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 ///
 /// Raw (`{{{…}}}`) because it IS code.
 const function slotRead(name: String): String = "{{{" + name + "__read}}}"
+
+/// A Boolean READING: whether `e`'s state is one of `states`. What a card's
+/// `disabled` or a node's `classWhen` takes; it names its entity, so it reads
+/// the same on any card. `unavailable` is a state like any other here.
+const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
+  entityId = e.entity_id
+  transform = simpleMod.stateIn(states.toListing())
+  bypassUnavailable = false
+}
 
 /// The section a card wraps optional markup in, when that markup holds a slot:
 ///
@@ -210,7 +229,7 @@ const function slotRead(name: String): String = "{{{" + name + "__read}}}"
 ///
 /// The backend fills `name__has` for every slot the node declares, signal-backed
 /// or not, so one section works whichever tier the value came from — which
-/// `entityCard`'s icon needs, being a signal where the domain has a state glyph
+/// `EntityCard`'s icon needs, being a signal where the domain has a state glyph
 /// and a literal everywhere else.
 const function ifSlot(name: String): String = "{{#" + name + "__has}}"
 
@@ -277,15 +296,21 @@ const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
       " + (" + UNIT_EXPR + ")"
   }
 
-// secondary (only built when authored): String -> that attribute, guarded, no
-// unit — now opted in ([[simpleMod.attr]]); Expr -> live; Simple -> the
-// opted-in structure. Empty default keeps the mustache section collapsed when
-// blank.
-const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
-  if (secondary is Expr) new Slot {
-    entityId = secondary.entityId
-    transform = secondary.transform
-    default = ""
-  }
-  else if (secondary is simpleMod.Simple) new Slot { transform = secondary; default = "" }
-  else new Slot { transform = simpleMod.attr(secondary); default = "" }
+/// The line under a card's main text — HA's name for it. A String is the text
+/// itself, never an attribute name: an attribute is [[attr]], so one word means
+/// one thing on every card.
+typealias Secondary = String|Expr|Slot
+
+/// [[Secondary]] as a slot value; an [[Expr]] becomes the live reading it names.
+/// A live reading is carried as a text SIGNAL (ADR 0017), so every card placing
+/// it must use `textMod.liveRun` and guard it by presence (`ifSlot`). A reading
+/// that is not live — read once or on render, or a query — stays bytes.
+const function secondarySlot(s: Secondary): String|Slot =
+  if (s is Expr) new Slot { entityId = s.entityId; transform = s.transform; default = ""; signal = asText }
+  else if (s is Slot && s.query == null && s.reads == "live" && s.signal == null) (s) { signal = asText }
+  else s
+
+/// One attribute of the card's entity, guarded so an absent one reads blank:
+/// `c.entityCard(l).secondary(c.attr("device_class"))`.
+const function attr(attrName: String): Slot =
+  new Slot { transform = simpleMod.attr(attrName); default = "" }
