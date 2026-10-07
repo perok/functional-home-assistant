@@ -1,9 +1,7 @@
 // The page shell's own JavaScript: four helpers the server-rendered document
 // needs before Datastar (a deferred module) has run. INLINED into the page head
-// by `Server.page` — not linked — because
-// `fhConn` is called from the middle of the body and `fhUrl` from the first
-// Datastar effect, so neither can afford a deferred module or a second round
-// trip.
+// by `Server.page` — not linked — because `fhConn` is called from the middle of
+// the body, so it cannot afford a deferred module or a second round trip.
 //
 // These four names, the `prev` query parameter, and the two sessionStorage
 // keys are protocol shared with the backend; `Server.PrevConnParam` and
@@ -17,7 +15,7 @@
 declare global {
   interface Window {
     fhToast: (text: string) => void
-    fhUrl: (key: string, value: string | null) => void
+    fhUrlMirror: (datastar: Datastar) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
     fhRegisterSw: (url: string) => void
@@ -25,30 +23,118 @@ declare global {
 }
 
 /**
- * Mirror one piece of view state into the page URL without navigating: set the
- * param, or drop it when the value is empty.
+ * `data-fh-url="['<param>', $signal]"`: mirror one piece of view state into
+ * the page URL without navigating, for as long as the element is in the
+ * document (ADR 0005). An empty value drops the param, and so does the last
+ * element for that param leaving (issue #411): a closed popup takes its tab
+ * bars and window choosers with it, and nothing else would ever clear what they
+ * wrote.
  *
  * A hand-rolled `data-query-string`, which is a Datastar Pro plugin we do not
- * have (ADR 0005). Signals stay the LIVE carrier — they are what reaches the
- * server on a reconnect and on every action — and the URL is their mirror, for
- * the two things a signal cannot do: survive a refresh, and stay unique per
- * document (a cookie is per-origin, so a second tab on the same dashboard would
- * overwrite the first one's selection).
+ * have. Signals stay the LIVE carrier (what reaches the server on a reconnect
+ * and on every action); the URL is their mirror, for the two things a signal
+ * cannot do: survive a refresh, and stay unique per document.
  *
- * `replaceState`, never `pushState`: this is view state, not navigation. Back
- * should leave the dashboard, not step back through tab clicks.
+ * `replaceState`: this is view state, not navigation. Back should leave the
+ * dashboard, not step back through tab clicks. The one exception is
+ * `__history`, which the open popup's mirror carries: each popup the server
+ * opens is a history entry, so Back steps to the previous popup and then to the
+ * dashboard. The server shows one popup at a time (ADR 0002); the browser's
+ * history is the stack. A value the URL already names is not pushed, because
+ * Back or Forward put it there; that is all that tells the two apart.
  *
- * An empty value DROPS the param, and that is not defensive: it is how a client
- * says "closed" (a dismissed popup). It does mean this cannot tell "cleared"
- * from "never initialised" — Datastar creates a signal as `""` the moment an
- * expression reads one — so an effect that runs before its seed drops the param
- * until the seed lands and the effect runs again.
+ * An empty value cannot tell "cleared" from "never initialised" — Datastar
+ * creates a signal as `""` the moment an expression reads one — so a mirror
+ * that runs before its seed drops the param until the seed lands.
+ *
+ * Counted per param, not per element: a morph that replaces a host can add the
+ * new element before it removes the old one.
+ *
+ * Handed the page's own Datastar module by an inline module script
+ * (`Server.urlMirrorScript`), because nothing here may import anything: even
+ * a run-time `import()` gets Vite's preload helper, whose `import.meta` is a
+ * syntax error in a classic script and took every helper in this file with it.
  */
-window.fhUrl = (key, value) => {
+window.fhUrlMirror = ({ attribute, effect }) =>
+  attribute({
+    name: "fh-url",
+    requirement: { key: "denied", value: "must" },
+    returnsValue: true,
+    apply({ rx, mods }) {
+      let held: string | null = null
+      const stop = effect(() => {
+        const [key, raw] = rx() as [string, unknown]
+        const value = raw == null ? "" : String(raw)
+        if (held !== key) {
+          if (held !== null) release(held)
+          held = key
+          mirrors.set(key, (mirrors.get(key) ?? 0) + 1)
+        }
+        if (mods.has("history") && value !== "" && !shown(key, value))
+          pushParam(key, value)
+        else setParam(key, value)
+      })
+      return () => {
+        stop()
+        if (held !== null) release(held)
+      }
+    },
+  })
+
+/** The slice of the Datastar module this file uses. */
+type Datastar = {
+  attribute: (plugin: {
+    name: string
+    requirement: { key: "denied"; value: "must" }
+    returnsValue: boolean
+    apply: (ctx: {
+      rx: () => unknown
+      mods: { has: (name: string) => boolean }
+    }) => () => void
+  }) => void
+  effect: (fn: () => void) => () => void
+}
+
+const mirrors = new Map<string, number>()
+
+function release(key: string) {
+  const left = (mirrors.get(key) ?? 1) - 1
+  if (left > 0) {
+    mirrors.set(key, left)
+    return
+  }
+  mirrors.delete(key)
+  setParam(key, "")
+}
+
+function withParam(key: string, value: string): URL {
   const url = new URL(location.href)
-  if (value === "" || value == null) url.searchParams.delete(key)
+  if (value === "") url.searchParams.delete(key)
   else url.searchParams.set(key, value)
-  history.replaceState(null, "", url)
+  return url
+}
+
+// `history.state` carried over: it marks an entry `pushParam` made, and a tab
+// switch inside the popup must not erase that.
+function setParam(key: string, value: string) {
+  history.replaceState(history.state, "", withParam(key, value))
+}
+
+/** On an entry `pushParam` made, naming this value. A page that LOADS with a
+ * popup open (a shared link, a refresh of an entry it did not make) fails the
+ * first half, so the popup still gets a dashboard entry beneath it and a close,
+ * which is always `history.back()`, never leaves the dashboard.
+ */
+function shown(key: string, value: string): boolean {
+  return (
+    history.state?.fhPushed === key &&
+    new URL(location.href).searchParams.get(key) === value
+  )
+}
+
+function pushParam(key: string, value: string) {
+  if (history.state?.fhPushed !== key) setParam(key, "")
+  history.pushState({ fhPushed: key }, "", withParam(key, value))
 }
 
 /**

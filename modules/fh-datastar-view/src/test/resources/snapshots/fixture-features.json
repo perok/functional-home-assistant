@@ -106,11 +106,7 @@
                             "kind" : "component",
                             "slots" : {
                               "label" : "Close",
-                              "onclick" : {
-                                "bypassUnavailable" : false,
-                                "reads" : "once",
-                                "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                              }
+                              "onclick" : "$ui_popups && history.back()"
                             }
                           }
                         ]
@@ -307,11 +303,7 @@
                             "kind" : "component",
                             "slots" : {
                               "label" : "Close",
-                              "onclick" : {
-                                "bypassUnavailable" : false,
-                                "reads" : "once",
-                                "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                              }
+                              "onclick" : "$ui_popups && history.back()"
                             }
                           }
                         ]
@@ -607,11 +599,7 @@
                             "kind" : "component",
                             "slots" : {
                               "label" : "Close",
-                              "onclick" : {
-                                "bypassUnavailable" : false,
-                                "reads" : "once",
-                                "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                              }
+                              "onclick" : "$ui_popups && history.back()"
                             }
                           }
                         ]
@@ -724,7 +712,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\" data-effect=\"fhUrl('v.{{id}}.window', $_var_{{id}}__window)\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\"><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '1h'}\" data-on:click=\"$_var_{{id}}__window__pending = '1h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/1h?group=var_{{id}}__window')\">1h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '24h'}\" data-on:click=\"$_var_{{id}}__window__pending = '24h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/24h?group=var_{{id}}__window')\">24h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '7d'}\" data-on:click=\"$_var_{{id}}__window__pending = '7d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/7d?group=var_{{id}}__window')\">7d</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '30d'}\" data-on:click=\"$_var_{{id}}__window__pending = '30d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/30d?group=var_{{id}}__window')\">30d</a></div>{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "<div class=\"fh-col\" data-fh-url=\"['v.{{id}}.window', $_var_{{id}}__window]\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\"><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '1h'}\" data-on:click=\"$_var_{{id}}__window__pending = '1h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/1h?group=var_{{id}}__window')\">1h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '24h'}\" data-on:click=\"$_var_{{id}}__window__pending = '24h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/24h?group=var_{{id}}__window')\">24h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '7d'}\" data-on:click=\"$_var_{{id}}__window__pending = '7d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/7d?group=var_{{id}}__window')\">7d</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '30d'}\" data-on:click=\"$_var_{{id}}__window__pending = '30d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/30d?group=var_{{id}}__window')\">30d</a></div>{{#children}}{{{html}}}{{/children}}</div>"
     },
     "ifhost" : {
       "regions" : {
@@ -757,7 +745,7 @@
       },
       "slots" : [
       ],
-      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
     },
     "progressCard" : {
       "slots" : [
@@ -837,7 +825,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
+      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-fh-url=\"['ui.{{id}}', $ui_{{id}}]\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
     },
     "tile" : {
       "slots" : [
@@ -956,11 +944,7 @@
                                 "kind" : "component",
                                 "slots" : {
                                   "label" : "Close",
-                                  "onclick" : {
-                                    "bypassUnavailable" : false,
-                                    "reads" : "once",
-                                    "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                                  }
+                                  "onclick" : "$ui_popups && history.back()"
                                 }
                               }
                             ]
@@ -1005,11 +989,7 @@
               "kind" : "component",
               "slots" : {
                 "label" : "Close",
-                "onclick" : {
-                  "bypassUnavailable" : false,
-                  "reads" : "once",
-                  "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                }
+                "onclick" : "$ui_popups && history.back()"
               }
             }
           ]

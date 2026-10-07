@@ -74,12 +74,21 @@ name, like `conn`.
   moves it. That is what makes "the signal is the truth" a fact rather than a
   hope: the URL below mirrors a value no client ever asserted on its own.
 - **The URL mirrors it**, via `history.replaceState` from the page shell's
-  `fhUrl(key, value)` helper (`src/js/shell.ts`, inlined by
-  `Server.UrlSyncScript`), as `?ui.<id>=<value>`.
+  `data-fh-url="['<param>', $signal]"` attribute (`src/js/shell.ts`, inlined by
+  `Server.ShellScript`), as `?ui.<id>=<value>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
   the value into the `data-signals` seed it already emits.
+- **A param lives as long as the element that mirrors it** (issue #411).
+  `data-fh-url` is a Datastar attribute the shell registers against the page's
+  own Datastar module, so its cleanup is Datastar's: when the last element
+  mirroring a param leaves the document, the param goes. Closing a popup takes
+  its inner mirrors with it, and nothing else would ever have cleared what they
+  wrote. Counting per param rather than per element is what lets a morph
+  replace a host in either order. Only the URL forgets: the session
+  still holds a window chosen in the popup, so reopening it shows that window
+  again.
 
 The URL earns the job the cookie used to hold because it is the only carrier
 that is **per document**. A cookie is per-origin: two browser tabs on the same
@@ -90,10 +99,31 @@ deep-linkable, which a cookie can never be. `Referer` would technically work
 is strippable by policy or extension and the failure is silent — the server
 would bake the default tab and morph the user back to it.
 
-`replaceState`, never `pushState`: this is view state, not navigation. Back
+`replaceState` for tabs and windows: this is view state, not navigation. Back
 should leave the dashboard, not step back through tab clicks. (The Datastar tao
 warns against "custom history management"; the target of that warning is faking
 navigation, not keeping a URL honest about the view it names.)
+
+**A popup is the exception: each one is a history entry.** A popup that offers
+more detail opens another, and with one popup at a time (ADR 0002) the only way
+out of the second was out of both. So the popup's mirror carries `__history`
+and PUSHES each popup the server opens; the browser's history is the stack, and
+the server keeps showing one.
+
+- **Closing is going back.** The ✕, Escape and `c.tap.closePopup` are all
+  `history.back()`, to the popup before or to the dashboard.
+- **One `popstate` listener** (`Server.page`) asks the server to show what the
+  URL now names: open that popup, or close. So Forward reopens.
+- **A value the URL already names is not pushed.** That is what tells a
+  server-confirmed open from one that Back or Forward asked for, with no flag.
+  The entry is pushed on the server's commit, not on the tap, so a refused open
+  leaves none.
+- **A page that loads with a popup open** (a shared link, a refresh) gets a
+  dashboard entry inserted beneath it, so a close never leaves the dashboard.
+  A refresh of an entry the mirror pushed keeps its marker in `history.state`
+  and inserts nothing.
+- Nothing resets on a close. The session still holds a window chosen in the
+  popup, and the entry going back to restores the URL it had.
 
 Tiering discipline (do not blur it):
 
@@ -183,11 +213,12 @@ Explicit **non-candidate**: slider/value positions (the entity is truth).
   costs nothing per request because it is never sent.
 - The read path is small and bounded to the HTTP layer (`uiStateOf` = query
   params ∪ signals, signals winning as the live value); the write path is one
-  inline helper on the page shell plus one `data-effect` per group.
+  `data-fh-url` attribute per group, registered by the page shell.
 - **Datastar specifics (verified against v1.0.2):** `data-query-string` and
   `data-persist` are Pro; the free bundle has neither, and `data-persist`
   targets storage the server never sees anyway. Re-verify on upgrade — if
-  `data-query-string` becomes available, it replaces `UrlSyncScript` exactly.
+  `data-query-string` becomes available, it replaces `data-fh-url`, except for
+  the popup's history entries.
 - The tao's "Restrained Signal Usage" sanctions a tab index as an appropriate
   signal — `ui_<id>` is not an anti-pattern; the URL mirror is the orthogonal
   persistence layer.

@@ -13,7 +13,7 @@
 
 Opening a popup or switching a tab is two independent things: a POST that asks
 the server for the fragment, and a client-side signal assignment that records
-the choice (`$ui_popups = '…'`, mirrored into the URL by `fhUrl`; that half is
+the choice (`$ui_popups = '…'`, mirrored into the URL by `data-fh-url`; that half is
 now the server's, see ADR 0025).
 
 Only the first can fail, and it did so silently. The surface routes named no
@@ -122,9 +122,10 @@ exists to remove.
 
 ### Why the slug rides in a transform
 
-The tap's URL is built by a JSONata transform (`$dashboardSlug`), the popup's ✕
-by its card template (`{{dashboardSlug}}`) — the two spellings ADR 0023
-introduced. A literal slot value is used verbatim: no Mustache pass, no binding,
+The tap's URL is built by a JSONata transform (`$dashboardSlug`), a card
+template's by Mustache (`{{dashboardSlug}}`) — the two spellings ADR 0023
+introduced. A popup's close builds none: it is `history.back()`, and the page's
+`popstate` listener posts the close (ADR 0005). A literal slot value is used verbatim: no Mustache pass, no binding,
 so a constant string could not carry the slug at all.
 
 The transform needs no entity, which is what lets a pill with no entity of its
