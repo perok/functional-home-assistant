@@ -120,11 +120,7 @@
                                         "kind" : "component",
                                         "slots" : {
                                           "label" : "Close",
-                                          "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                                          }
+                                          "onclick" : "$ui_popups && history.back()"
                                         }
                                       }
                                     ]
@@ -381,11 +377,7 @@
                                         "kind" : "component",
                                         "slots" : {
                                           "label" : "Close",
-                                          "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
-                                          }
+                                          "onclick" : "$ui_popups && history.back()"
                                         }
                                       }
                                     ]
@@ -621,7 +613,7 @@
       },
       "slots" : [
       ],
-      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
     },
     "progressCard" : {
       "slots" : [

@@ -122,9 +122,10 @@ exists to remove.
 
 ### Why the slug rides in a transform
 
-The tap's URL is built by a JSONata transform (`$dashboardSlug`), the popup's ✕
-by its card template (`{{dashboardSlug}}`) — the two spellings ADR 0023
-introduced. A literal slot value is used verbatim: no Mustache pass, no binding,
+The tap's URL is built by a JSONata transform (`$dashboardSlug`), a card
+template's by Mustache (`{{dashboardSlug}}`) — the two spellings ADR 0023
+introduced. A popup's close builds none: it is `history.back()`, and the page's
+`popstate` listener posts the close (ADR 0005). A literal slot value is used verbatim: no Mustache pass, no binding,
 so a constant string could not carry the slug at all.
 
 The transform needs no entity, which is what lets a pill with no entity of its

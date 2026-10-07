@@ -35,8 +35,13 @@ declare global {
  * and on every action); the URL is their mirror, for the two things a signal
  * cannot do: survive a refresh, and stay unique per document.
  *
- * `replaceState`, never `pushState`: this is view state, not navigation. Back
- * should leave the dashboard, not step back through tab clicks.
+ * `replaceState`: this is view state, not navigation. Back should leave the
+ * dashboard, not step back through tab clicks. The one exception is
+ * `__history`, which the open popup's mirror carries: each popup the server
+ * opens is a history entry, so Back steps to the previous popup and then to the
+ * dashboard. The server shows one popup at a time (ADR 0002); the browser's
+ * history is the stack. A value the URL already names is not pushed, because
+ * Back or Forward put it there; that is all that tells the two apart.
  *
  * An empty value cannot tell "cleared" from "never initialised" — Datastar
  * creates a signal as `""` the moment an expression reads one — so a mirror
@@ -55,16 +60,19 @@ window.fhUrlMirror = ({ attribute, effect }) =>
     name: "fh-url",
     requirement: { key: "denied", value: "must" },
     returnsValue: true,
-    apply({ rx }) {
+    apply({ rx, mods }) {
       let held: string | null = null
       const stop = effect(() => {
-        const [key, value] = rx() as [string, unknown]
+        const [key, raw] = rx() as [string, unknown]
+        const value = raw == null ? "" : String(raw)
         if (held !== key) {
           if (held !== null) release(held)
           held = key
           mirrors.set(key, (mirrors.get(key) ?? 0) + 1)
         }
-        setParam(key, value == null ? "" : String(value))
+        if (mods.has("history") && value !== "" && !shown(key, value))
+          pushParam(key, value)
+        else setParam(key, value)
       })
       return () => {
         stop()
@@ -79,7 +87,10 @@ type Datastar = {
     name: string
     requirement: { key: "denied"; value: "must" }
     returnsValue: boolean
-    apply: (ctx: { rx: () => unknown }) => () => void
+    apply: (ctx: {
+      rx: () => unknown
+      mods: { has: (name: string) => boolean }
+    }) => () => void
   }) => void
   effect: (fn: () => void) => () => void
 }
@@ -96,11 +107,34 @@ function release(key: string) {
   setParam(key, "")
 }
 
-function setParam(key: string, value: string) {
+function withParam(key: string, value: string): URL {
   const url = new URL(location.href)
   if (value === "") url.searchParams.delete(key)
   else url.searchParams.set(key, value)
-  history.replaceState(null, "", url)
+  return url
+}
+
+// `history.state` carried over: it marks an entry `pushParam` made, and a tab
+// switch inside the popup must not erase that.
+function setParam(key: string, value: string) {
+  history.replaceState(history.state, "", withParam(key, value))
+}
+
+/** On an entry `pushParam` made, naming this value. A page that LOADS with a
+ * popup open (a shared link, a refresh of an entry it did not make) fails the
+ * first half, so the popup still gets a dashboard entry beneath it and a close,
+ * which is always `history.back()`, never leaves the dashboard.
+ */
+function shown(key: string, value: string): boolean {
+  return (
+    history.state?.fhPushed === key &&
+    new URL(location.href).searchParams.get(key) === value
+  )
+}
+
+function pushParam(key: string, value: string) {
+  if (history.state?.fhPushed !== key) setParam(key, "")
+  history.pushState({ fhPushed: key }, "", withParam(key, value))
 }
 
 /**

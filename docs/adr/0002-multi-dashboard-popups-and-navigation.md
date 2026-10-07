@@ -62,10 +62,11 @@ bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
   they never collide with the main page.
 
-**Popups do not stack** (one open at a time). The lost capability — two popups
-open at once — was unused and is recoverable via a second overlay host; giving
-it up is what lets every surface be chrome-less and open/switch/close collapse
-into one primitive.
+**The server shows one popup at a time.** Two dialogs on screen at once was
+unused and is recoverable via a second overlay host; giving it up is what lets
+every surface be chrome-less and open/switch/close collapse into one primitive.
+The browser's history stacks them instead: each popup opened is a history
+entry, and closing one goes back to the popup it was opened from (ADR 0005).
 
 ### One primitive: `swapHost` (within a dashboard)
 
@@ -168,8 +169,9 @@ root element cannot be an anchor — `tile`'s `<article>` — so one authored
 
 Going to another dashboard is an ordinary document load of `/d/:slug` — an
 `<a href>` where the card can be one, `location.assign` where it cannot (above).
-The browser owns the history entry; there is no `pushState`, no `popstate`
-handler, and no `/sse/navigate` route.
+The browser owns the history entry; navigation pushes nothing of its own, and
+there is no `/sse/navigate` route. (The only `pushState` and `popstate` are the
+popup stack's, ADR 0005.)
 
 This replaced an in-place body swap over the surviving SSE stream. That design
 existed to keep one stream and one session alive across a dashboard change, and

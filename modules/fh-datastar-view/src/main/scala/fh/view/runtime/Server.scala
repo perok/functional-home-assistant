@@ -1664,6 +1664,13 @@ class Server(
         restore.uiState.getOrElse(Dashboard.PopupHostId, "")
       )
     )
+    // Back and Forward move the URL first (`data-fh-url__history`, ADR 0005);
+    // this asks the server to show what the URL now names. Every close is a
+    // `history.back()`, so this is also the only place a popup is closed from.
+    val popupFromUrl =
+      s"$$_popupUrl = new URLSearchParams(location.search).get('$popupParamName') ?? ''; " +
+        s"$$_popupUrl === $$$popupSignalName || ($$_popupUrl ? " +
+        s"@post('sse/surface/$slug/open/' + $$_popupUrl) : @post('sse/popup/$slug/close'))"
     val varSeed = committed.toList.sorted.map { case ((declarer, name), v) =>
       s", ${Server.varSignal(declarer, name)}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
     }.mkString
@@ -1671,7 +1678,8 @@ class Server(
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
-         |     data-fh-url="['$popupParamName', $$$popupSignalName]"
+         |     data-fh-url__history="['$popupParamName', $$$popupSignalName]"
+         |     data-on:popstate__window="$popupFromUrl"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:$sseEvent="$$_sse = $sseLatched">

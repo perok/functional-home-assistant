@@ -80,23 +80,25 @@ class PopupSurface extends SurfaceDef {
 }
 
 
+/// Closing a popup is going BACK: every open popup sits on a history entry of
+/// its own (ADR 0005), so Back shows the popup before it, or the dashboard,
+/// and the page's `popstate` listener asks the server for it. Guarded so a
+/// close placed outside a popup cannot leave the dashboard.
+const closeExpr: String = "$ui_popups && history.back()"
+
 /// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
-/// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
-/// the id-less close. Composed INTO a surface's content, NOT applied as backend
-/// chrome. Authors rarely touch it directly: [[openPopupInline]] wraps its body
-/// in one, and a registered surface gets it via the [[PopupSurface]] default.
+/// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ that
+/// closes it, as Escape does ([[closeExpr]]). Composed INTO a surface's
+/// content, NOT applied as backend chrome. Authors rarely touch it directly:
+/// [[openPopupInline]] wraps its body in one, and a registered surface gets it
+/// via the [[PopupSurface]] default.
 class Popup extends nodes.Node {
   card = "popup"
   // `open` is static markup (a `<dialog>` without it is display:none); the
   // dialog is transient — present only while open.
-  //
-  // The ✕ builds its close URL in the TEMPLATE, so the slug is the Mustache
-  // spelling `{{dashboardSlug}}` rather than the transform's `dashboard_slug`
-  // ([[closePopup]] is the same route reached from a tap). Two spellings, one
-  // fact — see ADR 0023.
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
     // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
     // styling; ours is the width cap and the shape of the ✕.
     //

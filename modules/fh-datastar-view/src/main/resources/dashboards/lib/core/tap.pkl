@@ -806,16 +806,12 @@ function navigate(slug: String): Click = new {
   onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
 }
 
-/// Dismiss the (single, at-a-time) open popup — `POST
-/// /sse/popup/<slug>/close`. Drop a button carrying this inside a popup's
-/// content. `ui_popups` — what a refresh and a reconnect restore the dialog
-/// from — is cleared by the SWAP, not here: the dialog leaves the DOM and the
-/// signal stops claiming it in the same frame, so the two cannot disagree.
+/// Dismiss the open popup, as its ✕ does ([[surfaceMod.closeExpr]]): back to
+/// the popup it was opened from, or to the dashboard. Drop a button carrying
+/// this inside a popup's content.
 function closePopup(): Click =
   new {
-    onclick = clickSlot(
-      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#
-    )
+    onclick = surfaceMod.closeExpr
   }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).

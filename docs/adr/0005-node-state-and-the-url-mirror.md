@@ -99,10 +99,31 @@ deep-linkable, which a cookie can never be. `Referer` would technically work
 is strippable by policy or extension and the failure is silent — the server
 would bake the default tab and morph the user back to it.
 
-`replaceState`, never `pushState`: this is view state, not navigation. Back
+`replaceState` for tabs and windows: this is view state, not navigation. Back
 should leave the dashboard, not step back through tab clicks. (The Datastar tao
 warns against "custom history management"; the target of that warning is faking
 navigation, not keeping a URL honest about the view it names.)
+
+**A popup is the exception: each one is a history entry.** A popup that offers
+more detail opens another, and with one popup at a time (ADR 0002) the only way
+out of the second was out of both. So the popup's mirror carries `__history`
+and PUSHES each popup the server opens; the browser's history is the stack, and
+the server keeps showing one.
+
+- **Closing is going back.** The ✕, Escape and `c.tap.closePopup` are all
+  `history.back()`, to the popup before or to the dashboard.
+- **One `popstate` listener** (`Server.page`) asks the server to show what the
+  URL now names: open that popup, or close. So Forward reopens.
+- **A value the URL already names is not pushed.** That is what tells a
+  server-confirmed open from one that Back or Forward asked for, with no flag.
+  The entry is pushed on the server's commit, not on the tap, so a refused open
+  leaves none.
+- **A page that loads with a popup open** (a shared link, a refresh) gets a
+  dashboard entry inserted beneath it, so a close never leaves the dashboard.
+  A refresh of an entry the mirror pushed keeps its marker in `history.state`
+  and inserts nothing.
+- Nothing resets on a close. The session still holds a window chosen in the
+  popup, and the entry going back to restores the URL it had.
 
 Tiering discipline (do not blur it):
 
