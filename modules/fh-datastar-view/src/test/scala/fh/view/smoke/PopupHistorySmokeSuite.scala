@@ -8,7 +8,8 @@ import fh.view.testkit.HouseFixture
 
 /** Popups and the browser's history (ADR 0005): the server shows one popup at a
   * time, and each one opened is a history entry, so Back steps to the popup it
-  * was opened from and every close is going back.
+  * was opened from and every close, a tap on the backdrop included, is going
+  * back.
   */
 class PopupHistorySmokeSuite extends SmokeSuite {
 
@@ -66,6 +67,45 @@ class PopupHistorySmokeSuite extends SmokeSuite {
     IO.blocking(page.evaluate("() => location.href").toString)
 
   private val popupParam = """.*[?&]ui\.popups=.*"""
+
+  /** Whether a tap at a point would land in the dashboard behind the popup. */
+  private def reachesDashboard(page: Page, x: Double, y: Double): IO[Boolean] =
+    IO.blocking(
+      page
+        .evaluate(
+          s"() => !!document.elementFromPoint($x, $y)?.closest('#dashboard')"
+        )
+        .toString
+        .toBoolean
+    )
+
+  test("a tap beside the popup steps back, and the page behind never gets it") {
+    withPageOn(served) { (page, _) =>
+      for {
+        start <- href(page)
+        opener <- IO.blocking(
+          page.getByText("Open first", exactText).boundingBox()
+        )
+        (ox, oy) = (opener.x + opener.width / 2, opener.y + opener.height / 2)
+        control <- reachesDashboard(page, ox, oy)
+        _ = assert(
+          control,
+          "control: with no popup, the opener is the dashboard"
+        )
+        _ <- click(page, "Open first")
+        _ <- showing(page, "First popup")
+        // Asked rather than tapped, since a tap here may land in the dialog:
+        // whatever is on top, it is not the dashboard's own button.
+        reached <- reachesDashboard(page, ox, oy)
+        _ = assert(!reached, "a tap on the opener reaches the dashboard")
+        // A corner of the viewport is outside the dialog whatever its size.
+        corner <- IO.blocking(page.evaluate("() => innerHeight - 4").toString)
+        _ <- IO.blocking(page.mouse().click(4, corner.toDouble))
+        _ <- closed(page)
+        _ <- eventually(href(page))(_ == start)
+      } yield ()
+    }
+  }
 
   test("Back steps through the popups opened, and Forward reopens") {
     withPageOn(served) { (page, _) =>

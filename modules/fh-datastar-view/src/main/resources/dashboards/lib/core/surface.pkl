@@ -88,7 +88,7 @@ const closeExpr: String = "$ui_popups && history.back()"
 
 /// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
 /// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ that
-/// closes it, as Escape does ([[closeExpr]]). Composed INTO a surface's
+/// closes it, as Escape and a tap on the backdrop do ([[closeExpr]]). Composed INTO a surface's
 /// content, NOT applied as backend chrome. Authors rarely touch it directly:
 /// [[openPopupInline]] wraps its body in one, and a registered surface gets it
 /// via the [[PopupSurface]] default.
@@ -98,7 +98,7 @@ class Popup extends nodes.Node {
   // dialog is transient — present only while open.
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    template = #"<div class="popup-backdrop" data-on:click="\#(closeExpr)"></div><dialog open class="popup"><button class="popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
     // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
     // styling; ours is the width cap and the shape of the ✕.
     //
@@ -113,8 +113,14 @@ class Popup extends nodes.Node {
     // got away with it while it was small enough to overlap nothing. At 44px it
     // overlaps a popup's title, and `elementFromPoint` at its own centre
     // returned the `<h2>`: the button was there, visible, and un-clickable.
+    //
+    // The backdrop is the outside tap: the dialog is not modal, so without it a
+    // tap beside the popup ran the card underneath with the popup still open.
+    // Both z-indexes are ours, so the dialog stays above it whatever the theme
+    // sets.
     css = """
-      dialog.popup{max-inline-size:min(90vw,32rem)}
+      .popup-backdrop{position:fixed;inset:0;z-index:100;background:var(--fh-scrim)}
+      dialog.popup{max-inline-size:min(90vw,32rem);z-index:101}
       .popup-close{position:absolute;inset-block-start:.5rem;inset-inline-end:.5rem;
       display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
       inline-size:2.75rem;block-size:2.75rem;padding:0;border:0;border-radius:999px;z-index:1;

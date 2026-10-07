@@ -111,8 +111,10 @@ out of the second was out of both. So the popup's mirror carries `__history`
 and PUSHES each popup the server opens; the browser's history is the stack, and
 the server keeps showing one.
 
-- **Closing is going back.** The ✕, Escape and `c.tap.closePopup` are all
-  `history.back()`, to the popup before or to the dashboard.
+- **Closing is going back.** The ✕, Escape, a tap on the backdrop and
+  `c.tap.closePopup` are all `history.back()`, to the popup before or to the
+  dashboard. The backdrop also keeps a tap beside the popup from reaching the
+  page under it, which the non-modal dialog alone did not.
 - **One `popstate` listener** (`Server.page`) asks the server to show what the
   URL now names: open that popup, or close. So Forward reopens.
 - **A value the URL already names is not pushed.** That is what tells a
