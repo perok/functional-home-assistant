@@ -239,7 +239,8 @@
                     "bypassUnavailable" : false,
                     "reads" : "once",
                     "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t0?group=@@NODE_ID@@')\""
-                  }
+                  },
+                  "tappable" : "1"
                 }
               },
               {
@@ -254,7 +255,8 @@
                     "bypassUnavailable" : false,
                     "reads" : "once",
                     "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t1?group=@@NODE_ID@@')\""
-                  }
+                  },
+                  "tappable" : "1"
                 }
               }
             ]

@@ -373,6 +373,19 @@ facts {
     body.children.toList().first.inlineSurfaces == null
   }
 
+  ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {
+    tapMod.openPopup("p").busy
+    tapMod.openPopupInline(c.title("x")).busy
+    tapMod.selectSurface("t_t0", "t", "0").busy
+    c.tap.moreInfo(outside).busy
+    !tapMod.navigate("home").busy
+    !tapMod.closePopup().busy
+    // The tab card takes its guard from its tap, like every other card.
+    local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } } }).children.toList().first as nodes.Node
+    tab.slots["busy"] == "1"
+    tab.slots["busyVisual"] == "1"
+  }
+
   ["`tapAction = null` is how a card opts out of being clickable at all"] {
     local card = (c.entityCard(outside)) { tapAction = null }
     !card.slots.containsKey("tappable")

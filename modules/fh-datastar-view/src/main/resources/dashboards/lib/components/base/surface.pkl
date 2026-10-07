@@ -7,7 +7,6 @@
 module components.base.surface
 
 import "../../core/node.pkl" as nodes
-import "../../core/slot.pkl" as slotMod
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/predicate.pkl" as pred
 import "../../core/tap.pkl" as tapMod
@@ -18,13 +17,13 @@ import "../../layout.pkl" as layout
 /// states, even distribution) comes from the framework, not hand-rolled CSS.
 /// Built by [[Tabs]] internally; not an authoring surface. `active` is the
 /// Datastar boolean expression driving the `.active` class client-side
-/// (`data-class`); `onclick` opens the tab's hoisted surface and records the
+/// (`data-class`); `tapAction` opens the tab's hoisted surface and records the
 /// choice as PENDING — the committed `ui_<id>` is the server's to write.
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    // Guarded like any tap (ADR 0019): the open answers once the new panel's
-    // queries have resolved, so a slow panel dims the tab and then spins.
+    // The guard is the tap's to decide (an `OpenSurface` is guarded, ADR 0019);
+    // the template only places it.
     template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
     // Deliberately NOT a `core/text.pkl` box: the bar scrolls sideways, so a tab
@@ -37,14 +36,14 @@ class TabButton extends nodes.Node {
     wrapAsCell = false
   }
   hidden label: String
-  hidden onclick: slotMod.Slot|String
+  hidden tapAction: tapMod.OpenSurface
   hidden active: String
   slots {
     ["label"] = label
-    ["onclick"] = onclick
     ["active"] = active
-    ["busy"] = "1"
-    ["busyVisual"] = "1"
+    for (k, v in tapMod.tapSlots(tapAction)) {
+      [k] = v
+    }
   }
 }
 
@@ -169,7 +168,7 @@ class Tabs extends nodes.Node {
         // `String(x) === "0"` and not `Number(x) === 0`, because `Number('')`
         // is 0 and would rebuild the very mask this removes.
         active = "String(\(tapMod.pendingOrCommitted(nodes.NODE_ID))) === '\(i)'"
-        onclick = tapMod.selectSurface(
+        tapAction = tapMod.selectSurface(
           "\(nodes.NODE_ID)_t\(i)",
           nodes.NODE_ID,
           i.toString()
