@@ -144,7 +144,7 @@ class FailedDashboardSuite extends ServerHarness {
       } yield {
         // Recovery is Datastar's `@get` on the recover stream, with the reload
         // a `data-effect` on `_reload`: no hand-rolled EventSource.
-        assert(body.contains("datastar.js"), clue = body)
+        assert(body.contains(Server.DatastarScript), clue = body)
         assert(body.contains("sse/dashboard/dashboard/recover"), clue = body)
         assert(body.contains("data-effect"), clue = body)
         assert(

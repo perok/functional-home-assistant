@@ -385,14 +385,14 @@ class ServerRoutesSuite extends ServerHarness {
       assert(seeded.contains(s"""$PopupSig: \'det\'"""), seeded)
       assert(unknown.contains(s"""$PopupSig: \'\'"""), unknown)
       assert(none.contains(s"""$PopupSig: \'\'"""), none)
-      // The mirror registers against the page's own Datastar: another URL
-      // would load a second instance that never sees this document.
-      val imported = """import \* as datastar from '(?:\./)?([^']+)'""".r
-        .findFirstMatchIn(none)
-      val loaded = """<script type="module" src="([^"]+)">""".r
-        .findFirstMatchIn(none)
-      assertEquals(imported.map(_.group(1)), loaded.map(_.group(1)), none)
-      assert(imported.isDefined, none)
+      // One Datastar on the page, the bundle that carries our attributes: a
+      // second copy would be an instance that never sees them.
+      val datastars = """<script type="module" src="([^"]+)">""".r
+        .findAllMatchIn(none)
+        .map(_.group(1))
+        .filter(_.contains("datastar"))
+        .toList
+      assertEquals(datastars, List(Server.DatastarScript), none)
     }
   }
 

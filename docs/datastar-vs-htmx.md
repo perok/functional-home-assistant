@@ -1,7 +1,7 @@
 # Datastar vs htmx for `fh-datastar-view`
 
 > Evaluation only — no source changed. Scope: should this module swap its frontend runtime
-> **Datastar** (`v1.0.2`, pinned at `Server.DatastarCdn`) for **htmx 4**?
+> **Datastar** (evaluated at `v1.0.2`; vendored now under `src/js/vendor/datastar/`) for **htmx 4**?
 > Tracked in [issue #149](https://github.com/perok/functional-home-assistant/issues/149).
 
 ## Verdict

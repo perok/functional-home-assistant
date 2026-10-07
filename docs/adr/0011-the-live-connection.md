@@ -652,7 +652,7 @@ subscriptions released with it. A dedicated stall watchdog was tried and removed
 it duplicated that, buying 30s versus 60s of queue growth for a Ref, a Deferred, a
 timer and a parameter.
 
-**`{retry:'always'}` on the `data-init` `@get`.** Verified against the pinned v1.0.2
+**`{retry:'always'}` on the `data-init` `@get`.** Verified against the pinned v1.0.4
 bundle rather than the docs: after the SSE body is consumed it retries only on
 `retry === "always"`, so under the default `auto` a 200 whose body simply ends is
 "finished" and the client sits there forever. This stream is never supposed to end,
@@ -857,7 +857,7 @@ chose, which closes the race between a tab click and a patch already in flight.
 
 - Datastar specifics relied upon (signal round-tripping on GET, `_` exclusion, the
   `retry` mode's post-body semantics, `ifmissing`, `datastar-fetch` detail types,
-  patching elements inside `<head>` by id) are pinned to **v1.0.2** and were read off
+  patching elements inside `<head>` by id) are pinned to **v1.0.4** and were read off
   the bundle rather than the docs. Re-verify on upgrade.
 - A resume is bounded by what live sessions still need: below the floor, or across a
   stretch this slug did not record, a client repaints.
