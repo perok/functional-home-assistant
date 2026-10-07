@@ -8,24 +8,36 @@ module layout
 
 import "core/node.pkl" as nodes
 
-// `cssClass` is the authoring name (`class` is a Pkl reserved word); it emits
-// the literal slot key `"class"` that the `{{#class}}` template sections read.
-class Row extends nodes.Node {
-  card = "fhrow"
-  // Pure structure: the row IS where its children go, and it shows nothing of
-  // its own. No id on the hole — nothing fills a row from outside.
-  cardDef = new nodes.CardDef {
-    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = """
-      <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
-      """
-  }
+/// What the three containers share: markup that is one classed `<div>` holding
+/// its children, and an optional extra class from the author.
+///
+/// Pure structure: the box IS where its children go, and it shows nothing of
+/// its own. No id on the hole — nothing fills a box from outside.
+abstract class Box extends nodes.Node {
+  /// An extra class on the box. `cssClass` because `class` is a Pkl reserved
+  /// word; it fills the literal slot `"class"` the template's section reads.
   hidden cssClass: String? = null
+  /// Classes the box adds of its own, after [[cssClass]] ([[Grid]]'s
+  /// `fh-start`).
+  hidden ownClasses: Listing<String> = new {}
   slots {
-    when (cssClass != null) {
-      ["class"] = cssClass!!
+    when (cssClass != null || !ownClasses.isEmpty) {
+      ["class"] = new Listing<String> {
+        when (cssClass != null) { cssClass!! }
+        ...ownClasses
+      }.toList().join(" ")
     }
   }
+}
+
+const local function boxDef(cls: String): nodes.CardDef = new {
+  regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+  template = #"<div class="\#(cls){{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>"#
+}
+
+class Row extends Box {
+  card = "fhrow"
+  cardDef = boxDef("fh-row")
   function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
 }
 
@@ -37,20 +49,9 @@ class Row extends nodes.Node {
 /// (bare elements/entries need a Listing/Mapping parent — hence `children`).
 hidden row: Row = new Row {}
 
-class Column extends nodes.Node {
+class Column extends Box {
   card = "fhcol"
-  cardDef = new nodes.CardDef {
-    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = """
-      <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
-      """
-  }
-  hidden cssClass: String? = null
-  slots {
-    when (cssClass != null) {
-      ["class"] = cssClass!!
-    }
-  }
+  cardDef = boxDef("fh-col")
   function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
 }
 /// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
@@ -62,25 +63,14 @@ hidden column: Column = new Column {}
 /// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
 /// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
 /// layout contract CSS lives in `core/css.pkl`.
-class Grid extends nodes.Node {
+class Grid extends Box {
   card = "fhgrid"
-  cardDef = new nodes.CardDef {
-    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = """
-      <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
-      """
-  }
-  hidden cssClass: String? = null
+  cardDef = boxDef("fh-grid")
   /// Group-center the cells: a partial row is centered, a full row fills.
   /// DEFAULT true; `centered(false)` emits the `fh-start` marker to left-pack.
   hidden centered: Boolean = true
-  slots {
-    when (cssClass != null || !centered) {
-      ["class"] = new Listing<String> {
-        when (cssClass != null) { cssClass!! }
-        when (!centered) { "fh-start" }
-      }.toList().join(" ")
-    }
+  ownClasses {
+    when (!centered) { "fh-start" }
   }
   function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
   /// Toggle group-centering of the cells (see [[centered]] property).
