@@ -1424,9 +1424,10 @@ class Renderer(
       signals: Map[SignalId, SlotValue]
   )
 
-  /** A component's `<div class="fh-cell …"`, its live classes
-    * ([[Dashboard.cellClassSlot]]) inline in the document form only, where
-    * signal values are not withheld. Their bindings are [[cellBindingsInto]].
+  /** A component's `<div class="fh-cell …"`, its live classes and custom
+    * properties ([[Dashboard.cellClassSlot]], [[Dashboard.cellStyleSlot]])
+    * inline in the document form only, where signal values are not withheld.
+    * Their bindings are [[cellBindingsInto]].
     */
   private def cellOpenInto(
       buf: Sink,
@@ -1436,12 +1437,28 @@ class Renderer(
   ): Unit = {
     buf.append("""<div class="fh-cell""").append(Renderer.cellClasses(cell))
     if (!form.isPatch)
-      cellClassSlots(r)
+      cellSlots(r, Dashboard.CellClassPrefix)
         .filter(slot => r.paint.get(slot).exists(SlotValue.truthy))
         .foreach { slot =>
           buf.append(' ').append(slot.stripPrefix(Dashboard.CellClassPrefix))
         }
     val _ = buf.append('"')
+    if (!form.isPatch) {
+      val props = cellSlots(r, Dashboard.CellStylePrefix).flatMap(slot =>
+        r.paint
+          .get(slot)
+          .map(v =>
+            slot.stripPrefix(Dashboard.CellStylePrefix) + ":" + SlotValue.text(
+              v
+            )
+          )
+      )
+      if (props.nonEmpty)
+        val _ = buf
+          .append(""" style="""")
+          .append(Server.escapeHtml(props.mkString(";")))
+          .append('"')
+    }
   }
 
   /** In both forms, and AFTER the wrapper's own `data-signals`: the bundle
@@ -1450,15 +1467,16 @@ class Renderer(
     * undefined`, the first `LiveCellClassSmokeSuite` run).
     */
   private def cellBindingsInto(buf: Sink, r: Resolved): Unit =
-    cellClassSlots(r).foreach { slot =>
+    (cellSlots(r, Dashboard.CellClassPrefix) ++
+      cellSlots(r, Dashboard.CellStylePrefix)).foreach { slot =>
       val key = slot + "__bind"
       r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
         buf.append(' ').append(b)
       }
     }
 
-  private def cellClassSlots(r: Resolved): List[String] =
-    r.signalSlots.filter(_.startsWith(Dashboard.CellClassPrefix))
+  private def cellSlots(r: Resolved, prefix: String): List[String] =
+    r.signalSlots.filter(_.startsWith(prefix))
 
   /** The template context, read in place. Not a `java.util.Map`: mustache.java
     * resolves those through `entrySet`, so a get-only map answers every name

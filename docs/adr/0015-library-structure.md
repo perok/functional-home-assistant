@@ -76,6 +76,15 @@ String was an attribute name on an entity card and the text on a button.
 subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only the
 HA layer sets it.
 
+`disabled` is a base input on every pressable card — the button, the tile and
+the slider — taking any boolean input (a reading, an `Expr` over the node's
+values, or a condition; ADR 0034). It is ORed with the tap's own refusal
+(`tapDisabled`) inside the shared refusal helpers of `core/tap.pkl`, not in each
+card's template: the click guard, the `fh-disabled` look and the form-control
+`disabled` all read one `refused` expression, so a card that places them
+honours `disabled` with nothing of its own. A tile, an `<article>`, gets the look
+and a refused click; a slider's range is disabled and its commit refuses.
+
 **The slider** is the one split that was not mechanical. The base `Slider`
 (`components/base/slider.pkl`, `c.Slider`) takes a track, not an entity, and
 `EntitySlider` (`c.entitySlider`) fills it:

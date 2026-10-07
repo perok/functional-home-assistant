@@ -49,6 +49,67 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
     )
   )
 
+  // Its own scene, so the class tests' fixture stays as it was.
+  private val propertyScene = Scene.of(
+    PklFixture.buildDashboard(
+      "cell-property-smoke",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-dashboard/core/slot.pkl" as slotMod
+         |import "@fh-dashboard/core/simple.pkl" as simpleMod
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
+         |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
+         |    }).cssProperty("--fh-level", new slotMod.Slot {
+         |      entityId = dump.entities.${kitchen.dumpKey}.entity_id
+         |      transform = simpleMod.attr("brightness")
+         |    })
+         |  }
+         |}
+         |""".stripMargin
+    )
+  )
+
+  private def level(page: Page): IO[String] =
+    IO.blocking(
+      page
+        .locator(".fh-cell:has(> button)")
+        .last()
+        .evaluate(
+          "el => getComputedStyle(el).getPropertyValue('--fh-level').trim()"
+        )
+        .toString
+    )
+
+  test(
+    "a live cssProperty follows its reading, and survives a morph of its node"
+  ) {
+    withPage(propertyScene) { (page, ts) =>
+      def dimmed(name: String, b: Int) =
+        Map(
+          "friendly_name" -> Json.fromString(name),
+          "brightness" -> Json.fromInt(b)
+        )
+      for {
+        _ <- ts.awaitLive()
+        _ <- ts.fake.emit(kitchen.entityId, "on", dimmed("Kitchen", 90))
+        _ <- eventually(level(page))(_ == "90")
+        // Same brightness, new name: the node is patched and the property's
+        // signal is not, so only the morph could take the property away.
+        _ <- ts.fake.emit(kitchen.entityId, "on", dimmed("Galley", 90))
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-cell:has(> button)").last())
+            .containsText("Galley")
+        )
+        now <- level(page)
+      } yield assertEquals(now, "90", "the morph dropped the live property")
+    }
+  }
+
   private def warmCell(page: Page) =
     page.locator(".fh-cell:has(> button:not(:has-text('Lock')))").last()
 

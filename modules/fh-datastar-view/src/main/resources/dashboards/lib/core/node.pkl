@@ -18,7 +18,41 @@ import "variable.pkl" as varMod
 import "pkl:reflect"
 
 /// What one of a node's [[Node.expressionValues]] may be.
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate
+
+/// What fills a boolean slot: a `Boolean` the build knows, a reading
+/// (`c.isOn(l)`), an `Expr` over the node's values (`c.expr("on > 2")`), or a
+/// condition (`q.from(lights).where(…).any()`). An aggregate the build can
+/// settle IS a `Boolean`, so a room with no lights needs no live slot.
+typealias BooleanInput = Boolean|slotMod.Slot|slotMod.Expr|predMod.Predicate
+
+/// The slot a live [[BooleanInput]] fills. A condition is read through the
+/// value `name`, which the caller declares in [[Node.derivedValues]].
+const function booleanSlot(
+  input: slotMod.Slot|slotMod.Expr|predMod.Predicate,
+  name: String
+): slotMod.Slot =
+  if (input is slotMod.Slot) (input) { type = "bool" }
+  else if (input is slotMod.Expr)
+    new slotMod.Slot {
+      entityId = input.entityId
+      transform = input.transform
+      bypassUnavailable = false
+      type = "bool"
+    }
+  else new slotMod.Slot { transform = name; bypassUnavailable = false; type = "bool" }
+
+/// A card's own `disabled`, as the `disabled` slot the tap's refusal helpers
+/// OR in (`tapMod.refused`): nothing for `false`, a literal for `true`, else a
+/// handler — read in an expression, never bound. A card whose input is a
+/// condition also declares `["__disabled"]` in its [[Node.derivedValues]].
+const function disabledSlot(d: BooleanInput?): (slotMod.Slot|String)? =
+  if (d == null || d == false) null
+  else if (d == true) "1"
+  else
+    (booleanSlot(d as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__disabled")) {
+      signal = slotMod.asHandler
+    }
 
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
 /// classes the renderer puts on this node's `.fh-cell` wrapper. The class
@@ -29,6 +63,8 @@ class Cell {
   classes: Listing<String> = new {}
   /// Classes present while a reading holds — see [[LayoutNode.classWhen]].
   classWhen: Mapping<String, slotMod.Slot>? = null
+  /// Custom properties set from a reading — see [[LayoutNode.cssProperty]].
+  properties: Mapping<String, slotMod.Slot>? = null
 }
 
 /// The common supertype of every layout-tree node. `kind` is the circe
@@ -51,15 +87,18 @@ abstract class LayoutNode {
   /// and an author's `.columns(3)` both land, whichever is written first.
   hidden cellClasses: Listing<String> = new {}
   hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
+  /// The live custom properties [[cssProperty]] adds.
+  hidden liveProperties: Mapping<String, slotMod.Slot> = new {}
   /// What the renderer puts on this node's wrapper, derived from
-  /// [[cellClasses]] and [[liveClasses]]; null (dropped from the wire JSON)
-  /// while both are empty. Setting it directly is the escape hatch, and it
-  /// replaces whatever the builders would have added.
+  /// [[cellClasses]], [[liveClasses]] and [[liveProperties]]; null (dropped
+  /// from the wire JSON) while all are empty. Setting it directly is the escape
+  /// hatch, and it replaces whatever the builders would have added.
   cell: Cell? =
-    if (cellClasses.isEmpty && liveClasses.isEmpty) null
+    if (cellClasses.isEmpty && liveClasses.isEmpty && liveProperties.isEmpty) null
     else new Cell {
       classes = cellClasses
       classWhen = if (liveClasses.isEmpty) null else liveClasses
+      properties = if (liveProperties.isEmpty) null else liveProperties
     }
   /// This cell spans `n` of the surrounding grid's 12 columns (HA
   /// `grid_options.columns`). No effect outside a [[Grid]]/group.
@@ -82,17 +121,43 @@ abstract class LayoutNode {
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
-  /// [[cellClass]], present only while `reading` is truthy — a Boolean, or a
-  /// non-empty string. The renderer binds it on the wrapper, so it works on any
-  /// card and no template places it:
+  /// [[cellClass]], present only while `when` holds — any [[BooleanInput]]. The
+  /// renderer binds it on the wrapper, so it works on any card and no template
+  /// places it:
   ///
-  ///     c.entityButton(l).classWhen("warm", on)   // css: .fh-cell.warm>button
+  ///     c.entityButton(l).classWhen("warm", c.isOn(l))   // css: .fh-cell.warm>button
+  ///     c.button(…).classWhen("fh-some", lit.any())
   ///
   /// A reading is a display signal named by what it reads (ADR 0017), so it
   /// shares one signal with every other slot reading the same thing.
-  function classWhen(cls: String, reading: slotMod.Slot): LayoutNode =
+  function classWhen(cls: String, `when`: BooleanInput): LayoutNode =
     let (self = this)
-      (self) { liveClasses { [cls] = (reading) { signal = slotMod.asClass(cls) } } }
+      if (`when` is Boolean) (if (`when`) self.addCellClass(cls) else self)
+      else if (`when` is predMod.Predicate)
+        if (!(self is Node)) throw("classWhen: a condition is read through a value, which only a card node has — put it on the clause's node")
+        else
+          let (name = "__class_" + cls.md5.take(12))
+            (self) {
+              derivedValues { [name] = `when` }
+              liveClasses { [cls] = (booleanSlot(`when`, name)) { signal = slotMod.asClass(cls) } }
+            }
+      else (self) { liveClasses { [cls] = (booleanSlot(`when`, "")) { signal = slotMod.asClass(cls) } } }
+  /// The custom property `name` on this node's wrapper, set from a reading and
+  /// kept live — [[classWhen]]'s value-carrying twin. The card's own CSS reads
+  /// it by inheritance:
+  ///
+  ///     c.button(…).cssProperty("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
+  ///     // css: .fh-cell>button { background-size: var(--fh-fill) 100% }
+  ///
+  /// Any reading that produces text: a `Simple` one stays on the fast tier
+  /// (`simpleMod.fill(…)`), an `Expr` may read the node's values. Only a custom
+  /// property (`--…`): a plain one would fight the theme's framework.
+  function cssProperty(name: String(startsWith("--")), reading: slotMod.Slot|slotMod.Expr): LayoutNode =
+    let (self = this)
+    let (s = if (reading is slotMod.Expr)
+        new slotMod.Slot { entityId = reading.entityId; transform = reading.transform }
+      else reading as slotMod.Slot)
+      (self) { liveProperties { [name] = (s) { signal = slotMod.asStyle(name) } } }
   // Shared appender: one more static class.
   //
   // ONE PER NODE, per FAMILY: adding an `fh-cols-*` class DROPS any it already
@@ -197,8 +262,10 @@ abstract class Node extends LayoutNode {
   /// see the page's declarations.
   vars: Mapping<String, String>? = null
   /// Named values this node's expressions read as CEL variables, typed by what
-  /// they are: a literal, or a live count (`q.from(xs).where(…).count()`, an
-  /// `int`). The names are the node's own — nothing below it sees them.
+  /// they are: a literal, a live count (`q.from(xs).where(…).count()`, an
+  /// `int`), or a live condition (`….any()`, `q.entity(e).stateIs("on")` — what
+  /// `c.iff` takes, a `bool`). The names are the node's own — nothing below it
+  /// sees them.
   ///
   ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
   ///     expressionValues {
@@ -206,11 +273,18 @@ abstract class Node extends LayoutNode {
   ///       ["lights_total"] = lights.length
   ///     }
   ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
-  hidden expressionValues: Mapping<String, ExpressionValue> = new {}
-  /// [[expressionValues]] on the wire. Two properties because a null default
+  ///
+  /// A name starting `__` is refused: those are [[derivedValues]]'.
+  hidden expressionValues: Mapping<String(!startsWith("__")), ExpressionValue> = new {}
+  /// The values a boolean input declares for a condition it is handed
+  /// (`__active`, `__disabled`, `__class_…`). Apart from [[expressionValues]],
+  /// so an author assigning those (the builder does) cannot drop them.
+  hidden derivedValues: Mapping<String, ExpressionValue> = new {}
+  /// Both of the above on the wire. Two properties because a null default
   /// cannot be amended, and an always-present `{}` would sit on every node.
   values: Mapping<String, ExpressionValue>? =
-    if (expressionValues.isEmpty) null else expressionValues
+    if (expressionValues.isEmpty && derivedValues.isEmpty) null
+    else new Mapping { ...expressionValues; ...derivedValues }
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped

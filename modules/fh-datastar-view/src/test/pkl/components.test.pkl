@@ -10,6 +10,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
@@ -1210,8 +1211,13 @@ facts {
     // The input is disabled by the refusal as well as by its own commit, and
     // the change handler leads with the refusal guard.
     local head = c.cards["sliderHead"].template
-    head.contains(#"data-attr:disabled="$_{{id}}__busy_change{{#tapDisabled__has}} || {{{tapDisabled__read}}}{{/tapDisabled__has}}""#)
-    head.contains(#"data-on:change="{{#tapDisabled__has}}${{tapDisabled__signal}} ? '' : {{/tapDisabled__has}}$_{{id}}__busy_change ? '' : @post("#)
+    head.contains(#"data-attr:disabled="$_{{id}}__busy_change"# + tapMod.whenRefusable(" || " + tapMod.refused) + "\"")
+    head.contains(#"data-on:change=""# + tapMod.refusalGuard + #"$_{{id}}__busy_change ? '' : @post("#)
+    // The refusal is the tap's OR the card's own `disabled`, whichever a node
+    // carries — so the same guard stops a slider its author disabled.
+    tapMod.refused.contains("{{{tapDisabled__read}}}") && tapMod.refused.contains("{{{disabled__read}}}")
+    c.entitySlider(kitchen).disabled(c.isOn(kitchen)).headSlots.containsKey("disabled")
+    !c.entitySlider(kitchen).headSlots.containsKey("disabled")
   }
 
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {

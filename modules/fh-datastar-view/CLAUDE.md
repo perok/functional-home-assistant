@@ -342,10 +342,17 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
   the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
   reads it),
-  **expression values** (a node's `expressionValues`: literals or a live `q.from(…).where(…).count()`,
-  read BY NAME as typed variables in that node's own CEL — `string(lights_on) + ' on'` — compiled
-  at build so a typo or a type error fails it; attached at decode to the slots that read them, so a
-  counted light wakes the node through the ordinary reverse index; see `docs/terminology.md`),
+  **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
+  or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own
+  CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
+  attached at decode to the slots that read them, so a counted light wakes the node through the
+  ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
+  the button/tile/slider, `classWhen`: a Boolean, a reading, an `Expr` or a condition directly —
+  `.disabled(lit.none())` — a condition lowered onto a derived `__` value; `Slot.type = "bool"`
+  makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
+  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cssProperty("--x",
+  reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which BeerCSS
+  owns on `.slider`) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.tap.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.

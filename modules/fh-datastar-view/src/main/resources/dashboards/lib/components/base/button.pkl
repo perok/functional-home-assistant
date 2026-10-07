@@ -6,6 +6,7 @@
 module components.base.button
 
 import "../../core/node.pkl" as nodes
+import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -54,7 +55,7 @@ open class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.attrWhenEither("disabled", "tapDisabled", "disabled"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round` do not: they are
@@ -113,22 +114,29 @@ open class Button extends nodes.Node {
   hidden tapAction: tapMod.TapAction = throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node so the hoist lifts them.
   inlineSurfaces = tapAction.inlineSurfaces
-  /// Tinted in the accent while this holds: `true`, or a Boolean reading
-  /// (`c.isOn(l)`). Off by default — most buttons DO something rather than
-  /// reflect a state.
-  hidden active: Boolean|slotMod.Slot = false
+  /// Tinted in the accent while this holds — any [[nodes.BooleanInput]]:
+  /// `true`, `c.isOn(l)`, `c.expr("on > 0")`, or `lit.any()`. Off by default —
+  /// most buttons DO something rather than reflect a state.
+  hidden active: nodes.BooleanInput = false
   cellClasses {
     when (active == true) { "fh-active" }
   }
   liveClasses {
-    when (active is slotMod.Slot) {
-      ["fh-active"] = (active as slotMod.Slot) { signal = slotMod.asClass("fh-active") }
+    when (!(active is Boolean)) {
+      ["fh-active"] = (nodes.booleanSlot(active as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__active")) {
+        signal = slotMod.asClass("fh-active")
+      }
     }
   }
-  /// A Boolean reading that disables the button while it holds, ORed with
-  /// whatever its tap refuses ([[tapMod.Call.disabledWhile]]) — for a reason
-  /// of the BUTTON's: a popup opener has no call to carry one.
-  hidden disabled: slotMod.Slot? = null
+  /// Disables the button while it holds, ORed with whatever its tap refuses
+  /// ([[tapMod.Call.disabledWhile]]) — for a reason of the BUTTON's: a popup
+  /// opener has no call to carry one. Any [[nodes.BooleanInput]]:
+  /// `lit.none()` disables it while no light it counts is on.
+  hidden disabled: nodes.BooleanInput? = null
+  derivedValues {
+    when (active is predMod.Predicate) { ["__active"] = active }
+    when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
+  }
   /// The entity a reading that names none reads — a `c.expr(…)` label, an
   /// `active` or `disabled` without its own `entityId`. Null here, where a
   /// reading must name its entity; the HA layer sets it to its entity.
@@ -144,12 +152,15 @@ open class Button extends nodes.Node {
   ///
   /// It is the VALUE `slots` reads and not a boolean beside it, because a Pkl
   /// local is lazy: a check nothing forces is a check that never runs.
-  local ownDisabled: slotMod.Slot? =
-    if (disabled != null && tapAction.href != null)
+  ///
+  /// A `Boolean` the build knows is a literal (`true`) or nothing (`false`).
+  local ownDisabled: (slotMod.Slot|String)? =
+    if (disabled == null || disabled == false) null
+    else if (tapAction.href != null)
       throw("c.button: `disabled` needs a button, but this one navigates and "
         + "renders as a link — `disabled` is a form-control attribute. Drop "
         + "it, or give it a service tap.")
-    else disabled
+    else nodes.disabledSlot(disabled)
   slots {
     when (subject != null) {
       ["entity_id"] = subject!!
@@ -189,13 +200,13 @@ open class Button extends nodes.Node {
     when (ownDisabled == null && tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      // `tapDisabled` is a handler, because `attrWhenEither` ORs it with
+      // `tapDisabled` is a handler, because `tapMod.refused` ORs it with
       // [[disabled]] in one `data-attr` and the read is all it needs.
       for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v
       }
       when (ownDisabled != null) {
-        ["disabled"] = (ownDisabled!!) { signal = slotMod.asHandler }
+        ["disabled"] = ownDisabled!!
       }
     }
     // Only the non-anchor arm carries the busy splice — an anchor is a
@@ -218,9 +229,9 @@ open class Button extends nodes.Node {
   function icon(i: String): Button = let (self = this) (self) { icon = i }
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
   /// See [[active]]: `c.entityButton(l).active(c.isOn(l))`.
-  function active(a: Boolean|slotMod.Slot): Button = let (self = this) (self) { active = a }
+  function active(a: nodes.BooleanInput): Button = let (self = this) (self) { active = a }
   /// See [[disabled]]: `c.entityButton(l).disabled(c.stateIn(l, List("open")))`.
-  function disabled(r: slotMod.Slot): Button = let (self = this) (self) { disabled = r }
+  function disabled(r: nodes.BooleanInput): Button = let (self = this) (self) { disabled = r }
 }
 
 /// Compact tappable pill — the same two arms as [[Button]] (navigate = `<a>`,
@@ -243,7 +254,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.tapDisabledAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }
