@@ -18,7 +18,8 @@ import "../hass/actions.pkl" as hassActions
 /// runs, so a light added to the room later is included.
 typealias Target = hass.Entity|hass.Area|hass.Floor
 
-/// What a click does: a [[Call]] or a [[Click]], rendered in one place
+/// What a click does: a [[Call]] or a [[Click]] (an [[OpenSurface]] being the
+/// Click that opens a surface), rendered in one place
 /// ([[tapRoute]]). A tap that opens an INLINE popup also carries
 /// `inlineSurfaces` (the dialog content); the card copies it onto the node so
 /// the hoist can lift it.
@@ -30,9 +31,11 @@ abstract class TapAction {
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
-  /// click is a no-op. TRUE on a [[Call]]; FALSE on `navigate` (a document
-  /// load). The slider's continuous value drag is NOT guarded even though it
-  /// posts: it is not a discrete tap.
+  /// click is a no-op. Set by the KIND of tap, never by a card: TRUE on a
+  /// [[Call]] and an [[OpenSurface]], FALSE on any other [[Click]] — `navigate`
+  /// (a document load) and the popup close (`history.back()`, no request from
+  /// the control). The slider's continuous value drag is NOT guarded even though
+  /// it posts: it is not a discrete tap.
   ///
   /// The opt-out is the flag itself: a tap with `busy = false` renders
   /// byte-identical to before this field existed.
@@ -101,11 +104,20 @@ class Call extends TapAction {
   busy = true
 }
 
-/// A tap that is its own click expression: [[navigate]] and the surface
-/// opens and closes. `onclick` is what a card whose root cannot be an `<a>`
-/// places for a navigate, so every card renders the same intent.
-class Click extends TapAction {
+/// A tap that is its own click expression: [[navigate]], the popup close, and
+/// (as an [[OpenSurface]]) the surface opens. `onclick` is what a card whose
+/// root cannot be an `<a>` places for a navigate, so every card renders the
+/// same intent.
+open class Click extends TapAction {
   onclick: slotMod.Slot|String
+}
+
+/// A [[Click]] that opens a surface: a popup ([[openPopup]],
+/// [[openPopupInline]]) or a tab's panel ([[selectSurface]]). Guarded like a
+/// [[Call]], because the open answers only once the surface's queries have
+/// resolved, and a chart's history fetch is a wait worth showing (issue #412).
+class OpenSurface extends Click {
+  busy = true
 }
 // All app URLs are RELATIVE: they resolve against the page's <base href>
 // (`/` served directly, the ingress prefix behind the HA supervisor proxy).
@@ -401,11 +413,21 @@ const busyDelayMs: Int = 300
 /// `__ifmissing` is load-bearing: this element is a morph target, and a plain
 /// `data-signals` would re-seed the signal to false on every patch that
 /// touches it — including the ones the in-flight action itself provokes.
-const local function busySpinner(sig: String): String = #"""
-  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)" @@CLASSBIND:busySpin:$\#(sig)_slow@@
+const local function slowCopy(sig: String): String = #"""
+  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)"
   """#
 
+const local function busySpinner(sig: String): String =
+  slowCopy(sig) + " @@CLASSBIND:busySpin:$\(sig)_slow@@"
+
 const busyShapeClass: String = busySpinner("_{{id}}__busy")
+
+/// [[busyShapeClass]] for a host that holds TEXT, not a glyph — a tab. The
+/// same delayed derivation, binding the base stylesheet's `fh-busy-after`,
+/// which draws a ring after the label (`core/css.pkl`): the theme's
+/// `busySpin` is a mask around an icon, and a label has none to wrap.
+const busyTextClass: String =
+  slowCopy("_{{id}}__busy") + #" data-class:fh-busy-after="$_{{id}}__busy_slow""#
 
 /// The slider's VALUE-COMMIT variant of the busy pieces. A slider commits its
 /// position on RELEASE (its `data-on:change` → the value POST), and dragging
@@ -735,8 +757,10 @@ const function pendingOrCommittedOf(groupId: String, committed: String): String 
 /// a POST that never landed left the URL claiming a panel the DOM did not have
 /// (ADR 0024's open half). Public only because the bar is built in
 /// `components/base/surface.pkl`, which cannot reach a `const local`.
-const function selectSurface(surfaceId: String, groupId: String, value: String): slotMod.Slot =
-  openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
+const function selectSurface(surfaceId: String, groupId: String, value: String): OpenSurface =
+  new {
+    onclick = openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
+  }
 
 /// `service` on `target`: `call("scene/turn_on", dump.entities.kveld)`. An area
 /// or floor target reaches entities the dashboard never names, so the server
@@ -821,7 +845,7 @@ function closePopup(): Click =
 // on the page displays a popup selection — the dialog itself is what the swap
 // patches in — so a pending value here would be a signal nobody reads. The
 // committed `ui_popups` still arrives, which is what a refresh restores from.
-function openPopup(surfaceId: String): Click =
+function openPopup(surfaceId: String): OpenSurface =
   new {
     onclick = openSurfaceOnclick(surfaceId, "", null)
   }
@@ -841,7 +865,7 @@ function openPopup(surfaceId: String): Click =
 // or a candidate set (`q...build()`'s `SetNode`) — this parameter must accept
 // the same widened type or it rejects exactly the case `children` was widened
 // for.
-function openPopupInline(body: nodes.LayoutNode): Click = new {
+function openPopupInline(body: nodes.LayoutNode): OpenSurface = new {
   onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "", null)
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }

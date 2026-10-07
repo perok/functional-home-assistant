@@ -524,11 +524,12 @@ object TestServer {
   def servedWorkspace(
       slug: String,
       entrySource: String,
-      entities: List[FixtureEntity]
+      entities: List[FixtureEntity],
+      config: FakeConfig = FakeConfig()
   ): Resource[IO, (TestServer, Uri)] =
     for {
       tmp <- stageWorkspace(slug, entrySource, entities)
-      fake <- FakeHomeAssistant.create(entities).toResource
+      fake <- FakeHomeAssistant.create(entities, config).toResource
       client <- cdnClient
       booted <- assemble(
         fake,

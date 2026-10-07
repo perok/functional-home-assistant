@@ -176,8 +176,14 @@ const local busyCss: String = """
   border:.125rem solid var(--fh-accent);border-block-start-color:transparent;
   animation:fh-busy-spin .8s linear infinite}
   @keyframes fh-busy-spin{to{rotate:1turn}}
+  /* `tap.pkl`'s `busyTextClass`: a label has no glyph to wrap, so the ring
+     follows it, sized to the text. */
+  .fh-busy-after::after{content:"";display:inline-block;inline-size:.8em;
+  block-size:.8em;margin-inline-start:.4em;vertical-align:-.1em;
+  box-sizing:border-box;border-radius:50%;border:.125rem solid currentColor;
+  border-block-start-color:transparent;animation:fh-busy-spin .8s linear infinite}
   @media (prefers-reduced-motion:reduce){
-  .fh-busy-spin{animation:none;border-block-start-color:var(--fh-accent);opacity:.5}
+  .fh-busy-spin,.fh-busy-after::after{animation:none;border-block-start-color:var(--fh-accent);opacity:.5}
   }
   """
 

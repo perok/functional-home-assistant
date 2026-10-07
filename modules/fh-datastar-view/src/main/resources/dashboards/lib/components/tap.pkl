@@ -26,7 +26,7 @@ function default(e: hass.Entity): core.TapAction = moreinfo.defaultTap(e)
 
 /// Open `e`'s more-info popup: its card, its domain's controls, and every
 /// attribute it reports.
-function moreInfo(e: hass.Entity): core.Click = moreinfo.moreInfo(e)
+function moreInfo(e: hass.Entity): core.OpenSurface = moreinfo.moreInfo(e)
 
 /// `service` on `target`, for any service with no typed verb here. Carry one
 /// value with `.with(key, value)`:
@@ -41,10 +41,10 @@ function call(service: String, target: core.Target): core.Call =
 function navigate(slug: String): core.Click = core.navigate(slug)
 
 /// Open the surface registered under `surfaceId`.
-function openPopup(surfaceId: String): core.Click = core.openPopup(surfaceId)
+function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surfaceId)
 
 /// Open a popup holding `body`.
-function openPopupInline(body: nodes.LayoutNode): core.Click = core.openPopupInline(body)
+function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
 
 /// Close the open popup.
 function closePopup(): core.Click = core.closePopup()

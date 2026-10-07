@@ -40,8 +40,8 @@ the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
 `Slider.action` held a service string: one name, two types, on sibling cards.
 
 **A tap names what it acts on.** A `TapAction` is a `Call` — a service on a
-`Target` (an entity, an area or a floor) — or a `Click` (navigate, open or
-close a surface), and a `Call`'s route, its refusal and a state-picked
+`Target` (an entity, an area or a floor) — or a `Click` (navigate, or close a
+popup; an `OpenSurface` when it opens one or a tab's panel), and a `Call`'s route, its refusal and a state-picked
 service all read the TARGET, never the card it sits on. So a card may show one
 entity and act on another, or act while showing none:
 `c.button("Kjøkken", c.tap.toggle(kitchen))`. The alternative this replaced let

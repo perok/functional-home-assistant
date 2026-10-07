@@ -115,7 +115,7 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
 /// `c.entityCard(e) |> c.informative` where the card already names it.
 /// An INLINE popup ([[openPopupInline]]): the body is this entity's, so there is
 /// no registered surface to share and the hoist mints the id.
-function moreInfo(e: hass.Entity): tapMod.TapAction = tapMod.openPopupInline(moreInfoBody(e))
+function moreInfo(e: hass.Entity): tapMod.OpenSurface = tapMod.openPopupInline(moreInfoBody(e))
 
 /// **The default click for any entity card**: the service call its domain
 /// implies, and more-info when its domain implies none.

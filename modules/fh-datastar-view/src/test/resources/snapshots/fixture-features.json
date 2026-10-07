@@ -125,6 +125,8 @@
           },
           "kind" : "component",
           "slots" : {
+            "busy" : "1",
+            "busyVisual" : "1",
             "entity_id" : "sensor.outside_temp",
             "icon" : "mdi mdi-thermometer",
             "label" : "Outside Temperature",
@@ -322,6 +324,8 @@
           },
           "kind" : "component",
           "slots" : {
+            "busy" : "1",
+            "busyVisual" : "1",
             "entity_id" : "light.kitchen",
             "icon" : "mdi mdi-lightbulb",
             "label" : "Kitchen",
@@ -565,6 +569,8 @@
           "card" : "button",
           "kind" : "component",
           "slots" : {
+            "busy" : "1",
+            "busyVisual" : "1",
             "label" : "Detail…",
             "onclick" : {
               "bypassUnavailable" : false,
@@ -618,6 +624,8 @@
           },
           "kind" : "component",
           "slots" : {
+            "busy" : "1",
+            "busyVisual" : "1",
             "label" : "Inline…",
             "onclick" : {
               "bypassUnavailable" : false,
@@ -811,7 +819,7 @@
         "onclick",
         "active"
       ],
-      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>",
+      "template" : "<a data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/disabled__has}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/disabled__has}}{{/tapDisabled__has}}{{/busyVisual}}{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual}} data-class=\"{active: {{{active}}}}\">{{label}}</a>",
       "wrapAsCell" : false
     },
     "tabs" : {
@@ -963,6 +971,8 @@
               },
               "kind" : "component",
               "slots" : {
+                "busy" : "1",
+                "busyVisual" : "1",
                 "entity_id" : "sensor.outside_temp",
                 "icon" : "mdi mdi-thermometer",
                 "label" : "Outside Temperature",
