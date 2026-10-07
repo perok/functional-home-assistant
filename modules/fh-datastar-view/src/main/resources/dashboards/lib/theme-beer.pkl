@@ -38,7 +38,6 @@
 /// would move the body class but not our media query, and is unsupported.
 module themeBeer
 
-import "tokens.pkl" as tokenPalette
 import "theme.pkl" as themeMod
 
 /// Pinned — never `@latest` (visual stability; the dist bundles the Material
@@ -184,9 +183,6 @@ class BeerTheme extends themeMod.Theme {
     ["surface-container-highest"] = "#333537"
   }
 
-  tokens = tokenPalette.light
-  tokensDark = tokenPalette.dark
-
   stylesheets {
     "\(beerCdn)/beer.min.css"
     interCdn
@@ -209,11 +205,6 @@ class BeerTheme extends themeMod.Theme {
   // MutationObserver, so Datastar SSE morphs re-bind.
   scripts {
     "\(beerCdn)/beer.min.js"
-  }
-
-  // The gesture half of the touch rules below — see themeMod.sliderHoldScript.
-  inlineScripts {
-    themeMod.sliderHoldScript
   }
 
   // Same contract as theme.pkl: the `#dashboard` swap target (enforced by

@@ -119,10 +119,19 @@ worth doing. The same block is also hand-minified in the Pkl sources — a runti
 minifier would let the sources be written for humans instead, and is the more
 valuable of the two follow-ups.
 
-**The slider's gesture script still lives in the theme.** `sliderHoldScript` is
-the JS half of rules that are now the slider card's, so it belongs with the card
-under the same argument as its CSS. Scripts have no `cardDef` hole yet; adding
-one is open work, and it is the same shape as `css`.
+**The slider's gesture script still lives in the theme contract.**
+`sliderHoldScript` is the JS half of rules that are now the slider card's, so it
+belongs with the card under the same argument as its CSS. Scripts have no
+`cardDef` hole yet; adding one is open work, and it is the same shape as `css`.
+Until then it is the DEFAULT of `Theme.inlineScripts`, so every theme carries it
+unless it replaces that listing outright — without it the card's touch rules
+leave the range input inert and the slider cannot be moved.
+
+**Every `Theme` property has a working default**, so a theme states only what it
+changes and `new Theme {}` is a complete one: the shared HA tokens, no framework,
+and a frame holding exactly the `#dashboard` and `#popups` hosts. That is what
+makes "the core kit renders under any theme" checkable rather than aspirational
+(`PklBuildSuite`, "a bare `new Theme {}`").
 
 **`Dashboard.css` and `CardDef.css` are wire fields**, both defaulting to `""`,
 so a dashboard JSON written before this decodes unchanged and renders unstyled

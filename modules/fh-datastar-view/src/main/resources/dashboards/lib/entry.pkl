@@ -81,7 +81,7 @@ css = cssMod.baseCss + "\n" + textMod.rootCss(textOverflow)
 
 /// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
 /// `theme.pkl` for the contract + roster). Override in an entry that wants a
-/// different look (`theme = (import "lib/theme-mine.pkl").theme`, any module
+/// different look (`theme = import("theme-mine.pkl").theme`, any module
 /// exporting a `theme.pkl` Theme) or retune
 /// this one by amending (`theme { md3Light { ["primary"] = "#..." } }`).
 theme = themeMod.theme
