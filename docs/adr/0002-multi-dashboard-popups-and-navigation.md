@@ -204,7 +204,7 @@ document rather than restoring a live one; and a link back to the dashboard is a
 forward navigation, which starts at the top by definition.
 
 So the shell carries it: `fhScroll(slug)` (in `src/js/shell.ts`, bundled and
-inlined as `Server.UrlSyncScript`) saves `scrollY` to `sessionStorage` on
+inlined as `Server.ShellScript`) saves `scrollY` to `sessionStorage` on
 `pagehide` and re-applies it as the **last thing in `<body>`**, with
 `history.scrollRestoration='manual'` so the browser's own (zero) restore cannot
 land on top of it. Last in the body is what makes it

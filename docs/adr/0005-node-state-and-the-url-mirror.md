@@ -75,7 +75,7 @@ name, like `conn`.
   hope: the URL below mirrors a value no client ever asserted on its own.
 - **The URL mirrors it**, via `history.replaceState` from the page shell's
   `data-fh-url="['<param>', $signal]"` attribute (`src/js/shell.ts`, inlined by
-  `Server.UrlSyncScript`), as `?ui.<id>=<value>`.
+  `Server.ShellScript`), as `?ui.<id>=<value>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
@@ -213,11 +213,12 @@ Explicit **non-candidate**: slider/value positions (the entity is truth).
   costs nothing per request because it is never sent.
 - The read path is small and bounded to the HTTP layer (`uiStateOf` = query
   params ∪ signals, signals winning as the live value); the write path is one
-  inline helper on the page shell plus one `data-effect` per group.
+  `data-fh-url` attribute per group, registered by the page shell.
 - **Datastar specifics (verified against v1.0.2):** `data-query-string` and
   `data-persist` are Pro; the free bundle has neither, and `data-persist`
   targets storage the server never sees anyway. Re-verify on upgrade — if
-  `data-query-string` becomes available, it replaces `UrlSyncScript` exactly.
+  `data-query-string` becomes available, it replaces `data-fh-url`, except for
+  the popup's history entries.
 - The tao's "Restrained Signal Usage" sanctions a tab index as an appropriate
   signal — `ui_<id>` is not an anti-pattern; the URL mirror is the orthogonal
   persistence layer.

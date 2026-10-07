@@ -1652,8 +1652,8 @@ class Server(
     // the docs' `.debounce_600ms` silently becomes part of the event name.
     val sseEvent = s"${Server.StreamEvent}__document__debounce.600ms"
     // The popup host is the one selection with no card template to seed it,
-    // so the shell declares `ui_<hostId>` and mirrors it to the URL
-    // ([[Server.UrlSyncScript]], ADR 0005).
+    // so the shell declares `ui_<hostId>` and mirrors it to the URL with
+    // `data-fh-url` (ADR 0005).
     //
     // Escaped twice: a JS string literal inside an HTML attribute, and
     // `&#39;` alone decodes back to a bare `'`.
@@ -1700,7 +1700,7 @@ class Server(
        |  <base href="$baseHref">
        |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
        |  $pageTitle
-       |  <script>${Server.UrlSyncScript}</script>
+       |  <script>${Server.ShellScript}</script>
        |  <script>${Server.swRegisterCall}</script>
        |$links
        |  <script type="module" src="$datastar"></script>
@@ -2410,7 +2410,7 @@ object Server {
     * without it a page looks fine and silently loses tab selection, session
     * handoff and scroll.
     */
-  val UrlSyncScript: String = FrontendAssets.content("shell")
+  val ShellScript: String = FrontendAssets.content("shell")
 
   /** Hands the shell's `fhUrlMirror` the page's own Datastar module. The same
     * URL as the page's module script, or it is a second Datastar instance that
@@ -2426,7 +2426,7 @@ object Server {
       )}'; fhUrlMirror(datastar)</script>"""
   }
 
-  /** Classic and inline for the same reason as [[UrlSyncScript]]: it must run
+  /** Classic and inline for the same reason as [[ShellScript]]: it must run
     * before Datastar's deferred module.
     */
   val swRegisterCall: String =
