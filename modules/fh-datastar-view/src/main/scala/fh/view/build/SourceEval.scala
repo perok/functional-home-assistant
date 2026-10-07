@@ -5,8 +5,14 @@ import io.circe.Json
 /** The authoring-language seam; Pkl is the only language. */
 object SourceEval {
 
-  /** `imports` are the entry and its transitive imports, for watching. */
-  case class Result(value: Json, imports: Set[os.Path])
+  /** `imports` are the entry and its transitive imports, for watching.
+    * `fromCache`: no evaluation ran ([[SiteEvalCache]]).
+    */
+  case class Result(
+      value: Json,
+      imports: Set[os.Path],
+      fromCache: Boolean = false
+  )
 
   /** Not pure despite the signature: it reads files and runs pkl-core, so
     * callers suspend it in `IO.blocking`.

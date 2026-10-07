@@ -16,6 +16,7 @@ import org.pkl.core.{
 }
 
 import java.io.{FileOutputStream, PrintWriter, StringWriter}
+import java.net.URI
 
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
@@ -51,18 +52,34 @@ object PklBuild {
       project.foreach(ensureLockfile(dashboardsDir, _, builder))
       // After `applyFromProject`, which leaves its own default when the
       // project declares none; the seeded packages live here.
-      builder.setModuleCacheDir(cacheDir(dashboardsDir, project).toNIO)
-      val evaluator = builder.build()
-      val module =
-        try evaluator.evaluate(ModuleSource.path(entry.toNIO))
-        finally evaluator.close()
-      val writer = new StringWriter
-      ValueRenderers.json(writer, "  ", true).renderDocument(module)
-      parser.parse(writer.toString).left.map(_.message).map { json =>
-        SourceEval.Result(
-          json,
-          importSet(dashboardsDir, entry, project)
-        )
+      val moduleCache = cacheDir(dashboardsDir, project)
+      builder.setModuleCacheDir(moduleCache.toNIO)
+      val evalCache = SiteEvalCache.dir(moduleCache)
+      val before = importGraph(dashboardsDir, entry, project)
+      val key = before.map(SiteEvalCache.key(dashboardsDir, _))
+      key.flatMap(SiteEvalCache.read(evalCache, _)) match {
+        case Some(json) =>
+          Right(
+            SourceEval.Result(
+              json,
+              workspaceFiles(dashboardsDir, entry, before),
+              fromCache = true
+            )
+          )
+        case None =>
+          val evaluator = builder.build()
+          val module =
+            try evaluator.evaluate(ModuleSource.path(entry.toNIO))
+            finally evaluator.close()
+          val writer = new StringWriter
+          ValueRenderers.json(writer, "  ", true).renderDocument(module)
+          parser.parse(writer.toString).left.map(_.message).map { json =>
+            key.foreach(SiteEvalCache.write(evalCache, _, json))
+            // A package the evaluation fetched was invisible to the analysis.
+            val graph =
+              before.orElse(importGraph(dashboardsDir, entry, project))
+            SourceEval.Result(json, workspaceFiles(dashboardsDir, entry, graph))
+          }
       }
     } catch {
       case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
@@ -185,24 +202,25 @@ object PklBuild {
     */
   def fileImports(dashboardsDir: os.Path, entryFile: String): Set[os.Path] =
     serialized {
-      importSet(
+      val entry = dashboardsDir / os.SubPath(entryFile)
+      val project = Try(loadProject(dashboardsDir)).toOption.flatten
+      workspaceFiles(
         dashboardsDir,
-        dashboardsDir / os.SubPath(entryFile),
-        Try(loadProject(dashboardsDir)).toOption.flatten
+        entry,
+        importGraph(dashboardsDir, entry, project)
       )
     }
 
-  /** The entry's transitive `file:` imports under the workspace, by static
-    * analysis; package imports (the lib, the dump) are immutable and dropped.
-    * The cache dir and declared dependencies must reach the `Analyzer`, or the
-    * `@` aliases do not resolve. A failed or empty analysis falls back to every
-    * `*.pkl` under the dir.
+  /** Every module the entry reaches, packages and the stdlib included, by
+    * static analysis. The cache dir and declared dependencies must reach the
+    * `Analyzer`, or the `@` aliases do not resolve. `None` when the analysis
+    * fails or finds nothing.
     */
-  private def importSet(
+  private def importGraph(
       dashboardsDir: os.Path,
       entry: os.Path,
       project: Option[Project]
-  ): Set[os.Path] = {
+  ): Option[Set[URI]] = {
     val factories =
       List(
         ModuleKeyFactories.standardLibrary,
@@ -210,7 +228,7 @@ object PklBuild {
         ModuleKeyFactories.projectpackage,
         ModuleKeyFactories.pkg
       )
-    val precise = Try {
+    Try {
       val analyzer = new Analyzer(
         StackFrameTransformers.defaultTransformer,
         false,
@@ -224,17 +242,27 @@ object PklBuild {
         TraceMode.COMPACT
       )
       val graph = analyzer.importGraph(entry.toNIO.toUri)
-      val uris =
-        graph.imports.keySet.asScala.toSet ++ graph.resolvedImports.values.asScala.toSet
-      uris.iterator
-        .filter(u => u.getScheme == "file")
-        .map(u => os.Path(java.nio.file.Paths.get(u)))
-        .filter(_.startsWith(dashboardsDir))
-        .toSet
+      graph.imports.keySet.asScala.toSet ++ graph.resolvedImports.values.asScala.toSet
     }.toOption.filter(_.nonEmpty)
-
-    precise.getOrElse(superset(dashboardsDir)) + entry
   }
+
+  /** The watch set: the graph's `file:` modules under the workspace, since
+    * package imports (the lib, the dump) are immutable. Without a usable graph,
+    * every `*.pkl` under the dir.
+    */
+  private def workspaceFiles(
+      dashboardsDir: os.Path,
+      entry: os.Path,
+      graph: Option[Set[URI]]
+  ): Set[os.Path] =
+    graph
+      .map(
+        _.filter(_.getScheme == "file")
+          .map(u => os.Path(java.nio.file.Paths.get(u)))
+          .filter(_.startsWith(dashboardsDir))
+      )
+      .filter(_.nonEmpty)
+      .getOrElse(superset(dashboardsDir)) + entry
 
   // Over-watching is harmless: any change re-evaluates everything.
   private def superset(dashboardsDir: os.Path): Set[os.Path] =
