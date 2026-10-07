@@ -3,7 +3,6 @@ package fh.view.smoke
 import cats.effect.IO
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
-import com.microsoft.playwright.options.BoundingBox
 import fh.view.runtime.TestServer
 import fh.view.testkit.HouseFixture
 
@@ -69,33 +68,39 @@ class PopupHistorySmokeSuite extends SmokeSuite {
 
   private val popupParam = """.*[?&]ui\.popups=.*"""
 
-  /** A point on `target` that `cover` does not cover, if its left or right end
-    * is clear. Inset from the end so a rounded corner does not decide it.
-    */
-  private def beside(
-      target: BoundingBox,
-      cover: BoundingBox
-  ): Option[(Double, Double)] =
-    List(target.x + 12, target.x + target.width - 12)
-      .find(x => x < cover.x || x > cover.x + cover.width)
-      .map(_ -> (target.y + target.height / 2))
+  /** Whether a tap at a point would land in the dashboard behind the popup. */
+  private def reachesDashboard(page: Page, x: Double, y: Double): IO[Boolean] =
+    IO.blocking(
+      page
+        .evaluate(
+          s"() => !!document.elementFromPoint($x, $y)?.closest('#dashboard')"
+        )
+        .toString
+        .toBoolean
+    )
 
   test("a tap beside the popup steps back, and the page behind never gets it") {
-    // The tap lands where "Open first" is, outside the dialog. Without the
-    // backdrop it would reach that button or the page, and the popup would stay.
     withPageOn(served) { (page, _) =>
       for {
         start <- href(page)
         opener <- IO.blocking(
           page.getByText("Open first", exactText).boundingBox()
         )
+        (ox, oy) = (opener.x + opener.width / 2, opener.y + opener.height / 2)
+        control <- reachesDashboard(page, ox, oy)
+        _ = assert(
+          control,
+          "control: with no popup, the opener is the dashboard"
+        )
         _ <- click(page, "Open first")
         _ <- showing(page, "First popup")
-        cover <- IO.blocking(dialog(page).boundingBox())
-        point = beside(opener, cover).getOrElse(
-          fail("the dialog covers the whole opener", clues(opener, cover))
-        )
-        _ <- IO.blocking(page.mouse().click(point._1, point._2))
+        // Asked rather than tapped, since a tap here may land in the dialog:
+        // whatever is on top, it is not the dashboard's own button.
+        reached <- reachesDashboard(page, ox, oy)
+        _ = assert(!reached, "a tap on the opener reaches the dashboard")
+        // A corner of the viewport is outside the dialog whatever its size.
+        corner <- IO.blocking(page.evaluate("() => innerHeight - 4").toString)
+        _ <- IO.blocking(page.mouse().click(4, corner.toDouble))
         _ <- closed(page)
         _ <- eventually(href(page))(_ == start)
       } yield ()
