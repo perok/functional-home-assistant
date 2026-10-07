@@ -37,6 +37,8 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-dashboard/core/slot.pkl" as slotMod
+       |import "@fh-dashboard/core/predicate.pkl" as pred
+       |import "@fh-dashboard/core/simple.pkl" as simpleMod
        |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |
@@ -212,6 +214,52 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def errorsOf(body: String): List[String] =
     PklFixture.buildDashboard("expression-values", entry(body)).validate()
 
+  private def anyOn(value: String): String =
+    s"""    ((c.button("Stue", c.tap.closePopup())) {
+       |      expressionValues { ["any_on"] = $value }
+       |    }).secondary(c.expr("any_on ? 'Some on' : 'All off'"))""".stripMargin
+
+  test(
+    "a condition is a bool value, and its flip sends a frame, not the line"
+  ) {
+    val body = anyOn("q.from(lights).where(q.eq(q.stateProp, \"on\")).any()")
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = onlySignal(html)
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains(">Some on</span>"), clue = html)
+        assert(
+          sent.contains(sig.split('.').last + "\":\"All off\""),
+          clue = sent
+        )
+        assert(!sent.contains("fh-sub"), clue = sent)
+      }
+    }
+  }
+
+  test("a condition on one named entity is a value too") {
+    val body =
+      anyOn(s"""q.entity(dump.entities.${living.dumpKey}).stateIs("on")""")
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains(">All off</span>"), clue = html)
+        assert(sent.contains("\"Some on\""), clue = sent)
+      }
+    }
+  }
+
+  test("a condition comparing an entity it does not name fails the build") {
+    val errs = errorsOf(
+      anyOn("""new pred.Cmp { property = "state"; op = "eq"; value = "on" }""")
+    )
+    assert(errs.exists(_.contains("does not name")), errs)
+  }
+
   test(
     "an expression naming a value the node does not declare fails the build"
   ) {
@@ -244,5 +292,254 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
         |    }).secondary(c.expr("state"))""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would hide the 'state'")), errs)
+  }
+
+  // A boolean slot filled as `input` says, beside a second line reading the count
+  // so the value is read by something either way.
+  private def yesNo(input: String): List[String] =
+    errorsOf(
+      s"""    ((c.button("Stue", c.tap.closePopup())) {
+         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+         |      $input
+         |    }).secondary(c.expr("string(n)"))""".stripMargin
+    )
+
+  private val notBool = "does not produce a bool"
+
+  test("a boolean slot whose CEL is not a bool fails the build") {
+    val int = """new slotMod.Slot { transform = "n" }"""
+    assert(
+      yesNo(
+        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }"""
+      )
+        .exists(_.contains(notBool))
+    )
+    assert(yesNo(s"disabled = $int").exists(_.contains(notBool)))
+  }
+
+  test("a boolean slot whose Simple shape is text fails the build") {
+    val text =
+      s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
+    assert(yesNo(s"disabled = $text").exists(_.contains(notBool)))
+  }
+
+  test(
+    "a comparison, a boolean match and a condition all fill a boolean slot"
+  ) {
+    val cmp = """new slotMod.Slot { transform = "n > 0" }"""
+    assertEquals(
+      yesNo(s"disabled = $cmp").filter(_.contains(notBool)),
+      Nil
+    )
+    val isOn = s"c.isOn(dump.entities.${kitchen.dumpKey})"
+    assertEquals(
+      yesNo(s"disabled = $isOn").filter(_.contains(notBool)),
+      Nil
+    )
+  }
+
+  // The floor button: tinted while any light is on, disabled while none is.
+  private def floorButton(label: String, over: String = "lights"): String =
+    s"""    c.button("$label", c.tap.lights.off(dump.entities.${kitchen.dumpKey}))
+       |      .secondary(c.expr("string(n) + ' on'"))
+       |      .active(q.from($over).where(q.eq(q.stateProp, "on")).any())
+       |      .disabled(q.from($over).where(q.eq(q.stateProp, "on")).none())
+       |      .expressionValues(new Mapping { ["n"] = q.from($over).where(q.eq(q.stateProp, "on")).count() })""".stripMargin
+
+  private def classSignals(html: String): List[String] =
+    """data-class:fh-active="\$([^"]+)"""".r
+      .findAllMatchIn(html)
+      .map(_.group(1))
+      .toList
+
+  private def disabledSignal(html: String): String =
+    """data-attr:disabled="[^"]*\$(_e\._x\.[A-Za-z0-9_]+)""".r
+      .findFirstMatchIn(html)
+      .map(_.group(1))
+      .getOrElse(fail("no condition-backed disabled binding", clues(html)))
+
+  private def leaf(signal: String): String = signal.split('.').last
+
+  // The bare attribute, as the document form writes it — not `data-attr:disabled`.
+  private def staticallyDisabled(html: String): Boolean =
+    """<button class="card"[^>]*\sdisabled[\s>]""".r.findFirstIn(html).isDefined
+
+  test("a condition tints and disables a button, and its flip is one frame") {
+    withServer(floorButton("Stue")) { ts =>
+      for {
+        html <- ts.page()
+        active = classSignals(html).headOption.getOrElse(
+          fail("no class binding", clues(html))
+        )
+        disabled = disabledSignal(html)
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains("""class="fh-cell fh-active""""), clue = html)
+        assert(!staticallyDisabled(html), clue = html)
+        assert(sent.contains(s"\"${leaf(active)}\":false"), clue = sent)
+        assert(sent.contains(s"\"${leaf(disabled)}\":true"), clue = sent)
+        assert(!sent.contains("fh-cell"), clue = sent)
+      }
+    }
+  }
+
+  test("two buttons tinted by the same condition share one signal") {
+    withServer(floorButton("Stue") + "\n" + floorButton("Gang"))(_.page()).map {
+      html =>
+        val sigs = classSignals(html)
+        assertEquals(sigs.size, 2, clue = html)
+        assertEquals(sigs.distinct.size, 1, clue = sigs)
+    }
+  }
+
+  test("a condition the build settles is no live slot at all") {
+    // Nothing to count: `any()` is `false` and `none()` is `true` at build time.
+    withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
+      assertEquals(classSignals(html), Nil, clue = html)
+      assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
+      assert(html.contains("<button class=\"card\""), clue = html)
+      assert(staticallyDisabled(html), clue = html)
+    }
+  }
+
+  test("classWhen takes a condition and an expression over values") {
+    val body =
+      s"""    c.button("Stue", c.tap.closePopup())
+         |      .secondary(c.expr("string(n) + ' on'"))
+         |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+         |      .classWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
+         |      .classWhen("fh-many", c.expr("n > 1"))""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains("""class="fh-cell fh-some""""), clue = html)
+        assert(html.contains("data-class:fh-some="), clue = html)
+        assert(html.contains("data-class:fh-many="), clue = html)
+        // Two of two on: `fh-many` turns on, `fh-some` was already.
+        assert(sent.contains(":true"), clue = sent)
+        assert(!sent.contains("fh-cell"), clue = sent)
+      }
+    }
+  }
+
+  test("an author's value may not take a name the boolean inputs use") {
+    val body =
+      """    ((c.button("Stue", c.tap.closePopup())) {
+        |      expressionValues { ["__active"] = 1 }
+        |    }).secondary(c.expr("string(__active)"))""".stripMargin
+    val err =
+      scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
+    assert(err.contains("""!startsWith("__")"""), clue = err)
+  }
+
+  private val noneOn =
+    """q.from(lights).where(q.eq(q.stateProp, "on")).none()"""
+
+  // The card's own reason, ORed after the tap's in the refusal guard.
+  private def conditionSignal(html: String): String =
+    """\|\| \$([A-Za-z0-9_.]+) \? '' :""".r
+      .findFirstMatchIn(html)
+      .map(_.group(1))
+      .getOrElse(fail("no second refusal reason", clues(html)))
+
+  test("a disabled tile wears fh-disabled and refuses its tap while it holds") {
+    val body =
+      s"    c.entityCard(dump.entities.${kitchen.dumpKey}).disabled($noneOn)"
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = conditionSignal(html)
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(
+          s"""data-class:fh-disabled="[^"]*\\$$${sig.replace(".", "\\.")}""".r
+            .findFirstIn(html)
+            .isDefined,
+          clue = html
+        )
+        assert(
+          s"""data-on:click="[^"]*\\$$${sig.replace(".", "\\.")} \\? '' :""".r
+            .findFirstIn(html)
+            .isDefined,
+          clue = html
+        )
+        assert(sent.contains(s"\"${leaf(sig)}\":true"), clue = sent)
+      }
+    }
+  }
+
+  test("a disabled slider disables its range and guards its commit") {
+    val body =
+      s"    c.entitySlider(dump.entities.${kitchen.dumpKey}).disabled($noneOn)"
+    withServer(body)(_.page()).map { html =>
+      val sig = conditionSignal(html).replace(".", "\\.")
+      assert(
+        // Lazy, not `[^>]*`: the input's own `data-effect` holds a `>`.
+        s"""(?s)<input type="range".*?data-attr:disabled="[^"]*\\$$$sig""".r
+          .findFirstIn(html)
+          .isDefined,
+        clue = html
+      )
+      assert(
+        s"""data-on:change="[^"]*\\$$$sig \\? '' :""".r
+          .findFirstIn(html)
+          .isDefined,
+        clue = html
+      )
+    }
+  }
+
+  private def propertyButton(property: String): String =
+    s"""    c.button("Stue", c.tap.closePopup())
+       |      .secondary(c.expr("string(n) + ' on'"))
+       |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+       |      $property""".stripMargin
+
+  test("a cssProperty is inline in the document and moves by one frame") {
+    val body =
+      propertyButton(
+        """.cssProperty("--fh-fill", c.expr("string(n * 50) + '%'"))"""
+      )
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(
+          html.contains("""<div class="fh-cell" style="--fh-fill:50%""""),
+          clue = html
+        )
+        assert(html.contains("data-style:--fh-fill=\"$"), clue = html)
+        assert(sent.contains("\"100%\""), clue = sent)
+        assert(!sent.contains("fh-cell"), clue = sent)
+      }
+    }
+  }
+
+  test("a cssProperty takes a Simple reading, on the fast tier") {
+    val body = propertyButton(
+      s""".cssProperty("--fh-name", new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+    )
+    withServer(body)(_.page()).map { html =>
+      assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)
+    }
+  }
+
+  test("a cssProperty that reads a bool fails the build") {
+    val isOn = propertyButton(
+      s""".cssProperty("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
+    )
+    assert(errorsOf(isOn).exists(_.contains("reads a bool")), errorsOf(isOn))
+    val cmp = propertyButton(""".cssProperty("--fh-on", c.expr("n > 0"))""")
+    assert(errorsOf(cmp).exists(_.contains("reads a bool")), errorsOf(cmp))
+  }
+
+  test("a cssProperty must be a custom property") {
+    val body = propertyButton(""".cssProperty("color", c.expr("'red'"))""")
+    val err =
+      scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
+    assert(err.contains("""startsWith("--")"""), clue = err)
   }
 }

@@ -50,6 +50,9 @@ private[runtime] object Conditions {
           case ExprValue.Flag(b)  => java.lang.Boolean.valueOf(b)
           case ExprValue.Count(t) =>
             java.lang.Long.valueOf(present(t, states).toLong)
+          // Subject-free (`validate`), as a state condition is.
+          case ExprValue.Holds(p) =>
+            java.lang.Boolean.valueOf(matchesIn(p, EntityState.none, states))
         }
         .toMap
 

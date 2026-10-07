@@ -58,6 +58,12 @@ class Slot {
   /// The card's template MUST place [[signalBind]] for this slot, or the value
   /// stops updating; the backend rejects the dashboard if it does not.
   signal: SignalBind? = null
+  /// What the card reads the value AS, set where it binds the slot, beside
+  /// [[signal]]: `"bool"` for a slot its template reads as on/off (a `disabled`
+  /// ORed into `data-attr:disabled`, where the string `"false"` is truthy), and
+  /// the build refuses a reading that does not produce one. Null is text. A
+  /// `class:` binding is a bool by kind and needs none.
+  type: SlotType? = null
   /// Makes this a QUERY slot: the value comes from a provider, not live state.
   /// Build one with a provider's helper (`components/history.pkl`'s
   /// `chartSlot`) or [[querySlot]].
@@ -82,6 +88,9 @@ const function querySlot(
   args: Mapping<String, String|varMod.Ref>
 ): Slot =
   new Slot { query = new Query { provider = name; params = args } }
+
+/// What a card reads a slot's value as — see [[Slot.type]].
+typealias SlotType = "text"|"bool"
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one
@@ -204,18 +213,6 @@ const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
   transform = simpleMod.stateIn(states.toListing())
   bypassUnavailable = false
 }
-
-/// The boolean attribute `attr`, set while slot `a` OR slot `b` holds — for a
-/// control with two independent reasons to refuse, such as its tap's and its
-/// own. Either slot may be absent. Both must be literals or [[asHandler]]
-/// signals: one `data-attr:<attr>` ORs their reads, since two bindings of the
-/// same attribute would leave only the first.
-const function attrWhenEither(attr: String, a: String, b: String): String =
-  "{{#\(a)}} \(attr){{/\(a)}}{{^\(a)}}{{#\(b)}} \(attr){{/\(b)}}{{/\(a)}}" +
-    ifSlot(a) + " data-attr:\(attr)=\"" + slotRead(a) +
-    ifSlot(b) + " || " + slotRead(b) + endIfSlot(b) + "\"" + endIfSlot(a) +
-    ifNoSlot(a) + ifSlot(b) + " data-attr:\(attr)=\"" + slotRead(b) + "\"" +
-    endIfSlot(b) + endIfNoSlot(a)
 
 /// The section a card wraps optional markup in, when that markup holds a slot:
 ///
