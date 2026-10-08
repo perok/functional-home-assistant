@@ -645,6 +645,24 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("card scripts are inlined once each, ahead of the theme's") {
+    // A theme cannot drop a card's script, and cards sharing one run it once.
+    val cardJs = "document.addEventListener('pointermove',()=>{});"
+    val themeJs = "void 0;"
+    val base = titleDash("home", None)
+    val shared = CardDef("<i></i>", script = Some(cardJs))
+    val dash = base.copy(
+      cards = base.cards ++ Map("a" -> shared, "b" -> shared),
+      theme = Theme(inlineScripts = List(themeJs))
+    )
+    pageHtml(dash).map { html =>
+      val card = html.indexOf(s"<script>$cardJs</script>")
+      assert(card >= 0, html)
+      assertEquals(html.indexOf(s"<script>$cardJs</script>", card + 1), -1)
+      assert(card < html.indexOf(s"<script>$themeJs</script>"), html)
+    }
+  }
+
   test("patchElements collapses multi-line fragments to a single data line") {
     val sse = Datastar.patchElements("<div>\n  <span>x</span>\n</div>")
     assertEquals(sse.eventType, Some("datastar-patch-elements"))

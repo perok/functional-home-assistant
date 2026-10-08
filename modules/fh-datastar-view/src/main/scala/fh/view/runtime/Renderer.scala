@@ -411,7 +411,9 @@ class Renderer(
 
   def scripts: List[String] = dashboard.theme.scripts
 
-  def inlineScripts: List[String] = dashboard.theme.inlineScripts
+  /** Cards first, as in the cascade [[themeStyleTag]] writes. */
+  def inlineScripts: List[String] =
+    dashboard.cardScripts ++ dashboard.theme.inlineScripts
 
   def title: Option[String] = dashboard.title
 
@@ -1988,6 +1990,7 @@ object Renderer {
         dashboard.theme.deferredStylesheets,
         dashboard.theme.scripts,
         dashboard.theme.inlineScripts,
+        dashboard.cardScripts,
         dashboard.theme.chrome,
         // The one token-derived head part a style patch cannot repair.
         themeColorTags(dashboard)

@@ -631,6 +631,16 @@ class ResumeSuite extends ServerHarness {
     assertNotEquals(Renderer.create(editedChrome).headHash, base)
   }
 
+  test("a card's script is head, not body: changing it reloads") {
+    val base = Renderer.create(liveLeafDash).headHash
+    val scripted = liveLeafDash.copy(cards =
+      liveLeafDash.cards.updatedWith("card")(
+        _.map(_.copy(script = Some("void 0;")))
+      )
+    )
+    assertNotEquals(Renderer.create(scripted).headHash, base)
+  }
+
   test("styleHash tracks the patchable head, and headHash ignores it") {
     val base = Renderer.create(liveLeafDash)
     assertEquals(Renderer.create(liveLeafDash).styleHash, base.styleHash)
