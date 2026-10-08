@@ -36,8 +36,7 @@ const local pressClass: String = "fh-press{{#glyph}} fh-badged{{/glyph}}"
 // It rests on the card surface and takes the accent only while `fh-active`,
 // which sits on the cell; a container painting its buttons by position must
 // leave an active one alone. Inside a card it steps to the alternate surface,
-// or it would vanish into it. The badge's tint is the glyph's own colour behind
-// it, so it follows the accent and the active fill without a colour of its own.
+// or it would vanish into it, and its badge steps the other way.
 const local pressCss: String = """
   .fh-cell>:is(.button,button).fh-press{inline-size:100%;box-sizing:border-box;
   block-size:auto;min-block-size:3.25rem;justify-content:flex-start;gap:.75rem;
@@ -45,18 +44,12 @@ const local pressCss: String = """
   background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
   .fh-cell>:is(.button,button).fh-press.fh-badged{padding-inline-start:.5rem}
   .card .fh-cell>:is(.button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
+  .card .fh-press .fh-badge:not(.shape){background:var(--fh-surface)}
   .fh-press .fh-sub{color:var(--fh-text-dim)}
   .fh-cell.fh-active>:is(.button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
   .fh-cell.fh-active>.fh-press .fh-sub{color:inherit;opacity:.8}
   .fh-cell>:is(.button,button).circle{background:var(--fh-surface-alt);color:var(--fh-accent)}
   .fh-cell.fh-active>:is(.button,button).circle{background:var(--fh-accent);color:var(--fh-on-accent)}
-  .fh-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;
-  flex:0 0 auto;inline-size:2.25rem;block-size:2.25rem;border-radius:50%;color:var(--fh-accent)}
-  .fh-cell.fh-active>.fh-press .fh-badge{color:var(--fh-on-accent)}
-  .fh-badge:before{content:"";position:absolute;inset:0;border-radius:inherit;
-  background:currentColor;opacity:.15}
-  .fh-badge>i{position:relative;font-size:1.25rem}
-  .fh-lines{display:flex;flex-direction:column;align-items:flex-start;min-inline-size:0}
   """
 
 /// A label, a glyph and a tap that names its own target.

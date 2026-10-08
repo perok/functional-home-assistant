@@ -116,9 +116,12 @@ const local shellCss: String = """
   border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
   """
 
-/// The text roles every card shares: `fh-reading`, a card's own live value;
+/// The roles every card shares: `fh-reading`, a card's own live value;
 /// `fh-sub`, a smaller line about it (`em`, so it scales where nested);
-/// `fh-section`, a heading over a group.
+/// `fh-section`, a heading over a group; `fh-badge`, the round seat a card's
+/// glyph sits in, the slider head's look, so a button, a tile and a slider
+/// carry one badge; `fh-lines`, a title with its reading and second line under
+/// it.
 ///
 /// Prefixed, because these share the cascade with the theme's framework, whose
 /// single-word utilities can be `!important`. Sizes are absolute, because a
@@ -128,6 +131,11 @@ const local sharedCss: String = """
   .fh-sub{font-size:.8em;color:var(--fh-text-dim)}
   .fh-section{color:var(--fh-accent);font-size:1.125rem;font-weight:600;
   line-height:1.3;margin:0}
+  .fh-badge{display:inline-flex;align-items:center;justify-content:center;
+  flex:0 0 auto;inline-size:2.25rem;block-size:2.25rem;border-radius:50%;
+  background:var(--fh-surface-alt);color:var(--fh-accent)}
+  .fh-badge>i{font-size:1.25rem;line-height:1}
+  .fh-lines{display:flex;flex-direction:column;align-items:flex-start;min-inline-size:0}
   """
 
 /// No pinch or double-tap zoom on touch (#306): a dashboard is an app surface
