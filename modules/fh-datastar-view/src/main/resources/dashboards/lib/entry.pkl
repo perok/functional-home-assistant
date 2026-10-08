@@ -1,24 +1,9 @@
-/// ONE dashboard: the scaffold that used to be copy-pasted into each entry —
-/// the reflected card registry and the shared theme — so a dashboard is written
-/// as `card` (plus an optional `title`/`surfaces`, or a `theme` override) and
-/// nothing else.
+/// One dashboard: the card registry and the theme, so an entry sets `card`
+/// (and optionally `title`, `surfaces`, `theme`, `access`) and nothing else.
 ///
-/// You reach this module through `site.pkl`'s `dashboards` mapping, either
-/// inline (`["home"] { card = ... }`) or as a file of its own that
-/// `amends "@fh-dashboard/entry.pkl"` and is imported into a key. The SLUG is
-/// that mapping key — never the filename (ADR 0021).
-///
-/// `title` feeds the page `<title>` (Server falls back to the slug when null);
-/// `omitNullProperties` drops it from the wire JSON when left unset.
-///
-/// AUTHORING NOTE — the required `card`: because `card` has no default here, a
-/// dashboard that forgets to set it fails with
-///   "Tried to read property `card` but its value is undefined"
-/// whose caret points at THIS module's `card` line (below), NOT at your own
-/// source (Pkl reports a missing required property at the class/base definition
-/// — see the CLAUDE.md Pkl gotchas). The trailing "occurred when rendering path
-/// `dashboards[<slug>].card`" names WHICH dashboard, though. The fix is there:
-/// assign `card = new c.Column { ... }` (or another `c.Node`).
+/// Reached through `site.pkl`'s `dashboards`, inline (`["home"] { card = ... }`)
+/// or as a module that amends this one and is imported into a key. The slug is
+/// the key, never the file name (ADR 0021).
 module entry
 
 import "components.pkl" as c
@@ -27,95 +12,60 @@ import "core/css.pkl" as cssMod
 import "core/text.pkl" as textMod
 import "theme-beer.pkl" as themeMod
 
-/// The component modules whose card classes this dashboard can use. The
-/// authoring library is always here; ADD a module to use cards it defines:
+/// The modules whose card classes this dashboard can use. The library's are
+/// always here; add yours:
 ///
 ///   import "@fh-dashboard/components.pkl" as c
 ///   import "mycards.pkl" as mine
 ///   componentModules { mine }
 ///   card = (c.column) { children { mine.gauge(...) } }
 ///
-/// Why this is explicit rather than inferred from your imports: Pkl reflection
-/// exposes an import only as a URI string and cannot turn one back into a
-/// module, so the library has no way to find your cards unless you name them.
-/// Forgetting to register a module you use is a "card not found" from
-/// `Dashboard.validate` at build time, not a broken dashboard at runtime.
-///
-/// Your cards must live in their own module (not inline in this entry): classes
-/// in an amending module need `local`, and `local` classes are invisible to
-/// reflection, so an inline card class would never register.
+/// Explicit, because Pkl reflection sees an import only as a URI string and
+/// cannot find your cards on its own. A module you forget is a "card not
+/// found" at build time. Cards must live in a module of their own: a class
+/// inline in an entry must be `local`, which reflection cannot see.
 hidden componentModules: Listing<Module> = new {
   for (m in c.modules) { m }
 }
 
-/// The reflected card registry (each card class's template, slots and CSS),
-/// collected from [[componentModules]]. Two modules claiming one card name is an
-/// error.
-///
-/// Built with the THEME, because this is the one point where a theme's own class
-/// names reach card markup (`core/node.pkl`'s `cardsWith` — the spinner is
-/// today's only user). A card's markup is a class-level default that cannot see
-/// the theme; the registry is an ordinary call that can.
+/// The card registry from [[componentModules]]. Built with the theme, because
+/// this call is where a theme's class names reach card markup.
 cards = c.cardsWith(componentModules.toList(), theme.classes)
 
-/// What every card on THIS dashboard does with a label longer than its box:
-/// `wrap` it onto a second line, `clip` it with an ellipsis (the default), or
-/// `scroll` it past its box and back. See `core/text.pkl`.
-///
-/// One card differs by saying so itself — `c.entityCard(e).textOverflow("wrap")`
-/// — which wins wherever it sits, this included.
-///
-/// `hidden`, because it is spelled out in [[css]] below: the wire model carries
-/// the rules, not the choice that produced them.
+/// What every card here does with a label longer than its box: `wrap`, `clip`
+/// (the default) or `scroll` (`core/text.pkl`). One card differs with
+/// `.textOverflow(…)`.
 hidden textOverflow: textMod.Overflow = textMod.defaultOverflow
 
-/// The CSS every dashboard gets whatever its theme: the `fh-` layout contract,
-/// the `--fh-*` variables the cards read, and the classes the runtime itself
-/// emits (`core/css.pkl`). Assigned here rather than reached through the theme
-/// precisely so a theme cannot drop it — it may only override it, since the
-/// renderer emits it first (ADR 0020).
-///
-/// [[textOverflow]] lands LAST of the base rules and at `:root`, so it beats the
-/// `var()` fallbacks and loses to any node that named a mode of its own.
+/// The base CSS (`core/css.pkl`), assigned here so a theme cannot drop it
+/// (ADR 0020). [[textOverflow]] lands last, at `:root`, so any node naming a
+/// mode of its own still wins.
 css = cssMod.baseCss + "\n" + textMod.rootCss(textOverflow)
 
-/// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
-/// `theme.pkl` for the contract + roster). Override in an entry that wants a
-/// different look (`theme = import("theme-mine.pkl").theme`, any module
-/// exporting a `theme.pkl` Theme) or retune
-/// this one by amending (`theme { md3Light { ["primary"] = "#..." } }`).
+/// BeerCSS Material 3 (`theme-beer.pkl`). Swap with
+/// `theme = import("theme-mine.pkl").theme`, or amend:
+/// `theme { md3Light { ["primary"] = "#..." } }`.
 theme = themeMod.theme
 
-/// The page `<title>`; null (the default, dropped from the wire JSON) means the
-/// Server falls back to the dashboard's slug.
+/// The page `<title>`; null falls back to the slug.
 title: String? = null
 
-/// Registered popup surfaces (opened by an `openPopup(id)` tap). Inline popups
-/// and tab panels ride on their node's `inlineSurfaces` and are hoisted into
-/// this registry at build time, so most entries leave this empty.
-///
-/// The mapping DEFAULT is a [[c.PopupSurface]], so a popup surface amends into
-/// existence — no `new`, and the [[c.Popup]] dialog wrap is automatic:
+/// Popups opened by `openPopup(id)`. Inline popups and tab panels are hoisted
+/// in at build time, so most entries leave this empty. A popup amends into
+/// existence:
 ///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
-/// A non-popup surface is an explicit `["x"] = new c.SurfaceDef { ... }`.
+/// Anything else is `["x"] = new c.SurfaceDef { ... }`.
 surfaces: Mapping<String, c.SurfaceDef> = new { default = (_) -> new c.PopupSurface {} }
 
-/// Who may see this dashboard (issue #89). `null` — the default — means
-/// "whatever the site says", so the rule is written in ONE place unless a
-/// particular dashboard differs:
+/// Who may see this dashboard (#89); null inherits the site's rule. HA is the
+/// identity provider (`core/access.pkl`).
 ///
 ///     access = c.access.public                       // a hallway tablet
 ///     access = c.access.admin                        // the admin-only one
 ///     access = c.access.users(List(dump.users.peri))  // just these people
-///
-/// Home Assistant is the identity provider — these are HA's users and HA's
-/// admin role, not a second account system (see `core/access.pkl`).
-///
-/// `omitNullProperties` drops it from the wire JSON when unset, which is what
-/// lets the backend tell "inherit the site's" apart from "this dashboard really
-/// does want the default".
 access: accessMod.Access? = null
 
-/// The root of the layout tree — the ONE property every entry must set (see the
-/// authoring note above about the error location when it is forgotten).
+/// The root of the layout tree. Forgetting it reports "Tried to read property
+/// `card` but its value is undefined" with the caret on THIS line, not yours;
+/// the trailing "rendering path `dashboards[<slug>].card`" names the dashboard.
 card: c.Node

@@ -1,180 +1,102 @@
-/// The dashboard theme CONTRACT — just the [[Theme]] class. Implementations
-/// live in sibling modules, one per look:
+/// The theme contract, [[Theme]]. Implementations are sibling modules;
+/// `theme-beer.pkl` (BeerCSS, Material 3) is the default.
 ///
-///   - `theme-beer.pkl` — BeerCSS Material Design 3, the DEFAULT (wired in
-///     `entry.pkl`) and currently the only shipped implementation.
+/// A theme is any module exporting `theme: Theme`, for instance one in your
+/// workspace beside `site.pkl`. An entry picks it with
+/// `theme = import("theme-mine.pkl").theme` — the call form, since
+/// `(import "x").theme` does not parse — and may amend it. Every property has a
+/// working default, so `new Theme {}` is a whole theme: the HA tokens, no
+/// framework, the bare frame.
 ///
-/// A new theme is any module exporting a `theme: Theme` instance — one in your
-/// workspace beside `site.pkl` works; an entry overrides its look by assigning
-/// `theme`, e.g. `theme = import("theme-mine.pkl").theme` (the CALL form:
-/// `(import "x").theme` does not parse), and can retune any theme by amending
-/// the instance (`tokens`/`styles` are ordinary properties; see the
-/// implementation modules for their amend forms).
+/// ## A theme is the third CSS layer (ADR 0020)
 ///
-/// Every property has a working default, so `new Theme {}` is a complete
-/// theme: the shared HA tokens, no framework, and the bare frame. What it looks
-/// like is layers 1-2 below and nothing else.
+///   1. `core/css.pkl` — the `fh-` layout contract, the `--fh-*` colour
+///      variables, the runtime's own classes. Always there.
+///   2. each card's `cardDef.css` — the structure of its markup.
+///   3. the theme's `styles` — the palette, the `--fh-*` re-pointing, the
+///      framework's own classes, and any retune of 1–2.
 ///
-/// Everything visual lives outside the server. The renderer emits `tokens` as
-/// `:root` custom properties (with `tokensDark` under prefers-color-scheme:dark);
-/// the server `<link>`s `stylesheets`, injects `scripts` as ES modules, and
-/// inlines `styles` + `inlineScripts`.
-///
-/// ## A theme is the THIRD layer, not the only one (ADR 0020)
-///
-/// The page's CSS is assembled from three sources, in this order, all inside one
-/// `<style id="fh-theme">`:
-///
-///   1. `core/css.pkl`'s `baseCss` — the `fh-` layout contract, the `--fh-*`
-///      colour variables, and the classes the RUNTIME emits or binds
-///      (`fh-disabled`/`fh-loading`, the offline banners, the toast). `entry.pkl`
-///      puts it on the dashboard itself, so it is not yours to drop.
-///   2. every card's `cardDef.css` — the structure of the markup that card
-///      emits, written against the `--fh-*` variables.
-///   3. this theme's `styles`.
-///
-/// Later beats earlier by document order, so `styles` can override anything in
-/// 1 or 2 without either of them knowing. What is genuinely YOURS is the paint:
-/// the palette, the `--fh-*` re-pointing, your framework's own class names, and
-/// any retune of the two layers below.
+/// All three are one `<style>`, in that order, so the theme overrides by
+/// cascade without restating anything.
 ///
 /// ## What a card guarantees you
 ///
-/// The class contract cards and the renderer emit, which your `styles` may
-/// restyle (all of it already has a working default from layers 1-2):
-///   containers -> `.fh-grid` / `.fh-row` / `.fh-col`, the universal node
-///   wrapper -> `.fh-cell`, a query set's member container -> `.fh-group`
-///   (ALWAYS a pure CSS passthrough, not an author-facing choice), per-cell
-///   layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full`, a grid's
-///   group-centering opt-out -> `.fh-start`, cards -> `.card`, section titles ->
-///   `.fh-section`, state text -> `.fh-reading`, popup dialog -> `.popup`/`.popup-close`,
-///   tabs -> `.tabs`/`.tabbar`/`.tab`, more-info facts ->
-///   `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, the slider's parts ->
-///   `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-actions`/
-///   `.slider-body`/`.slider-members`/`.slider-group`, a second line on any
-///   card -> `.fh-sub`.
+/// The classes your `styles` may restyle: `.fh-grid`/`.fh-row`/`.fh-col`, the
+/// node wrapper `.fh-cell`, a query set's `.fh-group` (always a passthrough),
+/// `.fh-cols-<1..12>`/`.fh-cols-full`, `.fh-start`, `.card`, `.fh-section`,
+/// `.fh-reading`, `.fh-sub`, `.popup`/`.popup-close`, `.tabs`/`.tabbar`/`.tab`,
+/// `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, and the slider's
+/// `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-actions`/
+/// `.slider-body`/`.slider-members`/`.slider-group`.
 ///
-/// A guarded action in flight toggles two classes on the tappable element
-/// itself: `.fh-disabled` (the "you cannot use this" look) and `.fh-loading`
-/// (the "still working" cursor). Both are IMMEDIATE, and a theme must keep them
-/// so: this is the answer to the tap. `.fh-disabled` alone, with no
-/// `.fh-loading`, is the same look for a press the entity's state refuses.
+/// A guarded action in flight puts `.fh-disabled` (inert) and `.fh-loading`
+/// (still working) on the tapped element; a press the entity's state refuses
+/// gets `.fh-disabled` alone. Both are immediate — they are the answer to the
+/// tap — so keep them so. A failed action shows `.fh-toast`.
 ///
-/// ## Getting your OWN class names into a card's markup
+/// ## Your own class names in card markup
 ///
-/// The SPINNER is separate and DELAYED, because "this is taking a while" is a
-/// different statement from "your tap landed". It is also the one place where
-/// the right class depends on the framework, so [[classes]] is how you name it:
-/// the card templates carry a hole (`core/node.pkl`'s `CLASS_BIND`) that the
-/// card registry fills with the names you list. BeerCSS asks for
-/// `shape loading-indicator` — its own self-morphing SVG mask — and a theme that
-/// asks for nothing gets `fh-busy-spin`, the plain ring in `core/css.pkl`.
-/// Style whichever you name as "showing", with no delay of its own: the
-/// decision was already made before the class landed (the delay is a derived
-/// signal in `tap.pkl`). Bind rather than style-inert — BeerCSS's
-/// `.shape>i{filter:invert(1)}` is unconditional and would tint the glyph at
-/// rest.
+/// The delayed spinner is the one place the right class depends on the
+/// framework, so [[classes]] names it: BeerCSS asks for
+/// `shape loading-indicator`, and a theme that names nothing gets
+/// `fh-busy-spin`. Style it as "showing", with no delay of its own; the delay is
+/// already in the signal. The class is bound, never left in place and styled
+/// inert, because BeerCSS's `.shape>i{filter:invert(1)}` is unconditional.
 ///
-/// A component opts out of the whole busy look via `busyVisual = false` (it then
-/// binds none of it); the guard stays. A failed action shows `.fh-toast`, a small
-/// fixed bar created by the shell on `datastar-fetch:error` — structure and
-/// behavior live in the shell, the LOOK is layer 1's, and yours to retune.
+/// ## Writing one
 ///
-/// ## WRITING A THEME (the whole API surface)
-///   1. Create a module (`theme-<name>.pkl` in your workspace) importing
-///      `@fh-dashboard/theme.pkl` and exporting `theme: Theme` (or an
-///      `open class` extending [[Theme]] if you want amendable knobs, like
-///      theme-beer's palettes). Set only what you change: every step below
-///      has a working default.
-///   2. `tokens`/`tokensDark`: HA-named design tokens (see tokens.pkl, which
-///      is the default) — emitted as `:root` custom properties, dark under
-///      prefers-color-scheme. `core/css.pkl` defaults every `--fh-*` variable
-///      the cards read from these, so a theme that sets only tokens already
-///      renders coherently.
-///   3. `stylesheets`/`scripts`: your framework's CDN links (pinned versions,
-///      never `@latest`). Scripts are ES modules injected after stylesheets;
-///      dashboard BEHAVIOR stays with Datastar — ship JS only for visuals
-///      your CSS needs (e.g. BeerCSS's slider track fill), and verify its
-///      bindings survive SSE morphs (delegated/document-level listeners do).
-///      `inlineScripts` is the same rule for JS you write yourself rather than
-///      link — a pointer gesture your own rules depend on. A card's script is
-///      the card's (`cardDef.script`), not yours to carry. Both force a page
-///      RELOAD when they change (a script cannot be un-run), unlike `styles`,
-///      which patches.
-///   4. `styles`: the palette, then the `--fh-*` re-pointing if your framework
-///      has better roles than the HA tokens, then whatever your framework's own
-///      classes need. You do NOT need to restate the layout contract or any
-///      card's structure — they arrive ahead of you. A chart is drawn on the
-///      server and shared by every viewer, so it takes the theme ONLY through
-///      custom properties: `--fh-chart-line` (else `--fh-accent`),
-///      `--fh-chart-fill` (else none), `--fh-chart-grid` (else `--fh-border`)
-///      and `--fh-chart-label` (else `--fh-text-dim`). Its text inherits the
-///      page's font.
-///   5. `classes`: the class names you want injected into card markup (today:
-///      `busySpin`).
-///   6. `chrome`: the page frame (the default is exactly the two hosts below)
-///      — MUST wrap `{{{body}}}` in an element with
-///      `id="dashboard"` (the reload swap target; enforced by
-///      Dashboard.validate) and, if the dashboard uses popups, host a
-///      `<div id="popups">{{{popups}}}</div>` overlay host. The hole is where
-///      a popup being RESTORED on a refresh is baked, so it is on screen with
-///      the first paint instead of arriving when the stream connects; leave it
-///      out and the dialog still works, it just pops in a moment late.
-///   7. An entry opts in with `theme = import("theme-<name>.pkl").theme`.
+///   1. A module importing `@fh-dashboard/theme.pkl` and exporting
+///      `theme: Theme`, or an `open class` extending it for amendable knobs.
+///   2. `tokens`/`tokensDark`: HA-named tokens (`tokens.pkl` is the default),
+///      emitted as `:root` properties; every `--fh-*` falls back to them.
+///   3. `stylesheets`/`scripts`: pinned CDN links, never `@latest`. Ship JS
+///      only for visuals your CSS needs, bound to survive morphs (delegated
+///      listeners do); behaviour stays Datastar's. `inlineScripts` is the same
+///      for JS you write yourself; a card's own script is the card's
+///      (`cardDef.script`). Scripts reload the page when they change; `styles`
+///      patches.
+///   4. `styles`: the palette, the `--fh-*` re-pointing, your framework's
+///      classes. A chart is drawn on the server, so it takes the theme only
+///      through `--fh-chart-line` (else `--fh-accent`), `--fh-chart-fill`
+///      (else none), `--fh-chart-grid` (else `--fh-border`) and
+///      `--fh-chart-label` (else `--fh-text-dim`).
+///   5. `classes`: see above.
+///   6. `chrome`: the frame. It must wrap `{{{body}}}` in `id="dashboard"`
+///      (checked by `Dashboard.validate`) and should host
+///      `<div id="popups">{{{popups}}}</div>`, where a restored popup is baked
+///      for the first paint; without it a popup still works, a moment late.
 module theme
 
 import "core/node.pkl" as nodes
 import "tokens.pkl" as tokenPalette
 
 open class Theme {
-  /// HA-named design tokens ([[tokenPalette]]), emitted as `:root` custom
-  /// properties. Defaulted to the shared palette, which is what every `--fh-*`
-  /// variable a card reads falls back to — so a theme that names none still
-  /// paints every card.
+  /// HA-named tokens, emitted as `:root` properties; every `--fh-*` variable
+  /// falls back to them.
   tokens: Mapping<String, String> = tokenPalette.light
   /// The tokens that differ under `prefers-color-scheme: dark`.
   tokensDark: Mapping<String, String> = tokenPalette.dark
   stylesheets: Listing<String> = new {}
-  /// Stylesheets the FIRST PAINT does not need. Loaded off the critical path
-  /// (`rel=preload` swapped to `stylesheet` on load, `<noscript>` fallback —
-  /// https://web.dev/articles/defer-non-critical-css) instead of blocking the
-  /// render on them.
-  ///
-  /// The trade is real: what a deferred sheet styles arrives a beat after the
-  /// page does. So this is for a sheet whose absence leaves the LAYOUT intact —
-  /// an icon font, where a glyph appears a moment late — and never for the one
-  /// that decides where things go. It is also why the TEXT font stays above:
-  /// swapping that mid-paint moves every line of text on the page.
+  /// Loaded off the critical path, so only for a sheet whose absence leaves the
+  /// layout intact (an icon font). A text font stays in [[stylesheets]]:
+  /// swapping it mid-paint moves every line.
   deferredStylesheets: Listing<String> = new {}
-  /// External JS URLs, `<script type="module" src>`-injected in the document
-  /// head (after the stylesheets, before Datastar). ES modules — deferred, so
-  /// they run after the first paint. For framework helpers a theme's CSS needs
-  /// (e.g. BeerCSS's slider fill); dashboard behavior stays Datastar's.
+  /// ES module URLs, run after first paint.
   scripts: Listing<String> = new {}
-  /// Classic `<script>` bodies inlined in the head, run BEFORE first paint —
-  /// the gesture half of an interaction the theme's own rules need, for what
-  /// CSS alone cannot express. Not for talking to the server, which stays
-  /// Datastar's. Emitted after every card's `cardDef.script`.
+  /// Classic scripts inlined in the head, run before first paint, after every
+  /// card's `cardDef.script`.
   inlineScripts: Listing<String> = new {}
   styles: String = ""
-  /// The page frame. The default is the whole contract and nothing else: the
-  /// `#dashboard` swap target round `{{{body}}}` and the `#popups` host with its
-  /// restore hole (see the module doc, step 6).
+  /// The page frame; the default is exactly the two hosts.
   chrome: String = """
     <main id="dashboard">{{{body}}}</main>
     <div id="popups">{{{popups}}}</div>
     """
-  /// Class names this theme wants injected into card markup, `key -> one or
-  /// more class names` (space-separated). Today's only key is `busySpin` — the
-  /// delayed spinner (see the module doc). An unlisted key binds nothing.
-  ///
-  /// `hidden`: it is consumed while the card registry is built
-  /// (`core/node.pkl`'s `cardsWith`, called from `entry.pkl`), so it never
-  /// reaches the wire and the runtime never learns a theme had an opinion.
+  /// `key -> class names` (space-separated) to inject into card markup. The
+  /// only key is `busySpin`; an unlisted key binds nothing. Consumed while the
+  /// card registry is built, so it never reaches the wire.
   hidden classes: Mapping<String, String> = nodeDefaults
 }
 
-// The fallback names, so a theme amending `classes` starts from the working
-// default rather than from nothing. A module-level `const` because a class body
-// may only reference those.
+// A const, since a class body may only reference those.
 const local nodeDefaults: Mapping<String, String> = nodes.defaultClasses

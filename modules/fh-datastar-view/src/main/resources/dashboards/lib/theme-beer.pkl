@@ -1,109 +1,48 @@
-/// The BeerCSS Material Design 3 theme (ADR 0026) — the DEFAULT theme
-/// (wired in `entry.pkl`; contract + roster in `theme.pkl`).
-/// An entry retunes it by amending (`theme { md3Light { ... } }`) or swaps to
-/// another theme entirely (any sibling module exporting a `theme.pkl` Theme).
+/// The BeerCSS Material 3 theme (ADR 0026), the default. BeerCSS styles
+/// semantic elements (`<article>`, `<button>`, `<dialog>`), which is what the
+/// cards emit, so `styles` carries only paint (ADR 0020): two colour bridges
+/// and the few rules that name something BeerCSS owns.
 ///
-/// BeerCSS styles SEMANTIC ELEMENTS directly (`<article>` = card, `<button>` =
-/// filled MD3 button, `<dialog>` = dialog), which is exactly what the card
-/// templates emit — so this theme needs no bespoke card CSS. What `styles`
-/// carries is the PAINT (ADR 0020): the two colour bridges, and the handful of
-/// rules that name something BeerCSS owns rather than something a card emits
-/// (`--_padding`, `.shape`, the MDI font). The layout contract arrives from
-/// `core/css.pkl` and each card's structure from its own `cardDef.css`, both
-/// ahead of this, so anything here overrides them by document order.
+/// Retune by amending: `theme = (beer.theme) { md3Light { ["primary"] = "#7d5260" } }`,
+/// or the HA tokens with `(beer.theme) { tokens { ["primary-color"] = "#..." } }`.
+/// The MD3 roles are BeerCSS's own
+/// (https://github.com/beercss/beercss/blob/main/docs/SETTINGS.md).
 ///
-/// THEMING — the color variables are BeerCSS's own MD3 roles, documented in
-/// https://github.com/beercss/beercss/blob/main/docs/SETTINGS.md. They live
-/// here (not in the shared `tokens.pkl`) because they are BeerCSS-specific,
-/// as amendable `hidden` class properties: `styles` is derived from them
-/// LATE-BOUND, so an entry can retune the palette and everything recomputes —
-///   theme = (beer.theme) { md3Light { ["primary"] = "#7d5260" } }
-/// The HA-named tokens stay in `tokens.pkl` (shared cross-theme contract, HA
-/// theme drop-in); they too are amendable per instance, as plain Theme
-/// properties: `(beer.theme) { tokens { ["primary-color"] = "#..." } }`.
-///
-/// COLOR BRIDGE (the load-bearing subtlety, spike-verified on 4.0.23):
-/// `beer.min.css` has NO `prefers-color-scheme` media query — light values
-/// live on `:root, body.light`, dark ONLY on `body.dark`, and `beer.min.js`
-/// auto-adds `light`/`dark` to `<body>` at startup from the device scheme.
-/// A `body.dark` rule beats anything we define on `:root`, so the palette
-/// below is emitted at BODY specificity, with all three class states in every
-/// selector (`body, body.light, body.dark`) so ours always ties BeerCSS's
-/// selectors and wins by document order (theme `styles` are injected in the
-/// body, after the `<link>`s). Order within `styles` then does the cascade
-/// work: MD3 light palette -> dark palette (under OUR media query) -> the
-/// HA-token re-pointing (last, so it wins in both schemes; its `var()`
-/// references resolve through `:root` tokens that flip via `tokensDark`).
-/// Consequence: mode is device-driven only — a manual `ui("mode", ...)` flip
-/// would move the body class but not our media query, and is unsupported.
+/// The palette is emitted at body specificity, all three class states in every
+/// selector, because BeerCSS has no `prefers-color-scheme` query and sets
+/// `body.dark` from JS (ADR 0026). So the mode follows the device only; a manual
+/// `ui("mode", …)` flip is unsupported.
 module themeBeer
 
 import "theme.pkl" as themeMod
 
-/// Pinned — never `@latest` (visual stability; the dist bundles the Material
-/// Symbols fonts with absolute CDN fallback URLs, so icons need no extra
-/// `<link>`). Bump deliberately and re-verify the framework facts ADR 0026
-/// rests on.
+/// Pinned; bump deliberately and re-check the facts ADR 0026 rests on.
 const local beerVersion: String = "4.0.23"
 const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersion)/dist/cdn"
 
-/// Material Design Icons — HA's OWN icon set, so an entity's `icon` attribute
-/// (`mdi:thermometer`) renders as the glyph its author picked instead of being
-/// translated into some near-equivalent. Pinned for the same reason as BeerCSS.
-///
-/// **The cost, and the way out.** This is ~394 KB of woff2 plus ~100 KB of CSS
-/// for ~7 500 icons, of which one dashboard uses a few dozen. It is here
-/// because it is one line and it works; it is not the end state.
-///
-/// The end state is to INLINE the icons actually used, at build time, as SVG
-/// paths — which is available because every icon name is known at build time
-/// (`core/icon.pkl`'s `iconFor` resolves it from the dump, not from live state). The
-/// shape:
-///
-///   - add `@mdi/js` as a BUILD dependency (name -> path data, tree-shakeable);
-///   - resolve the name to its path where `iconFor` resolves the name today,
-///     and emit the path as the literal slot value;
-///   - the card template becomes
-///     `<svg viewBox="0 0 24 24"><path d="{{{icon}}}"/></svg>`, and
-///     `.entity header i` becomes a rule on that `svg`;
-///   - drop this stylesheet, and the `mdi ` class prefix with it.
-///
-/// That trades ~500 KB of always-loaded font for a few KB of markup that is
-/// already being sent, and removes a CDN round trip from first paint — which
-/// matters most on the PWA/remote path, where the font is not warm in cache.
-/// The reason it is not done here is scope, not doubt.
+/// Material Design Icons, HA's own set, so an entity's `icon` renders as its
+/// author chose. ~500 KB for a few dozen used glyphs: the way out is to inline
+/// the used icons as SVG paths at build time (`@mdi/js`), since every icon name
+/// is known then.
 const local mdiVersion: String = "7.4.47"
 const local mdiCdn: String =
   "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
 
-/// The TEXT font BeerCSS's own `--font` stack asks for first and never loads.
-/// Without it every browser falls back to a different system sans, and the
-/// metrics differ enough to move glyphs inside an identically-sized line box —
-/// a label reads centred in one engine and high in another, on the same page,
-/// on the same machine. Localised by `AssetCache` exactly like the icon font,
-/// so the woff2s are served from us.
+/// The text font BeerCSS's `--font` asks for and never loads. Without it each
+/// engine falls back to a different sans, and a label sits centred in one and
+/// high in another. Localised by `AssetCache`.
 const local interCdn: String =
   "https://cdn.jsdelivr.net/npm/@fontsource/inter@5/latin.css"
 
-/// A mapping rendered as CSS custom-property declarations
-/// (`--primary:#006493;--on-primary:#ffffff;…`). `const` (like [[beerCdn]]):
-/// class bodies may only reference `const` module members.
 const local function cssVars(m: Mapping<String, String>): String =
   new Listing { for (k, v in m) { "--\(k):\(v)" } }.toList().join(";")
 
 class BeerTheme extends themeMod.Theme {
 
-  /// The full 36-role MD3 palette (light), generated ONCE (2026-07-07) from
-  /// the HA blue seed `#03a9f4` with Google's
-  /// `@material/material-color-utilities` (`themeFromSourceColor`; the
-  /// `surface-dim/bright/container*` tiers, which the legacy scheme object
-  /// lacks, are the neutral palette at the spec tones — light
-  /// 87/98/100/96/94/92/90, dark 6/24/4/10/12/17/22). Key names = BeerCSS's
-  /// variable names sans `--` (see the SETTINGS.md link in the module doc).
-  /// `hidden` (never on the wire) and read late-bound by [[styles]] — amend
-  /// entries here to retune the theme. Note the spec-toned primary is
-  /// #006493, not HA blue: the brighter HA blue arrives via the HA-token
-  /// re-pointing layer in [[styles]], keeping the HA look.
+  /// The 36-role MD3 palette, generated once from HA's blue seed `#03a9f4` with
+  /// `@material/material-color-utilities` (the `surface-*` tiers are the
+  /// neutral palette at the spec tones). Read late-bound by [[styles]]. HA's
+  /// brighter blue comes back through the token re-pointing in [[styles]].
   hidden md3Light: Mapping<String, String> = new {
     ["primary"] = "#006493"
     ["on-primary"] = "#ffffff"
@@ -188,53 +127,38 @@ class BeerTheme extends themeMod.Theme {
     interCdn
   }
 
-  // MDI is ~100 KB of CSS for ~7 500 icons of which a dashboard uses a few
-  // dozen, and nothing about the page's LAYOUT depends on it — a glyph that
-  // arrives a beat late lands in a box the framework already sized. It is the
-  // one sheet here that should not hold up the first paint. (The end state is
-  // still to inline the used icons as SVG and drop the sheet entirely — see
-  // [[mdiCdn]].)
+  // Nothing about the layout depends on the icon font, so it waits.
   deferredStylesheets {
     mdiCdn
   }
 
-  // Required by this theme's CSS, not for behavior (which stays Datastar's):
-  // the slider track-fill is JS-driven (`--_start`/`--_end` private props),
-  // and the auto light/dark body class comes from here too (the bridge above
-  // works with OR without it). Binds via delegated listeners + a
-  // MutationObserver, so Datastar SSE morphs re-bind.
+  // For this theme's CSS, not behaviour: the slider fill is JS-driven, and the
+  // light/dark body class comes from here. Its listeners are delegated, so they
+  // survive morphs.
   scripts {
     "\(beerCdn)/beer.min.js"
   }
 
-  // Same contract as theme.pkl: the `#dashboard` swap target (enforced by
-  // Dashboard.validate) + the `#popups` overlay host, whose hole carries a
-  // popup restored on refresh so it paints with the page. `responsive` is
-  // BeerCSS's centered max-width container.
+  // `responsive` is BeerCSS's centred max-width container.
   chrome = """
     <main class="responsive" id="dashboard">{{{body}}}</main>
     <div id="popups">{{{popups}}}</div>
     """
 
-  // The class names this theme wants in card markup — BeerCSS's own spinner
-  // pair, an SVG mask that morphs itself, in place of the `fh-busy-spin` ring
-  // `core/css.pkl` falls back to. See theme.pkl's `classes` and ADR 0020.
+  // BeerCSS's self-morphing SVG mask, in place of `fh-busy-spin`.
   classes {
     ["busySpin"] = "shape loading-indicator"
   }
 
   styles = """
-    /* MD3 role palette ([[md3Light]]/[[md3Dark]], late-bound). Body
-       specificity + all three class states + declaration order: see the
-       module doc for why each is required. */
+    /* The MD3 palette, late-bound from md3Light/md3Dark. */
     body,body.light,body.dark{\(cssVars(md3Light))}
     @media (prefers-color-scheme:dark){
       body,body.light,body.dark{\(cssVars(md3Dark))}
     }
-    /* HA-token re-pointing — LAST so it wins in both schemes. Keeps the HA
-       look on MD3: HA blue as primary, HA background/text/divider, and the
-       card/dialog surfaces (article reads --surface-container-low, dialog
-       --surface-container-high) on the HA card color. */
+    /* HA tokens over the MD3 roles, last so it wins in both schemes: HA blue,
+       HA background and text, and the HA card colour on the card and dialog
+       surfaces. */
     body,body.light,body.dark{
       --primary:var(--primary-color);
       --on-primary:var(--text-primary-color);
@@ -248,11 +172,8 @@ class BeerTheme extends themeMod.Theme {
       --surface-container-low:var(--card-background-color);
       --surface-container-high:var(--card-background-color);
     }
-    /* The other direction: the variables the CARDS read (core/css.pkl defaults
-       them from the HA tokens) pointed at this framework's roles, so a card
-       written against `--fh-surface-alt` gets the MD3 tier rather than the
-       nearest HA token — which for the container tiers there is none of. Body
-       specificity again, so this beats core's `:root` block. */
+    /* The other direction: the variables cards read, pointed at MD3 roles, so
+       `--fh-surface-alt` gets a container tier HA has no token for. */
     body,body.light,body.dark{
       --fh-accent:var(--primary);
       --fh-on-accent:var(--on-primary);
@@ -267,61 +188,28 @@ class BeerTheme extends themeMod.Theme {
       --fh-scrim:var(--overlay);
     }
 
-    /* What is left is what BeerCSS itself needs, plus paint. The layout
-       contract and every card's own structure arrive ahead of this (ADR 0020),
-       so nothing below restates them. */
-    /* Entity icon in the card header. MDI, not the Material Symbols the
-       BeerCSS dist bundles — HA's own `icon` attribute is an MDI name, so this
-       is the set that can render what an author actually chose. The
-       `font-family` is restated because BeerCSS styles a bare `<i>` as Material
-       Symbols and would otherwise win the cascade over `.mdi:before`; the
-       metrics beside it belong to the entity card. */
+    /* BeerCSS styles a bare `<i>` as Material Symbols, so the MDI family is
+       restated. */
     .entity header i.mdi{font-family:"Material Design Icons"}
-    /* BeerCSS's own `.shape.loading-indicator` — an SVG mask that morphs
-       itself (internal `<animate>`, no CSS animation needed to spin it) —
-       painted around the `i.mdi` glyph rather than replacing it. It lands on
-       an element that already exists wherever there is one (`.slider-icon`,
-       the power `button`); only the entity header, whose glyph is bare inline
-       text, needs a wrapper, and that wrapper is a `<span>` precisely so it
-       needs no resting style at all. `background` is restated because a host's
-       own resting background would otherwise win the cascade and paint the
-       blob in the wrong colour. `filter:invert(1)` is BeerCSS's contrast trick
-       for arbitrary photo content; our glyph carries an explicit colour
-       already, so it takes the shape's `--on-primary` instead. */
+    /* The spinner shape around a glyph. `background` restated, or the host's
+       resting background paints it; the glyph takes `--on-primary` rather than
+       BeerCSS's `invert(1)`, meant for photos. */
     .fh-icon-shape.shape,.slider-icon.shape,.circle.shape{
       display:inline-flex;align-items:center;justify-content:center;
       vertical-align:middle;background:var(--primary)}
     .shape>i.mdi{filter:none;color:var(--on-primary)}
-    /* The two slider hosts are already sized circles; only the header badge
-       has no box of its own. BeerCSS's `.shape` default is 3.5rem, which would
-       balloon a header row. */
+    /* Only the header badge has no box of its own; `.shape` defaults to 3.5rem. */
     .fh-icon-shape.shape{inline-size:2.25rem;block-size:2.25rem}
     @media (prefers-reduced-motion:reduce){
-      /* The morph is baked into the SVG mask's own `<animate>` elements, which
-         no CSS property can reach. Dropping the mask is the only way to hold
-         still, so the badge becomes a plain filled disc instead. */
+      /* The morph is the mask's own `<animate>`, which CSS cannot reach. */
       .shape.loading-indicator{mask-image:none;border-radius:50%}
     }
-    /* Half of BeerCSS's 1rem, matched by the line's own .5rem: a slider's
-       card is a track edge to edge with text over it, so the inset the eye reads
-       is the LINE's, and the card's job is only to keep a member row's pill
-       clear of the corner radius. The pair reads tighter than the default
-       without the group needing `padding:0` plus a re-add on every part.
-       `--_padding` is BeerCSS's own knob for a card's scale, and other BeerCSS
-       rules read it (fixed header/footer bleed, the `.padding` utilities), so
-       overriding `padding` instead would leave those on the 1rem default. */
+    /* BeerCSS's card-scale knob, which its other rules also read: half the
+       default, matched by the slider line's own .5rem. */
     .slider-card{--_padding:.5rem}
-    /* A member row's card, on the same BeerCSS knob: the row is sized by its own
-       `min-block-size`, so the card's padding would only make it taller. */
     .slider-members .card{--_padding:0}
-    /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
-       distribution, underline active indicator, hover/press states, all
-       framework CSS (an inline-size override to make tabs hug their labels
-       was tried and REVERTED: it detached the active underline from the
-       anchor). The panel wrapper is the Tabs card's own CSS. */
     """
 }
 
-/// The theme instance entries reference (and optionally amend — see the
-/// module doc for the `md3Light`/`tokens` amend forms).
+/// The instance entries reference, and may amend.
 theme: BeerTheme = new {}

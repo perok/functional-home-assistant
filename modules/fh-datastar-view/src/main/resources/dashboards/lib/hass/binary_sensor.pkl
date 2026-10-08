@@ -1,33 +1,20 @@
-/// Home Assistant's `binary_sensor` domain model, vendored.
-///
-/// A copy of `BinarySensorDeviceClass` from
-/// `homeassistant/components/binary_sensor/const.py`.
-///
-/// Docs: https://developers.home-assistant.io/docs/core/entity/binary-sensor
-///
-/// Same re-sync caveat as `hass/sensor.pkl`: this is a snapshot of a string
-/// enum, not an append-only bitmask.
+/// HA's `BinarySensorDeviceClass`, vendored from
+/// `homeassistant/components/binary_sensor/const.py`
+/// (https://developers.home-assistant.io/docs/core/entity/binary-sensor). A
+/// snapshot to re-sync, like `hass/sensor.pkl`.
 module hass_binary_sensor
 
-/// What a binary sensor's `on` MEANS — which is the whole content of the
-/// domain, because the state itself is only ever `on`/`off`.
-///
-/// The polarity is not uniform and cannot be guessed from the name: `door` and
-/// `window` are `on` when OPEN, but `lock` is `on` when UNLOCKED and `plug` is
-/// `on` when PLUGGED IN. A card that renders "on" as "active" is therefore
-/// wrong for roughly half of these, which is what [[ON_MEANS]] is for.
+/// What `on` means: the whole content of the domain. The polarity cannot be
+/// guessed from the name — `door` is `on` when open, `lock` when UNLOCKED — so
+/// a card saying "active" for `on` is wrong for about half; see [[ON_MEANS]].
 typealias BinarySensorDeviceClass =
   "battery"|"battery_charging"|"co"|"cold"|"connectivity"|"door"|"garage_door"|
   "gas"|"heat"|"light"|"lock"|"moisture"|"motion"|"moving"|"occupancy"|
   "opening"|"plug"|"power"|"presence"|"problem"|"running"|"safety"|"smoke"|
   "sound"|"tamper"|"update"|"vibration"|"window"
 
-/// What `on` reads as, per device class — HA's own wording, so a card can label
-/// a binary sensor without inventing a phrase per integration.
-///
-/// A class absent from this map has no documented reading; a sensor with no
-/// device class at all has none either, and `on`/`off` is all a card can
-/// honestly say about it.
+/// What `on` reads as, in HA's own wording. A class absent here, or no class
+/// at all, leaves `on`/`off` as all a card can honestly say.
 const ON_MEANS: Mapping<BinarySensorDeviceClass, String> = new {
   ["battery"] = "low"
   ["battery_charging"] = "charging"

@@ -373,6 +373,38 @@ facts {
     body.children.toList().first.inlineSurfaces == null
   }
 
+  ["every class the base stylesheet styles is fh- prefixed, clear of a framework's utilities"] {
+    // BeerCSS's `.secondary` is `!important`, and painted a second line white.
+    Regex(#"\.([a-zA-Z][\w-]*)"#).findMatchesIn(cssMod.baseCss)
+      .map((m) -> m.groups[1].value)
+      .every((cls) -> cls.startsWith("fh-"))
+  }
+
+  ["a card's features sit in an <article>, beside the tile rather than inside its tap"] {
+    // BeerCSS paints a card box only on `<article>`; a `<div class="card">`
+    // left the lock floating on the page background.
+    c.cards["cardFeatures"].template.contains(#"<article class="card fh-features">"#)
+    // Nested inside the tile, one press would post the latch AND the tile's tap.
+    local f = c.lock.controls(new hass.LockEntity { entity_id = "lock.front"; supported_features = 1 })
+      as nodes.Node
+    f.card == "cardFeatures"
+    (f.regions!!["actions"].toList().first as nodes.Node).card == "button"
+    (f.regions!!["content"].toList().first as nodes.Node).card == "tile"
+  }
+
+  ["a tab highlights by STRICT string comparison, so an unseeded '' lights no tab"] {
+    // Loose `==` makes `'' == 0` true: an unset selection would look like tab 0.
+    local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } ["B"] { c.title("b") } } })
+      .children.toList()[1] as nodes.Node
+    (tab.slots["active"] as String).endsWith(") === '1'")
+    (tab.slots["active"] as String).startsWith("String(")
+  }
+
+  ["an If whose branches all fail collapses its cell, rather than leaving a blank band"] {
+    c.cards["ifhost"].template.contains(#"class="fh-ifhost""#)
+    cssMod.baseCss.contains(".fh-cell:has(>.fh-ifhost:empty){display:none}")
+  }
+
   ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {
     tapMod.openPopup("p").busy
     tapMod.openPopupInline(c.title("x")).busy
@@ -407,6 +439,20 @@ facts {
       let (guarded = t.busy && !n.slots.containsKey("href"))
         n.slots.containsKey("busy") == guarded
           && n.slots.containsKey("busyVisual") == (guarded && t.busyVisual)))
+  }
+
+  ["every pressable card refuses a service tap on a dead entity, and only a service tap"] {
+    local cards = (t: tapMod.TapAction) -> List(
+      c.button("b", t),
+      c.pill("p", t),
+      c.iconButton("mdi:power", t),
+      new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
+      new tileMod.Tile { tapAction = t }
+    )
+    cards.apply(tapMod.call("light/toggle", kitchen)).every((n) -> n.slots.containsKey("tapDisabled"))
+    c.toggle(kitchen).slots.containsKey("tapDisabled")
+    List(tapMod.openPopup("p"), tapMod.navigate("home"), tapMod.closePopup())
+      .every((t) -> cards.apply(t).every((n) -> !n.slots.containsKey("tapDisabled")))
   }
 
   ["`tapAction = null` is how a card opts out of being clickable at all"] {
@@ -559,6 +605,13 @@ facts {
     // One edge, not two: the member row's own inset shadow was the invisible
     // one, and it is this rule's job now.
     cards["slider"].css.split("box-shadow:inset 0 0 0 .0625rem var(--fh-border)").length == 2
+  }
+
+  ["a light the dump caught unavailable, with no colour modes, keeps its slider"] {
+    // Toggle-only is HA's positive `onoff`, never "reports no dimmable mode".
+    local blind: hass.LightEntity = new { entity_id = "light.away" }
+    !c.entitySlider(blind).toggleOnly
+    !c.entitySlider(blind).headSlots.containsKey("toggle")
   }
 
   ["a light that only switches keeps the row, and stops pretending to slide"] {

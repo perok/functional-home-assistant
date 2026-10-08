@@ -12,20 +12,12 @@ import "components/slider.pkl" as sliderMod
 
 // ---- floor/area composition (typed-dump driven) ----
 
-/// One section per area of `floor` that HAS lights: the area name as a
-/// [[SectionTitle]] followed by a [[EntitySlider]] per light, each area wrapped in its
-/// own column. Driven by the generated dump's `Floor.areas` and each area's
-/// `all` (both `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never
-/// rendered), with [[hass.lights]] picking the domain out. Areas with no
-/// lights are skipped, so
-/// the result is exactly the light-bearing sections. Returns a [[Column]] so it
-/// drops straight into an entry's tree.
+/// One column per area of `floor` that has lights: its name as a title, then a
+/// slider per light.
 function floorView(floor: hass.Floor): layout.Column = new layout.Column {
   children {
     for (area in floor.areas) {
-      // Not hoisted into a `local`: a for-generator body may generate only
-      // entries and elements, so a `local` there is "cannot generate object
-      // properties".
+      // Not a `local`: a generator body may only generate entries and elements.
       when (!hass.lights(area.all).isEmpty) {
         new layout.Column {
           children {

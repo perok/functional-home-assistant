@@ -11,9 +11,9 @@
 ///     }
 ///
 /// No list of allowed values: the write boundary refuses a value no declared
-/// reader can parse, or that names an entity the dashboard does not show. Where a closed set IS the point, emit the declaration and
-/// its control from one list in Pkl (`components/history.pkl`'s
-/// `WindowChooser`).
+/// reader can parse, or one naming an entity the dashboard does not show. For
+/// a closed set, emit the declaration and its control from one list
+/// (`components/history.pkl`'s `WindowChooser`).
 module core.variable
 
 /// A reference to a declared variable (fh.view.model.Ref.Var). `var` is the

@@ -1,54 +1,38 @@
-/// The house-wide lists every generated dump has — declared here as a CONTRACT
-/// rather than left to what `PklDump` happens to emit.
+/// The house-wide lists every generated dump has, as a contract rather than
+/// whatever `PklDump` emits (ADR 0013). The seeded starter site names no
+/// entity, only queries over these, so a list the generator stopped emitting
+/// would fail somebody's first boot; a declaration with a `List()` default
+/// answers an empty house instead.
 ///
-/// Why this module exists at all: `site.pkl`, the starter seeded into every
-/// fresh workspace, names no concrete entity — each section is a query over one
-/// of these lists, so it renders on any installation. That makes them the one
-/// part of the dump an entry can rely on WITHOUT having looked at the dump, and
-/// a generated property is the wrong shape for that: if the generator ever
-/// stopped emitting one, the failure would be `Cannot find property` at eval, on
-/// somebody's first boot. A declaration with a `List()` default cannot fail that
-/// way — an empty house answers `List()`, not an error.
-///
-/// The house is the only scope that carries per-domain lists. A smaller scope
-/// answers `all`, and a domain comes out of it through the selector that owns
-/// that domain (`hass.pkl`), so a query's `from` takes either:
+/// Only the house carries per-domain lists. A smaller scope answers `all`, and
+/// a selector takes the domain out of it:
 ///
 ///     q.from(dump.lights)                          // the house
 ///     q.from(hass.lights(dump.areas.stue.all))     // one room
-///     q.from(hass.lights(dump.floors.loft.all))    // one floor
 ///
-/// Which is why only `allWithHidden` is generated, per scope: `all` and the
-/// domain lists here are derived from it by the same functions an author calls,
-/// so a generated list and a hand-written filter cannot answer differently.
+/// Only `allWithHidden` is generated; the rest derive through the functions an
+/// author calls, so the two cannot disagree. `entities`/`areas`/`floors`/…
+/// are typed per home and declared by the generator.
 ///
-/// `entities`/`areas`/`floors`/`devices`/`users` are NOT declared here: their
-/// types are generated per home (`class Entities { light_taklys: E_light_taklys … }`),
-/// so there is nothing generic to declare. This module covers exactly the part
-/// that can be typed once for every home. Each of those but `entities` (whose
-/// list is [[all]]) carries its own `all` — `dump.floors.all`, in level order.
-///
-/// `open` because the generated `dump.pkl` EXTENDS it — `amends` would forbid
-/// the class declarations that are most of what a dump is ("Class needs a
-/// `local` modifier"; the error names `extends` as the way out).
+/// `open`, because the dump `extends` it: `amends` would forbid its class
+/// declarations.
 open module dumpBase
 
 import "../hass.pkl"
 
-/// Every entity in the home, hidden ones included, in entity-id order — the one
-/// list the generator fills, and the one an empty house answers `List()` for.
+/// Every entity, hidden ones included, in entity-id order: the one list the
+/// generator fills.
 hidden allWithHidden: List<hass.Entity> = List()
 
-/// What a dashboard shows by default: [[allWithHidden]] minus the entities
-/// hidden in HA. Every list below derives from this.
+/// [[allWithHidden]] minus the entities hidden in HA. Every list below derives
+/// from it.
 hidden all: List<hass.Entity> = hass.shown(allWithHidden)
 
-/// Every light in the home, in entity-id order. A dashboard wanting another
-/// order sorts the list with plain Pkl before `from`.
+/// In entity-id order; sort with plain Pkl before `from` for another.
 hidden lights: List<hass.LightEntity> = hass.lights(all)
 hidden locks: List<hass.LockEntity> = hass.locks(all)
 hidden sensors: List<hass.SensorEntity> = hass.sensors(all)
 hidden binarySensors: List<hass.BinarySensorEntity> = hass.binarySensors(all)
 hidden switches: List<hass.SwitchEntity> = hass.switches(all)
-/// Every entity no other list claims, so these lists partition `all`.
+/// Every entity no other list claims.
 hidden generic: List<hass.Entity> = hass.generic(all)

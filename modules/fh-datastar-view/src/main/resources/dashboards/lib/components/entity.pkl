@@ -1,4 +1,4 @@
-/// The entity card — HA's familiar icon + label + value tile.
+/// The entity card — HA's familiar icon, label and value tile.
 module components.entity
 
 import "../core/icon.pkl" as icons
@@ -8,69 +8,46 @@ import "../hass.pkl"
 import "base/tile.pkl" as tileMod
 import "moreinfo.pkl"
 
-/// HA-like entity card: icon + label + value (state or attribute, unit
-/// auto-appended) + optional secondary line + optional tap. `icon` overrides
-/// what [[icons.iconFor]] resolved, as an MDI name (`mdi:thermometer`).
-///
-/// THIN, like `EntityButton`: [[tileMod.Tile]] with its inputs filled from the
-/// entity, and no card, template or slot of its own. Its OWN inputs are the
-/// entity-relative ones an author writes — `value("brightness")` names an
-/// attribute of THIS entity — so they keep their names, and the tile's
-/// (`title`, `reading`, `glyph`) are what they become. `secondary` is the
-/// tile's own, inherited as it is.
+/// Icon, label, value (the state or an attribute, unit appended), an optional
+/// second line and an optional tap. A thin [[tileMod.Tile]]: its own inputs
+/// are entity-relative (`value("brightness")` names an attribute of THIS
+/// entity) and become the tile's `title`, `reading` and `glyph`.
 class EntityCard extends tileMod.Tile {
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null
   hidden value: (String|slotMod.Expr)? = null
+  /// An MDI name overriding [[icons.iconFor]].
   hidden icon: String? = null
-  /// What a click does. Defaults to [[moreinfo.defaultTap]] — this entity's
-  /// domain service if it has one, more-info if it does not — so a card is
-  /// always clickable and never claims an action it cannot perform. `tapAction = null`
-  /// opts a card out entirely (no pointer, no handler).
+  /// The domain's service, else more-info ([[moreinfo.defaultTap]]); `null`
+  /// for no click at all.
   tapAction = moreinfo.defaultTap(entity)
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)
   reading = slotMod.valueSlot(value)
-  // A LIVE icon where the domain has one and nothing more specific overrides
-  // it ([[icons.stateIconFor]]) — a lock reads open or closed, which is the
-  // thing you look at the tile to learn. Otherwise the LITERAL it has always
-  // been: an entity's own icon, its device_class and its domain are all
-  // registry facts. An author's own `icon` wins over both, as it does in HA.
+  // Live where the domain's glyph follows its state (a lock), else the literal
+  // the registry decides. An author's `icon` wins over both, as in HA.
   glyph =
     if (icon == null && icons.stateIconFor(entity) != null)
       new slotMod.Slot { transform = icons.stateIconFor(entity)!!; bypassUnavailable = false }
     else if (icon != null) "mdi " + icons.mdiClass(icon!!)
     else if (icons.iconFor(entity) != null) "mdi " + icons.iconFor(entity)!!
     else null
-  // ---- fluent config (builder style) ----
-  // Each option is ALSO a method: it amends `this` and returns the same class,
-  // so options chain paren-free — `c.entityCard(x).tapAction(c.tap.toggle(x)).label("Office")`
-  // — instead of the mandatory-paren amend `(c.entityCard(x)) { ... }`. Late
-  // binding re-derives the tile's inputs from the amended value, so the emitted
-  // node JSON is byte-identical to the amend form (the builder-vs-amend
-  // identity test). The param is never named after the property it sets (that
-  // would self-reference in the amend).
+  // Each option is also a chainable method,
+  // `c.entityCard(x).tapAction(c.tap.toggle(x)).label("Office")`, emitting the
+  // same JSON as the amend form.
   function label(l: String|slotMod.Expr): EntityCard = let (self = this) (self) { label = l }
   function value(v: String|slotMod.Expr): EntityCard = let (self = this) (self) { value = v }
   function secondary(s: slotMod.Secondary): EntityCard = let (self = this) (self) { secondary = s }
-  /// Override the resolved icon with an MDI name — `mdi:thermometer`, or the
-  /// `mdi-thermometer` class spelling; both work.
+  /// `mdi:thermometer`, or the `mdi-thermometer` class spelling.
   function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): EntityCard = let (self = this) (self) { tapAction = t }
 }
 
-/// Static entity card as a call (amend options in parens).
 function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
-/// The SAME constructor as a VALUE, for a query's render positions:
-/// `q.from(xs).render(c.entityCard)`. Methods and function-value
-/// properties are separate namespaces, so this delegate co-exists with the method
-/// above — the parens in `entityCard(e)` pick the method (no recursion). The
-/// factory param is `e`, NOT `entity`: a param named after the property it sets
-/// self-references inside the amend (the amend-scoping gotcha).
+/// The constructor as a value, for a query's render positions:
+/// `q.from(xs).render(c.entityCard)`.
 hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 
-/// Force the blunt `homeassistant/toggle` on a card: `c.entityCard(x) |>
-/// c.tappable`. Rarely what you want now that [[EntityCard.tapAction]] defaults to the
-/// domain-derived action — reach for this only when this library's table
-/// (`hass/actions.pkl`) does not know a domain you do.
+/// Forces `homeassistant/toggle`: `c.entityCard(x) |> c.tappable`. Only for a
+/// domain `hass/actions.pkl` does not know.
 tappable: Mixin<EntityCard> = new { tapAction = tapMod.call("homeassistant/toggle", entity) }
