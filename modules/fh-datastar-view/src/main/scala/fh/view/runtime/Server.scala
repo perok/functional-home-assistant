@@ -1602,7 +1602,7 @@ class Server(
       // the viewer's choice until connect.
       committed: Map[(NodeId, String), String]
   ): Unit = {
-    // Inline theme scripts are emitted verbatim (authored source, not user
+    // Inline card and theme scripts are emitted verbatim (authored source, not user
     // input); as classic scripts they run before the deferred modules.
     // `onload=null` first: some browsers fire `onload` again after the swap.
     val links = (

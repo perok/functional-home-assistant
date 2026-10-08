@@ -766,11 +766,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(dashboard.theme.tokens.get("primary-color"), Some("#03a9f4"))
     assert(dashboard.theme.tokensDark.nonEmpty)
     // The slider card's CSS makes its range input inert on touch and relies on
-    // this gesture script to drive it, whatever the theme.
-    assert(
-      dashboard.theme.inlineScripts.exists(_.contains("pointerdown")),
-      clue = dashboard.theme.inlineScripts
-    )
+    // its own gesture script to drive it, whatever the theme.
+    assertEquals(dashboard.theme.inlineScripts, Nil)
+    val page = fh.view.runtime.Renderer.create(dashboard).inlineScripts
+    assert(page.exists(_.contains("pointerdown")), clue = page)
   }
 
   test(
@@ -849,11 +848,12 @@ class PklBuildSuite extends munit.FunSuite {
       clue = "the layout contract must not be back in the theme: " + result
     )
     assert(
-      theme
+      !theme
         .get[List[String]]("inlineScripts")
         .toOption
         .exists(_.exists(_.contains("pointerdown"))),
-      clue = result
+      clue = "the slider's gesture script is the card's, not the theme's: " +
+        result
     )
   }
 

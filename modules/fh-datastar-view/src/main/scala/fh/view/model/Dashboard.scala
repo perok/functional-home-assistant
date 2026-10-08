@@ -344,13 +344,17 @@ object SignalBind:
   *     bytes slot on structure is a build error, a signal slot is fine.
   *   - `css`: the card's own structure, after [[Dashboard.css]] and before
   *     `theme.styles` in the cascade (ADR 0020).
+  *   - `script`: a classic script the card's markup needs, inlined once per
+  *     page ahead of the theme's ([[Dashboard.cardScripts]]); a theme cannot
+  *     drop it.
   */
 case class CardDef(
     template: String,
     slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
-    css: String = ""
+    css: String = "",
+    script: Option[String] = None
 ) derives ConfiguredDecoder {
 
   /** Eager and baked regions are spelled alike, which lets the document walk
@@ -815,6 +819,12 @@ case class Dashboard(
     */
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
+
+  /** Same selection as [[cardCss]]. Distinct, so cards sharing one script run
+    * it once.
+    */
+  lazy val cardScripts: List[String] =
+    cards.toList.sortBy(_._1).flatMap(_._2.script).distinct
 
   /** Every entity this dashboard can ever address — what a viewer's variable
     * value may make a query read (ADR 0023). Static and sound: a set's

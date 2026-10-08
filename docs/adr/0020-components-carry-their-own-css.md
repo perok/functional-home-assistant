@@ -119,13 +119,14 @@ worth doing. The same block is also hand-minified in the Pkl sources — a runti
 minifier would let the sources be written for humans instead, and is the more
 valuable of the two follow-ups.
 
-**The slider's gesture script still lives in the theme contract.**
-`sliderHoldScript` is the JS half of rules that are now the slider card's, so it
-belongs with the card under the same argument as its CSS. Scripts have no
-`cardDef` hole yet; adding one is open work, and it is the same shape as `css`.
-Until then it is the DEFAULT of `Theme.inlineScripts`, so every theme carries it
-unless it replaces that listing outright — without it the card's touch rules
-leave the range input inert and the slider cannot be moved.
+**A card's JavaScript rides with it too: `cardDef.script`.** The same argument
+as its CSS — the slider's touch rules leave the range input inert and its
+gesture script drives it, so the two halves live in one card. Every registered
+card's script is inlined once per page, as a classic script ahead of the theme's
+`inlineScripts` (`Dashboard.cardScripts`), and a theme cannot switch one off: a
+card without its script is broken, not restyled. That a card module can run any
+JS on the page is accepted — a dashboard runs only the modules its author chose
+to import.
 
 **Every `Theme` property has a working default**, so a theme states only what it
 changes and `new Theme {}` is a complete one: the shared HA tokens, no framework,
@@ -137,3 +138,6 @@ makes "the core kit renders under any theme" checkable rather than aspirational
 so a dashboard JSON written before this decodes unchanged and renders unstyled
 rather than wrongly. Both feed `Renderer.styleFingerprint`, or a CSS-only change
 would leave a reconnect holding a stale stylesheet that still hashed equal.
+`CardDef.script` is optional (null in Pkl, absent on the wire) and feeds
+`Renderer.headFingerprint` instead: a script cannot be un-run, so a change to
+one reloads the page rather than patching it.

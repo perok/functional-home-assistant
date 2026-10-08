@@ -363,6 +363,11 @@ class CardDef {
   /// still reads correctly under a theme that never loaded that framework.
   /// A rule keyed on a class the card does NOT emit belongs in the theme.
   css: String = ""
+  /// A classic script this card's markup needs, inlined once per page before
+  /// first paint and ahead of the theme's `inlineScripts`; a theme cannot drop
+  /// it. Bind through document-level listeners: the card's DOM is morphed under
+  /// it.
+  script: String? = null
   // Whether the renderer wraps this card's HTML in the id'd `.fh-cell` layout
   // wrapper. Null (dropped by omitNullProperties, backend defaults TRUE) for
   // every normal card; set `false` only for a card whose root must stay a
