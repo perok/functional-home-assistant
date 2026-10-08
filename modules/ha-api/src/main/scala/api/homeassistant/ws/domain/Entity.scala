@@ -46,6 +46,9 @@ case class Entity(
     labels: List[Json],
     modified_at: Json,
     name: Option[String],
+    // HA 2026.10, derived from `area_id`/`device_id`: "area", "device" or
+    // null. Unread; declared so the decoder does not warn per entity.
+    next_name_part: Option[String] = None,
     options: Option[Json],
     original_name: Option[String],
     platform: String,
@@ -84,6 +87,10 @@ case class Device(
     modified_at: Json,
     name_by_user: Option[String],
     name: String,
+    // HA 2026.10, derived from `area_id`/`parent_device_id`: "area",
+    // "parent_device" or null. Unread; declared so the decoder does not warn
+    // per device.
+    next_name_part: Option[String] = None,
     primary_config_entry: Option[EntryId],
     serial_numer: Option[String],
     sw_version: Option[String],
