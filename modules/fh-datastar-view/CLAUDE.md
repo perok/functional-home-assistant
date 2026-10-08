@@ -228,7 +228,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   every tab bar.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `tile`, `switch`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
-  declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
+  declared slots), and the emitted `cards` registry is the cards the tree uses, read off its nodes; slots are checked
   by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
   by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
   **colon** syntax (`data-on:click`,

@@ -1,8 +1,8 @@
 /// The layout tree and the card contract — what a component author extends.
 ///
 /// A card is a class: subclass [[Node]], give it a `card` name and a `cardDef`,
-/// and [[cardsOf]] finds it by reflection. The renderer wraps every node in an
-/// id'd `.fh-cell`, which the layout builders here put classes on.
+/// and use it; [[cardsIn]] registers it off the node. The renderer wraps every
+/// node in an id'd `.fh-cell`, which the layout builders here put classes on.
 module core.node
 
 import "predicate.pkl" as predMod
@@ -10,7 +10,6 @@ import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
-import "pkl:reflect"
 
 typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate
 
@@ -138,9 +137,8 @@ abstract class LayoutNode {
 abstract class Node extends LayoutNode {
   kind: "component" = "component"
   card: String
-  // Read as the CLASS-LEVEL default by reflection ([[cardsOf]]), so it must
-  // not reference instance properties. Keep each HTML attribute value on one
-  // line.
+  // The same for every node of the card ([[cardsIn]]), so it must not
+  // reference instance properties. Keep each HTML attribute value on one line.
   hidden cardDef: CardDef
   // A live slot carrying BYTES on a structural card is a build error: its patch
   // would carry everything the card holds. Put live markup in a region as a
@@ -244,45 +242,29 @@ class CardDef {
 
 const local function isStructure(d: CardDef): Boolean = d.regions != null
 
-// ---- the card registry ------------------------------------------------------
-//
-// Modules are named rather than discovered: `reflect.Module.imports` yields
-// import URIs as strings, and Pkl cannot reflect a module from one. A card class
-// must live in its own module, since a class in an amending module (an entry)
-// must be `local`, and reflection cannot see `local` classes.
+/// Every card the trees under `roots` use, by name — a page ships these cards'
+/// templates, CSS and scripts and no others. Read off the nodes rather than
+/// their classes, so a card class registers by being used, from any module.
+/// Every node of one card must carry the same `cardDef`.
+const function cardsIn(roots: List<LayoutNode>): Mapping<String, CardDef> =
+  roots.flatMap((r) -> nodesUnder(r))
+    .groupBy((n) -> n.card)
+    .mapValues((name, ns) ->
+      let (defs = ns.map((n) -> n.cardDef).distinct)
+        if (defs.length == 1) defs.first
+        else throw("card '\(name)' has \(defs.length) different cardDefs: two card classes claim the name, or a cardDef reads its own node"))
+    .toMapping()
 
-const local nodeClass = reflect.Class(Node)
-
-const local function cardNameOf(clsName: String, cls: reflect.Class): String =
-  let (v = cls.properties["card"].defaultValue)
-    if (v is String) v
-    else throw("card class \(clsName) must default `card` to a literal card name")
-
-/// A class that extends a card without naming one of its own IS that card
-/// (`EntityButton` is a `button`), so registering it would claim the name twice.
-const local function inheritsCard(cls: reflect.Class): Boolean =
-  !cls.properties.containsKey("card")
-    && cls.superclass != null
-    && cls.superclass!!.properties.containsKey("card")
-
-const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
-  let (v = cls.properties["cardDef"].defaultValue)
-    if (v is CardDef) v
-    else throw("card class \(clsName) must set `cardDef` (its template + declared slots)")
-
-/// Every concrete [[Node]] subclass `mods` define, by card name. Two modules
-/// claiming one name is a "Duplicate definition" error, so a module cannot
-/// silently shadow a library card.
-function cardsOf(mods: List<Module>): Mapping<String, CardDef> = new {
-  for (m in mods) {
-    for (clsName, cls in reflect.Module(m).classes) {
-      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")
-        && !inheritsCard(cls)) {
-        [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
-      }
-    }
-  }
-}
+// Every place a node can hold another; a new one belongs here, or its cards
+// are "unknown card" at validate.
+const local function nodesUnder(n: LayoutNode): List<Node> =
+  if (n is Node)
+    List(n)
+      + (n.regions?.toMap()?.values ?? List()).flatMap((l) -> l.toList()).flatMap((k) -> nodesUnder(k))
+      + (n.inlineSurfaces?.toMap()?.values ?? List()).flatMap((s) -> nodesUnder(s.content))
+  else if (n is predMod.SetNode)
+    n.members.toMap().values.flatMap((m) -> m.clauses.toList()).flatMap((c) -> nodesUnder(c.node))
+  else throw("unknown node kind '\(n.kind)'")
 
 // A node's own backend-minted id, spliced in by the build's hoist. Must equal
 // `DashboardBuild.NodeIdToken`.

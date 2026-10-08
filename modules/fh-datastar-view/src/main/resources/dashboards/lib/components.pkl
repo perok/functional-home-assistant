@@ -3,8 +3,8 @@
 /// A facade: every card lives in a family module beside it
 /// (`components/entity.pkl`, …), which is also importable directly. The
 /// component-author kit (`core/node.pkl`, `core/slot.pkl`, `core/surface.pkl`,
-/// `core/predicate.pkl`) is deliberately not re-exported; see `entry.pkl`'s
-/// `componentModules` for how your own cards reach the registry.
+/// `core/predicate.pkl`) is deliberately not re-exported. Your own card
+/// classes need no registering: a dashboard registers what it uses.
 ///
 /// A re-export must carry an explicit type (`hidden tap: tapMod = tapMod`): an
 /// untyped one evaluates and then completes to nothing in the editor. This
@@ -12,6 +12,7 @@
 /// (`docs/issue-report-2-pkl-lsp-extends-completion.md`).
 module components
 
+import "pkl:reflect"
 import "hass.pkl"
 import "core/node.pkl" as nodes
 import "core/slot.pkl" as slotMod
@@ -183,11 +184,14 @@ hidden entityCard: (hass.Entity) -> entityMod.EntityCard = entityMod.entityCard
 hidden toggle: (hass.Entity) -> control.Toggle = control.toggle
 hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = sliderMod.entitySlider
 
-// ---- the card registry ----
+// ---- the library's index ----
+//
+// What this library ships, for reading a card's markup without building a
+// node. A dashboard's registry is not this: it is the cards its tree uses
+// (`entry.pkl`).
 
-/// The modules whose card classes this library ships; `entry.pkl` seeds
-/// `componentModules` from it. Reflection sees only classes a module declares,
-/// so the facade cannot stand in for the families.
+/// The modules that declare this library's card classes. Reflection sees only
+/// classes a module declares, so the facade cannot stand in for the families.
 const modules: List<Module> = List(
   layoutMod,
   textMod,
@@ -206,7 +210,19 @@ const modules: List<Module> = List(
   progressMod
 )
 
-function cardsOf(mods: List<Module>): Mapping<String, nodes.CardDef> = nodes.cardsOf(mods)
+/// Every concrete card class in [[modules]], by card name. A class that
+/// extends a card without naming its own IS that card (`EntityButton` is a
+/// `button`), so it is not listed twice.
+cards: Mapping<String, nodes.CardDef> = new {
+  for (m in modules) {
+    for (_, cls in reflect.Module(m).classes) {
+      when (cls.isSubclassOf(nodeClass) && !cls.modifiers.contains("abstract")
+        && cls.properties.containsKey("card")) {
+        [cls.properties["card"].defaultValue as String] =
+          cls.properties["cardDef"].defaultValue as nodes.CardDef
+      }
+    }
+  }
+}
 
-/// This library's own cards.
-cards: Mapping<String, nodes.CardDef> = nodes.cardsOf(modules)
+const local nodeClass = reflect.Class(nodes.Node)

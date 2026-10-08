@@ -15,7 +15,7 @@ composes, the slot/tap/surface plumbing, and the query wire AST that only
 `query.pkl` builds. Two costs followed.
 
 **Discovery.** Typing `c.` offered ~93 names, about 30 of which an author must
-never touch — `Slot`, `Cell`, `CardDef`, `NODE_ID`, `cardsOf`, `sliderSpec`,
+never touch — `Slot`, `Cell`, `CardDef`, `NODE_ID`, `cardsIn`, `sliderSpec`,
 `alwaysHolds`, and the 14-class predicate AST. A name you have to know to skip is
 a name that costs something.
 
@@ -41,10 +41,11 @@ hass.pkl + hass/  light.pkl                                  — the domain sche
 ```
 
 `components.pkl` is a **facade**: it declares no cards, re-exporting the everyday
-names from the family modules. `entry.pkl` seeds `componentModules` from
-`components.modules`, because reflection sees only classes a module DECLARES —
-never inherited or re-exported ones — so a facade cannot stand in for the
-families in the card registry.
+names from the family modules. Its `modules` list and the reflected `cards`
+index name the families, because reflection sees only classes a module
+DECLARES — never inherited or re-exported ones — so a facade cannot stand in
+for them. A dashboard's own registry reads its nodes instead (ADR 0006,
+decision 7).
 
 ### Base components, and the HA layer on top
 

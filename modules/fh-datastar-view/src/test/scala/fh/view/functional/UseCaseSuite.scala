@@ -474,9 +474,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     assertEquals(imports, Set(dir / "site.pkl"), clue = imports)
   }
 
-  /** A card class in a plain, non-amending module: the only place one can live
-    * (see `entry.pkl`'s `componentModules`).
-    */
+  /** A card class in a module of the author's own. */
   private val privateComponent =
     // A card author imports the kit; `components.pkl` holds no card contract.
     """module mycards
@@ -513,14 +511,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
          |
          |theme = ${PklFixture.dummyTheme}
          |
-         |componentModules { mine }
-         |
          |card = mine.gauge("from my own component")
          |""".stripMargin
     )
 
-    // 1. Named in `componentModules`, the class joins `cards` with no library
-    // edit.
+    // 1. Used, the class joins `cards`: no library edit, nothing registered.
     val built = SourceEval
       .eval(dir, "mine.pkl")
       .fold(err => fail(s"eval failed: $err"), identity)
@@ -577,6 +572,80 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assertEquals(notJson.status, Status.BadRequest)
         }
       }
+  }
+
+  test("component developer: a card class written in the dashboard itself") {
+    // Reflection could not see a class in an amending module, which must be
+    // `local`; the registry reads nodes, so it can.
+    val dir = stageWorkspace(withDump = true)
+    os.write(
+      dir / "inline.pkl",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/theme.pkl" as th
+         |
+         |theme = ${PklFixture.dummyTheme}
+         |
+         |local class Badge extends nodes.Node {
+         |  card = "badge"
+         |  cardDef = new nodes.CardDef { template = "<b class=\\"badge\\">here</b>" }
+         |}
+         |
+         |card = new Badge {}
+         |""".stripMargin
+    )
+    val built = SourceEval
+      .eval(dir, "inline.pkl")
+      .fold(err => fail(s"eval failed: $err"), identity)
+    val dashboard = DashboardBuild
+      .hoistInlineSurfaces(built.value)
+      .as[Dashboard]
+      .fold(err => fail(s"decode failed: $err"), identity)
+    assertEquals(dashboard.validate(), Nil)
+    assertEquals(
+      dashboard.cards.get("badge").map(_.template),
+      Some("""<b class="badge">here</b>""")
+    )
+  }
+
+  test(
+    "component developer: two card classes claiming one name fail the build"
+  ) {
+    // Reflection made that a "Duplicate definition"; read off nodes, the two
+    // must agree on the card's markup or the build names the card.
+    val dir = stageWorkspace(withDump = true)
+    os.write(dir / "mycards.pkl", privateComponent)
+    os.write(
+      dir / "clash.pkl",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "mycards.pkl" as mine
+         |import "@fh-dashboard/theme.pkl" as th
+         |
+         |theme = ${PklFixture.dummyTheme}
+         |
+         |local class Other extends nodes.Node {
+         |  card = "gauge"
+         |  cardDef = new nodes.CardDef { template = "<i>not the same</i>" }
+         |}
+         |
+         |card = (c.column) { children { mine.gauge("a") new Other {} } }
+         |""".stripMargin
+    )
+    val err = SourceEval
+      .eval(dir, "clash.pkl")
+      .left
+      .toOption
+      .getOrElse(
+        fail("two cardDefs under one name built")
+      )
+    assert(
+      err.contains("card 'gauge' has 2 different cardDefs"),
+      clue = err
+    )
   }
 
   test("component developer: pushing the whole SITE installs every key") {

@@ -128,7 +128,7 @@ ambiguity the change removes: two answers to "what is a dashboard", two discover
 paths to keep in step, and a helper module that is one careless filename away
 from being served. Simplification was the point.
 
-**Hoisting `theme` / `css` / `componentModules` to the site**, so one copy is
+**Hoisting `theme` / `css` to the site**, so one copy is
 declared for every dashboard. Attractive and probably right, but those are
 per-dashboard WIRE fields today: hoisting means a site-level default plus an
 inheritance rule in both the Pkl layer and the decoder, and it changes every

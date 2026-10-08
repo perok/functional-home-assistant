@@ -754,9 +754,13 @@ class PklBuildSuite extends munit.FunSuite {
       """amends "@fh-dashboard/entry.pkl"
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-dashboard/theme.pkl" as th
+        |import "@fh-home/dump.pkl" as dump
         |theme = new th.Theme {}
         |card = (c.column) {
-        |  children { c.button("Open", c.tap.openPopupInline(c.title("x"))) }
+        |  children {
+        |    c.button("Open", c.tap.openPopupInline(c.title("x")))
+        |    c.entitySlider(dump.lights.first)
+        |  }
         |}
         |""".stripMargin
     )
@@ -854,6 +858,22 @@ class PklBuildSuite extends munit.FunSuite {
         .exists(_.exists(_.contains("pointerdown"))),
       clue = "the slider's gesture script is the card's, not the theme's: " +
         result
+    )
+  }
+
+  test("a dashboard's registry is the cards it uses, and so is its CSS") {
+    val dashboard = PklFixture.buildDashboard(
+      "used",
+      """amends "@fh-dashboard/entry.pkl"
+        |import "@fh-dashboard/components.pkl" as c
+        |card = (c.column) { children { c.title("only this") } }
+        |""".stripMargin
+    )
+    assertEquals(dashboard.cards.keySet, Set("fhcol", "sectionTitle"))
+    // The slider's structure CSS ships with a slider, not with every page.
+    assert(
+      !dashboard.cardCss.contains(".slider-head{"),
+      clue = dashboard.cardCss
     )
   }
 

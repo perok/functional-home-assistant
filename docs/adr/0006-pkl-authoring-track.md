@@ -99,41 +99,33 @@ finished, and are deleted (issue #23).
    style.
 7. **A card class also owns its template**: each concrete `Node` subclass
    carries a `hidden cardDef: CardDef` (Mustache template + declared slots),
-   co-located with the logic that fills them, and the module's `cards` mapping
-   is **derived by reflection** (`pkl:reflect` over the module's concrete
-   `Node` subclasses, reading the class-level `card`/`cardDef` defaults via
-   `reflect.Property.defaultValue`). Because `cardDef` is hidden it never
-   emits into node JSON — the emitted top-level `cards` is identical to the
-   old hand-maintained mapping, so the backend contract is untouched.
-   Registration is automatic: a new card is one class, and forgetting the
-   `cardDef` is an eval-time error naming the class.
+   co-located with the logic that fills them. Because `cardDef` is hidden it
+   never emits into node JSON; the top-level `cards` is the backend contract.
 
-   The reflection runs over **a list of modules** (`c.cardsOf(mods)`), not just
-   the library's own, so a card class defined OUTSIDE the library reaches the
-   registry too — the component-developer story (ADR 0010, persona 4). An entry
-   names its extra modules via `componentModules`:
+   **A dashboard's `cards` is the cards its tree uses**, read off the nodes
+   (`core/node.pkl`'s `cardsIn`, over `card` and `surfaces`): every node
+   carries its own `cardDef`, so walking the tree finds each card with no
+   registration at all. A card class of the component developer's own (ADR
+   0010, persona 4) is registered by being used, from any module — the entry
+   included, where a class must be `local`.
 
-   ```pkl
-   import "mycards.pkl" as mine
-   componentModules { mine }
-   ```
+   This replaced reflection over a named list of modules (`componentModules`),
+   which existed because **Pkl cannot find card classes on its own**:
+   `reflect.Module.imports` yields URIs as plain strings, there is no
+   reflect-by-string, and `local` classes are invisible to reflection. A walk
+   needs none of it, and measured no slower: 51 ms against 77 ms on a small
+   dashboard, level at ~1,000 nodes. A page also ships only the CSS and
+   scripts of the cards it uses.
 
-   That registration is explicit because **Pkl cannot infer it**:
-   `reflect.Module.imports` yields import URIs as plain `String`s and Pkl has no
-   reflect-by-string, so the import graph cannot be walked to find card classes
-   (verified on 0.31.1). Two consequences worth knowing:
+   Two nodes of one card must carry the same `cardDef`, or the build names the
+   card — two classes claiming one name, or a `cardDef` that reads its own
+   node. `components.pkl` keeps a reflected `cards` index of what the library
+   ships, for reading a card's markup without building a node; no dashboard
+   reads it. A node that holds others somewhere the walk does not look
+   (`nodesUnder`) fails validation as an unknown card, never silently.
 
-   - A component must live in **its own module**. Classes in an amending module
-     (every entry) require `local`, and `local` classes are invisible to
-     reflect — so a card class written inline in an entry silently never
-     registers. Late binding of `module` itself works fine; the `local` rule is
-     what blocks it.
-   - Two modules claiming one card name is a Pkl error (`Duplicate definition of
-     member`), so a third-party module cannot shadow a library card.
-
-   Entries do not repeat the
-   registry line — they `amends "lib/entry.pkl"`, the base scaffold
-   that sets it (decision 9).
+   Entries do not repeat the registry line — they `amends "lib/entry.pkl"`,
+   the base scaffold that sets it (decision 9).
 8. **Candidate sets: `q.from(...)` chains, not a node an author builds.**
    *Superseded — recorded because the reasoning outlived the mechanism.* A
    dynamic group was an amendable `DynamicGroup` (`kind = "dynamic"`) whose
@@ -165,16 +157,16 @@ finished, and are deleted (issue #23).
    Rejected while designing this: `entity = SELF` as a class default (a forgotten
    entity silently emits `$self`, needing a backend guard); `caseOf`
    amend-injecting the entity (breaks the moment a branch mixes per-entity and
-   static children); `Dyn*` subclasses (collide in the reflect-derived `cards`
-   registry); explicit `dynSlider()` factories (just `SELF` renamed). Render
+   static children); `Dyn*` subclasses (each claimed its card's name a second time in the
+   reflected registry); explicit `dynSlider()` factories (just `SELF` renamed). Render
    lambdas won because a branch is a function of the matched entity and composes
    unchanged if cases ever grow from leaves to subtrees.
 9. **Entries `amends "lib/entry.pkl"`.** `lib/entry.pkl` is the base module
-   every entry amends: it carries the reflected card registry
-   (`cards = c.cardsOf(componentModules.toList())`) and the shared `theme`, and
+   every entry amends: it carries the card registry
+   (`cards = nodes.cardsIn(…)`, decision 7) and the shared `theme`, and
    declares the fields an entry fills — a required
-   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces`,
-   `componentModules` (decision 7) and a `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets
+   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces`
+   and a `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets
    only `card`. Because `card` has no default, an entry that forgets it fails
    with "Tried to read property `card` but its value is undefined" whose caret
    points at `lib/entry.pkl` (Pkl reports a missing required property at the
