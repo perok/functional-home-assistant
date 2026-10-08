@@ -275,10 +275,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   being sent — so `SignalSlotSuite` asserts what is *not* on the wire.
 - **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`
   (the real flex/grid item and Datastar morph target; `CardDef.wrapAsCell = false` is the rare
-  opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to half — HA
+  opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
-  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`centered()`/`cellClass`
-  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Candidate sets flow
+  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`textOverflow(…)`/`cellClass`
+  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders; `centered(false)` is the `Grid`'s own). Candidate sets flow
   their members the same way (`.fh-group`).
 - Candidate sets: a `LayoutNode.SetNode` carries a STATIC candidate list (decided at build time
   from the dump) plus per-candidate guarded renderings; the runtime decides only PRESENCE (the

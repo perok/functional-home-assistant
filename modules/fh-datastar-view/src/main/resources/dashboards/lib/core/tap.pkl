@@ -162,15 +162,6 @@ const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 // class is the THEME's (`busySpin` in the registry, BeerCSS's shape mask) and it
 // must sit on the element hosting the glyph, which only the template knows.
 
-/// The IN-FLIGHT LOOK, for any signal that is truthy while something is
-/// outstanding. Parameterised because the look is one fact and the state is
-/// not: an ADR 0019 `busy` boolean and an ADR 0025 pending VALUE both wear it,
-/// and so does the slider's separate commit signal. The signals must keep their
-/// own names (they are keyed differently and written by different things — see
-/// [[pendingSignal]]); only the classes are shared.
-const function inFlightClass(sig: String): String =
-  #"data-class:fh-disabled="$\#(sig)" data-class:fh-loading="$\#(sig)""#
-
 // ---- refusal ---------------------------------------------------------------
 //
 // A node REFUSES while its tap does (`tapDisabled`, [[tapDisabledSlot]]) OR its
@@ -200,8 +191,10 @@ const function refusedNow(s: String): String =
   "{{#tapDisabled}}" + s + "{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}" + s
     + "{{/disabled}}{{/tapDisabled}}"
 
-/// [[inFlightClass]] for a guarded TAP: the same look, and `fh-disabled` also
-/// while the node refuses. ONE `data-class:fh-disabled` with every reason
+/// The IN-FLIGHT LOOK for a guarded element, `sig` being whichever busy signal
+/// it owns (a tap's, or the slider's separate commit one): `fh-disabled` and
+/// `fh-loading` while it is truthy, and `fh-disabled` also while the node
+/// refuses. ONE `data-class:fh-disabled` with every reason
 /// ORed, because a second binding of the same class on the element would be
 /// dropped. `fh-disabled` is the "you cannot use this" look whatever the
 /// reason; `fh-loading` and the spinner are only in-flight.
@@ -306,7 +299,7 @@ const local function groupQuery(group: String): String = "?group=\(group)'"
 const local function failedOn(sig: String): String =
   #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($\#(sig) = ''))""#
 
-/// The failed LOOK, beside [[inFlightClass]]. `fh-error` is the runtime's to
+/// The failed LOOK, beside [[inFlightOrRefused]]. `fh-error` is the runtime's to
 /// emit and the base stylesheet's to paint (`core/css.pkl`), like the busy
 /// classes — a theme may restyle it, never drop it.
 const local function failedClass(sig: String): String =

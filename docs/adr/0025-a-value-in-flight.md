@@ -174,13 +174,13 @@ the rest of the app already follows", plus a pending VALUE for the case a
 two-way binding cannot express: a tab index or a surface id has no input element
 to bind to.
 
-## Why pending and `busy` share a LOOK but never a name
+## Why pending and `busy` never share a name
 
-They wear the same classes — `fh-disabled`, `fh-loading`, and the theme's
-`busySpin` bind key — because "this control is mid-something" is one fact.
-`tap.pkl`'s `inFlightClass(sig)` / `guardOn(sig)` / `busySpinner(sig)` are
-parameterised on the signal for exactly that, which also collapsed the six
-hardcoded `busy*` / `busy*Change` constants into three functions.
+Pending wears no look of its own: what a tab shows while its ask is out is
+`busy`'s. "This control is mid-something" is one fact with one look, so
+`tap.pkl`'s `inFlightOrRefused(sig)` / `guardOn(sig)` / `busySpinner(sig)` are
+parameterised on the SIGNAL (the tap's `busy`, the slider's commit) rather than
+duplicated per signal.
 
 A tab is ALSO guarded, with ADR 0019's own `busy` (issue #412): pending says
 which tab is asked for, `busy` says the ask is still out. Pending adds nothing

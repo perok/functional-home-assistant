@@ -77,9 +77,9 @@ const local ATTR_LINES =
 /// its raw facts ([[EntityInfo]]). HA's own dialog also carries settings; those
 /// are not here.
 ///
-/// Only `light` contributes controls, because [[lightControls]] is the only
-/// domain composition that exists — every other domain gets the card and the
-/// facts, which is the whole point: a popup that always has SOMETHING to show is
+/// Only `light` contributes controls (`components/light.pkl`'s `controls`) —
+/// every other domain gets the card and the facts, which is the whole point: a
+/// popup that always has SOMETHING to show is
 /// what lets a tap on a non-actionable entity open this instead of doing nothing.
 ///
 /// The chart is conditional on [[hass.SensorEntity.isNumeric]], which the dump

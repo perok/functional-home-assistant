@@ -243,11 +243,6 @@ const function ifNoSlot(name: String): String = "{{^" + name + "__has}}"
 /// Closes [[ifNoSlot]].
 const function endIfNoSlot(name: String): String = "{{/" + name + "__has}}"
 
-/// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
-/// The card must place `signalBind("value")`.
-const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
-  (valueSlot(value)) { signal = asText }
-
 /// A live value expression for a display field that also accepts a plain
 /// string: `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`
 /// vs the literal `label = "Kitchen"`.
