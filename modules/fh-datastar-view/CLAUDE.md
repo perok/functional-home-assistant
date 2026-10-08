@@ -427,7 +427,8 @@ gotchas"):
   and let the one or two that would close it take `Any`, with a comment saying why.
 - Reserved words that bite as field, property or METHOD names: **`case`**, **`out`**, **`is`**
   (the type-test operator), **`read`** (the resource reader), **`var`**, **`open`**, **`switch`**
-  (both bit in this library, as a verb and a module name), `import`, `else`,
+  (both bit in this library, as a verb and a module name), **`override`** (a parameter name,
+  too), `import`, `else`,
   `when`. Backtick them or pick another name —
   `shape` rather than `case`, `stateIs` rather than `is`, `ref` rather than `read`. Backticking
   reads badly at the CALL site, so for a method prefer renaming; for a WIRE field there is no

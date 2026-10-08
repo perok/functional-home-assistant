@@ -14,23 +14,24 @@ import "../../core/text.pkl" as textMod
 open class Tile extends nodes.Node {
   card = "tile"
   cardDef = new nodes.CardDef {
+    // The glyph in the shared badge, which is also the spinner's host, then the
+    // title with its reading and second line under it. A `div`, not BeerCSS's
+    // `<header>`, which is a 4rem app-bar grid.
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>
-        <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
+        <div class="fh-tile">\(slotMod.ifSlot("icon"))<span class="fh-badge fh-icon-shape"{{#busy}}{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}{{/busy}}><i class="{{icon}}" \(slotMod.signalBind("icon"))></i></span>\(slotMod.endIfSlot("icon"))<span class="fh-lines">\(textMod.hole("label"))
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
-        <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))
+        <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>
       </article>
       """
     slots { "label"; "value" }
-    // Icon metrics only; the font is the theme's. A flex header, so the label
-    // box is what shrinks and the icon never does.
+    // A flex row, so the text column is what shrinks and the badge never does.
     css = """
       .card.tappable{cursor:pointer}
-      .entity header{display:flex;align-items:center;min-inline-size:0}
-      .entity header>:is(i.mdi,.fh-icon-shape){flex:0 0 auto}
-      .entity header i.mdi{font-size:1.25rem;line-height:1;
-      margin-inline-end:.375rem;color:var(--fh-accent)}
+      .fh-tile{display:flex;align-items:center;gap:.75rem;min-inline-size:0}
+      .fh-tile>.fh-lines{flex:1 1 auto}
+      .fh-tile .fh-reading{font-size:.875em}
       """
   }
   hidden title: String|slotMod.Slot = ""

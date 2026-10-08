@@ -4,6 +4,7 @@ module core.icon
 
 import "../hass.pkl"
 import "simple.pkl" as simpleMod
+import "slot.pkl" as slotMod
 import "../hass/icons.pkl" as tables
 
 /// `mdi:thermometer` -> `mdi-thermometer`, the stylesheet's class; either
@@ -27,6 +28,16 @@ const function iconFor(e: hass.Entity?): String? =
         mdiClass(tables.deviceClassIcons[dc])
       else if (tables.domainIcons.containsKey(e.domain)) mdiClass(tables.domainIcons[e.domain])
       else null
+
+/// A card's glyph for `e`, as the `<i>`'s whole class: live where the domain's
+/// glyph follows its state (a lock), else the literal the registry decides.
+/// `mdiName`, an author's override, wins over both, as in HA.
+const function glyphOf(e: hass.Entity, mdiName: String?): (String|slotMod.Slot)? =
+  if (mdiName == null && stateIconFor(e) != null)
+    new slotMod.Slot { transform = stateIconFor(e)!!; bypassUnavailable = false }
+  else if (mdiName != null) "mdi " + mdiClass(mdiName)
+  else if (iconFor(e) != null) "mdi " + iconFor(e)!!
+  else null
 
 /// The live icon, or null: for a domain without a state table, and for an
 /// entity with its own `icon` or a `device_class`, either of which wins as in

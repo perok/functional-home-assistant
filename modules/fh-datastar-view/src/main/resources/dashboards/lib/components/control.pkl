@@ -3,6 +3,7 @@
 /// `components/base/button.pkl`'s.
 module components.control
 
+import "../core/icon.pkl" as icons
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../core/simple.pkl" as simpleMod
@@ -38,6 +39,7 @@ class Toggle extends switchMod.Switch {
   }
   tapAction = tapMod.byDomain(entity) ?? throw(buttonMod.noAction("c.toggle"))
   subject = entity.entity_id
+  glyph = icons.glyphOf(entity, null)
 }
 
 function toggle(e: hass.Entity): Toggle = new Toggle { entity = e }
