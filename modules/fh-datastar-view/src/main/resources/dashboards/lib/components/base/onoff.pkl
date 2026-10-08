@@ -98,11 +98,8 @@ open class Switch extends nodes.Node {
     for (k, v in tapMod.tapRoute(tapAction)) {
       [k] = v
     }
-    when (tapAction.busy) {
-      ["busy"] = "1"
-    }
-    when (tapAction.busy && tapAction.busyVisual) {
-      ["busyVisual"] = "1"
+    for (k, v in tapMod.guardSlots(tapAction)) {
+      [k] = v
     }
   }
   function label(l: String|slotMod.Expr): Switch = let (self = this) (self) { label = l }

@@ -208,18 +208,11 @@ open class Button extends nodes.Node {
       when (ownDisabled != null) {
         ["disabled"] = ownDisabled!!
       }
-    }
-    // Only the non-anchor arm carries the busy splice — an anchor is a
-    // navigate, which is never guarded (`busy = false`), so this can never
-    // name a slot the template does not place. The GUARD (`busy`) and the
-    // LOOK (`busyVisual`) are separate slots: the class binding behind
-    // `busyVisual` is the whole `fh-disabled`/`fh-loading` visual, and a tap
-    // with `busyVisual = false` still swallows re-clicks, just never dims.
-    when (tapAction.href == null && tapAction.busy) {
-      ["busy"] = "1"
-    }
-    when (tapAction.href == null && tapAction.busy && tapAction.busyVisual) {
-      ["busyVisual"] = "1"
+      // Only this arm places the guard: the anchor's template has no splice
+      // for it to open.
+      for (k, v in tapMod.guardSlots(tapAction)) {
+        [k] = v
+      }
     }
   }
   // Fluent config (see `EntityCard`'s builder methods).
@@ -279,12 +272,9 @@ class Pill extends nodes.Node {
       for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v
       }
-    }
-    when (tapAction.href == null && tapAction.busy) {
-      ["busy"] = "1"
-    }
-    when (tapAction.href == null && tapAction.busy && tapAction.busyVisual) {
-      ["busyVisual"] = "1"
+      for (k, v in tapMod.guardSlots(tapAction)) {
+        [k] = v
+      }
     }
   }
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }

@@ -386,6 +386,29 @@ facts {
     tab.slots["busyVisual"] == "1"
   }
 
+  ["every pressable card places the guard exactly when its tap asks for it"] {
+    local quiet = (tapMod.call("light/toggle", kitchen)) { busyVisual = false }
+    local taps = List(
+      tapMod.call("light/toggle", kitchen),
+      quiet,
+      tapMod.openPopup("p"),
+      tapMod.navigate("home"),
+      tapMod.closePopup()
+    )
+    local cards = (t: tapMod.TapAction) -> List(
+      c.button("b", t),
+      c.pill("p", t),
+      c.iconButton("mdi:power", t),
+      new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
+      new tileMod.Tile { tapAction = t }
+    )
+    // An anchor (a navigate's `href`) has no splice for the guard to open.
+    taps.every((t) -> cards.apply(t).every((n) ->
+      let (guarded = t.busy && !n.slots.containsKey("href"))
+        n.slots.containsKey("busy") == guarded
+          && n.slots.containsKey("busyVisual") == (guarded && t.busyVisual)))
+  }
+
   ["`tapAction = null` is how a card opts out of being clickable at all"] {
     local card = (c.entityCard(outside)) { tapAction = null }
     !card.slots.containsKey("tappable")

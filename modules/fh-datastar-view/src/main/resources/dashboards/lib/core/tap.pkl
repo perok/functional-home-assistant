@@ -583,8 +583,8 @@ const local function routeSlots(
   }
 
 /// [[click]]'s other half: the ROUTE slots it reads. Separate from
-/// [[tapSlots]] for the card that decides `tappable`/`busy` for itself — a
-/// [[Button]] hangs those on whether the tap offered an `href` instead.
+/// [[tapSlots]] for the card that has no `tappable` section — a [[Button]],
+/// whose anchor arm takes neither — and folds in [[guardSlots]] itself.
 ///
 /// The refusal slot and a state-picked service read a call's TARGET, so a card
 /// may act on an entity other than the one it shows. A [[Click]] has neither.
@@ -636,12 +636,24 @@ const function tapSlots(t: TapAction?): Mapping<String, slotMod.Slot|String> =
       for (k, v in tapRoute(t!!)) {
         [k] = v
       }
-      when (t!!.busy) {
-        ["busy"] = "1"
+      for (k, v in guardSlots(t!!)) {
+        [k] = v
       }
-      when (t!!.busy && t!!.busyVisual) {
-        ["busyVisual"] = "1"
-      }
+    }
+  }
+
+/// The two slots [[guard]] and [[guardClick]] open: `busy` when the tap is
+/// guarded, `busyVisual` when it also wears the look. Read off the TAP, so a
+/// card that takes [[tapRoute]] rather than [[tapSlots]] (the button's anchor
+/// arm, a switch with no `tappable`) folds these in beside it instead of
+/// restating the rule.
+const function guardSlots(t: TapAction): Mapping<String, String> =
+  new {
+    when (t.busy) {
+      ["busy"] = "1"
+    }
+    when (t.busy && t.busyVisual) {
+      ["busyVisual"] = "1"
     }
   }
 
