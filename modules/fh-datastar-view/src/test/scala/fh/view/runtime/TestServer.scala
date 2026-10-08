@@ -8,7 +8,7 @@ import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.auth.{AuthSessions, HaOAuth}
-import fh.view.build.{PklDump, Site}
+import fh.view.build.{Minifier, PklDump, Site}
 import fh.view.model.{Access, Dashboard}
 import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
@@ -531,11 +531,14 @@ object TestServer {
       tmp <- stageWorkspace(slug, entrySource, entities)
       fake <- FakeHomeAssistant.create(entities, config).toResource
       client <- cdnClient
+      // What a browser is shown is what production serves: minified.
+      minifier <- Minifier.isolated(minifiedStore).toResource
       booted <- assemble(
         fake,
         tmp,
-        ServerApp.prepareRenderers(_, tmp, None),
-        client
+        ServerApp.prepareRenderers(_, tmp, None, minifier = minifier),
+        client,
+        minifier = minifier
       )
       prepared = booted.assembled.prepared
       _ <- IO
@@ -631,12 +634,16 @@ object TestServer {
       watcher: FakeWatcher
   )
 
+  // One per test JVM, so only the first served page pays for an engine.
+  private lazy val minifiedStore: os.Path = os.temp.dir(prefix = "fh-minified")
+
   private def assemble(
       fake: FakeHomeAssistant,
       workspace: os.Path,
       prepare: HaFeed => IO[ServerApp.Prepared],
       assetsClient: Client[IO] = NoCdn,
-      windows: Server.SessionWindows = Server.SessionWindows.default
+      windows: Server.SessionWindows = Server.SessionWindows.default,
+      minifier: Minifier = Minifier.none
   ): Resource[IO, Booted] =
     for {
       assetsDir <- tempDir("fh-assets")
@@ -657,7 +664,8 @@ object TestServer {
           loggerFactory = Logging.console,
           meters = Meters.noop,
           sourceWatcher = Resource.pure(watcher),
-          sessionWindows = windows
+          sessionWindows = windows,
+          minifier = minifier
         )
       )
     } yield Booted(assembled, haUp, watcher)

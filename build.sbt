@@ -332,27 +332,33 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    // ECharts, shipped as a classpath resource for the SERVER to evaluate —
-    // not bundled for a browser, which is why it does not go through vite.
+    // ECharts, terser and csso, shipped as classpath resources for the SERVER
+    // to evaluate — not bundled for a browser, which is why they do not go
+    // through vite.
     //
-    // An npm dependency rather than a vendored blob, for the reason #62 landed
+    // npm dependencies rather than vendored blobs, for the reason #62 landed
     // for pkl-lsp: the version lives in the lockfile where dependabot reads it,
-    // and nothing built is committed. `frontendInstall` is what puts it in
+    // and nothing built is committed. `frontendInstall` is what puts them in
     // node_modules, so this depends on it rather than assuming it ran.
     Compile / resourceGenerators += Def.task {
-      val source = (Compile / frontendDirectory).value /
-        "node_modules" / "echarts" / "dist" / "echarts.min.js"
-      val target =
-        (Compile / resourceManaged).value / "chart" / "echarts.min.js"
+      val modules = (Compile / frontendDirectory).value / "node_modules"
+      val out = (Compile / resourceManaged).value
+      val staged = Seq(
+        modules / "echarts" / "dist" / "echarts.min.js" -> out / "chart" / "echarts.min.js",
+        modules / "terser" / "dist" / "bundle.min.js" -> out / "minify" / "terser.min.js",
+        modules / "csso" / "dist" / "csso.js" -> out / "minify" / "csso.js"
+      )
       (Compile / frontendInstall).value
       Def.uncached {
-        if (!source.exists) sys.error(s"echarts not installed at $source")
-        if (
-          !target.exists || IO.getModifiedTimeOrZero(target) <
-            IO.getModifiedTimeOrZero(source)
-        )
-          IO.copyFile(source, target, preserveLastModified = true)
-        Seq(target)
+        staged.map { case (source, target) =>
+          if (!source.exists) sys.error(s"not installed: $source")
+          if (
+            !target.exists || IO.getModifiedTimeOrZero(target) <
+              IO.getModifiedTimeOrZero(source)
+          )
+            IO.copyFile(source, target, preserveLastModified = true)
+          target
+        }
       }
     }.taskValue,
     // No DASHBOARDS_DIR here on purpose: a local run serves the workspace it is

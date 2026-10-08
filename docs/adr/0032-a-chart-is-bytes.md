@@ -125,6 +125,11 @@ nothing.
 It is built **lazily** (`Resource#memoizedAcquire`), so an instance whose dashboards hold no chart
 pays neither the ECharts evaluation nor the isolate's heap.
 
+The other user of GraalJS, `build/Minifier` (csso and terser over a dashboard's inline CSS and JS,
+#153), does not share it: borrowing the chart engine would make every instance pay the chart's heap
+for good. It starts an engine of its own only for pieces its on-disk store has not seen and closes
+it with the batch, ~2.5 s on a laptop; a boot with nothing new starts none.
+
 ### What this gives up, and what it does not
 
 Interaction. ECharts' docs are explicit that interaction-related operations do not apply to SSR

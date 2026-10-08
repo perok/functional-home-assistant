@@ -38,7 +38,8 @@ object Site {
   def decode(
       json: Json,
       sources: Set[os.Path] = Set.empty,
-      log: Logger[IO] = Logging.console.getLoggerFromName("fh.view.build.Site")
+      log: Logger[IO] = Logging.console.getLoggerFromName("fh.view.build.Site"),
+      minifier: Minifier = Minifier.none
   ): IO[Decoded] =
     json.asObject.flatMap(_(DashboardsKey)).flatMap(_.asObject) match {
       case None     => missingDashboards.raiseError[IO, Decoded]
@@ -51,11 +52,12 @@ object Site {
             .flatMap(_.as[Access].toOption)
             .getOrElse(Access.default)
 
-        ds.toList
+        // One engine session for the whole site, not one per dashboard.
+        minifier.prepare(ds.values.toList) *> ds.toList
           .sortBy(_._1)
           .traverse { case (slug, value) =>
             DashboardBuild
-              .decode(value, sources, Some(slug))
+              .decode(value, sources, Some(slug), minifier)
               .map(_.withAccess(siteAccess))
               .attempt
               .timed
