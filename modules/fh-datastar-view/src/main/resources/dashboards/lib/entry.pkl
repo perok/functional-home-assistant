@@ -28,9 +28,8 @@ hidden componentModules: Listing<Module> = new {
   for (m in c.modules) { m }
 }
 
-/// The card registry from [[componentModules]]. Built with the theme, because
-/// this call is where a theme's class names reach card markup.
-cards = c.cardsWith(componentModules.toList(), theme.classes)
+/// The card registry from [[componentModules]].
+cards = c.cardsOf(componentModules.toList())
 
 /// What every card here does with a label longer than its box: `wrap`, `clip`
 /// (the default) or `scroll` (`core/text.pkl`). One card differs with

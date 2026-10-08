@@ -92,7 +92,7 @@ nothing ever sets. Moving the click to the cell would fix the identity and grow
 every control's hit area to its whole grid cell.
 
 The spinner is the one piece a card places separately, because its class is the
-theme's (`busySpin`) and it must sit on the element hosting the glyph, which
+theme's to swap (`fh-busy-spin`) and it must sit on the element hosting the glyph, which
 only the template knows.
 
 **A popup open is guarded like a service call** (issue #412). The open POST
@@ -132,8 +132,8 @@ The spinner is an SVG mask that morphs itself, and CSS has no way to lend one
 class another's rules — so the class *names* had to come from somewhere, and
 `tap.pkl` named BeerCSS's `.shape` + `.loading-indicator` directly, in the core
 kit that is supposed to be framework-agnostic. They now come from the theme
-(`Theme.classes["busySpin"]`, spliced into the templates when the card registry
-is built); a theme that names none gets `fh-busy-spin` and a plain ring. What
+(a `Theme.classes` rule replacing `fh-busy-spin`, applied by the server; ADR
+0020); a theme with no rule keeps `fh-busy-spin` and a plain ring. What
 remains true either way: the reduced-motion story is whatever the named look
 allows (BeerCSS's `<animate>` elements are unreachable from CSS, so that theme
 drops the mask for a static disc), and `.shape>i{filter:invert(1)}` — an

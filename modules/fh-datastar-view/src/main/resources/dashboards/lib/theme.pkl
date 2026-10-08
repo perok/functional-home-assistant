@@ -36,12 +36,20 @@
 ///
 /// ## Your own class names in card markup
 ///
-/// The delayed spinner is the one place the right class depends on the
-/// framework, so [[classes]] names it: BeerCSS asks for
-/// `shape loading-indicator`, and a theme that names nothing gets
-/// `fh-busy-spin`. Style it as "showing", with no delay of its own; the delay is
-/// already in the signal. The class is bound, never left in place and styled
-/// inert, because BeerCSS's `.shape>i{filter:invert(1)}` is unconditional.
+/// CSS cannot make one class inherit another's rules, so a framework class a
+/// card should carry comes through [[classes]]: a rule per `fh-` class, that
+/// [[add]]s yours beside it or [[replace]]s it. The server applies it to every
+/// card's `class="…"` and `data-class:…` and to the `.fh-cell` wrapper's
+/// classes, live ones included; `fh-cell` and `fh-group` take [[add]] only.
+///
+///     classes {
+///       ["fh-busy-spin"] = th.replace("shape loading-indicator")
+///       ["fh-disabled"]  = th.add("disabled")
+///     }
+///
+/// The delayed spinner is the case that needs it. Style it as "showing", with
+/// no delay of its own; the delay is already in the signal. `replace("")`
+/// declines it.
 ///
 /// ## Writing one
 ///
@@ -67,7 +75,6 @@
 ///      for the first paint; without it a popup still works, a moment late.
 module theme
 
-import "core/node.pkl" as nodes
 import "tokens.pkl" as tokenPalette
 
 open class Theme {
@@ -92,11 +99,22 @@ open class Theme {
     <main id="dashboard">{{{body}}}</main>
     <div id="popups">{{{popups}}}</div>
     """
-  /// `key -> class names` (space-separated) to inject into card markup. The
-  /// only key is `busySpin`; an unlisted key binds nothing. Consumed while the
-  /// card registry is built, so it never reaches the wire.
-  hidden classes: Mapping<String, String> = nodeDefaults
+  /// See "Your own class names in card markup" above.
+  classes: Mapping<String(startsWith("fh-")), ClassRule> = new {}
 }
 
-// A const, since a class body may only reference those.
-const local nodeDefaults: Mapping<String, String> = nodes.defaultClasses
+/// `fh.view.model.ClassRule`.
+class ClassRule {
+  mode: "add"|"replace"
+  classes: List<String(matches(Regex(#"-?[A-Za-z_][\w-]*"#)))>
+}
+
+/// Keep the `fh-` class, and put `names` (space-separated) beside it.
+const function add(names: String): ClassRule = new { mode = "add"; classes = tokens(names) }
+
+/// Put `names` in place of the `fh-` class, so the base CSS for it no longer
+/// applies; `""` drops it.
+const function replace(names: String): ClassRule = new { mode = "replace"; classes = tokens(names) }
+
+const local function tokens(names: String): List<String> =
+  names.split(" ").filter((n) -> n != "")

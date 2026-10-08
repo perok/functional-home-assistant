@@ -1,7 +1,7 @@
 /// The layout tree and the card contract — what a component author extends.
 ///
 /// A card is a class: subclass [[Node]], give it a `card` name and a `cardDef`,
-/// and [[cardsWith]] finds it by reflection. The renderer wraps every node in an
+/// and [[cardsOf]] finds it by reflection. The renderer wraps every node in an
 /// id'd `.fh-cell`, which the layout builders here put classes on.
 module core.node
 
@@ -138,7 +138,7 @@ abstract class LayoutNode {
 abstract class Node extends LayoutNode {
   kind: "component" = "component"
   card: String
-  // Read as the CLASS-LEVEL default by reflection ([[cardsWith]]), so it must
+  // Read as the CLASS-LEVEL default by reflection ([[cardsOf]]), so it must
   // not reference instance properties. Keep each HTML attribute value on one
   // line.
   hidden cardDef: CardDef
@@ -270,60 +270,19 @@ const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
     if (v is CardDef) v
     else throw("card class \(clsName) must set `cardDef` (its template + declared slots)")
 
-/// [[cardsWith]] under the default class names.
-function cardsOf(mods: List<Module>): Mapping<String, CardDef> =
-  cardsWith(mods, defaultClasses)
-
-/// Every concrete [[Node]] subclass `mods` define, by card name, with the
-/// theme's class names filled into the [[CLASS_BIND]] holes. Two modules
+/// Every concrete [[Node]] subclass `mods` define, by card name. Two modules
 /// claiming one name is a "Duplicate definition" error, so a module cannot
 /// silently shadow a library card.
-///
-/// The theme reaches the markup here because a `cardDef` is a class-level
-/// default, which cannot see the theme the entry picks later; this call, in the
-/// entry, can.
-function cardsWith(
-  mods: List<Module>,
-  classes: Mapping<String, String>
-): Mapping<String, CardDef> = new {
+function cardsOf(mods: List<Module>): Mapping<String, CardDef> = new {
   for (m in mods) {
     for (clsName, cls in reflect.Module(m).classes) {
       when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")
         && !inheritsCard(cls)) {
-        [cardNameOf(clsName, cls)] = injectClasses(cardDefOf(clsName, cls), classes)
+        [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
       }
     }
   }
 }
-
-/// `@@CLASSBIND:<key>:<signal>@@`, replaced with one `data-class:<name>="<signal>"`
-/// per space-separated name the theme lists under `<key>`; an unknown key
-/// expands to nothing. Written by `core/tap.pkl`, not by hand.
-const CLASS_BIND: Regex = Regex(#"@@CLASSBIND:(\w+):([^@]*)@@"#)
-
-/// The names a theme that names none gets, styled by `core/css.pkl`.
-const defaultClasses: Mapping<String, String> = new {
-  ["busySpin"] = "fh-busy-spin"
-}
-
-const local function bindClasses(
-  key: String,
-  signal: String,
-  classes: Mapping<String, String>
-): String =
-  (classes.getOrNull(key) ?? "")
-    .split(" ")
-    .filter((c) -> c != "")
-    .map((c) -> #"data-class:\#(c)="\#(signal)""#)
-    .join(" ")
-
-const local function fillHoles(s: String, classes: Mapping<String, String>): String =
-  s.replaceAllMapped(CLASS_BIND, (m) ->
-    bindClasses(m.groups[1].value, m.groups[2].value, classes))
-
-// Template only: a selector naming a theme's class belongs in that theme.
-const local function injectClasses(d: CardDef, classes: Mapping<String, String>): CardDef =
-  (d) { template = fillHoles(d.template, classes) }
 
 // A node's own backend-minted id, spliced in by the build's hoist. Must equal
 // `DashboardBuild.NodeIdToken`.

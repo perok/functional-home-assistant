@@ -208,10 +208,5 @@ const modules: List<Module> = List(
 
 function cardsOf(mods: List<Module>): Mapping<String, nodes.CardDef> = nodes.cardsOf(mods)
 
-function cardsWith(
-  mods: List<Module>,
-  classes: Mapping<String, String>
-): Mapping<String, nodes.CardDef> = nodes.cardsWith(mods, classes)
-
 /// This library's own cards.
 cards: Mapping<String, nodes.CardDef> = nodes.cardsOf(modules)

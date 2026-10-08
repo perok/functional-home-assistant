@@ -222,15 +222,15 @@ const local function slowCopy(sig: String): String = #"""
   data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)"
   """#
 
-// The class is the theme's to name, through the registry's CLASS_BIND hole.
+// A theme swaps the class through `Theme.classes`.
 const local function busySpinner(sig: String): String =
-  slowCopy(sig) + " @@CLASSBIND:busySpin:$\(sig)_slow@@"
+  slowCopy(sig) + #" data-class:fh-busy-spin="$\#(sig)_slow""#
 
 /// The spinner splice, for an element hosting an `i.mdi` glyph.
 const busyShapeClass: String = busySpinner("_{{id}}__busy")
 
-/// [[busyShapeClass]] for a host that holds text (a tab): the theme's
-/// `busySpin` is a mask around an icon, so this draws `fh-busy-after` instead.
+/// [[busyShapeClass]] for a host that holds text (a tab): a theme's spinner
+/// may be a mask around an icon, so this draws `fh-busy-after` instead.
 const busyTextClass: String =
   slowCopy("_{{id}}__busy") + #" data-class:fh-busy-after="$_{{id}}__busy_slow""#
 

@@ -16,6 +16,8 @@ import "../../main/resources/dashboards/lib/components/history.pkl" as historyMo
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
+import "../../main/resources/dashboards/lib/theme.pkl" as themeMod
+import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
@@ -680,28 +682,19 @@ facts {
     !cards["slider"].css.contains("var(--primary)")
   }
 
-  ["a theme's own class names reach card markup through the registry"] {
-    // The one channel a theme has into a template (`cardsWith`, called by
-    // entry.pkl with `theme.classes`): the spinner's class is BeerCSS's under
-    // the BeerCSS theme...
-    local beer = c.cardsWith(c.modules, new Mapping { ["busySpin"] = "shape loading-indicator" })
-    beer["tile"].template.contains(#"data-class:shape="$_{{id}}__busy_slow""#)
-    beer["tile"].template.contains(#"data-class:loading-indicator="$_{{id}}__busy_slow""#)
-    // ...and the framework-free fallback otherwise. No hole survives either way.
-    local plain = c.cards
-    plain["tile"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
-    !plain["tile"].template.contains("@@CLASSBIND")
-    !beer["tile"].template.contains("@@CLASSBIND")
+  ["a card binds the plain fh- spinner, for the server to rewrite per theme"] {
+    c.cards["tile"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
     // The commit signal is bound by the HEAD, which is the card that moves.
-    beer["sliderHead"].template.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
+    c.cards["sliderHead"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_change_slow""#)
+    // The guard and its immediate dim, which a theme can add to but no card
+    // leaves out.
+    c.cards["tile"].template.contains("data-class:fh-disabled")
   }
 
-  ["a theme that names no spinner binds nothing at all"] {
-    local none = c.cardsWith(c.modules, new Mapping {})
-    !none["tile"].template.contains("data-class:fh-busy-spin")
-    !none["tile"].template.contains("@@CLASSBIND")
-    // The guard and its immediate dim are NOT a theme's to decline.
-    none["tile"].template.contains("data-class:fh-disabled")
+  ["a class rule splits its names, and an empty replace declines the class"] {
+    themeMod.add(" disabled  muted ").classes == List("disabled", "muted")
+    themeMod.replace("").classes.isEmpty
+    beerMod.theme.classes["fh-busy-spin"] == themeMod.replace("shape loading-indicator")
   }
 
   ["`informative` reads the card's OWN entity"] {

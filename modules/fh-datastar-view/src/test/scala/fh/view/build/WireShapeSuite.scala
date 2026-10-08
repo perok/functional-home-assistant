@@ -3,10 +3,12 @@ package fh.view.build
 import fh.view.model.{
   Access,
   Cell,
+  ClassRule,
   LayoutNode,
   Predicate,
   SlotQuery,
-  SlotSource
+  SlotSource,
+  Theme
 }
 import fh.view.testkit.PklWorkspace
 import io.circe.Json
@@ -41,6 +43,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
         |import "@fh-dashboard/core/access.pkl" as accessMod
+        |import "@fh-dashboard/theme.pkl" as themeMod
         |
         |// The wire shape is spread across the library's modules, and reflection
         |// sees only what a module DECLARES — the facade declares no classes at
@@ -48,7 +51,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, accessMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, accessMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -152,6 +155,11 @@ class WireShapeSuite extends munit.FunSuite {
     // `params` is untyped on the wire, so nothing else would notice the sides
     // disagreeing on what a query is.
     check("Query", SlotQuery("history", Map.empty))
+  }
+
+  test("the theme and its class rule agree on both sides") {
+    check("Theme", Theme())
+    check("ClassRule", ClassRule(ClassRule.Mode.Add, Nil))
   }
 
   test("the access rule agrees on both sides") {
