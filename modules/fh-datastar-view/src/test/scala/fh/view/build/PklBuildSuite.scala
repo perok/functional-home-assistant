@@ -744,6 +744,35 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[Int]("allCount").toOption, Some(2))
   }
 
+  test("a bare `new Theme {}` is a whole theme, popups included") {
+    // Every Theme property has a default, so a third-party theme states only
+    // what it changes. What the defaults must still give: a frame that passes
+    // validation and hosts a popup without a warning, and the HA tokens every
+    // `--fh-*` variable a card reads falls back to.
+    val dashboard = PklFixture.buildDashboard(
+      "bare",
+      """amends "@fh-dashboard/entry.pkl"
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/theme.pkl" as th
+        |theme = new th.Theme {}
+        |card = (c.column) {
+        |  children { c.button("Open", c.tap.openPopupInline(c.title("x"))) }
+        |}
+        |""".stripMargin
+    )
+    assertEquals(dashboard.validate(), Nil)
+    assert(dashboard.surfaces.nonEmpty, clue = dashboard.surfaces)
+    assertEquals(fh.view.runtime.Renderer.create(dashboard).warnings, Nil)
+    assertEquals(dashboard.theme.tokens.get("primary-color"), Some("#03a9f4"))
+    assert(dashboard.theme.tokensDark.nonEmpty)
+    // The slider card's CSS makes its range input inert on touch and relies on
+    // this gesture script to drive it, whatever the theme.
+    assert(
+      dashboard.theme.inlineScripts.exists(_.contains("pointerdown")),
+      clue = dashboard.theme.inlineScripts
+    )
+  }
+
   test(
     "theme-beer.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
   ) {

@@ -4,11 +4,16 @@
 ///   - `theme-beer.pkl` — BeerCSS Material Design 3, the DEFAULT (wired in
 ///     `entry.pkl`) and currently the only shipped implementation.
 ///
-/// A new theme is a sibling module exporting a `theme: Theme` instance; an
-/// entry overrides its look by assigning `theme`, e.g.
-/// `theme = (import "lib/theme-mine.pkl").theme`, and can retune any theme by
-/// amending the instance (`tokens`/`styles` are ordinary properties; see the
+/// A new theme is any module exporting a `theme: Theme` instance — one in your
+/// workspace beside `site.pkl` works; an entry overrides its look by assigning
+/// `theme`, e.g. `theme = import("theme-mine.pkl").theme` (the CALL form:
+/// `(import "x").theme` does not parse), and can retune any theme by amending
+/// the instance (`tokens`/`styles` are ordinary properties; see the
 /// implementation modules for their amend forms).
+///
+/// Every property has a working default, so `new Theme {}` is a complete
+/// theme: the shared HA tokens, no framework, and the bare frame. What it looks
+/// like is layers 1-2 below and nothing else.
 ///
 /// Everything visual lives outside the server. The renderer emits `tokens` as
 /// `:root` custom properties (with `tokensDark` under prefers-color-scheme:dark);
@@ -76,11 +81,13 @@
 /// behavior live in the shell, the LOOK is layer 1's, and yours to retune.
 ///
 /// ## WRITING A THEME (the whole API surface)
-///   1. Create a sibling `theme-<name>.pkl` exporting `theme: Theme` (or an
+///   1. Create a module (`theme-<name>.pkl` in your workspace) importing
+///      `@fh-dashboard/theme.pkl` and exporting `theme: Theme` (or an
 ///      `open class` extending [[Theme]] if you want amendable knobs, like
-///      theme-beer's palettes).
-///   2. `tokens`/`tokensDark`: HA-named design tokens (see tokens.pkl) —
-///      emitted as `:root` custom properties, dark under
+///      theme-beer's palettes). Set only what you change: every step below
+///      has a working default.
+///   2. `tokens`/`tokensDark`: HA-named design tokens (see tokens.pkl, which
+///      is the default) — emitted as `:root` custom properties, dark under
 ///      prefers-color-scheme. `core/css.pkl` defaults every `--fh-*` variable
 ///      the cards read from these, so a theme that sets only tokens already
 ///      renders coherently.
@@ -104,17 +111,19 @@
 ///      page's font.
 ///   5. `classes`: the class names you want injected into card markup (today:
 ///      `busySpin`).
-///   6. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with
+///   6. `chrome`: the page frame (the default is exactly the two hosts below)
+///      — MUST wrap `{{{body}}}` in an element with
 ///      `id="dashboard"` (the reload swap target; enforced by
 ///      Dashboard.validate) and, if the dashboard uses popups, host a
 ///      `<div id="popups">{{{popups}}}</div>` overlay host. The hole is where
 ///      a popup being RESTORED on a refresh is baked, so it is on screen with
 ///      the first paint instead of arriving when the stream connects; leave it
 ///      out and the dialog still works, it just pops in a moment late.
-///   7. An entry opts in with `theme = (import "lib/theme-<name>.pkl").theme`.
+///   7. An entry opts in with `theme = import("theme-<name>.pkl").theme`.
 module theme
 
 import "core/node.pkl" as nodes
+import "tokens.pkl" as tokenPalette
 
 /// Axis-intent gate before a TOUCH may move a slider, so a dashboard of slider
 /// cards is still a scrollable list. Without it every swipe that happens to
@@ -188,9 +197,14 @@ const sliderHoldScript: String = """
   """
 
 open class Theme {
-  tokens: Mapping<String, String>
-  tokensDark: Mapping<String, String>
-  stylesheets: Listing<String>
+  /// HA-named design tokens ([[tokenPalette]]), emitted as `:root` custom
+  /// properties. Defaulted to the shared palette, which is what every `--fh-*`
+  /// variable a card reads falls back to — so a theme that names none still
+  /// paints every card.
+  tokens: Mapping<String, String> = tokenPalette.light
+  /// The tokens that differ under `prefers-color-scheme: dark`.
+  tokensDark: Mapping<String, String> = tokenPalette.dark
+  stylesheets: Listing<String> = new {}
   /// Stylesheets the FIRST PAINT does not need. Loaded off the critical path
   /// (`rel=preload` swapped to `stylesheet` on load, `<noscript>` fallback —
   /// https://web.dev/articles/defer-non-critical-css) instead of blocking the
@@ -212,9 +226,20 @@ open class Theme {
   /// (see [[sliderHoldScript]]). Dashboard BEHAVIOR still stays Datastar's:
   /// this is for a pointer gesture the theme's own rules depend on, not for
   /// talking to the server.
-  inlineScripts: Listing<String> = new {}
-  styles: String
-  chrome: String
+  ///
+  /// The default carries [[sliderHoldScript]], because the slider CARD's CSS
+  /// makes its range input inert on a touch screen and relies on it: a theme
+  /// without it has touch sliders that cannot be moved. AMEND this to add one
+  /// of your own (`inlineScripts { … }`); assigning a new Listing drops it.
+  inlineScripts: Listing<String> = new { sliderHoldScript }
+  styles: String = ""
+  /// The page frame. The default is the whole contract and nothing else: the
+  /// `#dashboard` swap target round `{{{body}}}` and the `#popups` host with its
+  /// restore hole (see the module doc, step 6).
+  chrome: String = """
+    <main id="dashboard">{{{body}}}</main>
+    <div id="popups">{{{popups}}}</div>
+    """
   /// Class names this theme wants injected into card markup, `key -> one or
   /// more class names` (space-separated). Today's only key is `busySpin` — the
   /// delayed spinner (see the module doc). An unlisted key binds nothing.

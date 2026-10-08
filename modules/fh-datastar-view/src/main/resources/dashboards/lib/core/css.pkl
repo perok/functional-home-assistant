@@ -24,7 +24,7 @@ import "text.pkl" as textMod
 
 /// The colour contract a CARD's CSS is written against — one semantic name per
 /// job, defaulting to the HA-named design token that means the same thing (see
-/// `tokens.pkl`, which every theme supplies). A theme re-points these to its
+/// `tokens.pkl`, every theme's default). A theme re-points these to its
 /// framework's own roles in `styles` (the BeerCSS theme does; its block is
 /// emitted at `body` specificity, so it wins over this `:root` one).
 ///
