@@ -181,6 +181,8 @@ class BeerTheme extends themeMod.Theme {
       --fh-on-accent:var(--on-primary);
       --fh-text:var(--on-surface);
       --fh-text-dim:var(--on-surface-variant);
+      --fh-surface:var(--surface-container-low);
+      --fh-raise:var(--elevate1);
       --fh-surface-alt:var(--surface-container-highest);
       --fh-surface-sunken:var(--surface-container);
       --fh-border:var(--outline-variant);

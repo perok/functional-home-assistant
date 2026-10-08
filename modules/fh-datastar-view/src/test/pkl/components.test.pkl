@@ -522,7 +522,7 @@ facts {
     // the toggle's switch off the card. WHAT happens instead is the dashboard's
     // choice now (`core/text.pkl`), so what each card owes is the ROOM to carry
     // it out: a button free to grow down, and a switch that never shrinks.
-    cards["button"].css.contains("min-block-size:2.5rem")
+    cards["button"].css.contains("min-block-size:3.25rem")
     cards["button"].css.contains("block-size:auto")
     cards["switch"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup. Matched

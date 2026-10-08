@@ -362,7 +362,9 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   // The bare attribute, as the document form writes it — not `data-attr:disabled`.
   private def staticallyDisabled(html: String): Boolean =
-    """<button class="card"[^>]*\sdisabled[\s>]""".r.findFirstIn(html).isDefined
+    """<button class="fh-press"[^>]*\sdisabled[\s>]""".r
+      .findFirstIn(html)
+      .isDefined
 
   test("a condition tints and disables a button, and its flip is one frame") {
     withServer(floorButton("Stue")) { ts =>
@@ -397,7 +399,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
       assertEquals(classSignals(html), Nil, clue = html)
       assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
-      assert(html.contains("<button class=\"card\""), clue = html)
+      assert(html.contains("<button class=\"fh-press\""), clue = html)
       assert(staticallyDisabled(html), clue = html)
     }
   }

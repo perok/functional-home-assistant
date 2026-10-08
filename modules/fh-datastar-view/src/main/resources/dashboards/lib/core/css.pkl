@@ -11,15 +11,18 @@ import "text.pkl" as textMod
 /// `var(--fh-text-dim)`, never a Material role that exists only because BeerCSS
 /// is loaded.
 ///
-/// Two carry literals because neither HA nor a framework names the role:
+/// Three carry literals because neither HA nor a framework names the role:
 /// `--fh-default-color`, the paint where a card must assume a colour the device
-/// did not report (an `onoff` light), and `--fh-scrim`, behind an open popup.
+/// did not report (an `onoff` light), `--fh-scrim`, behind an open popup, and
+/// `--fh-raise`, the shadow a card-like control rests on.
 const local paletteVars: String = """
   :root{
   --fh-accent:var(--primary-color);
   --fh-on-accent:var(--text-primary-color);
   --fh-text:var(--primary-text-color);
   --fh-text-dim:var(--secondary-text-color);
+  --fh-surface:var(--card-background-color);
+  --fh-raise:0 .0625rem .1875rem rgb(0 0 0 / .2);
   --fh-surface-alt:var(--secondary-background-color);
   --fh-surface-sunken:var(--secondary-background-color);
   --fh-border:var(--divider-color);
