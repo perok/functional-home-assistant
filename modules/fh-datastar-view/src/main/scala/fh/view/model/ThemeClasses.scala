@@ -4,39 +4,20 @@ import io.circe.Decoder
 
 import scala.util.matching.Regex
 
-/** What a theme does with one `fh-` class (ADR 0020). `Add` keeps it and puts
-  * `classes` beside it; `Replace` puts `classes` in its place, so the base
-  * stylesheet's rules for it stop applying — how BeerCSS's spinner keeps the
-  * plain ring from drawing under its mask.
+/** A theme's class rules (ADR 0020): each `fh-` class it names, mapped to the
+  * classes the markup carries in its place. A content that keeps the class adds
+  * to it; one that leaves it out replaces it, so the base stylesheet's rules
+  * for it stop applying, which is how BeerCSS's spinner keeps the plain ring
+  * from drawing under its mask. Applied wherever card or cell markup is
+  * emitted: the card templates once, at compile ([[rewriteTemplate]]), and the
+  * wrapper's classes and live-class bindings at render.
   */
-case class ClassRule(mode: ClassRule.Mode, classes: List[String])
-    derives CanEqual
+final case class ThemeClasses(contents: Map[String, List[String]])
+    derives CanEqual:
 
-object ClassRule:
-  enum Mode derives CanEqual:
-    case Add, Replace
+  def isEmpty: Boolean = contents.isEmpty
 
-  given Decoder[Mode] = Decoder[String].emap {
-    case "add"     => Right(Mode.Add)
-    case "replace" => Right(Mode.Replace)
-    case other     => Left(s"unknown class rule mode '$other'")
-  }
-
-  given Decoder[ClassRule] =
-    Decoder.forProduct2("mode", "classes")(ClassRule.apply)
-
-/** A theme's class rules, applied wherever card or cell markup is emitted: the
-  * card templates once, at compile ([[rewriteTemplate]]), and the wrapper's
-  * classes and live-class bindings at render.
-  */
-final case class ThemeClasses(rules: Map[String, ClassRule]) derives CanEqual:
-
-  def isEmpty: Boolean = rules.isEmpty
-
-  def expand(cls: String): List[String] = rules.get(cls) match
-    case None                                             => List(cls)
-    case Some(ClassRule(ClassRule.Mode.Add, extra))       => cls :: extra
-    case Some(ClassRule(ClassRule.Mode.Replace, instead)) => instead
+  def expand(cls: String): List[String] = contents.getOrElse(cls, List(cls))
 
   /** A space-separated class list, each token expanded. */
   def expandAll(classes: String): String =
@@ -72,18 +53,15 @@ final case class ThemeClasses(rules: Map[String, ClassRule]) derives CanEqual:
 
   /** A rule that would leave the runtime without a class it selects on. */
   def errors: List[String] =
-    rules.toList.sortBy(_._1).flatMap { case (cls, rule) =>
+    contents.toList.sortBy(_._1).flatMap { case (cls, content) =>
       Option
         .when(!cls.startsWith("fh-"))(
           s"theme.classes: '$cls' is not an fh- class; a rule applies only to those"
         )
         .toList ++
         Option
-          .when(
-            rule.mode == ClassRule.Mode.Replace &&
-              ThemeClasses.RuntimeOwned(cls)
-          )(
-            s"theme.classes: '$cls' cannot be replaced, the runtime selects on it; add to it instead"
+          .when(ThemeClasses.RuntimeOwned(cls) && !content.contains(cls))(
+            s"theme.classes: '$cls' must stay in its own content, the runtime selects on it"
           )
           .toList
     }
@@ -100,5 +78,10 @@ object ThemeClasses:
   private val DataClass: Regex =
     """data-class:(fh-[A-Za-z0-9-]+)((?:__[\w.-]+)?)="([^"]*)"""".r
 
+  /** Space-separated on the wire, as a theme writes it. */
   given Decoder[ThemeClasses] =
-    Decoder[Map[String, ClassRule]].map(ThemeClasses(_))
+    Decoder[Map[String, String]].map(m =>
+      ThemeClasses(
+        m.view.mapValues(_.split(' ').toList.filter(_.nonEmpty)).toMap
+      )
+    )

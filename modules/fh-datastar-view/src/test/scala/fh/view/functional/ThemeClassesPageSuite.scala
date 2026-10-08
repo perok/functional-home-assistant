@@ -18,7 +18,6 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/theme.pkl" as th
        |import "@fh-dashboard/core/slot.pkl" as slotMod
        |import "@fh-dashboard/core/simple.pkl" as simpleMod
        |import "@fh-home/dump.pkl" as dump
@@ -43,10 +42,10 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |""".stripMargin
 
   private val rules =
-    """["fh-cell"] = th.add("s12")
-      |["fh-cols-3"] = th.replace("s4")
-      |["fh-warm"] = th.add("hot")
-      |["fh-disabled"] = th.add("disabled")""".stripMargin
+    """["fh-cell"] = "fh-cell s12"
+      |["fh-cols-3"] = "s4"
+      |["fh-warm"] = "fh-warm hot"
+      |["fh-disabled"] = "fh-disabled disabled"""".stripMargin
 
   private def page(themeRules: String): IO[String] =
     TestServer
@@ -105,9 +104,12 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
   test("replacing a class the runtime selects on fails validation") {
     val dashboard = PklFixture.buildDashboard(
       "theme-classes",
-      entry("""["fh-cell"] = th.replace("s12")""")
+      entry("""["fh-cell"] = "s12"""")
     )
     val errs = dashboard.validate()
-    assert(errs.exists(_.contains("'fh-cell' cannot be replaced")), errs)
+    assert(
+      errs.exists(_.contains("'fh-cell' must stay in its own content")),
+      errs
+    )
   }
 }

@@ -132,7 +132,7 @@ The spinner is an SVG mask that morphs itself, and CSS has no way to lend one
 class another's rules — so the class *names* had to come from somewhere, and
 `tap.pkl` named BeerCSS's `.shape` + `.loading-indicator` directly, in the core
 kit that is supposed to be framework-agnostic. They now come from the theme
-(a `Theme.classes` rule replacing `fh-busy-spin`, applied by the server; ADR
+(a `Theme.classes` content for `fh-busy-spin` that leaves it out, applied by the server; ADR
 0020); a theme with no rule keeps `fh-busy-spin` and a plain ring. What
 remains true either way: the reduced-motion story is whatever the named look
 allows (BeerCSS's `<animate>` elements are unreachable from CSS, so that theme
