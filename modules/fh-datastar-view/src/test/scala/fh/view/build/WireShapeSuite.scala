@@ -3,7 +3,6 @@ package fh.view.build
 import fh.view.model.{
   Access,
   Cell,
-  ClassRule,
   LayoutNode,
   Predicate,
   SlotQuery,
@@ -157,9 +156,8 @@ class WireShapeSuite extends munit.FunSuite {
     check("Query", SlotQuery("history", Map.empty))
   }
 
-  test("the theme and its class rule agree on both sides") {
+  test("the theme agrees on both sides") {
     check("Theme", Theme())
-    check("ClassRule", ClassRule(ClassRule.Mode.Add, Nil))
   }
 
   test("the access rule agrees on both sides") {

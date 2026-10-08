@@ -16,7 +16,6 @@ import "../../main/resources/dashboards/lib/components/history.pkl" as historyMo
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
-import "../../main/resources/dashboards/lib/theme.pkl" as themeMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
@@ -691,10 +690,11 @@ facts {
     c.cards["tile"].template.contains("data-class:fh-disabled")
   }
 
-  ["a class rule splits its names, and an empty replace declines the class"] {
-    themeMod.add(" disabled  muted ").classes == List("disabled", "muted")
-    themeMod.replace("").classes.isEmpty
-    beerMod.theme.classes["fh-busy-spin"] == themeMod.replace("shape loading-indicator")
+  ["the BeerCSS spinner takes the plain one's place rather than sitting beside it"] {
+    // Beside it, the base ring would draw under BeerCSS's mask.
+    local content = beerMod.theme.classes["fh-busy-spin"].split(" ")
+    content.contains("loading-indicator")
+    !content.contains("fh-busy-spin")
   }
 
   ["`informative` reads the card's OWN entity"] {

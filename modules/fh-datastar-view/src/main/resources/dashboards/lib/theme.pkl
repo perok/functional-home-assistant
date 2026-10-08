@@ -37,19 +37,20 @@
 /// ## Your own class names in card markup
 ///
 /// CSS cannot make one class inherit another's rules, so a framework class a
-/// card should carry comes through [[classes]]: a rule per `fh-` class, that
-/// [[add]]s yours beside it or [[replace]]s it. The server applies it to every
-/// card's `class="…"` and `data-class:…` and to the `.fh-cell` wrapper's
-/// classes, live ones included; `fh-cell` and `fh-group` take [[add]] only.
+/// card should carry comes through [[classes]]: each `fh-` class you name, and
+/// the classes the markup carries in its place. Keep the `fh-` class in the
+/// content to add to it; leave it out to replace it, which also drops the base
+/// CSS for it. The server applies this to every card's `class="…"` and
+/// `data-class:…` and to the `.fh-cell` wrapper's classes, live ones included;
+/// `fh-cell` and `fh-group` must stay in their own content.
 ///
 ///     classes {
-///       ["fh-busy-spin"] = th.replace("shape loading-indicator")
-///       ["fh-disabled"]  = th.add("disabled")
+///       ["fh-busy-spin"] = "shape loading-indicator"   // in its place
+///       ["fh-disabled"]  = "fh-disabled disabled"      // beside it
 ///     }
 ///
 /// The delayed spinner is the case that needs it. Style it as "showing", with
-/// no delay of its own; the delay is already in the signal. `replace("")`
-/// declines it.
+/// no delay of its own; the delay is already in the signal. `""` declines it.
 ///
 /// ## Writing one
 ///
@@ -99,22 +100,7 @@ open class Theme {
     <main id="dashboard">{{{body}}}</main>
     <div id="popups">{{{popups}}}</div>
     """
-  /// See "Your own class names in card markup" above.
-  classes: Mapping<String(startsWith("fh-")), ClassRule> = new {}
+  /// `fh-` class -> the space-separated classes in its place. See "Your own
+  /// class names in card markup" above.
+  classes: Mapping<String(startsWith("fh-")), String(matches(Regex(#"[\w -]*"#)))> = new {}
 }
-
-/// `fh.view.model.ClassRule`.
-class ClassRule {
-  mode: "add"|"replace"
-  classes: List<String(matches(Regex(#"-?[A-Za-z_][\w-]*"#)))>
-}
-
-/// Keep the `fh-` class, and put `names` (space-separated) beside it.
-const function add(names: String): ClassRule = new { mode = "add"; classes = tokens(names) }
-
-/// Put `names` in place of the `fh-` class, so the base CSS for it no longer
-/// applies; `""` drops it.
-const function replace(names: String): ClassRule = new { mode = "replace"; classes = tokens(names) }
-
-const local function tokens(names: String): List<String> =
-  names.split(" ").filter((n) -> n != "")

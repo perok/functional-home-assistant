@@ -74,14 +74,19 @@ launder that: there is no `@extend`, so a neutral class cannot inherit a
 framework's rules, and the mask asset is only reachable through BeerCSS's own
 selector.
 
-So cards write only `fh-` classes, and a theme declares a rule per `fh-` class
-it has an opinion on: **add** its own classes beside it, or **replace** it.
+So cards write only `fh-` classes, and a theme gives each `fh-` class it has an
+opinion on its **content**: the classes the markup carries in its place. One
+primitive covers both cases: a content that keeps the class adds to it
+(`"fh-disabled disabled"`), and one that leaves it out replaces it.
 
 ```
 core/tap.pkl     emits     data-class:fh-busy-spin="$_{{id}}__busy_slow"
-theme-beer.pkl   declares  classes { ["fh-busy-spin"] = replace("shape loading-indicator") }
+theme-beer.pkl   declares  classes { ["fh-busy-spin"] = "shape loading-indicator" }
 the server       renders   data-class:shape="…" data-class:loading-indicator="…"
 ```
+
+Two modes, `add` and `replace`, were rejected: one more concept to explain, and
+no case the content cannot spell.
 
 **The server applies the rules, not the registry.** A card's markup is a
 class-level `cardDef` default, so Pkl can only reach it once the registry is
@@ -94,16 +99,16 @@ and `ThemeClasses` rewrites every card template once, when it is compiled
 renderer emits. `dashboard.json` shows the rules beside unrewritten templates,
 which is the "what is going on" a reader needs.
 
-**Replace exists for the spinner.** Adding BeerCSS's mask beside `fh-busy-spin`
-would leave the base ring drawing under it. Replacing a class takes the base
-CSS's rules with it, so `fh-cell` and `fh-group` take add only — the shell
-script and the layout select on them — and `Dashboard.validate` refuses a
-replace there. A rule names an `fh-` class: those are the card's contract, and
-the object form `data-class="{…}"`, which only BeerCSS's own `active` uses, is
-not read.
+**Leaving the class out is for the spinner.** BeerCSS's mask beside
+`fh-busy-spin` would leave the base ring drawing under it. Leaving a class out of
+its content takes the base CSS's rules with it, so `fh-cell` and `fh-group` must
+stay in their own — the shell script and the layout select on them — and
+`Dashboard.validate` refuses a content without them. A rule names an `fh-` class:
+those are the card's contract, and the object form `data-class="{…}"`, which only
+BeerCSS's own `active` uses, is not read.
 
 A theme with no rules gets `fh-busy-spin` and the plain ring in `core/css.pkl` —
-the fallback that makes the core kit's promise true. `replace("")` declines it.
+the fallback that makes the core kit's promise true. An empty content declines it.
 
 ## Consequences
 
