@@ -34,8 +34,8 @@ final case class ThemeClasses(rules: Map[String, ClassRule]) derives CanEqual:
   def isEmpty: Boolean = rules.isEmpty
 
   def expand(cls: String): List[String] = rules.get(cls) match
-    case None                                       => List(cls)
-    case Some(ClassRule(ClassRule.Mode.Add, extra)) => cls :: extra
+    case None                                             => List(cls)
+    case Some(ClassRule(ClassRule.Mode.Add, extra))       => cls :: extra
     case Some(ClassRule(ClassRule.Mode.Replace, instead)) => instead
 
   /** A space-separated class list, each token expanded. */

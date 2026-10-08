@@ -55,19 +55,26 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
 
   private def bindings(html: String, cls: String): List[String] =
-    s"""data-class:$cls="([^"]*)"""".r.findAllMatchIn(html).map(_.group(1)).toList
+    s"""data-class:$cls="([^"]*)"""".r
+      .findAllMatchIn(html)
+      .map(_.group(1))
+      .toList
 
   test("every wrapper carries an added class; a replaced cell class is gone") {
     page(rules).map { html =>
       val wrappers = """<div class="fh-cell[^"]*"""".r.findAllIn(html).toList
       assert(wrappers.nonEmpty, html)
-      wrappers.foreach(w => assert(w.startsWith("""<div class="fh-cell s12"""), w))
+      wrappers.foreach(w =>
+        assert(w.startsWith("""<div class="fh-cell s12"""), w)
+      )
       assert(!wrappers.exists(_.contains("fh-cols-3")), wrappers)
       assert(wrappers.exists(_.contains(" s4")), wrappers)
     }
   }
 
-  test("an added class follows a live class, inline and bound to the same signal") {
+  test(
+    "an added class follows a live class, inline and bound to the same signal"
+  ) {
     page(rules).map { html =>
       val warm = bindings(html, "fh-warm")
       assert(warm.nonEmpty, html)
@@ -84,7 +91,9 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("the BeerCSS theme's spinner replaces the plain ring wherever it is bound") {
+  test(
+    "the BeerCSS theme's spinner replaces the plain ring wherever it is bound"
+  ) {
     page("").map { html =>
       assertEquals(bindings(html, "fh-busy-spin"), Nil)
       val shape = bindings(html, "shape")

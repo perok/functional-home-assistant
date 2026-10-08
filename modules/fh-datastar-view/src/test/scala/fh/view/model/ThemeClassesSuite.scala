@@ -4,9 +4,12 @@ class ThemeClassesSuite extends munit.FunSuite {
 
   private def rules(rs: (String, ClassRule)*) = ThemeClasses(rs.toMap)
   private def add(cs: String*) = ClassRule(ClassRule.Mode.Add, cs.toList)
-  private def replace(cs: String*) = ClassRule(ClassRule.Mode.Replace, cs.toList)
+  private def replace(cs: String*) =
+    ClassRule(ClassRule.Mode.Replace, cs.toList)
 
-  test("a class token is rewritten inside a Mustache section, whole tokens only") {
+  test(
+    "a class token is rewritten inside a Mustache section, whole tokens only"
+  ) {
     val t = rules("fh-on" -> add("is-on"), "fh-busy" -> replace("x"))
     assertEquals(
       t.rewriteTemplate(
@@ -19,7 +22,9 @@ class ThemeClassesSuite extends munit.FunSuite {
   test("a binding becomes one per class it expands to, modifiers kept") {
     val t = rules("fh-busy-spin" -> replace("shape", "loading-indicator"))
     assertEquals(
-      t.rewriteTemplate("""<i data-class:fh-busy-spin__case.kebab="$a_slow">"""),
+      t.rewriteTemplate(
+        """<i data-class:fh-busy-spin__case.kebab="$a_slow">"""
+      ),
       """<i data-class:shape__case.kebab="$a_slow" data-class:loading-indicator__case.kebab="$a_slow">"""
     )
   }
@@ -44,11 +49,17 @@ class ThemeClassesSuite extends munit.FunSuite {
 
   test("a class list expands token by token") {
     val t = rules("fh-cell" -> add("s12"), "fh-cols-3" -> replace("s4"))
-    assertEquals(t.expandAll("fh-cell fh-cols-3 fh-hug"), "fh-cell s12 s4 fh-hug")
+    assertEquals(
+      t.expandAll("fh-cell fh-cols-3 fh-hug"),
+      "fh-cell s12 s4 fh-hug"
+    )
   }
 
   test("the runtime's own classes take an add, never a replace") {
-    assertEquals(rules("fh-cell" -> add("s12"), "fh-group" -> add("g")).errors, Nil)
+    assertEquals(
+      rules("fh-cell" -> add("s12"), "fh-group" -> add("g")).errors,
+      Nil
+    )
     val errs =
       rules("fh-cell" -> replace("s12"), "fh-group" -> replace()).errors
     assertEquals(errs.size, 2, errs)
