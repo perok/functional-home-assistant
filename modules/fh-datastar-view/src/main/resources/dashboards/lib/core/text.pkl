@@ -1,103 +1,74 @@
-/// What a card does with a label that is longer than the box holding it.
+/// What a card does with a label longer than its box. A card marks its label
+/// boxes with [[hole]] / [[run]]; a dashboard or a single node picks the mode.
 ///
-/// One choice, three answers, and every card asks it the same way: a card marks
-/// its label boxes with [[hole]] / [[run]], and a dashboard or a single node
-/// picks the mode. Nothing here is per-card — a component author places the
-/// markup and is done.
-///
-/// The mode travels as INHERITED CUSTOM PROPERTIES, not as one selector per
-/// card, for the reason `core/css.pkl`'s cell contract gives: inheritance is
-/// resolved by ANCESTOR PROXIMITY, so a node inside a `scroll` group can say
-/// `clip` and win. The same thing written as `.fh-text-clip .fh-text` would tie
-/// two equally-specific rules and let stylesheet ORDER decide, which is not
-/// something an author can see.
+/// The mode travels as inherited custom properties, so the nearest ancestor
+/// wins; `.fh-text-clip .fh-text` selectors would tie and let stylesheet order
+/// decide.
 module core.text
 
 import "slot.pkl" as slotMod
 
-/// How over-long text behaves:
-///
-///   - `wrap` — take another line, and break inside a word with nowhere else to
-///     break (an entity id). The card grows.
-///   - `clip` — one line, cut with an ellipsis. The default: a card keeps the
-///     height it was drawn at, so a grid of them stays a grid.
-///   - `scroll` — one line that slides to show its end, and back. It moves by
-///     exactly the amount that does not fit, so a label that fits sits still.
+/// `wrap` takes another line (breaking inside a word if it must, for an entity
+/// id). `clip` cuts one line with an ellipsis, the default, so a grid of cards
+/// stays a grid. `scroll` slides one line by exactly what does not fit, so a
+/// label that fits sits still.
 typealias Overflow = "wrap"|"clip"|"scroll"
 
-/// The default when nothing says otherwise — also the fallback baked into every
-/// `var()` below, so a card renders sanely even with none of this emitted.
+/// Also the fallback in every `var()` below.
 const defaultOverflow: Overflow = "clip"
 
-/// The class that puts ONE node (and its subtree) in a mode — see
-/// `LayoutNode.textOverflow`, which is how an author reaches it.
+/// The class that puts one node and its subtree in a mode
+/// (`LayoutNode.textOverflow`).
 const function cls(o: Overflow): String = "fh-text-" + o
 
-/// The mode as declarations, for whoever owns the scope: [[rootCss]] for a
-/// dashboard, [[modeCss]] for the per-node classes.
 const function vars(o: Overflow): String =
   new Listing {
     "--fh-text-lines:\(if (o == "wrap") "normal" else "nowrap")"
     "--fh-text-break:\(if (o == "wrap") "anywhere" else "normal")"
     "--fh-text-clip:\(if (o == "wrap") "visible" else "hidden")"
     "--fh-text-ellipsis:\(if (o == "clip") "ellipsis" else "clip")"
-    // Only a scrolling box measures itself, and only a scrolling box has to be
-    // sized from OUTSIDE to do it: `container-type` contains the inline axis, so
-    // the box no longer sizes to its text and a flex item must grow into its
-    // line instead. In the other two modes both are inert and the box keeps the
-    // content sizing every card was laid out with.
+    // Only a scrolling box measures itself, which contains its inline axis, so
+    // it must grow into its line as a flex item instead of sizing to its text.
     "--fh-text-track:\(if (o == "scroll") "inline-size" else "normal")"
     "--fh-text-flex:\(if (o == "scroll") "1 1 auto" else "0 1 auto")"
     "--fh-text-run:\(if (o == "scroll") "inline-block" else "inline")"
     "--fh-text-motion:\(if (o == "scroll") "fh-text-scroll 12s linear infinite" else "none")"
   }.toList().join(";")
 
-/// The dashboard-wide default (`entry.pkl` emits this) — at `:root`, so any
-/// node carrying a [[cls]] class overrides it by being nearer.
+/// The dashboard default, at `:root`, so a node's [[cls]] is nearer.
 const function rootCss(o: Overflow): String = ":root{\(vars(o))}"
 
-/// A card's label box: the element the mode acts on. It is the box the CARD's
-/// own layout sizes — a flex item, a grid cell, a block — because that is what
-/// decides how much room the text has. Where a card already has such an element
-/// (`<strong>`, `<h2>`, BeerCSS's `.max`), add [[BOX]] to it and place [[run]]
-/// inside; where it has none, [[hole]] is both.
+/// A label box: the element the card's own layout sizes. Add it to an element
+/// the card already has and place [[run]] inside, or use [[hole]].
 const BOX: String = "fh-text"
 
-/// The text itself, inside a label box. A separate element because a marquee
-/// TRANSLATES the text past its box, and a bare text node has nothing to
-/// translate — the two boxes are the mechanism, not decoration.
+/// The text inside a box: a marquee translates it past the box, and a bare
+/// text node has nothing to translate.
 const function run(name: String): String =
   #"<span class="fh-text-run">{{\#(name)}}</span>"#
 
-/// [[run]] for a value carried as a SIGNAL — the binding lands on the run,
-/// which is the element whose text it is. On the box instead, a `data-text`
-/// patch would replace the run itself and the label would stop scrolling after
-/// the first tick.
+/// [[run]] for a signal value. The binding sits on the run: on the box, a
+/// `data-text` patch would replace the run and the scrolling would stop.
 const function liveRun(name: String): String =
   #"<span class="fh-text-run" \#(slotMod.signalBind(name))>{{\#(name)}}</span>"#
 
-/// Box + run in one, for a card with no element of its own to mark.
+/// Box and run, for a card with no element of its own to mark.
 const function hole(name: String): String =
   #"<span class="\#(BOX)">\#(run(name))</span>"#
 
-/// What a [[label]] is coloured by: `"normal"` is the card's own text colour,
-/// the others the `--fh-*` role of the same name, so a theme recolours them.
+/// `"normal"` is the card's own text colour; the others the `--fh-*` role.
 typealias Tone = "normal"|"dim"|"error"|"warning"
 
-/// A short line of text in a [[Tone]], for a card to place where it has
-/// something to SAY rather than show. `body` is template markup: literal text,
-/// or a `{{hole}}`. `tone` is a String so a card can hand it through a slot
-/// (`"{{tone}}"`).
+/// A short line in a [[Tone]], for a card with something to say. `body` is
+/// template markup; `tone` is a String so it can come through a slot.
 ///
-/// The runtime writes this same structure itself where a chart could not be
-/// drawn (`Staged.label`, held equal by `FailureLabelSuite`), so change both.
+/// The runtime writes the same structure where a chart could not be drawn
+/// (`Staged.label`, held equal by `FailureLabelSuite`), so change both.
 const function label(tone: String, body: String): String =
   #"<span class="fh-label fh-label-\#(tone) \#(BOX)"><span class="fh-text-run">\#(body)</span></span>"#
 
-/// The whole contract, emitted once with the rest of the base CSS.
-///
-/// `text-overflow` needs a BLOCK container to have anything to cut, so the box
-/// is always one; in a flex or grid parent that is what it already was.
+/// Emitted once with the base CSS. The box is always a block, because
+/// `text-overflow` needs one to cut.
 const css: String = """
   .fh-text{display:block;min-inline-size:0;
   flex:var(--fh-text-flex,0 1 auto);
@@ -111,27 +82,20 @@ const css: String = """
   .fh-label-error{color:var(--fh-error)}
   .fh-label-warning{color:var(--fh-warning)}
   \(modeCss)
-  /* Slide by the overflow and no further: `100cqw` is the BOX (the query
-     container above), `100%` in a translate is the RUN's own width, so the
-     travel is negative exactly when the text does not fit and `min()` pins
-     everything shorter at zero. That is the whole "only when it overflows"
-     rule — no measuring, no script, and nothing to re-run on a resize.
-     The holds at each end are what make it readable rather than a ticker. */
+  /* `100cqw` is the box, `100%` in a translate the run's own width, so the
+     travel is negative exactly when the text does not fit, and `min()` pins
+     the rest at zero. No measuring, nothing to redo on resize. */
   @keyframes fh-text-scroll{
   0%,12%{transform:translateX(0)}
   88%,100%{transform:translateX(min(0px,calc(100cqw - 100%)))}
   }
-  /* Motion is the one mode that is a preference, not a layout: a reader who
-     asked for less of it gets the clipped line, which still says there is more
-     text without ever moving. */
+  /* Reduced motion gets the clipped line, which still says there is more. */
   @media (prefers-reduced-motion:reduce){
   .fh-text>.fh-text-run{animation:none}
   .fh-text{text-overflow:ellipsis}
   }
   """
 
-// One class per mode, for `LayoutNode.textOverflow` — a plain declaration block,
-// so the winner between two of them on the same page is the nearer ancestor.
 const local modeCss: String = new Listing {
   for (o in List("wrap", "clip", "scroll")) {
     ".\(cls(o)){\(vars(o))}"

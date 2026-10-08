@@ -1,151 +1,73 @@
-/// Hand-written Home Assistant domain schema for the Pkl authoring track.
-///
-/// Types exactly what the build-phase dump carries (see `RegistryDump.scala`):
-/// registry identity + the per-domain attributes the dump carries.
-/// Live values (state, brightness, ...) stay runtime-side as JSONata over the
-/// SSE stream — never in the build-time dump (phase discipline).
-///
-/// Pkl gotchas honored throughout the Pkl track:
-///   - `override` is a reserved keyword — never use it as an identifier;
-///   - module-level properties referenced from class bodies must be `const`;
-///   - local functions used from class bodies need `const local`.
+/// The Home Assistant domain schema: what the build-time dump carries
+/// (`RegistryDump.scala`) — registry identity and capability attributes. Live
+/// values (state, brightness, …) are never in the dump; they are read at run
+/// time.
 module hass
 
-// HA's own `light` domain constants (ColorMode, LightEntityFeature), vendored.
-// Re-exported below as `ColorMode` so the generated dump can type its colour
-// modes without a second import. (A `///` doc comment cannot attach to an
-// import in Pkl — it is a parse error.) The `as` alias keeps the reading clear:
-// a bare `import "hass/light.pkl"` would bind the name `light`, which reads as a
-// light ENTITY rather than as HA's light-domain constants.
+// `as` aliases, because Pkl binds an import to its file name and a bare
+// `light` would read as a light entity.
 import "hass/light.pkl" as hassLight
-
-// HA's own `lock` domain constants (LockState, LockEntityFeature), vendored —
-// same reasoning as the light import above.
 import "hass/lock.pkl" as hassLock
-
-// The two sensor domains' vocabularies, vendored — device classes, state
-// classes, and the seconds a duration's unit is worth.
 import "hass/sensor.pkl" as hassSensor
 import "hass/binary_sensor.pkl" as hassBinarySensor
 
 typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
 
+// Capability attributes (device_class, supported_color_modes, min/max, …) are
+// not declared here: they sit on the per-entity class the dump generates, only
+// on entities that report them, so reading a missing one is an eval error
+// rather than a silent null (ADR 0013).
 abstract class Entity {
   entity_id: EntityId
   domain: String
   friendly_name: String? = null
   area_id: String? = null
   floor_id: String? = null
-  /// Hidden in HA's entity settings. Such an entity is left out of every scope's
-  /// `all`, and so out of every selector and house-wide list, but it is still
+  /// Hidden in HA's entity settings: left out of every scope's `all`, still
   /// reachable by name and through `allWithHidden`.
   id_hidden: Boolean = false
-  /// The physical device this entity belongs to, if any — helpers and
-  /// integrations without hardware have none. Look it up in `dump.devices`.
+  /// The physical device this entity belongs to, if any (`dump.devices`).
   device_id: String? = null
-  /// Registry classification: `"config"` or `"diagnostic"` for the entities HA
-  /// keeps off the main dashboard (about half of a typical instance), null for
-  /// a primary entity. Only the entity REGISTRY carries this — it is not a
-  /// state attribute — so it is the sharpest filter available for cutting a
-  /// dynamic group down to the things a person actually looks at.
+  /// `"config"` or `"diagnostic"` for the entities HA keeps off its main
+  /// dashboard (about half of a typical instance); null for a primary entity.
   entity_category: String? = null
 
-  /// The LIVE attributes this entity can report, as `name -> type name`.
+  /// The live attributes this entity can report, as `name -> type name`. Names
+  /// only, never values, so the dump's content hash cannot move with state.
   ///
-  /// Names and types ONLY — there is nowhere here for a value to go, and that
-  /// is deliberate: a value slot is the thing that later gets helpfully filled
-  /// in with the live reading, which would churn the dump's content hash on
-  /// every state change. This carries no values, so it cannot.
-  ///
-  /// DERIVED from capability attributes, never observed. Observing what an
-  /// entity currently reports is unsafe — an unavailable entity drops its
-  /// volatile attributes (measured: an unavailable light reports 2 kinds where
-  /// an available one reports 12), so one bulb leaving the mesh would delete an
-  /// attribute and re-evaluate every dashboard. Capability attributes survive
-  /// unavailability, so a schema computed from them inherits that stability.
-  ///
-  /// EMPTY means "this domain is not modelled", not "this entity has no live
-  /// attributes" — coverage is progressive, exactly like the capability typing
-  /// above, and `query.pkl` checks a name only against a NON-empty schema. So
-  /// an unmodelled domain is untouched rather than newly rejected.
+  /// Derived from capability attributes rather than observed, because an
+  /// unavailable entity drops its live attributes (2 kinds against 12 for one
+  /// light). Empty means "domain not modelled", which `query.pkl` does not
+  /// check against.
   hidden volatileAttrs: Mapping<String, String> = new {}
 
-  // NOTE: capability attributes (device_class, supported_color_modes,
-  // effect_list, min/max/step, options, ...) are deliberately NOT declared here.
-  // They live on the per-entity class the dump generates, and ONLY on the
-  // entities that actually report them, so reading one off an entity that has
-  // no such capability is a Pkl error ("Cannot find property") rather than a
-  // silent null. See ADR 0013, "Capabilities are per-entity, not nullable
-  // fields".
-
-  /// The entities this one drives, as REFERENCES to the real dump entities —
-  /// an HA Light Group helper or a Zigbee group fans out to its members, so
-  /// `e.members.map((m) -> m.entity_id)` reaches the individual bulbs and
-  /// `e.members[0].members` walks a group nested inside a group. Empty for a
-  /// plain entity. Authoring convenience, never rendered into dashboard JSON.
+  /// The entities this one drives (a light group's bulbs), as references to
+  /// the dump entities; groups nest. Empty for a plain entity.
   hidden members: List<Entity> = List()
 }
 
-/// A light's supported colour modes, typed against HA's own `ColorMode` enum —
-/// so `"colour_temp"` is an eval error, not a silently-never-matching string.
 typealias ColorMode = hassLight.ColorMode
 
-/// The states a lock reports — see [[hassLock.LockState]] for why nothing is
-/// typed against it yet.
 typealias LockState = hassLock.LockState
 
-/// What a sensor's reading means, typed against HA's own enum — so a card
-/// testing for `"timestamp"` cannot quietly test for `"timestmap"`.
 typealias SensorDeviceClass = hassSensor.SensorDeviceClass
 
-/// How a sensor's reading accumulates.
 typealias SensorStateClass = hassSensor.SensorStateClass
 
-/// What a binary sensor's `on` means. Not a state — the state is `on`/`off` —
-/// but the only thing that says WHICH of those is the interesting one.
+/// What a binary sensor's `on` means — the only thing that says which of
+/// `on`/`off` is the interesting one.
 typealias BinarySensorDeviceClass = hassBinarySensor.BinarySensorDeviceClass
 
-// ---- domain classes ----
-// Each carries its domain literal and its capability PREDICATES, nothing else.
-// They exist so a value can be typed by domain (`List<LightEntity>`, a card
-// factory that only accepts a light), and each is `open` because the generated
-// dump extends it once per entity to add that entity's own capability VALUES.
-
 // ---- capability groups ----
-// A capability whose values travel together becomes ONE nullable object rather
-// than several independent nullable fields. Two things follow, and both are the
-// reason for the shape:
 //
-//   - `null` means the light does not have the capability, so the group IS the
-//     predicate — `l.colourTemp != null` needs no parallel `supportsX` flag
-//     that could disagree with it;
-//   - values are reached THROUGH the group, so one guard covers all of them and
-//     an unguarded read is an eval error ("Cannot find property `min_kelvin` in
-//     object of type `Null`") rather than a null that renders as a blank slot.
-//
-// A capability with no associated values stays a derived Boolean below — a group
-// with no fields would carry nothing.
+// A capability whose values travel together is ONE nullable object: null means
+// the entity lacks it, so the group is the predicate, and an unguarded read of a
+// value is an eval error rather than a blank slot. Each group carries its owner,
+// so a card takes the group alone (`c.entitySlider(l.colourTemp)`) and the
+// editor can type-check the choice (ADR 0013, "Shapes considered").
 
-// Each group carries its OWNER — the entity whose capability it is. That is
-// what lets a card take the group ALONE and still know its subject, so the
-// entity is named once (`c.entitySlider(l.colourTemp)`) and no second argument can
-// disagree with it. It also keeps the choice checkable in the editor: passing
-// a group is an argument whose type pkl-lsp reads, where deriving one inside
-// an amend (`on = entity.colourTemp`) makes it fall back to the declared type
-// and flag valid lines. See ADR 0013, "Shapes considered".
-
-/// The colour-temperature range, present only on lights supporting `color_temp`.
-/// Both bounds are set whenever this is non-null; `PklDump` omits the whole
-/// group rather than emitting a half of it (and warns when HA reports a half).
-/// One Home Assistant account that can log in — what `@fh-home`'s `dump.users`
-/// is made of, and what an access rule names (ADR 0023).
-///
-/// Only real PEOPLE reach the dump: HA's own listing also carries Supervisor,
-/// Cast and the content user, two of which are admins, and none of which is
-/// somebody a dashboard could belong to.
-///
-/// `user_id` is the opaque HA id the backend compares against; the rest is here
-/// so a dashboard can read a name or branch on a role without a second lookup.
+/// One Home Assistant account that can log in (`dump.users`), named by access
+/// rules (ADR 0023). Only real people: HA's system users are left out.
 class User {
   user_id: String
   user_name: String
@@ -153,13 +75,14 @@ class User {
   is_owner: Boolean
 }
 
+/// Present only on lights supporting `color_temp`. `PklDump` omits the group
+/// rather than emit half of it.
 class ColourTemp {
   owner: LightEntity
   min_kelvin: Int
   max_kelvin: Int
 }
 
-/// The named effects a light exposes.
 class Effects {
   owner: LightEntity
   list: Listing<String>
@@ -169,33 +92,20 @@ class Effects {
 open class LightEntity extends Entity {
   domain: "light" = "light"
 
-  // ---- what the dump emits: DATA, not conclusions ----
-
-  /// The colour modes HA reports. Mandatory for a light, so this is not
-  /// nullable — a light that somehow reports none gets an empty Listing.
   hidden colourModes: Listing<ColorMode> = new Listing {}
 
-  /// The raw `LightEntityFeature` bitmask. Prefer the derived predicates below;
-  /// this is here so an author can test a bit the schema does not name yet, via
-  /// `hassLight.supports(l.supported_features, hassLight.FLASH)`.
+  /// The raw `LightEntityFeature` bitmask, for a bit the predicates below do
+  /// not name: `hassLight.supports(l.supported_features, hassLight.FLASH)`.
   hidden supported_features: Int = 0
 
   hidden colourTemp: ColourTemp? = null
   hidden effects: Effects? = null
 
-  // ---- what the schema DERIVES ----
-  // Deliberately computed here rather than baked in by the generator, so the
-  // rule for "what counts as colour" lives in exactly one place next to the
-  // vendored constants it reads.
-
+  // Derived here, beside the vendored constants they read, not by the generator.
   hidden supportsColour: Boolean =
     colourModes.toList().any((m) -> hassLight.COLOUR_MODES.contains(m))
-  /// Whether this light reports `rgb_color` live: a colour-mode light does,
-  /// and HA CONVERTS a colour-temperature light's temperature into the colour
-  /// representations, so those arrive together with the kelvin. The build-time
-  /// fact a fill-colour expression needs to know which of its branches are
-  /// dead (verified against the live set along with the rest of
-  /// [[volatileAttrs]]).
+  /// HA converts a colour-temperature light's kelvin into the colour
+  /// representations, so those lights report `rgb_color` too.
   hidden reportsRgbColour: Boolean =
     supportsColour || colourModes.toList().contains("color_temp")
   hidden supportsBrightness: Boolean =
@@ -207,29 +117,18 @@ open class LightEntity extends Entity {
   hidden supportsTransition: Boolean =
     hassLight.supports(supported_features, hassLight.TRANSITION)
 
-  /// What a light reports live, derived from the modes it supports.
-  ///
-  /// Verified against 45 available lights: `supported_color_modes` predicts
-  /// this set EXACTLY. The only attributes it does not predict are
-  /// integration-specific (`off_brightness` and `off_with_transition` from Hue,
-  /// `group_entities` from light-group helpers) — those are reachable through
-  /// `query.attr(name)`, which is the "I mean a live attribute, do not check
-  /// it" spelling.
+  // Checked against 45 lights: the colour modes predict this set exactly,
+  // except integration-specific names, which `q.attr(name)` reaches.
   volatileAttrs = new {
-    // Every light reports which mode it is CURRENTLY in, `onoff` included.
     ["color_mode"] = "String"
     when (supportsBrightness) {
       ["brightness"] = "Int"
     }
-    // Keyed on the MODE, not on `supportsColourTemp` — that one asks whether we
-    // know the kelvin BOUNDS (the `colourTemp` group, which the slider needs),
-    // and a light can report a colour temperature without us having them.
+    // The MODE, not `supportsColourTemp`: a light can report a temperature
+    // without the dump knowing its bounds.
     when (colourModes.toList().contains("color_temp")) {
       ["color_temp_kelvin"] = "Int"
     }
-    // A colour-TEMP light reports the colour representations too — HA converts
-    // the temperature into them, so all four arrive together. That is why this
-    // is not simply `supportsColour` (see [[reportsRgbColour]]).
     when (reportsRgbColour) {
       ["hs_color"] = "List<Float>"
       ["rgb_color"] = "List<Int>"
@@ -249,42 +148,18 @@ open class LightEntity extends Entity {
 
 /// developers.home-assistant.io/docs/core/entity/lock
 ///
-/// MODELLED IN PART, and the part is chosen by what a card can currently do:
-///
-///   - the OPEN feature bit, because it decides whether a second control
-///     (`lock/open`, releasing the latch) belongs on the card at all;
-///   - `changed_by`, because it is the one live attribute a lock reports
-///     besides its state.
-///
-/// NOT modelled, each for a stated reason rather than for lack of a doc page:
-///
-///   - **code entry.** A lock reporting `code_format` wants a keypad before
-///     `lock/unlock`, and there is no input primitive in the component layer to
-///     build one from. `code_format` still reaches an author — it falls through
-///     to the per-entity class as an ordinary attribute (ADR 0013) — so a
-///     dashboard can SEE that a lock wants a code even though no shipped card
-///     asks for one.
-///   - **a jammed state that looks different.** `jammed` renders as the value
-///     text and nothing more. Making it look alarming needs a state-dependent
-///     look, and this project resolves an icon at BUILD time (`core/icon.pkl`).
-///   - **confirmation before UNLOCKING.** The latch has one — releasing it opens
-///     a door, and HA guards that control specifically, so
-///     `components/lock.pkl` does too. The tile's own lock/unlock does not:
-///     there is no confirm primitive in `core/tap.pkl`, and adding a general
-///     one is a decision about taps, not about locks — it would land the same
-///     way for `siren` and `alarm_control_panel`. The latch gets its guarantee
-///     from an inline popup instead, which needs nothing new.
+/// Modelled in part. Not modelled: code entry (`code_format` still reaches an
+/// author as an ordinary attribute, but there is no keypad primitive), a
+/// distinct look for `jammed` (icons resolve at build time), and confirmation
+/// before unlocking (only the latch has one, through an inline popup).
 open class LockEntity extends Entity {
   domain: "lock" = "lock"
 
-  /// The raw `LockEntityFeature` bitmask, as the dump read it.
   hidden supported_features: Int = 0
 
   /// Whether this lock can release its latch (`lock/open`) as well as unlock.
   hidden supportsOpen: Boolean = supported_features.and(hassLock.OPEN) != 0
 
-  /// A lock reports what moved it last, and nothing else that moves. Its STATE
-  /// is the reading a card shows, and that is not an attribute.
   volatileAttrs = new {
     ["changed_by"] = "String"
   }
@@ -292,90 +167,55 @@ open class LockEntity extends Entity {
 
 /// developers.home-assistant.io/docs/core/entity/sensor
 ///
-/// The domain with no shape of its own: `sensor` is HA's catch-all for "a
-/// reading", and what any given one MEANS lives entirely in three registry
-/// attributes. So unlike `light` or `lock`, there are no feature bits to decode
-/// here — the whole model is those three, typed, plus what follows from them.
-///
-/// **These are nullable, which the capability attributes around them are not**
-/// (ADR 0013: an entity without a capability has no such property, and reading
-/// it is an eval error rather than a silent null). The divergence is deliberate
-/// and specific to this domain: a card BRANCHES on the device class — renders a
-/// countdown for `duration`, a label for `enum`, a number otherwise — and "ask
-/// whether the property exists" is not a branch Pkl lets you write. An absent
-/// device class is a real and common answer here, not a mistake: measured on
-/// the live instance, an appliance's own status sensors (`appliancemode`,
-/// `appliancestate`, `cyclephase`) declare NONE while its `timetoend` declares
-/// `duration`. A domain where absence is ordinary needs a value for absence.
+/// What a sensor means lives entirely in three registry attributes. Unlike other
+/// capability attributes they are nullable (ADR 0013): a card branches on the
+/// device class, and an absent one is common (an appliance's status sensors
+/// declare none) — Pkl cannot branch on whether a property exists.
 open class SensorEntity extends Entity {
   domain: "sensor" = "sensor"
 
-  // ---- what the dump emits: DATA, not conclusions ----
-
   hidden device_class: SensorDeviceClass? = null
 
-  /// Present only where HA records long-term statistics for the reading.
+  /// Present only where HA records long-term statistics.
   hidden state_class: SensorStateClass? = null
 
-  /// Deliberately an open `String`, not a unit enum: HA lets an integration
-  /// report any unit at all, and a home with one we have not vendored has to
-  /// keep evaluating. [[hassSensor.DURATION_SECONDS]] is the typed part, and it
-  /// covers only the units something actually computes with.
+  /// An open `String`: an integration may report any unit, and a home with one
+  /// we have not vendored must keep evaluating.
   hidden unit_of_measurement: String? = null
 
-  /// The states an `enum` sensor can report, in the integration's own order.
-  /// Empty for every other device class — HA requires `enum` for this attribute
-  /// to mean anything.
+  /// An `enum` sensor's states, in the integration's order.
   hidden options: Listing<String> = new Listing {}
-
-  // ---- what the schema DERIVES ----
 
   hidden isEnum: Boolean = device_class == "enum"
   hidden isDuration: Boolean = device_class == "duration"
 
-  /// Whether the state is an ISO 8601 instant. Neither `date` nor `timestamp`
-  /// is arithmetic-safe as a bare state string.
+  /// The state is an ISO 8601 instant, not arithmetic-safe as a string.
   hidden isInstant: Boolean =
     device_class != null && hassSensor.INSTANT_CLASSES.contains(device_class)
 
-  /// Whether the reading is a NUMBER a card may do arithmetic on.
-  ///
-  /// `state_class` is the strong signal — HA only sets it where it records
-  /// statistics, which it can only do for numbers. A unit is the weaker
-  /// fallback, for an integration that reports one without opting into
-  /// statistics; `enum` is excluded because an enum sensor's `options` are
-  /// labels even when they look like numbers.
+  /// The reading is a number a card may compute with: `state_class` is the
+  /// strong signal, a unit the weaker one. An `enum`'s options are labels even
+  /// when they look like numbers.
   hidden isNumeric: Boolean =
     !isEnum && !isInstant
       && (state_class != null || unit_of_measurement != null)
 
-  /// What one unit of this duration reading is worth in SECONDS, or null when
-  /// the reading is not a scalable duration — a different device class, no unit
-  /// at all, or a unit with no fixed length (see
-  /// [[hassSensor.DURATION_SECONDS]], which omits weeks/months/years for that
-  /// reason).
-  ///
-  /// A countdown needs this: the same "45 minutes left" arrives as `45` from
-  /// one appliance and `2700` from another, and only the unit says which.
+  /// Seconds per unit of a duration reading, or null when it has no fixed
+  /// length: "45 minutes left" arrives as `45` from one appliance and `2700`
+  /// from another.
   hidden durationSeconds: Number? =
     if (!isDuration || unit_of_measurement == null) null
     else hassSensor.DURATION_SECONDS.getOrNull(unit_of_measurement)
 }
 
 /// developers.home-assistant.io/docs/core/entity/binary-sensor
-///
-/// A two-state reading whose only content is what `on` means — see
-/// [[hassBinarySensor.BinarySensorDeviceClass]], where the polarity is NOT
-/// uniform across classes.
 open class BinarySensorEntity extends Entity {
   domain: "binary_sensor" = "binary_sensor"
 
-  /// Nullable for the same reason [[SensorEntity.device_class]] is.
   hidden device_class: BinarySensorDeviceClass? = null
 
   /// What `on` reads as for this sensor, or null where nothing documented
-  /// applies. A card with no better idea can say `on`/`off`, which is always
-  /// true and rarely useful.
+  /// applies. The polarity is not uniform across classes.
   hidden onMeans: String? =
     if (device_class == null) null
     else hassBinarySensor.ON_MEANS.getOrNull(device_class)
@@ -393,36 +233,24 @@ open class SelectEntity extends Entity {
   domain: "select" = "select"
 }
 
-/// Fallback for every domain without a dedicated class yet — add a typed
-/// class (and a PklDump dispatch row) to specialize a domain.
+/// Every domain without a class of its own; add one (and a `PklDump` row) to
+/// specialise a domain.
 open class GenericEntity extends Entity {}
 
-// ---- registry structure (generated dump.pkl subclasses these) ----
+// ---- registry structure (the generated dump subclasses these) ----
 
-/// Every scope answers ONE name — `all`, in entity-id order — and a domain is
-/// picked out of it by a selector below rather than by a list the scope carries
-/// of its own:
+/// Every scope answers one name, `all` (entity-id order), and a domain comes
+/// out of it through a selector, so a new domain is one function rather than a
+/// list on every scope:
 ///
 ///     lights(dump.floors.loft.all)   // every light upstairs
 ///     locks(dump.areas.stue.all)     // this room's locks
-///
-/// Why not a `lights` on each scope: that is one list per (domain × scope), and
-/// each new modelled domain then widens [[Area]], [[Floor]], [[Device]] and the
-/// generator together — five places to add a lock's list, four of which are the
-/// same filter written again. A selector is one function per domain, and it
-/// works on any `List<Entity>` at all, including one an author has already
-/// filtered. The house-wide lists on `internal/dump-base.pkl` stay, because
-/// `dump.lights` is the everyday spelling and it is derived from these.
 abstract class Area {
   area_id: String
   area_name: String
   floor_id: String? = null
-  /// Every entity registered to this area, hidden ones included, in entity-id
-  /// order — filled by the generated subclass. Hidden: authoring convenience,
-  /// never rendered into dashboard JSON.
+  /// Filled by the generated subclass.
   hidden allWithHidden: List<Entity> = List()
-  /// What a dashboard shows by default: [[allWithHidden]] minus the entities
-  /// hidden in HA.
   hidden all: List<Entity> = shown(allWithHidden)
 }
 
@@ -430,21 +258,15 @@ abstract class Floor {
   floor_id: String
   floor_name: String
   hidden areas: List<Area> = List()
-  /// Vertical ordering from the floor registry — a basement is negative. Lets a
-  /// dashboard sort floors the way the house is stacked instead of by name.
+  /// Vertical order from the floor registry; a basement is negative.
   level: Int? = null
 
-  /// DERIVED, never filled by the generator: a floor's entities are its areas'
-  /// entities by definition, and deriving them keeps that impossible to
-  /// disagree about.
+  // Derived, so a floor's entities cannot disagree with its areas'.
   hidden all: List<Entity> = areas.flatMap((a) -> a.all)
   hidden allWithHidden: List<Entity> = areas.flatMap((a) -> a.allWithHidden)
 }
 
-/// One physical device. The OTHER grouping an entity belongs to, orthogonal to
-/// area/floor: a single bulb or appliance usually exposes a handful of entities
-/// (the light itself plus firmware/identify/config ones), and `entities` holds
-/// them all so a card can render a device as a unit.
+/// One physical device, a grouping orthogonal to area/floor.
 abstract class Device {
   device_id: String
   device_name: String
@@ -453,23 +275,17 @@ abstract class Device {
   model: String? = null
   hidden entities: List<Entity> = List()
 
-  /// The same names every scope answers, so a selector reads the same over a
-  /// device as over a floor. `entities` is what the generator fills; `all` is
-  /// what an author reaches for.
   hidden allWithHidden: List<Entity> = entities
   hidden all: List<Entity> = shown(entities)
 }
 
-/// A scope's entities minus the ones hidden in HA: what every `all` answers
-/// (ADR 0013).
 const function shown(scope: List<Entity>): List<Entity> =
   scope.filter((e) -> !e.id_hidden)
 
 // ---- domain selectors ------------------------------------------------------
-
-/// One per modelled domain, over any scope's `all`. Each new modelled domain
-/// adds exactly one of these, and `generic` loses that domain in the same edit
-/// — the two together are what keep the selectors a PARTITION of `all`.
+//
+// One per modelled domain. A new one also leaves `generic`, in the same edit,
+// which is what keeps the selectors a partition of `all`.
 
 function lights(scope: List<Entity>): List<LightEntity> =
   scope.filter((e) -> e is LightEntity) as List<LightEntity>
@@ -486,11 +302,8 @@ function binarySensors(scope: List<Entity>): List<BinarySensorEntity> =
 function switches(scope: List<Entity>): List<SwitchEntity> =
   scope.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
 
-/// The complement of the selectors above — an entity of a domain no selector
-/// claims. A [[NumberEntity]]/[[SelectEntity]] lands here despite having a
-/// typed class: the class types its attributes, while a selector says a
-/// dashboard has a reason to ask for the domain as a GROUP, and nothing has
-/// wanted "every number in the house" yet.
+/// The entities no selector claims. A number or select lands here despite its
+/// typed class: nothing has wanted every number in the house as a group yet.
 function generic(scope: List<Entity>): List<Entity> =
   scope.filter((e) ->
     !(e is LightEntity) && !(e is LockEntity)

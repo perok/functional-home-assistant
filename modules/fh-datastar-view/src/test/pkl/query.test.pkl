@@ -226,6 +226,17 @@ facts {
       "light.kjokken", "light.lampe", "binary_sensor.stue_motion", "light.taklys")
   }
 
+  ["a registry key ranked ABOVE a live one is refused, not ordered wrongly"] {
+    // The runtime holds no registry to resolve the outranking key against.
+    module.catch(() -> q.from(allEnts)
+      .orderBy(List(q.asc(q.prop("friendly_name")), q.desc(q.prop("brightness"))))
+      .render((e) -> c.entityCard(e))
+      .build()
+      .orderBy
+      .toList()
+    ).contains("Cannot order by 'friendly_name'")
+  }
+
   ["`limit` rides to the runtime, because only it knows who wins"] {
     local s = q.from(stue)
       .orderBy(q.desc(q.prop("brightness")))

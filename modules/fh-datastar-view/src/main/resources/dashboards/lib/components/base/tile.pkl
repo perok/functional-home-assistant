@@ -9,9 +9,8 @@ import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
 
-/// The tile. Its inputs are named for what they ARE on the card, not for
-/// where an entity card gets them: `title`, `reading`, `secondary` and `glyph`
-/// take a literal or a reading, and the card decides how each is carried.
+/// The tile. `title`, `reading`, `secondary` and `glyph` each take a literal or
+/// a reading; the card decides how each is carried.
 open class Tile extends nodes.Node {
   card = "tile"
   cardDef = new nodes.CardDef {
@@ -24,14 +23,8 @@ open class Tile extends nodes.Node {
       </article>
       """
     slots { "label"; "value" }
-    // The card's own structure. The icon rules are metrics only — which FONT
-    // draws the glyph is the theme's (it ships the icon set), and so is the
-    // spinner badge's paint.
-    //
-    // The header is a FLEX line because its label is a box now (`core/text.pkl`)
-    // and a block box beside an inline icon would drop to its own line. The icon
-    // must not be the thing that shrinks, so the label is — which is what the
-    // clip and scroll modes need to act on at all.
+    // Icon metrics only; the font is the theme's. A flex header, so the label
+    // box is what shrinks and the icon never does.
     css = """
       .card.tappable{cursor:pointer}
       .entity header{display:flex;align-items:center;min-inline-size:0}
@@ -41,28 +34,21 @@ open class Tile extends nodes.Node {
       """
   }
   hidden title: String|slotMod.Slot = ""
-  /// The one thing on this card that moves on every ordinary tick, so a reading
-  /// here is carried as a SIGNAL (ADR 0017): a temperature ticking from 21.4 to
-  /// 21.5 costs a few bytes instead of the whole tile.
+  /// A reading is carried as a signal (ADR 0017): a temperature ticking costs a
+  /// few bytes instead of the tile.
   hidden reading: String|slotMod.Slot = ""
   hidden secondary: slotMod.Secondary? = null
   /// The `<i>`'s WHOLE class (`mdi mdi-lock`), a literal or a reading. Whole,
-  /// so the template has one `{{icon}}` and no idea which it got: a literal
-  /// naming only the glyph needed a flag to say so, and that flag is what
-  /// deleted the `<i>` on the first patch (see [[slotMod.ifSlot]]). A reading
-  /// is carried as a signal on `class`, which the element has nothing else to
-  /// fight over.
+  /// so the template has one `{{icon}}` and needs no flag saying which; a
+  /// reading is a signal on `class`.
   hidden glyph: (String|slotMod.Slot)? = null
-  /// What a click does; null opts the card out (no pointer, no handler).
+  /// Null opts the card out of clicks entirely.
   hidden tapAction: tapMod.TapAction? = null
-  // Copy the tap's inline surfaces onto the node so the hoist lifts them. Null
-  // when the tap is null or carries no inline popup → dropped by
-  // omitNullProperties.
   inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
-  /// The entity a reading that names none reads — see `Button.subject`.
+  /// See `Button.subject`.
   hidden subject: String? = null
-  /// Refuses the tap and wears `fh-disabled` while it holds, ORed with
-  /// whatever the tap refuses — any [[nodes.BooleanInput]], as `Button.disabled`.
+  /// Refuses the tap and wears `fh-disabled` while it holds, ORed with the
+  /// tap's own refusal, as `Button.disabled`.
   hidden disabled: nodes.BooleanInput? = null
   derivedValues {
     when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
@@ -81,8 +67,8 @@ open class Tile extends nodes.Node {
     when (secondary != null) {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
-    // A CLASS and a click guard, not `disabled`: this host is an `<article>`,
-    // and only a form control can be disabled.
+    // A class and a click guard, not `disabled`: an `<article>` cannot be
+    // disabled.
     for (k, v in tapMod.tapSlots(tapAction)) {
       [k] = v
     }
@@ -90,6 +76,5 @@ open class Tile extends nodes.Node {
       ["disabled"] = nodes.disabledSlot(disabled)!!
     }
   }
-  /// See [[disabled]].
   function disabled(d: nodes.BooleanInput): Tile = let (self = this) (self) { disabled = d }
 }

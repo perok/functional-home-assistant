@@ -10,16 +10,10 @@ import "../hass.pkl"
 import "base/button.pkl" as buttonMod
 import "base/onoff.pkl" as switchMod
 
-/// A button ABOUT an entity: [[buttonMod.Button]] with its inputs filled from
-/// it. Named after it, pressing it does what its domain does
-/// (`hass/actions.pkl`) unless told otherwise, and a reading that names no
-/// entity reads this one. `c.entityButton(l)`,
-/// `c.entityButton(l).active(c.isOn(l))`.
-///
-/// THIN, as an HA-layer class is: no card, template or slots of its own, only
-/// the base's inputs, so it is exactly a base button an author could have
-/// built by hand (`components.test.pkl` holds it to that). It inherits the
-/// base's card, so the registry skips it.
+/// [[buttonMod.Button]] filled from an entity: its name, its domain's tap, and
+/// it as the subject. `c.entityButton(l).active(c.isOn(l))`. Thin — no card of
+/// its own, so it is exactly a button an author could build
+/// (`components.test.pkl` holds it to that).
 class EntityButton extends buttonMod.Button {
   hidden entity: hass.Entity
   label = entity.friendly_name ?? entity.entity_id
@@ -27,22 +21,16 @@ class EntityButton extends buttonMod.Button {
   subject = entity.entity_id
 }
 
-/// See [[EntityButton]].
 const function entityButton(e: hass.Entity): EntityButton = new EntityButton { entity = e }
 
-/// A switch ABOUT an entity: [[switchMod.Switch]] with its inputs filled from
-/// it — named after it, on while the entity is `on`, and flipping it does what
-/// its domain does. THIN, like [[EntityButton]].
-///
-/// The default tap is the entity's domain action. A switch that cannot be
-/// switched is not a thing, so a domain with no action (`hass/actions.pkl`)
-/// fails the build here rather than rendering a checkbox that does nothing —
-/// use `EntityCard` (which falls back to more-info) for those.
+/// [[switchMod.Switch]] filled from an entity: on while it is `on`, flipping
+/// it does what its domain does. A domain with no action fails the build
+/// rather than render a switch that does nothing; `EntityCard` falls back to
+/// more-info instead.
 class Toggle extends switchMod.Switch {
   hidden entity: hass.Entity
   label = entity.friendly_name ?? entity.entity_id
-  // Opts OUT of the unavailable bypass — "unavailable" is not a checkbox
-  // state — so an unavailable entity just renders unchecked.
+  // No unavailable bypass: an unavailable entity renders unchecked.
   on = new slotMod.Slot {
     transform = simpleMod.enumOf("on", "on", "")
     default = ""
@@ -52,8 +40,6 @@ class Toggle extends switchMod.Switch {
   subject = entity.entity_id
 }
 
-/// Static toggle as a call — see [[Toggle]].
 function toggle(e: hass.Entity): Toggle = new Toggle { entity = e }
-/// The SAME constructor as a VALUE, for a query's render positions (mirrors
-/// `entityCard`).
+/// The constructor as a value, for a query's render positions.
 hidden toggle: (hass.Entity) -> Toggle = (e) -> toggle(e)

@@ -1,24 +1,16 @@
-/// The containers — grid, row, column.
-///
-/// Not cards you compose so much as the boxes you compose INTO, which is why
-/// they sit beside `components.pkl` rather than inside it. [[Grid]] is the
-/// default top-level container (the HA "sections" feel); per-cell sizing rides
-/// on the `columns(n)`/`fullWidth()`/`hug()` builders from `core/node.pkl`.
+/// The containers — grid, row, column: the boxes cards are composed into.
+/// [[Grid]] is the default top-level container; per-cell sizing is the
+/// `columns(n)`/`fullWidth()`/`hug()` builders on `core/node.pkl`'s nodes.
 module layout
 
 import "core/node.pkl" as nodes
 
-/// What the three containers share: markup that is one classed `<div>` holding
-/// its children, and an optional extra class from the author.
-///
-/// Pure structure: the box IS where its children go, and it shows nothing of
-/// its own. No id on the hole — nothing fills a box from outside.
+/// A classed `<div>` holding its children, plus an optional author class. Pure
+/// structure: nothing fills a box from outside.
 abstract class Box extends nodes.Node {
-  /// An extra class on the box. `cssClass` because `class` is a Pkl reserved
-  /// word; it fills the literal slot `"class"` the template's section reads.
+  /// An extra class on the box (`class` is reserved in Pkl).
   hidden cssClass: String? = null
-  /// Classes the box adds of its own, after [[cssClass]] ([[Grid]]'s
-  /// `fh-start`).
+  /// The box's own classes, after [[cssClass]] ([[Grid]]'s `fh-start`).
   hidden ownClasses: Listing<String> = new {}
   slots {
     when (cssClass != null || !ownClasses.isEmpty) {
@@ -41,12 +33,9 @@ class Row extends Box {
   function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
 }
 
-/// Amendable base instance — `(c.row) { children { ... } }`. The parens are
-/// MANDATORY: Pkl requires them around ANY amend parent that isn't a `new`
-/// expression (qualified reads, method calls, even bare in-scope names).
-/// There is no comma-free call form: function arguments are always
-/// comma-separated, and a typed-object amend body accepts only PROPERTIES
-/// (bare elements/entries need a Listing/Mapping parent — hence `children`).
+/// `(c.row) { children { ... } }`. The parens are required around any amend
+/// parent that is not a `new`, and a typed body takes only properties, hence
+/// `children`.
 hidden row: Row = new Row {}
 
 class Column extends Box {
@@ -54,27 +43,22 @@ class Column extends Box {
   cardDef = boxDef("fh-col")
   function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
 }
-/// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
+/// `(c.column) { children { ... } }`.
 hidden column: Column = new Column {}
 
-/// 12-column grid container — the DEFAULT top-level container (the HA
-/// "sections" feel): children flow as rows, each cell spanning `columns(n)`
-/// of 12 (default 4 — a third, HA's default card size); `fullWidth()` spans
-/// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
-/// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
-/// layout contract CSS lives in `core/css.pkl`.
+/// The 12-column grid (HA's "sections"): each cell spans `columns(n)` of 12,
+/// default 4; `fullWidth()` spans the row. A partial row is centred unless
+/// `centered(false)`.
 class Grid extends Box {
   card = "fhgrid"
   cardDef = boxDef("fh-grid")
-  /// Group-center the cells: a partial row is centered, a full row fills.
-  /// DEFAULT true; `centered(false)` emits the `fh-start` marker to left-pack.
   hidden centered: Boolean = true
   ownClasses {
     when (!centered) { "fh-start" }
   }
   function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
-  /// Toggle group-centering of the cells (see [[centered]] property).
+  /// `false` left-packs a partial row.
   function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }
 }
-/// Amendable base instance — `(c.grid) { children { ... } }` (see [[row]]).
+/// `(c.grid) { children { ... } }`.
 hidden grid: Grid = new Grid {}

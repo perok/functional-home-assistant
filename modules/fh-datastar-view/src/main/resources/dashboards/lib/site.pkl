@@ -1,8 +1,6 @@
-/// The ONE entrypoint a workspace has: `site.pkl` amends this module and
-/// names every dashboard this instance serves, plus the settings that apply
-/// across them. A dashboard is DATA here, not a file — which is what lets you
-/// generate a hundred of them in a loop, and what makes adding or removing one
-/// an ordinary edit that hot-reloads (ADR 0021).
+/// The one entrypoint (ADR 0021): a workspace's `site.pkl` amends this and
+/// names every dashboard it serves. A dashboard is data here, so a hundred can
+/// come from a loop, and adding one is an edit that hot-reloads.
 ///
 ///     amends "@fh-dashboard/site.pkl"
 ///     import "@fh-dashboard/components.pkl" as c
@@ -13,47 +11,25 @@
 ///       ["kitchen"] = import("kitchen.pkl")   // a module that amends entry.pkl
 ///     }
 ///
-/// Nothing else in the directory is a dashboard: a `*.pkl` beside this one is
-/// an ordinary module, reachable only if something imports it.
+/// Any other `*.pkl` beside it is an ordinary module.
 module site
 
 import "entry.pkl"
 import "core/access.pkl" as accessMod
 
-/// Every dashboard this instance serves, keyed by SLUG — the key IS the route
-/// (`/d/<slug>`), so renaming a key moves the dashboard.
-///
-/// Two forms, both [[entry]]:
-///   - INLINE — amend the key into existence (the mapping default is an
-///     `entry`, so no `new` is needed): `["home"] { card = ... }`
-///   - IMPORTED — assign a module that `amends "@fh-dashboard/entry.pkl"`:
-///     `["kitchen"] = import("kitchen.pkl")`. Note the CALL form: `import "x"`
-///     is a declaration and will not parse in a value position.
-///
-/// Generated dashboards are just an entry per key, so the usual comprehension
-/// works: `for (f in dump.floors.all) { [f.floor_id] { card = floorCard(f) } }`.
+/// Every dashboard, keyed by slug — the key is the route (`/d/<slug>`). Amend
+/// a key into existence (`["home"] { card = ... }`), or assign a module that
+/// amends `entry.pkl` with the CALL form, `import("kitchen.pkl")`; the
+/// declaration form does not parse here. A comprehension works too:
+/// `for (f in dump.floors.all) { [f.floor_id] { card = floorCard(f) } }`.
 dashboards: Mapping<String, entry> = new { default = (_) -> (entry) {} }
 
-/// The slug served at `/`. Null (the default) means the dashboard keyed
-/// `dashboard`, else the first key. Naming a slug that isn't in [[dashboards]]
-/// is ignored the same way.
+/// The slug served at `/`. Null, or a slug not in [[dashboards]], means the
+/// key `dashboard`, else the first key.
 default: String? = null
 
-/// Who may see the dashboards this instance serves, unless one of them says
-/// otherwise on its own `access` (issue #89).
-///
-/// Requiring a logged-in Home Assistant user is the default, and the safe place
-/// to leave it: every dashboard shows the state of somebody's home. Set it here
-/// once rather than per dashboard, and override only where a screen genuinely
-/// differs:
-///
-///     access = c.access.admin
-///     dashboards {
-///       ["wall"] { access = c.access.public; ... }
-///     }
-///
-/// Note `c.access.public` turns a dashboard into a genuinely public page —
-/// anyone who can reach this server can open it, and its buttons still act on
-/// the home. That is the point for a wall tablet, and worth being sure about
-/// for anything reachable from the internet.
+/// Who may see every dashboard that does not set its own `access` (#89). A
+/// logged-in HA user by default, since every dashboard shows somebody's home.
+/// `c.access.public` makes a page open to anyone who can reach this server,
+/// with buttons that still act on the home.
 access: accessMod.Access = accessMod.authenticated

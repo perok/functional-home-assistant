@@ -1,24 +1,15 @@
 /// The shipped components — what a dashboard entry imports as `c`.
 ///
-/// This module is a FACADE: every card lives in a family module beside it
-/// (`components/entity.pkl`, `components/slider.pkl`, …) and the everyday names
-/// are re-exported here, so an author has one import and one place to look. The
-/// families are also importable directly
-/// (`import "@fh-dashboard/components/light.pkl"`), which is the form that never
-/// depends on an editor resolving a re-export.
+/// A facade: every card lives in a family module beside it
+/// (`components/entity.pkl`, …), which is also importable directly. The
+/// component-author kit (`core/node.pkl`, `core/slot.pkl`, `core/surface.pkl`,
+/// `core/predicate.pkl`) is deliberately not re-exported; see `entry.pkl`'s
+/// `componentModules` for how your own cards reach the registry.
 ///
-/// WHAT IS NOT HERE, deliberately: the card contract (`core/node.pkl`), slot
-/// builders (`core/slot.pkl`), surfaces (`core/surface.pkl`) and the query wire
-/// AST (`core/predicate.pkl`). Those are for someone writing a component
-/// LIBRARY, not a dashboard, and every name on `c.` that an author cannot use is
-/// a name they have to skip past. Import them directly when writing cards of
-/// your own — and see `entry.pkl`'s `componentModules` for how yours reach the
-/// registry.
-///
-/// A re-export must carry an explicit TYPE (`hidden tap: tapMod = tapMod`, not
-/// `hidden tap = tapMod`): an untyped one evaluates fine and then completes to
-/// nothing in the editor. See `docs/issue-report-2-pkl-lsp-extends-completion.md`,
-/// which also records why this module must never use an `extends` clause.
+/// A re-export must carry an explicit type (`hidden tap: tapMod = tapMod`): an
+/// untyped one evaluates and then completes to nothing in the editor. This
+/// module must never use `extends` either
+/// (`docs/issue-report-2-pkl-lsp-extends-completion.md`).
 module components
 
 import "hass.pkl"
@@ -50,40 +41,35 @@ import "components/tap.pkl" as tapVerbs
 import "recipes.pkl" as recipesMod
 
 // ---- namespaces ----
-// A family that reads better grouped than flat. Typed, so an editor can see
-// through them.
 
-/// What a click DOES, each verb naming what it acts on: `c.tap.toggle(l)`,
+/// What a click does, each verb naming what it acts on: `c.tap.toggle(l)`,
 /// `c.tap.moreInfo(l)`, `c.tap.lights.off(dump.areas.stue)`,
 /// `c.tap.call("scene/turn_on", s)`, `c.tap.navigate("under")`.
 hidden tap: tapVerbs = tapVerbs
 
-/// The simple tier's explicit fast-path constructors for slot values:
-/// `c.simple.attr("brightness")`, `c.simple.percent("brightness", 1, 255)`.
+/// The fast-tier slot constructors: `c.simple.attr("brightness")`,
+/// `c.simple.percent("brightness", 1, 255)`.
 hidden simple: simpleMod = simpleMod
 
-/// Light-domain composition: `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
+/// `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
 hidden light: lightMod = lightMod
 
-/// Lock-domain composition: `c.lock.controls(l)`, `c.lock.openLatch(l)`.
+/// `c.lock.controls(l)`, `c.lock.openLatch(l)`.
 hidden lock: lockMod = lockMod
 
-/// Opinionated whole sections: `c.recipes.floorView(floor)`.
+/// Whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod = recipesMod
 
 /// Who may see a dashboard: `c.access.admin`, `c.access.public`,
-/// `c.access.users(List(dump.users.peri))`. Set on an entry's `access`, or on
-/// `site.pkl`'s to change the default for every dashboard (issue #89).
+/// `c.access.users(List(dump.users.peri))`. On an entry's `access`, or on
+/// `site.pkl`'s for every dashboard (#89).
 hidden access: accessMod = accessMod
 
 // ---- classes an author names ----
-// `new c.Column { … }` in a surface body, `c.Node` as an entry's `card` type,
-// `c.SurfaceDef` for a non-popup surface. Aliases, so there is one definition.
 
 typealias LayoutNode = nodes.LayoutNode
 typealias Node = nodes.Node
-/// The layout-cell escape hatch, for the rare `cell = new c.Cell { … }` that the
-/// `columns(n)`/`fullWidth()`/`hug()` builders do not cover.
+/// For the rare `cell = new c.Cell { … }` the builders do not cover.
 typealias Cell = nodes.Cell
 typealias Row = layoutMod.Row
 typealias Column = layoutMod.Column
@@ -95,7 +81,7 @@ typealias TapAction = tapMod.TapAction
 typealias Expr = slotMod.Expr
 typealias SectionTitle = textMod.SectionTitle
 typealias Label = textMod.Label
-/// How a label is coloured — `"normal"`, `"dim"`, `"error"` or `"warning"`.
+/// `"normal"`, `"dim"`, `"error"` or `"warning"`.
 typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
 typealias EntityInfo = moreinfo.EntityInfo
@@ -108,119 +94,100 @@ typealias If = surfaces.If
 typealias Slider = sliderBaseMod.Slider
 typealias EntitySlider = sliderMod.EntitySlider
 typealias SlideAxis = sliderMod.SlideAxis
-/// What a card does with a label too long for its box — `"wrap"`, `"clip"` or
-/// `"scroll"`. An entry's `textOverflow` sets it for a whole dashboard;
-/// `.textOverflow(...)` on a node sets it for that card alone.
+/// `"wrap"`, `"clip"` or `"scroll"`: an entry's `textOverflow` for the whole
+/// dashboard, `.textOverflow(…)` for one card.
 typealias TextOverflow = coreTextMod.Overflow
 
-// ---- amendable base instances ----
-// `(c.row) { children { … } }` — the parens are mandatory (Pkl requires them
-// around any amend parent that is not a `new` expression).
+// ---- amendable base instances: `(c.row) { children { … } }` ----
 
-/// The horizontal container — `(c.row) { children { ... } }`.
 hidden row: layoutMod.Row = layoutMod.row
-/// The vertical container — `(c.column) { children { ... } }`.
 hidden column: layoutMod.Column = layoutMod.column
-/// The 12-column grid — the default top-level container.
+/// The 12-column grid, the default top-level container.
 hidden grid: layoutMod.Grid = layoutMod.grid
-/// The popup dialog wrapper — rarely written by hand (see `c.tap.openPopupInline`).
+/// The popup dialog; rarely written by hand (see `c.tap.openPopupInline`).
 hidden popup: surfaceMod.Popup = surfaceMod.popup
-/// A tab bar over one panel — `(c.tabs) { tabs { ["Lights"] { ... } } }`.
+/// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
 hidden tabs: surfaces.Tabs = surfaces.tabs
 
 // ---- mixins ----
 
-/// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
+/// `c.entityCard(x) |> c.tappable`.
 hidden tappable: Mixin<entityMod.EntityCard> = entityMod.tappable
-/// The more-info-on-tap addition: `c.entityCard(x) |> c.informative`.
+/// `c.entityCard(x) |> c.informative`.
 hidden informative: Mixin<entityMod.EntityCard> = moreinfo.informative
 
 // ---- the cards, as calls ----
-// One-line delegations, because a function-valued property cannot be CALLED as
-// `c.f(x)`: Pkl keeps methods and properties in separate namespaces, so a
-// re-exported function has to be a real method. `PklBuildSuite` checks this list
-// against the family modules, so a card that gains a factory and never reaches
-// the facade is a test failure rather than a silently missing name.
+// Real methods, since a function-valued property cannot be called as `c.f(x)`.
+// `PklBuildSuite` checks this list against the family modules.
 
-/// Static title text: `c.title("Active now")`.
+/// `c.title("Active now")`.
 function title(t: String): textMod.SectionTitle = textMod.title(t)
-/// A short line of text in a tone: `c.label("Away until Monday")`.
+/// A line of text in a tone: `c.label("Away until Monday")`.
 function label(t: String): textMod.Label = textMod.label(t)
-/// HA-like entity card: icon + label + value.
+/// HA-like entity card: icon, label and value.
 function entityCard(e: hass.Entity): entityMod.EntityCard = entityMod.entityCard(e)
-/// The raw facts about an entity — its id, and every attribute it reports.
+/// An entity's id and every attribute it reports.
 function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e)
 /// On/off control, styled as a switch.
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
-/// A button that knows only its label and its tap:
 /// `c.button("Close", c.tap.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
 function button(l: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.button(l, a)
-/// A button about an entity — its name and its domain's tap, tinted while it is
-/// on with `.active(c.isOn(l))`: `c.entityButton(l)`.
+/// A button about an entity — its name and its domain's tap:
+/// `c.entityButton(l).active(c.isOn(l))`.
 function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
-/// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
+/// `c.pill("Underetasje", c.tap.navigate("under"))`.
 function pill(l: String, a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(l, a)
-/// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle(l))`.
+/// `c.iconButton("mdi:power", c.tap.toggle(l))`.
 function iconButton(i: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.iconButton(i, a)
-/// Value slider — an entity for its domain's default axis, or a capability
-/// group for that axis (`c.entitySlider(l.colourTemp)`).
+/// An entity for its domain's default axis, or a capability group for that
+/// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
-/// bar where the appliance also reports a programme length.
+/// bar where it also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
   progressMod.progress(remaining)
-/// One button for a slider's head — a round [[entityButton]] tinted while its
-/// entity is on. See [[EntitySlider.actions]].
+/// A round [[entityButton]] for a slider's head, tinted while its entity is on.
 function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   sliderMod.sliderAction(e, t)
-/// A chart of a sensor's last 24 hours, drawn on the server — `.over("7d")`
-/// for any other window. Numeric sensors only; ask `e.isNumeric` first where
-/// the entity is not known to be one.
+/// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
+/// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
   historyMod.historyChart(e)
-/// Now, low and high of a sensor over the last 24 hours, from the history
-/// provider's JSON — `.over(…)` and `.chosen()` like [[historyChart]].
+/// Now, low and high over the last 24 hours; `.over(…)` and `.chosen()` as
+/// [[historyChart]].
 function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
   historyMod.historyReadings(e)
-/// A window bar over the charts beneath it — `(c.windowChooser) { children {
-/// c.historyChart(s).chosen() } }`. Amendable, like [[column]].
+/// A window bar over the charts beneath it:
+/// `(c.windowChooser) { children { c.historyChart(s).chosen() } }`.
 hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser
-/// A conditional section, shown while `p` holds over live entity state.
+/// A section shown while `p` holds over live state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
-/// A live value expression: `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
+/// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
-/// The same, bound to a DIFFERENT entity than the card's own.
+/// [[expr]] over another entity than the card's.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
-/// One attribute of the card's entity, live — a bare String on `secondary` is
-/// the text itself: `c.entityCard(l).secondary(c.attr("device_class"))`.
+/// One live attribute of the card's entity:
+/// `c.entityCard(l).secondary(c.attr("device_class"))`.
 function attr(attrName: String): slotMod.Slot = slotMod.attr(attrName)
-/// Whether `e`'s state is one of `states`, live — what a button's `disabled`
-/// and a node's `classWhen` take: `c.button(…).disabled(c.stateIn(l, List("open")))`.
+/// Whether `e`'s state is one of `states`, live:
+/// `c.button(…).disabled(c.stateIn(l, List("open")))`.
 function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
-/// Whether `e` is `on`, live — what a button's `active` takes most often:
-/// `c.entityButton(l).active(c.isOn(l))`.
+/// Whether `e` is `on`, live: `c.entityButton(l).active(c.isOn(l))`.
 function isOn(e: hass.Entity): slotMod.Slot = slotMod.stateIn(e, List("on"))
-/// What `c.tap.moreInfo(e)`'s popup holds, for composing it somewhere else.
+/// What `c.tap.moreInfo(e)`'s popup holds.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 
-// ---- constructors as VALUES ----
-// For a query's render positions (`q.from(xs).render(c.entityCard)`), which need
-// the function itself rather than a call. Properties and methods are separate
-// namespaces in Pkl, so each of these coexists with the method of the same name.
+// ---- constructors as values, for a query's render positions ----
 
-/// See [[entityCard]].
 hidden entityCard: (hass.Entity) -> entityMod.EntityCard = entityMod.entityCard
-/// See [[toggle]].
 hidden toggle: (hass.Entity) -> control.Toggle = control.toggle
-/// See [[entitySlider]].
 hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = sliderMod.entitySlider
 
 // ---- the card registry ----
 
-/// The modules whose card classes this library ships. `entry.pkl` seeds
-/// `componentModules` from this; a third-party module is APPENDED there, not
-/// here. Reflection sees only classes a module DECLARES — never inherited or
-/// re-exported ones — so a facade cannot stand in for the families.
+/// The modules whose card classes this library ships; `entry.pkl` seeds
+/// `componentModules` from it. Reflection sees only classes a module declares,
+/// so the facade cannot stand in for the families.
 const modules: List<Module> = List(
   layoutMod,
   textMod,
@@ -239,15 +206,12 @@ const modules: List<Module> = List(
   progressMod
 )
 
-/// Assemble a card registry by reflecting over `mods` — see [[modules]].
 function cardsOf(mods: List<Module>): Mapping<String, nodes.CardDef> = nodes.cardsOf(mods)
 
-/// [[cardsOf]] with a theme's class names filled into the card markup — what
-/// `entry.pkl` calls, passing `theme.classes`. See `core/node.pkl`.
 function cardsWith(
   mods: List<Module>,
   classes: Mapping<String, String>
 ): Mapping<String, nodes.CardDef> = nodes.cardsWith(mods, classes)
 
-/// This library's own cards — the registry an entry gets by default.
+/// This library's own cards.
 cards: Mapping<String, nodes.CardDef> = nodes.cardsOf(modules)

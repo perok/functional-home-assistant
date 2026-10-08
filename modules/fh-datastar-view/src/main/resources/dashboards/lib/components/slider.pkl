@@ -11,12 +11,8 @@ import "control.pkl" as control
 import "base/slider.pkl" as sliderBase
 import "../hass.pkl"
 
-// The slider's controllable config per domain: the service to call, the
-// service_data key the value rides on, the range bounds, and which attribute
-// is the live position. Add a domain (cover/fan/climate…) by adding a row —
-// TYPED: a missing/misspelled field is a build error. A slider resolves its
-// config AT BUILD TIME from the entity's domain, as baked literals — always,
-// now that a set's candidates are known entities.
+/// A domain's slider config: the service, the key the value rides on, the
+/// range, and the attribute holding the live position. A new domain is a row.
 class SliderSpec {
   action: String
   key: String
@@ -31,51 +27,15 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
   ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
 }
 
-// The slider fill colour paints WHAT THE SLIDER DRIVES — the axis decides, as
-// a build-time specialization of [[EntitySlider.fillColorExpr]]:
+// The fill colour paints what the slider drives: a kelvin axis gets a warm→cool
+// ramp over its own range, an axis on a colour light the light's `rgb_color`,
+// anything else the theme's paint.
 //
-//   - a temperature axis (`c.entitySlider(l.colourTemp)`) gets the warm→cool ramp
-//     interpolated over the axis's OWN kelvin range — the same `min`/`max`
-//     the range input is baked from, so the fill shows where in the slider's
-//     span the current temperature sits;
-//   - an entity axis (a light's brightness, a cover's position) on a
-//     colour-capable light gets the light's current `rgb_color` — the fill
-//     doubles as a colour indicator, whichever the axis actually writes;
-//   - everything else bakes the constant `''`, and the slot's default hands
-//     the paint back to the theme (`currentcolor`, or the toggle-only
-//     `--fh-default-color`).
-//
-// GUARDS, and what the build-time facts actually prove: the dump knows what a
-// light reports ([[hass.LightEntity.reportsRgbColour]] and the colour-temp
-// mode are HA-guaranteed predictors of the live attribute set), so the shape
-// is chosen once. But capability is a build-time fact while STATE PRESENCE is
-// a runtime one — a light can go `unavailable` and a live update can replace
-// its state with one carrying no colour attrs at all, and in CEL a read of a
-// missing map key THROWS (an engine error on the card, where the slot default
-// is a graceful fallback). So every shape keeps one presence guard on its
-// read: `attr[?'x']` yields an optional, `optMap` runs the body only when
-// there is a value, and `orValue('')` supplies the absent case. What the store
-// contract DOES prove away is the value's nullness behind a present key
-// ([[StateStore.toJavaObject]] never emits JSON-null values), which is why
-// there is no second `!= null` — and `size(rgb) == 3` stays as one cheap call
-// between "ignore a lying integration's short list" and a CEL indexing error.
-//
-// `optMap` also BINDS its value, so the guarded read and the intermediate are
-// one construct rather than a presence test feeding a `cel.bind`. The ramp
-// position still needs `cel.bind(<name>, <value>, <body>)` — it is computed,
-// not read. A kelvin value arrives as a Long and CEL's double overloads have
-// no (Long, double) operand, so every arithmetic read coerces `double(k)`
-// first.
-//
-// The sources ship AS WRITTEN, minus two mechanical normalizations: Pkl
-// multi-line strings DEDENT by the closing delimiter's indentation, and
-// `.trim()` removes the edge newline — CEL treats the rest (the interior
-// newlines and indentation) as insignificant, and the string's bytes are
-// hashed and snapshot-compared verbatim, so what the reader sees, minus the
-// shared indent, is what runs. (The ramp needs a REGULAR multi-line string
-// because raw strings do not interpolate; the rgb shape is raw because it
-// reads no values.)
-
+// Every read keeps a presence guard (`attr[?'x']…orValue('')`): capability is a
+// build-time fact but a live state may drop the attribute, and in CEL a missing
+// key throws. Kelvin arrives as a Long and CEL's double overloads take no Long,
+// hence `double(k)`. The strings ship as written; only the indent and the edge
+// newline go.
 const local sliderFillColourRgb: String =
   #"""
   attr[?'rgb_color'].optMap(rgb,
@@ -84,10 +44,7 @@ const local sliderFillColourRgb: String =
       : '').orValue('')
   """#.trim()
 
-// The ramp over the axis's own range: `minK`/`maxK` are the kelvin bounds the
-// slider's range input is already baked from. Whole kelvin integers, so
-// `\(minK).0` is the exact double literal CEL needs (its double overloads
-// have no (Long, int) operand — the same fact `double(k)` answers).
+// `\(minK).0`: the double literal CEL needs, from whole kelvin.
 const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
   attr[?'color_temp_kelvin'].optMap(k,
@@ -100,235 +57,126 @@ const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
       + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')
   """.trim()
 
-// A slider config slot (action/key/min/max): author override, else the spec
-// literal (stringified — the backend slot decoder rejects numbers).
-//
-// There used to be a third tier, a `$lookup($domain)` JSONata transform, for a
-// slider whose entity was a `$self` placeholder. It was the plan's motivating
-// example: four `reads = "once"` transforms per member computing a BUILD-TIME
-// fact at runtime, because the entity was unknown at build time. A candidate
-// set knows it, so all four are literals and the tier is gone.
-// `override` is a Pkl reserved word — the param is `ovr`.
+// The author's override, else the spec's value as a string (a slot is never a
+// number). `ovr` because `override` is reserved.
 const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSpec) -> Any): String =
   if (ovr != null) ovr else "\(get.apply(spec))"
 
-/// What a [[EntitySlider]] drives: an ENTITY (its domain's default axis — a light's
-/// brightness, a cover's position) or one of that entity's capability GROUPS
-/// (`l.colourTemp`). The group carries its `owner`, so passing one names the
-/// entity exactly once and the slider derives everything else from it.
-///
-/// This union is the "which axis" decision as a VALUE rather than a name, which
-/// is what keeps a wrong choice visible in the editor: `c.entitySlider(l.colourTemp)`
-/// on a light with no kelvin range is a nullability mismatch pkl-lsp reports
-/// without evaluating. A selector enum or a `.colourTemp()` builder method
-/// would both hide the choice from it — see ADR 0013, "Shapes considered".
+/// What an [[EntitySlider]] drives: an entity (its domain's default axis) or
+/// one of its capability groups (`l.colourTemp`), which carries its owner. A
+/// value rather than a selector, so `c.entitySlider(l.colourTemp)` on a light
+/// with no kelvin range is a nullability error the editor shows (ADR 0013,
+/// "Shapes considered").
 typealias SlideAxis = hass.Entity|hass.ColourTemp
 
-/// The named readings a slider's line offers beside its label — the two that
-/// need the card's own axis config, plus "nothing". Anything else is an
-/// [[Expr]]; see [[EntitySlider.readout]].
+/// The named readouts: the two that need the card's axis config, and none.
+/// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
 typealias Readout = "state"|"percent"|"none"
 
-/// One button at the right of a slider's head — the group's on/off, and now
-/// anything else an author wants there (#151).
-///
-/// It is an ordinary [[control.EntityButton]] in its round icon form, not a
-/// card of its own: what it needed over `c.pill` was a glyph, no label, and the
-/// `active` tint, and none of those three is about sliders.
-///
-/// What matters here is that each action is a NODE. ADR 0019 allows one
-/// busy-guarded element per node, so a single shared `_<id>__busy` could only
-/// ever arm ONE button; each action owning its id means two can be in flight
-/// independently, and neither disables the other.
+/// One button at the right of a slider's head: an ordinary round
+/// [[control.EntityButton]]. Each is its own node, so two can be in flight at
+/// once (ADR 0019 allows one guarded element per node).
 ///
 ///     c.entitySlider(l).actions(List(
 ///       c.sliderAction(l, c.tap.toggle(l)),
 ///       c.sliderAction(l, c.tap.moreInfo(l)).icon("mdi:information").active(false)
 ///     ))
-///
-/// `const` because [[EntitySlider.leadingActions]] calls it from a class body, which Pkl
-/// allows only for a const method.
 const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   (control.entityButton(e)) { icon = "mdi:power"; label = ""; tapAction = t; active = slotMod.stateIn(e, List("on")) }
 
-/// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
-/// that config in at build time. A slider on e.g. a sensor is a BUILD error
-/// naming the dashboard line — including inside a query, where the fold drops a
-/// branch whose guard cannot hold before its render lambda is applied.
-///
-/// Groups, regions and everything else about the card are the base's: see
-/// [[sliderBase.Slider]].
+/// A slider on an entity whose domain has a [[sliderSpec]] row; any other is a
+/// build error at the dashboard line. The card is [[sliderBase.Slider]].
 class EntitySlider extends sliderBase.Slider {
-  /// WHAT this slider drives — see [[SlideAxis]]. Setting `entity` directly
-  /// still works and means the domain's default axis; the two default to each
-  /// other, so exactly one of them is ever needed.
+  /// What this slider drives. `on` and `entity` default to each other, so
+  /// either one is enough.
   hidden on: SlideAxis = entity
   hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
     if (on is hass.ColourTemp) on.owner else on
   hidden label: (String|slotMod.Expr)? = null
-  // Per-instance overrides of the domain default. Each DEFAULTS to what the
-  // axis says, so a capability axis configures the whole slider and an author
-  // amending one of these still wins (late binding re-derives `slots`).
+  // Overrides of the domain default. Each defaults to what the axis says, so a
+  // capability axis configures the whole slider and an author's amend still
+  // wins.
   hidden action: String? = if (on is hass.ColourTemp) "light/turn_on" else null
   hidden key: String? = if (on is hass.ColourTemp) "color_temp_kelvin" else null
   hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else null
   hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else null
-  // The ATTRIBUTE holding the live position, overriding the domain default
-  // (`brightness` for a light) — so a slider driving a second axis of the same
-  // entity tracks the value it actually writes.
+  // The attribute holding the live position, so a second axis of the same
+  // entity tracks the value it writes.
   hidden valueAttr: String? =
     if (on is hass.ColourTemp) "color_temp_kelvin" else null
-  // Never null: the `entity` constraint above admits only a domain with a row,
-  // and a slider's subject is always a known entity now that a set's candidates
-  // are. That is what retired the runtime `lookup`-style config tier — it
-  // existed for a member whose domain was unknown until it matched.
   hidden spec: SliderSpec = sliderSpec[entity.domain]!!
-  // What the subject reports live, as the dump derives it (a cover or a fan is
-  // no light and reports neither colour attribute).
   hidden reportsRgb: Boolean =
     if (entity is hass.LightEntity) entity.reportsRgbColour else false
   hidden reportsKelvin: Boolean =
     if (entity is hass.LightEntity)
       entity.colourModes.toList().contains("color_temp")
     else false
-  // The fill-colour expression, chosen from the AXIS this slider drives —
-  // see the piece definitions above for the two live shapes. A temperature
-  // axis gets the ramp over the very `min`/`max` the range input is baked
-  // from; an entity axis on a colour-capable light gets the light's current
-  // colour. Read only where [[fillColourMoves]].
   hidden fillColorExpr: String =
     if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
     else sliderFillColourRgb
-  /// Whether this slider's fill colour can CHANGE — the light reports a colour
-  /// the ramp or the rgb shape can read.
-  ///
-  /// Where it cannot, the base paints its `fillDefault` as a constant. That
-  /// constant was once a live signal slot:
-  /// a CEL program compiled and evaluated per node per paint to produce an
-  /// empty string, a `data-style:background` binding on the element, an entry
-  /// in the element's seed and a slot in every signals frame — all for a value
-  /// that cannot move. A light whose only colour mode is brightness is the
-  /// COMMON case, so this was the majority path.
+  /// Whether the fill colour can change. Where it cannot — most lights — the
+  /// base paints a constant, with no signal and no CEL behind it.
   hidden fillColourMoves: Boolean =
     (on is hass.ColourTemp && reportsKelvin) || reportsRgb
-  // The CEL pieces of the `fill` computation, honouring the same two config
-  // tiers as the input's own slots: author override → build-time spec literal.
-  //
-  // `valueExpr` is the GUARDED attribute read: `attr['x']` on an absent key is
-  // an eval error, so every read is guarded. It yields an OPTIONAL — a missing
-  // position (a light that is off) is an empty one — so an author splicing it
-  // continues with `.optMap(v, …)` for the present case and `.orValue(…)` for
-  // the absent one, rather than testing a null.
+  /// The guarded position read, an optional (empty while a light is off): splice
+  /// it as `\(valueExpr).optMap(v, …).orValue(…)`.
   hidden valueExpr: String =
     if (valueAttr != null) "attr[?'\(valueAttr!!)']"
     else "attr[?'\(spec.value)']"
-  // The attribute the axis reads, as a NAME — what the opted-in Simple shapes
-  // ([[simpleMod.percent]]/[[simpleMod.fill]]/[[simpleMod.attr]]) take, and
-  // what [[valueExpr]] spells out for authors composing their own expression.
   hidden valueAttrName: String = valueAttr ?? spec.value
-  // The axis range as NUMBERS for the Simple shapes ([[minExpr]]/[[maxExpr]]
-  // are their float-literal spelling for spliced CEL).
   rangeMin = min ?? spec.min
   rangeMax = max ?? spec.max
-  // Float literals: CEL's `/` on two ints is INTEGER division, so the range
-  // arithmetic below needs doubles to divide as JSONata's number type did. And
-  // because an attribute POSITION arrives as a Long, the range arithmetic
-  // coerces it with `double(v)` before subtracting — CEL's double overloads
-  // have no (Long, double) operand, so a bare `v - 1.0` compiles but throws at
-  // evaluation (the Phase-0 sweep's `double(v)` was doing real work).
+  /// The range as CEL double literals, since `/` on two ints divides as
+  /// integers.
   hidden minExpr: String = if (min != null) "\(min!!).0" else "\(spec.min).0"
   hidden maxExpr: String = if (max != null) "\(max!!).0" else "\(spec.max).0"
-  /// Whether the axis this card drives EXISTS on its entity. A light whose only
-  /// colour mode is `onoff` has no brightness to set, so a slider on it would
-  /// be a track that never fills posting a `brightness` HA discards.
-  ///
-  /// The card carries the variant rather than the caller choosing a different
-  /// card, so a member of a group still reads as one of the rows around it:
-  /// same pill, same head, but filled all-or-nothing and tapped rather than
-  /// dragged. Only a light can report this — every other axis is settable by
-  /// construction (a `colourTemp` group exists only where the range does).
-  ///
-  /// Positive test, NOT `!supportsBrightness`: colour modes come from the state
-  /// snapshot, and an entity that was unavailable when the dump was taken
-  /// reports almost none of its attributes — so "says nothing" has to keep the
-  /// slider it has always had. `onoff` is HA's own statement that this light
-  /// switches and nothing more (their rule: it is the SOLE mode when present).
+  /// A light whose only colour mode is `onoff` has no brightness to set, so the
+  /// row becomes a toggle — same pill, filled all-or-nothing, tapped rather than
+  /// dragged — and a group's rows still match. HA's positive `onoff`, not "no
+  /// dimmable mode": a light the dump caught unavailable reports none.
   hidden toggleOnly: Boolean =
     if (on is hass.LightEntity) on.colourModes.toList() == List("onoff") else false
-  /// What a tap on a [[toggleOnly]] row does — the domain's own toggle service
-  /// (`hass/actions.pkl`), which every domain with a `sliderSpec` row has. It is
-  /// a property so an author can point the row at something else without
-  /// reaching for a different card.
+  /// What a tap on a [[toggleOnly]] row does; every domain with a slider row has
+  /// a toggle.
   hidden toggleTap: tapMod.TapAction = tapMod.toggle(entity)
-  // The drag's commit: a key and no value, because the drag supplies it. A
-  // plain call refuses only while unavailable — a cover that is `opening`
-  // takes a new position.
+  // A key and no value: the drag supplies it. Refuses only while unavailable —
+  // an `opening` cover takes a new position.
   hidden commitTap: tapMod.Call =
     (tapMod.call(sliderConfig(action, spec, (s) -> s.action), entity)) {
       dataKey = sliderConfig(key, spec, (s) -> s.key)
     }
-  /// The badge left of the label, defaulting to the entity's OWN icon in Home
-  /// Assistant's resolution order (see [[iconFor]]) — so a slider looks like
-  /// what it drives without being told. An MDI name (`mdi:lightbulb-group`)
-  /// overrides it; an explicit `icon = null` renders no badge at all.
+  /// The badge, defaulting to the entity's own icon ([[iconFor]]). An MDI name
+  /// overrides it; `null` renders none.
   hidden icon: String? = icons.iconFor(entity)
-  /// A button at the right of the line — the group's on/off. Null renders none.
-  /// The one-button shorthand: it leads the author's `actions`, so a group that
-  /// keeps its power button and adds a scene button sets both.
+  /// The one-button shorthand: it leads the author's `actions`.
   hidden tapAction: tapMod.TapAction? = null
-  /// What the line reads out beside the label: the entity's state (`on`/`off`),
-  /// the LEVEL as a percentage of min..max, nothing, or an [[Expr]] of your own.
-  ///
-  /// The two names are shorthands, not a closed set — they exist because they
-  /// need the axis config this card resolved (which attribute holds the value,
-  /// and over which range), not because a readout has to be one of them. That
-  /// config is `hidden` properties, so an expression can splice the pieces
-  /// instead of re-deriving the range:
+  /// What the line reads out: the state, the level as a percentage of the
+  /// range, nothing, or an [[Expr]]. The names are shorthands for readings that
+  /// need the axis config, which is exposed for splicing:
   ///
   ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
   ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
   ///
-  /// Defaults by SHAPE: a head that has member rows under it does not repeat a
-  /// readout (the rows carry their own), a plain row shows its state.
+  /// A head with member rows reads out nothing; the rows carry their own.
   hidden readout: (Readout|slotMod.Expr) = if (members.isEmpty) "state" else "none"
-  // The `fill` percentage the other way round (value, not distance from the
-  // right edge), rounded and suffixed — a readout, not a geometry, so unlike
-  // `fill` it wants whole numbers. No position attribute (a light that is off)
-  // reads 0 %, which is what the row shows: an empty track.
+  // A readout, so whole numbers; no position (a light that is off) reads 0 %.
   hidden percentExpr: String =
     "\(valueExpr).optMap(v, str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %').orValue('0 %')"
-  // A percentage of an axis the entity does not have is a permanent "0 %", so a
-  // toggle-only row reads out its STATE instead — a group's rows are usually
-  // given `percent` in one `map`, without knowing which can dim. An author's own
-  // [[Expr]] is left alone: it may well be about something else entirely.
+  // A toggle-only row would read a permanent "0 %", and a group's rows usually
+  // get `percent` in one `map`. An author's own [[Expr]] is left alone.
   hidden shownReadout: (Readout|slotMod.Expr) =
     if (toggleOnly && readout == "percent") "state" else readout
-  // The track fill, as the `--_end` percentage — see the `fill` slot, which
-  // opts in ([[simpleMod.fill]] / the toggle-only [[simpleMod.enumOf]]).
-  // (`percentExpr` above stays a string deliberately: it is the documented
-  // splice surface for composed readouts, which no atomic Simple shape covers.)
-  // No `inlineSurfaces` here any more: every tap this card can make is an
-  // action NODE now, and each carries its own (see [[sliderAction]]). Copying
-  // them up to the slider as well would declare the same surface twice, under
-  // two node ids — and the one that owns the popup should be the one that
-  // opens it.
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
-  // The guarded position read ([[simpleMod.attr]]): an absent position renders
-  // "" and the default takes over. Opts OUT of bypass, so an unavailable entity
-  // reads "0" rather than "unavailable".
+  // An unavailable entity reads "0", not "unavailable".
   position = new slotMod.Slot {
     transform = simpleMod.attr(valueAttrName)
     default = "0"
     bypassUnavailable = false
   }
-  // A toggle-only row has no position to express, so it maps the state
-  // all-or-nothing; every other axis reads the position as the distance from
-  // the RIGHT edge, 100 - value% of the range. NOT rounded: beer.min.js
-  // recomputes the same percentage unrounded on load and after every morph, so
-  // a rounded server value visibly twitched into place (brightness 155 of
-  // 1..255: `39%` baked, `39.37…%` a frame later).
+  // Not rounded: beer.min.js recomputes the same percentage unrounded after
+  // every morph, and a rounded value twitched into place.
   fill = new slotMod.Slot {
     transform =
       if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
@@ -337,11 +185,8 @@ class EntitySlider extends sliderBase.Slider {
     bypassUnavailable = false
   }
   fillColor = if (fillColourMoves) new slotMod.Slot { transform = fillColorExpr } else null
-  // A toggle-only row has no colour of its own to report (HA allows `onoff`
-  // only as a light's SOLE colour mode), and `currentcolor` on a full-width
-  // fill reads as text, not as "this is on" — so it takes `--fh-default-color`,
-  // the contract's paint for exactly this case: a colour a card had to assume
-  // because the device named none.
+  // A toggle-only light reports no colour, and `currentcolor` on a full fill
+  // reads as text: `--fh-default-color` is the paint for an assumed colour.
   fillDefault = if (toggleOnly) "var(--fh-default-color)" else "currentcolor"
   reading =
     if (shownReadout == "none") null
@@ -354,8 +199,6 @@ class EntitySlider extends sliderBase.Slider {
         bypassUnavailable = false
       }
     else new slotMod.Slot { transform = simpleMod.state() }
-  // Only a percent readout is a function of the position; `"state"` is on/off
-  // and any [[Expr]] is the author's own.
   readingFollowsDrag = shownReadout == "percent"
   commit = commitTap
   press = if (toggleOnly) toggleTap else null
@@ -365,9 +208,6 @@ class EntitySlider extends sliderBase.Slider {
     }
   }
 
-  // Fluent config (see [[EntityCard]]'s builder methods). The per-instance
-  // overrides mirror the `hidden` props above; amending re-runs the two-tier
-  // `sliderConfig` resolution with the new value.
   function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
   function action(a: String): EntitySlider = let (self = this) (self) { action = a }
   function key(k: String): EntitySlider = let (self = this) (self) { key = k }
@@ -375,30 +215,23 @@ class EntitySlider extends sliderBase.Slider {
   function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
   function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
-  /// The member rows this slider heads, as ready-made [[EntitySlider]]s — so the
-  /// group is one chain over the master's own members:
+  /// The member rows, each composed by the caller:
   ///
   ///   c.entitySlider(l).withSubSliders(
   ///     l.members.map((m) -> c.entitySlider(m).readout("percent").icon(null))
   ///   )
   ///
-  /// Each row is composed by the CALLER, which is the point: what a row reads
-  /// out, whether it carries a badge and what it is bound to are the author's,
-  /// one row at a time. A member that is not a slider (an [[EntityCard]], a
-  /// [[DynamicGroup]] of an area) goes through `children` directly.
+  /// A member that is not a slider goes through `members` directly.
   function withSubSliders(sliders: List<EntitySlider>): EntitySlider =
     let (self = this) (self) { members = sliders.toListing() }
-  // Nullable so `.icon(null)` is how a chain says "no badge" — the property
-  // already means that, and a second `noIcon()` builder would be a parallel way
-  // to say the same thing.
+  /// `.icon(null)` renders no badge.
   function icon(i: String?): EntitySlider = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): EntitySlider = let (self = this) (self) { tapAction = t }
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
 
-/// Value slider as a call (see [[EntitySlider]] for the domain contract). Takes an
-/// entity for its domain's default axis, or a capability group for that axis:
-/// `c.entitySlider(l)` is brightness, `c.entitySlider(l.colourTemp)` is colour temperature.
+/// `c.entitySlider(l)` is brightness; `c.entitySlider(l.colourTemp)` is colour
+/// temperature.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
-/// The slider constructor as a VALUE, for a query's render positions.
+/// The constructor as a value, for a query's render positions.
 hidden entitySlider: (hass.Entity) -> EntitySlider = (e) -> entitySlider(e)

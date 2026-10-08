@@ -1,35 +1,15 @@
-/// The MDI glyph tables Home Assistant's own frontend derives an icon from,
-/// vendored — per device_class, per domain, and per STATE.
+/// The MDI glyph tables HA's own frontend derives an icon from, vendored: per
+/// device_class, per domain, and per state. Under `hass/` with the other HA
+/// facts that go stale with a release (ADR 0015); a component author calls
+/// [[core.icon.iconFor]] instead.
 ///
-/// Here and not in `core/icon.pkl` for the reason ADR 0015 tiers by AUDIENCE: a
-/// component author calls [[core.icon.iconFor]] and never reads a table, while
-/// these are HA facts that go stale when HA changes. Everything with that
-/// property lives under `hass/`, so re-syncing against a new release is one
-/// directory rather than a hunt — the same reason `hass/actions.pkl` carries
-/// the date its service list was checked.
-///
-/// Measured on a real instance (1069 entities): only 24% carry an `icon` at
-/// all. HA's frontend derives the rest from domain + device_class + state, and
-/// that derivation never crosses the wire — so these are not a nicety, they are
-/// what three quarters of the cards render.
-///
-/// Names are MDI (`mdi:thermometer`) throughout, because that is what HOME
-/// ASSISTANT's own icons are: an entity's `icon` attribute is whatever its user
-/// or integration set, and translating those into another icon set is a lossy
-/// table with no end. The theme loads the MDI stylesheet; see `theme-beer.pkl`
-/// for its weight and the build-time SVG inlining that should replace it.
+/// Only 24% of a real instance's entities carry an `icon`, and HA's derivation
+/// of the rest never crosses the wire, so these draw three quarters of the
+/// cards. MDI throughout, because that is what an entity's own `icon` names.
 module hass_icons
 
-
-/// Per device_class, where the domain alone is too coarse — a `temperature`
-/// sensor should not look like a `humidity` one. Tried BEFORE [[domainIcons]].
-///
-/// One table, not one per domain: HA keys these by (domain, device_class) and a
-/// few names genuinely differ, but the overlap is small and a single table is
-/// the version worth maintaining by hand. Icons that vary with STATE are
-/// [[stateIcons]] — a separate table, because they are a different KIND of
-/// answer: this one resolves at build time to a literal, that one to a live
-/// slot.
+/// Where the domain alone is too coarse; tried before [[domainIcons]]. One
+/// table rather than one per domain: the overlap is small.
 const deviceClassIcons: Mapping<String, String> = new {
   ["temperature"] = "mdi:thermometer"
   ["humidity"] = "mdi:water-percent"
@@ -77,10 +57,8 @@ const deviceClassIcons: Mapping<String, String> = new {
   ["enum"] = "mdi:format-list-bulleted"
 }
 
-/// Per domain — the last resort before no icon at all. Covers every domain the
-/// reference instance reports; an unlisted one yields null and the template
-/// section renders nothing, which is the right failure (a wrong glyph is worse
-/// than none).
+/// The last resort. An unlisted domain yields null and renders no icon: a
+/// wrong glyph is worse than none.
 const domainIcons: Mapping<String, String> = new {
   ["light"] = "mdi:lightbulb"
   ["switch"] = "mdi:toggle-switch-variant"
@@ -126,22 +104,10 @@ const domainIcons: Mapping<String, String> = new {
   ["alarm_control_panel"] = "mdi:shield-home"
 }
 
-/// Domains whose glyph is a function of the entity's STATE — HA shows a lock
-/// open and a lock closed differently, and a tile that cannot is reading half
-/// the entity out loud.
-///
-/// A `Mapping<state, mdi name>` per domain plus a fallback, which is exactly a
-/// [[simpleMod.SimpleMatch]] — the state lookup that already exists, evaluated
-/// on the fast tier with no engine involved. That is what makes this cheap
-/// enough to be worth it: the reason it was ruled out before was a per-card
-/// JSONata transform, and neither half of that is true any more (ADR 0027 moved
-/// to CEL, and ADR 0017 shares a display signal per `(entity, transform)` — one
-/// frame entry for the whole page, not one per card).
-///
-/// SMALL ON PURPOSE. One domain earns it here; the next is one row, the same
-/// way `hass/actions.pkl` grows. A domain is worth adding when HA's own frontend
-/// draws it differently per state AND the difference is the thing you look at
-/// the tile to learn.
+/// Domains whose glyph follows the STATE, as a [[simpleMod.SimpleMatch]] on the
+/// fast tier, one shared display signal per entity (ADR 0017). A domain earns a
+/// row when HA draws it differently per state AND the difference is what you
+/// look at the tile to learn.
 const stateIcons: Mapping<String, Mapping<String, String>> = new {
   // `jammed` gets its own alert glyph: it is the one lock state you want to
   // notice from across the room, and it is not "unlocked".
