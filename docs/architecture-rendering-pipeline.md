@@ -284,6 +284,8 @@ GET /d/:slug
   render the WHOLE page from the current snapshot
   mint conn; create Session{slug, open surfaces, control queue, holds, position}
   holds = the digest of every node this render painted   // what THIS client's DOM has
+          + every seeded signal, structure's included (no digest: it has no bytes
+          of its own), so the first frame after a load sends only what moved
   told  = this version — the page renders a cursor into itself, so the document
           is the first announcement, and a reconnect is measured against it
   register it, and schedule a reap if no stream adopts it within AdoptionWindow
@@ -663,12 +665,13 @@ flowchart LR
   STRUCT --> S1["NEVER a patch target — a patch would carry<br/>its regions' bytes back with it"]
   STRUCT --> S2["never a log key, never cached"]
   STRUCT --> S3["a live BYTES slot on it is a BUILD ERROR;<br/>a SIGNAL slot is fine — it never becomes bytes here"]
+  STRUCT --> S4["its seeded signals, no digest, in a page load's holds"]
 
   classDef leaf fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef struct fill:#fee2e2,stroke:#b91c1c,color:#0f172a
   classDef q fill:#fef3c7,stroke:#b45309,color:#0f172a
   class LEAF,L1,L2,L3 leaf
-  class STRUCT,S1,S2,S3 struct
+  class STRUCT,S1,S2,S3,S4 struct
   class CARD q
 ```
 

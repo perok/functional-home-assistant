@@ -39,6 +39,21 @@ private[runtime] case class Painted(
     signals: Map[SignalId, SlotValue]
 )
 
+/** A walk's accumulator: what each own-rendering node painted, and the signals
+  * a structural node's wrapper seeded. Structure has no bytes of its own to
+  * digest, but the client holds its seed all the same; left out, a node's first
+  * frame after a page load re-sent every value it already had.
+  */
+private[runtime] final class Trace {
+  val own = new java.util.HashMap[NodeId, Painted]()
+  val seeded = new java.util.HashMap[NodeId, Map[SignalId, SlotValue]]()
+  def holds: Map[NodeId, Held] =
+    own.asScala.view.map { case (id, p) =>
+      id -> Held(Some(p.digest), p.signals)
+    }.toMap ++
+      seeded.asScala.view.map { case (id, s) => id -> Held(signals = s) }
+}
+
 /** A host's parts and what each node inside them now holds. Built here because
   * the two shapes claim different ids: set members are separate renders, so
   * each part is hashed; a state group's branch is one walk under a root with no
@@ -494,8 +509,29 @@ class Renderer(
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None,
       fragments: QuerySnapshot
-  ): Map[NodeId, Painted] = {
-    val own = new java.util.HashMap[NodeId, Painted]()
+  ): Map[NodeId, Painted] =
+    pageInto(out, states, uiState, popup, fragments).own.asScala.toMap
+
+  /** [[renderPageInto]], returning what the client now holds, structure's seeds
+    * included: what a page load commits as the session's `holds`.
+    */
+  private[runtime] def renderPageHolds(
+      out: Sink,
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      popup: Option[String],
+      fragments: QuerySnapshot
+  ): Map[NodeId, Held] =
+    pageInto(out, states, uiState, popup, fragments).holds
+
+  private def pageInto(
+      out: Sink,
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      popup: Option[String],
+      fragments: QuerySnapshot
+  ): Trace = {
+    val own = new Trace
     // Writer holes, not Strings: building them first cost a full copy of the
     // document each (128 kB of a page open's ~3.8 MB).
     val root = dashboard.card
@@ -521,7 +557,7 @@ class Renderer(
       Map("body" -> bodyInto) ++ dialogInto.map("popups" -> _)
     )
     Templates.run(chromeTemplate, out, scope)
-    own.asScala.toMap
+    own
   }
 
   /** [[renderSurfaceTraced]] as a writer hole into the page's buffer. */
@@ -531,7 +567,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String],
       fragments: QuerySnapshot,
-      trace: java.util.HashMap[NodeId, Painted]
+      trace: Trace
   ): Option[java.io.Writer => Unit] =
     // The writer is ignored: mustache's writer is `out`.
     dashboard.surfaces.get(surfaceId).map { sfc => (_: java.io.Writer) =>
@@ -876,11 +912,13 @@ class Renderer(
       html: String,
       own: Map[NodeId, Painted],
       // Only [[Renderer.render]] wants real bytes, and only the root's.
-      rootOwn: Option[String] = None
+      rootOwn: Option[String] = None,
+      seeded: Map[NodeId, Map[SignalId, SlotValue]] = Map.empty
   ) {
 
     def claims: Map[NodeId, Held] =
-      own.map { case (id, p) => id -> Held(Some(p.digest), p.signals) }
+      own.map { case (id, p) => id -> Held(Some(p.digest), p.signals) } ++
+        seeded.map { case (id, s) => id -> Held(signals = s) }
   }
 
   // A static floor for sizing a buffer; a set's live membership is bounded by
@@ -900,11 +938,16 @@ class Renderer(
       uiState: Map[String, String],
       fragments: QuerySnapshot
   ): Traced = {
-    val own = new java.util.HashMap[NodeId, Painted]()
+    val trace = new Trace
     val root = new Array[String](1)
     val html =
-      tracedHtml(node, id, idPrefix, states, uiState, fragments, own, root)
-    Traced(html, own.asScala.toMap, Option(root(0)))
+      tracedHtml(node, id, idPrefix, states, uiState, fragments, trace, root)
+    Traced(
+      html,
+      trace.own.asScala.toMap,
+      Option(root(0)),
+      trace.seeded.asScala.toMap
+    )
   }
 
   /** A subtree's document bytes, its trace into the caller's accumulator. The
@@ -917,7 +960,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String],
       fragments: QuerySnapshot,
-      trace: java.util.HashMap[NodeId, Painted],
+      trace: Trace,
       // [[Traced.rootOwn]]; `null` for a page, whose root is structure.
       rootOwn: Array[String] | Null = null
   ): String = {
@@ -954,7 +997,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String],
       fragments: QuerySnapshot,
-      trace: java.util.HashMap[NodeId, Painted],
+      trace: Trace,
       rootOwn: Array[String] | Null = null,
       rootId: NodeId | Null = null
   ): Unit =
@@ -1033,7 +1076,10 @@ class Renderer(
                 case Some((region, sid)) if !inline.contains(region) =>
                   renderSurfaceTraced(sid, states, uiState, fragments)
                     .map { t =>
-                      t.own.foreach { case (nid, p) => trace.put(nid, p) }
+                      t.own.foreach { case (nid, p) => trace.own.put(nid, p) }
+                      t.seeded.foreach { case (nid, sg) =>
+                        trace.seeded.put(nid, sg)
+                      }
                       Map(region -> List(t.html))
                     }
                     .getOrElse(Map.empty)
@@ -1113,7 +1159,11 @@ class Renderer(
             Painted(Digest.of(bytes), resolved.signals)
           } else Painted(inlineDigest.nn, resolved.signals)
         }
-        own.foreach(trace.put(id, _))
+        own match
+          case Some(p)                           => val _ = trace.own.put(id, p)
+          case None if resolved.signals.nonEmpty =>
+            val _ = trace.seeded.put(id, resolved.signals)
+          case None => ()
       // The members are what a fill fingerprints; the root has no rendering.
       case s: LayoutNode.SetNode =>
         val setId = SetId.of(id, s)
@@ -1147,7 +1197,7 @@ class Renderer(
                 buf.result
               })
             }
-          trace.put(m.id, Painted(digest, sigs))
+          trace.own.put(m.id, Painted(digest, sigs))
         }
         val _ = out.append("</div>")
     }
