@@ -172,7 +172,7 @@ serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR
 surface registry, splicing the owning node's real id into it. Why authors can write a popup where it
 is used rather than registering it elsewhere.
 
-**Token (`@@NODE_ID@@`, `@@CLASSBIND:…@@`)** — a placeholder Pkl writes because the value is not
+**Token (`@@NODE_ID@@`)** — a placeholder Pkl writes because the value is not
 knowable while authoring, filled in later by a pass that is. `NODE_ID` stands for *the node that
 owns this subtree*: a card constructing its own children writes it so they can name signals the card
 owns, and the build replaces it with that node's real id — bottom-up, so the innermost owner wins.

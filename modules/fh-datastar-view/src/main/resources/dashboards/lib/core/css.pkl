@@ -68,8 +68,7 @@ const local colSpans: String = new Listing {
 
 /// What `core/tap.pkl` binds onto whatever a tap lands on (ADR 0019).
 /// `fh-disabled`/`fh-loading` are immediate and plain. `.fh-busy-spin` is the
-/// delayed spinner for a theme that names none of its own
-/// (`Theme.classes["busySpin"]`).
+/// delayed spinner, unless the theme replaces it (`Theme.classes`).
 const local busyCss: String = """
   /* One "you cannot use this" look, in flight or refused; only in flight adds
      `fh-loading`, so the cursor tells them apart. */

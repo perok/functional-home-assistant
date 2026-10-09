@@ -233,7 +233,10 @@ object Templates {
 
   def from(dashboard: Dashboard): Templates = {
     val compiled = dashboard.cards.view.map { case (name, cd) =>
-      name -> compile(name, cd.template)
+      name -> compile(
+        name,
+        dashboard.theme.classes.rewriteTemplate(cd.template)
+      )
     }.toMap
     new Templates(
       compiled.view.mapValues(_._1).toMap,

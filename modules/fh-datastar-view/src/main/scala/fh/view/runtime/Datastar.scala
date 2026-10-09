@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{SignalBind, SignalId, SlotValue}
+import fh.view.model.{SignalBind, SignalId, SlotValue, ThemeClasses}
 import io.circe.Json
 import org.http4s.{EntityEncoder, MediaType, ServerSentEvent}
 import org.http4s.headers.`Content-Type`
@@ -338,15 +338,23 @@ object Datastar {
     * transform is the one place that decides it. `data-bind` takes the name,
     * since it writes back.
     */
-  def binding(signal: SignalId, kind: SignalBind): String = kind match
+  def binding(
+      signal: SignalId,
+      kind: SignalBind,
+      classes: ThemeClasses
+  ): String = kind match
     case SignalBind.Text            => s"""data-text="$$$signal""""
     case SignalBind.Bind            => s"""data-bind="$signal""""
     case SignalBind.Style(property) =>
       s"""data-style:$property="$$$signal""""
     case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
     // The bundle kebab-cases a `data-class` key, so write the CSS name.
-    case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""
-    case SignalBind.Handler     => ""
+    case SignalBind.Class(name) =>
+      classes
+        .expand(name)
+        .map(c => s"""data-class:$c="$$$signal"""")
+        .mkString(" ")
+    case SignalBind.Handler => ""
 
   /** The non-signal half of `<slot>__read`, through the seed's escaper. */
   def jsLiteral(value: String): String = {

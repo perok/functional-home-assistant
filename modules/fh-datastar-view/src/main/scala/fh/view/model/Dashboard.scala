@@ -758,6 +758,8 @@ object LayoutNode:
   *   - `chrome`: the frame, with the `#dashboard` swap target around
   *     `{{{body}}}` (checked by `validate`) and any popup host. Empty falls
   *     back to a bare `<main id="dashboard">`.
+  *   - `classes`: what the theme adds to, or puts in place of, an `fh-` class
+  *     in card and cell markup ([[ThemeClasses]]).
   */
 case class Theme(
     tokens: Map[String, String] = Map.empty,
@@ -767,7 +769,8 @@ case class Theme(
     scripts: List[String] = Nil,
     inlineScripts: List[String] = Nil,
     styles: String = "",
-    chrome: String = ""
+    chrome: String = "",
+    classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
 /** A popup, tab panel or `If` branch, rendered only while shown. Chrome-less:
@@ -1645,6 +1648,7 @@ case class Dashboard(
       regionHoleErrors ++
       regionNameErrors ++
       chromeErrors ++
+      theme.classes.errors ++
       danglingBakes ++
       activationErrors ++
       unboundConditions ++

@@ -4,7 +4,8 @@
 - **Date:** 2026-08-17
 - **Scope:** `lib/core/css.pkl` (new), `lib/core/node.pkl`, `lib/core/tap.pkl`,
   `lib/theme.pkl` + `lib/theme-beer.pkl`, every `lib/components/*.pkl`,
-  `lib/entry.pkl`, `model/Dashboard.scala`, `runtime/Renderer.scala`
+  `lib/entry.pkl`, `model/Dashboard.scala`, `model/ThemeClasses.scala`,
+  `runtime/Renderer.scala`, `runtime/Templates.scala`
 - **Refines:** ADR 0008 (which put the `fh-` layout contract in `theme.pkl`) and
   ADR 0019 (whose "the busy look is hardcoded to BeerCSS's classes" debt this
   closes). ADR 0015 owns the library's module tiers; this adds one module to them.
@@ -73,28 +74,41 @@ launder that: there is no `@extend`, so a neutral class cannot inherit a
 framework's rules, and the mask asset is only reachable through BeerCSS's own
 selector.
 
-So the names come from the theme, and the mechanism is a hole in the template:
+So cards write only `fh-` classes, and a theme gives each `fh-` class it has an
+opinion on its **content**: the classes the markup carries in its place. One
+primitive covers both cases: a content that keeps the class adds to it
+(`"fh-disabled disabled"`), and one that leaves it out replaces it.
 
 ```
-core/tap.pkl    emits  @@CLASSBIND:busySpin:$_{{id}}__busy_slow@@
-entry.pkl       calls  cards = c.cardsWith(componentModules.toList(), theme.classes)
-core/node.pkl   fills  data-class:shape="…" data-class:loading-indicator="…"
+core/tap.pkl     emits     data-class:fh-busy-spin="$_{{id}}__busy_slow"
+theme-beer.pkl   declares  classes { ["fh-busy-spin"] = "shape loading-indicator" }
+the server       renders   data-class:shape="…" data-class:loading-indicator="…"
 ```
 
-**It has to happen in the registry, and that is the interesting part.** A card's
-markup is a class-level `cardDef` default harvested by `pkl:reflect`, so it can
-only reference `const` members of its own module's imports — never the theme,
-which the *entry* picks much later, and Pkl has neither parameterised modules nor
-a way for an importer to rebind a `const`. But the registry is assembled by an
-ordinary function call, in the entry, where the theme is in scope. So the theme
-reaches the templates one step after they are written, by rewriting the holes —
-the same splice-a-token-and-fill-it-later shape as `NODE_ID`.
+Two modes, `add` and `replace`, were rejected: one more concept to explain, and
+no case the content cannot spell.
 
-`Theme.classes` is `hidden`: it is consumed during evaluation and never reaches
-the wire, so the runtime does not learn that a theme had an opinion.
+**The server applies the rules, not the registry.** A card's markup is a
+class-level `cardDef` default, so Pkl can only reach it once the registry is
+built — but the classes that most need a theme's word are not all in templates.
+The `.fh-cell` wrapper, its `.columns(n)` spans and its `classWhen` live classes
+are emitted by `Renderer`, so a Pkl-side rewrite would cover half the markup and
+leave a second mechanism for the rest. `Theme.classes` therefore rides the wire,
+and `ThemeClasses` rewrites every card template once, when it is compiled
+(`class="…"` tokens and `data-class:fh-…` bindings), and expands each class the
+renderer emits. `dashboard.json` shows the rules beside unrewritten templates,
+which is the "what is going on" a reader needs.
 
-A theme that names nothing gets `fh-busy-spin` and the plain ring in
-`core/css.pkl` — the fallback that makes the core kit's promise true.
+**Leaving the class out is for the spinner.** BeerCSS's mask beside
+`fh-busy-spin` would leave the base ring drawing under it. Leaving a class out of
+its content takes the base CSS's rules with it, so `fh-cell` and `fh-group` must
+stay in their own — the shell script and the layout select on them — and
+`Dashboard.validate` refuses a content without them. A rule names an `fh-` class:
+those are the card's contract, and the object form `data-class="{…}"`, which only
+BeerCSS's own `active` uses, is not read.
+
+A theme with no rules gets `fh-busy-spin` and the plain ring in `core/css.pkl` —
+the fallback that makes the core kit's promise true. An empty content declines it.
 
 ## Consequences
 

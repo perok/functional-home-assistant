@@ -145,9 +145,11 @@ class BeerTheme extends themeMod.Theme {
     <div id="popups">{{{popups}}}</div>
     """
 
-  // BeerCSS's self-morphing SVG mask, in place of `fh-busy-spin`.
+  // BeerCSS's self-morphing SVG mask, in place of the plain ring. Bound, never
+  // left in place and styled inert: `.shape>i{filter:invert(1)}` is
+  // unconditional.
   classes {
-    ["busySpin"] = "shape loading-indicator"
+    ["fh-busy-spin"] = "shape loading-indicator"
   }
 
   styles = """

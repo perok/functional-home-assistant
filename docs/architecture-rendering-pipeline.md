@@ -397,8 +397,8 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   change that is the whole point of the action) replaces the element and resets
   the signal — that is the NORMAL clear. The busy LOOK is TWO timings (ADR
   0019). `fh-disabled` (dim) and `fh-loading` (`cursor:progress`) bind straight
-  to the signal and are IMMEDIATE — they answer the tap. The spinner (whatever
-  class the THEME named under `busySpin` — BeerCSS's `.shape.loading-indicator`,
+  to the signal and are IMMEDIATE — they answer the tap. The spinner
+  (`fh-busy-spin`, or what the theme's class rule puts in its place — BeerCSS's `.shape.loading-indicator`,
   a self-morphing SVG mask around any `i.mdi` glyph the element carries; ADR
   0020) binds to `_<id>__busy_slow`, which a
   `data-on-signal-patch__delay.300ms` handler on the same element copies from
@@ -1159,7 +1159,9 @@ wrapper also carries the node's live cell classes (`LayoutNode.classWhen`) and l
 properties (`LayoutNode.cssProperty`): ordinary signal slots under `Dashboard.cellClassSlot` /
 `cellStyleSlot` names (`class:` and `style:--…` bindings), folded in at decode, so the renderer
 places their bindings on the wrapper in both forms and the class or `style="--x:…"` itself only in
-the document form, like any signal value.
+the document form, like any signal value. Every class the renderer emits there, and every `class:`
+binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
+through them once, when `Templates` compiled them.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction

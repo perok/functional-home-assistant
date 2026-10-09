@@ -130,7 +130,6 @@ object DashboardBuild {
     * checked. A check, not a type: tokens live inside author-composed strings.
     */
   private[build] def unresolvedTokens(j: Json): List[String] = {
-    // A payload can be arbitrary (`@@CLASSBIND:busySpin:$b@@`).
     val pattern = """@@[^@]*@@""".r
     def go(j: Json): List[String] =
       j.fold(

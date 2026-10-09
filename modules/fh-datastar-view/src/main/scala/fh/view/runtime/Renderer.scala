@@ -24,7 +24,8 @@ import fh.view.model.{
   SlotSource,
   SlotValue,
   Surface,
-  TapCall
+  TapCall,
+  ThemeClasses
 }
 import scala.jdk.CollectionConverters.*
 
@@ -102,6 +103,11 @@ class Renderer(
     val access: Access = Access.default,
     private val parsedQueries: Map[SlotRead, QueryRequest] = Map.empty
 ) {
+
+  private val themeClasses = dashboard.theme.classes
+  private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
+  private val groupOpen =
+    s"""<div class="${themeClasses.expandAll("fh-cell fh-group")}"""
 
   private class Index(root: LayoutNode, val idPrefix: String) {
 
@@ -1119,8 +1125,8 @@ class Renderer(
         // Members write into the walk's buffer (issue #237); a member's patch
         // form is rendered separately only when it has a signal slot.
         out
-          .append("""<div class="fh-cell fh-group""")
-          .append(Renderer.cellClasses(s.cell))
+          .append(groupOpen)
+          .append(Renderer.cellClasses(s.cell, themeClasses))
           .append("""" id="""")
           .append(setId)
           .append("\">")
@@ -1170,8 +1176,8 @@ class Renderer(
       160 + members.foldLeft(0)(_ + _.length)
     )
     val _ = out
-      .append("""<div class="fh-cell fh-group""")
-      .append(Renderer.cellClasses(cell))
+      .append(groupOpen)
+      .append(Renderer.cellClasses(cell, themeClasses))
       .append("""" id="""")
       .append(id)
       .append("\">")
@@ -1437,12 +1443,17 @@ class Renderer(
       r: Resolved,
       form: SlotForm
   ): Unit = {
-    buf.append("""<div class="fh-cell""").append(Renderer.cellClasses(cell))
+    buf.append(cellOpen).append(Renderer.cellClasses(cell, themeClasses))
     if (!form.isPatch)
       cellSlots(r, Dashboard.CellClassPrefix)
         .filter(slot => r.paint.get(slot).exists(SlotValue.truthy))
         .foreach { slot =>
-          buf.append(' ').append(slot.stripPrefix(Dashboard.CellClassPrefix))
+          buf
+            .append(' ')
+            .append(
+              themeClasses
+                .expandAll(slot.stripPrefix(Dashboard.CellClassPrefix))
+            )
         }
     val _ = buf.append('"')
     if (!form.isPatch) {
@@ -1658,7 +1669,7 @@ class Renderer(
       dynamic = dynB.result(),
       bindings = named.flatMap { case (slot, kind, signal) =>
         List(
-          s"${slot}__bind" -> Datastar.binding(signal, kind),
+          s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
           // For a card composing the signal into its own expression; such a
           // card relies on a signal the plain form does not have.
           s"${slot}__signal" -> signal,
@@ -1776,7 +1787,7 @@ class Renderer(
     }
     val bindings = named.flatMap { case (slot, kind, signal) =>
       List(
-        s"${slot}__bind" -> Datastar.binding(signal, kind),
+        s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
         s"${slot}__signal" -> signal,
         s"${slot}__read" -> s"$$$signal"
       )
@@ -2112,8 +2123,11 @@ object Renderer {
     LayoutNode.surfacePrefix(surfaceId)
 
   // Leading space included; `validate` checks they are plain class tokens.
-  private def cellClasses(cell: Option[Cell]): String =
-    cell.map(_.classes).filter(_.nonEmpty).fold("")(_.mkString(" ", " ", ""))
+  private def cellClasses(cell: Option[Cell], classes: ThemeClasses): String =
+    cell
+      .map(_.classes.flatMap(classes.expand))
+      .filter(_.nonEmpty)
+      .fold("")(_.mkString(" ", " ", ""))
 
   private[runtime] def perRegion[A](children: Map[String, List[LayoutNode]])(
       f: (LayoutNode, LayoutNode.Step) => A
