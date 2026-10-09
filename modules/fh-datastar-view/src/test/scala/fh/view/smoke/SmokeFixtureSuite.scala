@@ -24,19 +24,15 @@ class SmokeFixtureSuite extends munit.FunSuite {
   }
 
   test("the lock composition places both of its controls") {
-    // A lock reporting OPEN gets a latch beside its tile. Through the wrapper,
-    // since the latch opens a confirmation and names no entity. They must be
-    // siblings: nested in the tile, the latch would also fire lock/unlock.
-    val features = nodes.filter(_.card == "cardFeatures")
-    assertEquals(features.map(_.card), List("cardFeatures"))
-    val inside = features.flatMap(_.allChildren.flatMap(walk))
-    assertEquals(inside.map(_.card).sorted, List("button", "tile"))
+    // A lock reporting OPEN gets a latch as its tile's feature, outside the
+    // tile's tappable row: inside it, the latch would also fire lock/unlock.
+    val withFeatures = nodes.filter(_.regions.contains("features"))
+    assertEquals(withFeatures.map(_.card), List("tile"))
     assert(
-      inside.exists(n =>
-        n.card == "tile" &&
-          n.subjectEntity.contains(HouseFixture.frontLock.entityId)
-      ),
-      clue = inside.map(n => n.card -> n.subjectEntity)
+      withFeatures.head.subjectEntity.contains(HouseFixture.frontLock.entityId),
+      clue = withFeatures.map(n => n.card -> n.subjectEntity)
     )
+    val features = withFeatures.flatMap(_.regions("features").flatMap(walk))
+    assertEquals(features.map(_.card), List("button"))
   }
 }

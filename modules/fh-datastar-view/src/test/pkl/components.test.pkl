@@ -382,16 +382,26 @@ facts {
       .every((cls) -> cls.startsWith("fh-"))
   }
 
-  ["a card's features sit in an <article>, beside the tile rather than inside its tap"] {
+  ["a tile's features sit in its <article>, beside its tap rather than inside it"] {
     // BeerCSS paints a card box only on `<article>`; a `<div class="card">`
     // left the lock floating on the page background.
-    c.cards["cardFeatures"].template.contains(#"<article class="card fh-features">"#)
-    // Nested inside the tile, one press would post the latch AND the tile's tap.
+    local t = c.cards["tile"].template
+    t.startsWith(#"<article class="card entity fh-tile-card">"#)
+    // The tap is the ROW's, and the features region opens after the row has
+    // closed: nested inside it, one press would post the latch AND the tile's
+    // tap.
+    local row = t.indexOf(#"<div class="fh-tile"#)
+    t.indexOf("data-on:click") > row
+    t.contains("</span></div>{{#features}}")
+    !t.take(row).contains("data-on:click")
+    // Dimmed on the row too, so a tile refusing a press leaves its latch alone.
+    !t.take(row).contains("fh-disabled")
+    // Every live value on it is a signal, which is what lets it hold nodes.
+    t.contains(textMod.liveRun("label"))
     local f = c.lock.controls(new hass.LockEntity { entity_id = "lock.front"; supported_features = 1 })
       as nodes.Node
-    f.card == "cardFeatures"
-    (f.regions!!["actions"].toList().first as nodes.Node).card == "button"
-    (f.regions!!["content"].toList().first as nodes.Node).card == "tile"
+    f.card == "tile"
+    (f.regions!!["features"].toList().first as nodes.Node).card == "button"
   }
 
   ["a tab highlights by STRICT string comparison, so an unseeded '' lights no tab"] {
@@ -672,7 +682,7 @@ facts {
     // it renders unstyled.
     local cards = c.cards
     cards["slider"].css.contains(".slider-head{display:flex")
-    cards["tile"].css.contains(".card.tappable{cursor:pointer}")
+    cards["tile"].css.contains(".card.tappable,.fh-tile.tappable{cursor:pointer}")
     cards["entityInfo"].css.contains(".entity-info-attrs{")
     cards["popup"].css.contains("dialog.popup{")
     cards["tabs"].css.contains(".tab-panel{display:contents}")
@@ -1266,16 +1276,15 @@ facts {
     // The whole of what `c.lock.controls` decides. A lock's tile is the generic
     // one — the composition exists for the capability the generic card cannot
     // see.
-    local withLatch = c.lock.controls(latchLock)
-    withLatch.card == "cardFeatures"
-    withLatch.children["content"].toList().map((n) -> n.card) == List("tile")
-    // The latch is a SIBLING of the tile, not a child of it: inside the
-    // tappable element, one press would post `lock/open` and the tile's own
-    // `lock/lock` together.
-    withLatch.children["actions"].toList().map((n) -> n.card) == List("button")
-    // No capability, no wrapper — a plain lock is the generic tile and nothing
-    // more.
+    local withLatch = c.lock.controls(latchLock) as nodes.Node
+    withLatch.card == "tile"
+    // The latch is the tile's feature, outside its tappable row: inside it,
+    // one press would post `lock/open` and the tile's own `lock/lock` together.
+    withLatch.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("button")
+    // No capability, no feature: a plain lock is the generic tile and nothing
+    // more, with no region on the wire.
     c.lock.controls(plainLock).card == "tile"
+    (c.lock.controls(plainLock) as nodes.Node).regions == null
   }
 
   ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {

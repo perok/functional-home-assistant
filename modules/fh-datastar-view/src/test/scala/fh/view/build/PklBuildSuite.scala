@@ -926,7 +926,6 @@ class PklBuildSuite extends munit.FunSuite {
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil,
-      "cardFeatures" -> Nil,
       "progressCard" -> List("label", "entity_id"),
       // The chart's entity rides in the query's params, so no `entity_id`.
       "historyChart" -> List("chart"),
