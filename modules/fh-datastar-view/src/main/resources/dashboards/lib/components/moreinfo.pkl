@@ -53,14 +53,14 @@ const local ATTR_LINES =
   #"attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
 
 /// What a more-info popup holds. A light adds its controls and a lock its
-/// latch, on the card that acts here. The chart is
+/// buttons ([[lock.moreInfoCard]]). The chart is
 /// decided at build time from [[hass.SensorEntity.isNumeric]], so a
 /// non-numeric entity's popup makes no recorder call.
 function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
   children {
     // The tap is pinned to the domain's: the default is `moreInfo(e)` for a
     // domain with none, and this card would then build its own popup forever.
-    if (e is hass.LockEntity) lock.acting(e as hass.LockEntity)
+    if (e is hass.LockEntity) lock.moreInfoCard(e as hass.LockEntity)
     else (entityMod.entityCard(e)) { tapAction = tapMod.byDomain(e) }
     when (e is hass.LightEntity) {
       light.controls(e as hass.LightEntity)
@@ -81,7 +81,7 @@ function moreInfo(e: hass.Entity): tapMod.OpenSurface = tapMod.openPopupInline(m
 
 /// The default click for an entity card: its domain's service, else more-info,
 /// so no card shows a pointer over a service that does not exist (#106). A
-/// lock's card opens more-info, where its own card acts
+/// lock's card opens more-info, where its buttons are
 /// (`hassActions.cardOpensMoreInfo`).
 function defaultTap(e: hass.Entity): tapMod.TapAction =
   if (hassActions.cardOpensMoreInfo.contains(e.domain)) moreInfo(e)

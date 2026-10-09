@@ -360,25 +360,36 @@ facts {
     !acts.slots.containsKey("onclick")
   }
 
-  ["a lock's card opens more-info, and the card inside it is what acts"] {
+  ["a lock acts through Lock and Unlock buttons, on the dashboard and in more-info"] {
     // A stray tap on a wall tablet must not unlock the front door, so the card
     // posts nothing and opens a popup instead, as HA's tile does.
-    local card = c.entityCard(latchLock)
+    !c.entityCard(latchLock).slots.containsKey("service")
+    c.entityCard(latchLock).inlineSurfaces != null
+    local card = c.lock.controls(latchLock) as nodes.Node
     !card.slots.containsKey("service")
-    card.inlineSurfaces != null
-    // In the popup the lock's card acts, carrying the latch when it has one.
-    local popup = card.inlineSurfaces!!.toMap().values.first.content as nodes.Node
+    // Its features: Lock and Unlock side by side (HA's `lock-commands`), then
+    // the latch. Fixed presses, not one that reads the state.
+    local features = card.regions!!["features"].toList()
+    local buttons = (features[0] as nodes.Node).regions!!["children"].toList()
+      .map((n) -> n as nodes.Node)
+    buttons.map((b) -> b.slots["service"]) == List("lock/lock", "lock/unlock")
+    (features[1] as nodes.Node).slots["glyph"] == "mdi mdi-door-open"
+    // Each refused where HA disables its own button: the state it would reach,
+    // and the moves.
+    buttons.map((b) -> (b.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
+      .cases.toMap().keys.toList().sort())
+      == List(
+        List("locked", "locking", "opening", "unavailable", "unlocking"),
+        List("locking", "opening", "unavailable", "unlocked", "unlocking"))
+    // More-info shows the same buttons, on a tile that opens nothing: it would
+    // only open the popup it is in.
+    local popup = c.entityCard(latchLock).inlineSurfaces!!.toMap().values.first.content as nodes.Node
     local body = popup.regions!!["children"].toList().first as nodes.Node
-    local acting = body.regions!!["children"].toList().first as nodes.Node
-    (acting.slots["service"].transform as simpleMod.SimpleMatch).otherwise == "lock/lock"
-    (acting.regions!!["features"].toList().first as nodes.Node).slots["glyph"] == "mdi mdi-door-open"
-    // The composition on the dashboard opens the same popup.
-    !(c.lock.controls(latchLock) as nodes.Node).slots.containsKey("service")
+    local inPopup = body.regions!!["children"].toList().first as nodes.Node
+    !inPopup.slots.containsKey("tappable")
+    inPopup.regions == card.regions
     // Only the guarded domains: a light's card still toggles on a tap.
     c.entityCard(kitchen).slots["service"] == "light/toggle"
-    // Each guarded domain has a service to act with, or there is nothing to
-    // guard and the popup's card would itself open more-info forever.
-    hassActions.cardOpensMoreInfo.every((d) -> hassActions.ACTIONS.containsKey(d))
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
@@ -425,7 +436,7 @@ facts {
     local f = c.lock.controls(new hass.LockEntity { entity_id = "lock.front"; supported_features = 1 })
       as nodes.Node
     f.card == "tile"
-    (f.regions!!["features"].toList().first as nodes.Node).card == "button"
+    f.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
   }
 
   ["a tab highlights by STRICT string comparison, so an unseeded '' lights no tab"] {
@@ -1304,11 +1315,12 @@ facts {
     withLatch.card == "tile"
     // The latch is the tile's feature, outside its tappable row: inside it,
     // one press would post `lock/open` and the tile's own `lock/lock` together.
-    withLatch.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("button")
-    // No capability, no feature: a plain lock is the generic tile and nothing
-    // more, with no region on the wire.
+    withLatch.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
+    // No capability, no latch: a plain lock has Lock and Unlock and nothing
+    // more.
     c.lock.controls(plainLock).card == "tile"
-    (c.lock.controls(plainLock) as nodes.Node).regions == null
+    (c.lock.controls(plainLock) as nodes.Node).regions!!["features"].toList()
+      .map((n) -> (n as nodes.Node).card) == List("fhrow")
   }
 
   ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {
@@ -1329,10 +1341,10 @@ facts {
     // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
     (press.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
       .cases.toMap().containsKey("unavailable")
-    // The card the latch sits on in more-info still locks/unlocks by state —
-    // the two controls are different actions, not two spellings of one.
-    ((c.lock.acting(latchLock) as nodes.Node).slots["service"].transform as simpleMod.SimpleMatch)
-      .cases.toMap() == Map("locked", "lock/unlock")
+    // Lock and Unlock beside it are different actions, not two spellings of
+    // the latch's.
+    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).slots["service"])
+      == List("lock/lock", "lock/unlock")
   }
 
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {

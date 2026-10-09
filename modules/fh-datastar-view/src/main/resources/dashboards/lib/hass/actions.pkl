@@ -91,6 +91,6 @@ const function forDomain(domain: String): DomainAction? = ACTIONS.getOrNull(doma
 
 /// Domains whose CARD opens more-info though the domain has a service, so a
 /// stray tap on a wall tablet cannot unlock the front door. The service stays
-/// in [[ACTIONS]] for what is pressed on purpose: an entity button, a toggle,
-/// the card more-info shows. HA's tile never acts on a lock either.
+/// in [[ACTIONS]] for what is pressed on purpose: an entity button, a toggle.
+/// HA's tile never acts on a lock either.
 const cardOpensMoreInfo: Set<String> = Set("lock")
