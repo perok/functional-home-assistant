@@ -11,6 +11,7 @@ import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
+import "../../main/resources/dashboards/lib/core/variable.pkl" as varMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
@@ -279,6 +280,27 @@ facts {
     // two sizes of a chart share one fetch.
     wide.slots["chart"].query == c.historyChart(power).slots["chart"].query
     c.historyChart(power).slots["chart"].transform.params.width == null
+  }
+
+  ["each window is a tab node of its own, guarded by its own tap"] {
+    local bar = (c.windowChooser).regions["bar"].toList()
+    bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
+    bar.map((n) -> (n as nodes.Node).slots["label"]) == List("1h", "24h", "7d", "30d")
+    // Per node, so one window's answer never clears another's guard (ADR 0019).
+    bar.every((n) -> (n as nodes.Node).slots["busy"] == "1")
+    // A window names the chooser by the token, never by an id it cannot know.
+    let (week = bar[2] as nodes.Node)
+      (week.slots["onclick"] as slotMod.Slot).transform.contains(
+        "/" + varMod.declarer("window") + "/window/7d?group=var_" + varMod.declarer("window") + "__window'"
+      )
+      && (week.slots["active"] as String).endsWith("=== '7d'")
+  }
+
+  ["a variable choice is guarded, and takes only plain tokens"] {
+    tapMod.setVar("window", "7d").busy
+    // A space would split the route segment, and a `'` close the JS string.
+    module.catch(() -> tapMod.setVar("window", "7 d")).contains("matches")
+    module.catch(() -> tapMod.setVar("window", "it's")).contains("matches")
   }
 
   ["the declared window moves with `starting`"] {

@@ -164,6 +164,28 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a window whose chart redraws slowly spins on the button pressed") {
+    // Each window is a node with its own busy signal, so only the pressed one
+    // rings; a shared signal would ring the whole bar (ADR 0019).
+    val spinning = Pattern.compile("\\bfh-busy-after\\b")
+    Ref[IO].of(false).flatMap { slow =>
+      withPageOn(slowServed("windows-slow", entry, slow)) { (page, _) =>
+        val week = button(page, "7d")
+        for {
+          _ <- IO.blocking(assertThat(week).not().hasClass(spinning))
+          _ <- slow.set(true)
+          _ <- IO.blocking(week.click())
+          _ <- IO.blocking(assertThat(week).hasClass(spinning))
+          _ <- IO.blocking(
+            assertThat(button(page, "24h")).not().hasClass(spinning)
+          )
+          _ <- IO.blocking(assertThat(week).not().hasClass(spinning))
+          _ <- IO.blocking(assertThat(week).hasClass(active))
+        } yield ()
+      }
+    }
+  }
+
   test("a more-info whose chart is slow spins on the card that opened it") {
     val moreInfo = entry.replace(
       s"""(c.windowChooser) {

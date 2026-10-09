@@ -9,8 +9,8 @@ import "../../core/predicate.pkl" as pred
 import "../../core/tap.pkl" as tapMod
 import "../../layout.pkl" as layout
 
-/// One tab in a [[Tabs]] bar, as BeerCSS's native `.tabs > a` markup. Built by
-/// [[Tabs]], not by an author.
+/// One tab in a `.tabs` bar, as BeerCSS's native `.tabs > a` markup: a [[Tabs]]
+/// member, or a window in `c.windowChooser`. Built by the bar, not by an author.
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
@@ -21,7 +21,7 @@ class TabButton extends nodes.Node {
     wrapAsCell = false
   }
   hidden label: String
-  hidden tapAction: tapMod.OpenSurface
+  hidden tapAction: tapMod.Selection
   /// A Datastar boolean expression for the `.active` class.
   hidden active: String
   slots {

@@ -76,10 +76,15 @@ and agreement ends the ask. The committed values are seeded by the document's sh
 opening frame again, both total over declarations at this viewer's values, so a forgotten session
 corrects a stale control and a control never shows the declared value over a linked choice.
 
-**The control renders its own bar.** A button must name the declaring node in its route and its
-signal, and a template can only spell its own id, so `c.windowChooser` is one component that
-declares `window` and renders the four `Window` values from one `Listing<Window>`. Neither it nor
-`chosen()` takes the variable's name, so the pair cannot drift.
+**The control is a node per value.** `c.windowChooser` declares `window` and builds its bar from
+one `Listing<Window>`, each value a `tab` node whose tap is `tapMod.setVar`: a guarded `Click`
+naming the declarer by token in its route and its pending signal. A button per node is what lets
+each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` takes the variable's
+name, so the pair cannot drift.
+
+A highlight reads the committed `_var_<declarer>__<name>`, which the server writes for every
+declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
+token supplies, and a press re-renders the variable's readers and never the bar.
 
 ## Why not
 

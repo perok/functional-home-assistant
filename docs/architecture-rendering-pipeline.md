@@ -1075,9 +1075,10 @@ a control never seeds the declared value over a linked choice. The control
 mirrors the committed value into the `v.` param with `data-fh-url`, as a tab bar mirrors `ui.`, so the
 URL follows what the server did rather than what was pressed.
 
-The authoring side is one component (`c.windowChooser`): it declares the variable AND renders the
-bar, because a button has to name the declaring node both in the route it posts to and in the
-signal it reads, and the only node id a template can spell is its own.
+The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
+`tab` node per window. A button names the declaring node in the route it posts to and the signal
+it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR
+0033), so each button is a node with its own busy guard.
 
 Two consequences worth stating, because neither is obvious:
 
