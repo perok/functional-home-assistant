@@ -155,8 +155,8 @@ no new template.
 **Going somewhere is the exception, and it is not an expression at all.** A `TapAction`
 that navigates carries an `href` (`d/<slug>`, relative so `<base href>` resolves
 it under ingress), and a card whose root can be an `<a>` must prefer it — the
-`button` template branches on `{{#href}}` and emits
-`<a class="button card" href="…">` instead of a scripted `<button>`. A link the
+`button` and `pill` templates branch on `{{#href}}` and emit an `<a href="…">`
+instead of a scripted `<button>`. A link the
 browser understands is worth the branch: middle-click, open-in-new-tab, the
 status-bar preview, and a click that works before Datastar has loaded. (BeerCSS
 styles buttons as `:is(button,.button)`, so the anchor form is visually
@@ -164,6 +164,13 @@ identical.) The `TapAction` also carries the equivalent `onclick`
 (`window.location.assign(new URL('d/<slug>', document.baseURI))`) for cards whose
 root element cannot be an anchor — `tile`'s `<article>` — so one authored
 `c.tap.navigate('x')` renders correctly wherever it is dropped.
+
+A link to the dashboard already open carries `fh-current` and
+`aria-current="page"`, and stays a link. A module does not know its own slug,
+so the build cannot decide which link that is: the tap names its target
+(`page`), and the card reads `dashboard_slug == '<page>'` in a slot read once
+per renderer, which is one dashboard. That costs no signal, and the class is a
+literal token, so a theme's class rules reach it.
 
 ### Navigation is a real page load
 
@@ -185,7 +192,7 @@ to re-read, a `<head>` the body patch could not reach (so a differently-themed
 target needed an explicit theme/title morph), and buttons that a browser cannot
 middle-click or open in a new tab.
 
-Remaining gap: only `button` renders the anchor form. A navigating `tile`
+Remaining gap: only `button` and `pill` render the anchor form. A navigating `tile`
 falls back to the scripted click, so it is not middle-clickable; promoting it
 means wrapping its `<article>` in the template, not a backend change.
 

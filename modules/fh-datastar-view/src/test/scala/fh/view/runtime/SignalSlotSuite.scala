@@ -8,6 +8,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Reads,
   Region,
   SetId,
   SignalBind,
@@ -414,6 +415,49 @@ class SignalSlotSuite extends ServerHarness {
       .create(boolDash)
       .renderPage(Map("light.a" -> st("light.a", "unavailable")))
     assert(on.contains("<button disabled"), clue = on)
+  }
+
+  test("a boolean slot is boolean on every read path") {
+    // The `once` memo held text, so its `false` reached a section as the
+    // truthy "false". A read mode says WHEN a value is read, never what it is.
+    // Three plan shapes: a literal subject, none, and a transform subject.
+    val subjects = List(
+      "literal" -> Map("entity_id" -> SlotSource(literal = Some("light.a"))),
+      "none" -> Map.empty[String, SlotSource],
+      "transform" -> Map(
+        "entity_id" -> SlotSource(Some("light.a"), transform = "entity_id")
+      )
+    )
+    def dash(reads: String, subject: Map[String, SlotSource]): Dashboard =
+      Dashboard(
+        Map(
+          "flag" -> CardDef(
+            """<i{{#on}} class="on"{{/on}} data-r="{{{on__read}}}"></i>""",
+            slots = List("on")
+          )
+        ),
+        LayoutNode.Component(
+          "flag",
+          subject + ("on" -> SlotSource(
+            Some("light.a"),
+            transform = boolOff,
+            bypassUnavailable = false,
+            reads = reads
+          ))
+        )
+      )
+    for
+      reads <- Reads.All.toList.sorted
+      (shape, subject) <- subjects
+    do
+      val clue = s"reads=$reads subject=$shape"
+      val off = Renderer.create(dash(reads, subject)).renderPage(lit(40))
+      assert(!off.contains("""<i class="on""""), clue = s"$clue\n$off")
+      assert(!off.contains("'false'"), clue = s"$clue\n$off")
+      val on = Renderer
+        .create(dash(reads, subject))
+        .renderPage(Map("light.a" -> st("light.a", "unavailable")))
+      assert(on.contains("""<i class="on""""), clue = s"$clue\n$on")
   }
 
   test("a brightness tick moves four values and sends no element patch") {

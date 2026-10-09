@@ -81,7 +81,7 @@ open class Button extends nodes.ActiveNode {
     // small`): a glyph alone in a rectangle reads as a broken label, and there
     // the button itself spins.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
       """
     slots { "label" }
     css = pressCss
@@ -145,6 +145,7 @@ open class Button extends nodes.ActiveNode {
     // by the time it returns it is null on the anchor arm.
     when (ownDisabled == null && tapAction.href != null) {
       ["href"] = tapAction.href!!
+      ...tapMod.currentSlots(tapAction)
     } else {
       for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v
@@ -183,7 +184,7 @@ class Pill extends nodes.Node {
     // BeerCSS's `.chip`, already border-box, so no round variant. It wears the
     // button's surface, so a run of pills and a button read as one family.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
     css = """
@@ -207,6 +208,7 @@ class Pill extends nodes.Node {
     }
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
+      ...tapMod.currentSlots(tapAction)
     } else {
       for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v

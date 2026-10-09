@@ -20,6 +20,9 @@ typealias Target = hass.Entity|hass.Area|hass.Floor
 /// a navigate real link behaviour (middle-click, open-in-new-tab, no JS).
 abstract class TapAction {
   href: String? = null
+  /// The dashboard a navigate goes to, so a card can mark the one already open
+  /// ([[currentSlots]]).
+  hidden page: String? = null
   /// An inline popup's content; the card copies it onto the node for the hoist.
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// While this tap's POST is in flight a second click is a no-op (ADR 0019).
@@ -474,8 +477,28 @@ const function byDomain(e: hass.Entity): Call? =
 /// builds the URL itself because `location.assign` ignores <base href>.
 function navigate(slug: String): Click = new {
   href = "d/\(slug)"
+  page = slug
   onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
 }
+
+/// `current`, true on the dashboard a navigate goes to, for a card's anchor to
+/// place `fh-current` and `aria-current="page"` under. Read once per renderer,
+/// which is one dashboard, so it costs no signal; the build cannot answer it,
+/// since a module does not know its slug.
+const function currentSlots(t: TapAction): Mapping<String, slotMod.Slot> = new {
+  when (t.page != null) {
+    ["current"] = new slotMod.Slot {
+      transform = "dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
+      reads = "once"
+      type = "bool"
+      bypassUnavailable = false
+    }
+  }
+}
+
+/// What an anchor places for [[currentSlots]]: the class, then the attribute.
+const currentClass: String = "{{#current}} fh-current{{/current}}"
+const currentAttr: String = #"{{#current}} aria-current="page"{{/current}}"#
 
 /// Dismiss the open popup, as its ✕ does.
 function closePopup(): Click =
