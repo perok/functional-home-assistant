@@ -369,6 +369,71 @@ class VarTapSuite extends ServerHarness {
     )
   }
 
+  /** A stream for a `conn` this process never minted: what a reconnect after a
+    * restart, or after its session was reaped, looks like.
+    */
+  private def forgottenReconnect(ts: TestServer, window: String) =
+    ts.connect(
+      "?datastar=" + java.net.URLEncoder.encode(
+        s"""{"${Server.ConnSignal}":"forgotten","_var_panel__window":"$window"}""",
+        "UTF-8"
+      )
+    )
+
+  test("a session the server forgot keeps the window its reconnect carries") {
+    // Otherwise the minted session starts at the declared window and the
+    // opening frame resets the bar, while a tab survives the same reconnect on
+    // `ui_<id>`.
+    served { ts =>
+      for {
+        client <- forgottenReconnect(ts, "7d")
+        events <- client.drain
+      } yield {
+        val sent = events.flatMap(_.data).mkString
+        assert(sent.contains("\"_var_panel__window\":\"7d\""), clue = sent)
+        assert(!sent.contains("\"_var_panel__window\":\"24h\""), clue = sent)
+        assert(sent.contains(Week), clue = sent)
+      }
+    }
+  }
+
+  test("a reconnect carrying a window no reader takes gets the declared one") {
+    // The carried value is the client's claim, so it passes the write's check.
+    served { ts =>
+      for {
+        client <- forgottenReconnect(ts, "4h")
+        events <- client.drain
+      } yield {
+        val sent = events.flatMap(_.data).mkString
+        assert(sent.contains("\"_var_panel__window\":\"24h\""), clue = sent)
+        assert(sent.contains(Day), clue = sent)
+      }
+    }
+  }
+
+  test("a live session's own choice wins over what its reconnect carries") {
+    // The stream that would have delivered a commit can die with it, so the
+    // client may still hold the value before.
+    served { ts =>
+      for {
+        doc <- ts.load()
+        _ <- post(ts, doc.conn, varPath(ts, "window/7d"))
+        _ <- ts
+          .get(
+            doc.stream.withQueryParam(
+              "datastar",
+              s"""{"${Server.ConnSignal}":"${doc.conn}","_var_panel__window":"24h"}"""
+            )
+          )
+          .flatMap(sseFrom(_)(isCursor))
+        chose <- ts.sessions.get(doc.conn).flatMap(_.traverse(_.vars.get))
+      } yield assertEquals(
+        chose.flatMap(_.get(("panel": fh.view.model.NodeId) -> "window")),
+        Some("7d")
+      )
+    }
+  }
+
   test("the opening frame states every declared variable, chosen or not") {
     // Total over the declarations, so a control still showing last session's
     // window is corrected on connect.

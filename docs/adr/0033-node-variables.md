@@ -58,14 +58,18 @@ environment is total over declarations and no reader handles a missing one. It t
 `QuerySnapshot`, so the answers and the values they were fetched for are one value, and a lookup
 against a different environment is not representable.
 
-**It arrives two ways and passes one check.** `POST /sse/var/:slug/:declarer/:name/:value` while
+**It arrives three ways and passes one check.** `POST /sse/var/:slug/:declarer/:name/:value` while
 the page is live, and `v.<declarer>.<name>` on the page URL, which survives a refresh and is
-recorded on the session because a pull has no request to read it off again. Both go through
+recorded on the session because a pull has no request to read it off again. The third is a
+reconnect: the SSE GET carries the committed values, and a session this process forgot (a
+restart, a reap) adopts them, where it would otherwise reset every bar to its declared value. A
+live session's own choices win over them, since a commit can be lost with its stream. All go through
 `Renderer.refusals`: every declared reader must still parse what it would then ask, and read only
 an entity the dashboard names or one of its queries names at its declared values — ADR 0023's
 bound on the read side, because a `Ref` is legal on any parameter and a variable fed to `entity`
 would otherwise chart the lock from a `Public` dashboard. A refused write is ADR 0024's 200 of
-signals; a refused URL is a 400 before any session exists. A choice naming no declaration is
+signals; a refused URL is a 400 before any session exists; a refused carry is dropped with a
+warning, leaving the declared values. A choice naming no declaration is
 inert, not an error — a stale link after a rename, treated as `SurfaceGraph.openPopup` treats a
 gone surface. `v.` is its own prefix rather than `ui.`: a `ui.` entry is a bake branch that
 `SurfaceGraph` narrows, a variable is a value its reader narrows.
@@ -73,8 +77,8 @@ gone surface. `v.` is its own prefix rather than `ui.`: a `ui.` entry is a bake 
 **A write re-renders the readers this viewer is shown, then commits** (ADR 0025): the press writes
 `_var_<declarer>__<name>__pending`, the server commits `_var_<declarer>__<name>` after the repaints,
 and agreement ends the ask. The committed values are seeded by the document's shell and ride the
-opening frame again, both total over declarations at this viewer's values, so a forgotten session
-corrects a stale control and a control never shows the declared value over a linked choice.
+opening frame again, both total over declarations at this viewer's values, so a stale control is
+corrected and a control never shows the declared value over a linked choice.
 
 **The control is a node per value.** `c.windowChooser` declares `window` and builds its bar from
 one `Listing<Window>`, each value a `tab` node whose tap is `tapMod.setVar`: a guarded `Click`

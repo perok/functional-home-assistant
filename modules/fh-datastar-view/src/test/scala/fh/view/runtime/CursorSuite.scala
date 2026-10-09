@@ -129,4 +129,16 @@ class CursorSuite extends munit.FunSuite {
       assert(include.findFirstIn(n).isEmpty, clue = (n, Server.SseInclude))
     )
   }
+
+  test("a reconnect carries a committed node variable, not its pending ask") {
+    // A declarer id can hold `__` itself (a surface's), so the shapes are the
+    // server's own spelling rather than hand-written ones.
+    val include = Server.SseInclude.r
+    val declarer: fh.view.model.NodeId =
+      fh.view.model.NodeId.derived("s_detail__c_0")
+    val committed = Server.varSignal(declarer, "window")
+    assert(include.findFirstIn(committed).isDefined, clue = committed)
+    val pending = committed + "__pending"
+    assert(include.findFirstIn(pending).isEmpty, clue = pending)
+  }
 }
