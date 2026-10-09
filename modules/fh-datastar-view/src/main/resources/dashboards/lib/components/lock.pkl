@@ -43,8 +43,13 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
 /// The tile, carrying the latch as a feature when the lock reports `OPEN`.
 /// One card rather than two cells, so the control stays the tile's and sits
 /// outside its tappable element. Read off the entity: a one-bit capability has
-/// no group to pass (ADR 0013).
-function controls(l: hass.LockEntity): nodes.LayoutNode =
-  if (l.supportsOpen)
-    entityMod.entityCard(l).features(List(openLatch(l)))
-  else entityMod.entityCard(l)
+/// no group to pass (ADR 0013). A tap opens more-info, where [[acting]] is.
+function controls(l: hass.LockEntity): nodes.LayoutNode = latched(entityMod.entityCard(l), l)
+
+/// [[controls]], but a tap locks or unlocks: the card more-info shows, where a
+/// press is meant. Pinned, or it would open more-info on itself.
+function acting(l: hass.LockEntity): nodes.LayoutNode =
+  latched((entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }, l)
+
+local function latched(card: entityMod.EntityCard, l: hass.LockEntity): nodes.LayoutNode =
+  if (l.supportsOpen) card.features(List(openLatch(l))) else card

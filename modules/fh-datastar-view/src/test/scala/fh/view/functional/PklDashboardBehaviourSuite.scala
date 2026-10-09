@@ -552,7 +552,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
+       |    // The lock's own verb: its card's default opens more-info.
        |    c.entityCard(dump.entities.${lockAt("locked").dumpKey})
+       |      .tapAction(c.tap.toggle(dump.entities.${lockAt(
+        "locked"
+      ).dumpKey}))
        |  }
        |}
        |""".stripMargin

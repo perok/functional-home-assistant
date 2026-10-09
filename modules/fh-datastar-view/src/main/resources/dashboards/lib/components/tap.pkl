@@ -21,7 +21,8 @@ import "moreinfo.pkl" as moreinfo
 function toggle(e: hass.Entity): core.Call = core.toggle(e)
 
 /// What a tap on an entity card does unless told otherwise: its domain's
-/// service where it has one, more-info where it does not (ADR 0016).
+/// service where it has one, more-info where it does not or the domain is a
+/// lock (ADR 0016).
 function default(e: hass.Entity): core.TapAction = moreinfo.defaultTap(e)
 
 /// Open `e`'s more-info popup: its card, its domain's controls, and every
