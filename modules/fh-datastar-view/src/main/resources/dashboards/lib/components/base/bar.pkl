@@ -10,7 +10,9 @@ import "../../core/slot.pkl" as slotMod
 // readings and a slot reads one. Computed once into a node-scoped signal, which
 // both the width and `aria-valuenow` read. `|| 0` turns a reading of `unknown`
 // (NaN) into an empty bar rather than `NaN%`, which CSS ignores, leaving the
-// last width standing.
+// last width standing. The object form, because in `data-computed:<key>` a
+// `__` starts the modifiers: the key form named the signal `_<id>` and the
+// width read one nobody set, and an id can hold a `__` of its own.
 const local valueRef: String = "$" + slotMod.signalRef("value")
 const local ofRef: String = "$" + slotMod.signalRef("of")
 const local fillSig: String = "_{{id}}__fill"
@@ -26,7 +28,7 @@ class ProgressBar extends nodes.Node {
     // Not a `<progress>`, whose parts need a vendor pseudo-element each; the
     // ARIA role carries its meaning.
     template = """
-      <div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-computed:\(fillSig)="\(fillExpr)" data-attr:aria-valuenow="Math.round($\(fillSig))"><div class="fh-bar-fill" data-style:width="$\(fillSig) + '%'"></div></div>
+      <div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-computed="{'\(fillSig)': () => \(fillExpr)}" data-attr:aria-valuenow="Math.round($\(fillSig))"><div class="fh-bar-fill" data-style:width="$\(fillSig) + '%'"></div></div>
       """
     slots { "value" }
     css = """
