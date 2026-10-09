@@ -78,8 +78,10 @@ The headline. A `Tabs` declares `tab` (its member index, `"0"` by default), its 
 `setVar("tab", i)`, and its panel's bake group is SELECTED by that variable:
 
 - `Surface.activation` gains a third case, `Var(name)`: the group's member is the one whose
-  `bakeIndex` equals the variable as seen from the `bakeInto` node. This is the generalised
-  `User`, which stays for the popup host (below).
+  `bakeIndex` equals the variable as seen from the `bakeInto` node. Only `Tabs` bakes a
+  `User` group today, so after the switch no bake group is `User`: `defaultOpen` and the bake
+  arms of `resolveActive` are deleted in the same change, not left beside `Var`. `User` stays
+  for a popup, which has no host of its own to bake into.
 - A write whose (declarer, name) selects a bake group swaps the host (`swapHost`, unchanged),
   and the refusal for it is "no member at that index". This is the same reader-parses rule
   `refusals` applies to a query.
@@ -96,15 +98,31 @@ what is left.
 
 #### Open for the maintainer before step 4
 
-- **Name the variable `tab` or let the author name it?** Fixed is what the chooser does (its
-  name cannot drift). Named would let a button elsewhere in the panel switch tabs, which step
-  1 now makes possible.
-- **Index or label as the value?** An index is what `bakeIndex` and today's `ui.` carry. A
-  label survives reordering the tabs, but it can carry a space, and the value travels in a
-  route segment and a JS string.
-- **Old `ui.<id>` links.** Today an unknown param is ignored, so a bookmarked tab lands on the
-  default. That is the treatment ADR 0033 gives a stale `v.` link. Translating them is cheap,
-  but it is a second spelling to keep.
+Each has a recommendation; none is built.
+
+- **Name the variable `tab` or let the author name it?** Recommended: fixed, as the chooser's
+  is, so the declaration and the buttons cannot drift. Naming it would let a button elsewhere
+  in the panel switch tabs, which step 1 makes possible; that can come when one is wanted.
+- **Index or label as the value?** Recommended: the index. It is what `bakeIndex` and today's
+  `ui.` carry, and `tapMod.setVar` refuses a label with a space or a `'`. A label would
+  survive reordering the tabs.
+- **Old `ui.<id>` links.** Recommended: let them land on the default tab, the treatment ADR
+  0033 gives a stale `v.` link. Translating them is cheap, but it is a second spelling to keep.
+
+#### What it moves
+
+It is not a reviewable diff without these, so they are listed rather than discovered:
+
+- **Existing tests, in two groups.** Those that build a `User` bake group in Scala move with
+  the model: `BuildPhaseSuite`, `SurfaceGraphSuite`, `RendererSuite`, `LiveStreamSuite`,
+  `QueryDriftSuite`, `QueryRenderInputsSuite`, `RenderCacheContentionSuite` and
+  `ServerHarness`'s fixtures. Those that read `ui_`/`ui.` off a page move with the wire:
+  `ServerRoutesSuite`, `ResumeSuite`, `SetMembershipSuite`, `PklDashboardBehaviourSuite`'s
+  tab tests, `UiSmokeSuite`, `DatastarMorphContractSuite`, the tab facts in
+  `components.test.pkl`, and the two wire snapshots. Some of the second group assert the
+  popup's `ui_popups`, which does not move.
+- **`uiStateOf` and its threading** stay for the popup, so every render path keeps its
+  `uiState` parameter. Dropping it waits on the popup host.
 
 ## Not in this plan
 
