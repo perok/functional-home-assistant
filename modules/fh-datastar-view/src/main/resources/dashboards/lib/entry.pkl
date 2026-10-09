@@ -9,27 +9,16 @@ module entry
 import "components.pkl" as c
 import "core/access.pkl" as accessMod
 import "core/css.pkl" as cssMod
+import "core/node.pkl" as nodes
 import "core/text.pkl" as textMod
 import "theme-beer.pkl" as themeMod
 
-/// The modules whose card classes this dashboard can use. The library's are
-/// always here; add yours:
+/// Every card [[card]] and [[surfaces]] use, read off their nodes. A card class
+/// of your own needs no registering:
 ///
-///   import "@fh-dashboard/components.pkl" as c
 ///   import "mycards.pkl" as mine
-///   componentModules { mine }
 ///   card = (c.column) { children { mine.gauge(...) } }
-///
-/// Explicit, because Pkl reflection sees an import only as a URI string and
-/// cannot find your cards on its own. A module you forget is a "card not
-/// found" at build time. Cards must live in a module of their own: a class
-/// inline in an entry must be `local`, which reflection cannot see.
-hidden componentModules: Listing<Module> = new {
-  for (m in c.modules) { m }
-}
-
-/// The card registry from [[componentModules]].
-cards = c.cardsOf(componentModules.toList())
+cards = nodes.cardsIn(List(card) + surfaces.toMap().values.map((s) -> s.content))
 
 /// What every card here does with a label longer than its box: `wrap`, `clip`
 /// (the default) or `scroll` (`core/text.pkl`). One card differs with

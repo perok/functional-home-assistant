@@ -200,16 +200,15 @@ goes live immediately — membership is data the reload re-reads (ADR 0021).
 combining it with `--write` would rename the file while claiming to rename the
 dashboard, and it is rejected.
 
-For their cards to exist at all, the entry must name their module in
-`componentModules` (ADR 0006, decision 7): Pkl cannot infer it, since
-`reflect.Module.imports` yields URIs as plain strings and there is no
-reflect-by-string to walk them back into modules.
+Their cards need no registering: a dashboard's card registry is the cards its
+tree uses (ADR 0006, decision 7), so importing the module and using a card is
+the whole of it.
 
 Once the components are published — a GitHub release, referenced as
 `package://pkg.pkl-lang.org/github.com/<owner>/<repo>/<release>` (see
 follow-ups) — a normal remote package dependency in the consumer's `PklProject`
 replaces the push, and they stop being special: any user adds the dep next to
-`@fh-dashboard`, names the module in `componentModules`, and uses the cards.
+`@fh-dashboard`, imports the module, and uses the cards.
 This works on a pure-`/edit` instance: the server's resolver fetches real
 remote packages, honoring the manifest's own `http.rewrites` (see Track B).
 
