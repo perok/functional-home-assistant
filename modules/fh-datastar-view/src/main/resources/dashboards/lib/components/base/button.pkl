@@ -27,6 +27,31 @@ const local buttonText: String =
     + #"<span class="fh-sub \#(textMod.BOX)">"# + textMod.liveRun("secondary") + "</span></span>"
     + slotMod.endIfSlot("secondary")
 
+const local pressClass: String = "fh-press{{#glyph}} fh-badged{{/glyph}}"
+
+// A labelled button fills its cell, as every other card does; a framework
+// sizing buttons to their label left three nav buttons ragged. `block-size:auto`
+// lets a long label take a second line where BeerCSS pins the height.
+//
+// It rests on the card surface and takes the accent only while `fh-active`,
+// which sits on the cell; a container painting its buttons by position must
+// leave an active one alone. Inside a card it steps to the alternate surface,
+// or it would vanish into it, and its badge steps the other way.
+const local pressCss: String = """
+  .fh-cell>:is(.button,button).fh-press{inline-size:100%;box-sizing:border-box;
+  block-size:auto;min-block-size:3.25rem;justify-content:flex-start;gap:.75rem;
+  padding:.375rem 1.25rem;border-radius:999px;text-align:start;
+  background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
+  .fh-cell>:is(.button,button).fh-press.fh-badged{padding-inline-start:.5rem}
+  .card .fh-cell>:is(.button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
+  .card .fh-press .fh-badge:not(.shape){background:var(--fh-surface)}
+  .fh-press .fh-sub{color:var(--fh-text-dim)}
+  .fh-cell.fh-active>:is(.button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
+  .fh-cell.fh-active>.fh-press .fh-sub{color:inherit;opacity:.8}
+  .fh-cell>:is(.button,button).circle{background:var(--fh-surface-alt);color:var(--fh-accent)}
+  .fh-cell.fh-active>:is(.button,button).circle{background:var(--fh-accent);color:var(--fh-on-accent)}
+  """
+
 /// A label, a glyph and a tap that names its own target.
 open class Button extends nodes.Node {
   card = "button"
@@ -35,29 +60,15 @@ open class Button extends nodes.Node {
     // middle-click and a click that works before Datastar loads. BeerCSS styles
     // `:is(button,.button)`, so both forms look the same.
     //
-    // Icon-only is `round` (`circle small`): a glyph alone in a rectangle reads
-    // as a broken label. A glyph button also places the spinner, which is an
-    // icon's in-flight affordance.
+    // A labelled button is a card-like pill (`fh-press`), its glyph in a round
+    // badge that also carries the spinner. Icon-only is `round` (`circle
+    // small`): a glyph alone in a rectangle reads as a broken label, and there
+    // the button itself spins.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" href="{{{href}}}">{{#glyph}}{{#round}}<i class="mdi {{glyph}}"></i>{{/round}}{{^round}}<span class="fh-badge"><i class="mdi {{glyph}}"></i></span>{{/round}}{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}}{{#round}} \(tapMod.busyShapeClass){{/round}}{{/glyph}}{{/busyVisual}}>{{#glyph}}{{#round}}<i class="mdi {{glyph}}"></i>{{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}><i class="mdi {{glyph}}"></i></span>{{/round}}{{/glyph}}\(buttonText)</button>{{/href}}
       """
     slots { "label" }
-    // A labelled button fills its cell, as every other card does; a framework
-    // sizing buttons to their label left three nav buttons ragged.
-    // `:not(.circle)`, or a round one stretches into an oval. `block-size:auto`
-    // lets a long label take a second line where BeerCSS pins the height.
-    //
-    // `fh-active` sits on the cell; a container painting its buttons by
-    // position must leave an active one alone. `.fh-sub`'s dim colour is for a
-    // card surface, so on a filled button the second line dims the button's own
-    // text colour instead.
-    css = """
-      .fh-cell>:is(.button,button):not(.circle){inline-size:100%;box-sizing:border-box;
-      block-size:auto;min-block-size:2.5rem;padding-block:.5rem}
-      .fh-cell.fh-active>:is(.button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
-      .fh-lines{display:flex;flex-direction:column;align-items:center;min-inline-size:0;text-align:center}
-      .fh-cell>:is(.button,button) .fh-sub{color:inherit;opacity:.8}
-      """
+    css = pressCss
   }
   hidden label: (String|slotMod.Expr)? = null
   /// A smaller, dimmer second line: a literal, an expression or any reading.
@@ -152,12 +163,18 @@ open class Button extends nodes.Node {
 class Pill extends nodes.Node {
   card = "pill"
   cardDef = new nodes.CardDef {
-    // BeerCSS's `.chip`, already pill-shaped and border-box, so no round
-    // variant.
+    // BeerCSS's `.chip`, already border-box, so no round variant. It wears the
+    // button's surface, so a run of pills and a button read as one family.
     template = """
       {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
+    css = """
+      .fh-cell>.chip{background:var(--fh-surface);color:var(--fh-text);
+      border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
+      .card .fh-cell>.chip{background:var(--fh-surface-alt);box-shadow:none}
+      .fh-cell>.chip:not(.shape)>i.mdi{color:var(--fh-accent)}
+      """
   }
   cellClasses { "fh-hug" }
   hidden label: (String|slotMod.Expr)? = null

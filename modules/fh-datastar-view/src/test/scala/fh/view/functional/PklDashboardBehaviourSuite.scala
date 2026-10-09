@@ -78,7 +78,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // against <base href>, which works before Datastar loads.
       assert(
         html.contains(
-          """<a class="button card" href="d/other">""" +
+          """<a class="button fh-press" href="d/other">""" +
             """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
         ),
         clue = html
