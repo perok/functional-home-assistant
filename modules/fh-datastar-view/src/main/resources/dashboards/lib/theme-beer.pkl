@@ -150,6 +150,10 @@ class BeerTheme extends themeMod.Theme {
   // unconditional.
   classes {
     ["fh-busy-spin"] = "shape loading-indicator"
+    // BeerCSS's own button sizes; its default is the medium one.
+    ["fh-size-small"] = "small"
+    ["fh-size-medium"] = ""
+    ["fh-size-large"] = "large"
   }
 
   styles = """
@@ -203,7 +207,9 @@ class BeerTheme extends themeMod.Theme {
       vertical-align:middle;background:var(--primary)}
     .shape>i.mdi{filter:none;color:var(--on-primary)}
     /* Only the header badge has no box of its own; `.shape` defaults to 3.5rem. */
-    .fh-icon-shape.shape{inline-size:2.25rem;block-size:2.25rem}
+    .fh-icon-shape.shape{inline-size:var(--fh-badge-size,2.25rem);block-size:var(--fh-badge-size,2.25rem)}
+    /* A button's height is BeerCSS's per size class, through its private knob. */
+    .fh-cell>.fh-press{--fh-press-size:var(--_size)}
     @media (prefers-reduced-motion:reduce){
       /* The morph is the mask's own `<animate>`, which CSS cannot reach. */
       .shape.loading-indicator{mask-image:none;border-radius:50%}

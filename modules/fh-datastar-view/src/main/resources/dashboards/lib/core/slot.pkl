@@ -8,6 +8,7 @@
 module core.slot
 
 import "../hass.pkl"
+import "../hass/active.pkl" as activeTables
 import "simple.pkl" as simpleMod
 import "stage.pkl" as stageMod
 import "variable.pkl" as varMod
@@ -126,6 +127,24 @@ const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
   transform = simpleMod.stateIn(states.toListing())
   bypassUnavailable = false
 }
+
+/// Whether `e` is on as HA's tile draws it, live, or null for a domain with no
+/// on look (a sensor). The tables are `hass/active.pkl`.
+const function activeOf(e: hass.Entity): Slot? =
+  if (activeTables.neutral.contains(e.domain)) null
+  else new Slot {
+    entityId = e.entity_id
+    transform =
+      if (activeTables.onIn.containsKey(e.domain))
+        simpleMod.stateIn(activeTables.onIn[e.domain].toListing())
+      else
+        let (offStates =
+          List("unavailable", "unknown")
+            + (if (e.domain == "alert") activeTables.alertOffIn else List("off"))
+            + (activeTables.offIn.getOrNull(e.domain) ?? List()))
+          simpleMod.matchOf(new Mapping { for (st in offStates) { [st] = false } }, true)
+    bypassUnavailable = false
+  }
 
 /// The section for optional markup holding a slot:
 ///

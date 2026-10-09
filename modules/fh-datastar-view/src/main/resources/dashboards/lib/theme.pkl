@@ -53,6 +53,8 @@
 ///
 /// The delayed spinner is the case that needs it. Style it as "showing", with
 /// no delay of its own; the delay is already in the signal. `""` declines it.
+/// A button's `fh-size-small`/`-medium`/`-large` are the other: map them to the
+/// framework's own sizes, or set `--fh-press-size` on `.fh-press`.
 ///
 /// ## Writing one
 ///

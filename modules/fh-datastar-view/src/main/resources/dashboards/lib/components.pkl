@@ -133,7 +133,7 @@ function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
 /// `c.button("Close", c.tap.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
 function button(l: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.button(l, a)
-/// A button about an entity — its name and its domain's tap:
+/// A button about an entity — its name, its icon and its domain's tap:
 /// `c.entityButton(l).active(c.isOn(l))`.
 function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
 /// `c.pill("Underetasje", c.tap.navigate("under"))`.

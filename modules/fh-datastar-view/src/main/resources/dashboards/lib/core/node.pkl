@@ -202,6 +202,26 @@ abstract class Node extends LayoutNode {
     let (self = this) (self) { expressionValues = vs }
 }
 
+/// A [[Node]] with an on look: `fh-active` on its cell while [[active]] holds,
+/// for the card's own CSS to paint. A button fills its pill, a tile its badge.
+abstract class ActiveNode extends Node {
+  /// `true`, `c.isOn(l)`, `c.expr("on > 0")`, or `lit.any()`.
+  hidden active: BooleanInput = false
+  cellClasses {
+    when (active == true) { "fh-active" }
+  }
+  liveClasses {
+    when (!(active is Boolean)) {
+      ["fh-active"] = (booleanSlot(active as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__active")) {
+        signal = slotMod.asClass("fh-active")
+      }
+    }
+  }
+  derivedValues {
+    when (active is predMod.Predicate) { ["__active"] = active }
+  }
+}
+
 /// A named hole in a card's template. `eager` holds the node's own children,
 /// rendered with the card. `baked` is filled per viewer by a surface (a tab
 /// panel, an [[If]] branch, a popup), and its element carries

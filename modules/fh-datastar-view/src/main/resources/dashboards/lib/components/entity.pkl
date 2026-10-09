@@ -9,7 +9,8 @@ import "base/tile.pkl" as tileMod
 import "moreinfo.pkl"
 
 /// Icon, label, value (the state or an attribute, unit appended), an optional
-/// second line and an optional tap. A thin [[tileMod.Tile]]: its own inputs
+/// second line and an optional tap. Its badge fills while the entity is on, by
+/// HA's per-domain rule (`slotMod.activeOf`). A thin [[tileMod.Tile]]: its own inputs
 /// are entity-relative (`value("brightness")` names an attribute of THIS
 /// entity) and become the tile's `title`, `reading` and `glyph`.
 class EntityCard extends tileMod.Tile {
@@ -25,6 +26,7 @@ class EntityCard extends tileMod.Tile {
   title = slotMod.labelSlot(entity, label)
   reading = slotMod.valueSlot(value)
   glyph = icons.glyphOf(entity, icon)
+  active = slotMod.activeOf(entity) ?? false
   // Each option is also a chainable method,
   // `c.entityCard(x).tapAction(c.tap.toggle(x)).label("Office")`, emitting the
   // same JSON as the amend form.

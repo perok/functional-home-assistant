@@ -11,8 +11,9 @@ import "../hass.pkl"
 import "base/button.pkl" as buttonMod
 import "base/onoff.pkl" as switchMod
 
-/// [[buttonMod.Button]] filled from an entity: its name, its domain's tap, and
-/// it as the subject. `c.entityButton(l).active(c.isOn(l))`. Thin — no card of
+/// [[buttonMod.Button]] filled from an entity: its name, its icon (live where
+/// the domain's follows its state, as on a tile), its domain's tap, and it as
+/// the subject. `c.entityButton(l).active(c.isOn(l))`; `.noIcon()` for none. Thin — no card of
 /// its own, so it is exactly a button an author could build
 /// (`components.test.pkl` holds it to that).
 class EntityButton extends buttonMod.Button {
@@ -20,6 +21,7 @@ class EntityButton extends buttonMod.Button {
   label = entity.friendly_name ?? entity.entity_id
   tapAction = tapMod.byDomain(entity) ?? throw(buttonMod.noAction("c.entityButton"))
   subject = entity.entity_id
+  glyph = icons.glyphOf(entity, icon)
 }
 
 const function entityButton(e: hass.Entity): EntityButton = new EntityButton { entity = e }
