@@ -71,7 +71,7 @@ class SliderHead extends nodes.Node {
     template = """
       <div class="slider-body">
         <div class="slider-head">
-          {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
+          {{#icon}}<div class="slider-icon fh-badge"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
           {{#text}}{{{html}}}{{/text}}
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
@@ -429,12 +429,6 @@ const local sliderCss: String = """
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.fh-reading{grid-column:3;grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
-  /* `flex:0 0 auto`: shrinkable, the circle turned into an ellipse beside a long
-     label. */
-  .slider-icon{display:flex;align-items:center;justify-content:center;
-  flex:0 0 auto;inline-size:2rem;block-size:2rem;border-radius:50%;
-  background:var(--fh-surface-alt);color:var(--fh-accent)}
-  .slider-icon>i{font-size:1.25rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
   .slider-text,.slider-actions>.fh-cell{display:contents}

@@ -24,14 +24,7 @@ class EntityCard extends tileMod.Tile {
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)
   reading = slotMod.valueSlot(value)
-  // Live where the domain's glyph follows its state (a lock), else the literal
-  // the registry decides. An author's `icon` wins over both, as in HA.
-  glyph =
-    if (icon == null && icons.stateIconFor(entity) != null)
-      new slotMod.Slot { transform = icons.stateIconFor(entity)!!; bypassUnavailable = false }
-    else if (icon != null) "mdi " + icons.mdiClass(icon!!)
-    else if (icons.iconFor(entity) != null) "mdi " + icons.iconFor(entity)!!
-    else null
+  glyph = icons.glyphOf(entity, icon)
   // Each option is also a chainable method,
   // `c.entityCard(x).tapAction(c.tap.toggle(x)).label("Office")`, emitting the
   // same JSON as the amend form.

@@ -831,6 +831,7 @@ facts {
       }
       tapAction = c.tap.toggle(kitchen)
       subject = kitchen.entity_id
+      glyph = "mdi mdi-lightbulb"
     }
     c.toggle(kitchen).slots == sw.slots
     c.toggle(kitchen).cardDef == sw.cardDef

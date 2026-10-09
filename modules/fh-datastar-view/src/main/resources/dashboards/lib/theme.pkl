@@ -24,7 +24,8 @@
 /// The classes your `styles` may restyle: `.fh-grid`/`.fh-row`/`.fh-col`, the
 /// node wrapper `.fh-cell`, a query set's `.fh-group` (always a passthrough),
 /// `.fh-cols-<1..12>`/`.fh-cols-full`, `.fh-start`, `.card`, `.fh-section`, a
-/// labelled button's `.fh-press` and its glyph's `.fh-badge`,
+/// labelled button's `.fh-press`, a tile's `.fh-tile` row, the shared glyph `.fh-badge`
+/// and the `.fh-lines` text column,
 /// `.fh-reading`, `.fh-sub`, `.popup`/`.popup-close`, `.tabs`/`.tabbar`/`.tab`,
 /// `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, and the slider's
 /// `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-actions`/

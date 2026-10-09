@@ -26,7 +26,7 @@ open class Switch extends nodes.Node {
   cardDef = new nodes.CardDef {
     template = """
       <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
-        <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
+        \(slotMod.ifSlot("icon"))<span class="fh-badge"><i class="{{icon}}" \(slotMod.signalBind("icon"))></i></span>\(slotMod.endIfSlot("icon"))<span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
           <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
@@ -50,6 +50,8 @@ open class Switch extends nodes.Node {
   hidden on: slotMod.Slot
   hidden tapAction: tapMod.TapAction = throw(buttonMod.noAction("c.switch"))
   inlineSurfaces = tapAction.inlineSurfaces
+  /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`.
+  hidden glyph: (String|slotMod.Slot)? = null
   /// See `Button.subject`.
   hidden subject: String? = null
   slots {
@@ -57,6 +59,11 @@ open class Switch extends nodes.Node {
       ["entity_id"] = subject!!
     }
     ["label"] = slotMod.labelSlot(null, label)
+    when (glyph != null) {
+      ["icon"] =
+        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
+        else glyph!!
+    }
     ["checked"] = (on) { signal = slotMod.asBind }
     ["switched"] = (on) { signal = slotMod.asAttr("data-switched") }
     for (k, v in tapMod.tapRoute(tapAction)) {
