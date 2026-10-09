@@ -460,6 +460,57 @@ class SignalSlotSuite extends ServerHarness {
       assert(on.contains("""<i class="on""""), clue = s"$clue\n$on")
   }
 
+  test(
+    "a page load holds structure's seeds, so its first frame sends what moved"
+  ) {
+    // Structure has no bytes of its own to digest, but its wrapper seeds its
+    // signals like any node's. Left out of the page's holds, the first frame
+    // after a load re-sent every value the client already had.
+    val boxed = Dashboard(
+      Map(
+        "box" -> CardDef(
+          """<div><b {{{state__bind}}}>{{state}}</b><i {{{bright__bind}}}>{{bright}}</i>{{#children}}{{{html}}}{{/children}}</div>""",
+          regions = Map("children" -> Region()),
+          slots = List("state", "bright")
+        ),
+        "plain" -> CardDef("<p>x</p>")
+      ),
+      LayoutNode.Component(
+        "box",
+        Map(
+          "entity_id" -> SlotSource(literal = Some("light.a")),
+          "state" -> SlotSource(signal = Some(SignalBind.Text)),
+          "bright" -> SlotSource(
+            transform = brightnessRead,
+            signal = Some(SignalBind.Text)
+          )
+        ),
+        regions = LayoutNode.kids(LayoutNode.Component("plain", Map.empty))
+      )
+    )
+    val r = Renderer.create(boxed)
+    val holds = r.renderPageHolds(
+      Sink.buffer(r.pageBytesHint),
+      lit(40),
+      Map.empty,
+      None,
+      QuerySnapshot.empty
+    )
+    val out = resumeNow(
+      r,
+      FragmentLog("test").touched(leaf, 1L),
+      holds,
+      lit(41),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    assertEquals(
+      out.map(_.patch),
+      List(frame(sig("light.a", brightnessRead) -> "41"))
+    )
+  }
+
   test("a brightness tick moves four values and sends no element patch") {
     val r = Renderer.create(sliderish)
     val log = FragmentLog("test").touched(leaf, 1L)

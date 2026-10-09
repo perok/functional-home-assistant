@@ -1442,7 +1442,7 @@ class Server(
       parentSpan <- tracer.currentSpanContext
       // Filled by the walk; `holds` is committed in the finalizer, once the
       // bytes are out.
-      ownRef <- IO.ref(Map.empty[NodeId, Painted])
+      ownRef <- IO.ref(Map.empty[NodeId, Held])
       _ <- session.vars.set(choices)
       _ <- session.position.set(store.version)
       // The document carries the cursor, so it is the first announcement.
@@ -1488,14 +1488,14 @@ class Server(
               new java.io.OutputStreamWriter(os, UTF_8),
               Server.PageChunkBytes
             )
-            var own = Map.empty[NodeId, Painted]
+            var own = Map.empty[NodeId, Held]
             pageInto(
               Sink.streaming(w),
               slug,
               sink => {
                 // Out of the buffer, or the head waits for the answers too.
                 if (!pending.isDone) w.flush()
-                own = renderer.renderPageInto(
+                own = renderer.renderPageHolds(
                   sink,
                   store.entities,
                   uiState,
@@ -1518,12 +1518,15 @@ class Server(
             // Flush, not close: `readOutputStream` owns the stream.
             w.flush()
             own
-          }.flatMap(own =>
+          }.flatMap { own =>
+            // Nodes with a rendering of their own, as before structure's seeds
+            // joined the holds.
+            val painted = own.count(_._2.digest.isDefined).toLong
             ownRef.set(own) *>
               tracer.currentSpanOrNoop.flatMap(
-                _.addAttribute(Attribute("fh.nodes", own.size.toLong))
-              ) *> meters.pageNodes.record(own.size.toLong)
-          ).pipe(walk =>
+                _.addAttribute(Attribute("fh.nodes", painted))
+              ) *> meters.pageNodes.record(painted)
+          }.pipe(walk =>
             tracer.childOrContinue(parentSpan)(
               tracer.span("dashboard.page.walk").surround(walk)
             )
@@ -1534,11 +1537,7 @@ class Server(
         // `Validated`), so it is only logged.
         .onFinalizeCase {
           case Resource.ExitCase.Succeeded =>
-            ownRef.get.flatMap(own =>
-              session.holds.set(own.map { case (id, p) =>
-                id -> Held(Some(p.digest), p.signals)
-              })
-            )
+            ownRef.get.flatMap(session.holds.set)
           case Resource.ExitCase.Errored(e) =>
             logger.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit
