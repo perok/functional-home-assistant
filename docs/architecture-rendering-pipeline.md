@@ -201,6 +201,9 @@ evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
                                    // decoded PER SLUG, and neither a broken
                                    // dashboard nor a broken entrypoint crashes
                                    // the boot — both register
+  minify every inline CSS/JS piece  // build/Minifier: content-addressed on disk,
+                                   // so only an unseen piece starts an engine,
+                                   // closed after the batch (#153)
   per slug: one RendererState in a SignallingRef
       Ready(renderer) when it built, Failed(message) when it did not
       // hot-swapped on edit; a failed dashboard is watched, serves an

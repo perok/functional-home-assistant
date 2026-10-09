@@ -13,6 +13,7 @@ import fh.view.build.{
   DashboardBuild,
   DumpRefresh,
   LibPackage,
+  Minifier,
   Site,
   SystemPkl
 }
@@ -77,7 +78,8 @@ class Server(
     tracer: Tracer[IO] = Tracer.noop,
     loggerFactory: LoggerFactory[IO] = Logging.console,
     meters: Meters = Meters.noop,
-    queries: Option[QueryResolver] = None
+    queries: Option[QueryResolver] = None,
+    minifier: Minifier = Minifier.none
 ) {
 
   // `logger`, not `log`: `renderPage` takes a `log: FragmentLog`.
@@ -1295,7 +1297,7 @@ class Server(
             pushSite(json)
           case Right(json) =>
             DashboardBuild
-              .decode(json, slug = Some(slug))
+              .decode(json, slug = Some(slug), minifier = minifier)
               .flatMap(v => push(v).as(v))
               .flatMap(v =>
                 Ok(
@@ -1307,7 +1309,7 @@ class Server(
 
   private def pushSite(json: Json): IO[Response[IO]] =
     Site
-      .decode(json)
+      .decode(json, minifier = minifier)
       .flatMap { site =>
         site.dashboards.collect { case (slug, Left(err)) =>
           s"'$slug': $err"
@@ -2046,7 +2048,8 @@ object Server {
       tracer: Tracer[IO],
       loggerFactory: LoggerFactory[IO],
       meters: Meters,
-      queries: Option[QueryResolver]
+      queries: Option[QueryResolver],
+      minifier: Minifier = Minifier.none
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2065,7 +2068,8 @@ object Server {
         tracer,
         loggerFactory,
         meters,
-        queries
+        queries,
+        minifier
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2086,7 +2090,8 @@ object Server {
       tracer: Tracer[IO],
       loggerFactory: LoggerFactory[IO],
       meters: Meters,
-      windows: SessionWindows
+      windows: SessionWindows,
+      minifier: Minifier = Minifier.none
   ): Resource[IO, Server] =
     historyQueries(feed.api, loggerFactory).flatMap(queries =>
       withSite(
@@ -2103,7 +2108,8 @@ object Server {
         tracer = tracer,
         loggerFactory = loggerFactory,
         meters = meters,
-        queries = Some(queries)
+        queries = Some(queries),
+        minifier = minifier
       )
     )
 

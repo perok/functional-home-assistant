@@ -24,7 +24,8 @@ object DumpRefresh {
     */
   def refresh(
       newDump: String,
-      dashboardsDir: os.Path
+      dashboardsDir: os.Path,
+      minifier: Minifier = Minifier.none
   ): IO[Result] =
     IO.blocking(
       (
@@ -34,7 +35,7 @@ object DumpRefresh {
     ).flatMap {
       case (Some(nv), Some(pv)) if nv == pv => IO.pure(Unchanged)
       case (newVersion, _)                  =>
-        newlyBroken(newDump, dashboardsDir).flatMap {
+        newlyBroken(newDump, dashboardsDir, minifier).flatMap {
           case Nil    => IO.blocking(swap(newDump, dashboardsDir, newVersion))
           case errors => IO.pure(Rejected(errors))
         }
@@ -47,12 +48,14 @@ object DumpRefresh {
     */
   private def newlyBroken(
       newDump: String,
-      dashboardsDir: os.Path
+      dashboardsDir: os.Path,
+      minifier: Minifier
   ): IO[List[(String, String)]] = {
-    val current = DashboardBuild.evalSite(dashboardsDir).attempt
+    val current =
+      DashboardBuild.evalSite(dashboardsDir, minifier = minifier).attempt
     IO.blocking(stageWorkspace(newDump, dashboardsDir))
       .bracket { staged =>
-        DashboardBuild.evalSite(staged).attempt.flatMap {
+        DashboardBuild.evalSite(staged, minifier = minifier).attempt.flatMap {
           case Left(err) =>
             current.map {
               case Right(_) => List(Site.EntryFile -> Site.messageOf(err))

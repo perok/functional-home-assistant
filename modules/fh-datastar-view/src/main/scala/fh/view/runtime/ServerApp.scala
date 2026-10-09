@@ -15,6 +15,7 @@ import fh.view.build.{
   DashboardBuild,
   DumpRefresh,
   LibPackage,
+  Minifier,
   PklDump,
   RegistryDump,
   Site,
@@ -169,6 +170,12 @@ object ServerApp extends IOApp {
         }
         .toResource
       pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
+      minifier <- Minifier
+        .isolated(
+          config.cacheDir / "fh-minified",
+          loggerFactory.getLoggerFromName("fh.view.build.Minifier")
+        )
+        .toResource
       assembled <- assemble(
         Edges(
           workspace = config.dashboardsDir,
@@ -181,7 +188,8 @@ object ServerApp extends IOApp {
             config.dashboardsDir,
             Some(bundledLib),
             buildTracer,
-            loggerFactory
+            loggerFactory,
+            minifier
           ),
           trustedProxy = trustedProxy,
           pklLspJar = pklLspJar,
@@ -190,7 +198,8 @@ object ServerApp extends IOApp {
           loggerFactory = loggerFactory,
           meters = meters,
           sourceWatcher = SourceWatcher.default,
-          sessionWindows = Server.SessionWindows.default
+          sessionWindows = Server.SessionWindows.default,
+          minifier = minifier
         )
       )
       _ <- EmberServerBuilder
@@ -233,7 +242,9 @@ object ServerApp extends IOApp {
       meters: Meters,
       sourceWatcher: Resource[IO, SourceWatcher],
       // Not an edge: time, which a test shortens to watch a reap.
-      sessionWindows: Server.SessionWindows
+      sessionWindows: Server.SessionWindows,
+      // Not an edge either: off where a test does not ask for it.
+      minifier: Minifier = Minifier.none
   )
 
   /** Both act as a user, never as the machine-token feed nor at its address
@@ -356,12 +367,12 @@ object ServerApp extends IOApp {
       // Not part of the feed: the registry does not exist when it is
       // acquired.
       _ <- narrowFeed(site, wanted).background
-      reload = reloadSite(workspace, site, importsRef, log)
+      reload = reloadSite(workspace, site, importsRef, log, edges.minifier)
 
       // Serialises the endpoint against the registry watcher.
       refreshMutex <- Mutex[IO].toResource
       refreshDump = refreshMutex.lock.surround(
-        refreshOnce(feed.api, workspace, reload, log)
+        refreshOnce(feed.api, workspace, reload, log, edges.minifier)
       )
 
       login <- edges.login(feed.api).toResource
@@ -419,7 +430,8 @@ object ServerApp extends IOApp {
         tracer = serverTracer,
         loggerFactory = loggerFactory,
         meters = meters,
-        windows = edges.sessionWindows
+        windows = edges.sessionWindows,
+        minifier = edges.minifier
       )
       editor = new EditorRoutes(
         workspace,
@@ -528,7 +540,8 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts],
       tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      minifier: Minifier = Minifier.none
   ): IO[Prepared] = {
     val log = loggerFactory.getLoggerFromName(LoggerName)
     // No HTTP span covers this, and on a Pi it is seconds.
@@ -545,7 +558,7 @@ object ServerApp extends IOApp {
         ) *>
         tracer
           .span("dashboard.prepare.eval")
-          .surround(DashboardBuild.evalSite(dashboardsDir, log))
+          .surround(DashboardBuild.evalSite(dashboardsDir, log, minifier))
           .attempt
           .flatMap {
             case Right((site, imports)) =>
@@ -763,9 +776,10 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       site: Server.LiveSite,
       importsRef: SignallingRef[IO, Set[Path]],
-      log: SelfAwareStructuredLogger[IO] = consoleLog
+      log: SelfAwareStructuredLogger[IO] = consoleLog,
+      minifier: Minifier = Minifier.none
   ): IO[Unit] =
-    DashboardBuild.evalSite(dashboardsDir, log).attempt.flatMap {
+    DashboardBuild.evalSite(dashboardsDir, log, minifier).attempt.flatMap {
       case Left(err) =>
         site.failSite(Site.messageOf(err)).flatMap(report(_, log))
       case Right((decoded, imports)) =>
@@ -796,7 +810,8 @@ object ServerApp extends IOApp {
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       reload: IO[Unit],
-      log: SelfAwareStructuredLogger[IO]
+      log: SelfAwareStructuredLogger[IO],
+      minifier: Minifier
   ): IO[DumpRefresh.Result] =
     RegistryDump
       .fetch(api)
@@ -804,7 +819,7 @@ object ServerApp extends IOApp {
         PklDump.warnings(_).traverse_(w => log.warn(s"dump warning: $w"))
       )
       .map(PklDump.render)
-      .flatMap(DumpRefresh.refresh(_, dashboardsDir))
+      .flatMap(DumpRefresh.refresh(_, dashboardsDir, minifier))
       .flatTap {
         case DumpRefresh.Unchanged =>
           // The answer to most registry events.

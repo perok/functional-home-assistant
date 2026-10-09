@@ -15,7 +15,9 @@
     "@codemirror/lsp-client": "^6",
     "@codemirror/state": "^6",
     "@codemirror/view": "^6",
-    "echarts": "6.1.0"
+    "csso": "5.0.5",
+    "echarts": "6.1.0",
+    "terser": "5.51.2"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

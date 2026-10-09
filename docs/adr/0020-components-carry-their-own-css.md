@@ -98,6 +98,11 @@ A theme that names nothing gets `fh-busy-spin` and the plain ring in
 
 ## Consequences
 
+**Each layer is written readable and served minified** (`build/Minifier`, #153): every CSS piece
+through csso with `restructure` off, since merging rules across the sheet would reorder the
+cascade the three layers depend on, and every script through terser. So a comment in a card's
+`css` costs the page nothing.
+
 **The DOM is still BeerCSS-flavoured, deliberately.** `<article class="card">`,
 `.slider.max`, `.chip`, `.switch`, `.tabs > a` stay in the templates, and the
 rules keyed on them moved *into* the cards that emit them. Renaming them to

@@ -312,10 +312,12 @@ object DashboardBuild {
       sources: Set[os.Path] = Set.empty,
       // Applied before validation, so a `Validated` is not proven against a
       // slug it no longer has.
-      slug: Option[String] = None
+      slug: Option[String] = None,
+      minifier: Minifier = Minifier.none
   ): IO[Dashboard.Validated] =
     for {
-      hoisted <- IO.pure(hoistInlineSurfaces(json))
+      minified <- minifier.dashboard(json)
+      hoisted = hoistInlineSurfaces(minified)
       _ <- unresolvedTokens(hoisted) match {
         case Nil => IO.unit
         case bad =>
@@ -352,14 +354,15 @@ object DashboardBuild {
     */
   def evalSite(
       dashboardsDir: os.Path,
-      log: Logger[IO] = Logging.console.getLoggerFromName(LoggerName)
+      log: Logger[IO] = Logging.console.getLoggerFromName(LoggerName),
+      minifier: Minifier = Minifier.none
   ): IO[(Site.Decoded, Set[os.Path])] =
     evalSource(dashboardsDir, Site.EntryFile).timed.flatMap { (took, r) =>
       val how = if (r.fromCache) "read from the eval cache" else "evaluated"
       log.info(
         s"${Site.EntryFile} $how in ${took.toMillis} ms " +
           s"(${r.imports.size} workspace files)"
-      ) *> Site.decode(r.value, r.imports, log).map(_ -> r.imports)
+      ) *> Site.decode(r.value, r.imports, log, minifier).map(_ -> r.imports)
     }
 
   /** Issue #406: on a Pi a boot or a reload takes seconds, and these lines say
