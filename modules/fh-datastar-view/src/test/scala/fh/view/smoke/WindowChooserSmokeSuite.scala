@@ -173,7 +173,9 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     )
     Ref[IO].of(false).flatMap { slow =>
       withPageOn(slowServed("moreinfo-slow", moreInfo, slow)) { (page, _) =>
-        val card = page.locator("article.entity").first()
+        // The tile's row: it, not the `<article>`, owns the tap and its look,
+        // so a feature under it can have its own.
+        val card = page.locator("article.entity .fh-tile").first()
         for {
           _ <- slow.set(true)
           _ <- IO.blocking(card.click())

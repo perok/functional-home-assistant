@@ -40,10 +40,11 @@ open class Tile extends nodes.ActiveNode {
     css = """
       .card.tappable,.fh-tile.tappable{cursor:pointer}
       .fh-tile-card{display:flex;flex-direction:column;padding:0;
-      --fh-cell-flex:0 0 auto;--fh-cell-width:100%;--fh-cell-align-self:stretch}
+      --fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
       .fh-tile{display:flex;align-items:center;gap:.75rem;min-inline-size:0;
       padding:1rem;border-radius:inherit}
       .fh-tile-card>.fh-cell{margin:0 1rem .5rem}
+      .fh-tile-card>.fh-tile+.fh-cell{margin-block-start:-.25rem}
       .fh-tile-card>.fh-cell:last-child{margin-block-end:1rem}
       .fh-cell.fh-active .fh-tile>.fh-badge{background:var(--fh-accent);color:var(--fh-on-accent)}
       .fh-tile>.fh-lines{flex:1 1 auto}
