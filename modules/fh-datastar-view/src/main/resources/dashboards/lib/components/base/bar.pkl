@@ -1,0 +1,64 @@
+/// A horizontal bar filled to a fraction, as a tile feature or on its own. It
+/// knows nothing about Home Assistant: `components/bar.pkl` fills it from
+/// entities.
+module components.base.bar
+
+import "../../core/node.pkl" as nodes
+import "../../core/slot.pkl" as slotMod
+
+// The fill is the browser's arithmetic, because it can be a function of two
+// readings and a slot reads one. Computed once into a node-scoped signal, which
+// both the width and `aria-valuenow` read. `|| 0` turns a reading of `unknown`
+// (NaN) into an empty bar rather than `NaN%`, which CSS ignores, leaving the
+// last width standing.
+const local valueRef: String = "$" + slotMod.signalRef("value")
+const local ofRef: String = "$" + slotMod.signalRef("of")
+const local fillSig: String = "_{{id}}__fill"
+const local fillExpr: String =
+  "Math.min(100, Math.max(0, {{#down}}100 - {{/down}}{{#hasOf}}100 * \(valueRef)\(slotMod.ifSlot("scale")) * {{scale}}\(slotMod.endIfSlot("scale")) / \(ofRef){{/hasOf}}{{^hasOf}}+\(valueRef){{/hasOf}})) || 0"
+
+/// The fill is `value` as a percentage, or `value × scale ÷ of` with [[of]],
+/// reversed when [[down]]. Its readings are signals: a reading that moves costs
+/// its few bytes, never the bar.
+class ProgressBar extends nodes.Node {
+  card = "progressBar"
+  cardDef = new nodes.CardDef {
+    // Not a `<progress>`, whose parts need a vendor pseudo-element each; the
+    // ARIA role carries its meaning.
+    template = """
+      <div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-computed:\(fillSig)="\(fillExpr)" data-attr:aria-valuenow="Math.round($\(fillSig))"><div class="fh-bar-fill" data-style:width="$\(fillSig) + '%'"></div></div>
+      """
+    slots { "value" }
+    css = """
+      .fh-bar{block-size:.5rem;inline-size:100%;border-radius:.25rem;
+      background:var(--fh-track,rgba(128,128,128,.25));overflow:hidden}
+      .fh-bar-fill{block-size:100%;inline-size:0;border-radius:inherit;
+      background:var(--fh-accent);transition:inline-size .3s linear}
+      """
+  }
+  hidden value: slotMod.Slot
+  /// The whole the value is a part of; without one, the value is a percentage.
+  hidden of: slotMod.Slot? = null
+  /// One unit of `value` in units of `of`, when the two differ: `60` for
+  /// minutes left out of a total in seconds.
+  hidden scale: Number = 1
+  /// Fills as the value falls: time left fills toward done.
+  hidden down: Boolean = false
+  slots {
+    ["value"] = (value) { signal = slotMod.asHandler }
+    when (of != null) {
+      ["of"] = (of!!) { signal = slotMod.asHandler }
+      ["hasOf"] = "1"
+      when (scale != 1) { ["scale"] = scale.toString() }
+    }
+    when (down) {
+      ["down"] = "1"
+    }
+  }
+}
+
+/// A bar filled to a percentage reading.
+function percent(v: slotMod.Slot): ProgressBar = new { value = v }
+
+/// A bar filled to `v` out of `whole`.
+function partOf(v: slotMod.Slot, whole: slotMod.Slot): ProgressBar = new { value = v; of = whole }
