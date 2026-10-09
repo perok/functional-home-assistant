@@ -11,7 +11,7 @@ import "../../core/text.pkl" as textMod
 
 /// The tile. `title`, `reading`, `secondary` and `glyph` each take a literal or
 /// a reading; the card decides how each is carried.
-open class Tile extends nodes.Node {
+open class Tile extends nodes.ActiveNode {
   card = "tile"
   cardDef = new nodes.CardDef {
     // The glyph in the shared badge, which is also the spinner's host, then the
@@ -27,9 +27,11 @@ open class Tile extends nodes.Node {
       """
     slots { "label"; "value" }
     // A flex row, so the text column is what shrinks and the badge never does.
+    // On, the badge fills with the accent, as HA's tile does.
     css = """
       .card.tappable{cursor:pointer}
       .fh-tile{display:flex;align-items:center;gap:.75rem;min-inline-size:0}
+      .fh-cell.fh-active .fh-tile>.fh-badge{background:var(--fh-accent);color:var(--fh-on-accent)}
       .fh-tile>.fh-lines{flex:1 1 auto}
       .fh-tile .fh-reading{font-size:.875em}
       """
@@ -78,4 +80,6 @@ open class Tile extends nodes.Node {
     }
   }
   function disabled(d: nodes.BooleanInput): Tile = let (self = this) (self) { disabled = d }
+  /// `c.entityCard(l).active(false)` for a badge that never fills.
+  function active(a: nodes.BooleanInput): Tile = let (self = this) (self) { active = a }
 }

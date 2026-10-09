@@ -20,6 +20,7 @@ import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
+import "../../main/resources/dashboards/lib/hass/active.pkl" as activeTables
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -522,7 +523,7 @@ facts {
     // the toggle's switch off the card. WHAT happens instead is the dashboard's
     // choice now (`core/text.pkl`), so what each card owes is the ROOM to carry
     // it out: a button free to grow down, and a switch that never shrinks.
-    cards["button"].css.contains("min-block-size:3.25rem")
+    cards["button"].css.contains("min-block-size:var(--fh-press-size,3rem)")
     cards["button"].css.contains("block-size:auto")
     cards["switch"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup. Matched
@@ -795,7 +796,7 @@ facts {
     labelled.slots["label"] == "Close"
 
     local glyphOnly = c.iconButton("mdi:power", c.tap.closePopup())
-    glyphOnly.slots["glyph"] == "mdi-power"
+    glyphOnly.slots["glyph"] == "mdi mdi-power"
     // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
     // as a label that failed to render.
     glyphOnly.slots["round"] == "1"
@@ -803,7 +804,7 @@ facts {
 
     // Both together stay rectangular — that is an ordinary button with an icon.
     local both = (c.button("Power", c.tap.closePopup())).icon("mdi:power")
-    both.slots["glyph"] == "mdi-power"
+    both.slots["glyph"] == "mdi mdi-power"
     !both.slots.containsKey("round")
 
     // A pill takes the glyph too; it has no round variant because a chip is
@@ -903,11 +904,63 @@ facts {
     // exactly what an author could build by hand from the base.
     local byHand = (c.button(kitchen.entity_id, c.tap.toggle(kitchen))) {
       subject = kitchen.entity_id
+      glyph = "mdi mdi-lightbulb"
     }
     c.entityButton(kitchen).slots == byHand.slots
     c.entityButton(kitchen).cardDef == byHand.cardDef
     c.entityButton(kitchen).active(c.isOn(kitchen)).cell
       == byHand.active(c.isOn(kitchen)).cell
+  }
+
+  ["an entity button wears its entity's icon, live where the domain's follows its state"] {
+    c.entityButton(kitchen).slots["glyph"] == "mdi mdi-lightbulb"
+    // A lock's glyph is its state's, so the button flips with it as its tile does.
+    (c.entityButton(plainLock).slots["glyph"] as slotMod.Slot).signal == "attr:class"
+    c.entityButton(plainLock).slots["glyph"] == c.entityCard(plainLock).slots["icon"]
+    // An author's icon wins, and `noIcon` takes the glyph away entirely.
+    c.entityButton(kitchen).icon("mdi:fan").slots["glyph"] == "mdi mdi-fan"
+    !c.entityButton(kitchen).noIcon().slots.containsKey("glyph")
+    // Labelled, so still the pill and never the round icon form.
+    !c.entityButton(kitchen).slots.containsKey("round")
+  }
+
+  ["a button's size is a class token a theme can map"] {
+    // One literal token per size in the markup, since a theme's class rules
+    // rewrite only literal `fh-` tokens, and BeerCSS maps every one.
+    local t = c.cards["button"].template
+    List("small", "medium", "large").every((sz) ->
+      t.contains(" fh-size-\(sz){{/") && beerMod.theme.classes.containsKey("fh-size-\(sz)"))
+    // Large by default, and one size at a time.
+    c.button("x", c.tap.closePopup()).slots["sizeLarge"] == "1"
+    local small = c.button("x", c.tap.closePopup()).size("small")
+    small.slots["sizeSmall"] == "1"
+    !small.slots.containsKey("sizeLarge")
+    // The base heights are fallbacks; under BeerCSS the height is its own.
+    c.cards["button"].css.contains(".fh-press.fh-size-small{--fh-press-size:2rem}")
+    beerMod.theme.styles.contains("--fh-press-size:var(--_size)")
+  }
+
+  ["an entity card's badge fills while its entity is on, by HA's rule for the domain"] {
+    local lit = c.entityCard(kitchen).cell.classWhen["fh-active"]
+    lit.signal == "class:fh-active"
+    lit.entityId == kitchen.entity_id
+    lit.type == "bool"
+    // `off` and the two unavailable states are off; any other state is on.
+    local light = lit.transform as simpleMod.SimpleMatch
+    light.cases.toMap() == Map("unavailable", false, "unknown", false, "off", false)
+    light.otherwise == true
+    // A lock is on while it is not locked: HA's reading, not `on`.
+    (c.entityCard(plainLock).cell.classWhen["fh-active"].transform as simpleMod.SimpleMatch)
+      .cases.toMap()["locked"] == false
+    // A reading has no off, so a sensor carries no live class at all.
+    c.entityCard(outside).cell == null
+    c.entityCard(kitchen).active(false).cell == null
+    c.cards["tile"].css.contains(".fh-cell.fh-active .fh-tile>.fh-badge{background:var(--fh-accent)")
+    // A domain sits in at most one of the vendored tables, or which one wins
+    // would be an accident of `activeOf`'s order.
+    local named = activeTables.neutral.toList() + activeTables.onIn.keys.toList()
+      + activeTables.offIn.keys.toList()
+    named.length == named.distinct.length
   }
 
   ["a button knows only its label and its tap; an entity button knows its entity"] {
@@ -939,8 +992,8 @@ facts {
     acts.length == 2
     // `tapAction` stays FIRST — it is the shorthand for the button this card
     // has always had, and adding a second must not move it.
-    acts[0].slots["glyph"] == "mdi-power"
-    acts[1].slots["glyph"] == "mdi-information"
+    acts[0].slots["glyph"] == "mdi mdi-power"
+    acts[1].slots["glyph"] == "mdi mdi-information"
     // They are ordinary `button`s — the shared round icon form, not a card of
     // this module's own. What the slider adds is only WHERE they sit.
     acts.toList().every((a) -> a.card == "button")

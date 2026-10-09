@@ -1457,7 +1457,9 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-dashboard/hass.pkl"
         |import "@fh-dashboard/components.pkl" as c
         |
-        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |// A sensor: a light's entity card carries a live `fh-active`, which
+        |// assigning `cell` replaces along with everything else.
+        |x: hass.SensorEntity = new { entity_id = "sensor.outside" }
         |
         |builder = c.entityCard(x).columns(3).cellClass("hero")
         |amend = (c.entityCard(x)) {
@@ -1497,10 +1499,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(classes("hugged"), Some(List("fh-hug")))
     assertEquals(classes("pill"), Some(List("fh-hug")))
     assertEquals(classes("pillSized"), Some(List("fh-hug", "fh-cols-6")))
-    // The null default is dropped from the wire JSON.
+    // The null default is dropped from the wire JSON. A sensor, which has no
+    // live `fh-active` to carry.
     val plain = probeComponent(
-      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = new c.EntityCard { entity = light }""".stripMargin
+      """s: hass.SensorEntity = new { entity_id = "sensor.outside" }
+        |node = new c.EntityCard { entity = s }""".stripMargin
     )
     assertEquals(plain.cell, None)
   }
@@ -1559,8 +1562,9 @@ class PklBuildSuite extends munit.FunSuite {
         .head
         .node
         .asComponent
-        .cell,
-      None
+        .cell
+        .map(_.classes),
+      Some(Nil)
     )
   }
 
@@ -1771,7 +1775,7 @@ class PklBuildSuite extends munit.FunSuite {
       Some("homeassistant/toggle")
     )
     assertEquals(actions.head.slots("targetId").literal, Some("light.lys"))
-    assertEquals(actions.head.slots("glyph").literal, Some("mdi-power"))
+    assertEquals(actions.head.slots("glyph").literal, Some("mdi mdi-power"))
     assertEquals(actions.head.slots("round").literal, Some("1"))
 
     // `allChildren` would include the head.

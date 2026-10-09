@@ -27,7 +27,15 @@ const local buttonText: String =
     + #"<span class="fh-sub \#(textMod.BOX)">"# + textMod.liveRun("secondary") + "</span></span>"
     + slotMod.endIfSlot("secondary")
 
-const local pressClass: String = "fh-press{{#glyph}} fh-badged{{/glyph}}"
+// The glyph's WHOLE class, as `Tile.glyph`, so a reading can swap it.
+const local glyphTag: String =
+  #"<i class="{{glyph}}" "# + slotMod.signalBind("glyph") + "></i>"
+
+// One literal token per size, so a theme's class rules reach it (ADR 0020).
+const local pressClass: String =
+  "fh-press" + slotMod.ifSlot("glyph") + " fh-badged" + slotMod.endIfSlot("glyph")
+    + "{{#sizeSmall}} fh-size-small{{/sizeSmall}}{{#sizeMedium}} fh-size-medium{{/sizeMedium}}"
+    + "{{#sizeLarge}} fh-size-large{{/sizeLarge}}"
 
 // A labelled button fills its cell, as every other card does; a framework
 // sizing buttons to their label left three nav buttons ragged. `block-size:auto`
@@ -37,10 +45,18 @@ const local pressClass: String = "fh-press{{#glyph}} fh-badged{{/glyph}}"
 // which sits on the cell; a container painting its buttons by position must
 // leave an active one alone. Inside a card it steps to the alternate surface,
 // or it would vanish into it, and its badge steps the other way.
+//
+// One height per size, `--fh-press-size`, which a theme may point at its own;
+// the badge and the padding around it are fractions of it, so a large button
+// keeps the 2.25rem badge every other card wears.
 const local pressCss: String = """
+  .fh-press.fh-size-small{--fh-press-size:2rem}
+  .fh-press.fh-size-medium{--fh-press-size:2.5rem}
+  .fh-press.fh-size-large{--fh-press-size:3rem}
   .fh-cell>:is(.button,button).fh-press{inline-size:100%;box-sizing:border-box;
-  block-size:auto;min-block-size:3.25rem;justify-content:flex-start;gap:.75rem;
-  padding:.375rem 1.25rem;border-radius:999px;text-align:start;
+  block-size:auto;min-block-size:var(--fh-press-size,3rem);justify-content:flex-start;gap:.75rem;
+  padding:calc(var(--fh-press-size,3rem) * .125) 1.25rem;border-radius:999px;text-align:start;
+  --fh-badge-size:calc(var(--fh-press-size,3rem) * .75);
   background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
   .fh-cell>:is(.button,button).fh-press.fh-badged{padding-inline-start:.5rem}
   .card .fh-cell>:is(.button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
@@ -53,7 +69,7 @@ const local pressCss: String = """
   """
 
 /// A label, a glyph and a tap that names its own target.
-open class Button extends nodes.Node {
+open class Button extends nodes.ActiveNode {
   card = "button"
   cardDef = new nodes.CardDef {
     // A navigating button is an `<a href>`, so the browser gives it
@@ -65,7 +81,7 @@ open class Button extends nodes.Node {
     // small`): a glyph alone in a rectangle reads as a broken label, and there
     // the button itself spins.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" href="{{{href}}}">{{#glyph}}{{#round}}<i class="mdi {{glyph}}"></i>{{/round}}{{^round}}<span class="fh-badge"><i class="mdi {{glyph}}"></i></span>{{/round}}{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}}{{#round}} \(tapMod.busyShapeClass){{/round}}{{/glyph}}{{/busyVisual}}>{{#glyph}}{{#round}}<i class="mdi {{glyph}}"></i>{{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}><i class="mdi {{glyph}}"></i></span>{{/round}}{{/glyph}}\(buttonText)</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
       """
     slots { "label" }
     css = pressCss
@@ -76,28 +92,20 @@ open class Button extends nodes.Node {
   /// A glyph before the label, as an MDI name (`mdi:power`). With `label = ""`
   /// the button is icon-only and round — see [[iconButton]].
   hidden icon: String? = null
+  /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`; [[icon]]
+  /// by default. An entity button reads its entity's.
+  hidden glyph: (String|slotMod.Slot)? = if (icon != null) "mdi " + icons.mdiClass(icon!!) else null
+  /// The pill's height, which a theme sets per size. Large fits the badge
+  /// every card wears; a round icon button has its own.
+  hidden size: "small"|"medium"|"large" = "large"
   /// Required: a button is what pressing it does (#106).
   hidden tapAction: tapMod.TapAction = throw(noAction("c.button"))
   inlineSurfaces = tapAction.inlineSurfaces
-  /// Tinted in the accent while this holds: `true`, `c.isOn(l)`,
-  /// `c.expr("on > 0")`, or `lit.any()`.
-  hidden active: nodes.BooleanInput = false
-  cellClasses {
-    when (active == true) { "fh-active" }
-  }
-  liveClasses {
-    when (!(active is Boolean)) {
-      ["fh-active"] = (nodes.booleanSlot(active as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__active")) {
-        signal = slotMod.asClass("fh-active")
-      }
-    }
-  }
   /// Disables the button while it holds, ORed with whatever its tap refuses —
   /// for a reason of the button's own (a popup opener has no call to carry
   /// one): `lit.none()`.
   hidden disabled: nodes.BooleanInput? = null
   derivedValues {
-    when (active is predMod.Predicate) { ["__active"] = active }
     when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
   }
   /// The entity a reading that names none reads. The HA layer sets it.
@@ -117,14 +125,19 @@ open class Button extends nodes.Node {
       ["entity_id"] = subject!!
     }
     ["label"] = slotMod.labelSlot(null, label)
-    when (icon != null) {
-      ["glyph"] = icons.mdiClass(icon!!)
-      // The AUTHORED label, not the resolved one, or every entity button with
-      // an icon would be round.
+    when (glyph != null) {
+      ["glyph"] =
+        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
+        else glyph!!
+      // The AUTHORED label, not the resolved one, or every entity button would
+      // be round.
       when (label == "" && secondary == null) {
         ["round"] = "1"
       }
     }
+    when (size == "small") { ["sizeSmall"] = "1" }
+    when (size == "medium") { ["sizeMedium"] = "1" }
+    when (size == "large") { ["sizeLarge"] = "1" }
     when (secondary != null) {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
@@ -149,6 +162,10 @@ open class Button extends nodes.Node {
   /// `c.button("Stue", tap).secondary("Turns off 4 lights")`.
   function secondary(s: slotMod.Secondary): Button = let (self = this) (self) { secondary = s }
   function icon(i: String): Button = let (self = this) (self) { icon = i }
+  /// No glyph, not even the one an entity button reads off its entity.
+  function noIcon(): Button = let (self = this) (self) { glyph = null }
+  /// `c.button("Stue", tap).size("medium")`.
+  function size(s: "small"|"medium"|"large"): Button = let (self = this) (self) { size = s }
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
   /// `c.entityButton(l).active(c.isOn(l))`.
   function active(a: nodes.BooleanInput): Button = let (self = this) (self) { active = a }

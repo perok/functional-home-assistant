@@ -75,10 +75,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   test("a navigating button reaches the browser as a real link") {
     withServer(_.page()).map { html =>
       // ADR 0002 end to end: c.navigate ships as an anchor with a relative href
-      // against <base href>, which works before Datastar loads.
+      // against <base href>, which works before Datastar loads. Its size is
+      // BeerCSS's own class, through the theme's class rules.
       assert(
         html.contains(
-          """<a class="button fh-press" href="d/other">""" +
+          """<a class="button fh-press large" href="d/other">""" +
             """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
         ),
         clue = html

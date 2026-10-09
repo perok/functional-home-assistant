@@ -1,0 +1,54 @@
+/// When HA's frontend draws an entity ON — the tile's filled badge — vendored
+/// from `src/common/entity/state_active.ts` (frontend `dev`, 2ebe452, checked
+/// 2026-10-09). `core/slot.pkl`'s `activeOf` turns these into a reading.
+///
+/// One deliberate difference: HA draws a sensor, and every domain whose state
+/// is a timestamp (a scene, a button), on whenever it is available. A reading
+/// has no off, so here it has no on look either.
+module hass_active
+
+/// No on look: HA's `TIMESTAMP_STATE_DOMAINS`, and `sensor`.
+const neutral: Set<String> = Set(
+  "sensor",
+  "ai_task",
+  "button",
+  "conversation",
+  "event",
+  "image",
+  "infrared",
+  "input_button",
+  "notify",
+  "radio_frequency",
+  "scene",
+  "stt",
+  "tag",
+  "tts",
+  "wake_word",
+  "datetime"
+)
+
+/// On in exactly these states.
+const onIn: Mapping<String, List<String>> = new {
+  ["plant"] = List("problem")
+  ["group"] = List("on", "home", "open", "locked", "problem")
+  ["timer"] = List("active")
+  ["camera"] = List("streaming", "recording")
+}
+
+/// Off in these as well as `off`, `unavailable` and `unknown`; on in any other
+/// state. A domain in neither table is off in only those three.
+const offIn: Mapping<String, List<String>> = new {
+  ["alarm_control_panel"] = List("disarmed")
+  ["cover"] = List("closed")
+  ["device_tracker"] = List("not_home")
+  ["person"] = List("not_home")
+  ["lawn_mower"] = List("docked", "paused", "idle")
+  ["lock"] = List("locked")
+  ["media_player"] = List("standby")
+  ["vacuum"] = List("idle", "docked", "paused")
+  ["valve"] = List("closed")
+}
+
+/// An acknowledged alert is still on: `off` is active for it, and `idle` is
+/// what is off.
+const alertOffIn: List<String> = List("idle")

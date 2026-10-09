@@ -99,8 +99,11 @@ and `ThemeClasses` rewrites every card template once, when it is compiled
 renderer emits. `dashboard.json` shows the rules beside unrewritten templates,
 which is the "what is going on" a reader needs.
 
-**Leaving the class out is for the spinner.** BeerCSS's mask beside
-`fh-busy-spin` would leave the base ring drawing under it. Leaving a class out of
+**Leaving the class out is for a look the framework has its own of.** BeerCSS's
+mask beside `fh-busy-spin` would leave the base ring drawing under it, and a
+button's `fh-size-small`/`-medium`/`-large` become BeerCSS's `small`/(none)/`large`,
+whose height the theme reads through `--_size`, so the button card's fallback
+heights stop applying. Leaving a class out of
 its content takes the base CSS's rules with it, so `fh-cell` and `fh-group` must
 stay in their own — the shell script and the layout select on them — and
 `Dashboard.validate` refuses a content without them. A rule names an `fh-` class:
