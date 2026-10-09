@@ -25,3 +25,8 @@ class Ref {
 /// Read the variable `name` from the nearest declaring ancestor. Not `read`,
 /// which is a Pkl keyword.
 const function ref(name: String): Ref = new Ref { `var` = name }
+
+/// The id of the nearest node above this one declaring `name`, for a slot
+/// that posts to it or reads its signals. The build splices it, by the rule
+/// [[ref]] resolves by, and refuses a node with no such ancestor.
+const function declarer(name: String): String = "@@VAR:\(name)@@"
