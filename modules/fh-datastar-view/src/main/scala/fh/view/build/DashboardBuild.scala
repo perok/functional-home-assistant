@@ -103,19 +103,14 @@ object DashboardBuild {
       case Some(obj) =>
         val (newCard, cardSurfaces) =
           obj("card")
-            .map(walk(_, LayoutNode.pathId(Nil), Map.empty))
+            .map(walkRoot(_, ""))
             .getOrElse((Json.Null, Nil))
         val existing =
           obj("surfaces").flatMap(_.asObject).getOrElse(JsonObject.empty)
         val rebuilt = existing.toList.map { case (sid, sv) =>
           sv.asObject.flatMap(_(ContentKey)) match {
             case Some(c) =>
-              val (nc, extra) =
-                walk(
-                  c,
-                  LayoutNode.surfacePrefix(sid) + LayoutNode.pathId(Nil),
-                  Map.empty
-                )
+              val (nc, extra) = walkRoot(c, LayoutNode.surfacePrefix(sid))
               (sid -> sv.mapObject(_.add(ContentKey, nc)), extra)
             case None => (sid -> sv, Nil)
           }
@@ -235,19 +230,21 @@ object DashboardBuild {
     s"${idBase}_$localKey"
 
   /** Ids through `LayoutNode.segment`, as the renderer mints them, with an
-    * authored id winning as it does there.
+    * authored id winning, under its surface's prefix, as it does there
+    * (`LayoutNode.childId`).
     */
   private def walkRegion(
       region: String,
       children: Json,
       idBase: String,
-      scope: Map[String, String]
+      scope: Map[String, String],
+      prefix: String
   ): (List[Json], List[(String, Json)]) = {
     val rs = children.asArray.getOrElse(Vector.empty).zipWithIndex.map {
       case (ch, i) =>
         val derived =
           s"${idBase}_${LayoutNode.segment(LayoutNode.Step(region, i))}"
-        walk(ch, authoredIdOf(ch).getOrElse(derived), scope)
+        walk(ch, authoredIdOf(ch).fold(derived)(prefix + _), scope, prefix)
     }
     (rs.map(_._1).toList, rs.toList.flatMap(_._2))
   }
@@ -259,7 +256,8 @@ object DashboardBuild {
   private def walkMembers(
       obj: JsonObject,
       idBase: String,
-      scope: Map[String, String]
+      scope: Map[String, String],
+      prefix: String
   ): (JsonObject, List[(String, Json)]) =
     obj(MembersKey).flatMap(_.asObject) match {
       case None          => (obj, Nil)
@@ -275,7 +273,8 @@ object DashboardBuild {
               cObj(NodeKey) match {
                 case None    => (clause, Nil)
                 case Some(n) =>
-                  val (walkedNode, surfaces) = walk(n, memberBase, scope)
+                  val (walkedNode, surfaces) =
+                    walk(n, memberBase, scope, prefix)
                   (Json.fromJsonObject(cObj.add(NodeKey, walkedNode)), surfaces)
               }
             }
@@ -295,13 +294,24 @@ object DashboardBuild {
         )
     }
 
+  /** A tree's root, the page's or a surface's, by `LayoutNode.rootId`. A
+    * surface starts an empty scope.
+    */
+  private def walkRoot(
+      node: Json,
+      prefix: String
+  ): (Json, List[(String, Json)]) =
+    walk(node, prefix + authoredIdOf(node).getOrElse("c"), Map.empty, prefix)
+
   /** `scope` is variable name -> declarer id, as `Renderer.varScopes` resolves
-    * a `Ref.Var`: nearest declarer wins, a surface starts empty.
+    * a `Ref.Var`: nearest declarer wins. `prefix` is the tree's, which an
+    * authored id below still carries.
     */
   private def walk(
       node: Json,
       idBase: String,
-      scope: Map[String, String]
+      scope: Map[String, String],
+      prefix: String
   ): (Json, List[(String, Json)]) =
     node.asObject match {
       case None           => (node, Nil)
@@ -317,7 +327,7 @@ object DashboardBuild {
             case None          => (obj0, Nil)
             case Some(regions) =>
               val rs = regions.toList.map { case (region, arr) =>
-                val (js, ss) = walkRegion(region, arr, idBase, here)
+                val (js, ss) = walkRegion(region, arr, idBase, here, prefix)
                 (region -> Json.fromValues(js), ss)
               }
               (
@@ -330,23 +340,20 @@ object DashboardBuild {
           }
         // Sets too: the starter's "Low battery" set gives each sensor an
         // inline more-info popup (ADR 0016), and was once never hoisted.
-        val (obj2, setSurfaces) = walkMembers(obj1, idBase, here)
+        val (obj2, setSurfaces) = walkMembers(obj1, idBase, here, prefix)
         obj2(InlineSurfacesKey).flatMap(_.asObject) match {
           case None =>
             (Json.fromJsonObject(obj2), childSurfaces ++ setSurfaces)
           case Some(marker) =>
-            // Nested first, so the tokens left belong to this node. Under
-            // `surfacePrefix(sid) + pathId(Nil)`, not `<idBase>_<key>_c`: that
-            // left tabs inside an `If` branch baking into a node that did not
-            // exist.
+            // Nested first, so the tokens left belong to this node. Under the
+            // surface's own root id, not `<idBase>_<key>_c`: that left tabs
+            // inside an `If` branch baking into a node that did not exist.
             val resolved = marker.toList.map { case (key, sd) =>
               val sdObj = sd.asObject.getOrElse(JsonObject.empty)
               val (content, nested) =
-                walk(
+                walkRoot(
                   sdObj(ContentKey).getOrElse(Json.Null),
-                  LayoutNode.surfacePrefix(surfaceId(idBase, key)) +
-                    LayoutNode.pathId(Nil),
-                  Map.empty
+                  LayoutNode.surfacePrefix(surfaceId(idBase, key))
                 )
               (key, sdObj.add(ContentKey, content), nested)
             }

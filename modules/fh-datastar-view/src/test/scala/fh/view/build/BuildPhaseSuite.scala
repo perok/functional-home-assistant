@@ -352,6 +352,43 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(spliced(hoisted), List("c"))
   }
 
+  test("the hoist names an authored node by the id the renderer gives it") {
+    // A surface keyed, or a token spliced, under an id no node has is broken
+    // and silent, so the expected ids are the renderer's own functions.
+    val popup =
+      """, "inlineSurfaces": { "self": { "content": { "kind": "component", "card": "x" } } }"""
+    val authoredRoot = hoistCard(node(""", "id": "home"""", node(popup)))
+    val rootId = LayoutNode.rootId(
+      "",
+      LayoutNode.Component("x", id = Some("home"))
+    )
+    assertEquals(
+      authoredRoot.hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List(s"${rootId}_0_self"))
+    )
+    val inSurface = hoistCard(
+      node(""),
+      s"""{ "detail": { "content": ${node(
+          "",
+          node(s""", "id": "named"$popup""")
+        )} } }"""
+    )
+    val prefix = LayoutNode.surfacePrefix("detail")
+    val namedId = LayoutNode.childId(
+      prefix,
+      LayoutNode.rootId(prefix, LayoutNode.Component("x")),
+      LayoutNode.Step(LayoutNode.DefaultRegion, 0),
+      LayoutNode.Component("x", id = Some("named"))
+    )
+    assert(
+      inSurface.hcursor
+        .downField("surfaces")
+        .keys
+        .exists(_.toList.contains(s"${namedId}_self")),
+      clue = inSurface.hcursor.downField("surfaces").keys
+    )
+  }
+
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
     // The onclick already references the future id via the node token; the
     // hoist lifts the content and splices the id.
