@@ -933,7 +933,7 @@ facts {
     (c.button("x", c.tap.navigate("it's")).slots["current"] as slotMod.Slot).transform
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
-    cssMod.baseCss.contains(".fh-cell>.fh-current{outline:")
+    cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
   }
 
   ["an entity button wears its entity's icon, live where the domain's follows its state"] {

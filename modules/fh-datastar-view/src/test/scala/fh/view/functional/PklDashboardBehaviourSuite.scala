@@ -93,7 +93,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         .use(_.page())
         .timeout(60.seconds)
         .map { html =>
-          """<a class="[^"]*fh-current[^"]*" aria-current="page" href="d/(\w+)">""".r
+          """<a class="[^"]*fh-current-dashboard[^"]*" aria-current="page" href="d/(\w+)">""".r
             .findAllMatchIn(html)
             .map(_.group(1))
             .toList

@@ -165,7 +165,7 @@ identical.) The `TapAction` also carries the equivalent `onclick`
 root element cannot be an anchor — `tile`'s `<article>` — so one authored
 `c.tap.navigate('x')` renders correctly wherever it is dropped.
 
-A link to the dashboard already open carries `fh-current` and
+A link to the dashboard already open carries `fh-current-dashboard` and
 `aria-current="page"`, and stays a link. A module does not know its own slug,
 so the build cannot decide which link that is: the tap names its target
 (`page`), and the card reads `dashboard_slug == '<page>'` in a slot read once

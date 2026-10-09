@@ -482,7 +482,7 @@ function navigate(slug: String): Click = new {
 }
 
 /// `current`, true on the dashboard a navigate goes to, for a card's anchor to
-/// place `fh-current` and `aria-current="page"` under. Read once per renderer,
+/// place `fh-current-dashboard` and `aria-current="page"` under. Read once per renderer,
 /// which is one dashboard, so it costs no signal; the build cannot answer it,
 /// since a module does not know its slug.
 const function currentSlots(t: TapAction): Mapping<String, slotMod.Slot> = new {
@@ -497,7 +497,7 @@ const function currentSlots(t: TapAction): Mapping<String, slotMod.Slot> = new {
 }
 
 /// What an anchor places for [[currentSlots]]: the class, then the attribute.
-const currentClass: String = "{{#current}} fh-current{{/current}}"
+const currentClass: String = "{{#current}} fh-current-dashboard{{/current}}"
 const currentAttr: String = #"{{#current}} aria-current="page"{{/current}}"#
 
 /// Dismiss the open popup, as its ✕ does.
