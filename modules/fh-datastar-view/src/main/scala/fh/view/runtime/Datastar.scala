@@ -356,6 +356,11 @@ object Datastar {
         .mkString(" ")
     case SignalBind.Handler => ""
 
+  /** [[jsLiteral]], but a boolean reads back as one: `'false'` is truthy. */
+  def jsValue(value: SlotValue): String = value match
+    case b: Boolean => b.toString
+    case s: String  => jsLiteral(s)
+
   /** The non-signal half of `<slot>__read`, through the seed's escaper. */
   def jsLiteral(value: String): String = {
     val sb = new java.lang.StringBuilder(value.length + 2)

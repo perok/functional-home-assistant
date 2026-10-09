@@ -72,6 +72,38 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("a link to the dashboard being served is marked current, and no other") {
+    // The module cannot know its slug, so the mark is the renderer's answer:
+    // the same entry under two slugs marks a different link each time.
+    val nav =
+      """amends "@fh-dashboard/entry.pkl"
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |
+        |card = (c.column) {
+        |  children {
+        |    c.button("Home", c.tap.navigate("home"))
+        |    c.pill("Kitchen", c.tap.navigate("kitchen"))
+        |  }
+        |}
+        |""".stripMargin
+    def marked(slug: String): IO[List[String]] =
+      TestServer
+        .fromWorkspace(slug, nav, entities)
+        .use(_.page())
+        .timeout(60.seconds)
+        .map { html =>
+          """<a class="[^"]*fh-current-dashboard[^"]*" aria-current="page" href="d/(\w+)">""".r
+            .findAllMatchIn(html)
+            .map(_.group(1))
+            .toList
+        }
+    (marked("home"), marked("kitchen")).mapN { (home, kitchen) =>
+      assertEquals(home, List("home"))
+      assertEquals(kitchen, List("kitchen"))
+    }
+  }
+
   test("a navigating button reaches the browser as a real link") {
     withServer(_.page()).map { html =>
       // ADR 0002 end to end: c.navigate ships as an anchor with a relative href

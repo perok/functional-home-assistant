@@ -212,10 +212,11 @@ class Renderer(
 
   /** `reactive: false` slot values by `(entityId, transform)`: they read only
     * identity, so they never change for this renderer's life. A racing fill
-    * computes the same value.
+    * computes the same value. Typed, or a `bool` slot's `false` reaches a
+    * section as the truthy string `"false"`.
     */
   private val identityCache =
-    new java.util.concurrent.ConcurrentHashMap[(String, String), String]()
+    new java.util.concurrent.ConcurrentHashMap[(String, String), SlotValue]()
 
   private val surfaceIndexes: Map[String, Index] =
     dashboard.surfaces.map { case (sid, s) =>
@@ -1423,7 +1424,7 @@ class Renderer(
     */
   private case class Resolved(
       structural: Map[String, String],
-      constants: Map[String, String],
+      constants: Map[String, SlotValue],
       bindings: Map[String, String],
       paint: Map[String, SlotValue],
       bake: Map[String, String],
@@ -1532,7 +1533,10 @@ class Renderer(
               val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
               if (p != null) v = SlotValue.scoped(p)
             }
-            if (v == null) v = resolved.constants.getOrElse(name, null)
+            if (v == null) {
+              val c: SlotValue | Null = resolved.constants.getOrElse(name, null)
+              if (c != null) v = SlotValue.scoped(c)
+            }
             if (v == null) v = resolved.bake.getOrElse(name, null)
             if (v == null) v = resolved.structural.getOrElse(name, null)
             v
@@ -1549,7 +1553,7 @@ class Renderer(
       node: LayoutNode.Component,
       tpl: Mustache,
       structural: Map[String, String],
-      constants: Map[String, String],
+      constants: Map[String, SlotValue],
       dynamic: List[(String, Option[String], SlotSource)],
       bindings: Map[String, String],
       signalSlots: List[String],
@@ -1601,7 +1605,7 @@ class Renderer(
         case Some(s) if s.literal.isDefined => Some(s.literal)
         case Some(_)                        => None
       }
-    val constB = Map.newBuilder[String, String]
+    val constB = Map.newBuilder[String, SlotValue]
     val dynB = List.newBuilder[(String, Option[String], SlotSource)]
     val dynInhB = List.newBuilder[(String, SlotSource)]
     slots.foreach { case (slot, source) =>
@@ -1630,10 +1634,10 @@ class Renderer(
                   if (st.reads == Reads.Once) {
                     val once = identityCache.computeIfAbsent(
                       (srcEntity.getOrElse(""), st.valueKey),
-                      _ => resolveStateSlot(srcEntity, st, states)
+                      _ => resolveStateSlotValue(srcEntity, st, states)
                     )
                     constB += ((slot, once))
-                    constB += ((slot + "__read", Datastar.jsLiteral(once)))
+                    constB += ((slot + "__read", Datastar.jsValue(once)))
                   } else dynB += ((slot, srcEntity, source))
             case None => dynInhB += ((slot, source))
           }
@@ -1761,7 +1765,7 @@ class Renderer(
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
-              _ => resolveStateSlot(srcEntity, source, states)
+              _ => resolveStateSlotValue(srcEntity, source, states)
             )
           else
             resolveSlotValue(srcEntity, source, states, fragments, plan.id)

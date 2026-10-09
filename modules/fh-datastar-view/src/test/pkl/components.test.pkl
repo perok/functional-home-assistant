@@ -912,6 +912,30 @@ facts {
       == byHand.active(c.isOn(kitchen)).cell
   }
 
+  ["a link to a dashboard can tell it is the open one, without a signal"] {
+    // Every card that can render a navigate as a link places the mark, read
+    // once from the slug the renderer serves.
+    local links = List(
+      c.button("Home", c.tap.navigate("home")),
+      c.pill("Home", c.tap.navigate("home")),
+      c.entityButton(kitchen).tapAction(c.tap.navigate("home"))
+    )
+    links.every((n) ->
+      let (cur = n.slots["current"] as slotMod.Slot)
+        cur.transform == "dashboard_slug == 'home'" && cur.reads == "once"
+          && cur.type == "bool" && cur.signal == null)
+    List("button", "pill").every((k) ->
+      let (t = c.cards[k].template)
+        t.contains(tapMod.currentClass + "\"" + tapMod.currentAttr + " href="))
+    // A service tap is no link, so it has nothing to mark.
+    !c.button("x", c.tap.toggle(kitchen)).slots.containsKey("current")
+    // A slug is a key the author wrote, so a quote in it stays in the string.
+    (c.button("x", c.tap.navigate("it's")).slots["current"] as slotMod.Slot).transform
+      == #"dashboard_slug == 'it\'s'"#
+    // Ringed, not filled: a fill already means on.
+    cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
+  }
+
   ["an entity button wears its entity's icon, live where the domain's follows its state"] {
     c.entityButton(kitchen).slots["glyph"] == "mdi mdi-lightbulb"
     // A lock's glyph is its state's, so the button flips with it as its tile does.

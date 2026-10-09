@@ -122,7 +122,9 @@ const local shellCss: String = """
 /// `fh-section`, a heading over a group; `fh-badge`, the round seat a card's
 /// glyph sits in, the slider head's look, so a button, a tile and a slider
 /// carry one badge, `--fh-badge-size` across (a button sizes it to itself);
-/// `fh-lines`, a title with its reading and second line under it.
+/// `fh-lines`, a title with its reading and second line under it; `fh-current-dashboard`,
+/// a link to the dashboard already open, ringed rather than filled, since a
+/// fill means on.
 ///
 /// Prefixed, because these share the cascade with the theme's framework, whose
 /// single-word utilities can be `!important`. Sizes are absolute, because a
@@ -137,6 +139,7 @@ const local sharedCss: String = """
   border-radius:50%;background:var(--fh-surface-alt);color:var(--fh-accent)}
   .fh-badge>i{font-size:calc(var(--fh-badge-size,2.25rem) * 5 / 9);line-height:1}
   .fh-lines{display:flex;flex-direction:column;align-items:flex-start;min-inline-size:0}
+  .fh-cell>.fh-current-dashboard{outline:.125rem solid var(--fh-accent);outline-offset:-.125rem}
   """
 
 /// No pinch or double-tap zoom on touch (#306): a dashboard is an app surface
