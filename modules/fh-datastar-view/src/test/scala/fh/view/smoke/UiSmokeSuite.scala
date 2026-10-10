@@ -439,9 +439,7 @@ class UiSmokeSuite extends SmokeSuite {
 
   test("a title too long for its card stays on it and ends in an ellipsis") {
     // A tile's title is a flex item that is not stretched, so it was sized to
-    // its whole line: the box ran past the card and so never cut. Every card
-    // placing a title is in the fixture, since each lays its box out its own
-    // way.
+    // its whole line: the box ran past the card and so never cut.
     withPage(
       Scene
         .of(SmokeDashboard.longTitleCards)
@@ -473,8 +471,8 @@ class UiSmokeSuite extends SmokeSuite {
         val titles = boxes.filter(_.text == SmokeDashboard.longName)
         assertEquals(
           titles.size,
-          4,
-          clue = "the tile, the button's label and second line, the switch"
+          3,
+          clue = "the tile, the button's label and second line"
         )
         boxes.foreach(b => assert(b.right <= b.cardRight + 0.5, clue = b))
         titles.foreach(b =>

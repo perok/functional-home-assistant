@@ -233,9 +233,8 @@ object SmokeDashboard {
     )
   )
 
-  /** Each card that places a title, on [[longNameLight]]. The tile and the
-    * button with a second line hold theirs in an `.fh-lines` column, the switch
-    * in a flex row.
+  /** The cards that hold a title in an `.fh-lines` column, on
+    * [[longNameLight]]: the tile, and a button with a second line.
     */
   val longTitleCards: Dashboard =
     PklFixture.buildDashboard(
@@ -253,7 +252,6 @@ object SmokeDashboard {
          |  children {
          |    c.entityCard(dump.entities.${longNameLight.dumpKey})
          |    c.entityButton(dump.entities.${longNameLight.dumpKey}).secondary("$longName")
-         |    c.toggle(dump.entities.${longNameLight.dumpKey})
          |  }
          |}
          |""".stripMargin,

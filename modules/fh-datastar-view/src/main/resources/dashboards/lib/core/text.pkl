@@ -68,7 +68,10 @@ const function label(tone: String, body: String): String =
   #"<span class="fh-label fh-label-\#(tone) \#(BOX)"><span class="fh-text-run">\#(body)</span></span>"#
 
 /// Emitted once with the base CSS. The box is always a block, because
-/// `text-overflow` needs one to cut.
+/// `text-overflow` needs one to cut. `max-inline-size` is what makes it cut:
+/// an unstretched flex item (`.fh-lines` is a column with `flex-start`) is
+/// sized to fit its content, which for one line is the whole label, so the
+/// box ran past the card and never showed an ellipsis.
 const css: String = """
   .fh-text{display:block;min-inline-size:0;
   flex:var(--fh-text-flex,0 1 auto);
@@ -76,7 +79,7 @@ const css: String = """
   overflow-wrap:var(--fh-text-break,normal);
   overflow:var(--fh-text-clip,hidden);
   text-overflow:var(--fh-text-ellipsis,ellipsis);
-  container-type:var(--fh-text-track,normal)}
+  container-type:var(--fh-text-track,normal);max-inline-size:100%}
   .fh-text>.fh-text-run{display:var(--fh-text-run,inline);animation:var(--fh-text-motion,none)}
   .fh-label-dim{color:var(--fh-text-dim)}
   .fh-label-error{color:var(--fh-error)}
