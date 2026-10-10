@@ -81,7 +81,8 @@ class RendererSuite extends munit.FunSuite {
         regions = LayoutNode.kids(
           LayoutNode.Component("btn", Map("label" -> lit("A"))),
           LayoutNode.Component("btn", Map("label" -> lit("B")))
-        )
+        ),
+        vars = Map("tab" -> "0")
       ),
       surfaces = Map(
         "c_t0" -> Surface(
@@ -89,13 +90,14 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
+          activation = Activation.Var("tab")
         ),
         "c_t1" -> Surface(
           panel("b"),
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
-          bakeIndex = Some(1)
+          bakeIndex = Some(1),
+          activation = Activation.Var("tab")
         )
       )
     )
@@ -1332,7 +1334,8 @@ class RendererSuite extends munit.FunSuite {
               slots = Map("title" -> SlotSource(Some("sensor.title"), "state"))
             )
           )
-        )
+        ),
+        vars = Map("tab" -> "0")
       ),
       surfaces = Map(
         "c_t0" -> Surface(
@@ -1340,13 +1343,14 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
+          activation = Activation.Var("tab")
         ),
         "c_t1" -> Surface(
           panel("b"),
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
-          bakeIndex = Some(1)
+          bakeIndex = Some(1),
+          activation = Activation.Var("tab")
         )
       )
     )
@@ -1711,7 +1715,8 @@ class RendererSuite extends munit.FunSuite {
     val d = Dashboard(
       ifCards,
       col(
-        LayoutNode.Component("tabs"), // c_0 — hosts the user surface t0
+        // c_0 — hosts the tab panel t0
+        LayoutNode.Component("tabs", vars = Map("tab" -> "0")),
         LayoutNode.Component("ifhost") // c_1 — hosts the state surface sx
       ),
       surfaces = Map(
@@ -1720,7 +1725,7 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c_0"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
+          activation = Activation.Var("tab")
         ),
         "b0" -> Surface(
           LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.a")))),
@@ -1730,7 +1735,7 @@ class RendererSuite extends munit.FunSuite {
           activation = Activation.State(always)
         ),
         "sx" -> Surface(
-          LayoutNode.Component("tabs"),
+          LayoutNode.Component("tabs", vars = Map("tab" -> "0")),
           bakeInto = Some("c_1"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
@@ -1741,7 +1746,7 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("s_sx__c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
+          activation = Activation.Var("tab")
         )
       )
     )

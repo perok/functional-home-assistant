@@ -199,10 +199,11 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   content) — no `new`, and the wrap rule is enforced by construction.
 - Tabs: the `Tabs` class, keyed `tabs: Mapping<String, Listing<LayoutNode>>`
   (label → that tab's cards, Row-wrapped into per-tab inline surfaces with
-  `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`; the Listing-valued mapping
+  `bakeInto`/`bakeAs`/`bakeIndex` and selected by the bar's `tab` variable,
+  ADR 0033; the Listing-valued mapping
   default lets a tab body list cards with no `new`/`children`). The bar is
   BeerCSS-native markup: a `TabButton` card per tab (`.tabs > a` anchors,
-  `data-class` active + signal-setting onclick) — internal to `Tabs`, not an
+  `data-class` active + a variable-writing onclick) — internal to `Tabs`, not an
   authoring surface (0002/0005).
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them

@@ -33,9 +33,10 @@ whose member is selected by a **condition** instead of a viewer's choice:
   (inactive surfaces are simply never consulted), not a guard bolted onto the
   patch loop.
 - **`Surface.activation` is a sum**, replacing the flat `defaultOpen` flag:
-  `User(defaultOpen)` | `Var(name)` | `State(condition: Predicate)`, where
-  `Var` is a tab bar's (ADR 0033). The sum makes the invalid combination (a
-  default-open flag AND a condition on one member) unrepresentable; a bake group must be mode-homogeneous
+  `User(defaultOpen)` | `Var(name)` | `State(condition: Predicate)`. `User` is
+  a popup's and never a baked member; `Var` is a tab bar's (ADR 0033). The sum
+  makes the invalid combination (a default-open flag AND a condition on one
+  member) unrepresentable; a bake group must be mode-homogeneous
   (`Dashboard.validate` rejects mixing). The flat wire field is retired — no
   legacy decode; an absent `activation` decodes to `User(false)`, so plain
   popups author nothing new.

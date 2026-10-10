@@ -176,25 +176,44 @@ trait ServerHarness extends munit.CatsEffectSuite {
           ),
           LayoutNode
             .Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
-        )
+        ),
+        vars = TabDeclared
       ),
       surfaces = Map(
-        "c_t0" -> Surface(
-          panel("a"),
-          bakeInto = Some("c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
-        ),
-        "c_t1" -> Surface(
-          panel("b"),
-          bakeInto = Some("c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(1)
-        )
+        "c_t0" -> tabMember(panel("a"), "c", 0),
+        "c_t1" -> tabMember(panel("b"), "c", 1)
       )
     )
   }
+
+  /** What a tab bar declares: the open member's index (ADR 0033). */
+  val TabDeclared: Map[String, String] = Map("tab" -> "0")
+
+  /** A member of a tab bar's panel, selected by the bar's `tab`. */
+  def tabMember(
+      content: LayoutNode,
+      host: String,
+      index: Int,
+      bakeAs: String = "panel"
+  ): Surface =
+    Surface(
+      content,
+      bakeInto = Some(host),
+      bakeAs = Some(bakeAs),
+      bakeIndex = Some(index),
+      activation = Activation.Var("tab")
+    )
+
+  /** A stream carrying this viewer's committed tabs, as a reconnect does
+    * (`Server.SseInclude`): with no document, nothing else names them.
+    */
+  def onTabs(tabs: (String, Int)*): String =
+    "?datastar=" + java.net.URLEncoder.encode(
+      tabs
+        .map((host, i) => s""""_var_${host}__tab":"$i"""")
+        .mkString("{", ",", "}"),
+      "UTF-8"
+    )
 
   /** A page GET carrying ui state in the URL, as a refresh does. */
   def get(params: (String, String)*): Request[IO] =
@@ -359,19 +378,17 @@ trait ServerHarness extends munit.CatsEffectSuite {
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
         ),
-        LayoutNode.Component("tabs")
+        LayoutNode.Component("tabs", vars = TabDeclared)
       )
     ),
     surfaces = Map(
-      "t0" -> Surface(
+      "t0" -> tabMember(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.a")))
         ),
-        bakeInto = Some("c_1"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.User(defaultOpen = true)
+        "c_1",
+        0
       )
     )
   )
@@ -638,28 +655,25 @@ trait ServerHarness extends munit.CatsEffectSuite {
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
         ),
-        LayoutNode.Component("tabs")
+        LayoutNode.Component("tabs", vars = TabDeclared)
       )
     ),
     surfaces = Map(
-      "t0" -> Surface(
+      "t0" -> tabMember(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.a")))
         ),
-        bakeInto = Some("c_1"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.User(defaultOpen = true)
+        "c_1",
+        0
       ),
-      "t1" -> Surface(
+      "t1" -> tabMember(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.b")))
         ),
-        bakeInto = Some("c_1"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        "c_1",
+        1
       )
     )
   )

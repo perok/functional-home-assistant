@@ -585,7 +585,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test(
-    "validate rejects a bake group mixing user- and state-activated members"
+    "validate rejects a bake group mixing var- and state-activated members"
   ) {
     def member(index: Int, activation: Activation): Surface =
       Surface(
@@ -607,27 +607,36 @@ class BuildPhaseSuite extends munit.FunSuite {
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
-      card = LayoutNode.Component("ok"),
+      card = LayoutNode.Component("ok", vars = Map("tab" -> "0")),
       surfaces = Map(
-        "a" -> member(0, Activation.User(defaultOpen = true)),
+        "a" -> member(0, Activation.Var("tab")),
         "b" -> member(1, state)
       )
     )
     assert(
-      mixed.validate().exists(_.contains("mixes user- and state-activated")),
+      mixed.validate().exists(_.contains("mixes var- and state-activated")),
       clue = mixed.validate()
     )
     val allState = mixed.copy(surfaces =
       Map("a" -> member(0, state), "b" -> member(1, state))
     )
     assertEquals(allState.validate(), Nil)
-    val allUser = mixed.copy(surfaces =
+    val allVar = mixed.copy(surfaces =
       Map(
-        "a" -> member(0, Activation.User(defaultOpen = true)),
-        "b" -> member(1, Activation.User())
+        "a" -> member(0, Activation.Var("tab")),
+        "b" -> member(1, Activation.Var("tab"))
       )
     )
-    assertEquals(allUser.validate(), Nil)
+    assertEquals(allVar.validate(), Nil)
+    // A baked member nothing selects: a host is filled by a choice the server
+    // knows (ADR 0033).
+    val unchosen = mixed.copy(surfaces =
+      Map("a" -> member(0, Activation.User()), "b" -> member(1, state))
+    )
+    assert(
+      unchosen.validate().exists(_.contains("has members nothing selects (a)")),
+      clue = unchosen.validate()
+    )
   }
 
   test("validate rejects a state condition that names no entity") {
@@ -678,14 +687,14 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("validate rejects a surface baking into a region its card lacks") {
     def dash(hostCard: CardDef, as: String) = Dashboard(
       cards = Map("host" -> hostCard),
-      card = LayoutNode.Component("host"),
+      card = LayoutNode.Component("host", vars = Map("tab" -> "0")),
       surfaces = Map(
         "s" -> Surface(
           LayoutNode.Component("host"),
           bakeInto = Some("c"),
           bakeAs = Some(as),
           bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
+          activation = Activation.Var("tab")
         )
       )
     )

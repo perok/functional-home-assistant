@@ -202,14 +202,14 @@ class NodeVariablesSuite extends munit.FunSuite {
     // is a scope root does not apply: a chooser above a tab bar reaches the
     // charts in its panels.
     val d = dash(
-      box(Map("window" -> "7d"), box(Map.empty)),
+      box(Map("window" -> "7d"), box(Map("tab" -> "0"))),
       surfaces = Map(
         "t0" -> Surface(
           chartNode(),
           bakeInto = Some("c_0"),
           bakeAs = Some("children"),
           bakeIndex = Some(0),
-          activation = Activation.User(true)
+          activation = Activation.Var("tab")
         )
       )
     )

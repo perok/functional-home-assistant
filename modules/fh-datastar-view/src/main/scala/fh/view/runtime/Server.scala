@@ -1185,7 +1185,11 @@ class Server(
   ): IO[Response[IO]] = {
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap { body =>
-        connOf(body).map(_ -> Server.uiFromSignals(body.hcursor))
+        connOf(body).map(
+          _ -> Server
+            .uiFromSignals(body.hcursor)
+            .filter((k, _) => k == Dashboard.PopupHostId)
+        )
       })
       .flatMap {
         case None =>
@@ -2277,12 +2281,15 @@ object Server {
       java.net.URLEncoder.encode(s, UTF_8)
   }
 
-  /** Bake-group id -> selected member, from the URL's `ui.<id>` params and the
-    * `ui_<id>` signals (ADR 0005). Signals win: the URL trails them. Values are
-    * untrusted; [[SurfaceGraph.resolveActive]] clamps them.
+  /** The open popup, from the URL's `ui.popups` param and the `ui_popups`
+    * signal (ADR 0005). Signals win: the URL trails them. Untrusted;
+    * [[SurfaceGraph.openPopup]] narrows it. A tab bar's selection is a node
+    * variable, read from the session ([[selectionsOf]]), so a `ui.<id>` param
+    * naming one is not read.
     */
   def uiStateOf(req: Request[IO]): Map[String, String] =
-    uiFromQuery(req) ++ signalsOf(req).fold(Map.empty)(uiFromSignals)
+    (uiFromQuery(req) ++ signalsOf(req).fold(Map.empty)(uiFromSignals))
+      .filter((k, _) => k == Dashboard.PopupHostId)
 
   // The URL, not a cookie: a cookie is per origin, and two tabs would
   // overwrite each other's selection.
@@ -2776,7 +2783,7 @@ object Server {
     * this process forgot adopts the choices from it ([[carriedVars]]).
     */
   private[runtime] val SseInclude: String =
-    s"^($ConnSignal$$|${UiSignalPrefix}|$CursorSignal\\.|$VarSignalPrefix(?!.*__pending$$))"
+    s"^($ConnSignal$$|$UiSignalPrefix${Dashboard.PopupHostId}$$|$CursorSignal\\.|$VarSignalPrefix(?!.*__pending$$))"
 
   /** `always`: the pinned bundle's default retries a dropped connection but not
     * a completed 200, and this stream should never end. A deleted slug's

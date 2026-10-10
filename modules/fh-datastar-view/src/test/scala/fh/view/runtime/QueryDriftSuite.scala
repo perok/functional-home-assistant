@@ -81,7 +81,9 @@ class QueryDriftSuite extends munit.FunSuite {
         )
       )
     )
-    def host(id: String) = LayoutNode.Component("host", id = Some(id))
+    // A host is a tab bar's: it declares the variable its panel is chosen by.
+    def host(id: String) =
+      LayoutNode.Component("host", id = Some(id), vars = Map("tab" -> "0"))
     def col(kids: LayoutNode*) =
       LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
     def baked(into: String, idx: Int, content: LayoutNode, a: Activation) =
@@ -134,8 +136,8 @@ class QueryDriftSuite extends munit.FunSuite {
         )
       ),
       surfaces = Map(
-        "t0" -> baked("tabs", 0, chart("sensor.tab0"), Activation.User(true)),
-        "t1" -> baked("tabs", 1, chart("sensor.tab1"), Activation.User()),
+        "t0" -> baked("tabs", 0, chart("sensor.tab0"), Activation.Var("tab")),
+        "t1" -> baked("tabs", 1, chart("sensor.tab1"), Activation.Var("tab")),
         "on" -> baked(
           "branch",
           0,
@@ -152,7 +154,7 @@ class QueryDriftSuite extends munit.FunSuite {
           Renderer.surfacePrefix("on") + "inner",
           0,
           chart("sensor.inner"),
-          Activation.User(true)
+          Activation.Var("tab")
         ),
         "pop" -> Surface(chart("sensor.pop"))
       )
