@@ -477,6 +477,110 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
+  // Two tab bars side by side, one with a bar nested in its first panel, and a
+  // chart in every branch. A chart is the expensive render (a recorder fetch),
+  // so which sensors the recorder is asked for is which branches rendered.
+
+  private val nestedX1 = HouseFixture.outsideTemp
+  private val nestedX2 = HouseFixture.washerRemaining
+  private val nestedY = HouseFixture.washerProgram
+
+  private val nestedEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    (c.tabs) { tabs { ["A"] { c.title("a-one") } ["B"] { c.title("b-one") } } }
+       |    (c.tabs) {
+       |      tabs {
+       |        ["X"] {
+       |          (c.tabs) {
+       |            tabs {
+       |              ["X1"] { c.historyChart(dump.entities.${nestedX1.dumpKey}) }
+       |              ["X2"] { c.historyChart(dump.entities.${nestedX2.dumpKey}) }
+       |            }
+       |          }
+       |        }
+       |        ["Y"] { c.historyChart(dump.entities.${nestedY.dumpKey}) }
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
+
+  /** The contract, written out as `tabsHost` is: the bars' ids, the inner one
+    * inside the outer bar's first panel.
+    */
+  private val siblingBar = "c_0"
+  private val outerBar = "c_1"
+  private val innerBar = "s_c_1_t0__c_0"
+
+  private def withNestedServer[A](
+      f: (TestServer, IO[Set[String]]) => IO[A]
+  ): IO[A] =
+    cats.effect.Ref[IO].of(Set.empty[String]).flatMap { asked =>
+      TestServer
+        .fromWorkspace(
+          "nested-tabs",
+          nestedEntry,
+          List(nestedX1, nestedX2, nestedY),
+          fh.view.testkit.FakeConfig(recorder =
+            Some((from, _, entityId) =>
+              asked
+                .update(_ + entityId)
+                .as(
+                  List(api.homeassistant.ws.domain.HistoryPoint("1.0", from))
+                )
+            )
+          )
+        )
+        .use(ts => f(ts, asked.getAndSet(Set.empty)))
+        .timeout(60.seconds)
+    }
+
+  test("tab bars side by side and nested render only the branches chosen") {
+    withNestedServer { (ts, asked) =>
+      for {
+        first <- ts.page()
+        firstAsked <- asked
+        linked <- ts.page(s"?ui.$siblingBar=1&ui.$innerBar=1")
+        linkedAsked <- asked
+        _ <- ts.page(s"?ui.$outerBar=1&ui.$innerBar=1")
+        hiddenAsked <- asked
+      } yield {
+        assert(first.contains("a-one") && !first.contains("b-one"), first)
+        assertEquals(firstAsked, Set(nestedX1.entityId))
+        // Each bar is chosen on its own.
+        assert(linked.contains("b-one") && !linked.contains("a-one"), linked)
+        assertEquals(linkedAsked, Set(nestedX2.entityId))
+        // A choice inside a panel that is not shown renders nothing.
+        assertEquals(hiddenAsked, Set(nestedY.entityId))
+      }
+    }
+  }
+
+  test(
+    "opening a tab renders that panel and no panel beside or inside another"
+  ) {
+    withNestedServer { (ts, asked) =>
+      for {
+        doc <- ts.load()
+        _ <- asked
+        y <- ts.postResult(
+          s"sse/surface/nested-tabs/open/${outerBar}_t1?group=$outerBar",
+          body = s"""{"${fh.view.runtime.Server.ConnSignal}":"${doc.conn}"}"""
+        )
+        yAsked <- asked
+      } yield {
+        assertEquals(y._1, org.http4s.Status.NoContent)
+        assertEquals(yAsked, Set(nestedY.entityId))
+      }
+    }
+  }
+
   test("a slider on a light that only switches renders a button, not a range") {
     // One shared template renders two shapes (issue #128), which a Pkl test
     // cannot prove: the inverted section over an absent slot is mustache.java's
