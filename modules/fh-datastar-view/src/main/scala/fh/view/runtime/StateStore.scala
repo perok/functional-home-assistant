@@ -154,6 +154,9 @@ class StateStore private (
     * [[EntityState.stale]] drops.
     */
   private[runtime] def update(ingests: Iterable[Ingest]): IO[Unit] =
+    // Uncancelable: the feed is interrupted on every narrowing and reconnect,
+    // and a change stored but not published is lost for good, as the reseed
+    // finds it already held. `publish1` cannot block, `changes` being unbounded.
     ref
       .modify { state =>
         val batch = state.version + 1
@@ -216,6 +219,7 @@ class StateStore private (
         )
       }
       .flatMap(cs => IO.whenA(cs.nonEmpty)(topic.publish1(cs).void))
+      .uncancelable
 
   // Test seam: a publish reaches only existing subscribers.
   private[runtime] def changeSubscribers: Stream[IO, Int] = topic.subscribers
