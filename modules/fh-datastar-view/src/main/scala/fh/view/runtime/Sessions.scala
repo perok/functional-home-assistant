@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import cats.effect.{Deferred, IO}
+import cats.effect.{Deferred, IO, Outcome}
 import cats.effect.kernel.Ref
 import fs2.Stream
 import cats.syntax.all.*
@@ -131,8 +131,8 @@ final class Session private (
       submit(Command.Run(step, reply)) *> reply.get.rethrow
     }
 
-  /** The owner marks itself stopped before refusing what is queued, and this
-    * looks after queueing, so one of the two refuses `command`.
+  /** The owner's end is marked before what is queued is refused, and this looks
+    * after queueing, so one of the two refuses `command`.
     */
   private def submit(command: Command): IO[Unit] =
     inbox.offer(command) *>
@@ -326,17 +326,21 @@ object Session {
       tenure <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
       stopped <- Deferred[IO, Unit]
       session = new Session(slug, haDown, tenure, inbox, published, stopped)
-      _ <- supervisor.supervise(
+      owner <- supervisor.supervise(
         IO.race(
           tenure.waitUntil(_ == Tenure.Reaped),
           session.own(initial, Vector.empty, None)
         ).void
-          // Only a bug ends it otherwise: a step's own error is its caller's.
-          .handleErrorWith(e =>
-            logger.error(e)(s"a session owner on '$slug' stopped")
-          )
-          .guarantee(stopped.complete(()) *> session.refuseQueued)
       )
+      // Watched from outside, not a `guarantee` inside: a supervisor shutting
+      // down before the owner starts cancels it with none of it run, and every
+      // caller waited forever. Ends with the owner, so it is no longer-lived.
+      _ <- (owner.join.flatMap {
+        // Only a bug: a step's own error is its caller's.
+        case Outcome.Errored(e) =>
+          logger.error(e)(s"a session owner on '$slug' stopped")
+        case _ => IO.unit
+      } *> stopped.complete(()) *> session.refuseQueued).start
     } yield session
 }
 

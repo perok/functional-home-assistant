@@ -436,10 +436,13 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
   test("after shutdown a step is refused, not left hanging") {
-    ownerlessSession("d")
-      .flatMap(_.run(answer(1)).attempt)
-      .timeout(5.seconds)
-      .map(r => assert(isEnded(r), clue = r))
+    // Many: a supervisor closing before its owner starts cancels it with none
+    // of it run, which only a slow machine hit once.
+    List
+      .range(0, 2000)
+      .traverse(_ => ownerlessSession("d").flatMap(_.run(answer(1)).attempt))
+      .timeout(30.seconds)
+      .map(rs => assert(rs.forall(isEnded), clue = rs.filterNot(isEnded)))
   }
 
   test("a reap racing the owner's take never strands a caller") {

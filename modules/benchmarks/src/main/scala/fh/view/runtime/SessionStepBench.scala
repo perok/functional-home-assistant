@@ -19,10 +19,10 @@ import java.util.concurrent.TimeUnit
   *
   * Measured 2026-10-10, owner against lock, each with ~7 µs of `unsafeRunSync`:
   * a step 14.4 µs / 5.9 kB against 9.8 µs / 3.8 kB (the hop to the owner
-  * fiber); a ten-client tick 46.6 µs / 80 kB against 40.9 µs / 59 kB, so
-  * 0.6 µs and 2 kB a client, beside the ~70 µs and 117 kB each further client
-  * costs to render (`RenderBench.resumeSignalsFanout`); a create and reap 25 µs
-  * / 25 kB against 8 µs / 3 kB, once a page load.
+  * fiber); a ten-client tick 46.6 µs / 80 kB against 40.9 µs / 59 kB, so 0.6 µs
+  * and 2 kB a client, beside the ~70 µs and 117 kB each further client costs to
+  * render (`RenderBench.resumeSignalsFanout`); a create and reap 25 µs / 25 kB
+  * against 8 µs / 3 kB, once a page load.
   *
   * {{{
   * sbt 'benchmarks/Jmh/run -f 1 -wi 5 -i 5 -prof gc .*SessionStepBench.*'
