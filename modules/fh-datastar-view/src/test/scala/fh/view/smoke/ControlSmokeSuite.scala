@@ -425,14 +425,14 @@ class ControlSmokeSuite extends SmokeSuite {
             .hasCount(2)
         )
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-cell.fh-active>article.fh-tile-card"))
+          assertThat(page.locator(".fh-cell.fh-active>article.entity"))
             .hasCount(1)
         )
         json <- IO.blocking(
           page
             .evaluate(
               """() => {
-                |  const tile = document.querySelector('article.fh-tile-card');
+                |  const tile = document.querySelector('article.entity');
                 |  const [plain, long] = document.querySelectorAll('article.toggle');
                 |  const look = el => getComputedStyle(el);
                 |  const title = long.querySelector('.fh-text');
@@ -456,11 +456,57 @@ class ControlSmokeSuite extends SmokeSuite {
         def num(k: String) = m(k).asNumber.map(_.toDouble).getOrElse(0.0)
         assert(str("switchRadius") != "0px", clue = m)
         assertEquals(str("switchRadius"), str("tileRadius"), clue = m)
-        // Both entities are on: the tile fills its badge with the accent.
+        // Both entities are on: the tile tints its badge with the accent.
         assertEquals(str("switchBadge"), str("tileBadge"), clue = m)
         assert(m("cut").asBoolean.contains(true), clue = m)
         assertEquals(str("textOverflow"), "ellipsis", clue = m)
         assert(num("switchRight") <= num("cardRight"), clue = m)
+      }
+    }
+  }
+
+  test("every badge wears one on look, one off look and one look with no off") {
+    withPage(Scene.of(SmokeDashboard.badgeLooks)) { (page, _) =>
+      for {
+        // The tile, the switch and both slider heads on the one lit light.
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-cell.fh-active")).hasCount(4)
+        )
+        json <- IO.blocking(
+          page
+            .evaluate(
+              """() => JSON.stringify([...document.querySelectorAll('.fh-badge')]
+                |  .map(b => { const s = getComputedStyle(b);
+                |    return [s.backgroundColor, s.color]; }))""".stripMargin
+            )
+            .toString
+        )
+        looks <- IO.fromEither(
+          io.circe.parser.decode[List[(String, String)]](json)
+        )
+      } yield {
+        assertEquals(looks.length, 8, clue = looks)
+        val List(
+          tileOn,
+          switchOn,
+          sliderOn,
+          tileOff,
+          switchOff,
+          sensor,
+          groupOn,
+          memberOff
+        ) =
+          looks: @unchecked
+        assertEquals(switchOn, tileOn, clue = looks)
+        assertEquals(sliderOn, tileOn, clue = looks)
+        assertEquals(groupOn, tileOn, clue = looks)
+        assertEquals(switchOff, tileOff, clue = looks)
+        // Inside an on slider, and still off: the look is its own cell's.
+        assertEquals(memberOff, tileOff, clue = looks)
+        assertNotEquals(tileOn._1, tileOff._1, clue = looks)
+        assertNotEquals(tileOn._2, tileOff._2, clue = looks)
+        // No off: the on glyph on the off seat.
+        assertEquals(sensor, (tileOff._1, tileOn._2), clue = looks)
       }
     }
   }

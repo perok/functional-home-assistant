@@ -28,7 +28,8 @@ language depended on the card library to reach a wire shape neither of them owns
 Three tiers, by AUDIENCE rather than by kind:
 
 ```
-core/       node · slot · icon · tap · surface · predicate   — writing a COMPONENT
+core/       node · slot · icon · tap · surface · predicate · — writing a COMPONENT
+            badge
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD

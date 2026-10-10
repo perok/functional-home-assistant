@@ -3,6 +3,7 @@
 /// entity is `components/control.pkl`'s `Toggle`, which only fills these.
 module components.base.onoff
 
+import "../../core/badge.pkl" as badgeMod
 import "../../core/node.pkl" as nodes
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
@@ -21,28 +22,26 @@ const local restoreSwitch: String =
 /// BeerCSS's `.switch`, a checkbox styled as an MD3 switch. It must show which
 /// state it is in, so [[on]] is a live reading. No href arm: a checkbox cannot
 /// be an `<a>`.
-open class Switch extends nodes.Node {
+///
+/// Its badge's on look is [[active]], a boolean reading: [[on]] is a string the
+/// checkbox compares, so it cannot also be one.
+open class Switch extends nodes.ActiveNode {
   card = "switch"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
-        \(slotMod.ifSlot("icon"))<span class="fh-badge"><i class="{{icon}}" \(slotMod.signalBind("icon"))></i></span>\(slotMod.endIfSlot("icon"))<span class="\(textMod.BOX)">\(textMod.run("label"))</span>
+      <article class="card toggle fh-tile-card" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
+        <div class="fh-tile">\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.run("label"))</span></span>
         <label class="switch">
           <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
-        </label>
+        </label></div>
       </article>
       """
     slots { "label" }
-    // A tile's row: the badge, the title taking what is left, the switch, and
-    // the badge filled while on. Not BeerCSS's `.row`, which squares the
-    // card's corners and lets the title wrap. A long label must never shrink
-    // the switch off the card.
+    // The tile's row (`core/css.pkl`), ending on the switch. A long label must
+    // never shrink the switch off the card.
     css = """
-      .card.toggle{display:flex;align-items:center;gap:.75rem}
-      .card.toggle>.fh-text{flex:1 1 auto}
-      .card.toggle>.switch{flex:0 0 auto}
-      .card.toggle[data-switched=on]>.fh-badge{background:var(--fh-accent);color:var(--fh-on-accent)}
+      .fh-tile>.switch{flex:0 0 auto}
       """
   }
   hidden label: (String|slotMod.Expr)? = null
@@ -77,7 +76,11 @@ open class Switch extends nodes.Node {
     for (k, v in tapMod.guardSlots(tapAction)) {
       [k] = v
     }
+    for (k, v in badgeMod.slots(active)) {
+      [k] = v
+    }
   }
   function label(l: String|slotMod.Expr): Switch = let (self = this) (self) { label = l }
   function tapAction(a: tapMod.TapAction): Switch = let (self = this) (self) { tapAction = a }
+  function active(a: nodes.BooleanInput): Switch = let (self = this) (self) { active = a }
 }

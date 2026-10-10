@@ -3,6 +3,7 @@
 /// entity card is `components/entity.pkl`'s `EntityCard`, which only fills these.
 module components.base.tile
 
+import "../../core/badge.pkl" as badgeMod
 import "../../core/node.pkl" as nodes
 import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
@@ -27,27 +28,22 @@ open class Tile extends nodes.ActiveNode {
     template = """
       <article class="card entity fh-tile-card">
         <div class="fh-tile{{#tappable}} tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
-        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>\(slotMod.ifSlot("icon"))<span class="fh-badge fh-icon-shape"{{#busy}}{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}{{/busy}}><i class="{{icon}}" \(slotMod.signalBind("icon"))></i></span>\(slotMod.endIfSlot("icon"))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun("label"))</span>
+        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun("label"))</span>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
         <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>{{#features}}{{{html}}}{{/features}}
       </article>
       """
     slots { "label"; "value" }
-    // A flex row, so the text column is what shrinks and the badge never does.
-    // On, the badge fills with the accent, as HA's tile does. The card's padding
-    // moves onto the row, so the whole card still answers a press; each feature
-    // is a full-width cell under it, the card resetting what a cell inherits.
+    // The row and its on look are `core/css.pkl`'s, shared with the switch. The
+    // card's padding is on the row, so the whole card still answers a press;
+    // each feature is a full-width cell under it, the card resetting what a
+    // cell inherits.
     css = """
       .card.tappable,.fh-tile.tappable{cursor:pointer}
-      .fh-tile-card{display:flex;flex-direction:column;padding:0;
-      --fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
-      .fh-tile{display:flex;align-items:center;gap:.75rem;min-inline-size:0;
-      padding:1rem;border-radius:inherit}
+      .fh-tile-card{--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
       .fh-tile-card>.fh-cell{margin:0 1rem .5rem}
       .fh-tile-card>.fh-tile+.fh-cell{margin-block-start:-.25rem}
       .fh-tile-card>.fh-cell:last-child{margin-block-end:1rem}
-      .fh-cell.fh-active .fh-tile>.fh-badge{background:var(--fh-accent);color:var(--fh-on-accent)}
-      .fh-tile>.fh-lines{flex:1 1 auto}
       .fh-tile .fh-reading{font-size:.875em}
       """
   }
@@ -94,6 +90,9 @@ open class Tile extends nodes.ActiveNode {
     for (k, v in tapMod.tapSlots(tapAction)) {
       [k] = v
     }
+    for (k, v in badgeMod.slots(active)) {
+      [k] = v
+    }
     when (nodes.disabledSlot(disabled) != null) {
       ["disabled"] = nodes.disabledSlot(disabled)!!
     }
@@ -101,6 +100,6 @@ open class Tile extends nodes.ActiveNode {
   function disabled(d: nodes.BooleanInput): Tile = let (self = this) (self) { disabled = d }
   /// `c.entityCard(l).features(List(latch))`.
   function features(xs: List<nodes.LayoutNode>): Tile = let (self = this) (self) { features = xs.toListing() }
-  /// `c.entityCard(l).active(false)` for a badge that never fills.
+  /// `c.entityCard(l).active(false)` for a badge with neither an on nor an off look.
   function active(a: nodes.BooleanInput): Tile = let (self = this) (self) { active = a }
 }

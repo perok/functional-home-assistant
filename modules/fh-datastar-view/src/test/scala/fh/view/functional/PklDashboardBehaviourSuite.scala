@@ -207,7 +207,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              s"class=\"slider-icon fh-badge\" data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
+              s"class=\"fh-badge fh-icon-shape slider-icon fh-onoff\" data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
             ),
             clue = html
           )

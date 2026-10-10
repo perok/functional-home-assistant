@@ -9,6 +9,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
+import "../../main/resources/dashboards/lib/core/badge.pkl" as badgeMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/core/variable.pkl" as varMod
@@ -606,11 +607,11 @@ facts {
     // it out: a button free to grow down, and a switch that never shrinks.
     cards["button"].css.contains("min-block-size:var(--fh-press-size,3rem)")
     cards["button"].css.contains("block-size:auto")
-    cards["switch"].css.contains(".card.toggle>.switch{flex:0 0 auto}")
+    cards["switch"].css.contains(".fh-tile>.switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["switch"].template.contains(#"<article class="card toggle""#)
+    cards["switch"].template.contains(#"<article class="card toggle fh-tile-card""#)
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["switch"].template.contains(#"<span class="fh-text">"#)
@@ -914,6 +915,7 @@ facts {
       tapAction = c.tap.toggle(kitchen)
       subject = kitchen.entity_id
       glyph = "mdi mdi-lightbulb"
+      active = c.isOn(kitchen)
     }
     c.toggle(kitchen).slots == sw.slots
     c.toggle(kitchen).cardDef == sw.cardDef
@@ -954,6 +956,7 @@ facts {
       reading = new slotMod.Slot { transform = simpleMod.state() }
       commit = (c.tap.call("light/turn_on", kitchen)) { dataKey = "brightness" }
       subject = kitchen.entity_id
+      active = slotMod.activeOf(kitchen)!!
     }
     local ha = c.entitySlider(kitchen)
     ha.card == byHand.card
@@ -1060,12 +1063,41 @@ facts {
     // A reading has no off, so a sensor carries no live class at all.
     c.entityCard(outside).cell == null
     c.entityCard(kitchen).active(false).cell == null
-    c.cards["tile"].css.contains(".fh-cell.fh-active .fh-tile>.fh-badge{background:var(--fh-accent)")
+    cssMod.baseCss.contains(".fh-cell.fh-active{--_fh-on-bg:color-mix(in srgb,var(--fh-accent) 20%,transparent)")
     // A domain sits in at most one of the vendored tables, or which one wins
     // would be an accident of `activeOf`'s order.
     local named = activeTables.neutral.toList() + activeTables.onIn.keys.toList()
       + activeTables.offIn.keys.toList()
     named.length == named.distinct.length
+  }
+
+  ["a tile, a switch and a slider head wear one badge, and its on look is the cell's"] {
+    // One seat for the three, so a fix to it lands once.
+    local tapSeat = badgeMod.seat("", "{{icon}}", badgeMod.tapSpin)
+    c.cards["tile"].template.contains(tapSeat)
+    c.cards["switch"].template.contains(tapSeat)
+    c.cards["sliderHead"].template.contains(#"<span class="fh-badge fh-icon-shape slider-icon"#)
+    // No card paints a badge's look of its own: that is how the switch and the
+    // tile came to disagree (#522). The button keeps its seat under its pill.
+    local paints = Regex(#"\.fh-badge[^{,]*\{[^}]*(background|color):"#)
+    c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button")
+    // On is the cell's; whether there is an off is the badge's.
+    c.toggle(kitchen).cell.classWhen.containsKey("fh-active")
+    c.toggle(kitchen).slots["onoff"] == "1"
+    c.entityCard(kitchen).slots["onoff"] == "1"
+    !c.entityCard(outside).slots.containsKey("onoff")
+    local head = c.entitySlider(kitchen).children["head"][0]
+    head.cell.classWhen.containsKey("fh-active")
+    head.slots["onoff"] == "1"
+    // One meaning of on: the slider's power button reads HA's rule, as the tile.
+    c.sliderAction(kitchen, c.tap.toggle(kitchen)).cell.classWhen["fh-active"].transform
+      == c.entityCard(kitchen).cell.classWhen["fh-active"].transform
+  }
+
+  ["a card's own on state survives a builder that ran before it"] {
+    // `.columns(n)` replaces the builder classes whole; `active` is not one.
+    c.button("x", c.tap.toggle(kitchen)).columns(3).active(true).cell.classes.toList().sort()
+      == List("fh-active", "fh-cols-3")
   }
 
   ["a button knows only its label and its tap; an entity button knows its entity"] {
@@ -1166,7 +1198,7 @@ facts {
     local sw = c.toggle(kitchen)
     local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
-    t.contains(#"<article class="card toggle" "#)
+    t.contains(#"<article class="card toggle fh-tile-card" "#)
     t.split("<label").first.contains("data-class:fh-error")
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,
