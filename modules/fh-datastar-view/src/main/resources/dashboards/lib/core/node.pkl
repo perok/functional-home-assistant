@@ -65,14 +65,18 @@ abstract class LayoutNode {
   /// Inputs each builder amends, so the order an author chains them in does not
   /// matter: a card's own live class and an author's `.columns(3)` both land.
   hidden cellClasses: Listing<String> = new {}
+  /// Classes a card derives from its own inputs ([[ActiveNode]]'s). Kept apart
+  /// from [[cellClasses]], which a builder replaces whole, so an input set
+  /// after `.columns(3)` still lands.
+  hidden stateClasses: Listing<String> = new {}
   hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
   hidden liveProperties: Mapping<String, slotMod.Slot> = new {}
-  /// Derived from the three inputs above. Setting it directly replaces whatever
+  /// Derived from the four inputs above. Setting it directly replaces whatever
   /// the builders would have added.
   cell: Cell? =
-    if (cellClasses.isEmpty && liveClasses.isEmpty && liveProperties.isEmpty) null
+    if (cellClasses.isEmpty && stateClasses.isEmpty && liveClasses.isEmpty && liveProperties.isEmpty) null
     else new Cell {
-      classes = cellClasses
+      classes = (cellClasses.toList() + stateClasses.toList()).toListing()
       classWhen = if (liveClasses.isEmpty) null else liveClasses
       properties = if (liveProperties.isEmpty) null else liveProperties
     }
@@ -204,11 +208,12 @@ abstract class Node extends LayoutNode {
 }
 
 /// A [[Node]] with an on look: `fh-active` on its cell while [[active]] holds,
-/// for the card's own CSS to paint. A button fills its pill, a tile its badge.
+/// for the card's CSS to paint. A button fills its pill; a badge takes
+/// `css.pkl`'s look, the card marking it `badge.pkl`'s way when it can be off.
 abstract class ActiveNode extends Node {
   /// `true`, `c.isOn(l)`, `c.expr("on > 0")`, or `lit.any()`.
   hidden active: BooleanInput = false
-  cellClasses {
+  stateClasses {
     when (active == true) { "fh-active" }
   }
   liveClasses {

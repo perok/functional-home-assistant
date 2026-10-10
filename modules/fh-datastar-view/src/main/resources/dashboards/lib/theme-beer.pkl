@@ -202,7 +202,7 @@ class BeerTheme extends themeMod.Theme {
     /* The spinner shape around a glyph. `background` restated, or the host's
        resting background paints it; the glyph takes `--on-primary` rather than
        BeerCSS's `invert(1)`, meant for photos. */
-    .fh-icon-shape.shape,.slider-icon.shape,.circle.shape{
+    .fh-icon-shape.shape,.circle.shape{
       display:inline-flex;align-items:center;justify-content:center;
       vertical-align:middle;background:var(--primary)}
     .shape>i.mdi{filter:none;color:var(--on-primary)}

@@ -4,6 +4,7 @@
 /// `components/slider.pkl`'s `EntitySlider`, which only fills these.
 module components.base.slider
 
+import "../../core/badge.pkl" as badgeMod
 import "../../core/node.pkl" as nodes
 import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
@@ -55,8 +56,9 @@ const local restoreOnRefusal: String =
 
 /// The slider's own row — badge, readout, track, actions — as a node of its
 /// own, so a brightness change repaints this and never the member rows beside
-/// it (ADR 0012). Built by [[Slider]], never by an author.
-class SliderHead extends nodes.Node {
+/// it (ADR 0012). Built by [[Slider]], never by an author. The badge is here,
+/// so the slider's on look is too.
+class SliderHead extends nodes.ActiveNode {
   card = "sliderHead"
   // `display:contents`, so the cell is no box, and the group rules can still
   // tell the master's head from its members'.
@@ -71,7 +73,7 @@ class SliderHead extends nodes.Node {
     template = """
       <div class="slider-body">
         <div class="slider-head">
-          {{#icon}}<div class="slider-icon fh-badge"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
+          \(badgeMod.seat(" slider-icon", "mdi {{icon}}", "{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}"))
           {{#text}}{{{html}}}{{/text}}
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
@@ -141,6 +143,8 @@ open class Slider extends nodes.Node {
   hidden secondary: slotMod.Secondary? = null
   /// The badge's MDI class (`mdi-lightbulb`). Null renders no badge.
   hidden glyph: String? = null
+  /// The badge's on look, as `Tile.active`.
+  hidden active: nodes.BooleanInput = false
   hidden rangeMin: Number
   hidden rangeMax: Number
   /// Where the device is, as the input's number. Server-written; the drag moves
@@ -186,6 +190,9 @@ open class Slider extends nodes.Node {
     ["label"] = if (title is slotMod.Slot) (title as slotMod.Slot) { reads = "onRender" } else title
     when (glyph != null) {
       ["icon"] = glyph!!
+    }
+    for (k, v in badgeMod.slots(active)) {
+      [k] = v
     }
     when (busyVisual) {
       ["busyVisual"] = "1"
@@ -245,7 +252,8 @@ open class Slider extends nodes.Node {
   }
   children = new Mapping {
     ["head"] = new Listing {
-      (new SliderHead {}) {
+      let (headActive = active) (new SliderHead {}) {
+        active = headActive
         slots = headSlots
         // On the head, the node whose slot reads it: values are local.
         derivedValues {

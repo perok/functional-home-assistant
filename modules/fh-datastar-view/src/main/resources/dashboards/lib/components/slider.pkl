@@ -82,7 +82,7 @@ typealias Readout = "state"|"percent"|"none"
 ///       c.sliderAction(l, c.tap.moreInfo(l)).icon("mdi:information").active(false)
 ///     ))
 const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
-  (control.entityButton(e)) { icon = "mdi:power"; label = ""; tapAction = t; active = slotMod.stateIn(e, List("on")) }
+  (control.entityButton(e)) { icon = "mdi:power"; label = ""; tapAction = t; active = slotMod.activeOf(e) ?? false }
 
 /// A slider on an entity whose domain has a [[sliderSpec]] row; any other is a
 /// build error at the dashboard line. The card is [[sliderBase.Slider]].
@@ -167,6 +167,7 @@ class EntitySlider extends sliderBase.Slider {
   hidden shownReadout: (Readout|slotMod.Expr) =
     if (toggleOnly && readout == "percent") "state" else readout
   subject = entity.entity_id
+  active = slotMod.activeOf(entity) ?? false
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".

@@ -225,6 +225,39 @@ object SmokeDashboard {
       HouseFixture.dumpWith(switchLight)
     )
 
+  /** Every card with a badge, on, off and with no off, and an off card inside
+    * an on slider, in that DOM order.
+    */
+  val badgeLooks: Dashboard = {
+    val on = HouseFixture.kitchenLight.dumpKey
+    val off = HouseFixture.livingRoomLight.dumpKey
+    PklFixture.buildDashboard(
+      "smoke-badge-looks",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Badge Looks"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.entityCard(dump.entities.$on)
+         |    c.toggle(dump.entities.$on)
+         |    c.entitySlider(dump.entities.$on)
+         |    c.entityCard(dump.entities.$off)
+         |    c.toggle(dump.entities.$off)
+         |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
+         |    (c.entitySlider(dump.entities.$on)) { members { c.entityCard(dump.entities.$off) } }
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith()
+    )
+  }
+
   /** Nothing to drag, so the whole track is one button. A second line makes the
     * card taller than a button, the difference that made the target miss.
     */

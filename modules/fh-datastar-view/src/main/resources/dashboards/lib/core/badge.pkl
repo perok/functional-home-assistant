@@ -1,0 +1,31 @@
+/// The round seat a card's glyph sits in (`.fh-badge`, `css.pkl`). One markup
+/// for the tile, the switch and the slider head, so they spin and paint alike;
+/// what it paints is its cell's on look (`node.pkl`'s `ActiveNode`).
+module core.badge
+
+import "node.pkl" as nodes
+import "slot.pkl" as slotMod
+import "tap.pkl" as tapMod
+
+/// The `icon` slot's glyph in its seat, absent with the slot. `glyph` is the
+/// `<i>`'s class; `spin` is the card's busy splice, inside whatever section
+/// gates it: [[tapSpin]], or the slider head's, which spins on its commit.
+const function seat(extraClass: String, glyph: String, spin: String): String =
+  slotMod.ifSlot("icon")
+    + #"<span class="fh-badge fh-icon-shape\#(extraClass){{#onoff}} fh-onoff{{/onoff}}"\#(spin)><i class="\#(glyph)" \#(slotMod.signalBind("icon"))></i></span>"#
+    + slotMod.endIfSlot("icon")
+
+/// The slots a seat reads besides `icon`: `onoff` while the card's `active` is
+/// live, which is what tells its off from a badge that has none. The card
+/// puts them beside its own, `for (k, v in badgeMod.slots(active)) { [k] = v }`.
+const function slots(active: nodes.BooleanInput): Mapping<String, String> =
+  new {
+    when (!(active is Boolean)) {
+      ["onoff"] = "1"
+    }
+  }
+
+/// The spin for a seat on a card with one tap (the tile, the switch): while
+/// that tap is busy, if it asks to be seen.
+const tapSpin: String =
+  "{{#busy}}{{#busyVisual}} " + tapMod.busyShapeClass + "{{/busyVisual}}{{/busy}}"

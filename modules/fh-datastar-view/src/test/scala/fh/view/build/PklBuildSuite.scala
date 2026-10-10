@@ -1825,7 +1825,8 @@ class PklBuildSuite extends munit.FunSuite {
         "min",
         "max",
         "icon",
-        "busyVisual"
+        "busyVisual",
+        "onoff"
       ),
       clue = rowOf(plain).slots.keySet
     )

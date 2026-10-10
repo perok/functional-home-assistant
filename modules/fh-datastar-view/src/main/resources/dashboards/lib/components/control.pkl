@@ -39,6 +39,8 @@ class Toggle extends switchMod.Switch {
     default = ""
     bypassUnavailable = false
   }
+  // The switch's own reading as a bool, so the badge and the checkbox agree.
+  active = slotMod.stateIn(entity, List("on"))
   tapAction = tapMod.byDomain(entity) ?? throw(buttonMod.noAction("c.toggle"))
   subject = entity.entity_id
   glyph = icons.glyphOf(entity, null)
