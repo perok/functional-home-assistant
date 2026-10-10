@@ -1123,34 +1123,35 @@ class Server(
 
   /** A session this process forgot (a restart, a reap) would start at the
     * declared values and reset every bar on the opening frame. The reconnect
-    * still carries what the server last committed, so it is adopted, under the
-    * check every other entry passes. A live session's own choices win: a commit
-    * can be lost with the stream it rode.
+    * still carries what the server last committed, so it is adopted, each value
+    * under the check every other entry passes: one stale value costs only its
+    * own variable. A live session's own choices win, since a commit can be lost
+    * with the stream it rode. The caller holds [[Session.serving]].
     */
   private def adoptCarriedVars(
       session: Session,
       renderer: Renderer,
       req: Request[IO]
-  ): IO[Unit] = {
-    val carried = Server.carriedVars(req, renderer)
-    IO.whenA(carried.nonEmpty)(
-      session.vars
-        .modify { chosen =>
-          val merged = carried ++ chosen
-          renderer.refusals(merged) match {
-            case Nil     => (merged, Nil)
-            case refused => (chosen, refused)
-          }
+  ): IO[Unit] =
+    session.vars.get.flatMap { chosen =>
+      val (kept, refused) = Server
+        .carriedVars(req, renderer)
+        .removedAll(chosen.keys)
+        .toList
+        .sortBy((key, _) => (key.declarer, key.name))
+        .foldLeft((chosen, List.empty[String])) {
+          case ((acc, refused), (key, value)) =>
+            renderer.refusals(acc + (key -> value)) match {
+              case Nil  => (acc + (key -> value), refused)
+              case more => (acc, refused ++ more)
+            }
         }
-        .flatMap(refused =>
-          IO.whenA(refused.nonEmpty)(
-            logger.warn(
-              s"a reconnect carried choices no reader takes, ignored: ${refused.mkString("; ")}"
-            )
-          )
+      session.vars.set(kept) *> IO.whenA(refused.nonEmpty)(
+        logger.warn(
+          s"a reconnect carried choices no reader takes, ignored: ${refused.mkString("; ")}"
         )
-    )
-  }
+      )
+    }
 
   /** The request's selections with each tab bar's from the session's variables,
     * which win: a stale `ui.` param cannot pick a tab.

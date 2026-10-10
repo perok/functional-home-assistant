@@ -106,8 +106,8 @@ the page is live, and `v.<declarer>.<name>` on the page URL, which survives a re
 recorded on the session because a pull has no request to read it off again. The third is a
 reconnect: the SSE GET carries the committed values (not their pending asks), and a session this
 process forgot (a restart, a reap) adopts them, where it would otherwise reset every bar to its
-declared value. A live session's own choices win over them, since a commit can be lost with its
-stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
+declared value. Each is adopted on its own, so one stale value costs only its own variable. A live
+session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
 `Renderer.refusals`: every declared reader must still parse what it would then ask, and read only
 an entity the dashboard names or one of its queries names at its declared values — ADR 0023's
