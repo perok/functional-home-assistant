@@ -340,9 +340,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   by name in a query parameter (`varMod.ref`), resolving up the ancestor chain so a nested
   declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader can parse, which is why a declaration carries no list
-  of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
-  the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
-  reads it),
+  of allowed values. `c.windowChooser` is the one shipped control: it declares `window`, its bar is
+  a `tab` node per window whose `tapMod.setVar` names the chooser by `varMod.declarer` (a build
+  token), and `c.historyChart(s).chosen()` reads it),
   **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
   or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;

@@ -719,6 +719,59 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
   }
 
+  test(
+    "each window is guarded on its own busy signal, posting to its chooser"
+  ) {
+    // The buttons are nodes below the chooser, so the route and the signals
+    // name the chooser through `@@VAR:window@@`, and the guard names each
+    // button. Only a real page shows both ids landed where they belong.
+    val windowEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.windowChooser) {
+         |      children {
+         |        c.historyChart(dump.entities.${HouseFixture.outsideTemp.dumpKey}).chosen()
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-window-guards", windowEntry, entities)
+      .use { ts =>
+        ts.page().map { html =>
+          assert(!html.contains("@@"), clue = html)
+          val chooser =
+            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window'""".r
+              .findFirstMatchIn(html)
+              .fold(fail("no chooser on the page", clues(html)))(_.group(1))
+          val buttons = """<a [^>]*sse/var/[^>]*>""".r.findAllIn(html).toList
+          assertEquals(buttons.size, 4, clue = html)
+          val signals = buttons.map { a =>
+            assert(
+              a.contains(s"sse/var/fixture-window-guards/$chooser/window/"),
+              a
+            )
+            assert(a.contains(s"$$_var_${chooser}__window__pending = '"), a)
+            val sig = """data-indicator="(_[A-Za-z0-9_]+__busy)"""".r
+              .findFirstMatchIn(a)
+              .fold(fail("an unguarded window", clues(a)))(_.group(1))
+            assert(a.contains(s"data-on:click=\"$$$sig ? '' : "), clue = a)
+            assert(a.contains(s"data-class:fh-busy-after=\"$$${sig}_slow\""), a)
+            sig
+          }
+          assertEquals(signals.distinct.size, 4, clue = signals)
+          assert(!signals.exists(_.contains(s"_${chooser}__busy")), signals)
+        }
+      }
+      .timeout(60.seconds)
+  }
+
   test("a dashboard says what happens to a label that does not fit") {
     // The default is a `:root` block in `css`, the override a cell class on the
     // wrapper; neither side sees the other, so only a real page proves they

@@ -189,9 +189,9 @@ resolved and its patch is queued, so the indicator covers the same span. A tab
 holds text rather than a glyph, so it takes `tap.pkl`'s `busyTextClass` (a ring
 after the label) where a card takes `busyShapeClass`; the delay is the same.
 
-The window chooser is not guarded yet. Its buttons are markup in its own
-template, and ADR 0019 forbids them sharing one busy signal; as child nodes
-they would each have one, but a child cannot yet name its declarer (#209).
+A window choice is guarded the same way. Each window is a `tab` node with a
+`SetVar` tap, so each has its own busy signal (ADR 0019 forbids one shared by
+the bar), and the variable write answers once the charts have re-rendered.
 
 The SIGNALS stay separate, for three reasons and any one would do:
 
