@@ -355,8 +355,8 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("a candidate set's clause names a declarer outside the set") {
-    // The declarer's id is static even though the member's is not, so this is
-    // allowed where a READ inside a set is refused.
+    // A token only spells the id of a declarer above the set, which needs none
+    // of the per-viewer read path a READ inside a set lacks.
     val set =
       """{ "kind": "set", "candidates": ["sensor.a"], "members": { "sensor.a": """ +
         s"""{ "clauses": [ { "node": ${node(tokenAt("window"))} } ] } } }"""

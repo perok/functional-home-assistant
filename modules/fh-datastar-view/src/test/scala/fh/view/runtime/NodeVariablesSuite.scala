@@ -161,7 +161,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a variable read from inside a candidate set is refused, for now") {
-    // A member's id is minted at run time, so it has no scope entry. Stated as
+    // Members are outside the per-viewer read path (ADR 0033), not unknown: the
+    // candidates and member ids are fixed at build time. Stated as
     // a test so lifting the bound is a deliberate act.
     val d = dash(
       box(

@@ -1026,7 +1026,8 @@ case class Dashboard(
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
-        // A member's id is minted at run time, so it has no scope yet.
+        // A set's reads resolve once, at declared values, and a write re-renders
+        // indexed nodes only, which members are not (ADR 0033).
         val inSetErrors =
           Option.when(inSet && template.references.nonEmpty)(
             s"$nodeId: slot '$name' reads a variable from inside a candidate " +

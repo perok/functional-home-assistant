@@ -22,6 +22,26 @@ not be enumerated there. A declared reference can.
 
 ## Decision
 
+### The rules, in one place
+
+1. A node declares variables: a name and the value it holds before anyone chooses.
+2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
+3. A node that declares nothing is transparent.
+4. A nested declaration of the same name shadows the outer one, for its own subtree only.
+5. A node sees its own declarations.
+6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
+   the scope of the one node it is baked into.
+7. Inside a candidate set, a read is refused; naming a declarer above the set is allowed.
+8. A read with no declarer is a build error naming the node and the variable.
+9. A value is per viewer, kept on the session and addressed by declarer and name, so a write to
+   an inner declaration cannot move a reader of an outer one.
+10. Only a viewer's choice writes a value — `POST /sse/var`, a `v.` link, or what a reconnect
+    carries — and every reader must accept it, or the write is refused.
+
+Rules 2–6 are lexical scoping, as in Scheme, ML or Pkl itself: where a node stands in the tree
+decides, never where it is shown. Rule 6 is what keeps that true for surfaces — a popup can be
+opened from many places, so inheriting from its opener would be dynamic scoping.
+
 **Declaration.** `LayoutNode.Component.vars: Map[String, String]` — a name and the value it holds
 before anyone chooses. In Pkl, `vars = new Mapping { ["window"] = "24h" }` — assigned, because a null-defaulted
 `Mapping?` cannot be amended (ADR 0034). Nothing else: no type, no list of
@@ -45,17 +65,21 @@ yields the declared edge and its inverse, `Renderer.readersOf` — the exact set
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
-- **A variable read inside a candidate set is refused**, because a member's id is minted at run
-  time and has no scope entry. A plain query inside a set still works. A test holds this, so
-  lifting it is deliberate.
+- **A variable read inside a candidate set is refused** — an implementation limit, not a missing
+  fact. The candidates and each member's id (`LayoutNode.memberSegment`: set id plus entity id)
+  are fixed at build time, and the set's scope is known. What is missing is the plumbing: a set's
+  reads are resolved once per build at the declared values (`Dashboard.queriesIn`), not per
+  viewer, and a write re-renders only nodes in the renderer's index (`readersOf`), which members
+  are not. A plain query inside a set still works. A test holds this, so lifting it is
+  deliberate.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `varMod.declarer(name)`
 is a token, `@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a popup
 its own root, none is a build error naming the node). It is spliced into each node's OWN fields with
 the scope at that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its
-children the outer declarer. A candidate set's clause may use one: the declarer's id is static even
-where the member's is not. It is a build token rather than something the renderer resolves because
+children the outer declarer. A candidate set's clause may use one to name a declarer above the set.
+It is a build token rather than something the renderer resolves because
 a route or a signal name is a string inside a slot, which the renderer never parses; the check for
 unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the DOM.
 
