@@ -1653,14 +1653,13 @@ case class Dashboard(
       activationErrors ++
       unboundConditions ++
       walk(card, "", LayoutNode.rootId("", card), Map.empty, inSet = false) ++
-      // Each surface starts its own scope — see `scopedSlots`.
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         val p = LayoutNode.surfacePrefix(sid)
         walk(
           surface.content,
           p,
           LayoutNode.rootId(p, surface.content),
-          Map.empty,
+          scopeOf(surface),
           inSet = false
         ).map(err => s"surface '$sid': $err")
       }
@@ -1689,8 +1688,68 @@ case class Dashboard(
 
   def allQueries: List[SlotRead] =
     (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
-      queriesIn(s.content)
+      queriesIn(s.content, scopeOf(s))
     )).distinct
+
+  /** Node variables in scope at every node, by name (issue #209). A popup is
+    * its own scope root, since one content may be opened from many places. An
+    * owned surface (a tab panel, an `If` branch) has exactly one host, so it
+    * starts with the scope at its `bakeInto` node: a chooser above a tab bar
+    * reaches the charts in its panels. A set is a leaf.
+    */
+  lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
+    type Scope = Map[String, Dashboard.InScope]
+    def walk(
+        node: LayoutNode,
+        prefix: String,
+        id: NodeId,
+        scope: Scope
+    ): List[(NodeId, Scope)] =
+      node match
+        case c: LayoutNode.Component =>
+          // A nested declaration replacing the entry is shadowing.
+          val here =
+            scope ++ c.vars.map((n, v) => n -> Dashboard.InScope(id, v))
+          (id -> here) :: LayoutNode.steps(c.regions).flatMap {
+            case (step, ch) =>
+              walk(ch, prefix, LayoutNode.childId(prefix, id, step, ch), here)
+          }
+        case _: LayoutNode.SetNode => List(id -> scope)
+    def tree(sid: String, s: Surface, start: Scope): List[(NodeId, Scope)] = {
+      val p = LayoutNode.surfacePrefix(sid)
+      walk(s.content, p, LayoutNode.rootId(p, s.content), start)
+    }
+    // A surface waits for the tree holding its host; one whose host is in no
+    // tree (`danglingBakes` reports it) starts empty.
+    @scala.annotation.tailrec
+    def owned(
+        done: Map[NodeId, Scope],
+        pending: List[(String, Surface)]
+    ): Map[NodeId, Scope] = {
+      val (ready, waiting) =
+        pending.partition(_._2.bakeInto.forall(done.contains))
+      if (pending.isEmpty) done
+      else if (ready.isEmpty)
+        done ++ waiting.flatMap((sid, s) => tree(sid, s, Map.empty))
+      else
+        owned(
+          done ++ ready.flatMap { (sid, s) =>
+            tree(sid, s, s.bakeInto.flatMap(done.get).getOrElse(Map.empty))
+          },
+          waiting
+        )
+    }
+    owned(
+      walk(card, "", LayoutNode.rootId("", card), Map.empty).toMap,
+      surfaces.toList.sortBy(_._1)
+    )
+  }
+
+  /** The declared values a surface's content starts with ([[varScopes]]). */
+  def scopeOf(s: Surface): Map[String, String] =
+    s.bakeInto
+      .flatMap(varScopes.get)
+      .fold(Map.empty)(_.view.mapValues(_.declared).toMap)
 
   /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
     * act on it.
@@ -1704,8 +1763,11 @@ case class Dashboard(
   /** At declared values. A clause that will not match still contributes: the
     * snapshot is resolved before the walk decides.
     */
-  def queriesIn(n: LayoutNode): List[SlotRead] =
-    scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
+  def queriesIn(
+      n: LayoutNode,
+      start: Map[String, String] = Map.empty
+  ): List[SlotRead] =
+    scopedSlots(n, start).flatMap { case (s, scope) =>
       s.shape match
         case SlotShape.Query(ask) =>
           List(ask.resolve(scope))
@@ -1715,7 +1777,7 @@ case class Dashboard(
   private def slotSources(n: LayoutNode): List[SlotSource] =
     scopedSlots(n, Map.empty).map(_._1)
 
-  /** A surface is its own scope root: a baked one can go into any host. */
+  /** `scope` is where a tree starts: empty, or a surface's [[scopeOf]]. */
   private def scopedSlots(
       n: LayoutNode,
       scope: Map[String, String]
@@ -1760,6 +1822,9 @@ case class Dashboard(
     celKeys.flatMap(k => Transform.parse(k).toOption.map(k -> _)).toMap
 
 object Dashboard:
+
+  /** A node variable as seen from a node: who declared it, and its value. */
+  final case class InScope(declarer: NodeId, declared: String)
 
   /** The slot naming a card's subject, which every other slot inherits. Not
     * HA's `entity_id` field or the CEL `entity_id` binding, which share only

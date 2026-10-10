@@ -72,6 +72,16 @@ resetting it.
 Narrowed by exact signal name per declaration, never by parsing `_var_<d>__<n>`. A declarer id
 can itself contain `__` (`s_<sid>__c`).
 
+### 3b. An owned surface inherits its host's scope
+
+A popup stays a scope root, because one content may be opened from many places. A tab panel or
+an `If` branch is baked into exactly one node, so it starts with that node's scope. Without this,
+a `c.windowChooser` above a `c.tabs` cannot feed the charts in its panels: that is a build error.
+`Dashboard.varScopes` is the one rule the renderer and validation read, and the hoist applies the
+same rule to declarer tokens. A write still re-renders only the readers this viewer is shown,
+pinned by a recorder test: a choice fetches only the visible panel's chart, and the hidden one is
+fetched at the new window when opened.
+
 ### 4. A tab bar writes a variable
 
 The headline. A `Tabs` declares `tab` (its member index, `"0"` by default), its buttons are
@@ -84,10 +94,22 @@ The headline. A `Tabs` declares `tab` (its member index, `"0"` by default), its 
   for a popup, which has no host of its own to bake into.
 - A write whose (declarer, name) selects a bake group swaps the host (`swapHost`, unchanged),
   and the refusal for it is "no member at that index". This is the same reader-parses rule
-  `refusals` applies to a query.
+  `refusals` applies to a query. **The panel must count as a reader**: today `Server.setVar`
+  refuses a variable no query reads (`readers.isEmpty`), which would refuse every tab press.
 - `resolveActive`, `selectedSurfaces` and `committedSelections` read the `VarEnv` for these
-  groups. The commit is `_var_<id>__tab`, the URL `v.<id>.tab`, and the pending and clear
-  helpers are the variable ones the chooser already uses.
+  groups, on **every** path that bakes: the page, a surface fill, an `If` flip's placement
+  (ADR 0007's crossing edge) and a reconnect. A nested bar's panel is baked inside its outer
+  panel's fill, so a path that misses the env shows the inner default. The commit is
+  `_var_<id>__tab`, the URL `v.<id>.tab`, and the pending and clear helpers are the variable
+  ones the chooser already uses.
+- **Unopened branches stay unrendered.** Selection still decides the open set, and the
+  visibility chain (`visibleSurface`) still filters it, so only the source of the choice
+  moves. #505's tests pin it with a recorder that counts fetches: side-by-side and nested bars,
+  a choice inside a hidden panel, and a tab opened live. They are written against today's
+  `ui_`, and step 4 must keep them passing unchanged except for the link spelling.
+- Several bars on one page and nested bars need nothing extra: each `Tabs` is its own
+  declarer, so its value, signal and URL param are keyed apart, and a nested bar's declaration
+  shadows the outer one (step 3b).
 - ADRs 0005, 0007, 0025 and 0033 and the arch doc get rewritten in the same change. The
   `PklBuildSuite` snapshots and `UiSmokeSuite`'s `ui.` assertions move with the wire.
 

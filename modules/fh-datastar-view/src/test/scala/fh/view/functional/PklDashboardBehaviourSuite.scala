@@ -581,6 +581,80 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("a window chooser over a tab bar redraws only the panel shown") {
+    // The panels inherit the chooser's scope, so a choice reaches both charts,
+    // but a write re-renders only what this viewer is shown: the hidden
+    // panel's chart is fetched at the new window when it is opened, not
+    // before.
+    val chooserEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.windowChooser) {
+         |      children {
+         |        (c.tabs) {
+         |          tabs {
+         |            ["T"] { c.historyChart(dump.entities.${nestedX1.dumpKey}).chosen() }
+         |            ["H"] { c.historyChart(dump.entities.${nestedX2.dumpKey}).chosen() }
+         |          }
+         |        }
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    val (chooser, bar) = ("c_0", "c_0_0")
+    cats.effect.Ref[IO].of(Set.empty[(String, Long)]).flatMap { log =>
+      val asked = log.getAndSet(Set.empty)
+      TestServer
+        .fromWorkspace(
+          "chooser-tabs",
+          chooserEntry,
+          List(nestedX1, nestedX2),
+          fh.view.testkit.FakeConfig(recorder =
+            Some((from, to, entityId) =>
+              log
+                .update(
+                  _ + (entityId -> java.time.Duration.between(from, to).toHours)
+                )
+                .as(
+                  List(api.homeassistant.ws.domain.HistoryPoint("1.0", from))
+                )
+            )
+          )
+        )
+        .use { ts =>
+          def post(conn: String, path: String) =
+            ts.postResult(
+              path,
+              body = s"""{"${fh.view.runtime.Server.ConnSignal}":"$conn"}"""
+            )
+          for {
+            doc <- ts.load()
+            loaded <- asked
+            week <- post(doc.conn, s"sse/var/chooser-tabs/$chooser/window/7d")
+            chosen <- asked
+            opened <- post(
+              doc.conn,
+              s"sse/surface/chooser-tabs/open/${bar}_t1?group=$bar"
+            )
+            revealed <- asked
+          } yield {
+            assertEquals(loaded, Set(nestedX1.entityId -> 24L))
+            assertEquals(week._1, org.http4s.Status.NoContent)
+            assertEquals(chosen, Set(nestedX1.entityId -> 168L))
+            assertEquals(opened._1, org.http4s.Status.NoContent)
+            assertEquals(revealed, Set(nestedX2.entityId -> 168L))
+          }
+        }
+        .timeout(60.seconds)
+    }
+  }
+
   test("a slider on a light that only switches renders a button, not a range") {
     // One shared template renders two shapes (issue #128), which a Pkl test
     // cannot prove: the inverted section over an absent slot is mustache.java's
