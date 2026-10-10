@@ -352,7 +352,7 @@ class RenderInputsSuite extends munit.FunSuite {
     */
   test("no cacheable node owns a bake group") {
     def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
-      val owners = r.surfaces.userBakeOwnerIds ++ r.surfaces.stateBakeOwnerIds
+      val owners = r.surfaces.varBakeOwnerIds ++ r.surfaces.stateBakeOwnerIds
       assert(owners.nonEmpty, s"$label exercises no bake group at all")
       owners.foreach(id =>
         assertEquals(

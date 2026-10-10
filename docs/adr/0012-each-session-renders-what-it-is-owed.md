@@ -115,7 +115,7 @@ is what more arrivals are coming for, so it is what the single slot should hold.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
 `{{bakeIndex}}`, the selection a card can show without scripts — is now just a node: the session renders
-it with its own `uiState`, and the key needs no selection in it — such a node holds regions,
+it with its own `Selections`, and the key needs no selection in it — such a node holds regions,
 which makes it structure, and structure is never cached. No deferral, no memo, no per-variant
 log entry, no classification. This is the
 part the shared pass had to invent machinery for, and the part that costs nothing once
@@ -171,7 +171,7 @@ anyone else's DOM.
 `{{bakeIndex}}` is the only way a selection is visible without scripts — a
 tab click is then an `<a href="?v.<host>.tab=N">` and the answer is a fresh document.
 Supporting it used to cost four concepts and a branch in the diff path. It now costs
-nothing: the renderer already takes a `uiState`, and a node whose markup reads the selection
+nothing: the renderer already takes the viewer's `Selections`, and a node whose markup reads the selection
 is structure, which is never cached — so no key has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
 still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
 pipeline to simplify by dropping it.

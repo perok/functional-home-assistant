@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.model.NodeId
 import fh.view.query.QuerySnapshot
 
 /** The render entry points returning a `String`, outside [[Renderer]] since no
@@ -9,6 +10,12 @@ import fh.view.query.QuerySnapshot
   */
 private[runtime] object RendererTestOps {
 
+  /** Each named group showing that member, as a suite writes it. */
+  def picking(panels: (String, Int)*): Selections =
+    Selections(None, panels.map((gid, i) => NodeId.derived(gid) -> i).toMap)
+
+  def popupOpen(sid: String): Selections = Selections(Some(sid), Map.empty)
+
   extension (r: Renderer) {
 
     /** Without the page shell and without the theme: what a repaint or navigate
@@ -16,28 +23,26 @@ private[runtime] object RendererTestOps {
       */
     def renderBody(
         states: Map[String, EntityState],
-        uiState: Map[String, String] = Map.empty
+        selections: Selections = Selections.none
     ): String =
-      r.renderBodyTraced(states, uiState, fragments = QuerySnapshot.empty).html
+      r.renderBodyTraced(states, selections, fragments = QuerySnapshot.empty)
+        .html
 
     def renderPage(
         states: Map[String, EntityState],
-        uiState: Map[String, String] = Map.empty,
-        popup: Option[String] = None
-    ): String = r.renderPageTraced(states, uiState, popup).html
+        selections: Selections = Selections.none
+    ): String = r.renderPageTraced(states, selections).html
 
     /** The whole document into a buffer, bytes and trace both. */
     def renderPageTraced(
         states: Map[String, EntityState],
-        uiState: Map[String, String] = Map.empty,
-        popup: Option[String] = None
+        selections: Selections = Selections.none
     ): r.Traced = {
       val out = Sink.buffer(r.pageBytesHint)
       val own = r.renderPageInto(
         out,
         states,
-        uiState,
-        popup,
+        selections,
         fragments = QuerySnapshot.empty
       )
       // The whole page is never a patch target — a repaint replaces

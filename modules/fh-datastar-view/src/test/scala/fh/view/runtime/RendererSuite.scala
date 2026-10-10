@@ -530,7 +530,7 @@ class RendererSuite extends munit.FunSuite {
     val r = Renderer.create(d)
     // Baked equals what the connect would patch in, so the patch that follows
     // is a no-op morph rather than a second paint.
-    val baked = r.renderPage(Map.empty, popup = Some("det"))
+    val baked = r.renderPage(Map.empty, popupOpen("det"))
     assert(
       baked.contains(
         s"""<div id="popups">${r
@@ -546,7 +546,7 @@ class RendererSuite extends munit.FunSuite {
     )
     assert(r.renderPage(Map.empty).contains("""<div id="popups"></div>"""))
     assert(
-      r.renderPage(Map.empty, popup = Some("nope"))
+      r.renderPage(Map.empty, r.surfaces.selections(Some("nope"), Map.empty))
         .contains("""<div id="popups"></div>""")
     )
   }
@@ -940,24 +940,27 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "selectedSurfaces picks the uiState-indexed member; empty map == the old default"
+    "selectedSurfaces picks the chosen member; none chosen is the first"
   ) {
     val rr = Renderer.create(tabsDashboard)
-    assertEquals(rr.surfaces.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
+    assertEquals(
+      rr.surfaces.selectedSurfaces(picking("c" -> 1)),
+      Set("c_t1")
+    )
     // No selection picks index 0.
-    assertEquals(rr.surfaces.selectedSurfaces(Map.empty), Set("c_t0"))
+    assertEquals(rr.surfaces.selectedSurfaces(Selections.none), Set("c_t0"))
     assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
   }
 
   test(
-    "render of a tabs component with a uiState index bakes that tab + seeds its signal"
+    "render of a tabs component with a chosen member bakes that tab + seeds its signal"
   ) {
     val rr = Renderer.create(tabsDashboard)
     val states = Map(
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val body = rr.renderBody(states, Map("c" -> "1"))
+    val body = rr.renderBody(states, picking("c" -> 1))
     assert(
       body.contains(
         """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 1 }">"""
@@ -969,19 +972,11 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>AA</span>"), clue = body)
   }
 
-  test("resolveActive parses, clamps, and warns on an off ui-state value") {
+  test("resolveActive reads the chosen member, and the first when none") {
+    // Parsing and clamping a variable's value is `SurfaceGraph.selections`'s.
     val rr = Renderer.create(tabsDashboard)
-    val outOfRange = rr.surfaces.resolveActive("c", Map("c" -> "99"))
-    assertEquals(outOfRange._1, 0)
-    assert(outOfRange._2.isDefined, clue = outOfRange)
-    val unparseable = rr.surfaces.resolveActive("c", Map("c" -> "abc"))
-    assertEquals(unparseable._1, 0)
-    assert(unparseable._2.isDefined, clue = unparseable)
-    assertEquals(rr.surfaces.resolveActive("c", Map("c" -> "1")), (1, None))
-    assertEquals(rr.surfaces.resolveActive("c", Map.empty), (0, None))
-    assertEquals(rr.surfaces.uiStateAnomalies(Map("c" -> "1")), Nil)
-    assertEquals(rr.surfaces.uiStateAnomalies(Map.empty), Nil)
-    assertEquals(rr.surfaces.uiStateAnomalies(Map("c" -> "99")).size, 1)
+    assertEquals(rr.surfaces.resolveActive("c", picking("c" -> 1)), 1)
+    assertEquals(rr.surfaces.resolveActive("c", Selections.none), 0)
   }
 
   test(
@@ -1383,7 +1378,7 @@ class RendererSuite extends munit.FunSuite {
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderBody(states, Map("c" -> "1"))
+    val sel = rr.renderBody(states, picking("c" -> 1))
     assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
@@ -1601,9 +1596,9 @@ class RendererSuite extends munit.FunSuite {
     // shared pass's job.
     assertEquals(r.surfaces.selectedSurfaces(), Set.empty[String])
     assertEquals(r.surfaces.stateBakeOwnerIds, Set("c"))
-    assertEquals(r.surfaces.userBakeOwnerIds, Set.empty[String])
+    assertEquals(r.surfaces.varBakeOwnerIds, Set.empty[String])
     val tabs = Renderer.create(tabsDashboard)
-    assertEquals(tabs.surfaces.userBakeOwnerIds, Set("c"))
+    assertEquals(tabs.surfaces.varBakeOwnerIds, Set("c"))
     assertEquals(tabs.surfaces.stateBakeOwnerIds, Set.empty[String])
   }
 

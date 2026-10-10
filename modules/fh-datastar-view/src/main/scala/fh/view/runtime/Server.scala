@@ -233,24 +233,24 @@ class Server(
     // The slug is what the rule checks (ADR 0023), and the only way to
     // re-establish a `conn` this process forgot ([[withSession]]).
     case req @ POST -> Root / "sse" / "surface" / slug / "open" / id =>
-      withSession(req, slug)((session, renderer, uiState) =>
-        openSurface(session, renderer, id, uiState)
+      withSession(req, slug)((session, renderer, selections) =>
+        openSurface(session, renderer, id, selections)
       )
 
     case req @ POST -> Root / "sse" / "popup" / slug / "close" =>
-      withSession(req, slug)((session, renderer, uiState) =>
-        swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
+      withSession(req, slug)((session, renderer, selections) =>
+        swapHost(session, renderer, Dashboard.PopupHostId, None, selections)
       )
 
     // Addressed to the node that declared the variable (issue #209).
     case req @ POST -> Root / "sse" / "var" / slug / node / name / value =>
-      withSession(req, slug)((session, renderer, uiState) =>
+      withSession(req, slug)((session, renderer, selections) =>
         setVar(
           session,
           renderer,
           VarKey(NodeId.derived(node), name),
           value,
-          uiState
+          selections
         )
       )
   }
@@ -415,9 +415,9 @@ class Server(
       Server.RendererState.Ready(Renderer.fromValidated(validated))
     )
 
-  /** The shell around [[Patches.plan]] + [[Patches.record]]. No `uiState`
-    * reaches it, so a slug pays one selection pass per frame however many
-    * viewers it has.
+  /** The shell around [[Patches.plan]] + [[Patches.record]]. No viewer's
+    * [[Selections]] reach it, so a slug pays one selection pass per frame
+    * however many viewers it has.
     *
     * A slug nobody watches records nothing ([[FragmentLog.skipped]]). Safe only
     * because [[pageResponse]] registers the session BEFORE reading the snapshot
@@ -494,7 +494,7 @@ class Server(
       req: Request[IO],
       allowed: Stream[IO, Boolean]
   ): IO[Response[IO]] =
-    val uiState = Server.uiStateOf(req)
+    val requested = Server.popupOf(req)
     for {
       // `None`: a bookmarked SSE URL; every document names its own.
       named = Server.connOf(req)
@@ -518,9 +518,13 @@ class Server(
       _ <- rendererOpt.traverse_ { r =>
         session.serving.lock.surround(
           adoptCarriedVars(session, r, req) *>
-            selectionsOf(session, r, uiState).flatMap { sel =>
-              warnAnomalies(r, sel) *>
-                session.open.set(r.surfaces.selectedSurfaces(sel))
+            envOf(session, r).flatMap { env =>
+              warnAnomalies(r, env) *>
+                session.open.set(
+                  r.surfaces.selectedSurfaces(
+                    r.surfaces.selections(requested, env)
+                  )
+                )
             }
         )
       }
@@ -558,8 +562,8 @@ class Server(
         session.serving.lock.surround(
           (
             session.open.get,
-            rendererOpt.fold(IO.pure(uiState))(
-              selectionsOf(session, _, uiState)
+            rendererOpt.fold(IO.pure(Selections.none))(
+              selectionsOf(session, _, requested)
             )
           ).flatMapN((open, selections) =>
             openingPatches(slug, l, session, req, selections, open)
@@ -712,7 +716,7 @@ class Server(
                   position + 1,
                   open,
                   // Live, not the arriving selection: a tab select moves it.
-                  renderer.surfaces.uiStateFrom(open)
+                  renderer.surfaces.selectionsIn(open)
                 )
               )
               .flatMap { patches =>
@@ -761,7 +765,7 @@ class Server(
       live: Server.LiveSlug,
       session: Session,
       req: Request[IO],
-      uiState: Map[String, String],
+      selections: Selections,
       open: Set[String]
   ): IO[List[SseFrame]] =
     (
@@ -806,16 +810,16 @@ class Server(
                     env,
                     Server.resumeFrom(req, c),
                     open,
-                    uiState
+                    selections
                   )
                 )
               // Traced, so the repaint claims what it painted; clearing `holds`
               // instead would re-send the open surfaces on the next pull.
               val painted =
                 pageAnswers(renderer, open, store.entities, env).map(
-                  Patches.repaint(renderer, store.entities, uiState, _)
+                  Patches.repaint(renderer, store.entities, selections, _)
                 )
-              val orphan = Server.orphanedPopup(renderer, uiState)
+              val orphan = Server.orphanedPopup(renderer, Server.popupOf(req))
               val result = (resumedIO, session.vars.get).tupled.flatMap {
                 (resumed, chosen) =>
                   val claim = resumed.fold(store.version)(_ => covered)
@@ -878,11 +882,11 @@ class Server(
             case (Some(prev), Some(r)) =>
               session.serving.lock.surround(
                 (session.open.get, envOf(session, r)).flatMapN { (was, env) =>
-                  // What is selected NOW, not the `uiState` this stream connected
-                  // with: popups since have moved `open`, and tab presses the
+                  // What is selected NOW, not what this stream connected with:
+                  // popups since have moved `open`, and tab presses the
                   // session's variables.
-                  val ui = prev.surfaces.committedSelections(was) ++
-                    r.surfaces.varSelections(env)
+                  val popup = prev.surfaces.selectionsIn(was).popup
+                  val ui = r.surfaces.selections(popup, env)
                   val open = r.surfaces.selectedSurfaces(ui)
                   (session.open.set(open) *>
                     (stateStore.current, live.log.get).tupled)
@@ -903,7 +907,7 @@ class Server(
                               .set(store.version)
                               .as(
                                 head ++ painted ++
-                                  Server.orphanedPopup(r, ui) :+
+                                  Server.orphanedPopup(r, popup) :+
                                   // A swap rotated the log id; without this a
                                   // reconnect quotes a dead log and repaints.
                                   Server.cursorSignals(r, log.id, store.version)
@@ -924,7 +928,7 @@ class Server(
       session: Session,
       renderer: Renderer,
       id: String,
-      uiState: Map[String, String]
+      selections: Selections
   ): IO[Unit] =
     renderer.surface(id) match {
       case None =>
@@ -939,7 +943,7 @@ class Server(
           )
         )
       case Some(surf) =>
-        swapHost(session, renderer, surf.hostId, Some(id), uiState)
+        swapHost(session, renderer, surf.hostId, Some(id), selections)
     }
 
   /** The one open/switch/close primitive: make `newSurface` the sole occupant
@@ -955,7 +959,7 @@ class Server(
       renderer: Renderer,
       host: DomId,
       newSurface: Option[String],
-      uiState: Map[String, String]
+      selections: Selections
   ): IO[Unit] =
     for {
       _ <- session.open.update { open =>
@@ -970,9 +974,15 @@ class Server(
       // Only the arriving surface's queries, so an unopened popup costs
       // nothing.
       env <- envOf(session, renderer)
-      fragments <- resolveQueries(renderer, newSurface, states, uiState, env)
-      filled =
-        Patches.hostFill(renderer, host, newSurface, states, uiState, fragments)
+      fragments <- resolveQueries(renderer, newSurface, states, selections, env)
+      filled = Patches.hostFill(
+        renderer,
+        host,
+        newSurface,
+        states,
+        selections,
+        fragments
+      )
       _ <- filled match {
         case Some((patch, html)) =>
           session.holds.update(Patches.applied(renderer.ancestry, _, patch)) *>
@@ -1014,13 +1024,13 @@ class Server(
       renderer: Renderer,
       arriving: Option[String],
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       env: VarEnv
   ): IO[QuerySnapshot] =
     answer(
       renderer,
       arriving.toList.flatMap(
-        renderer.queriesForSurface(_, states, uiState, env)
+        renderer.queriesForSurface(_, states, selections, env)
       ),
       env
     )
@@ -1055,7 +1065,7 @@ class Server(
       renderer: Renderer,
       key: VarKey,
       value: String,
-      uiState: Map[String, String]
+      selections: Selections
   ): IO[Unit] = {
     val readers = renderer.vars.readersOf(key)
     val groups = renderer.vars.panelsSelectedBy(key)
@@ -1077,7 +1087,7 @@ class Server(
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
       }
       env = renderer.vars.env(proposed)
-      selections = uiState ++ renderer.surfaces.varSelections(env)
+      after = renderer.surfaces.selections(selections.popup, env)
       // `refusals` made the value a member index of every group it selects.
       _ <- groups.filter(shown).traverse_ { gid =>
         val sid = renderer.surfaces.bakeGroup(gid)(value.toInt)
@@ -1085,13 +1095,13 @@ class Server(
           .surface(sid)
           .filterNot(_ => open(sid))
           .traverse_(s =>
-            swapHost(session, renderer, s.hostId, Some(sid), selections)
+            swapHost(session, renderer, s.hostId, Some(sid), after)
           )
       }
       targets = readers.filter(shown)
       snapshot <- answer(
         renderer,
-        renderer.readsForPull(targets, Nil, store.entities, selections, env),
+        renderer.readsForPull(targets, Nil, store.entities, after, env),
         env
       )
       holds <- session.holds.get
@@ -1103,7 +1113,7 @@ class Server(
             l.cache,
             holds,
             store.entities,
-            selections,
+            after,
             snapshot,
             _
           )
@@ -1153,17 +1163,15 @@ class Server(
       )
     }
 
-  /** The request's selections with each tab bar's from the session's variables,
-    * which win: a stale `ui.` param cannot pick a tab.
+  /** The request's popup with each tab bar's member from the session's
+    * variables: a request carries no tab.
     */
   private def selectionsOf(
       session: Session,
       renderer: Renderer,
-      fromRequest: Map[String, String]
-  ): IO[Map[String, String]] =
-    envOf(session, renderer).map(env =>
-      fromRequest ++ renderer.surfaces.varSelections(env)
-    )
+      requested: Option[String]
+  ): IO[Selections] =
+    envOf(session, renderer).map(renderer.surfaces.selections(requested, _))
 
   // From the SESSION, not the request: a live pull has no request.
   private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
@@ -1199,20 +1207,16 @@ class Server(
       req: Request[IO],
       slug: String
   )(
-      f: (Session, Renderer, Map[String, String]) => IO[Unit]
+      f: (Session, Renderer, Selections) => IO[Unit]
   ): IO[Response[IO]] = {
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap { body =>
-        connOf(body).map(
-          _ -> Server
-            .uiFromSignals(body.hcursor)
-            .filter((k, _) => k == Dashboard.PopupHostId)
-        )
+        connOf(body).map(_ -> Server.popupFromSignals(body.hcursor).flatten)
       })
       .flatMap {
         case None =>
           actionRefused(req, "missing conn")
-        case Some((conn, uiState)) =>
+        case Some((conn, requested)) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
             rendererFor(slug)
               .flatMap {
@@ -1221,11 +1225,11 @@ class Server(
                     FHError.notFound(s"no dashboard '$slug' is being served")
                   )
                 case Some(renderer) =>
-                  sessionFor(slug, conn, renderer, uiState).flatMap {
+                  sessionFor(slug, conn, renderer, requested).flatMap {
                     case None => actionRefused(req, Server.WrongSlugMessage)
                     case Some(session) =>
                       session.serving.lock.surround(
-                        selectionsOf(session, renderer, uiState)
+                        selectionsOf(session, renderer, requested)
                           .flatMap(f(session, renderer, _))
                       ) *> NoContent()
                   }
@@ -1250,7 +1254,7 @@ class Server(
       slug: String,
       conn: String,
       renderer: Renderer,
-      uiState: Map[String, String]
+      requested: Option[String]
   ): IO[Option[Session]] =
     sessions.get(conn).flatMap {
       case Some(session) => IO.pure(Option.when(session.slug == slug)(session))
@@ -1258,7 +1262,7 @@ class Server(
         Session
           .create(slug)
           .flatTap(s =>
-            selectionsOf(s, renderer, uiState)
+            selectionsOf(s, renderer, requested)
               .flatMap(sel =>
                 s.open.set(renderer.surfaces.selectedSurfaces(sel))
               )
@@ -1307,13 +1311,8 @@ class Server(
       )
       .void
 
-  private def warnAnomalies(
-      renderer: Renderer,
-      uiState: Map[String, String]
-  ): IO[Unit] =
-    renderer.surfaces
-      .uiStateAnomalies(uiState)
-      .traverse_(w => logger.warn(w))
+  private def warnAnomalies(renderer: Renderer, env: VarEnv): IO[Unit] =
+    renderer.surfaces.selectionAnomalies(env).traverse_(w => logger.warn(w))
 
   private def callService(
       domain: String,
@@ -1513,18 +1512,10 @@ class Server(
       req: Request[IO],
       choices: Map[VarKey, String]
   ): IO[Response[IO]] = {
-    val fromRequest = Server.uiStateOf(req)
-    val uiState =
-      fromRequest ++ renderer.surfaces.varSelections(renderer.vars.env(choices))
+    val env = renderer.vars.env(choices)
+    val selections = renderer.surfaces.selections(Server.popupOf(req), env)
     val editMode = req.uri.query.params.get("edit").contains("1")
-    // Narrowed: a popup this dashboard cannot serve is not shown, so it must
-    // not be seeded back either. The request's only: a tab bar's choice is on
-    // the session, not forwarded as a `ui.` param.
-    val restoreUi = renderer.surfaces.openPopup(fromRequest) match {
-      case Some(sid) => fromRequest.updated(Dashboard.PopupHostId, sid)
-      case None      => fromRequest - Dashboard.PopupHostId
-    }
-    val open = renderer.surfaces.selectedSurfaces(uiState)
+    val open = renderer.surfaces.selectedSurfaces(selections)
     for {
       // Read once: the banner rendered and the value recorded as told must
       // agree, or the stream repeats it or skips a real change.
@@ -1549,9 +1540,11 @@ class Server(
       _ <- session.position.set(store.version)
       // The document carries the cursor, so it is the first announcement.
       _ <- session.told.set(store.version)
-      _ <- warnAnomalies(renderer, uiState)
+      _ <- warnAnomalies(renderer, env)
+      // Narrowed: a popup this dashboard cannot serve is not shown, so it must
+      // not be seeded back either. A tab bar's choice is on the session.
       restore = Server.Restore(
-        restoreUi,
+        selections.popup,
         conn,
         Some(
           Server.Cursor(
@@ -1600,8 +1593,7 @@ class Server(
                 own = renderer.renderPageHolds(
                   sink,
                   store.entities,
-                  uiState,
-                  renderer.surfaces.openPopup(uiState),
+                  selections,
                   Server.awaitAnswers(pending)
                 )
               },
@@ -1762,7 +1754,7 @@ class Server(
     val popupParamName = Server.UiParamPrefix + Dashboard.PopupHostId
     val popupSeed = Server.escapeHtml(
       Server.escapeJsString(
-        restore.uiState.getOrElse(Dashboard.PopupHostId, "")
+        restore.popup.getOrElse("")
       )
     )
     // Back and Forward move the URL first (`data-fh-url__history`, ADR 0005);
@@ -2276,10 +2268,10 @@ object Server {
     * `data-init` URL: **the first connect carries no signals** (`data-init`
     * fires from `<body>` before descendants' `data-signals` merge), so a
     * signals-only read renders the default tab. Signals win on a reconnect
-    * ([[uiStateOf]]).
+    * ([[popupOf]]).
     */
   private[runtime] case class Restore(
-      uiState: Map[String, String],
+      popup: Option[String],
       conn: String,
       // Without it the first connect repaints the body the document holds.
       cursor: Option[Cursor] = None
@@ -2287,9 +2279,9 @@ object Server {
 
     /** `&amp;`: this lands in an HTML attribute. */
     def query: String = {
-      val params = uiState.toList.sorted.map { case (id, v) =>
-        s"$UiParamPrefix${encode(id)}=${encode(v)}"
-      } ++ cursor.toList.flatMap(c =>
+      val params = popup.toList.map(sid =>
+        s"$UiParamPrefix${Dashboard.PopupHostId}=${encode(sid)}"
+      ) ++ cursor.toList.flatMap(c =>
         List(
           s"${cursorParam(HeadHashSignal)}=${encode(c.headHash)}",
           s"${cursorParam(StyleHashSignal)}=${encode(c.styleHash)}",
@@ -2305,33 +2297,27 @@ object Server {
   }
 
   /** The open popup, from the URL's `ui.popups` param and the `ui_popups`
-    * signal (ADR 0005). Signals win: the URL trails them. Untrusted;
-    * [[SurfaceGraph.openPopup]] narrows it. A tab bar's selection is a node
-    * variable, read from the session ([[selectionsOf]]), so a `ui.<id>` param
-    * naming one is not read.
+    * signal (ADR 0005). The signal wins, an empty one included: the URL trails
+    * it. Untrusted; [[SurfaceGraph.openPopup]] narrows it. A tab bar's
+    * selection is a node variable, read from the session ([[selectionsOf]]), so
+    * a `ui.<id>` param naming one is not read.
     */
-  def uiStateOf(req: Request[IO]): Map[String, String] =
-    (uiFromQuery(req) ++ signalsOf(req).fold(Map.empty)(uiFromSignals))
-      .filter((k, _) => k == Dashboard.PopupHostId)
+  def popupOf(req: Request[IO]): Option[String] =
+    signalsOf(req)
+      .flatMap(popupFromSignals)
+      .getOrElse(
+        req.uri.query.params.get(UiParamPrefix + Dashboard.PopupHostId)
+      )
+      .filter(_.nonEmpty)
 
-  // The URL, not a cookie: a cookie is per origin, and two tabs would
-  // overwrite each other's selection.
-  private def uiFromQuery(req: Request[IO]): Map[String, String] =
-    req.uri.query.params.collect {
-      case (k, v) if k.startsWith(UiParamPrefix) =>
-        k.drop(UiParamPrefix.length) -> v
-    }
-
-  private[runtime] def uiFromSignals(c: io.circe.ACursor): Map[String, String] =
-    c.keys.toList.flatten
-      .filter(_.startsWith(UiSignalPrefix))
-      .flatMap { k =>
-        c.downField(k)
-          .focus
-          .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
-          .map(k.drop(UiSignalPrefix.length) -> _)
-      }
-      .toMap
+  /** `None` when the signal is absent, `Some(None)` when it is empty. */
+  private[runtime] def popupFromSignals(
+      c: io.circe.ACursor
+  ): Option[Option[String]] =
+    c.downField(UiSignalPrefix + Dashboard.PopupHostId)
+      .focus
+      .flatMap(_.asString)
+      .map(Option(_).filter(_.nonEmpty))
 
   /** Framework protocol, not authoring names: ADR 0005's "no signal-name
     * literals in the backend" is about `tab_`/`_val_`.
@@ -2692,12 +2678,11 @@ object Server {
     */
   private[runtime] def orphanedPopup(
       renderer: Renderer,
-      uiState: Map[String, String]
+      requested: Option[String]
   ): List[SseFrame] =
     Option
       .when(
-        uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
-          renderer.surfaces.openPopup(uiState).isEmpty
+        requested.nonEmpty && renderer.surfaces.openPopup(requested).isEmpty
       )(
         Datastar.patch(
           s"""<div id="${Dashboard.PopupHostId}"></div>""",

@@ -269,7 +269,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   private def paint(r: Renderer, env: VarEnv, drawn: (String, String)*) =
     r.renderBodyTraced(
       states,
-      Map.empty,
+      Selections.none,
       QuerySnapshot.of(
         drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
         env

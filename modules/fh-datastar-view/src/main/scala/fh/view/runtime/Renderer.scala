@@ -226,7 +226,7 @@ class Renderer(
       setOfMember = members.memberIds.toList.flatMap { m =>
         ancestry.ancestorsOf(m).find(indexedSets).map(m -> _)
       }.toMap,
-      panelsSelected = surfaces.userBakeOwnerIds.toList
+      panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
       asksAt = queriesForNode
@@ -272,7 +272,7 @@ class Renderer(
       targets: List[NodeId],
       hosts: List[NodeId],
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       env: VarEnv
   ): List[SlotRead] =
     (targets.flatMap(id => readsAt(id, env) ++ setReadsAbove(id, env)) ++
@@ -285,7 +285,7 @@ class Renderer(
               .resolveActiveByState(gid, states)
               .flatMap(surfaces.bakeGroup(gid).lift)
               .toList
-              .flatMap(queriesForSurface(_, states, uiState, env))
+              .flatMap(queriesForSurface(_, states, selections, env))
         }
       }).distinct
 
@@ -471,7 +471,7 @@ class Renderer(
     */
   private[runtime] def renderBodyTraced(
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
+      selections: Selections = Selections.none,
       fragments: QuerySnapshot
   ): Traced =
     traced(
@@ -479,7 +479,7 @@ class Renderer(
       LayoutNode.rootId("", dashboard.card),
       "",
       states,
-      uiState,
+      selections,
       fragments
     )
 
@@ -494,11 +494,10 @@ class Renderer(
   private[runtime] def renderPageInto(
       out: Sink,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
-      popup: Option[String] = None,
+      selections: Selections = Selections.none,
       fragments: QuerySnapshot
   ): Map[NodeId, Painted] =
-    pageInto(out, states, uiState, popup, fragments).own.asScala.toMap
+    pageInto(out, states, selections, fragments).own.asScala.toMap
 
   /** [[renderPageInto]], returning what the client now holds, structure's seeds
     * included: what a page load commits as the session's `holds`.
@@ -506,17 +505,15 @@ class Renderer(
   private[runtime] def renderPageHolds(
       out: Sink,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
-      popup: Option[String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): Map[NodeId, Held] =
-    pageInto(out, states, uiState, popup, fragments).holds
+    pageInto(out, states, selections, fragments).holds
 
   private def pageInto(
       out: Sink,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
-      popup: Option[String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): Trace = {
     val own = new Trace
@@ -530,13 +527,13 @@ class Renderer(
         LayoutNode.rootId("", root),
         "",
         states,
-        uiState,
+        selections,
         fragments,
         own
       )
     val dialogInto: Option[java.io.Writer => Unit] =
-      popup.flatMap(sid =>
-        surfaceWalk(out, sid, states, uiState, fragments, own)
+      selections.popup.flatMap(sid =>
+        surfaceWalk(out, sid, states, selections, fragments, own)
       )
     // Not mustache's `execute(ctx)`, whose `StringWriter` grows from 16 chars
     // and copies the page twice more.
@@ -553,7 +550,7 @@ class Renderer(
       out: Sink,
       surfaceId: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace
   ): Option[java.io.Writer => Unit] =
@@ -566,7 +563,7 @@ class Renderer(
         LayoutNode.rootId(prefix, sfc.content),
         prefix,
         states,
-        uiState,
+        selections,
         fragments,
         trace
       )
@@ -576,7 +573,7 @@ class Renderer(
   private[runtime] def renderSurfaceTraced(
       surfaceId: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
+      selections: Selections = Selections.none,
       fragments: QuerySnapshot
   ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
@@ -585,7 +582,7 @@ class Renderer(
         LayoutNode.rootId(Renderer.surfacePrefix(surfaceId), s.content),
         Renderer.surfacePrefix(surfaceId),
         states,
-        uiState,
+        selections,
         fragments
       )
     }
@@ -597,19 +594,19 @@ class Renderer(
   def renderNodeById(
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
+      selections: Selections = Selections.none,
       form: SlotForm = SlotForm.Patch,
       fragments: QuerySnapshot
   ): Option[String] =
     members
       .memberAt(id, states)
       .map(renderMember(_, states, form, fragments))
-      .orElse(renderIndexed(id, states, uiState, form, fragments))
+      .orElse(renderIndexed(id, states, selections, form, fragments))
 
   private def renderIndexed(
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       form: SlotForm,
       fragments: QuerySnapshot
   ): Option[String] =
@@ -617,7 +614,7 @@ class Renderer(
       .get(id)
       .filter(_ => hasOwnRendering(id))
       .flatMap { case (node, prefix) =>
-        render(node, id, prefix, states, uiState, form, fragments)
+        render(node, id, prefix, states, selections, form, fragments)
       }
 
   /** `s_<sid>__c`, what a state group's host holds; the same scheme the
@@ -637,11 +634,11 @@ class Renderer(
   def queriesForSurface(
       surfaceId: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       env: VarEnv
   ): List[SlotRead] =
     surfaces
-      .shownWithin(surfaceId, states, uiState)
+      .shownWithin(surfaceId, states, selections)
       .toList
       .sorted
       .flatMap(readsOfSurface(_, env))
@@ -686,7 +683,7 @@ class Renderer(
   private[runtime] def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): HostContent =
     members.setContainer(container) match {
@@ -701,7 +698,7 @@ class Renderer(
           .resolveActiveByState(container, states)
           .flatMap(surfaces.bakeGroup(container).lift)
           .flatMap(sid =>
-            renderSurfaceTraced(sid, states, uiState, fragments).map(t =>
+            renderSurfaceTraced(sid, states, selections, fragments).map(t =>
               HostContent(List(surfaceContentId(sid) -> t.html), t.claims)
             )
           )
@@ -749,7 +746,7 @@ class Renderer(
     */
   private def resolveBakeTraced(
       id: NodeId,
-      uiState: Map[String, String],
+      selections: Selections,
       states: Map[String, EntityState]
   ): (Map[String, String], Option[(String, String)]) = {
     val group = surfaces.bakeGroup(id)
@@ -764,7 +761,7 @@ class Renderer(
     }
     if (group.isEmpty) (Map.empty, None)
     else
-      activeBakeIndex(id, uiState, states) match {
+      activeBakeIndex(id, selections, states) match {
         case Some(idx) => bakeMember(idx)
         // A state group with no matching branch: the hole renders empty.
         case None => (Map.empty, None)
@@ -776,13 +773,13 @@ class Renderer(
     */
   private def activeBakeIndex(
       id: NodeId,
-      uiState: Map[String, String],
+      selections: Selections,
       states: Map[String, EntityState]
   ): Option[Int] =
     if (surfaces.bakeGroup(id).isEmpty) None
     else if (surfaces.isStateGroup(id))
       surfaces.resolveActiveByState(id, states)
-    else Some(surfaces.resolveActive(id, uiState)._1)
+    else Some(surfaces.resolveActive(id, selections))
 
   /** The render cache's key (ADR 0012): the content version of each entity that
     * can move this node's bytes ([[entitiesAsBytesForNode]]) — not those read
@@ -884,11 +881,11 @@ class Renderer(
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       form: SlotForm,
       fragments: QuerySnapshot
   ): Option[String] = {
-    val t = traced(node, id, idPrefix, states, uiState, fragments)
+    val t = traced(node, id, idPrefix, states, selections, fragments)
     if (form.isPatch) t.rootOwn else Some(t.html)
   }
 
@@ -924,13 +921,13 @@ class Renderer(
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): Traced = {
     val trace = new Trace
     val root = new Array[String](1)
     val html =
-      tracedHtml(node, id, idPrefix, states, uiState, fragments, trace, root)
+      tracedHtml(node, id, idPrefix, states, selections, fragments, trace, root)
     Traced(
       html,
       trace.own.asScala.toMap,
@@ -947,7 +944,7 @@ class Renderer(
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace,
       // [[Traced.rootOwn]]; `null` for a page, whose root is structure.
@@ -965,7 +962,7 @@ class Renderer(
       id,
       idPrefix,
       states,
-      uiState,
+      selections,
       fragments,
       trace,
       rootOwn,
@@ -984,7 +981,7 @@ class Renderer(
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace,
       rootOwn: Array[String] | Null = null,
@@ -992,7 +989,7 @@ class Renderer(
   ): Unit =
     node match {
       case c: LayoutNode.Component =>
-        val (bakeIndex, bakeSel) = resolveBakeTraced(id, uiState, states)
+        val (bakeIndex, bakeSel) = resolveBakeTraced(id, selections, states)
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
         val plan = planOf(id, id, c, states)
@@ -1054,7 +1051,7 @@ class Renderer(
                       childId(region, i, child),
                       idPrefix,
                       states,
-                      uiState,
+                      selections,
                       fragments,
                       trace
                     )
@@ -1063,7 +1060,7 @@ class Renderer(
             val bakedHtml: Map[String, List[String]] =
               bakeSel match {
                 case Some((region, sid)) if !inline.contains(region) =>
-                  renderSurfaceTraced(sid, states, uiState, fragments)
+                  renderSurfaceTraced(sid, states, selections, fragments)
                     .map { t =>
                       t.own.foreach { case (nid, p) => trace.own.put(nid, p) }
                       t.seeded.foreach { case (nid, sg) =>
@@ -1086,7 +1083,7 @@ class Renderer(
                         childId(region, i, child),
                         idPrefix,
                         states,
-                        uiState,
+                        selections,
                         fragments,
                         trace
                       )
@@ -1103,7 +1100,7 @@ class Renderer(
                         LayoutNode.rootId(prefix, s.content),
                         prefix,
                         states,
-                        uiState,
+                        selections,
                         fragments,
                         trace
                       )

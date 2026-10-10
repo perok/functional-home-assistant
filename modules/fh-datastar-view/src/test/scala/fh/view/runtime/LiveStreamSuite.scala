@@ -328,7 +328,7 @@ class LiveStreamSuite extends ServerHarness {
           r.hostId("c_0"),
           Some("then"),
           armed,
-          Map.empty,
+          Selections.none,
           fragments = QuerySnapshot.empty
         )
         .get
@@ -361,7 +361,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.b" -> es("sensor.b", "B0")
     )
     val host: NodeId = "c_0_bar_0"
-    val mine = Map("c_0" -> "1")
+    val mine = Selections(None, Map(NodeId.derived("c_0") -> 1))
     // Recorded as holding what a tab-0 connect left behind.
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
@@ -407,7 +407,7 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.b" -> es("sensor.b", "B0")
       )
     val open = Set("det", "t1")
-    val mine = Map("s_det__c_0" -> "1")
+    val mine = Selections(None, Map(NodeId.derived("s_det__c_0") -> 1))
     // Exactly as `pageResponse` records it.
     val ids =
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
@@ -506,7 +506,7 @@ class LiveStreamSuite extends ServerHarness {
       states,
       1L,
       Set("then", "t1"),
-      Map.empty
+      Selections.none
     )
     assert(
       !owed.exists(_.patch.toSse.render.contains("A1")),

@@ -66,7 +66,7 @@ name, like `conn`.
 
 - **The signal is the truth.** The open popup is `ui_popups`, an ordinary
   unprefixed Datastar signal, so it rides every request the client makes — the
-  SSE reconnect included — and `Server.uiStateOf` reads it. A tab bar's
+  SSE reconnect included — and `Server.popupOf` reads it. A tab bar's
   selection is a node variable instead (decision 4): the session holds it, and
   its committed signal `_var_<id>__tab` rides only the SSE GET, which is all a
   forgotten session needs to adopt it (ADR 0033).
@@ -215,8 +215,8 @@ Explicit **non-candidate**: slider/value positions (the entity is truth).
   unprefixed `tab_<id>` signal on every Datastar request *and* an `fhui_<id>`
   cookie on every request to the origin. There is now one carrier; the URL
   costs nothing per request because it is never sent.
-- The read path is small and bounded to the HTTP layer (`uiStateOf` = query
-  params ∪ signals for the popup, `varChoicesOf` for `v.`); the write path is
+- The read path is small and bounded to the HTTP layer (`popupOf` = the
+  popup's signal, else its query param; `varChoicesOf` for `v.`); the write path is
   one `data-fh-url` attribute per selection.
 - **Datastar specifics (verified against v1.0.4):** `data-query-string` and
   `data-persist` are Pro; the free bundle has neither, and `data-persist`

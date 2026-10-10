@@ -35,26 +35,26 @@ class ServerRoutesSuite extends ServerHarness {
     )
 
   test(
-    "uiStateOf reads the popup's ui. param and ui_ signal, ignoring the rest"
+    "popupOf reads the popup's ui. param and ui_ signal, ignoring the rest"
   ) {
     assertEquals(
-      Server.uiStateOf(get("ui.popups" -> "det", "other" -> "x")),
-      Map("popups" -> "det")
+      Server.popupOf(get("ui.popups" -> "det", "other" -> "x")),
+      Some("det")
     )
     // A tab bar's selection is a node variable, so its old param is not read.
-    assertEquals(Server.uiStateOf(get("ui.c" -> "1")), Map.empty)
-    assertEquals(Server.uiStateOf(get("other" -> "x")), Map.empty)
-    assertEquals(Server.uiStateOf(get()), Map.empty)
+    assertEquals(Server.popupOf(get("ui.c" -> "1")), None)
+    assertEquals(Server.popupOf(get("other" -> "x")), None)
+    assertEquals(Server.popupOf(get()), None)
     assertEquals(
-      Server.uiStateOf(
+      Server.popupOf(
         signalled("""{"ui_popups":"det","ui_c":1,"conn":"x"}""")
       ),
-      Map("popups" -> "det")
+      Some("det")
     )
     // The signal is the live value; the URL only trails it.
     assertEquals(
       Server
-        .uiStateOf(
+        .popupOf(
           Request[IO](
             Method.GET,
             uri"/"
@@ -62,21 +62,19 @@ class ServerRoutesSuite extends ServerHarness {
               .withQueryParam("datastar", """{"ui_popups":"b"}""")
           )
         ),
-      Map("popups" -> "b")
+      Some("b")
     )
   }
 
   test("selection round-trip: a tab variable of 1 opens the index-1 surface") {
     val r = tabsRenderer
-    val uiState =
-      r.surfaces.varSelections(
-        r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
-      )
-    assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t1"))
-    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
+    val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
+    val selections = r.surfaces.selections(None, env)
+    assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_t1"))
+    assert(r.renderBody(Map.empty, selections).contains("tab_c: 1"))
     assert(
-      r.surfaces.uiStateAnomalies(uiState).isEmpty,
-      clue = r.surfaces.uiStateAnomalies(uiState)
+      r.surfaces.selectionAnomalies(env).isEmpty,
+      clue = r.surfaces.selectionAnomalies(env)
     )
   }
 
@@ -85,10 +83,11 @@ class ServerRoutesSuite extends ServerHarness {
   ) {
     // `refusals` keeps such a value off the session; this is the guard behind.
     val r = tabsRenderer
-    val uiState = Map("c" -> "abc")
-    assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t0"))
-    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
-    assertEquals(r.surfaces.uiStateAnomalies(uiState).size, 1)
+    val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "abc"))
+    val selections = r.surfaces.selections(None, env)
+    assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_t0"))
+    assert(r.renderBody(Map.empty, selections).contains("tab_c: 0"))
+    assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
   test("parseValue picks the most specific JSON type") {
@@ -496,26 +495,22 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("the popup selection: signal wins when present, URL only seeds") {
-    assertEquals(
-      Server.uiStateOf(get("ui.popups" -> "det")).get("popups"),
-      Some("det")
-    )
+    assertEquals(Server.popupOf(get("ui.popups" -> "det")), Some("det"))
     // `ui_popups: ""` beside the stale param keeps a closed dialog closed on
-    // every retry: the signal is authoritative, as for any tab selection.
+    // every retry: the signal is authoritative.
     assertEquals(
       Server
-        .uiStateOf(
+        .popupOf(
           Request[IO](
             Method.GET,
             uri"/"
               .withQueryParam("ui.popups", "det")
               .withQueryParam("datastar", """{"ui_popups":""}""")
           )
-        )
-        .get("popups"),
-      Some("")
+        ),
+      None
     )
-    assertEquals(Server.uiStateOf(get()).get("popups"), None)
+    assertEquals(Server.popupOf(get()), None)
   }
 
   test("openPopup adopts only a surface this dashboard can actually host") {
@@ -531,14 +526,18 @@ class ServerRoutesSuite extends ServerHarness {
         )
       )
     )
-    assertEquals(r.surfaces.openPopup(Map("popups" -> "det")), Some("det"))
+    assertEquals(r.surfaces.openPopup(Some("det")), Some("det"))
     // Adopting any of these would put the session in a state its renderer
     // cannot serve.
-    assertEquals(r.surfaces.openPopup(Map("popups" -> "")), None)
-    assertEquals(r.surfaces.openPopup(Map("popups" -> "nope")), None)
-    assertEquals(r.surfaces.openPopup(Map("popups" -> "panel")), None)
-    assertEquals(r.surfaces.openPopup(Map.empty), None)
-    assert(r.surfaces.selectedSurfaces(Map("popups" -> "det")).contains("det"))
+    assertEquals(r.surfaces.openPopup(Some("")), None)
+    assertEquals(r.surfaces.openPopup(Some("nope")), None)
+    assertEquals(r.surfaces.openPopup(Some("panel")), None)
+    assertEquals(r.surfaces.openPopup(None), None)
+    assert(
+      r.surfaces
+        .selectedSurfaces(r.surfaces.selections(Some("det"), Map.empty))
+        .contains("det")
+    )
   }
 
   test("page <title> uses the dashboard's authored title when present") {
