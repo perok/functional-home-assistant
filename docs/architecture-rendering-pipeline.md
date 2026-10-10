@@ -1070,8 +1070,10 @@ shows the press immediately from its own pending signal and the ask ends only wh
 agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
 the display on a value that never moved. The committed signals are seeded by the document's shell,
 ahead of the body, and ride the opening frame again — both TOTAL over the build's declarations at
-this viewer's values (`Server.committedVars`), so a forgotten session corrects a stale control and
-a control never seeds the declared value over a linked choice. The control
+this viewer's values (`Server.committedVars`), so a stale control is corrected and a control never
+seeds the declared value over a linked choice. The committed values also ride the SSE GET
+(`Server.SseInclude`), so a session this process forgot (a restart, a reap) adopts them through
+`Renderer.refusals` instead of resetting the bar (`Server.carriedVars`). The control
 mirrors the committed value into the `v.` param with `data-fh-url`, as a tab bar mirrors `ui.`, so the
 URL follows what the server did rather than what was pressed.
 

@@ -512,7 +512,7 @@ class Server(
         warnAnomalies(r, uiState) *>
           session.open.set(
             r.surfaces.selectedSurfaces(uiState)
-          )
+          ) *> adoptCarriedVars(session, r, req)
       }
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
@@ -1076,6 +1076,37 @@ class Server(
         )
       )
     } yield ()
+  }
+
+  /** A session this process forgot (a restart, a reap) would start at the
+    * declared values and reset every bar on the opening frame. The reconnect
+    * still carries what the server last committed, so it is adopted, under the
+    * check every other entry passes. A live session's own choices win: a commit
+    * can be lost with the stream it rode.
+    */
+  private def adoptCarriedVars(
+      session: Session,
+      renderer: Renderer,
+      req: Request[IO]
+  ): IO[Unit] = {
+    val carried = Server.carriedVars(req, renderer)
+    IO.whenA(carried.nonEmpty)(
+      session.vars
+        .modify { chosen =>
+          val merged = carried ++ chosen
+          renderer.refusals(merged) match {
+            case Nil     => (merged, Nil)
+            case refused => (chosen, refused)
+          }
+        }
+        .flatMap(refused =>
+          IO.whenA(refused.nonEmpty)(
+            logger.warn(
+              s"a reconnect carried choices no reader takes, ignored: ${refused.mkString("; ")}"
+            )
+          )
+        )
+    )
   }
 
   // From the SESSION, not the request: a live pull has no request.
@@ -2237,13 +2268,33 @@ object Server {
   val VarParamPrefix: String = "v."
 
   /** Keyed by declarer, so two choosers do not move each other. `_`-prefixed so
-    * it never rides a request; its pending twin matches `PendingSweep`.
+    * only the SSE GET carries it ([[SseInclude]]); its pending twin matches
+    * `PendingSweep`.
     */
   private[runtime] def varGroupId(declarer: NodeId, name: String): String =
     s"var_${declarer}__$name"
 
   private[runtime] def varSignal(declarer: NodeId, name: String): String =
     "_" + varGroupId(declarer, name)
+
+  private[runtime] val VarSignalPrefix: String = "_var_"
+
+  /** The committed values a reconnect carries for this build's declarations,
+    * looked up by exact name: a declarer id may itself contain `__`, so the
+    * signal name cannot be parsed back. Untrusted; the caller checks them.
+    */
+  private[runtime] def carriedVars(
+      req: Request[IO],
+      renderer: Renderer
+  ): Map[(NodeId, String), String] =
+    signalsOf(req).fold(Map.empty) { c =>
+      renderer.declarations.keys.toList.flatMap { case key @ (declarer, name) =>
+        c.downField(varSignal(declarer, name))
+          .as[String]
+          .toOption
+          .map(key -> _)
+      }.toMap
+    }
 
   /** Total over declarations, so a control never shows the declared value over
     * a choice.
@@ -2626,8 +2677,8 @@ object Server {
       .toList
 
   /** A connect's last event: the cursor plus what only the server may assert
-    * (ADR 0025) — selections and node variables, the latter total so a
-    * forgotten choice resets to the declared value.
+    * (ADR 0025) — selections and node variables, the latter total so a choice
+    * this session does not hold resets to the declared value.
     */
   private[runtime] def openingSignals(
       renderer: Renderer,
@@ -2673,9 +2724,12 @@ object Server {
     * carried a cursor, `conn` or selection. [[cursorAnomaly]] cannot see it (an
     * empty store looks like a first connect); `ServerRoutesSuite` asserts the
     * served page.
+    *
+    * A committed node variable rides it, its pending ask does not: a session
+    * this process forgot adopts the choices from it ([[carriedVars]]).
     */
   private[runtime] val SseInclude: String =
-    s"^($ConnSignal$$|${UiSignalPrefix}|$CursorSignal\\.)"
+    s"^($ConnSignal$$|${UiSignalPrefix}|$CursorSignal\\.|$VarSignalPrefix(?!.*__pending$$))"
 
   /** `always`: the pinned bundle's default retries a dropped connection but not
     * a completed 200, and this stream should never end. A deleted slug's
