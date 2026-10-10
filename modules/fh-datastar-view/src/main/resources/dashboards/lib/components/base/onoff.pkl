@@ -25,8 +25,8 @@ open class Switch extends nodes.Node {
   card = "switch"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
-        \(slotMod.ifSlot("icon"))<span class="fh-badge"><i class="{{icon}}" \(slotMod.signalBind("icon"))></i></span>\(slotMod.endIfSlot("icon"))<span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
+      <article class="card toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
+        \(slotMod.ifSlot("icon"))<span class="fh-badge"><i class="{{icon}}" \(slotMod.signalBind("icon"))></i></span>\(slotMod.endIfSlot("icon"))<span class="\(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
           <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
@@ -34,10 +34,15 @@ open class Switch extends nodes.Node {
       </article>
       """
     slots { "label" }
-    // A long label must never shrink the switch off the card. `toggle` exists
-    // so this does not retune the framework's shared `.row`.
+    // A tile's row: the badge, the title taking what is left, the switch, and
+    // the badge filled while on. Not BeerCSS's `.row`, which squares the
+    // card's corners and lets the title wrap. A long label must never shrink
+    // the switch off the card.
     css = """
-      .card.row.toggle>.switch{flex:0 0 auto}
+      .card.toggle{display:flex;align-items:center;gap:.75rem}
+      .card.toggle>.fh-text{flex:1 1 auto}
+      .card.toggle>.switch{flex:0 0 auto}
+      .card.toggle[data-switched=on]>.fh-badge{background:var(--fh-accent);color:var(--fh-on-accent)}
       """
   }
   hidden label: (String|slotMod.Expr)? = null

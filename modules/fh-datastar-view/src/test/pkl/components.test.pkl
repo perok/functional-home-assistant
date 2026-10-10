@@ -605,14 +605,14 @@ facts {
     // it out: a button free to grow down, and a switch that never shrinks.
     cards["button"].css.contains("min-block-size:var(--fh-press-size,3rem)")
     cards["button"].css.contains("block-size:auto")
-    cards["switch"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
+    cards["switch"].css.contains(".card.toggle>.switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["switch"].template.contains(#"<article class="card row toggle""#)
+    cards["switch"].template.contains(#"<article class="card toggle""#)
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
-    cards["switch"].template.contains(#"<span class="max fh-text">"#)
+    cards["switch"].template.contains(#"<span class="fh-text">"#)
   }
 
   ["one dashboard-wide answer to a label that does not fit"] {
@@ -1165,7 +1165,7 @@ facts {
     local sw = c.toggle(kitchen)
     local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
-    t.contains(#"<article class="card row toggle" "#)
+    t.contains(#"<article class="card toggle" "#)
     t.split("<label").first.contains("data-class:fh-error")
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,

@@ -199,6 +199,32 @@ object SmokeDashboard {
     )
   )
 
+  /** A switch beside the tile it should look like, and one whose label does not
+    * fit a phone.
+    */
+  val switchCards: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-switch-cards",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Switch Cards"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.entityCard(dump.entities.${switchLight.dumpKey})
+         |    c.toggle(dump.entities.${switchLight.dumpKey})
+         |    (c.toggle(dump.entities.${switchLight.dumpKey})) { label = "$longName" }
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(switchLight)
+    )
+
   /** Nothing to drag, so the whole track is one button. A second line makes the
     * card taller than a button, the difference that made the target miss.
     */
