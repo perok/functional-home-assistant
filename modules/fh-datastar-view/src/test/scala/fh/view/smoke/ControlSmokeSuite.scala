@@ -411,6 +411,60 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a switch looks like the tile beside it, and cuts a long title") {
+    // #515. BeerCSS's `.row` squared the switch's corners and let its title
+    // wrap; the tile is what the switch is held to.
+    withPage(
+      Scene.of(SmokeDashboard.switchCards).entity(SmokeDashboard.switchLight),
+      viewport = Some(360 -> 740)
+    ) { (page, _) =>
+      for {
+        // Both badges paint from bindings, so wait for those to land.
+        _ <- IO.blocking(
+          assertThat(page.locator("article.toggle[data-switched=on]"))
+            .hasCount(2)
+        )
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-cell.fh-active>article.fh-tile-card"))
+            .hasCount(1)
+        )
+        json <- IO.blocking(
+          page
+            .evaluate(
+              """() => {
+                |  const tile = document.querySelector('article.fh-tile-card');
+                |  const [plain, long] = document.querySelectorAll('article.toggle');
+                |  const look = el => getComputedStyle(el);
+                |  const title = long.querySelector('.fh-text');
+                |  return JSON.stringify({
+                |    tileRadius: look(tile).borderTopLeftRadius,
+                |    switchRadius: look(plain).borderTopLeftRadius,
+                |    tileBadge: look(tile.querySelector('.fh-badge')).backgroundColor,
+                |    switchBadge: look(plain.querySelector('.fh-badge')).backgroundColor,
+                |    cut: title.scrollWidth > title.clientWidth,
+                |    textOverflow: look(title).textOverflow,
+                |    switchRight: long.querySelector('.switch').getBoundingClientRect().right,
+                |    cardRight: long.getBoundingClientRect().right
+                |  });
+                |}""".stripMargin
+            )
+            .toString
+        )
+        m <- IO.fromEither(io.circe.parser.decode[Map[String, Json]](json))
+      } yield {
+        def str(k: String) = m(k).asString.getOrElse("")
+        def num(k: String) = m(k).asNumber.map(_.toDouble).getOrElse(0.0)
+        assert(str("switchRadius") != "0px", clue = m)
+        assertEquals(str("switchRadius"), str("tileRadius"), clue = m)
+        // Both entities are on: the tile fills its badge with the accent.
+        assertEquals(str("switchBadge"), str("tileBadge"), clue = m)
+        assert(m("cut").asBoolean.contains(true), clue = m)
+        assertEquals(str("textOverflow"), "ellipsis", clue = m)
+        assert(num("switchRight") <= num("cardRight"), clue = m)
+      }
+    }
+  }
+
   test("an unavailable slider is disabled, and a stray change posts nothing") {
     withPage(scene) { (page, ts) =>
       val input = page.locator("input[type=range]")
