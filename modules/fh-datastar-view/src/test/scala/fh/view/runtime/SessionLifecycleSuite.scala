@@ -1,9 +1,11 @@
 package fh.view.runtime
 
 import fh.view.query.QuerySnapshot
-import cats.effect.IO
+import cats.effect.{IO, Resource}
+import cats.effect.std.Supervisor
 import cats.effect.kernel.{Deferred, Ref}
 import cats.syntax.all.*
+import fh.view.telemetry.Logging
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -90,7 +92,7 @@ class SessionLifecycleSuite extends ServerHarness {
       for {
         doc <- ts.load()
         established <- ts.sessions.get(doc.conn)
-        held <- established.traverse(_.holds.get)
+        held <- established.traverse(_.state.map(_.holds))
         _ <- ts.get(doc.stream).flatMap(sseFrom(_)(isCursor))
         // A first epoch on the document's object proves the stream took that
         // session. Lingering by now: the stream read its opening block and
@@ -298,7 +300,7 @@ class SessionLifecycleSuite extends ServerHarness {
         _ <- openThenDrop(ts, doc.stream)
         _ <- awaitTenure(ts, doc.conn, Tenure.Lingering(1))
         before <- ts.sessions.get(doc.conn)
-        heldBefore <- before.traverse(_.holds.get)
+        heldBefore <- before.traverse(_.state.map(_.holds))
         // The same URL, as Datastar's retry does.
         second <- ts.get(doc.stream)
         current <- second.body.compile.drain.start
@@ -377,6 +379,91 @@ class SessionLifecycleSuite extends ServerHarness {
         ) *> client.drain
         _ = assertEquals(domEvents(again), Nil, clue = again)
       } yield ()
+    }
+  }
+
+  private def answer(n: Int)(s: SessionState): IO[Session.Step[Int]] =
+    IO.pure(Session.Step(s, Nil, n))
+
+  private def isEnded(r: Either[Throwable, ?]): Boolean =
+    r.left.exists(Session.isEnded)
+
+  test("a reaped session's owner stops, and refuses what it is asked next") {
+    // A supervisor holds a fiber until it completes, and an owner waiting on its
+    // inbox never does: unless a reap ends it, every session ever served stays
+    // in memory until shutdown.
+    Supervisor[IO].use { supervisor =>
+      for {
+        session <- Session.create(
+          "d",
+          supervisor,
+          Logging.console.getLoggerFromName("test")
+        )
+        served <- session.run(answer(1))
+        _ <- session.relinquish(Tenure.Fresh)
+        refused <- session
+          .run(answer(2))
+          .attempt
+          .iterateUntil(isEnded)
+          .timeout(5.seconds)
+      } yield {
+        assertEquals(served, 1)
+        assert(isEnded(refused), clue = refused)
+      }
+    }
+  }
+
+  test(
+    "a step running when its session is reaped is refused, not left hanging"
+  ) {
+    (Supervisor[IO], Resource.eval(Deferred[IO, Unit])).tupled
+      .use { (supervisor, entered) =>
+        for {
+          session <- Session.create(
+            "d",
+            supervisor,
+            Logging.console.getLoggerFromName("test")
+          )
+          caller <- session
+            .run(_ => entered.complete(()) *> IO.never[Session.Step[Unit]])
+            .attempt
+            .start
+          _ <- entered.get
+          _ <- session.relinquish(Tenure.Fresh)
+          result <- caller.joinWithNever.timeout(5.seconds)
+        } yield assert(isEnded(result), clue = result)
+      }
+  }
+
+  test("after shutdown a step is refused, not left hanging") {
+    // Many: a supervisor closing before its owner starts cancels it with none
+    // of it run, which only a slow machine hit once.
+    List
+      .range(0, 2000)
+      .traverse(_ => ownerlessSession("d").flatMap(_.run(answer(1)).attempt))
+      .timeout(30.seconds)
+      .map(rs => assert(rs.forall(isEnded), clue = rs.filterNot(isEnded)))
+  }
+
+  test("a reap racing the owner's take never strands a caller") {
+    // A cancel landing between the take and its handler lost the command. Rare
+    // for any one reap, so many of them.
+    Supervisor[IO].use { supervisor =>
+      List
+        .range(0, 5000)
+        .traverse_ { _ =>
+          for {
+            session <- Session.create(
+              "d",
+              supervisor,
+              Logging.console.getLoggerFromName("test")
+            )
+            caller <- session.run(answer(1)).attempt.start
+            _ <- session.relinquish(Tenure.Fresh)
+            _ <- caller.joinWithNever
+          } yield ()
+        }
+        .timeout(30.seconds)
     }
   }
 

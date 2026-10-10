@@ -60,7 +60,7 @@ class TabVariableSuite extends ServerHarness {
 
   private def drain(session: Option[Session]): IO[String] =
     session
-      .fold(IO.pure(List.empty[SseFrame]))(_.control.tryTakeN(None))
+      .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
       .map(_.flatMap(_.data).mkString("\n"))
 
   test("a tab press swaps the panel and commits the variable, not ui_") {
@@ -69,7 +69,7 @@ class TabVariableSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
         result <- post(ts, conn, s"sse/var/${ts.slug}/bar/tab/1")
-        open <- session.traverse(_.open.get)
+        open <- session.traverse(_.state.map(_.open))
         sent <- drain(session)
       } yield {
         assertEquals(result._1, Status.NoContent)
@@ -101,7 +101,7 @@ class TabVariableSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
         result <- post(ts, conn, s"sse/var/${ts.slug}/bar/tab/5")
-        chose <- session.traverse(_.vars.get)
+        chose <- session.traverse(_.state.map(_.vars))
         sent <- drain(session)
       } yield {
         assertEquals(result._1, Status.Ok)

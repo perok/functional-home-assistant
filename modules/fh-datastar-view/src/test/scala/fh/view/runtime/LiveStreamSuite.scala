@@ -219,12 +219,16 @@ class LiveStreamSuite extends ServerHarness {
     live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
       for {
         v <- ts.viewer()
-        beforeFill <- v.session.holds.get.map(_.get(node).contains(painted))
+        beforeFill <- v.session.state
+          .map(_.holds)
+          .map(_.get(node).contains(painted))
         _ <- ts.post(
           s"sse/surface/${ts.slug}/open/det",
           body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
         )
-        afterFill <- v.session.holds.get.map(_.get(node).contains(painted))
+        afterFill <- v.session.state
+          .map(_.holds)
+          .map(_.get(node).contains(painted))
         // A frame the card renders identically: an attribute it does not read.
         same <- v.step(
           FixtureEntity("sensor.a", "cold", Map("noise" -> Json.fromInt(1)))

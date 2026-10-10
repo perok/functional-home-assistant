@@ -54,6 +54,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
     */
   protected def simulateTime: Boolean = false
 
+  /** A session whose owner has already stopped: enough to register and read,
+    * and any step it is asked for is refused.
+    */
+  def ownerlessSession(slug: String): IO[Session] =
+    Supervisor[IO].use(
+      Session.create(slug, _, Logging.console.getLoggerFromName("test"))
+    )
+
   @targetName("testIO")
   protected def test(
       name: String
@@ -547,7 +555,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           (store.current, sessions.forSlug("dashboard")).flatMapN {
             (now, all) =>
               all
-                .traverse(s => (s.tenure.get, s.position.get).tupled)
+                .traverse(s => (s.tenure.get, s.state.map(_.position)).tupled)
                 .map(_.collect { case (_: Tenure.Held, at) => at })
                 .map(live => live.nonEmpty && live.forall(_ >= now.version))
           } <* IO.sleep(5.millis)

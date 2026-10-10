@@ -162,7 +162,7 @@ class SetMembershipSuite extends ServerHarness {
     viewing(dynDash, lit("light.a", "light.b", "light.c", "light.d")) { v =>
       for {
         patches <- step(v, off("light.b"))
-        held <- v.session.holds.get
+        held <- v.session.state.map(_.holds)
       } yield {
         assertEquals(patches.size, 1, clue = patches)
         assert(patches.head.contains("mode inner"), clue = patches)
@@ -185,7 +185,7 @@ class SetMembershipSuite extends ServerHarness {
         _ <- step(v, on("light.c"))
         _ <- step(v, off("light.c"))
         patches <- step(v, off("light.b"))
-        held <- v.session.holds.get
+        held <- v.session.state.map(_.holds)
       } yield {
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
@@ -206,7 +206,7 @@ class SetMembershipSuite extends ServerHarness {
         _ <- step(v, on("light.b"))
         _ <- step(v, off("light.b"))
         patches <- step(v, off("light.a"))
-        held <- v.session.holds.get
+        held <- v.session.state.map(_.holds)
       } yield {
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head

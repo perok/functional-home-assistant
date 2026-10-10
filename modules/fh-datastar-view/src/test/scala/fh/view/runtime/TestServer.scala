@@ -252,7 +252,7 @@ final class TestServer(
       .repeatEval(
         (store.version, sessions.forSlug(slug)).flatMapN { (now, all) =>
           all
-            .traverse(s => (s.tenure.get, s.position.get).tupled)
+            .traverse(s => (s.tenure.get, s.state.map(_.position)).tupled)
             .map(_.collect { case (_: Tenure.Held, at) => at })
             .map(live => live.nonEmpty && live.forall(_ >= now))
         } <* IO.sleep(5.millis)
@@ -382,7 +382,7 @@ object TestServer {
 
     /** What this client would echo on a reconnect. */
     def cursor: IO[Server.Cursor] =
-      session.position.get.map(v => documentCursor.copy(version = v))
+      session.state.map(_.position).map(v => documentCursor.copy(version = v))
 
     /** The page is gone: what the slug records next, nobody is watching. */
     def leave: IO[Unit] = ts.sessions.deregisterIf(document.conn, session)
