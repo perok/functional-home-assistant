@@ -32,14 +32,15 @@ private[runtime] final class SurfaceGraph(
       )
       .toMap
 
-  /** Ordered by `bakeIndex`, then surface id: what a user index selects among
-    * and a state selection walks first-match. A fixed, tiny set, so unlike a
-    * candidate set it needs no eviction horizon.
+  /** Ordered by `bakeIndex`, then surface id: what a variable's index selects
+    * among and a state selection walks first-match. A fixed, tiny set, so
+    * unlike a candidate set it needs no eviction horizon.
     */
   def bakeGroup(gid: NodeId): List[String] =
     bakeGroups.getOrElse(gid, Nil)
 
-  private def defaultOpenUser(s: Surface): Boolean = s.activation match {
+  /** A popup open from the first paint; a bake group's member is chosen. */
+  private def defaultOpenPopup(s: Surface): Boolean = s.activation match {
     case Activation.User(d) => d
     case _                  => false
   }
@@ -48,11 +49,30 @@ private[runtime] final class SurfaceGraph(
   def isStateGroup(gid: NodeId): Boolean =
     bakeGroup(gid).headOption.exists(isStateSurface)
 
+  /** The node variable selecting `gid`'s member, for a tab bar's panel. */
+  def varSelecting(gid: NodeId): Option[String] =
+    bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
+      case Activation.Var(name) => name
+    }
+
+  /** Each variable-selected group's member index from this viewer's variables,
+    * in the shape [[resolveActive]] reads. `env` is total over declarations and
+    * `validate` puts the variable in scope at the host, so every such group has
+    * an entry.
+    */
+  def varSelections(env: VarEnv): Map[String, String] =
+    userBakeOwnerIds.toList.flatMap { gid =>
+      varSelecting(gid)
+        .flatMap(name => env.get(gid).flatMap(_.get(name)))
+        .map(gid -> _)
+    }.toMap
+
   private val bakeOwnerIds: Set[NodeId] =
     surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
 
-  /** Tabs: the selected member lives in the host, which a patch never carries;
-    * filling it is per client ([[Patches.hostFill]]).
+  /** Tabs, selected by a viewer's variable: the selected member lives in the
+    * host, which a patch never carries; filling it is per client
+    * ([[Patches.hostFill]]).
     */
   val userBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
@@ -261,22 +281,17 @@ private[runtime] final class SurfaceGraph(
       }
       .toSet
 
-  /** `uiState` is untrusted: an invalid value falls back to the `defaultOpen`
-    * member (or 0), with a warning. No value is not a warning.
+  /** A variable-selected group's member from [[varSelections]]' shape. Every
+    * entry passed `refusals` or `validate`, so the fallback to the first
+    * member, with a warning, is a guard rather than a path. No value is not a
+    * warning.
     */
   private[runtime] def resolveActive(
       gid: NodeId,
       uiState: Map[String, String]
   ): (Int, Option[String]) = {
-    val branches = bakeGroup(gid)
-    val n = branches.size
-    val fallback =
-      branches.indexWhere(sid =>
-        surfaces.get(sid).exists(defaultOpenUser)
-      ) match {
-        case -1 => 0
-        case i  => i
-      }
+    val n = bakeGroup(gid).size
+    val fallback = 0
     uiState.get(gid) match {
       case None      => (fallback, None)
       case Some(raw) =>
@@ -286,7 +301,7 @@ private[runtime] final class SurfaceGraph(
             (
               fallback,
               Some(
-                s"ui-state ui_$gid='$raw' is not a valid tab index " +
+                s"selection '$raw' for bake group $gid is not a member index " +
                   s"(0..${n - 1}); using $fallback"
               )
             )
@@ -310,7 +325,7 @@ private[runtime] final class SurfaceGraph(
         .map(gid => bakeGroup(gid)(resolveActive(gid, uiState)._1))
         .toSet
     val fromUnbaked =
-      unbaked.collect { case (sid, s) if defaultOpenUser(s) => sid }.toSet
+      unbaked.collect { case (sid, s) if defaultOpenPopup(s) => sid }.toSet
     fromGroups ++ fromUnbaked ++ openPopup(uiState)
   }
 
@@ -338,38 +353,27 @@ private[runtime] final class SurfaceGraph(
       case (sid, s) if s.hostId == host => sid
     }.toSet
 
-  /** The `ui_*` entry a swap makes true — only the swap knows what happened, so
-    * only it asserts the selection (ADR 0025). `None` for a state group or a
-    * surface that is not the host's.
+  /** The `ui_popups` entry a swap makes true — only the swap knows what
+    * happened, so only it asserts the selection (ADR 0025). `None` for a bake
+    * group's host: a tab's commit is its variable's, a branch is server truth.
     */
   def committedSelection(
       host: DomId,
       newSurface: Option[String]
   ): Option[(String, String)] =
-    if (host == Dashboard.PopupHostId)
-      Some(Dashboard.PopupHostId -> newSurface.getOrElse(""))
-    else
-      surfacesAt(host).toList
-        .flatMap(surfaces.get)
-        .flatMap(_.bakeInto)
-        .headOption
-        .filterNot(isStateGroup)
-        .zip(newSurface)
-        .flatMap { case (gid, sid) =>
-          bakeGroup(gid).indexOf(sid) match {
-            case -1 => None
-            case i  => Some(gid -> i.toString)
-          }
-        }
+    Option.when(host == Dashboard.PopupHostId)(
+      Dashboard.PopupHostId -> newSurface.getOrElse("")
+    )
 
-  /** The whole `ui_*` picture, restated on connect: a stream dying between a
+  /** The popup's `ui_*` picture, restated on connect: a stream dying between a
     * swap's patch and its signal leaves them disagreeing.
     */
   def committedSelections(open: Set[String]): Map[String, String] =
-    uiStateFrom(open) +
-      (Dashboard.PopupHostId -> surfacesAt(Dashboard.PopupHostId)
+    Map(
+      Dashboard.PopupHostId -> surfacesAt(Dashboard.PopupHostId)
         .find(open)
-        .getOrElse(""))
+        .getOrElse("")
+    )
 
   /** From the live `open`, not the connection's arriving `uiState`, which a tab
     * click has since moved.

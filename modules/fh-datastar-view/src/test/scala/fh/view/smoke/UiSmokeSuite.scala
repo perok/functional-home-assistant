@@ -44,7 +44,7 @@ class UiSmokeSuite extends SmokeSuite {
         gid <- IO
           .blocking(panel.getAttribute("id"))
           .map(_.stripSuffix("_panel"))
-        deepLink = s"${page.url().takeWhile(_ != '?')}?ui.$gid=1"
+        deepLink = s"${page.url().takeWhile(_ != '?')}?v.$gid.tab=1"
         _ <- IO.blocking(page.navigate(deepLink))
         // The failure is late: the first paint is right, and the connect's
         // repaint puts the default tab back. An unrelated change is ordered
@@ -83,10 +83,10 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- ts.awaitLive()
         // The mirror applies the seeded selection shortly after connect, so
         // read `before` once it has, or this races initialization.
-        before <- eventually(href(page))(_.contains("ui."))
+        before <- eventually(href(page))(_.contains("v."))
         _ <- IO.blocking(
           page.route(
-            "**/sse/surface/**",
+            "**/sse/var/**",
             route =>
               route.fulfill(
                 new com.microsoft.playwright.Route.FulfillOptions()
@@ -100,7 +100,7 @@ class UiSmokeSuite extends SmokeSuite {
         // starting point.
         _ <- IO.blocking(
           page.waitForResponse(
-            "**/sse/surface/**",
+            "**/sse/var/**",
             () => climateTab.click()
           )
         )
@@ -115,7 +115,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(
           assertThat(page.locator(".fh-toast")).containsText("404")
         )
-        _ <- IO.blocking(page.unroute("**/sse/surface/**"))
+        _ <- IO.blocking(page.unroute("**/sse/var/**"))
         _ <- IO.blocking(climateTab.click())
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
         // The morph and the panel's `data-fh-url` mirror are
@@ -143,7 +143,7 @@ class UiSmokeSuite extends SmokeSuite {
         // thread is in one of its calls, so polling a buffer from `IO` waits
         // forever.
         _ <- IO.blocking(
-          page.waitForRequest("**/sse/surface/**", () => climateTab.click())
+          page.waitForRequest("**/sse/var/**", () => climateTab.click())
         )
         _ <- IO.blocking(assertThat(climateTab).hasClass(active))
         _ <- ts.forgetConnections

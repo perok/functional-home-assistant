@@ -28,18 +28,14 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def isOn(e: String): Predicate =
     Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
-  private def user(
-      into: String,
-      as: String,
-      idx: Int,
-      defaultOpen: Boolean = false
-  ): Surface =
+  /** A tab bar's member, chosen by the bar's `tab` (ADR 0033). */
+  private def user(into: String, as: String, idx: Int): Surface =
     Surface(
       col(),
       bakeInto = Some(NodeId.derived(into)),
       bakeAs = Some(as),
       bakeIndex = Some(idx),
-      activation = Activation.User(defaultOpen)
+      activation = Activation.Var("tab")
     )
 
   private def state(
@@ -120,17 +116,20 @@ class SurfaceGraphSuite extends munit.FunSuite {
     Map(
       "t0" -> user("c", "t0", 0),
       "t1" -> user("c", "t1", 1),
-      "t2" -> user("c", "t2", 2, defaultOpen = true)
+      "t2" -> user("c", "t2", 2)
     )
   )
 
-  test("an absent selection falls back to the defaultOpen branch") {
-    assertEquals(tabs.resolveActive(gid, Map.empty), (2, None))
+  test("an absent selection falls back to the first branch") {
+    // The declared value fills every viewer's variables, so this is a guard.
+    assertEquals(tabs.resolveActive(gid, Map.empty), (0, None))
   }
 
-  test("with no defaultOpen anywhere the fallback is the first branch") {
-    val g = graphOf(Map("t0" -> user("c", "t0", 0), "t1" -> user("c", "t1", 1)))
-    assertEquals(g.resolveActive(gid, Map.empty), (0, None))
+  test("a variable-selected group's index comes from the viewer's variables") {
+    val env: VarEnv = Map(gid -> Map("tab" -> "2"))
+    assertEquals(tabs.varSelections(env), Map("c" -> "2"))
+    assertEquals(tabs.resolveActive(gid, tabs.varSelections(env))._1, 2)
+    assertEquals(tabs.varSelecting(gid), Some("tab"))
   }
 
   test("a valid index is taken as given, and warns about nothing") {
@@ -143,9 +142,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val (garbage, gWarn) = tabs.resolveActive(gid, Map("c" -> "banana"))
     val (high, hWarn) = tabs.resolveActive(gid, Map("c" -> "9"))
     val (negative, nWarn) = tabs.resolveActive(gid, Map("c" -> "-1"))
-    assertEquals(garbage, 2)
-    assertEquals(high, 2)
-    assertEquals(negative, 2)
+    assertEquals(garbage, 0)
+    assertEquals(high, 0)
+    assertEquals(negative, 0)
     assert(gWarn.exists(_.contains("banana")), clue = gWarn)
     assert(hWarn.isDefined && nWarn.isDefined)
   }
@@ -290,8 +289,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(tabs.selectedSurfaces(Map("c" -> "1")), Set("t1"))
     assertEquals(tabs.uiStateFrom(Set("t1")), Map("c" -> "1"))
     val defaulted = tabs.selectedSurfaces(Map.empty)
-    assertEquals(defaulted, Set("t2"))
-    assertEquals(tabs.uiStateFrom(defaulted), Map("c" -> "2"))
+    assertEquals(defaulted, Set("t0"))
+    assertEquals(tabs.uiStateFrom(defaulted), Map("c" -> "0"))
   }
 
   test("state-selected branches never enter a session's open set") {
@@ -300,7 +299,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, Predicate.And(Nil)),
-        "tab" -> user("d", "t0", 0, defaultOpen = true)
+        "tab" -> user("d", "t0", 0)
       )
     )
     assertEquals(g.selectedSurfaces(Map.empty), Set("tab"))
@@ -423,25 +422,24 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def nestedSet = LayoutNode.SetNode(candidates = List("light.b"))
 
   test("a committed selection round-trips through the state that reads it") {
-    // Whatever `committedSelection` says after a swap must be what
-    // `resolveActive`/`openPopup` read back. They were written apart, and a
-    // shape only one understands would re-open the URL/DOM disagreement pending
-    // signals exist to remove.
+    // Whatever `committedSelection` says after a swap must be what `openPopup`
+    // reads back. They were written apart, and a shape only one understands
+    // would re-open the URL/DOM disagreement pending signals exist to remove.
     val g = graphOf(
       Map(
-        "t0" -> user("c", "panel", 0, defaultOpen = true),
+        "t0" -> user("c", "panel", 0),
         "t1" -> user("c", "panel", 1),
         "det" -> Surface(col())
       )
     )
-    val tabHost = DomId.derived("c_panel")
-
-    val tab = g.committedSelection(tabHost, Some("t1"))
-    assertEquals(tab, Some("c" -> "1"))
+    // A tab's commit is its variable's, sent by the write (`Server.setVar`).
     assertEquals(
-      g.resolveActive(NodeId.derived("c"), tab.toMap)._1,
-      1,
-      "the committed index must read back as the member it named"
+      g.committedSelection(DomId.derived("c_panel"), Some("t1")),
+      None
+    )
+    assertEquals(
+      g.committedSelections(Set("t1")).keySet,
+      Set[String](Dashboard.PopupHostId)
     )
 
     val popup = g.committedSelection(Dashboard.PopupHostId, Some("det"))

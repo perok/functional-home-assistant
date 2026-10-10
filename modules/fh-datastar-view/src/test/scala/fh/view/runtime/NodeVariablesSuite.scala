@@ -160,25 +160,47 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
   }
 
-  test("a variable read from inside a candidate set is refused, for now") {
-    // A member's id is minted at run time, so it has no scope entry. Stated as
-    // a test so lifting the bound is a deliberate act.
-    val d = dash(
-      box(
-        Map("window" -> "24h"),
-        LayoutNode.SetNode(
-          candidates = List("sensor.t"),
-          members = Map(
-            "sensor.t" -> LayoutNode.SetMember(
-              List(LayoutNode.SetClause(node = chartNode()))
-            )
-          )
-        )
+  private def setOf(clause: LayoutNode) = LayoutNode.SetNode(
+    candidates = List("sensor.t"),
+    members = Map(
+      "sensor.t" -> LayoutNode.SetMember(
+        List(LayoutNode.SetClause(node = clause))
       )
     )
+  )
+
+  test(
+    "a variable read inside a candidate set resolves through the set's scope"
+  ) {
+    // Candidates and member ids are fixed at build time, so a member reads the
+    // scope at its set like any node (ADR 0033).
+    val d = dash(box(Map("window" -> "7d"), setOf(chartNode())))
+    assertEquals(d.validate(), Nil)
+    assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
+    val r = Renderer.fromValidated(
+      d.validated().fold(e => fail(e.mkString), identity)
+    )
+    val set = r.members
+      .setContainer(NodeId.derived("c_0"))
+      .getOrElse(fail("no set at c_0"))
+    val member: NodeId = r.members.memberIdOf(set, "sensor.t")
+    val window = VarKey(NodeId.derived("c"), "window")
+    assertEquals(r.vars.readersOf(window), List(member))
+    val chosen = r.vars.env(Map(window -> "1h"))
+    assertEquals(windowOf(r.readsAt(member, chosen)), List("1h"))
+  }
+
+  test("a declaration inside a set's clause is refused") {
+    // A clause renders once per member, so it would be every member's own
+    // choice; members read the scope at the set.
+    val errs = dash(
+      box(Map.empty, setOf(box(Map("window" -> "24h"), chartNode())))
+    ).validate()
     assert(
-      d.validate().exists(_.contains("inside a candidate set")),
-      clue = d.validate()
+      errs.exists(e =>
+        e.contains("declares the variable(s) window inside a candidate set")
+      ),
+      clue = errs
     )
   }
 
@@ -194,6 +216,34 @@ class NodeVariablesSuite extends munit.FunSuite {
         e.startsWith("surface 'popup'") && e.contains("no ancestor declares")
       ),
       clue = errs
+    )
+  }
+
+  test("an OWNED surface starts with the scope of the node it bakes into") {
+    // A tab panel or an `If` branch has exactly one host, so the reason a popup
+    // is a scope root does not apply: a chooser above a tab bar reaches the
+    // charts in its panels.
+    val d = dash(
+      box(Map("window" -> "7d"), box(Map("tab" -> "0"))),
+      surfaces = Map(
+        "t0" -> Surface(
+          chartNode(),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("children"),
+          bakeIndex = Some(0),
+          activation = Activation.Var("tab")
+        )
+      )
+    )
+    val errs = d.validate()
+    assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
+    assertEquals(windowOf(d.allQueries), List("7d"))
+    assertEquals(
+      d.varScopes
+        .get(NodeId.derived(LayoutNode.surfacePrefix("t0") + "c"))
+        .flatMap(_.get("window"))
+        .map(_.declarer),
+      Some(NodeId.derived("c"))
     )
   }
 
@@ -229,14 +279,15 @@ class NodeVariablesSuite extends munit.FunSuite {
   test("the renderer resolves a chart's window from the declaring ancestor") {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     val r = Renderer.create(d)
-    val html = paint(r, r.varEnv(Map.empty), "7d" -> "<svg id='seven'/>")
+    val html = paint(r, r.vars.env(Map.empty), "7d" -> "<svg id='seven'/>")
     assert(html.contains("<svg id='seven'/>"), clue = html)
   }
 
   test("a viewer's choice overrides the declared value") {
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
-    val chose7d = r.varEnv(Map(("panel": NodeId, "window") -> "7d"))
+    val chose7d =
+      r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
     assertEquals(
       r.queriesForPage(Set.empty, Map.empty, chose7d),
       List(readAt("7d"))
@@ -249,8 +300,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   test("two viewers on two windows are two reads, and neither sees the other") {
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
-    val a = r.varEnv(Map(("panel": NodeId, "window") -> "1h"))
-    val b = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
+    val a = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "1h"))
+    val b = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
 
     assertEquals(r.queriesForPage(Set.empty, Map.empty, a), List(readAt("1h")))
     assertEquals(r.queriesForPage(Set.empty, Map.empty, b), List(readAt("30d")))
@@ -281,7 +332,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     val inner = named("inner", Map("window" -> "1h"), chartNode())
     val d = dash(named("panel", Map("window" -> "24h"), chartNode(), inner))
     val r = Renderer.create(d)
-    val env = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
+    val env =
+      r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
     assertEquals(
       r.queriesForPage(Set.empty, Map.empty, env).toSet,
       Set(readAt("30d"), readAt("1h"))
@@ -293,10 +345,10 @@ class NodeVariablesSuite extends munit.FunSuite {
     // `SurfaceGraph.openPopup` treats a lost surface id.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
-    val env = r.varEnv(
+    val env = r.vars.env(
       Map(
-        ("gone": NodeId, "window") -> "7d",
-        ("panel": NodeId, "nosuch") -> "7d"
+        VarKey(NodeId.derived("gone"), "window") -> "7d",
+        VarKey(NodeId.derived("panel"), "nosuch") -> "7d"
       )
     )
     assertEquals(

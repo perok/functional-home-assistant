@@ -19,8 +19,8 @@ open class EntityCard extends tileMod.Tile {
   hidden value: (String|slotMod.Expr)? = null
   /// An MDI name overriding [[icons.iconFor]].
   hidden icon: String? = null
-  /// The domain's service, else more-info ([[moreinfo.defaultTap]]); `null`
-  /// for no click at all.
+  /// The domain's service, else more-info, and more-info for a lock
+  /// ([[moreinfo.defaultTap]]); `null` for no click at all.
   tapAction = moreinfo.defaultTap(entity)
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)

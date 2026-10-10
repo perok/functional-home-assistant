@@ -356,6 +356,17 @@ private[runtime] final class MemberGraph(
       s.src.candidates.map(e => memberId(s.gid, MemberKey.Entity(e)) -> (s, e))
     }.toMap
 
+  /** Every member id the candidates allow, present or not: the id space is
+    * static (ADR 0003).
+    */
+  def memberIds: Iterable[NodeId] = memberSlot.keys
+
+  /** What a member may render, one node per clause. */
+  def clauseNodesOf(member: NodeId): List[LayoutNode] =
+    memberSlot.get(member).toList.flatMap { case (s, e) =>
+      s.src.s.members.get(e).toList.flatMap(_.clauses).map(_.node)
+    }
+
   /** The only way to get a [[SetId]] for an arbitrary id. Off [[sources]], not
     * the static index, which lacks nested sets — that was silent when wrong.
     */

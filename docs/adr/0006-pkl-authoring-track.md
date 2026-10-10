@@ -199,10 +199,11 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   content) — no `new`, and the wrap rule is enforced by construction.
 - Tabs: the `Tabs` class, keyed `tabs: Mapping<String, Listing<LayoutNode>>`
   (label → that tab's cards, Row-wrapped into per-tab inline surfaces with
-  `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`; the Listing-valued mapping
+  `bakeInto`/`bakeAs`/`bakeIndex` and selected by the bar's `tab` variable,
+  ADR 0033; the Listing-valued mapping
   default lets a tab body list cards with no `new`/`children`). The bar is
   BeerCSS-native markup: a `TabButton` card per tab (`.tabs > a` anchors,
-  `data-class` active + signal-setting onclick) — internal to `Tabs`, not an
+  `data-class` active + a variable-writing onclick) — internal to `Tabs`, not an
   authoring surface (0002/0005).
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
@@ -338,7 +339,7 @@ brightness-seeded slider signals match `/api/states`), the registered `detail`
 popup and the inline popup both open (`#popups` inner-patch with the popup
 chrome) and close (swap-to-empty), action POSTs actuate via WS `call_service`
 and the state change flows back as dynamic-group re-renders; `/d/pkl-tabs`
-bakes the default panel, and a `?ui.<id>` URL param on the first-paint GET bakes
+bakes the default panel, and a `?v.<id>.tab` URL param on the first-paint GET bakes
 the selected tab flash-free (ADR 0005); a `c.navigate` button is a real `<a href>`
 that loads the target dashboard as a new page (ADR 0002); hot reload of an edited `.pkl` entry
 repaints in ~0.5s (precise `Analyzer.importGraph` watch set). The visual-only

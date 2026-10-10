@@ -332,14 +332,13 @@ class ResumeSuite extends ServerHarness {
     */
   test("a resume reconciles an OPEN surface's nodes, and only what differs") {
     val twoTabs = mixedTabsDash.copy(surfaces =
-      mixedTabsDash.surfaces + ("t1" -> Surface(
+      mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.b")))
         ),
-        bakeInto = Some("c_1"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        "c_1",
+        1
       ))
     )
     live(
@@ -351,7 +350,7 @@ class ResumeSuite extends ServerHarness {
       )
     ) { ts =>
       for {
-        v <- ts.viewer("?ui.c_1=1")
+        v <- ts.viewer("?v.c_1.tab=1")
         _ <- v.change(es("sensor.shared", "hot"))
         before <- v.cursor
         panelTick <- v.change(es("sensor.a", "new"))
@@ -521,14 +520,13 @@ class ResumeSuite extends ServerHarness {
   test("a dashboard edit repaints the tab selected now, not at connect") {
     def twoTabs(card: String) = mixedTabsDash.copy(
       cards = mixedTabsDash.cards.updated("card", CardDef(card, List("state"))),
-      surfaces = mixedTabsDash.surfaces + ("t1" -> Surface(
+      surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.b")))
         ),
-        bakeInto = Some("c_1"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        "c_1",
+        1
       ))
     )
     live(
@@ -550,7 +548,7 @@ class ResumeSuite extends ServerHarness {
             .head
         )
         _ <- ts.post(
-          s"sse/surface/${ts.slug}/open/t1",
+          s"sse/var/${ts.slug}/c_1/tab/1",
           body = s"""{"${Server.ConnSignal}":"$conn"}"""
         )
         _ <- client.arrived *> client.drain

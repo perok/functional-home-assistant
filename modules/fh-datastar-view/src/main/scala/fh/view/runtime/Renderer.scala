@@ -78,7 +78,7 @@ private[runtime] enum SlotForm derives CanEqual {
   def isPatch: Boolean = this == SlotForm.Patch
 }
 
-/** Per render, never cached on the renderer ([[Renderer.varEnv]]). */
+/** Per render, never cached on the renderer ([[VarGraph.env]]). */
 type VarEnv = Map[NodeId, Map[String, String]]
 
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
@@ -161,37 +161,8 @@ class Renderer(
         case (id, c: LayoutNode.Component) if c.queries.nonEmpty =>
           id -> c.queries
       }
-    val setReads: List[SlotRead] =
-      indexed.values.toList.flatMap {
-        case s: LayoutNode.SetNode => dashboard.queriesIn(s)
-        case _                     => Nil
-      }.distinct
-
-    /** Node variables in scope at each node, declared values only (issue #209).
-      * A set is a leaf, which is why `validate` refuses a variable read inside
-      * one.
-      */
-    val varScopes: Map[NodeId, Map[String, Renderer.InScope]] = {
-      def walk(
-          node: LayoutNode,
-          id: NodeId,
-          scope: Map[String, Renderer.InScope]
-      ): List[(NodeId, Map[String, Renderer.InScope])] = node match {
-        case c: LayoutNode.Component =>
-          // A nested declaration replacing the entry is shadowing.
-          val here = scope ++ c.vars.map { case (n, v) =>
-            n -> Renderer.InScope(id, v)
-          }
-          (id -> here) :: LayoutNode.steps(c.regions).flatMap {
-            case (step, ch) =>
-              walk(ch, LayoutNode.childId(idPrefix, id, step, ch), here)
-          }
-        case _: LayoutNode.SetNode => List(id -> scope)
-      }
-      walk(root, LayoutNode.rootId(idPrefix, root), Map.empty)
-        .filter(_._2.nonEmpty)
-        .toMap
-    }
+    val setIds: List[NodeId] =
+      indexed.toList.collect { case (id, _: LayoutNode.SetNode) => id }.sorted
 
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
@@ -243,48 +214,44 @@ class Renderer(
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
-  private val varScopes: Map[NodeId, Map[String, Renderer.InScope]] =
-    (mainIndex :: surfaceIndexes.values.toList).flatMap(_.varScopes).toMap
-
-  /** Never cached on the renderer or a `NodePlan`: both outlive a session, so a
-    * choice held there would be served to the next viewer.
+  /** Lazy: the member graph, the ancestry and the surface graph are built
+    * below.
     */
-  def varEnv(choices: Map[(NodeId, String), String]): VarEnv =
-    if (varScopes.isEmpty) Map.empty
-    else
-      varScopes.view.mapValues { scope =>
-        scope.view.map { case (name, in) =>
-          name -> choices.getOrElse((in.declarer, name), in.declared)
-        }.toMap
-      }.toMap
-
-  val declarations: Map[(NodeId, String), String] =
-    varScopes.values.flatten.map { case (name, in) =>
-      (in.declarer, name) -> in.declared
-    }.toMap
-
-  /** Exact: a write both validates against every reader and re-renders them. */
-  def readersOf(declarer: NodeId, name: String): List[NodeId] =
-    varScopes.toList.collect {
-      case (id, scope)
-          if scope.get(name).exists(_.declarer == declarer) &&
-            queriesForNode(id).exists(_.query.references.contains(name)) =>
-        id
-    }
+  private[runtime] lazy val vars: VarGraph = {
+    val indexedSets = allIndexed.collect {
+      case (id, (_: LayoutNode.SetNode, _)) => id
+    }.toSet
+    new VarGraph(
+      scopes = dashboard.varScopes.filter(_._2.nonEmpty),
+      setOfMember = members.memberIds.toList.flatMap { m =>
+        ancestry.ancestorsOf(m).find(indexedSets).map(m -> _)
+      }.toMap,
+      panelsSelected = surfaces.userBakeOwnerIds.toList
+        .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
+        .toMap,
+      asksAt = queriesForNode
+    )
+  }
 
   /** One line per refused choice. Every reader must still parse and read only
     * an entity this dashboard shows — the read-side twin of an action's bound
     * (ADR 0023), without which a variable fed to `entity` charts any sensor.
     */
-  def refusals(choices: Map[(NodeId, String), String]): List[String] = {
-    val env = varEnv(choices)
-    choices.toList.flatMap { case ((declarer, name), value) =>
-      val why = readersOf(declarer, name)
+  def refusals(choices: Map[VarKey, String]): List[String] = {
+    val env = vars.env(choices)
+    choices.toList.flatMap { (key, value) =>
+      val why = (vars
+        .readersOf(key)
         .flatMap(readsAt(_, env))
-        .flatMap(r => refusal(r.query))
-        .distinct
+        .flatMap(r => refusal(r.query)) ++
+        vars.panelsSelectedBy(key).flatMap { gid =>
+          val n = surfaces.bakeGroup(gid).size
+          Option.unless(value.toIntOption.exists(i => i >= 0 && i < n))(
+            s"$gid has members 0..${n - 1}"
+          )
+        }).distinct
       Option.when(why.nonEmpty)(
-        s"'$value' is not a value '$name' can take: ${why.mkString("; ")}"
+        s"'$value' is not a value '${key.name}' can take: ${why.mkString("; ")}"
       )
     }
   }
@@ -308,11 +275,11 @@ class Renderer(
       uiState: Map[String, String],
       env: VarEnv
   ): List[SlotRead] =
-    (targets.flatMap(id => readsAt(id, env) ++ setReadsAbove(id)) ++
+    (targets.flatMap(id => readsAt(id, env) ++ setReadsAbove(id, env)) ++
       hosts.flatMap { gid =>
         members.setContainer(gid) match {
           case Some(_) =>
-            querySetReads.getOrElse(gid, Nil) ++ setReadsAbove(gid)
+            setReads(gid, env) ++ setReadsAbove(gid, env)
           case None =>
             surfaces
               .resolveActiveByState(gid, states)
@@ -322,18 +289,40 @@ class Renderer(
         }
       }).distinct
 
-  // A member is not indexed, so what it reads is its set's.
-  private def setReadsAbove(id: NodeId): List[SlotRead] =
-    if (querySetReads.isEmpty) Nil
-    else
-      ancestry.ancestorsOf(id).toList.flatMap(querySetReads.getOrElse(_, Nil))
+  // What the sets above a node read: a member's render reaches its nested
+  // sets, whose members are asked under their own ids.
+  private def setReadsAbove(id: NodeId, env: VarEnv): List[SlotRead] =
+    if (membersUnder.isEmpty) Nil
+    else ancestry.ancestorsOf(id).toList.flatMap(setReads(_, env))
 
-  private lazy val querySetReads: Map[NodeId, List[SlotRead]] =
-    allIndexed.collect {
-      case (id, (s: LayoutNode.SetNode, _))
-          if dashboard.queriesIn(s).nonEmpty =>
-        id -> dashboard.queriesIn(s)
-    }
+  /** Every member's reads under set `gid`, nested sets' included, each at this
+    * viewer's values. Every clause, not the matching one: the snapshot is
+    * resolved before the walk decides which matches.
+    */
+  private def setReads(gid: NodeId, env: VarEnv): List[SlotRead] =
+    membersUnder.getOrElse(gid, Nil).flatMap(readsAt(_, env))
+
+  private lazy val membersUnder: Map[NodeId, List[NodeId]] =
+    memberAsks.keys.toList
+      .flatMap(m =>
+        ancestry
+          .ancestorsOf(m)
+          .filter(members.setContainer(_).isDefined)
+          .map(_ -> m)
+      )
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.sorted)
+      .toMap
+
+  /** Everything a member's subtree asks, under the member's id: its children
+    * have no ids ([[resolveMember]]).
+    */
+  private lazy val memberAsks: Map[NodeId, List[SlotAsk]] =
+    members.memberIds.toList.flatMap { m =>
+      val asks = members.clauseNodesOf(m).flatMap(Renderer.subtreeAsks).distinct
+      Option.when(asks.nonEmpty)(m -> asks)
+    }.toMap
 
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
     queriesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
@@ -395,12 +384,11 @@ class Renderer(
       case _                                  => Nil
     }
 
-  // Members are not indexed; what they read is their set's ([[setReadsAbove]]).
   private def queriesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
         c.queries
-      case _ => Nil
+      case _ => memberAsks.getOrElse(id, Nil)
     }
 
   /** The bound a variable write is held to (ADR 0023). The model's static walk,
@@ -643,7 +631,7 @@ class Renderer(
   private def readsIn(idx: Index, env: VarEnv): List[SlotRead] =
     (idx.asks.flatMap { case (id, asks) =>
       asks.map(_.resolve(env.getOrElse(id, Map.empty)))
-    } ++ idx.setReads).distinct
+    } ++ idx.setIds.flatMap(setReads(_, env))).distinct
 
   /** The surfaces shown inside it included. */
   def queriesForSurface(
@@ -821,8 +809,9 @@ class Renderer(
             m.node.subjectEntity.toList ++ m.node.liveEntitiesAsBytes,
             states
           ),
-          // A member reads no variable (`validate` refuses one in a set).
-          fragments.versions(id, m.node.queries)
+          // The whole subtree, which renders under the member's id: a chart
+          // nested in a clause keys the member's bytes too.
+          fragments.versions(id, Renderer.subtreeAsks(m.node))
         )
       )
       .orElse(
@@ -2016,7 +2005,14 @@ class Renderer(
 
 object Renderer {
 
-  private[runtime] case class InScope(declarer: NodeId, declared: String)
+  /** A subtree's asks, stopping at a nested set, whose members ask their own.
+    */
+  private[runtime] def subtreeAsks(node: LayoutNode): List[SlotAsk] =
+    node match {
+      case c: LayoutNode.Component =>
+        c.queries ++ c.allChildren.flatMap(subtreeAsks)
+      case _: LayoutNode.SetNode => Nil
+    }
 
   /** The chrome's scope: no names, only the body and dialog holes. */
   private final class PageScope(holes: Map[String, java.io.Writer => Unit])

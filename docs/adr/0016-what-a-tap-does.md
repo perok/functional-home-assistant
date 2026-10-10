@@ -80,6 +80,20 @@ Some absences are deliberate rather than unfinished, and the table says so:
 has arm/disarm, `number`/`select`/`text`/`date` need a value *chosen*. Each of
 those opens more-info, which is the right answer, not a missing one.
 
+**A domain can have a service and still not act on a card's tap.** A lock's
+`CallByState` stays in the table, because a button or a toggle is pressed on
+purpose. But its CARD opens more-info (`cardOpensMoreInfo`): a stray tap on a
+wall tablet must not unlock the front door. HA's tile does the same; it never
+locks or unlocks on a tap, and its icon toggles only `DOMAINS_TOGGLE`, which has
+no lock. Only `lock` is in the set for now; a domain joins it by name.
+
+What acts instead are two fixed presses, **Lock** and **Unlock**, the tile's
+features on the dashboard (`c.lock.controls`) and in more-info alike — HA's
+`lock-commands` card feature, which its area dashboards put on every lock.
+Each is refused where HA disables its own button (`canLock`/`canUnlock`). Fixed
+rather than state-picked, so a second press while a slow lock catches up
+repeats the first instead of undoing it.
+
 Adding a domain is a table row. Nothing in Scala knows an HA domain, which is
 the part of ADR 0001 that carries over unchanged.
 

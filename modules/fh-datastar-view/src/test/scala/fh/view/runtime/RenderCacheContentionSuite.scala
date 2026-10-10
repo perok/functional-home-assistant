@@ -59,7 +59,8 @@ class RenderCacheContentionSuite extends ServerHarness {
                 slots = Map("state" -> SlotSource(Some("sensor.shared")))
               )
             )
-          )
+          ),
+          vars = Map("tab" -> "0")
         )
       )
     ),
@@ -72,7 +73,7 @@ class RenderCacheContentionSuite extends ServerHarness {
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
         bakeIndex = Some(0),
-        activation = Activation.User(defaultOpen = true)
+        activation = Activation.Var("tab")
       ),
       "t1" -> Surface(
         LayoutNode.Component(
@@ -81,7 +82,8 @@ class RenderCacheContentionSuite extends ServerHarness {
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        bakeIndex = Some(1),
+        activation = Activation.Var("tab")
       )
     )
   )
@@ -200,21 +202,21 @@ class RenderCacheContentionSuite extends ServerHarness {
   test("cost does not follow selections — one render serves both tabs") {
     assertCost(
       "1+1 on two tabs",
-      List("", "?ui.c_0=1"),
+      List("", onTabs("c_0" -> 1)),
       leafDash,
       1.0,
       node = Live
     ) *>
       assertCost(
         "2+2 on two tabs",
-        List("", "", "?ui.c_0=1", "?ui.c_0=1"),
+        List("", "", onTabs("c_0" -> 1), onTabs("c_0" -> 1)),
         leafDash,
         1.0,
         node = Live
       ) *>
       assertCost(
         "3+3 on two tabs",
-        List.fill(3)("") ++ List.fill(3)("?ui.c_0=1"),
+        List.fill(3)("") ++ List.fill(3)(onTabs("c_0" -> 1)),
         leafDash,
         1.0,
         frames = 5,
@@ -222,7 +224,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       ) *>
       assertCost(
         "the structural owner",
-        List("", "?ui.c_0=1"),
+        List("", onTabs("c_0" -> 1)),
         leafDash,
         0.0
       )

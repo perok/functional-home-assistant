@@ -3,11 +3,11 @@
 - **Status:** Accepted
 - **Date:** 2026-08-22
 - **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
-  `committedSelections`), `runtime/Server.scala` (`swapHost`,
+  `committedSelections`), `runtime/Server.scala` (`swapHost`, `setVar`,
   `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
   `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
   `lib/components/slider.pkl`
-- **Closes:** ADR 0024's open question. **Uses:** ADR 0005's `ui_<id>` signal
+- **Closes:** ADR 0024's open question. **Uses:** ADR 0005's selection signals
   and URL mirror, which this makes honest.
 
 ## Context
@@ -36,20 +36,26 @@ could say B while the panel showed A, with every request succeeding.
 
 | signal | written by | means |
 |---|---|---|
-| `ui_<group>` | the SERVER only | what this client's DOM *is* showing |
+| committed | the SERVER only | what this client's DOM *is* showing |
 | `_<group>__pending` | the client, on tap | what it has *asked* to show |
 
-Anything that displays a selection reads `$_<group>__pending \|\| $ui_<group>`,
+A group is a node variable or the popup host. A variable's committed signal is
+`_var_<declarer>__<name>` and its group `var_<declarer>__<name>`: a tab bar's
+`tab`, a chooser's `window` (ADR 0033). The popup's is `ui_popups`, with no
+pending twin (ADR 0005).
+
+Anything that displays a selection reads `$_<group>__pending \|\| $<committed>`,
 so the tap still feels instant — the pending value drives the highlight from the
 moment of the press. The committed signal, and therefore the URL, is never
 written speculatively, which is what makes it incapable of lying. **Nothing is
 ever rolled back, because nothing wrong was ever committed.**
 
-`SurfaceGraph.committedSelection` is the one place that says what a swap makes
-true, in the two value shapes `resolveActive` and `openPopup` read back out — a
-member INDEX for a bake group, a surface id (or `""`) for the popup host. It
-answers `None` where the client has no say at all: a state-activated group is
-server truth every viewer shares.
+What a write makes true is committed by the one route that made it:
+`Server.setVar` sends the variable's value after its repaints and any panel
+swap, and `SurfaceGraph.committedSelection` says what a popup swap put in the
+host, a surface id (or `""`), in the shape `openPopup` reads back out. It
+answers `None` for a bake group: a variable-selected one commits through its
+variable, and a state-activated one is server truth every viewer shares.
 
 **Two signals, not three.** An earlier draft added a `_<group>__busy` from
 `data-indicator`. "A request is in flight" is just `pending != ''` — once you
@@ -58,11 +64,11 @@ second copy of the same fact.
 
 ### Clearing is where the design earns its keep
 
-**Success clears it by CATCHING UP.** The server sends only `ui_<group>`;
-pending empties itself once the truth equals it:
+**Success clears it by CATCHING UP.** The server sends only the committed
+signal; pending empties itself once the truth equals it:
 
 ```
-data-effect="$_g__pending !== '' && $ui_g == $_g__pending && ($_g__pending = '')"
+data-effect="$_g__pending !== '' && $_g == $_g__pending && ($_g__pending = '')"
 ```
 
 No coordination and no clear in the frame — and deriving it is what makes
@@ -113,8 +119,9 @@ stays healthy, and a deadline, which is what an earlier draft used, would only
 have been a worse-informed guess at exactly this.
 
 **So a connect restates the selections.** `SurfaceGraph.committedSelections`
-gives the whole `ui_*` picture from a session's open set, and `openingSignals`
-carries it with the cursor on every connect. Without it, `_sse` clearing pending
+gives the popup's from a session's open set and `VarGraph.committed` every
+declared variable's, and `openingSignals` carries both with the cursor on every
+connect. Without it, `_sse` clearing pending
 would drop the display back on whatever the last frame it received said — and a
 swap is two writes (the patch, then the signal), so a stream dying between them
 leaves a DOM holding one panel and a signal naming another. It rides *inside*
@@ -189,9 +196,9 @@ resolved and its patch is queued, so the indicator covers the same span. A tab
 holds text rather than a glyph, so it takes `tap.pkl`'s `busyTextClass` (a ring
 after the label) where a card takes `busyShapeClass`; the delay is the same.
 
-The window chooser is not guarded yet. Its buttons are markup in its own
-template, and ADR 0019 forbids them sharing one busy signal; as child nodes
-they would each have one, but a child cannot yet name its declarer (#209).
+A window choice is guarded the same way. Each window is a `tab` node with a
+`SetVar` tap, so each has its own busy signal (ADR 0019 forbids one shared by
+the bar), and the variable write answers once the charts have re-rendered.
 
 The SIGNALS stay separate, for three reasons and any one would do:
 
@@ -223,7 +230,7 @@ prove pending subsumes it. **Building it showed the opposite, and ADR 0019
 stands unchanged.**
 
 Pending's clearing rule is "the committed value catches up". A tab has a
-committed value — `ui_<group>`, which this ADR makes the server write. **A
+committed value — `_var_<id>__tab`, which the server writes. **A
 service button has none.** `c.tap.call("light/turn_on", l)` commits an ENTITY
 STATE, not a selection, and `c.tap.toggle(l)` does not say which state it
 wants. So a button's pending could only clear on `finished` — which is what

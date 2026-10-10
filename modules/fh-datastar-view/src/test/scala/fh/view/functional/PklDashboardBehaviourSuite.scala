@@ -389,17 +389,27 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   /** Written out because it is the contract: the hoist's `bakeInto`, the
-    * `ui.<host>` param and the renderer's node id are this one string, and they
-    * have silently drifted apart.
+    * `v.<host>.tab` param and the renderer's node id are this one string, and
+    * they have silently drifted apart.
     */
   private val tabsHost = "s_c_1_then__c_0_1"
+
+  /** A connect carrying this viewer's committed tab, as a reconnect does
+    * (`Server.SseInclude`): a stream opened with no page has no session to hold
+    * the choice.
+    */
+  private def onTab(host: String, i: Int): String =
+    "?datastar=" + java.net.URLEncoder.encode(
+      s"""{"_var_${host}__tab":"$i"}""",
+      "UTF-8"
+    )
 
   private def flip(ts: TestServer): IO[Unit] =
     ts.change(light.entityId, "off") *> ts.frame(light)
 
   test("each tab is guarded on its own busy signal (issue #412)") {
     withBranchServer(_.page()).map { html =>
-      val tabs = s"""<a [^>]*open/${tabsHost}_t\\d[^>]*>""".r
+      val tabs = s"""<a [^>]*sse/var/[^/]+/$tabsHost/tab/\\d[^>]*>""".r
         .findAllIn(html)
         .toList
       assertEquals(tabs.size, 2, clue = html)
@@ -418,7 +428,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   test("first paint on the second tab: that panel's content, not the default") {
-    withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>
+    withBranchServer(_.page(s"?v.$tabsHost.tab=1")).map { html =>
       assert(html.contains("Outside Temperature"), clue = html)
       assert(!html.contains("Living Room"), clue = html)
     }
@@ -428,7 +438,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     withBranchServer { ts =>
       // The branch is re-rendered for the slug with no client, so only the fill
       // can put this viewer's panel in it.
-      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
+      ts.sentAfter(flip(ts), query = onTab(tabsHost, 1)).map { live =>
         // The branch and this viewer's panel arrive in one patch, so no frame
         // shows an empty tabs card. Not counted: how many flips land after
         // opening is timing.
@@ -462,18 +472,202 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The tabs host seeds its selection signal from the baked index, so a panel
-    * re-revealed with the wrong index, or none, highlights a different tab than
-    * the one shown. Invisible to a content check, so asserted on the wire.
+  /** The committed tab is the page shell's signal, so a re-revealed bar carries
+    * no seed of it that could reset the highlight to another tab than the one
+    * shown. Invisible to a content check, so asserted on the wire.
     */
-  test("a re-revealed panel carries THIS client's selection signal") {
+  test("a re-revealed bar cannot reset THIS client's committed tab") {
     withBranchServer { ts =>
-      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
-        // The pending signal follows the committed one in the seed, so the
-        // comma pins that a value is present.
-        assert(!live.contains(s"ui_$tabsHost: ,"), clue = live)
-        assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
+      ts.sentAfter(flip(ts), query = onTab(tabsHost, 1)).map { live =>
+        assert(live.contains("Light is on"), clue = live)
+        assert(!live.contains(s"_var_${tabsHost}__tab:"), clue = live)
+        assert(!live.contains(s"ui_$tabsHost"), clue = live)
+        // Only the pending ask is seeded there, and only if missing.
+        assert(
+          live.contains(
+            s"""data-signals__ifmissing="{ _var_${tabsHost}__tab__pending: '' }""""
+          ),
+          clue = live
+        )
       }
+    }
+  }
+
+  // Two tab bars side by side, one with a bar nested in its first panel, and a
+  // chart in every branch. A chart is the expensive render (a recorder fetch),
+  // so which sensors the recorder is asked for is which branches rendered.
+
+  private val nestedX1 = HouseFixture.outsideTemp
+  private val nestedX2 = HouseFixture.washerRemaining
+  private val nestedY = HouseFixture.washerProgram
+
+  private val nestedEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    (c.tabs) { tabs { ["A"] { c.title("a-one") } ["B"] { c.title("b-one") } } }
+       |    (c.tabs) {
+       |      tabs {
+       |        ["X"] {
+       |          (c.tabs) {
+       |            tabs {
+       |              ["X1"] { c.historyChart(dump.entities.${nestedX1.dumpKey}) }
+       |              ["X2"] { c.historyChart(dump.entities.${nestedX2.dumpKey}) }
+       |            }
+       |          }
+       |        }
+       |        ["Y"] { c.historyChart(dump.entities.${nestedY.dumpKey}) }
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
+
+  /** The contract, written out as `tabsHost` is: the bars' ids, the inner one
+    * inside the outer bar's first panel.
+    */
+  private val siblingBar = "c_0"
+  private val outerBar = "c_1"
+  private val innerBar = "s_c_1_t0__c_0"
+
+  private def withNestedServer[A](
+      f: (TestServer, IO[Set[String]]) => IO[A]
+  ): IO[A] =
+    cats.effect.Ref[IO].of(Set.empty[String]).flatMap { asked =>
+      TestServer
+        .fromWorkspace(
+          "nested-tabs",
+          nestedEntry,
+          List(nestedX1, nestedX2, nestedY),
+          fh.view.testkit.FakeConfig(recorder =
+            Some((from, _, entityId) =>
+              asked
+                .update(_ + entityId)
+                .as(
+                  List(api.homeassistant.ws.domain.HistoryPoint("1.0", from))
+                )
+            )
+          )
+        )
+        .use(ts => f(ts, asked.getAndSet(Set.empty)))
+        .timeout(60.seconds)
+    }
+
+  test("tab bars side by side and nested render only the branches chosen") {
+    withNestedServer { (ts, asked) =>
+      for {
+        first <- ts.page()
+        firstAsked <- asked
+        linked <- ts.page(s"?v.$siblingBar.tab=1&v.$innerBar.tab=1")
+        linkedAsked <- asked
+        _ <- ts.page(s"?v.$outerBar.tab=1&v.$innerBar.tab=1")
+        hiddenAsked <- asked
+      } yield {
+        assert(first.contains("a-one") && !first.contains("b-one"), first)
+        assertEquals(firstAsked, Set(nestedX1.entityId))
+        // Each bar is chosen on its own.
+        assert(linked.contains("b-one") && !linked.contains("a-one"), linked)
+        assertEquals(linkedAsked, Set(nestedX2.entityId))
+        // A choice inside a panel that is not shown renders nothing.
+        assertEquals(hiddenAsked, Set(nestedY.entityId))
+      }
+    }
+  }
+
+  test(
+    "opening a tab renders that panel and no panel beside or inside another"
+  ) {
+    withNestedServer { (ts, asked) =>
+      for {
+        doc <- ts.load()
+        _ <- asked
+        y <- ts.postResult(
+          s"sse/var/nested-tabs/$outerBar/tab/1",
+          body = s"""{"${fh.view.runtime.Server.ConnSignal}":"${doc.conn}"}"""
+        )
+        yAsked <- asked
+      } yield {
+        assertEquals(y._1, org.http4s.Status.NoContent)
+        assertEquals(yAsked, Set(nestedY.entityId))
+      }
+    }
+  }
+
+  test("a window chooser over a tab bar redraws only the panel shown") {
+    // The panels inherit the chooser's scope, so a choice reaches both charts,
+    // but a write re-renders only what this viewer is shown: the hidden
+    // panel's chart is fetched at the new window when it is opened, not
+    // before.
+    val chooserEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.windowChooser) {
+         |      children {
+         |        (c.tabs) {
+         |          tabs {
+         |            ["T"] { c.historyChart(dump.entities.${nestedX1.dumpKey}).chosen() }
+         |            ["H"] { c.historyChart(dump.entities.${nestedX2.dumpKey}).chosen() }
+         |          }
+         |        }
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    val (chooser, bar) = ("c_0", "c_0_0")
+    cats.effect.Ref[IO].of(Set.empty[(String, Long)]).flatMap { log =>
+      val asked = log.getAndSet(Set.empty)
+      TestServer
+        .fromWorkspace(
+          "chooser-tabs",
+          chooserEntry,
+          List(nestedX1, nestedX2),
+          fh.view.testkit.FakeConfig(recorder =
+            Some((from, to, entityId) =>
+              log
+                .update(
+                  _ + (entityId -> java.time.Duration.between(from, to).toHours)
+                )
+                .as(
+                  List(api.homeassistant.ws.domain.HistoryPoint("1.0", from))
+                )
+            )
+          )
+        )
+        .use { ts =>
+          def post(conn: String, path: String) =
+            ts.postResult(
+              path,
+              body = s"""{"${fh.view.runtime.Server.ConnSignal}":"$conn"}"""
+            )
+          for {
+            doc <- ts.load()
+            loaded <- asked
+            week <- post(doc.conn, s"sse/var/chooser-tabs/$chooser/window/7d")
+            chosen <- asked
+            opened <- post(
+              doc.conn,
+              s"sse/var/chooser-tabs/$bar/tab/1"
+            )
+            revealed <- asked
+          } yield {
+            assertEquals(loaded, Set(nestedX1.entityId -> 24L))
+            assertEquals(week._1, org.http4s.Status.NoContent)
+            assertEquals(chosen, Set(nestedX1.entityId -> 168L))
+            assertEquals(opened._1, org.http4s.Status.NoContent)
+            assertEquals(revealed, Set(nestedX2.entityId -> 168L))
+          }
+        }
+        .timeout(60.seconds)
     }
   }
 
@@ -552,7 +746,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
+       |    // The lock's own verb: its card's default opens more-info.
        |    c.entityCard(dump.entities.${lockAt("locked").dumpKey})
+       |      .tapAction(c.tap.toggle(dump.entities.${lockAt(
+        "locked"
+      ).dumpKey}))
        |  }
        |}
        |""".stripMargin
@@ -714,6 +912,59 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(html.contains(s"_var_${id}__window: '7d'"), clue = html)
           List("1h", "24h", "7d", "30d")
             .foreach(w => assert(html.contains(s">$w</a>"), clue = w))
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test(
+    "each window is guarded on its own busy signal, posting to its chooser"
+  ) {
+    // The buttons are nodes below the chooser, so the route and the signals
+    // name the chooser through `@@VAR:window@@`, and the guard names each
+    // button. Only a real page shows both ids landed where they belong.
+    val windowEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.windowChooser) {
+         |      children {
+         |        c.historyChart(dump.entities.${HouseFixture.outsideTemp.dumpKey}).chosen()
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-window-guards", windowEntry, entities)
+      .use { ts =>
+        ts.page().map { html =>
+          assert(!html.contains("@@"), clue = html)
+          val chooser =
+            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window'""".r
+              .findFirstMatchIn(html)
+              .fold(fail("no chooser on the page", clues(html)))(_.group(1))
+          val buttons = """<a [^>]*sse/var/[^>]*>""".r.findAllIn(html).toList
+          assertEquals(buttons.size, 4, clue = html)
+          val signals = buttons.map { a =>
+            assert(
+              a.contains(s"sse/var/fixture-window-guards/$chooser/window/"),
+              a
+            )
+            assert(a.contains(s"$$_var_${chooser}__window__pending = '"), a)
+            val sig = """data-indicator="(_[A-Za-z0-9_]+__busy)"""".r
+              .findFirstMatchIn(a)
+              .fold(fail("an unguarded window", clues(a)))(_.group(1))
+            assert(a.contains(s"data-on:click=\"$$$sig ? '' : "), clue = a)
+            assert(a.contains(s"data-class:fh-busy-after=\"$$${sig}_slow\""), a)
+            sig
+          }
+          assertEquals(signals.distinct.size, 4, clue = signals)
+          assert(!signals.exists(_.contains(s"_${chooser}__busy")), signals)
         }
       }
       .timeout(60.seconds)

@@ -102,8 +102,9 @@ is guarded for the same reason; a tab has no glyph, so its spinner is
 `busyTextClass`, a ring after the label.
 
 **The guard belongs to the kind of tap, never to the card.** A `Call` is
-guarded, and so is an `OpenSurface`: the `Click` that `openPopup`,
-`openPopupInline` and a tab's `selectSurface` return. A card folds its tap in
+guarded, and so is an `OpenSurface`: the `Click` that `openPopup` and
+`openPopupInline` return. So is a `SetVar`, a node variable's choice
+(`varMod.Variable.choose`: a tab, a window in `c.windowChooser`). A card folds its tap in
 through `tapSlots`, the tab included, so no card decides whether it is guarded
 and a new way to open a surface is guarded by being one. The close stays unguarded: it is `history.back()`, so the control sends
 no request of its own (the page's `popstate` listener does, ADR 0005). So does

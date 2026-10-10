@@ -14,8 +14,8 @@
           "inlineSurfaces" : {
             "t0" : {
               "activation" : {
-                "defaultOpen" : true,
-                "kind" : "user"
+                "kind" : "var",
+                "name" : "tab"
               },
               "bakeAs" : "panel",
               "bakeIndex" : 0,
@@ -67,6 +67,72 @@
                                         },
                                         "kind" : "component",
                                         "regions" : {
+                                          "bar" : [
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '1h'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "1h",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            },
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '24h'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "24h",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            },
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '7d'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "7d",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            },
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '30d'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "30d",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            }
+                                          ],
                                           "children" : [
                                             {
                                               "card" : "historyChart",
@@ -171,6 +237,10 @@
               }
             },
             "t1" : {
+              "activation" : {
+                "kind" : "var",
+                "name" : "tab"
+              },
               "bakeAs" : "panel",
               "bakeIndex" : 1,
               "bakeInto" : "@@NODE_ID@@",
@@ -254,14 +324,14 @@
                 "card" : "tab",
                 "kind" : "component",
                 "slots" : {
-                  "active" : "String(($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@)) === '0'",
+                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
                   "busy" : "1",
                   "busyVisual" : "1",
                   "label" : "Temp",
                   "onclick" : {
                     "bypassUnavailable" : false,
                     "reads" : "once",
-                    "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t0?group=@@NODE_ID@@')\""
+                    "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
                   },
                   "tappable" : "1"
                 }
@@ -270,14 +340,14 @@
                 "card" : "tab",
                 "kind" : "component",
                 "slots" : {
-                  "active" : "String(($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@)) === '1'",
+                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
                   "busy" : "1",
                   "busyVisual" : "1",
                   "label" : "Light",
                   "onclick" : {
                     "bypassUnavailable" : false,
                     "reads" : "once",
-                    "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t1?group=@@NODE_ID@@')\""
+                    "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
                   },
                   "tappable" : "1"
                 }
@@ -286,6 +356,9 @@
           },
           "slots" : {
             
+          },
+          "vars" : {
+            "tab" : "0"
           }
         },
         {
@@ -355,6 +428,72 @@
                                         },
                                         "kind" : "component",
                                         "regions" : {
+                                          "bar" : [
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '1h'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "1h",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            },
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '24h'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "24h",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            },
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '7d'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "7d",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            },
+                                            {
+                                              "card" : "tab",
+                                              "kind" : "component",
+                                              "slots" : {
+                                                "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '30d'",
+                                                "busy" : "1",
+                                                "busyVisual" : "1",
+                                                "label" : "30d",
+                                                "onclick" : {
+                                                  "bypassUnavailable" : false,
+                                                  "reads" : "once",
+                                                  "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                                },
+                                                "tappable" : "1"
+                                              }
+                                            }
+                                          ],
                                           "children" : [
                                             {
                                               "card" : "historyChart",
@@ -598,13 +737,16 @@
     },
     "historyWindows" : {
       "regions" : {
+        "bar" : {
+          "fill" : "eager"
+        },
         "children" : {
           "fill" : "eager"
         }
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\" data-fh-url=\"['v.{{id}}.window', $_var_{{id}}__window]\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\"><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '1h'}\" data-on:click=\"$_var_{{id}}__window__pending = '1h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/1h?group=var_{{id}}__window')\">1h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '24h'}\" data-on:click=\"$_var_{{id}}__window__pending = '24h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/24h?group=var_{{id}}__window')\">24h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '7d'}\" data-on:click=\"$_var_{{id}}__window__pending = '7d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/7d?group=var_{{id}}__window')\">7d</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '30d'}\" data-on:click=\"$_var_{{id}}__window__pending = '30d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/30d?group=var_{{id}}__window')\">30d</a></div>{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "<div class=\"fh-col\" data-fh-url=\"['v.{{id}}.window', $_var_{{id}}__window]\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\">{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>"
     },
     "ifhost" : {
       "regions" : {
@@ -646,7 +788,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-fh-url=\"['ui.{{id}}', $ui_{{id}}]\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
+      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__tab__pending: '' }\" data-effect=\"$_var_{{id}}__tab__pending !== '' && $_var_{{id}}__tab == $_var_{{id}}__tab__pending && ($_var_{{id}}__tab__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-fh-url=\"['v.{{id}}.tab', $_var_{{id}}__tab]\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
     },
     "tile" : {
       "regions" : {

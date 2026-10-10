@@ -49,7 +49,7 @@ class Slot {
 /// A read of a named provider, checked by the backend's `Queries.parse`.
 class Query {
   provider: String
-  /// A value, or a read of a node variable ([[varMod.ref]]). The backend
+  /// A value, or a read of a node variable ([[varMod.Variable.ref]]). The backend
   /// refuses a variable value that would make the query read an entity its
   /// dashboard does not show (ADR 0023).
   params: Mapping<String, String|varMod.Ref>

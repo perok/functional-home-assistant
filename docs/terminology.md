@@ -75,8 +75,8 @@ list and which of it is present, counted live, the same thing a state condition'
 — or a **condition**, decided live.
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
-**Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
-word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
+**Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ;
+ADR 0033 lists its scoping rules in one place. The word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
 calls CSS custom properties the same, so a bare "vars" in prose is ambiguous three ways.
 
 Three words go with it, and they are not interchangeable:
@@ -179,6 +179,9 @@ owns, and the build replaces it with that node's real id — bottom-up, so the i
 Note this is authorship, not tree position: it means "the card that wrote this", which is why the
 renderer cannot derive it from the parent link.
 
+`@@VAR:<name>@@` (`varMod.Variable.declarer`) is the other token, and it IS tree position: the nearest
+node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033).
+
 ---
 
 ## Card structure — what a card's markup holds
@@ -225,9 +228,11 @@ word the runtime uses; not to be confused with a **region**, which is the declar
 
 **Bake** — to render chosen content into a host. A surface declares which node it bakes **into**;
 the host renders it as **bakeAs**; **bakeIndex** is which member of the group is currently chosen,
-exposed so a tab bar can show the selection without JavaScript.
+exposed so a card can show the selection without JavaScript.
 
-**Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time.
+**Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
+chooses is the group's activation: a node variable for a tab bar (`Activation.Var`, ADR 0033), a
+condition for an `If` branch.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

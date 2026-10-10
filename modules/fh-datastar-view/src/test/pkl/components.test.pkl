@@ -11,6 +11,7 @@ import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
+import "../../main/resources/dashboards/lib/core/variable.pkl" as varMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
@@ -22,6 +23,7 @@ import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/hass/active.pkl" as activeTables
+import "../../main/resources/dashboards/lib/hass/actions.pkl" as hassActions
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -282,6 +284,40 @@ facts {
     c.historyChart(power).slots["chart"].transform.params.width == null
   }
 
+  ["each window is a tab node of its own, guarded by its own tap"] {
+    local bar = (c.windowChooser).regions["bar"].toList()
+    bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
+    bar.map((n) -> (n as nodes.Node).slots["label"]) == List("1h", "24h", "7d", "30d")
+    // Per node, so one window's answer never clears another's guard (ADR 0019).
+    bar.every((n) -> (n as nodes.Node).slots["busy"] == "1")
+    // A window names the chooser by the token, never by an id it cannot know.
+    let (week = bar[2] as nodes.Node)
+      (week.slots["onclick"] as slotMod.Slot).transform.contains(
+        "/" + historyMod.windowVar.declarer + "/window/7d?group=" + historyMod.windowVar.below.group + "'"
+      )
+      && (week.slots["active"] as String).endsWith("=== '7d'")
+  }
+
+  ["a variable choice is guarded, and takes only plain tokens"] {
+    historyMod.windowVar.choose("7d").busy
+    // A space would split the route segment, and a `'` close the JS string.
+    module.catch(() -> historyMod.windowVar.choose("7 d")).contains("matches")
+    module.catch(() -> historyMod.windowVar.choose("it's")).contains("matches")
+    // The name is spelled into signals and the URL, so it is a token too.
+    module.catch(() -> new varMod.Variable { name = "my window" }.declarer).contains("matches")
+  }
+
+  ["a variable spells its declarer one way from its own template, another from below"] {
+    local tab = new varMod.Variable { name = "tab" }
+    tab.own.committed == "_var_{{id}}__tab"
+    tab.own.urlParam == "v.{{id}}.tab"
+    tab.below.group == "var_@@VAR:tab@@__tab"
+    tab.below.pending == "_var_@@VAR:tab@@__tab__pending"
+    tab.ref.`var` == "tab"
+    tab.declare("0") == new Mapping { ["tab"] = "0" }
+    tab.selects.name == "tab"
+  }
+
   ["the declared window moves with `starting`"] {
     local week = (c.windowChooser).starting("7d")
     week.vars["window"] == "7d"
@@ -343,7 +379,9 @@ facts {
   }
 
   ["a lock's service is the one thing the STATE has to decide"] {
-    local svc: slotMod.Slot = c.entityCard(frontLock).slots["service"]
+    // Through the lock's own verb: its card opens more-info (see below).
+    local acts = c.entityCard(frontLock).tapAction(c.tap.toggle(frontLock))
+    local svc: slotMod.Slot = acts.slots["service"]
     local m: simpleMod.SimpleMatch = svc.transform!!
     // A lock's snapshot state decides WHICH service the tap posts; the value
     // itself never changes what the target is.
@@ -355,7 +393,39 @@ facts {
     svc.signal == "handler"
     // …and the click expression is therefore not the live one it used to be:
     // the card assembles the URL from `tapMod.serviceClick`.
-    !c.entityCard(frontLock).slots.containsKey("onclick")
+    !acts.slots.containsKey("onclick")
+  }
+
+  ["a lock acts through Lock and Unlock buttons, on the dashboard and in more-info"] {
+    // A stray tap on a wall tablet must not unlock the front door, so the card
+    // posts nothing and opens a popup instead, as HA's tile does.
+    !c.entityCard(latchLock).slots.containsKey("service")
+    c.entityCard(latchLock).inlineSurfaces != null
+    local card = c.lock.controls(latchLock) as nodes.Node
+    !card.slots.containsKey("service")
+    // Its features: Lock and Unlock side by side (HA's `lock-commands`), then
+    // the latch. Fixed presses, not one that reads the state.
+    local features = card.regions!!["features"].toList()
+    local buttons = (features[0] as nodes.Node).regions!!["children"].toList()
+      .map((n) -> n as nodes.Node)
+    buttons.map((b) -> b.slots["service"]) == List("lock/lock", "lock/unlock")
+    (features[1] as nodes.Node).slots["glyph"] == "mdi mdi-door-open"
+    // Each refused where HA disables its own button: the state it would reach,
+    // and the moves.
+    buttons.map((b) -> (b.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
+      .cases.toMap().keys.toList().sort())
+      == List(
+        List("locked", "locking", "opening", "unavailable", "unlocking"),
+        List("locking", "opening", "unavailable", "unlocked", "unlocking"))
+    // More-info shows the same buttons, on a tile that opens nothing: it would
+    // only open the popup it is in.
+    local popup = c.entityCard(latchLock).inlineSurfaces!!.toMap().values.first.content as nodes.Node
+    local body = popup.regions!!["children"].toList().first as nodes.Node
+    local inPopup = body.regions!!["children"].toList().first as nodes.Node
+    !inPopup.slots.containsKey("tappable")
+    inPopup.regions == card.regions
+    // Only the guarded domains: a light's card still toggles on a tap.
+    c.entityCard(kitchen).slots["service"] == "light/toggle"
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
@@ -402,7 +472,7 @@ facts {
     local f = c.lock.controls(new hass.LockEntity { entity_id = "lock.front"; supported_features = 1 })
       as nodes.Node
     f.card == "tile"
-    (f.regions!!["features"].toList().first as nodes.Node).card == "button"
+    f.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
   }
 
   ["a tab highlights by STRICT string comparison, so an unseeded '' lights no tab"] {
@@ -421,7 +491,7 @@ facts {
   ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {
     tapMod.openPopup("p").busy
     tapMod.openPopupInline(c.title("x")).busy
-    tapMod.selectSurface("t_t0", "t", "0").busy
+    new varMod.Variable { name = "tab" }.choose("0").busy
     c.tap.moreInfo(outside).busy
     !tapMod.navigate("home").busy
     !tapMod.closePopup().busy
@@ -1210,7 +1280,7 @@ facts {
     // as `unlocking` is not `locked`, so the tile posted `lock/lock` AGAINST
     // the unlock already running. The list is the DOMAIN's, so no author has to
     // know it.
-    local tile = c.entityCard(latchLock)
+    local tile = c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock))
     local inert: simpleMod.SimpleMatch = tile.slots["tapDisabled"].transform!!
     // `unavailable` rides with them but is NOT one of them — see the fact
     // below. The three transitional ones are the domain table's.
@@ -1301,10 +1371,10 @@ facts {
   }
 
   ["a typed lock still taps by state, like any other lock"] {
-    // Typing the domain must not change what the generic tile does with it —
-    // the capability is additive (ADR 0016 owns the tap).
-    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
-      .otherwise == "lock/lock"
+    // Typing the domain must not change what the lock's tap does — the
+    // capability is additive (ADR 0016 owns the tap).
+    (c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock)).slots["service"].transform
+      as simpleMod.SimpleMatch).otherwise == "lock/lock"
   }
 
   ["a lock that can open its latch gets a second control; one that cannot does not"] {
@@ -1315,11 +1385,12 @@ facts {
     withLatch.card == "tile"
     // The latch is the tile's feature, outside its tappable row: inside it,
     // one press would post `lock/open` and the tile's own `lock/lock` together.
-    withLatch.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("button")
-    // No capability, no feature: a plain lock is the generic tile and nothing
-    // more, with no region on the wire.
+    withLatch.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
+    // No capability, no latch: a plain lock has Lock and Unlock and nothing
+    // more.
     c.lock.controls(plainLock).card == "tile"
-    (c.lock.controls(plainLock) as nodes.Node).regions == null
+    (c.lock.controls(plainLock) as nodes.Node).regions!!["features"].toList()
+      .map((n) -> (n as nodes.Node).card) == List("fhrow")
   }
 
   ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {
@@ -1340,10 +1411,10 @@ facts {
     // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
     (press.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
       .cases.toMap().containsKey("unavailable")
-    // The tile beside it still locks/unlocks by state — the two controls are
-    // different actions, not two spellings of one.
-    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
-      .cases.toMap() == Map("locked", "lock/unlock")
+    // Lock and Unlock beside it are different actions, not two spellings of
+    // the latch's.
+    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).slots["service"])
+      == List("lock/lock", "lock/unlock")
   }
 
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {

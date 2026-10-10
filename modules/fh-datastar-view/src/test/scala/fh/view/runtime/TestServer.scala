@@ -508,11 +508,12 @@ object TestServer {
   def fromWorkspace(
       slug: String,
       entrySource: String,
-      entities: List[FixtureEntity]
+      entities: List[FixtureEntity],
+      config: FakeConfig = FakeConfig()
   ): Resource[IO, TestServer] =
     for {
       tmp <- stageWorkspace(slug, entrySource, entities)
-      fake <- FakeHomeAssistant.create(entities).toResource
+      fake <- FakeHomeAssistant.create(entities, config).toResource
       booted <- assemble(fake, tmp, ServerApp.prepareRenderers(_, tmp, None))
       ts <- inProcess(fake, slug, booted)
     } yield ts

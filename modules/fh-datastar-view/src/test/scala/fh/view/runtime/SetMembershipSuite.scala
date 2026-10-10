@@ -234,7 +234,7 @@ class SetMembershipSuite extends ServerHarness {
     ) { ts =>
       for {
         onT0 <- ts.viewer()
-        onT1 <- ts.viewer("?ui.c=1")
+        onT1 <- ts.viewer("?v.c.tab=1")
         _ <- ts.record(FixtureEntity("sensor.b", "B1"))
         forA <- onT0.pull.map(_.map(_.render))
         forB <- onT1.pull.map(_.map(_.render))

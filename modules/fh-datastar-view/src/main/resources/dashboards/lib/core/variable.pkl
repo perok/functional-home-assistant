@@ -3,11 +3,16 @@
 /// Resolution is by NAME up the ancestor chain: a node that declares nothing is
 /// transparent, a nested declaration shadows, and a reader with no declarer is
 /// a build error naming both. The server resolves it before rendering, because
-/// the first HTML a browser gets is complete.
+/// the first HTML a browser gets is complete. ADR 0033 lists the rules.
+///
+/// A component holds a variable as one [[Variable]], so its declaration, its
+/// readers, its buttons and its signals are spelled from one name:
+///
+///     const window: varMod.Variable = new { name = "window" }
 ///
 ///     (c.column) {
-///       vars = new Mapping { ["window"] = "24h" }
-///       children { c.historyChart(sensor).over(varMod.ref("window")) }
+///       vars = window.declare("24h")
+///       children { c.historyChart(sensor).over(window.ref) }
 ///     }
 ///
 /// No list of allowed values: the write boundary refuses a value no declared
@@ -16,12 +21,86 @@
 /// (`components/history.pkl`'s `WindowChooser`).
 module core.variable
 
-/// A reference to a declared variable (fh.view.model.Ref.Var). `var` is the
-/// wire key, hence the backticks; write [[ref]] instead.
+import "tap.pkl" as tapMod
+import "surface.pkl" as surfaceMod
+
+/// A plain token: it is spelled into signal names and the URL.
+typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
+
+/// A value a viewer can choose: a plain token, since it travels in a route
+/// segment and a JS string.
+typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
+
+/// The wire shape of a read (`fh.view.model.Ref.Var`), what a query parameter
+/// holds. `var` is the wire key, hence the backticks; get one from
+/// [[Variable.ref]].
 class Ref {
   `var`: String
 }
 
-/// Read the variable `name` from the nearest declaring ancestor. Not `read`,
-/// which is a Pkl keyword.
-const function ref(name: String): Ref = new Ref { `var` = name }
+/// A node variable as one typed value.
+class Variable {
+  name: Name
+
+  /// A read of it, for a query parameter, resolved up the ancestors at build
+  /// time.
+  fixed ref: Ref = let (n = name) new Ref { `var` = n }
+
+  /// The declaring node's id, written from a node below it: a token the build
+  /// splices (`DashboardBuild.declarerToken`) and refuses where nothing above
+  /// declares the name.
+  fixed declarer: String = "@@VAR:\(name)@@"
+
+  /// Its signals and URL param, written from a node below the declarer: a
+  /// button, a highlight.
+  fixed below: Spelling =
+    let (n = name) let (d = declarer) new Spelling { variable = n; declarerId = d }
+
+  /// The same, written in the declarer's own template, where `{{id}}` is its
+  /// id.
+  fixed own: Spelling = let (n = name) new Spelling { variable = n; declarerId = "{{id}}" }
+
+  /// The activation of a bake group whose member this variable chooses: a tab
+  /// bar's panel.
+  fixed selects: surfaceMod.VarActivation = let (n = name) new { name = n }
+
+  /// Its entry in the declaring node's `vars`: the value before anyone chooses.
+  function declare(value: String): Mapping<String, String> =
+    let (n = name) new Mapping { [n] = value }
+
+  /// Choose `value`, from a node below the declarer. It sets only the pending
+  /// ask; the server commits once the readers have re-rendered (ADR 0025).
+  function choose(value: Value): tapMod.SetVar =
+    let (n = name) let (d = declarer) let (s = below)
+      new tapMod.SetVar {
+        onclick = tapMod.clickSlot(
+          "\"$" + s.pending + " = '" + value + "'; " +
+            #"@post('sse/var/" + dashboard_slug + "/"# + d + "/" + n + "/" + value +
+            "?group=\(s.group)'" + #")""#
+        )
+      }
+}
+
+/// One variable's signals and URL param, from wherever its declarer's id is
+/// written. The server's spelling is `fh.view.runtime.VarKey`, and
+/// `VarSignalNamesSuite` holds the two equal.
+class Spelling {
+  hidden variable: Name
+  hidden declarerId: String
+
+  /// The selection group, which also names the pending ask.
+  fixed group: String = "var_\(declarerId)__\(variable)"
+  /// What the server says is in effect; only it writes this.
+  fixed committed: String = "_\(group)"
+  /// What this client has asked for.
+  fixed pending: String = tapMod.pendingSignal(group)
+  fixed urlParam: String = "v.\(declarerId).\(variable)"
+  /// What a highlight compares: the ask while one is out, else the commit.
+  fixed chosen: String = tapMod.pendingOrCommittedOf(group, committed)
+  /// The pending seed, for a host's `data-signals__ifmissing` object.
+  fixed pendingSeed: String = tapMod.pendingSeedEntry(group)
+  /// Empties the ask once the commit agrees.
+  fixed pendingClear: String = tapMod.pendingClearAgainst(group, committed)
+  /// Mirrors the commit into the URL.
+  fixed urlMirror: String = #"data-fh-url="['\#(urlParam)', $\#(committed)]""#
+}

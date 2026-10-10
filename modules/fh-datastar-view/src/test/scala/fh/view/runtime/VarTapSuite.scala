@@ -8,6 +8,7 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
+  NodeId,
   QueryTemplate,
   Reads,
   Ref,
@@ -16,7 +17,6 @@ import fh.view.model.{
   Transform
 }
 import fh.view.testkit.{FakeConfig, FixtureEntity}
-import fh.view.testkit.TestIds.given
 import org.http4s.*
 
 import java.time.Instant
@@ -211,7 +211,7 @@ class VarTapSuite extends ServerHarness {
         assertEquals(result._1, Status.NoContent)
         assertEquals(
           chose,
-          Some(Map(("panel": fh.view.model.NodeId, "window") -> "7d"))
+          Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
         )
         // The week's series: the write moved the query, not just a signal.
         val painted = queued.flatMap(_.data).mkString
@@ -222,6 +222,77 @@ class VarTapSuite extends ServerHarness {
         assertEquals(queued.lastOption.flatMap(_.data), Some(committed("7d")))
       }
     }
+  }
+
+  /** A candidate set of charts under the panel's window: each member reads it
+    * through the set's scope (ADR 0033).
+    */
+  private val setDash = {
+    def chartOf(entity: String) = LayoutNode.SetMember(
+      List(
+        LayoutNode.SetClause(node =
+          chartNode.copy(slots =
+            Map(
+              "chart" -> SlotSource(
+                query = Some(
+                  QueryTemplate(
+                    "history",
+                    Map(
+                      "entity" -> Ref.Literal(entity),
+                      "window" -> Ref.Var("window")
+                    )
+                  )
+                ),
+                transform = Transform.Stage.Passthrough,
+                reads = Reads.OnRender
+              )
+            )
+          )
+        )
+      )
+    )
+    dash.copy(card =
+      LayoutNode.Component(
+        "panel",
+        regions = LayoutNode.kids(
+          LayoutNode.SetNode(
+            candidates = List("sensor.a", "sensor.b"),
+            members = Map(
+              "sensor.a" -> chartOf("sensor.a"),
+              "sensor.b" -> chartOf("sensor.b")
+            )
+          )
+        ),
+        id = Some("panel"),
+        vars = Map("window" -> "24h")
+      )
+    )
+  }
+
+  test("a write redraws every member of a set at the new window") {
+    served(
+      ts =>
+        for {
+          page <- ts.page()
+          conn <- ts.load().map(_.conn)
+          session <- ts.sessions.get(conn)
+          result <- post(ts, conn, varPath(ts, "window/7d"))
+          queued <- drain(session)
+        } yield {
+          assertEquals(page.sliding(Day.length).count(_ == Day), 2, page)
+          assertEquals(result._1, Status.NoContent)
+          val painted = queued.flatMap(_.data).mkString
+          // Both members, each patched under its own id, at the week.
+          assertEquals(
+            painted.sliding(Week.length).count(_ == Week),
+            2,
+            painted
+          )
+          assert(!painted.contains(Day), clue = painted)
+          assertEquals(queued.lastOption.flatMap(_.data), Some(committed("7d")))
+        },
+      dashboard = setDash
+    )
   }
 
   test("a value no reader can parse is refused, and nothing moves") {
@@ -313,7 +384,7 @@ class VarTapSuite extends ServerHarness {
             assertEquals(refused._1, Status.Ok)
             assertEquals(
               chose,
-              Some(Map(("panel": fh.view.model.NodeId, "e") -> "sensor.b"))
+              Some(Map(VarKey(NodeId.derived("panel"), "e") -> "sensor.b"))
             )
             assertEquals(linked.status, Status.BadRequest)
             assertEquals(entities, Set("sensor.a", "sensor.b"))
@@ -362,11 +433,76 @@ class VarTapSuite extends ServerHarness {
           ).parTupled
           chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
         } yield assertEquals(
-          chose.map(_.keySet.map(_._2)),
+          chose.map(_.keySet.map(_.name)),
           Some(Set("e", "window"))
         ),
       dashboard = entityDash
     )
+  }
+
+  /** A stream for a `conn` this process never minted: what a reconnect after a
+    * restart, or after its session was reaped, looks like.
+    */
+  private def forgottenReconnect(ts: TestServer, window: String) =
+    ts.connect(
+      "?datastar=" + java.net.URLEncoder.encode(
+        s"""{"${Server.ConnSignal}":"forgotten","_var_panel__window":"$window"}""",
+        "UTF-8"
+      )
+    )
+
+  test("a session the server forgot keeps the window its reconnect carries") {
+    // Otherwise the minted session starts at the declared window and the
+    // opening frame resets the bar, while a tab survives the same reconnect on
+    // `ui_<id>`.
+    served { ts =>
+      for {
+        client <- forgottenReconnect(ts, "7d")
+        events <- client.drain
+      } yield {
+        val sent = events.flatMap(_.data).mkString
+        assert(sent.contains("\"_var_panel__window\":\"7d\""), clue = sent)
+        assert(!sent.contains("\"_var_panel__window\":\"24h\""), clue = sent)
+        assert(sent.contains(Week), clue = sent)
+      }
+    }
+  }
+
+  test("a reconnect carrying a window no reader takes gets the declared one") {
+    // The carried value is the client's claim, so it passes the write's check.
+    served { ts =>
+      for {
+        client <- forgottenReconnect(ts, "4h")
+        events <- client.drain
+      } yield {
+        val sent = events.flatMap(_.data).mkString
+        assert(sent.contains("\"_var_panel__window\":\"24h\""), clue = sent)
+        assert(sent.contains(Day), clue = sent)
+      }
+    }
+  }
+
+  test("a live session's own choice wins over what its reconnect carries") {
+    // The stream that would have delivered a commit can die with it, so the
+    // client may still hold the value before.
+    served { ts =>
+      for {
+        doc <- ts.load()
+        _ <- post(ts, doc.conn, varPath(ts, "window/7d"))
+        _ <- ts
+          .get(
+            doc.stream.withQueryParam(
+              "datastar",
+              s"""{"${Server.ConnSignal}":"${doc.conn}","_var_panel__window":"24h"}"""
+            )
+          )
+          .flatMap(sseFrom(_)(isCursor))
+        chose <- ts.sessions.get(doc.conn).flatMap(_.traverse(_.vars.get))
+      } yield assertEquals(
+        chose.flatMap(_.get(VarKey(NodeId.derived("panel"), "window"))),
+        Some("7d")
+      )
+    }
   }
 
   test("the opening frame states every declared variable, chosen or not") {
@@ -383,7 +519,7 @@ class VarTapSuite extends ServerHarness {
       .openingSignals(
         renderer,
         Set.empty,
-        Map((("panel": fh.view.model.NodeId), "window") -> "7d"),
+        Map(VarKey(NodeId.derived("panel"), "window") -> "7d"),
         "log",
         0L
       )

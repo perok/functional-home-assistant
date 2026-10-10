@@ -64,19 +64,20 @@ name, like `conn`.
 
 ### 2. Signals are the live carrier; the URL is their mirror
 
-- **The signal is the truth.** A bake group's selection is `ui_<id>`, an
-  ordinary unprefixed Datastar signal, so it rides every request the client
-  makes — the SSE reconnect included. `Server.uiStateOf` reads it, and the
-  server therefore always knows what a connection is showing without keeping
-  per-client state between connections.
+- **The signal is the truth.** The open popup is `ui_popups`, an ordinary
+  unprefixed Datastar signal, so it rides every request the client makes — the
+  SSE reconnect included — and `Server.uiStateOf` reads it. A tab bar's
+  selection is a node variable instead (decision 4): the session holds it, and
+  its committed signal `_var_<id>__tab` rides only the SSE GET, which is all a
+  forgotten session needs to adopt it (ADR 0033).
 - **Only the server writes it** (ADR 0025). A tap records what it ASKED for in
-  a separate pending signal; `ui_<id>` moves when the swap that serves the tap
-  moves it. That is what makes "the signal is the truth" a fact rather than a
+  a separate pending signal; the committed one moves when the swap that serves
+  the tap moves it. That is what makes "the signal is the truth" a fact rather than a
   hope: the URL below mirrors a value no client ever asserted on its own.
 - **The URL mirrors it**, via `history.replaceState` from the
   `data-fh-url="['<param>', $signal]"` attribute (`src/js/datastar.ts`, built
   into the page's Datastar module, `Server.DatastarScript`), as
-  `?ui.<id>=<value>`.
+  `?ui.popups=<id>` or `?v.<id>.tab=<n>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
@@ -149,33 +150,33 @@ Tiering discipline (do not blur it):
 Server in-memory per-connection state is explicitly not this tier: `conn` is
 minted fresh per stream, giving no continuity across a reload.
 
-### 3. The declared-`state` sugar is deferred
+### 3. Declared state is a node variable
 
-A component declaring `state: ['tab']` with auto-namespacing/seeding is **not
-built**: only two consumers exist (`ui_`, `_val_`), the sugar's value is naming
-discipline rather than capability, and a general node-state bucket invites
-persisting things that belong on the server or in transient signals.
-**Trigger to revisit:** a *third* node-scoped-state component (candidates
-below) — then build the sugar and consolidate the URL mirror behind it.
+A component declaring a named, node-scoped choice is a **node variable** (ADR
+0033): declared on the node, namespaced by its id, seeded by the page,
+committed by the server and mirrored as `v.<id>.<name>`. Its third consumer
+(after a tab bar and a window chooser) needs nothing new. It holds a viewer's
+CHOICE only: an entity's value stays on the server and mid-gesture state in a
+`_`-prefixed signal (`_val_<id>`), which is why it is not a general node-state
+bucket.
 
 ### 4. The uses — the active tab, and the open popup
 
 Both are keyed by the id the server already knows, and both are untrusted
 input, clamped at the boundary:
 
-- **Active tab.** `ui_<bakeInto>` = the active surface index, mirrored to
-  `ui.<bakeInto>`. Each tab button's click sets a PENDING signal (pure authoring
-  composition) and the swap commits `ui_<bakeInto>`; the panel host's
-  `data-effect` writes the URL off the committed one (ADR 0025).
-  `Renderer.resolveActive` parses and **clamps** the index to a real member of
-  the bake group, falling back to the `defaultOpen` member, and logs a warning
-  on a malformed value — so a hand-edited URL can never bake a non-existent
-  surface. The restore is flash-free because the GET bakes the selected surface
-  directly, and the SSE connect seeds the open set with it so it streams live
-  from the first paint.
-- **Open popup.** The SAME mechanism, not a second one: `ui_<PopupHostId>`,
-  mirrored to `ui.<PopupHostId>`, committed by the open/close swaps exactly as a
-  tab's is. It carries no pending twin, because nothing on the page DISPLAYS a
+- **Active tab.** A node variable (ADR 0033): the bar declares `tab`, the
+  open member's index, and its panel's bake group is selected by it
+  (`Activation.Var`). A press writes it, as a window choice does; the server
+  swaps the panel and commits `_var_<id>__tab`, which the panel host mirrors to
+  `v.<id>.tab`. A value is untrusted and refused unless it is a member index of
+  every panel it selects (`Renderer.refusals`), so a hand-edited URL can never
+  bake a non-existent surface; an old `ui.<id>` link is not read and lands on
+  the declared tab. The restore is flash-free because the GET bakes the
+  selected surface directly, and the SSE connect seeds the open set from the
+  session's variables so it streams live from the first paint.
+- **Open popup.** `ui_<PopupHostId>`, mirrored to `ui.<PopupHostId>`,
+  committed by the open/close swaps (ADR 0025). It carries no pending twin, because nothing on the page DISPLAYS a
   popup selection — the dialog itself is what the swap patches in, so there is
   no highlight to keep instant. Only the VALUE differs in kind — a surface id rather than
   a member index — because the popup host is not a bake group: any registered
@@ -183,9 +184,9 @@ input, clamped at the boundary:
   ignoring a claim naming a surface this dashboard does not host, which is the
   popup's equivalent of `resolveActive`'s index clamp.
 
-  One asymmetry is unavoidable: every other selection's signal is declared by
-  the card that owns the host, and the popup host lives in `theme.chrome`,
-  outside every node — so the page shell declares and mirrors this one.
+  It is not a node variable because no node can declare it: the popup host
+  lives in `theme.chrome`, outside every node, so the page shell declares and
+  mirrors it. ADR 0033's root declaration is what would let it become one.
 
   The signal is authoritative **whenever it is present, `""` included** — that is
   how a client says "I closed it" — and only its absence (the one signal-less
@@ -199,7 +200,7 @@ input, clamped at the boundary:
 ## Other candidates this tier serves
 
 Same shape — node-scoped, client-mutated, survives reload, informs first
-paint (the 3rd is the trigger for decision 3's sugar):
+paint, so each is a node variable (decision 3):
 
 - **Collapsible/expanded sections** — nearly identical to tabs.
 - **Dynamic-group client-side filter/sort** — persist the selection.
@@ -215,13 +216,13 @@ Explicit **non-candidate**: slider/value positions (the entity is truth).
   cookie on every request to the origin. There is now one carrier; the URL
   costs nothing per request because it is never sent.
 - The read path is small and bounded to the HTTP layer (`uiStateOf` = query
-  params ∪ signals, signals winning as the live value); the write path is one
-  `data-fh-url` attribute per group.
+  params ∪ signals for the popup, `varChoicesOf` for `v.`); the write path is
+  one `data-fh-url` attribute per selection.
 - **Datastar specifics (verified against v1.0.4):** `data-query-string` and
   `data-persist` are Pro; the free bundle has neither, and `data-persist`
   targets storage the server never sees anyway. Re-verify on upgrade — if
   `data-query-string` becomes available, it replaces `data-fh-url`, except for
   the popup's history entries.
 - The tao's "Restrained Signal Usage" sanctions a tab index as an appropriate
-  signal — `ui_<id>` is not an anti-pattern; the URL mirror is the orthogonal
-  persistence layer.
+  signal — `_var_<id>__tab` and `ui_popups` are not an anti-pattern; the URL
+  mirror is the orthogonal persistence layer.

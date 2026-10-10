@@ -460,16 +460,21 @@ object Predicate:
 
 /** How a [[Surface]] becomes visible.
   *
-  *   - `User`: a tap or tab click, optionally open from first paint. The
-  *     selection is per connection (ADR 0005).
+  *   - `User`: a popup, opened by a tap, optionally from first paint. The
+  *     selection is per connection (ADR 0005). Never a baked member.
+  *   - `Var`: the member whose `bakeIndex` is the node variable `name`, as seen
+  *     from the `bakeInto` node — a tab bar's panel (ADR 0033). Per viewer, and
+  *     declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
   *
-  * A bake group must be one mode (`validate`), so any member decides it.
+  * A bake group must be one mode, `Var` or `State` (`validate`), so any member
+  * decides it.
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
+  case Var(name: String)
   case State(condition: Predicate)
 
 sealed trait LayoutNode derives ConfiguredDecoder {
@@ -909,7 +914,7 @@ case class Dashboard(
     referencedEntities ++ deciders(card) ++ surfaces.values.toList.flatMap(s =>
       deciders(s.content) ++ (s.activation match {
         case Activation.State(c) => Predicate.referencedEntities(c)
-        case _: Activation.User  => Nil
+        case _: Activation.User | _: Activation.Var => Nil
       })
     )
   }
@@ -943,8 +948,7 @@ case class Dashboard(
         nodeId: String,
         cardName: String,
         slots: Map[String, SlotSource],
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
@@ -1003,7 +1007,7 @@ case class Dashboard(
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
           readErrors(nodeId, cardName, name, src) ++
-          queryErrors(nodeId, cardName, name, src, scope, inSet)
+          queryErrors(nodeId, cardName, name, src, scope)
       }
 
     /** Otherwise a bad query renders blank forever with nothing saying why. */
@@ -1012,8 +1016,7 @@ case class Dashboard(
         cardName: String,
         name: String,
         src: SlotSource,
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       src.query.toList.flatMap { template =>
         val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
@@ -1021,13 +1024,6 @@ case class Dashboard(
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
-        // A member's id is minted at run time, so it has no scope yet.
-        val inSetErrors =
-          Option.when(inSet && template.references.nonEmpty)(
-            s"$nodeId: slot '$name' reads a variable from inside a candidate " +
-              "set, which is not supported yet — a member's scope is not " +
-              "resolved. Write the value down, or move the query out of the set"
-          )
         val refErrors = template.references.distinct.sorted
           .filterNot(scope.contains)
           .map(v =>
@@ -1075,7 +1071,7 @@ case class Dashboard(
               case _ => None
             }
           }
-        untruthfulReads.toList ++ inSetErrors.toList ++ refErrors ++
+        untruthfulReads.toList ++ refErrors ++
           parseError ++ stageError.toList ++ rawHole.toList
       }
 
@@ -1319,12 +1315,23 @@ case class Dashboard(
                   )
                   .toList
           val here = scope ++ vars
-          checkRef(
+          // One clause renders once per member, so a declaration there would
+          // be every member's own choice; members read the set's scope.
+          val inSetDeclarations = Option
+            .when(inSet && vars.nonEmpty)(
+              s"$nodeId: declares the variable(s) " +
+                vars.keys.toList.sorted
+                  .mkString(", ") + " inside a candidate " +
+                "set's clause, which renders once per member — declare it above " +
+                "the set"
+            )
+            .toList
+          inSetDeclarations ++ checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
+          ) ++ slotErrors(nodeId, card, slots, here) ++
             varErrors(nodeId, vars) ++ valueErrors(nodeId, c) ++
             typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
@@ -1620,14 +1627,36 @@ case class Dashboard(
         .flatMap { case (gid, members) =>
           val kinds = members.map {
             case (_, _, _: Activation.User)  => "user"
+            case (_, _, _: Activation.Var)   => "var"
             case (_, _, _: Activation.State) => "state"
           }.distinct
+          val names = members.collect { case (_, _, Activation.Var(n)) => n }
+          // A baked member has a host, and what fills a host is a choice the
+          // server knows: a viewer's variable or a condition (ADR 0033).
+          val unchosen = members.collect { case (_, sid, _: Activation.User) =>
+            sid
+          }.sorted
           Option
-            .when(kinds.size > 1)(
-              s"bake group '$gid' mixes user- and state-activated members: " +
+            .when(unchosen.nonEmpty)(
+              s"bake group '$gid' has members nothing selects (" +
+                unchosen.mkString(", ") + "): a baked surface is chosen by a " +
+                "node variable (activation kind \"var\") or a condition " +
+                "(\"state\")"
+            )
+            .toList ++ Option
+            .when(kinds.size > 1 && unchosen.isEmpty)(
+              s"bake group '$gid' mixes var- and state-activated members: " +
                 members.map(_._2).sorted.mkString(", ")
             )
-            .toList
+            .toList ++ names.distinct.match {
+            case List(name) => varSelectionErrors(gid, name, members.size)
+            case Nil        => Nil
+            case many       =>
+              List(
+                s"bake group '$gid' is selected by more than one variable: " +
+                  many.sorted.mkString(", ")
+              )
+          }
         }
 
     val unboundConditions: List[String] =
@@ -1653,14 +1682,13 @@ case class Dashboard(
       activationErrors ++
       unboundConditions ++
       walk(card, "", LayoutNode.rootId("", card), Map.empty, inSet = false) ++
-      // Each surface starts its own scope — see `scopedSlots`.
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         val p = LayoutNode.surfacePrefix(sid)
         walk(
           surface.content,
           p,
           LayoutNode.rootId(p, surface.content),
-          Map.empty,
+          scopeOf(surface),
           inSet = false
         ).map(err => s"surface '$sid': $err")
       }
@@ -1689,8 +1717,93 @@ case class Dashboard(
 
   def allQueries: List[SlotRead] =
     (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
-      queriesIn(s.content)
+      queriesIn(s.content, scopeOf(s))
     )).distinct
+
+  /** Node variables in scope at every node, by name (issue #209). A popup is
+    * its own scope root, since one content may be opened from many places. An
+    * owned surface (a tab panel, an `If` branch) has exactly one host, so it
+    * starts with the scope at its `bakeInto` node: a chooser above a tab bar
+    * reaches the charts in its panels. A set is a leaf here: its members take
+    * its scope in the runtime (`VarGraph`).
+    */
+  lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
+    type Scope = Map[String, Dashboard.InScope]
+    def walk(
+        node: LayoutNode,
+        prefix: String,
+        id: NodeId,
+        scope: Scope
+    ): List[(NodeId, Scope)] =
+      node match
+        case c: LayoutNode.Component =>
+          // A nested declaration replacing the entry is shadowing.
+          val here =
+            scope ++ c.vars.map((n, v) => n -> Dashboard.InScope(id, v))
+          (id -> here) :: LayoutNode.steps(c.regions).flatMap {
+            case (step, ch) =>
+              walk(ch, prefix, LayoutNode.childId(prefix, id, step, ch), here)
+          }
+        case _: LayoutNode.SetNode => List(id -> scope)
+    def tree(sid: String, s: Surface, start: Scope): List[(NodeId, Scope)] = {
+      val p = LayoutNode.surfacePrefix(sid)
+      walk(s.content, p, LayoutNode.rootId(p, s.content), start)
+    }
+    // A surface waits for the tree holding its host; one whose host is in no
+    // tree (`danglingBakes` reports it) starts empty.
+    @scala.annotation.tailrec
+    def owned(
+        done: Map[NodeId, Scope],
+        pending: List[(String, Surface)]
+    ): Map[NodeId, Scope] = {
+      val (ready, waiting) =
+        pending.partition(_._2.bakeInto.forall(done.contains))
+      if (pending.isEmpty) done
+      else if (ready.isEmpty)
+        done ++ waiting.flatMap((sid, s) => tree(sid, s, Map.empty))
+      else
+        owned(
+          done ++ ready.flatMap { (sid, s) =>
+            tree(sid, s, s.bakeInto.flatMap(done.get).getOrElse(Map.empty))
+          },
+          waiting
+        )
+    }
+    owned(
+      walk(card, "", LayoutNode.rootId("", card), Map.empty).toMap,
+      surfaces.toList.sortBy(_._1)
+    )
+  }
+
+  /** A variable-selected group needs its variable in scope at the host, and a
+    * declared value that is a member index: the declared value is what bakes
+    * before anyone chooses, and only a viewer's choice is checked at the write.
+    */
+  private def varSelectionErrors(
+      gid: NodeId,
+      name: String,
+      size: Int
+  ): List[String] =
+    varScopes.get(gid).flatMap(_.get(name)) match {
+      case None =>
+        List(
+          s"bake group '$gid' is selected by the variable '$name', which no " +
+            "node at or above it declares"
+        )
+      case Some(in)
+          if !in.declared.toIntOption.exists(i => i >= 0 && i < size) =>
+        List(
+          s"bake group '$gid' is selected by '$name', declared '${in.declared}' " +
+            s"on ${in.declarer}, which is not a member index (0..${size - 1})"
+        )
+      case Some(_) => Nil
+    }
+
+  /** The declared values a surface's content starts with ([[varScopes]]). */
+  def scopeOf(s: Surface): Map[String, String] =
+    s.bakeInto
+      .flatMap(varScopes.get)
+      .fold(Map.empty)(_.view.mapValues(_.declared).toMap)
 
   /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
     * act on it.
@@ -1704,8 +1817,11 @@ case class Dashboard(
   /** At declared values. A clause that will not match still contributes: the
     * snapshot is resolved before the walk decides.
     */
-  def queriesIn(n: LayoutNode): List[SlotRead] =
-    scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
+  def queriesIn(
+      n: LayoutNode,
+      start: Map[String, String] = Map.empty
+  ): List[SlotRead] =
+    scopedSlots(n, start).flatMap { case (s, scope) =>
       s.shape match
         case SlotShape.Query(ask) =>
           List(ask.resolve(scope))
@@ -1715,7 +1831,7 @@ case class Dashboard(
   private def slotSources(n: LayoutNode): List[SlotSource] =
     scopedSlots(n, Map.empty).map(_._1)
 
-  /** A surface is its own scope root: a baked one can go into any host. */
+  /** `scope` is where a tree starts: empty, or a surface's [[scopeOf]]. */
   private def scopedSlots(
       n: LayoutNode,
       scope: Map[String, String]
@@ -1760,6 +1876,9 @@ case class Dashboard(
     celKeys.flatMap(k => Transform.parse(k).toOption.map(k -> _)).toMap
 
 object Dashboard:
+
+  /** A node variable as seen from a node: who declared it, and its value. */
+  final case class InScope(declarer: NodeId, declared: String)
 
   /** The slot naming a card's subject, which every other slot inherits. Not
     * HA's `entity_id` field or the CEL `entity_id` binding, which share only

@@ -3,6 +3,7 @@ package fh.view.runtime
 import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -54,7 +55,8 @@ class PullReadsSuite extends munit.FunSuite {
       id = id
     )
 
-  private def host(id: String) = LayoutNode.Component("col", id = Some(id))
+  private def host(id: String) =
+    LayoutNode.Component("col", id = Some(id), vars = Map("tab" -> "0"))
 
   private val renderer = Renderer.create(
     Dashboard(
@@ -79,7 +81,8 @@ class PullReadsSuite extends munit.FunSuite {
           chart("sensor.tab", None),
           bakeInto = Some(NodeId.derived("charted")),
           bakeAs = Some("panel"),
-          bakeIndex = Some(0)
+          bakeIndex = Some(0),
+          activation = Activation.Var("tab")
         )
       )
     )

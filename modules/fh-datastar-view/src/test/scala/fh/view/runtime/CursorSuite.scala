@@ -120,7 +120,7 @@ class CursorSuite extends munit.FunSuite {
       Server.cursorParam(Server.LogIdSignal),
       Server.cursorParam(Server.StoreVersionSignal),
       Server.ConnSignal,
-      Server.UiSignalPrefix + "c_0"
+      Server.UiSignalPrefix + fh.view.model.Dashboard.PopupHostId
     ).foreach(n =>
       assert(include.findFirstIn(n).isDefined, clue = (n, Server.SseInclude))
     )
@@ -128,5 +128,19 @@ class CursorSuite extends munit.FunSuite {
     List("_val_c_3", Server.ReloadSignal, "_sse").foreach(n =>
       assert(include.findFirstIn(n).isEmpty, clue = (n, Server.SseInclude))
     )
+    // A tab's selection rides as its variable's committed signal instead.
+    assert(include.findFirstIn("ui_c_0").isEmpty, clue = Server.SseInclude)
+  }
+
+  test("a reconnect carries a committed node variable, not its pending ask") {
+    // A declarer id can hold `__` itself (a surface's), so the shapes are the
+    // server's own spelling rather than hand-written ones.
+    val include = Server.SseInclude.r
+    val declarer: fh.view.model.NodeId =
+      fh.view.model.NodeId.derived("s_detail__c_0")
+    val committed = VarKey(declarer, "window").committedSignal
+    assert(include.findFirstIn(committed).isDefined, clue = committed)
+    val pending = committed + "__pending"
+    assert(include.findFirstIn(pending).isEmpty, clue = pending)
   }
 }

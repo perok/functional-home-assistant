@@ -408,11 +408,14 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         ),
         card = LayoutNode.Component(
           card = "col",
-          regions = LayoutNode.kids(host("tabs"), host("branch"))
+          regions = LayoutNode.kids(
+            host("tabs").copy(vars = Map("tab" -> "0")),
+            host("branch")
+          )
         ),
         surfaces = Map(
-          "t0" -> baked("tabs", 0, "1h", Activation.User(true)),
-          "t1" -> baked("tabs", 1, "7d", Activation.User()),
+          "t0" -> baked("tabs", 0, "1h", Activation.Var("tab")),
+          "t1" -> baked("tabs", 1, "7d", Activation.Var("tab")),
           "on" -> baked("branch", 0, "24h", Activation.State(lightOn)),
           "off" -> baked(
             "branch",

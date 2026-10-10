@@ -208,10 +208,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   signal assignment still moved the URL. Standing principle from the same ADR, aspirational and
   not enforced: **the DOM we send should be as usable as possible without JS** — signals for
   liveness and effects, not for the core meaning of a tap.
-  A surface tap also does NOT set `ui_<group>` itself any more (ADR 0025): it writes a pending
-  signal `_<group>__pending` — what it ASKED for — and `swapHost` commits `ui_<group>` for what it
-  actually did, which is what the URL mirror follows. A selection display reads
-  `$_<group>__pending || $ui_<group>`, so the press is still instant while the committed value can
+  A selection tap does NOT set the committed signal itself (ADR 0025): it writes a pending
+  signal `_<group>__pending` — what it ASKED for — and the server commits what it actually did,
+  which is what the URL mirror follows: `setVar` commits `_var_<declarer>__<name>` (a tab bar, a
+  window chooser; ADR 0033) and a popup swap `ui_popups`. A selection display reads
+  `$_<group>__pending || $<committed>`, so the press is still instant while the committed value can
   never claim a panel this DOM does not have. Pending clears by the commit catching up, by the
   server clearing it in a refusal, or when the stream that would have carried the commit is down.
   This does NOT replace ADR 0019's `busy` for service taps — a
@@ -326,7 +327,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   expr/exprOf,
   the `c.tap` namespace (`components/tap.pkl`: verbs that each NAME their target — `toggle(e)`/`default(e)`/`moreInfo(e)`/`call(service, target)` with `.with(key, value)`/`navigate`/the popup ones, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
-  it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
+  it does not — and more-info for a `lock` too, whose Lock/Unlock buttons are what act
+  (`hass/actions.pkl`'s `cardOpensMoreInfo`, `c.lock.controls`) — and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
   four `CallByState` domains. `c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch,
   and a `c.button`/`c.pill` with no action, or a `c.entityButton`/`c.toggle` whose domain implies none, is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
@@ -337,12 +339,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
-  by name in a query parameter (`varMod.ref`), resolving up the ancestor chain so a nested
-  declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
+  by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
+  one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving
+  up the ancestor chain so a nested declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader can parse, which is why a declaration carries no list
-  of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
-  the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
-  reads it),
+  of allowed values. `c.windowChooser` is the one shipped control: it declares `window`, its bar is
+  a `tab` node per window whose `choose` names the chooser by `Variable.declarer` (a build
+  token), and `c.historyChart(s).chosen()` reads it),
   **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
   or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;

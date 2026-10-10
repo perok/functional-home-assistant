@@ -12,6 +12,8 @@ import "base/button.pkl" as buttonMod
 import "history.pkl" as historyMod
 import "entity.pkl" as entityMod
 import "light.pkl" as light
+import "lock.pkl" as lock
+import "../hass/actions.pkl" as hassActions
 
 /// An entity's id, and every attribute it reports as `name: value` lines. One
 /// live slot, because which attributes exist is a runtime fact and a template
@@ -50,14 +52,16 @@ function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
 const local ATTR_LINES =
   #"attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
 
-/// What a more-info popup holds. Only `light` adds controls. The chart is
+/// What a more-info popup holds. A light adds its controls and a lock its
+/// buttons ([[lock.moreInfoCard]]). The chart is
 /// decided at build time from [[hass.SensorEntity.isNumeric]], so a
 /// non-numeric entity's popup makes no recorder call.
 function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
   children {
     // The tap is pinned to the domain's: the default is `moreInfo(e)` for a
     // domain with none, and this card would then build its own popup forever.
-    (entityMod.entityCard(e)) { tapAction = tapMod.byDomain(e) }
+    if (e is hass.LockEntity) lock.moreInfoCard(e as hass.LockEntity)
+    else (entityMod.entityCard(e)) { tapAction = tapMod.byDomain(e) }
     when (e is hass.LightEntity) {
       light.controls(e as hass.LightEntity)
     }
@@ -76,8 +80,12 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
 function moreInfo(e: hass.Entity): tapMod.OpenSurface = tapMod.openPopupInline(moreInfoBody(e))
 
 /// The default click for an entity card: its domain's service, else more-info,
-/// so no card shows a pointer over a service that does not exist (#106).
-function defaultTap(e: hass.Entity): tapMod.TapAction = tapMod.byDomain(e) ?? moreInfo(e)
+/// so no card shows a pointer over a service that does not exist (#106). A
+/// lock's card opens more-info, where its buttons are
+/// (`hassActions.cardOpensMoreInfo`).
+function defaultTap(e: hass.Entity): tapMod.TapAction =
+  if (hassActions.cardOpensMoreInfo.contains(e.domain)) moreInfo(e)
+  else tapMod.byDomain(e) ?? moreInfo(e)
 
 /// `c.entityCard(x) |> c.informative`, naming `x` once.
 informative: Mixin<entityMod.EntityCard> = new { tapAction = moreInfo(entity) }

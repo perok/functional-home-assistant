@@ -70,12 +70,18 @@ class WindowChooserSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(assertThat(button(page, "24h")).hasClass(active))
         day <- chart(page)
-        drawn <- List("1h", "7d", "30d", "24h").traverse { w =>
-          press(page, w) *>
-            IO.blocking(assertThat(button(page, w)).hasClass(active)) *>
-            chart(page)
+        // The highlight moves on the press (pending), the chart when its patch
+        // lands, so each read waits for the chart to change: read at once, a
+        // fast runner still saw the previous window's.
+        drawn <- List("1h", "7d", "30d", "24h").foldLeft(IO.pure(List(day))) {
+          (seen, w) =>
+            seen.flatMap { charts =>
+              press(page, w) *>
+                IO.blocking(assertThat(button(page, w)).hasClass(active)) *>
+                eventually(chart(page))(_ != charts.head).map(_ :: charts)
+            }
         }
-      } yield assertEquals((day :: drawn.init).distinct.size, 4)
+      } yield assertEquals(drawn.reverse.init.distinct.size, 4)
     }
   }
 
@@ -159,6 +165,28 @@ class WindowChooserSmokeSuite extends SmokeSuite {
           )
           _ <- IO.blocking(assertThat(history).not().hasClass(spinning))
           _ <- IO.blocking(assertThat(history).hasClass(active))
+        } yield ()
+      }
+    }
+  }
+
+  test("a window whose chart redraws slowly spins on the button pressed") {
+    // Each window is a node with its own busy signal, so only the pressed one
+    // rings; a shared signal would ring the whole bar (ADR 0019).
+    val spinning = Pattern.compile("\\bfh-busy-after\\b")
+    Ref[IO].of(false).flatMap { slow =>
+      withPageOn(slowServed("windows-slow", entry, slow)) { (page, _) =>
+        val week = button(page, "7d")
+        for {
+          _ <- IO.blocking(assertThat(week).not().hasClass(spinning))
+          _ <- slow.set(true)
+          _ <- IO.blocking(week.click())
+          _ <- IO.blocking(assertThat(week).hasClass(spinning))
+          _ <- IO.blocking(
+            assertThat(button(page, "24h")).not().hasClass(spinning)
+          )
+          _ <- IO.blocking(assertThat(week).not().hasClass(spinning))
+          _ <- IO.blocking(assertThat(week).hasClass(active))
         } yield ()
       }
     }

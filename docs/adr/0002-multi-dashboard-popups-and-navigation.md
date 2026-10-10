@@ -35,11 +35,12 @@ so node ids are unique within a dashboard and **not slug-prefixed**.
 
 A **surface** (`model.Surface`) is a named layout subtree registered in
 `Dashboard.surfaces`, rendered on demand and streamed only while it is
-*active* — for a **user-activated** surface, while a connection has it open;
-for a **state-activated** one (an if/else branch — ADR 0007), while its
-condition over live entity state selects it. Its fields are `(content,
-bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
-`User(defaultOpen) | State(condition)`:
+*active* — for a popup, while a connection has it open; for a tab panel, while
+the viewer's node variable selects it (ADR 0033); for a **state-activated** one
+(an if/else branch — ADR 0007), while its condition over live entity state
+selects it. Its fields are `(content, bakeInto, bakeAs, bakeIndex,
+activation)`, where `activation` is the sum `User(defaultOpen) | Var(name) |
+State(condition)`:
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the
@@ -55,8 +56,8 @@ bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
   the component whose id equals `bakeInto` receives the selected member's
   rendered content under the template var `bakeAs`, so the selected panel is
   in the initial HTML with no round-trip and no flash. How the member is
-  selected is the group's activation mode: user-activated groups take the
-  `defaultOpen` (or URL-restored — ADR 0005) member; state-activated
+  selected is the group's activation mode: a variable-selected group takes
+  the member its variable names, declared or chosen (ADR 0033); state-activated
   groups take the first member whose condition holds (ADR 0007). Baked HTML
   and a later live switch are byte-identical.
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
@@ -75,13 +76,12 @@ whatever surface(s) occupy a host, set the new occupant, inner-patch the host �
 or patch it to an empty `<div>` for a close (`POST /sse/popup/<slug>/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
-session's open set. The swap also COMMITS the selection — it pushes back
-`ui_<hostId>` for what it actually put there (ADR 0025), which is the only thing
-entitled to say so; a tap records what it asked for in a pending signal and
-nothing else. The
-popup host is a selection like any other; only its VALUE is unusual, naming a
-surface id rather than a member index, because any registered surface can appear
-there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a
+session's open set. A tab press reaches it through a variable write
+(`Server.setVar`), which then commits the tab's variable; a popup swap commits
+`ui_<hostId>` for what it actually put there. Each commit is the only thing
+entitled to say so (ADR 0025); a tap records what it asked for in a pending
+signal and nothing else. The popup's VALUE is a surface id rather than a member
+index, because any registered surface can appear there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a
 document load (below).
 
 ### Per-connection sessions over the one SSE stream
@@ -244,11 +244,11 @@ hoist and renderer, so a node's build-time id namespace equals its render-time
 A tab group is N surfaces baked into one `tabs` card: the card's template owns
 the button bar and the panel host (`<div id="{{id}}_panel">{{{panel}}}</div>`);
 each tab's content rides the generic inline-surface hoist with
-`bakeInto`/`bakeAs`/`bakeIndex`; the bar buttons open their panel surface
-(eviction via the shared host) and set a per-group active signal that drives
-the highlight client-side. **No tabs logic in the backend** — the runtime reads
-only structural surface fields, never a card name. The active tab persists via
-the signal + URL mirror (ADR 0005).
+`bakeInto`/`bakeAs`/`bakeIndex`; the bar declares a node variable selecting
+the panel, and its buttons write it (ADR 0033). **No tabs logic in the
+backend** — the runtime reads only structural surface fields and variables,
+never a card name. The active tab persists via the session and the URL mirror
+(ADR 0005).
 
 ### The theme owns the chrome
 

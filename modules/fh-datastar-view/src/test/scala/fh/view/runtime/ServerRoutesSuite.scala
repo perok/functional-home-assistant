@@ -4,7 +4,15 @@ import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Region, Surface, Theme}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  NodeId,
+  Region,
+  Surface,
+  Theme
+}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 import org.http4s.*
@@ -26,17 +34,22 @@ class ServerRoutesSuite extends ServerHarness {
       uri"/".withQueryParam("datastar", signals)
     )
 
-  test("uiStateOf reads ui. params and ui_ signals, ignoring the rest") {
+  test(
+    "uiStateOf reads the popup's ui. param and ui_ signal, ignoring the rest"
+  ) {
     assertEquals(
-      Server.uiStateOf(get("ui.c" -> "1", "other" -> "x")),
-      Map("c" -> "1")
+      Server.uiStateOf(get("ui.popups" -> "det", "other" -> "x")),
+      Map("popups" -> "det")
     )
-    assertEquals(Server.uiStateOf(get("ui.c" -> "abc")), Map("c" -> "abc"))
+    // A tab bar's selection is a node variable, so its old param is not read.
+    assertEquals(Server.uiStateOf(get("ui.c" -> "1")), Map.empty)
     assertEquals(Server.uiStateOf(get("other" -> "x")), Map.empty)
     assertEquals(Server.uiStateOf(get()), Map.empty)
     assertEquals(
-      Server.uiStateOf(signalled("""{"ui_c":1,"conn":"x"}""")),
-      Map("c" -> "1")
+      Server.uiStateOf(
+        signalled("""{"ui_popups":"det","ui_c":1,"conn":"x"}""")
+      ),
+      Map("popups" -> "det")
     )
     // The signal is the live value; the URL only trails it.
     assertEquals(
@@ -45,17 +58,20 @@ class ServerRoutesSuite extends ServerHarness {
           Request[IO](
             Method.GET,
             uri"/"
-              .withQueryParam("ui.c", "0")
-              .withQueryParam("datastar", """{"ui_c":1}""")
+              .withQueryParam("ui.popups", "a")
+              .withQueryParam("datastar", """{"ui_popups":"b"}""")
           )
         ),
-      Map("c" -> "1")
+      Map("popups" -> "b")
     )
   }
 
-  test("ui-state round-trip: ui.<tabsId>=1 opens the index-1 surface") {
+  test("selection round-trip: a tab variable of 1 opens the index-1 surface") {
     val r = tabsRenderer
-    val uiState = Server.uiStateOf(get("ui.c" -> "1"))
+    val uiState =
+      r.surfaces.varSelections(
+        r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
+      )
     assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t1"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
     assert(
@@ -64,9 +80,12 @@ class ServerRoutesSuite extends ServerHarness {
     )
   }
 
-  test("ui-state round-trip: a malformed value falls back to index 0 + warns") {
+  test(
+    "selection round-trip: a malformed value falls back to index 0 + warns"
+  ) {
+    // `refusals` keeps such a value off the session; this is the guard behind.
     val r = tabsRenderer
-    val uiState = Server.uiStateOf(get("ui.c" -> "abc"))
+    val uiState = Map("c" -> "abc")
     assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t0"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
     assertEquals(r.surfaces.uiStateAnomalies(uiState).size, 1)
@@ -431,16 +450,18 @@ class ServerRoutesSuite extends ServerHarness {
   test("the data-init SSE URL carries what the page is showing") {
     // The first connect carries no signals (data-init fires before Datastar
     // merges descendants' data-signals), so without this the server repaints
-    // the default tab and the URL mirror follows it to ui.c=0.
+    // the popup closed and the URL mirror follows it. A tab is on the session.
     val dash = titleDash("home", None).copy(
       surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
     )
     for {
-      restored <- pageHtml(dash, "?ui.c=1&ui.popups=det")
+      restored <- pageHtml(dash, "?ui.popups=det")
       plain <- pageHtml(dash)
     } yield {
-      assert(restored.contains("sse/dashboard/home/patch?ui.c=1"), restored)
-      assert(restored.contains("ui.popups=det"), restored)
+      assert(
+        restored.contains("sse/dashboard/home/patch?ui.popups=det"),
+        restored
+      )
       // The version this document was rendered at, so the first connect resumes
       // instead of inner-patching a body the document already has.
       List(

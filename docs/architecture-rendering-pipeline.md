@@ -106,8 +106,8 @@ flowchart TB
   end
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
-  ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_&lt;group&gt;; the tap only says what it asked for (ADR 0025)"]
-  VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>re-renders the readers this viewer is shown, commits LAST"]
+  ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
+  VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position + vars (this viewer's choices)"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
@@ -343,9 +343,9 @@ GET /sse/dashboard/:slug/patch
     // current still what I served you". Reading it off the subscription
     // instead cannot tell "unchanged" from "changed while nobody was looking",
     // and the second leaves a client on a dashboard that no longer exists.
-    // Its repaint takes the selection (popup and tabs) from `session.open`,
-    // not the stream's `uiState`: that is what it CONNECTED with, and would
-    // reopen a popup closed since and snap a tab back.
+    // Its repaint takes the popup from `session.open` and the tabs from the
+    // session's variables, not the stream's `uiState`: that is what it
+    // CONNECTED with, and would reopen a popup closed since.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
     // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
@@ -1060,7 +1060,7 @@ declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
 URL is a 400, before any session exists, rather than a page that dies mid-walk.
 
-**The write re-renders the readers this viewer is shown, and commits last.** `Renderer.readersOf`
+**The write re-renders the readers this viewer is shown, and commits last.** `VarGraph.readersOf`
 inverts the declared edge, which the write needs twice over: to check the value against every
 reader, and to decide what to repaint — narrowed there to what `SurfaceGraph.visibleNode` says
 this session shows, the filter a pull uses, since a closed surface renders the value when it opens.
@@ -1070,14 +1070,26 @@ shows the press immediately from its own pending signal and the ask ends only wh
 agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
 the display on a value that never moved. The committed signals are seeded by the document's shell,
 ahead of the body, and ride the opening frame again — both TOTAL over the build's declarations at
-this viewer's values (`Server.committedVars`), so a forgotten session corrects a stale control and
-a control never seeds the declared value over a linked choice. The control
-mirrors the committed value into the `v.` param with `data-fh-url`, as a tab bar mirrors `ui.`, so the
-URL follows what the server did rather than what was pressed.
+this viewer's values (`VarGraph.committed`), so a stale control is corrected and a control never
+seeds the declared value over a linked choice. The committed values also ride the SSE GET
+(`Server.SseInclude`), so a session this process forgot (a restart, a reap) adopts them through
+`Renderer.refusals` instead of resetting the bar (`Server.carriedVars`). The control
+mirrors the committed value into the `v.` param with `data-fh-url`, as the popup host mirrors `ui.`, so
+the URL follows what the server did rather than what was pressed.
 
-The authoring side is one component (`c.windowChooser`): it declares the variable AND renders the
-bar, because a button has to name the declaring node both in the route it posts to and in the
-signal it reads, and the only node id a template can spell is its own.
+**A tab bar's panel is a reader too.** `c.tabs` declares `tab`, and its panel's bake group is
+selected by it (`Activation.Var`); `VarGraph.panelsSelectedBy` is that edge, so a tab press is a
+variable write that swaps the panel this viewer is shown (`swapHost`) before it commits. Every
+path that bakes takes a bar's member from the session's variables — `SurfaceGraph.varSelections`,
+merged over the request's popup selection by `Server.selectionsOf` at each entry: the page, an
+action, a minted session, a connect (after adopting the carried values) and a renderer swap. A
+pull reads `session.open`, which the write keeps in step. `uiState` is the shape all of them
+hand the renderer: a bake group's member index, and the popup host's surface id.
+
+The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
+`tab` node per window. A button names the declaring node in the route it posts to and the signal
+it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR
+0033), so each button is a node with its own busy guard.
 
 Two consequences worth stating, because neither is obvious:
 
@@ -1110,8 +1122,9 @@ with a chart in every position against exactly the decided set, and fails on any
 
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
-answered. An unselected tab is not; switching to it fetches its own (`swapHost`). A pull asks for
-exactly what it renders: each target's own reads (a set member's are its set's) and what each host
+answered. An unselected tab is not; switching to it fetches its own (`setVar`, then `swapHost`). A pull asks for
+exactly what it renders: each target's own reads (a set member's include its whole subtree's, at
+this viewer's values, and the sets above it) and what each host
 it fills shows. A target is a leaf or a member, never structure, so a pull that moves only plain
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
@@ -1375,6 +1388,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
+| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`; `lib/core/variable.pkl` · `Variable` (the template half) |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |
