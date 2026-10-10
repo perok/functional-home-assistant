@@ -948,8 +948,7 @@ case class Dashboard(
         nodeId: String,
         cardName: String,
         slots: Map[String, SlotSource],
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
@@ -1008,7 +1007,7 @@ case class Dashboard(
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
           readErrors(nodeId, cardName, name, src) ++
-          queryErrors(nodeId, cardName, name, src, scope, inSet)
+          queryErrors(nodeId, cardName, name, src, scope)
       }
 
     /** Otherwise a bad query renders blank forever with nothing saying why. */
@@ -1017,8 +1016,7 @@ case class Dashboard(
         cardName: String,
         name: String,
         src: SlotSource,
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       src.query.toList.flatMap { template =>
         val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
@@ -1026,14 +1024,6 @@ case class Dashboard(
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
-        // A set's reads resolve once, at declared values, and a write re-renders
-        // indexed nodes only, which members are not (ADR 0033).
-        val inSetErrors =
-          Option.when(inSet && template.references.nonEmpty)(
-            s"$nodeId: slot '$name' reads a variable from inside a candidate " +
-              "set, which is not supported yet — a member's scope is not " +
-              "resolved. Write the value down, or move the query out of the set"
-          )
         val refErrors = template.references.distinct.sorted
           .filterNot(scope.contains)
           .map(v =>
@@ -1081,7 +1071,7 @@ case class Dashboard(
               case _ => None
             }
           }
-        untruthfulReads.toList ++ inSetErrors.toList ++ refErrors ++
+        untruthfulReads.toList ++ refErrors ++
           parseError ++ stageError.toList ++ rawHole.toList
       }
 
@@ -1325,12 +1315,23 @@ case class Dashboard(
                   )
                   .toList
           val here = scope ++ vars
-          checkRef(
+          // One clause renders once per member, so a declaration there would
+          // be every member's own choice; members read the set's scope.
+          val inSetDeclarations = Option
+            .when(inSet && vars.nonEmpty)(
+              s"$nodeId: declares the variable(s) " +
+                vars.keys.toList.sorted
+                  .mkString(", ") + " inside a candidate " +
+                "set's clause, which renders once per member — declare it above " +
+                "the set"
+            )
+            .toList
+          inSetDeclarations ++ checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
+          ) ++ slotErrors(nodeId, card, slots, here) ++
             varErrors(nodeId, vars) ++ valueErrors(nodeId, c) ++
             typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
@@ -1723,7 +1724,8 @@ case class Dashboard(
     * its own scope root, since one content may be opened from many places. An
     * owned surface (a tab panel, an `If` branch) has exactly one host, so it
     * starts with the scope at its `bakeInto` node: a chooser above a tab bar
-    * reaches the charts in its panels. A set is a leaf.
+    * reaches the charts in its panels. A set is a leaf here: its members take
+    * its scope in the renderer (`Renderer.memberScopes`).
     */
   lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
     type Scope = Map[String, Dashboard.InScope]

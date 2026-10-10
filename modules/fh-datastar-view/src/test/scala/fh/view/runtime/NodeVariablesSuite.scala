@@ -160,26 +160,46 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
   }
 
-  test("a variable read from inside a candidate set is refused, for now") {
-    // Members are outside the per-viewer read path (ADR 0033), not unknown: the
-    // candidates and member ids are fixed at build time. Stated as
-    // a test so lifting the bound is a deliberate act.
-    val d = dash(
-      box(
-        Map("window" -> "24h"),
-        LayoutNode.SetNode(
-          candidates = List("sensor.t"),
-          members = Map(
-            "sensor.t" -> LayoutNode.SetMember(
-              List(LayoutNode.SetClause(node = chartNode()))
-            )
-          )
-        )
+  private def setOf(clause: LayoutNode) = LayoutNode.SetNode(
+    candidates = List("sensor.t"),
+    members = Map(
+      "sensor.t" -> LayoutNode.SetMember(
+        List(LayoutNode.SetClause(node = clause))
       )
     )
+  )
+
+  test(
+    "a variable read inside a candidate set resolves through the set's scope"
+  ) {
+    // Candidates and member ids are fixed at build time, so a member reads the
+    // scope at its set like any node (ADR 0033).
+    val d = dash(box(Map("window" -> "7d"), setOf(chartNode())))
+    assertEquals(d.validate(), Nil)
+    assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
+    val r = Renderer.fromValidated(
+      d.validated().fold(e => fail(e.mkString), identity)
+    )
+    val set = r.members
+      .setContainer(NodeId.derived("c_0"))
+      .getOrElse(fail("no set at c_0"))
+    val member: NodeId = r.members.memberIdOf(set, "sensor.t")
+    assertEquals(r.readersOf(NodeId.derived("c"), "window"), List(member))
+    val chosen = r.varEnv(Map((NodeId.derived("c"), "window") -> "1h"))
+    assertEquals(windowOf(r.readsAt(member, chosen)), List("1h"))
+  }
+
+  test("a declaration inside a set's clause is refused") {
+    // A clause renders once per member, so it would be every member's own
+    // choice; members read the scope at the set.
+    val errs = dash(
+      box(Map.empty, setOf(box(Map("window" -> "24h"), chartNode())))
+    ).validate()
     assert(
-      d.validate().exists(_.contains("inside a candidate set")),
-      clue = d.validate()
+      errs.exists(e =>
+        e.contains("declares the variable(s) window inside a candidate set")
+      ),
+      clue = errs
     )
   }
 
