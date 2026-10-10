@@ -19,11 +19,12 @@ import org.openjdk.jmh.infra.Blackhole
 
 import java.util.concurrent.TimeUnit
 
-/** What a viewer's variables cost per request: `VarGraph.env` runs on each pull,
-  * write, connect and page, and a write runs `Renderer.refusals`. Measured
-  * against the pull it rides on, on [[RenderBench]]'s 200-leaf tree under a
-  * root that declares `window`, the shape a top-level chooser gives: every node
-  * is in scope. Building a map per node there cost 30 µs of a 46 µs pull.
+/** What a viewer's variables cost per request: `VarGraph.env` runs on each
+  * pull, write, connect and page, and a write runs `Renderer.refusals`.
+  * Measured against the pull it rides on, on [[RenderBench]]'s 200-leaf tree
+  * under a root that declares `window`, the shape a top-level chooser gives:
+  * every node is in scope. Building a map per node there cost 30 µs of a 46 µs
+  * pull.
   *
   * {{{
   * sbt 'benchmarks/Jmh/run -f 1 -wi 5 -i 5 .*VarEnvBench.*'
