@@ -32,8 +32,8 @@ core/       node · slot · icon · tap · surface · predicate   — writing a 
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
-            light · lock · moreinfo · history · progress · tap
-  components/base/  button · onoff · tile · slider ·         — the same, knowing no HA
+            light · lock · moreinfo · history · bar · progress · tap
+  components/base/  button · onoff · tile · bar · slider ·   — the same, knowing no HA
                     text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
@@ -64,7 +64,15 @@ template or slot of its own, so it is exactly the base card an author could have
 built by hand, and `components.test.pkl` checks that equality. A subclass rather
 than a function, because a Pkl function has no default arguments and its result
 forgets the entity. Every builder after it (`c.entityCard(l).value("brightness")`)
-would then have to name the entity again.
+would then have to name the entity again. A card with no one subject is the
+exception: a progress bar reads a part and a whole, often two entities, so
+`components/bar.pkl` is functions returning the base `ProgressBar`, with nothing
+to remember.
+
+A recipe that is a familiar card with features is a subclass of that card, not
+a card of its own: `c.progress` is the remaining-time sensor's entity tile, its
+countdown the reading, with a bar in its `features` region. It registers no
+template, so a page showing it beside other tiles carries one tile card.
 
 `secondary` is the one input both tiers share, under HA's own name for the line
 below a card's main text. It is the BASE's — a literal, an `Expr` or a reading

@@ -1,0 +1,31 @@
+/// Progress bars from entities, for a tile's features or on their own:
+///
+///     c.entityCard(printer).features(List(c.bar.percent(dump.entities.sensor_printer_progress)))
+module components.bar
+
+import "../core/simple.pkl" as simpleMod
+import "../core/slot.pkl" as slotMod
+import "../hass.pkl"
+import "base/bar.pkl" as barMod
+
+/// A bar filled to `e`'s state, read as a percentage.
+function percent(e: hass.Entity): barMod.ProgressBar = barMod.percent(stateOf(e))
+
+/// A bar filling as `left` counts down from `total`, each scaled by its own
+/// unit. Refused when either unit has no fixed length, rather than a bar that
+/// finishes sixty times early.
+function remaining(left: hass.SensorEntity, total: hass.SensorEntity): barMod.ProgressBar =
+  if (!canCount(left, total))
+    throw("c.bar.remaining: \(left.entity_id) and \(total.entity_id) need a duration unit with a fixed length")
+  else
+    (barMod.partOf(stateOf(left), stateOf(total))) {
+      scale = left.durationSeconds!! / total.durationSeconds!!
+      down = true
+    }
+
+/// Whether [[remaining]] takes these two.
+function canCount(left: hass.SensorEntity, total: hass.SensorEntity): Boolean =
+  left.durationSeconds != null && total.durationSeconds != null
+
+local function stateOf(e: hass.Entity): slotMod.Slot =
+  new { entityId = e.entity_id; transform = simpleMod.state() }

@@ -13,7 +13,7 @@ import "moreinfo.pkl"
 /// HA's per-domain rule (`slotMod.activeOf`). A thin [[tileMod.Tile]]: its own inputs
 /// are entity-relative (`value("brightness")` names an attribute of THIS
 /// entity) and become the tile's `title`, `reading` and `glyph`.
-class EntityCard extends tileMod.Tile {
+open class EntityCard extends tileMod.Tile {
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null
   hidden value: (String|slotMod.Expr)? = null

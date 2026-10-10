@@ -146,7 +146,7 @@ class ComponentVisualSuite extends SmokeSuite {
         // enough from both ends that an off-by-one shows.
         VisualSnapshot.check(
           "progress-card",
-          page.locator("article.fh-progress").screenshot()
+          page.locator("article.fh-tile-card:has(.fh-bar)").screenshot()
         )
       }
     }

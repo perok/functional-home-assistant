@@ -1018,4 +1018,47 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       }
       .timeout(60.seconds)
   }
+
+  test("an appliance's countdown, status and bar all move by signals alone") {
+    // The tile is structure, so anything on it that moved by bytes would be
+    // refused at build; the bar is a leaf, so a reading it painted inline would
+    // re-send it whole on every tick.
+    val appliance = List(
+      HouseFixture.washerRemaining,
+      HouseFixture.washerProgram,
+      HouseFixture.washerStatus
+    )
+    val applianceEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.progress(dump.entities.${HouseFixture.washerRemaining.dumpKey})) {
+         |  total = dump.entities.${HouseFixture.washerProgram.dumpKey}
+         |  status = dump.entities.${HouseFixture.washerStatus.dumpKey}
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-appliance", applianceEntry, appliance)
+      .use { ts =>
+        for {
+          client <- ts.connect()
+          _ <- client.drain
+          _ <- ts.change(HouseFixture.washerRemaining.entityId, "46")
+          _ <- ts.change(HouseFixture.washerProgram.entityId, "90")
+          _ <- ts.change(HouseFixture.washerStatus.entityId, "Paused")
+          sent <- client.drain
+        } yield {
+          assert(
+            !sent.exists(_.eventType.contains("datastar-patch-elements")),
+            clue = sent
+          )
+          val data = sent.flatMap(_.data).mkString
+          List("\"46\"", "46m", "\"90\"", "Paused")
+            .foreach(v => assert(data.contains(v), clue = s"$v in $data"))
+        }
+      }
+      .timeout(60.seconds)
+  }
 }

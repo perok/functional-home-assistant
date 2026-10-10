@@ -29,6 +29,8 @@ import "components/control.pkl" as control
 import "components/base/button.pkl" as buttonMod
 import "components/base/onoff.pkl" as switchMod
 import "components/base/tile.pkl" as tileMod
+import "components/base/bar.pkl" as barBaseMod
+import "components/bar.pkl" as barMod
 import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
 import "components/base/surface.pkl" as surfaces
@@ -56,6 +58,10 @@ hidden light: lightMod = lightMod
 
 /// `c.lock.controls(l)`, `c.lock.openLatch(l)`.
 hidden lock: lockMod = lockMod
+
+/// Progress bars, for a tile's features: `c.bar.percent(e)`,
+/// `c.bar.remaining(left, total)`.
+hidden bar: barMod = barMod
 
 /// Whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod = recipesMod
@@ -198,14 +204,14 @@ const modules: List<Module> = List(
   buttonMod,
   switchMod,
   tileMod,
+  barBaseMod,
   control,
   sliderBaseMod,
   sliderMod,
   surfaces,
   surfaceMod,
   moreinfo,
-  historyMod,
-  progressMod
+  historyMod
 )
 
 /// Every concrete card class in [[modules]], by card name. A class that

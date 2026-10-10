@@ -1,5 +1,6 @@
-/// An appliance mid-cycle: what it is doing, how long is left, and a bar when
-/// the appliance says enough for one to be honest.
+/// An appliance mid-cycle: the entity tile of its remaining-time sensor, a
+/// countdown for its reading, what it is doing on the second line, and a bar
+/// under it when the appliance says enough for one to be honest.
 ///
 /// HA models an appliance as a few `sensor` entities, so this takes the two or
 /// three that matter. The bar is optional because the data is: one washer
@@ -7,65 +8,16 @@
 /// history would be wrong on exactly the first paint after a reload.
 module components.progress
 
-import "../core/icon.pkl" as icons
-import "../core/node.pkl" as nodes
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
-import "../core/text.pkl" as textMod
 import "../hass.pkl"
-import "moreinfo.pkl"
+import "bar.pkl" as barMod
+import "entity.pkl" as entityMod
 
-// The fill width from the track's two signals, in JS, because it is a function
-// of two entities and a slot reads one. `$tot` is a state string, so `unknown`
-// compares false and the bar sits empty rather than at `NaN%`.
-const local FILL_WIDTH: String =
-  "$%1$s > 0 ? Math.min(100, Math.max(0, 100 - 100 * $%2$s / $%1$s)) + '%%' : '0%%'"
-
-/// Label, optional status line, a countdown, and a bar when [[total]] is set.
-class ProgressCard extends nodes.Node {
-  card = "progressCard"
-  cardDef = new nodes.CardDef {
-    // Optional parts are guarded by literal flags (`hasBar`, …), never by the
-    // signal slot they wrap, which is blank in the patch form
-    // (`SignalSectionSuite`).
-    template = """
-      <article class="card fh-progress{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}"{{#tappable}}
-        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>
-        <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
-        <div class="fh-progress-track" role="progressbar"
-          \(slotMod.signalBind("remaining"))
-          \(slotMod.signalBind("total"))
-          data-attr:aria-valuetext="$\(slotMod.signalRef("left"))">
-          <div class="fh-progress-fill" data-style:width="\(fillWidth)"></div>
-        </div>{{/hasBar}}
-        <div class="fh-progress-foot">{{#hasStatus}}
-          <span class="fh-progress-status fh-sub \(textMod.BOX)">\(textMod.liveRun("status"))</span>{{/hasStatus}}{{#hasLeft}}
-          <span class="fh-progress-left fh-reading \(textMod.BOX)">\(textMod.liveRun("left"))</span>{{/hasLeft}}
-        </div>
-      </article>
-      """
-    slots { "label"; "entity_id" }
-    // Not a `<progress>`, whose parts need a vendor pseudo-element each; the
-    // ARIA role carries its meaning.
-    css = """
-      .fh-progress{display:flex;flex-direction:column;gap:.5rem}
-      .fh-progress.tappable{cursor:pointer}
-      .fh-progress header{display:flex;align-items:center;min-inline-size:0}
-      .fh-progress header i{font-size:1.25rem;line-height:1;
-      margin-inline-end:.375rem;color:var(--fh-accent)}
-      .fh-progress-track{block-size:.5rem;inline-size:100%;border-radius:.25rem;
-      background:var(--fh-track,rgba(128,128,128,.25));overflow:hidden}
-      .fh-progress-fill{block-size:100%;inline-size:0;border-radius:inherit;
-      background:var(--fh-accent);transition:inline-size .3s linear}
-      .fh-progress-foot{display:flex;justify-content:space-between;
-      align-items:baseline;gap:.5rem;min-inline-size:0}
-      .fh-progress-left{font-variant-numeric:tabular-nums}
-      """
-  }
-
-  /// The remaining-time sensor, the card's subject. A sensor, for its
-  /// [[hass.SensorEntity.durationSeconds]].
+/// The remaining-time sensor's tile. A sensor, for its
+/// [[hass.SensorEntity.durationSeconds]].
+class ProgressCard extends entityMod.EntityCard {
   hidden entity: hass.SensorEntity
 
   /// The programme-length sensor, where the appliance reports one.
@@ -75,77 +27,26 @@ class ProgressCard extends nodes.Node {
   /// interpreted: which state means "running" is the integration's.
   hidden status: hass.SensorEntity? = null
 
-  hidden label: (String|slotMod.Expr)? = null
-
-  /// An MDI name overriding [[icons.iconFor]].
-  hidden icon: String? = null
-
   /// Null where the reading is not a scalable duration, so the countdown drops
   /// out rather than show a guess.
   hidden scale: Number? = entity.durationSeconds
 
-  hidden hasBar: Boolean = total != null && total!!.durationSeconds != null
+  reading =
+    if (value != null) slotMod.valueSlot(value)
+    else if (scale != null) new slotMod.Slot { transform = simpleMod.duration(scale!!) }
+    else ""
+  secondary =
+    if (status != null) new slotMod.Slot { entityId = status!!.entity_id; transform = simpleMod.state() }
+    else null
+  features =
+    if (total != null && barMod.canCount(entity, total!!)) new Listing { barMod.remaining(entity, total!!) }
+    else new Listing {}
 
-  /// The sensor's more-info by default, where its chart lives; `null` for none.
-  hidden tapAction: tapMod.TapAction? = moreinfo.defaultTap(entity)
-  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
-
-  hidden fillWidth: String =
-    FILL_WIDTH
-      .replaceAll("%1$s", slotMod.signalRef("total"))
-      .replaceAll("%2$s", slotMod.signalRef("remaining"))
-      .replaceAll("%%", "%")
-
-  slots {
-    ["entity_id"] = entity.entity_id
-    ["label"] = slotMod.labelSlot(entity, label)
-    when (icon != null || icons.iconFor(entity) != null) {
-      ["icon"] =
-        if (icon != null) icons.mdiClass(icon!!) else icons.iconFor(entity)!!
-    }
-    when (scale != null) {
-      ["left"] = new slotMod.Slot {
-        transform = simpleMod.duration(scale!!)
-        signal = slotMod.asText
-      }
-      ["hasLeft"] = "1"
-    }
-    when (status != null) {
-      ["status"] = new slotMod.Slot {
-        entityId = status!!.entity_id
-        transform = simpleMod.state()
-        signal = slotMod.asText
-      }
-      ["hasStatus"] = "1"
-    }
-    // The raw numbers the fill needs, beside `left`'s formatted words.
-    when (hasBar) {
-      ["remaining"] = new slotMod.Slot {
-        transform = simpleMod.state()
-        signal = slotMod.asAttr("data-remaining")
-      }
-      ["total"] = new slotMod.Slot {
-        entityId = total!!.entity_id
-        transform = simpleMod.state()
-        signal = slotMod.asAttr("data-total")
-      }
-      ["hasBar"] = "1"
-    }
-    for (k, v in tapMod.tapSlots(tapAction)) {
-      [k] = v
-    }
-  }
-
-  function tapAction(t: tapMod.TapAction?): ProgressCard =
-    let (self = this) (self) { tapAction = t }
-
-  function total(t: hass.SensorEntity): ProgressCard =
-    let (self = this) (self) { total = t }
-  function status(s: hass.SensorEntity): ProgressCard =
-    let (self = this) (self) { status = s }
-  function label(l: String|slotMod.Expr): ProgressCard =
-    let (self = this) (self) { label = l }
+  function total(t: hass.SensorEntity): ProgressCard = let (self = this) (self) { total = t }
+  function status(s: hass.SensorEntity): ProgressCard = let (self = this) (self) { status = s }
+  function label(l: String|slotMod.Expr): ProgressCard = let (self = this) (self) { label = l }
   function icon(i: String): ProgressCard = let (self = this) (self) { icon = i }
+  function tapAction(t: tapMod.TapAction): ProgressCard = let (self = this) (self) { tapAction = t }
 }
 
 ///     c.progress(dump.entities.sensor_washer_timetoend)
