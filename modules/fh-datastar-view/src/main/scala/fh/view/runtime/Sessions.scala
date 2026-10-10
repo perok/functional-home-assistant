@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.kernel.Ref
 import fs2.Stream
 import cats.syntax.all.*
-import cats.effect.std.Queue
+import cats.effect.std.{Mutex, Queue}
 import fh.view.model.NodeId
 import fs2.concurrent.SignallingRef
 
@@ -44,6 +44,11 @@ enum Tenure derives CanEqual {
   *     ([[Server.openingPatches]]). A site that emits one without recording it
   *     leaves this low, which loses the check rather than breaking anything.
   *   - `haDown`: the liveness last told, `None` for nothing.
+  *   - `serving`: held by whatever reads `open`, `vars` or `holds` and sends by
+  *     them — a pull, a selection write, the opening, a repaint — so two tab
+  *     presses cannot interleave their panels and commits. A lock, not a single
+  *     owner: a write answers its POST with its own refusal, and may land while
+  *     no stream holds the session.
   *
   * '''`position` may run ahead of the client's cursor''' (the signal can ride
   * the keepalive). Safe because the client's cursor is the authority at
@@ -61,7 +66,8 @@ case class Session(
     haDown: Ref[IO, Option[Boolean]],
     position: Ref[IO, Long],
     told: Ref[IO, Long],
-    tenure: SignallingRef[IO, Tenure]
+    tenure: SignallingRef[IO, Tenure],
+    serving: Mutex[IO]
 ) {
 
   /** The new epoch, or `None` if reaped. Every earlier epoch must stop: two
@@ -117,7 +123,8 @@ object Session {
       // -1: 0 is a real version a client could hold.
       s <- Ref[IO].of(-1L)
       t <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
-    } yield Session(slug, o, v, q, h, d, p, s, t)
+      m <- Mutex[IO]
+    } yield Session(slug, o, v, q, h, d, p, s, t, m)
 }
 
 /** Live connections by `conn`, so an action POST finds its stream. */

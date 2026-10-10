@@ -515,12 +515,14 @@ class Server(
       // The popup it still has open included, so a reconnect does not orphan
       // the dialog on screen. A tab bar's panel follows the session's
       // variables, adopted first so a forgotten session keeps its tabs.
-      selections <- rendererOpt.fold(IO.pure(uiState)) { r =>
-        adoptCarriedVars(session, r, req) *>
-          selectionsOf(session, r, uiState).flatTap { sel =>
-            warnAnomalies(r, sel) *>
-              session.open.set(r.surfaces.selectedSurfaces(sel))
-          }
+      _ <- rendererOpt.traverse_ { r =>
+        session.serving.lock.surround(
+          adoptCarriedVars(session, r, req) *>
+            selectionsOf(session, r, uiState).flatMap { sel =>
+              warnAnomalies(r, sel) *>
+                session.open.set(r.surfaces.selectedSurfaces(sel))
+            }
+        )
       }
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
@@ -550,23 +552,32 @@ class Server(
           }
         )
 
+      // Read again under the lock: a press can land between this handler and
+      // the stream's start.
+      opening = (l: Server.LiveSlug) =>
+        session.serving.lock.surround(
+          (
+            session.open.get,
+            rendererOpt.fold(IO.pure(uiState))(
+              selectionsOf(session, _, uiState)
+            )
+          ).flatMapN((open, selections) =>
+            openingPatches(slug, l, session, req, selections, open)
+          )
+        )
       // `discrete` coalescing is wanted: versions landing while this session
       // renders collapse into one pull, which is what a slow client should get.
       live = Stream
-        .eval(liveOpt.traverse(l => session.open.get.map(l -> _)))
-        .flatMap {
-          case None            => Stream.empty
-          case Some((l, open)) =>
-            Stream
-              .eval(openingPatches(slug, l, session, req, selections, open))
-              .flatMap(Stream.emits) ++
-              l.doorbell.discrete
-                .evalMap(pull(l, session, _))
-                .flatMap(Stream.emits)
-                .merge(control)
-                .merge(reloads)
-                .merge(haDown)
-                .merge(keepAlive)
+        .emits(liveOpt.toList)
+        .flatMap { l =>
+          Stream.eval(opening(l)).flatMap(Stream.emits) ++
+            l.doorbell.discrete
+              .evalMap(pull(l, session, _))
+              .flatMap(Stream.emits)
+              .merge(control)
+              .merge(reloads)
+              .merge(haDown)
+              .merge(keepAlive)
         }
 
       // Bracketed to the stream, not done in the handler: a handler that
@@ -677,59 +688,62 @@ class Server(
       session: Session,
       version: Long
   ): IO[List[SseFrame]] =
-    session.position.get.flatMap { position =>
-      if (version <= position) IO.pure(Nil)
-      else
-        (
-          OptionT(live.renderer.get.map(_.rendererOf)),
-          OptionT.liftF(live.log.get),
-          OptionT.liftF(stateStore.current),
-          OptionT.liftF(session.holds.get),
-          OptionT.liftF(session.open.get)
-        ).flatMapN { (renderer, log, store, holds, open) =>
-          envOf(session, renderer)
-            .flatMap(env =>
-              Patches.resume(
-                renderer,
-                live.cache,
-                log,
-                holds,
-                store.entities,
-                answer(renderer, _, env),
-                env,
-                position + 1,
-                open,
-                // Live, not the arriving selection: a tab select moves it.
-                renderer.surfaces.uiStateFrom(open)
+    session.serving.lock.surround(
+      session.position.get.flatMap { position =>
+        if (version <= position) IO.pure(Nil)
+        else
+          (
+            OptionT(live.renderer.get.map(_.rendererOf)),
+            OptionT.liftF(live.log.get),
+            OptionT.liftF(stateStore.current),
+            OptionT.liftF(session.holds.get),
+            OptionT.liftF(session.open.get)
+          ).flatMapN { (renderer, log, store, holds, open) =>
+            envOf(session, renderer)
+              .flatMap(env =>
+                Patches.resume(
+                  renderer,
+                  live.cache,
+                  log,
+                  holds,
+                  store.entities,
+                  answer(renderer, _, env),
+                  env,
+                  position + 1,
+                  open,
+                  // Live, not the arriving selection: a tab select moves it.
+                  renderer.surfaces.uiStateFrom(open)
+                )
               )
-            )
-            .flatMap { patches =>
-              session.holds
-                .update(
-                  patches.foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
-                ) *>
-                // The cursor rides LAST, which makes it an ack: a client
-                // echoing it applied what came before. A silent frame announces
-                // nothing, so `told` does not move for it; the keepalive
-                // carries the cursor instead ([[Session.position]]).
-                IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
-                session.position
-                  .set(version)
-                  .as(
-                    if (patches.isEmpty) Nil
-                    else
-                      // Through `encode`, so it merges with a trailing signal
-                      // frame and stays a separate event after an element one.
-                      Patches.encode(
-                        patches :+
-                          Addressed(Server.versionPatch(version))
-                      )
-                  )
-            }
-            .pipe(OptionT.liftF)
-        }.value
-          .map(_.getOrElse(Nil))
-    }
+              .flatMap { patches =>
+                session.holds
+                  .update(
+                    patches
+                      .foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+                  ) *>
+                  // The cursor rides LAST, which makes it an ack: a client
+                  // echoing it applied what came before. A silent frame announces
+                  // nothing, so `told` does not move for it; the keepalive
+                  // carries the cursor instead ([[Session.position]]).
+                  IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
+                  session.position
+                    .set(version)
+                    .as(
+                      if (patches.isEmpty) Nil
+                      else
+                        // Through `encode`, so it merges with a trailing signal
+                        // frame and stays a separate event after an element one.
+                        Patches.encode(
+                          patches :+
+                            Addressed(Server.versionPatch(version))
+                        )
+                    )
+              }
+              .pipe(OptionT.liftF)
+          }.value
+            .map(_.getOrElse(Nil))
+      }
+    )
 
   /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
     * the head's unpatchable part moved ([[Renderer.headHash]]), '''resume'''
@@ -862,40 +876,42 @@ class Server(
             case (Some(prev), Some(r)) if prev.headHash != r.headHash =>
               IO.pure(List(Server.reloadPatch))
             case (Some(prev), Some(r)) =>
-              (session.open.get, envOf(session, r)).flatMapN { (was, env) =>
-                // What is selected NOW, not the `uiState` this stream connected
-                // with: popups since have moved `open`, and tab presses the
-                // session's variables.
-                val ui = prev.surfaces.committedSelections(was) ++
-                  r.surfaces.varSelections(env)
-                val open = r.surfaces.selectedSurfaces(ui)
-                (session.open.set(open) *>
-                  (stateStore.current, live.log.get).tupled)
-                  .flatMap { case (store, log) =>
-                    pageSnapshot(session, r, open, store.entities).flatMap {
-                      fragments =>
-                        val head =
-                          if (prev.styleHash != r.styleHash)
-                            Server.headPatches(r, session.slug)
-                          else Nil
-                        // Claimed as in [[openingPatches]]. `told` too, or the
-                        // keepalive announces a lower version than the swap did.
-                        val (painted, held) =
-                          Patches.repaint(r, store.entities, ui, fragments)
-                        session.holds.set(held) *>
-                          session.position.set(store.version) *>
-                          session.told
-                            .set(store.version)
-                            .as(
-                              head ++ painted ++
-                                Server.orphanedPopup(r, ui) :+
-                                // A swap rotated the log id; without this a
-                                // reconnect quotes a dead log and repaints.
-                                Server.cursorSignals(r, log.id, store.version)
-                            )
+              session.serving.lock.surround(
+                (session.open.get, envOf(session, r)).flatMapN { (was, env) =>
+                  // What is selected NOW, not the `uiState` this stream connected
+                  // with: popups since have moved `open`, and tab presses the
+                  // session's variables.
+                  val ui = prev.surfaces.committedSelections(was) ++
+                    r.surfaces.varSelections(env)
+                  val open = r.surfaces.selectedSurfaces(ui)
+                  (session.open.set(open) *>
+                    (stateStore.current, live.log.get).tupled)
+                    .flatMap { case (store, log) =>
+                      pageSnapshot(session, r, open, store.entities).flatMap {
+                        fragments =>
+                          val head =
+                            if (prev.styleHash != r.styleHash)
+                              Server.headPatches(r, session.slug)
+                            else Nil
+                          // Claimed as in [[openingPatches]]. `told` too, or the
+                          // keepalive announces a lower version than the swap did.
+                          val (painted, held) =
+                            Patches.repaint(r, store.entities, ui, fragments)
+                          session.holds.set(held) *>
+                            session.position.set(store.version) *>
+                            session.told
+                              .set(store.version)
+                              .as(
+                                head ++ painted ++
+                                  Server.orphanedPopup(r, ui) :+
+                                  // A swap rotated the log id; without this a
+                                  // reconnect quotes a dead log and repaints.
+                                  Server.cursorSignals(r, log.id, store.version)
+                              )
+                      }
                     }
-                  }
-              }
+                }
+              )
           }
           .flatMap(Stream.emits)
       }
@@ -1029,9 +1045,10 @@ class Server(
     * (issue #209): the queries that read it, and the tab panels it selects,
     * swapped as a tab press always was. Per session: no `Mutation`.
     *
-    * The untrusted value is checked ([[Renderer.refusals]]) inside the
-    * `modify`, so two choices landing together cannot drop one. Committed last
-    * even when no bytes moved: the commit ends the pending ask (ADR 0025).
+    * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
+    * The caller holds [[Session.serving]], so `open` cannot move under the
+    * swap. Committed last even when no bytes moved: the commit ends the pending
+    * ask (ADR 0025).
     */
   private def setVar(
       session: Session,
@@ -1053,17 +1070,12 @@ class Server(
           s"no node this viewer is shown reads the variable '${key.name}' declared on '${key.declarer}'"
         )
       )
-      proposed <- session.vars
-        .modify { current =>
-          val proposed = current + (key -> value)
-          renderer.refusals(proposed) match {
-            case Nil     => (proposed, Right(proposed))
-            case refused => (current, Left(refused))
-          }
-        }
-        .flatMap(
-          _.leftMap(r => FHError.badCondition(r.mkString("; "))).liftTo[IO]
-        )
+      proposed <- session.vars.get.map(_ + (key -> value))
+      _ <- renderer.refusals(proposed) match {
+        case Nil     => session.vars.set(proposed)
+        case refused =>
+          IO.raiseError(FHError.badCondition(refused.mkString("; ")))
+      }
       env = renderer.vars.env(proposed)
       selections = uiState ++ renderer.surfaces.varSelections(env)
       // `refusals` made the value a member index of every group it selects.
@@ -1179,8 +1191,8 @@ class Server(
     }
 
   /** Resolve `conn` (from the signals body) to its session and renderer, and
-    * run `f`. Only success is NoContent; every refusal is [[actionRefused]]
-    * (ADR 0024).
+    * run `f` holding [[Session.serving]]. Only success is NoContent; every
+    * refusal is [[actionRefused]] (ADR 0024).
     */
   private def withSession(
       req: Request[IO],
@@ -1211,8 +1223,10 @@ class Server(
                   sessionFor(slug, conn, renderer, uiState).flatMap {
                     case None => actionRefused(req, Server.WrongSlugMessage)
                     case Some(session) =>
-                      selectionsOf(session, renderer, uiState)
-                        .flatMap(f(session, renderer, _)) *> NoContent()
+                      session.serving.lock.surround(
+                        selectionsOf(session, renderer, uiState)
+                          .flatMap(f(session, renderer, _))
+                      ) *> NoContent()
                   }
               }
               // A 4xx becomes a refusal; a 5xx is our bug and stays with
