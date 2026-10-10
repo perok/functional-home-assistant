@@ -456,7 +456,7 @@ class ControlSmokeSuite extends SmokeSuite {
         def num(k: String) = m(k).asNumber.map(_.toDouble).getOrElse(0.0)
         assert(str("switchRadius") != "0px", clue = m)
         assertEquals(str("switchRadius"), str("tileRadius"), clue = m)
-        // Both entities are on: the tile tints its badge with the accent.
+        // Both entities are on, so both badges wear the on look.
         assertEquals(str("switchBadge"), str("tileBadge"), clue = m)
         assert(m("cut").asBoolean.contains(true), clue = m)
         assertEquals(str("textOverflow"), "ellipsis", clue = m)
@@ -503,12 +503,11 @@ class ControlSmokeSuite extends SmokeSuite {
         assertEquals(switchOff, tileOff, clue = looks)
         // Inside an on slider, and still off: the look is its own cell's.
         assertEquals(memberOff, tileOff, clue = looks)
-        assertNotEquals(tileOn._1, tileOff._1, clue = looks)
-        assertNotEquals(tileOn._2, tileOff._2, clue = looks)
-        // No off: the on glyph, on a seat of its own.
-        assertEquals(sensor._2, tileOn._2, clue = looks)
-        assertNotEquals(sensor._1, tileOn._1, clue = looks)
-        assertNotEquals(sensor._1, tileOff._1, clue = looks)
+        // One seat; only the glyph says on or off.
+        assertEquals(tileOff._1, tileOn._1, clue = looks)
+        assertNotEquals(tileOff._2, tileOn._2, clue = looks)
+        // No off: the on look, the basic entity card.
+        assertEquals(sensor, tileOn, clue = looks)
       }
     }
   }

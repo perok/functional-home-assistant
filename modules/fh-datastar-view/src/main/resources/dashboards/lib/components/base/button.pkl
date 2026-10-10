@@ -44,8 +44,7 @@ const local pressClass: String =
 // It rests on the card surface and takes the accent only while `fh-active`,
 // which sits on the cell; a container painting its buttons by position must
 // leave an active one alone. Inside a card it steps to the alternate surface,
-// or it would vanish into it, and its badge steps the other way. The badge
-// keeps that seat when on, since the pill already says so.
+// or it would vanish into it, and its badge steps the other way.
 //
 // One height per size, `--fh-press-size`, which a theme may point at its own;
 // the badge and the padding around it are fractions of it, so a large button
@@ -61,7 +60,6 @@ const local pressCss: String = """
   background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
   .fh-cell>:is(.button,button).fh-press.fh-badged{padding-inline-start:.5rem}
   .card .fh-cell>:is(.button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
-  .fh-press .fh-badge{--_fh-on-bg:initial}
   .card .fh-press .fh-badge:not(.shape){background:var(--fh-surface)}
   .fh-press .fh-sub{color:var(--fh-text-dim)}
   .fh-cell.fh-active>:is(.button,button){background:var(--fh-accent);color:var(--fh-on-accent)}

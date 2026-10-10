@@ -127,12 +127,11 @@ const local shellCss: String = """
 /// a link to the dashboard already open, ringed rather than filled, since a
 /// fill means on.
 ///
-/// A badge paints its cell's on look, HA's tile scheme: the accent on a tint
-/// of it while the cell is `fh-active`, the text colour on a tint of it on a
-/// badge marked `fh-onoff` (one that can be off, `badge.pkl`) while it is not,
-/// and the accent on the plain seat for one with no off (a sensor). Off is not
-/// a dimmed glyph on the seat: grey on grey, it was hard to make out on a
-/// slider. On rides inherited variables that every cell resets, so a slider's
+/// A badge is the accent glyph on the plain seat, on or with no off (a
+/// sensor); a badge marked `fh-onoff` (one that can be off, `badge.pkl`) dims
+/// its glyph while its cell is not `fh-active`. No fill and no tint: a filled
+/// badge read as a different card, and an accent tint as a dim grey on a dark
+/// card. On rides an inherited variable that every cell resets, so a slider's
 /// member rows never wear the slider's look.
 ///
 /// Prefixed, because these share the cascade with the theme's framework, whose
@@ -143,12 +142,12 @@ const local sharedCss: String = """
   .fh-sub{font-size:.8em;color:var(--fh-text-dim)}
   .fh-section{color:var(--fh-accent);font-size:1.125rem;font-weight:600;
   line-height:1.3;margin:0}
-  .fh-cell{--_fh-on-bg:initial;--_fh-on-fg:initial}
-  .fh-cell.fh-active{--_fh-on-bg:color-mix(in srgb,var(--fh-accent) 20%,transparent);--_fh-on-fg:var(--fh-accent)}
+  .fh-cell{--_fh-on:initial}
+  .fh-cell.fh-active{--_fh-on:var(--fh-accent)}
   .fh-badge{display:inline-flex;align-items:center;justify-content:center;
   flex:0 0 auto;inline-size:var(--fh-badge-size,2.25rem);block-size:var(--fh-badge-size,2.25rem);
-  border-radius:50%;background:var(--_fh-on-bg,var(--fh-surface-alt));color:var(--_fh-on-fg,var(--fh-accent))}
-  .fh-badge.fh-onoff{background:var(--_fh-on-bg,color-mix(in srgb,var(--fh-text) 10%,transparent));color:var(--_fh-on-fg,var(--fh-text))}
+  border-radius:50%;background:var(--fh-surface-alt);color:var(--fh-accent)}
+  .fh-badge.fh-onoff{color:var(--_fh-on,var(--fh-text-dim))}
   .fh-badge>i{font-size:calc(var(--fh-badge-size,2.25rem) * 5 / 9);line-height:1}
   .fh-lines{display:flex;flex-direction:column;align-items:flex-start;min-inline-size:0}
   .fh-tile-card{display:flex;flex-direction:column;padding:0}

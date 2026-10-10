@@ -1063,7 +1063,7 @@ facts {
     // A reading has no off, so a sensor carries no live class at all.
     c.entityCard(outside).cell == null
     c.entityCard(kitchen).active(false).cell == null
-    cssMod.baseCss.contains(".fh-cell.fh-active{--_fh-on-bg:color-mix(in srgb,var(--fh-accent) 20%,transparent)")
+    cssMod.baseCss.contains(".fh-cell.fh-active{--_fh-on:var(--fh-accent)}")
     // A domain sits in at most one of the vendored tables, or which one wins
     // would be an accident of `activeOf`'s order.
     local named = activeTables.neutral.toList() + activeTables.onIn.keys.toList()
