@@ -1077,6 +1077,15 @@ seeds the declared value over a linked choice. The committed values also ride th
 mirrors the committed value into the `v.` param with `data-fh-url`, as the popup host mirrors `ui.`, so
 the URL follows what the server did rather than what was pressed.
 
+**A tab bar's panel is a reader too.** `c.tabs` declares `tab`, and its panel's bake group is
+selected by it (`Activation.Var`); `Renderer.groupsSelectedBy` is that edge, so a tab press is a
+variable write that swaps the panel this viewer is shown (`swapHost`) before it commits. Every
+path that bakes takes a bar's member from the session's variables — `SurfaceGraph.varSelections`,
+merged over the request's popup selection by `Server.selectionsOf` at each entry: the page, an
+action, a minted session, a connect (after adopting the carried values) and a renderer swap. A
+pull reads `session.open`, which the write keeps in step. `uiState` is the shape all of them
+hand the renderer: a bake group's member index, and the popup host's surface id.
+
 The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
 `tab` node per window. A button names the declaring node in the route it posts to and the signal
 it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR

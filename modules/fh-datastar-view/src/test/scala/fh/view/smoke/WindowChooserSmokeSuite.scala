@@ -70,12 +70,18 @@ class WindowChooserSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(assertThat(button(page, "24h")).hasClass(active))
         day <- chart(page)
-        drawn <- List("1h", "7d", "30d", "24h").traverse { w =>
-          press(page, w) *>
-            IO.blocking(assertThat(button(page, w)).hasClass(active)) *>
-            chart(page)
+        // The highlight moves on the press (pending), the chart when its patch
+        // lands, so each read waits for the chart to change: read at once, a
+        // fast runner still saw the previous window's.
+        drawn <- List("1h", "7d", "30d", "24h").foldLeft(IO.pure(List(day))) {
+          (seen, w) =>
+            seen.flatMap { charts =>
+              press(page, w) *>
+                IO.blocking(assertThat(button(page, w)).hasClass(active)) *>
+                eventually(chart(page))(_ != charts.head).map(_ :: charts)
+            }
         }
-      } yield assertEquals((day :: drawn.init).distinct.size, 4)
+      } yield assertEquals(drawn.reverse.init.distinct.size, 4)
     }
   }
 
