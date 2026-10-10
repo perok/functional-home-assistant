@@ -273,6 +273,85 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
+  private def node(fields: String, children: String*): String =
+    s"""{ "kind": "component", "card": "x"$fields""" +
+      (if (children.isEmpty) ""
+       else s""", "regions": { "children": [${children.mkString(",")}] }""") +
+      " }"
+
+  private def tokenAt(name: String): String =
+    s""", "slots": { "g": "${DashboardBuild.declarerToken(name)}" }"""
+
+  private def hoistCard(card: String, surfaces: String = "{}"): Json =
+    DashboardBuild.hoistInlineSurfaces(
+      parser
+        .parse(s"""{ "cards": {}, "card": $card, "surfaces": $surfaces }""")
+        .toOption
+        .get
+    )
+
+  // Every value of slot `g`, by the node's position in the default regions.
+  private def spliced(j: Json): List[String] =
+    j.findAllByKey("g").flatMap(_.asString)
+
+  test("a declarer token is the nearest declaring ancestor's id") {
+    val window = """, "vars": { "window": "24h" }"""
+    val hoisted = hoistCard(
+      node(
+        window,
+        node(tokenAt("window")),
+        // Shadowing: the inner declaration wins for its own subtree only.
+        node(window, node(tokenAt("window"))),
+        // A node declaring nothing is transparent.
+        node("", node(tokenAt("window")))
+      )
+    )
+    assertEquals(spliced(hoisted), List("c", "c_1", "c"))
+    assertEquals(DashboardBuild.unresolvedTokens(hoisted), Nil)
+  }
+
+  test("a declarer token with no declarer above it fails the build") {
+    // Unspliced it would ship as a literal, and every press would 404.
+    val e = intercept[fh.view.FHError](
+      hoistCard(node(""", "vars": { "other": "1" }""", node(tokenAt("window"))))
+    )
+    assert(e.getMessage.contains("c_0"), clue = e.getMessage)
+    assert(e.getMessage.contains("'window'"), clue = e.getMessage)
+  }
+
+  test("a surface does not see the declarations of the page that opens it") {
+    // ADR 0033: a surface is its own scope root, since one content can be
+    // shown from more than one place.
+    val opener = node(
+      """, "vars": { "window": "24h" }, "inlineSurfaces": { "self": """ +
+        s"""{ "content": ${node(tokenAt("window"))} } }"""
+    )
+    val e = intercept[fh.view.FHError](hoistCard(node("", opener)))
+    assert(e.getMessage.contains("'window'"), clue = e.getMessage)
+    // Its own declaration is in scope, under the surface's ids.
+    val registered = hoistCard(
+      node(""),
+      s"""{ "detail": { "content": ${node(
+          """, "vars": { "window": "24h" }""",
+          node(tokenAt("window"))
+        )} } }"""
+    )
+    assertEquals(
+      spliced(registered),
+      List(LayoutNode.surfacePrefix("detail") + "c")
+    )
+  }
+
+  test("a candidate set's clause names a declarer outside the set") {
+    // The declarer's id is static even though the member's is not, so this is
+    // allowed where a READ inside a set is refused.
+    val set =
+      """{ "kind": "set", "candidates": ["sensor.a"], "members": { "sensor.a": """ +
+        s"""{ "clauses": [ { "node": ${node(tokenAt("window"))} } ] } } }"""
+    val hoisted = hoistCard(node(""", "vars": { "window": "24h" }""", set))
+    assertEquals(spliced(hoisted), List("c"))
+  }
+
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
     // The onclick already references the future id via the node token; the
     // hoist lifts the content and splices the id.

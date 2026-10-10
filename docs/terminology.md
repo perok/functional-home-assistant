@@ -179,6 +179,9 @@ owns, and the build replaces it with that node's real id — bottom-up, so the i
 Note this is authorship, not tree position: it means "the card that wrote this", which is why the
 renderer cannot derive it from the parent link.
 
+`@@VAR:<name>@@` (`varMod.declarer`) is the other token, and it IS tree position: the nearest
+node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033).
+
 ---
 
 ## Card structure — what a card's markup holds

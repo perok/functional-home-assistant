@@ -43,6 +43,14 @@ yields the declared edge and its inverse, `Renderer.readersOf` — the exact set
   time and has no scope entry. A plain query inside a set still works. A test holds this, so
   lifting it is deliberate.
 
+**Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
+value: a button posting to it, or a highlight reading its committed signal. `varMod.declarer(name)`
+is a token, `@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a surface
+its own root, none is a build error naming the node). It is spliced into each node's OWN fields with
+the scope at that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its
+children the outer declarer. A candidate set's clause may use one: the declarer's id is static even
+where the member's is not.
+
 **The value is per session, addressed to the DECLARER** — `Map[(NodeId, String), String]`. Keying
 by declarer is what makes a shadow safe from the write side: choosing on an outer panel cannot
 move a chart that declares its own. The declared value fills everything not chosen, so the
@@ -131,11 +139,11 @@ a value is ambient session state, in hand before the walk, never computed by it.
 - **A type, if a variable ever needs one, must be a real one** — a named `ValueType` covering more
   than string enums, with one answer for where it is checked and one for how a control is derived.
   Until then the closed set lives in the Pkl that emits the declaration and its control.
-- **A node that spells its own id from a CHILD.** `@@NODE_ID@@` means "the id of the node whose
-  class wrote this token", but `DashboardBuild.hoistInlineSurfaces` splices it only for a node
-  carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs` writes it
-  meaning the tabs' id — so it needs an explicit "I own the tokens in my subtree" marker. That is
-  what a generic chooser over child buttons (sketched in `core/variable.pkl`) waits on.
+- **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
+  node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a
+  node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
+  writes it meaning the tabs' id. A child naming its DECLARER is `varMod.declarer`; an explicit "I
+  own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
 - **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
   header cannot steer charts in a sibling column. A root declaration would, addressed through a
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author
