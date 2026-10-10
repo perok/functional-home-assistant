@@ -251,7 +251,7 @@ object SmokeDashboard {
          |card = (c.column) {
          |  children {
          |    c.entityCard(dump.entities.${longNameLight.dumpKey})
-         |    c.entityButton(dump.entities.${longNameLight.dumpKey}).secondary("$longName")
+         |    c.entityButton(dump.entities.${longNameLight.dumpKey}).secondary("on")
          |  }
          |}
          |""".stripMargin,

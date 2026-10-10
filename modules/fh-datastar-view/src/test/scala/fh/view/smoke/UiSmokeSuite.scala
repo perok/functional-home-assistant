@@ -471,8 +471,8 @@ class UiSmokeSuite extends SmokeSuite {
         val titles = boxes.filter(_.text == SmokeDashboard.longName)
         assertEquals(
           titles.size,
-          3,
-          clue = "the tile, the button's label and second line"
+          2,
+          clue = "the tile, the button"
         )
         boxes.foreach(b => assert(b.right <= b.cardRight + 0.5, clue = b))
         titles.foreach(b =>
