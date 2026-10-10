@@ -37,15 +37,20 @@ declaring ancestor; a container that declares nothing is transparent; a nested d
 same name shadows. No declarer is a **build error** naming the node and the variable. The walk
 yields the declared edge and its inverse, `Renderer.readersOf` — the exact set a write re-renders.
 
-- **A surface is its own scope root.** A baked surface can be swapped into a host, and inheriting
-  from wherever it is shown would let one content resolve differently per host.
+- **A popup is its own scope root; an owned surface inherits.** A popup can be opened from many
+  places, and inheriting from one would let its content resolve differently per opener. A tab
+  panel or an `If` branch is baked into exactly one node (`bakeInto`), so it starts with that
+  node's scope (`Dashboard.varScopes`, which the renderer and validation read; the hoist applies
+  the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
+  nested bar's own declaration shadows the outer one. A write still re-renders only the readers
+  this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
 - **A variable read inside a candidate set is refused**, because a member's id is minted at run
   time and has no scope entry. A plain query inside a set still works. A test holds this, so
   lifting it is deliberate.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `varMod.declarer(name)`
-is a token, `@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a surface
+is a token, `@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a popup
 its own root, none is a build error naming the node). It is spliced into each node's OWN fields with
 the scope at that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its
 children the outer declarer. A candidate set's clause may use one: the declarer's id is static even

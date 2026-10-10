@@ -342,6 +342,18 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
+  test("a tab panel sees the declarations above the node it bakes into") {
+    // An owned surface has one host, so it inherits that host's scope, as
+    // `Dashboard.varScopes` resolves a read: a chooser over a tab bar reaches
+    // the panels' charts.
+    val panel =
+      """, "inlineSurfaces": { "t0": { "bakeInto": "@@NODE_ID@@", "content": """ +
+        s"""${node(tokenAt("window"))} } }"""
+    val hoisted =
+      hoistCard(node(""", "vars": { "window": "24h" }""", node(panel)))
+    assertEquals(spliced(hoisted), List("c"))
+  }
+
   test("a candidate set's clause names a declarer outside the set") {
     // The declarer's id is static even though the member's is not, so this is
     // allowed where a READ inside a set is refused.

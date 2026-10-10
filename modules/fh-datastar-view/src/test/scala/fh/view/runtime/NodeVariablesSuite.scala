@@ -197,6 +197,34 @@ class NodeVariablesSuite extends munit.FunSuite {
     )
   }
 
+  test("an OWNED surface starts with the scope of the node it bakes into") {
+    // A tab panel or an `If` branch has exactly one host, so the reason a popup
+    // is a scope root does not apply: a chooser above a tab bar reaches the
+    // charts in its panels.
+    val d = dash(
+      box(Map("window" -> "7d"), box(Map.empty)),
+      surfaces = Map(
+        "t0" -> Surface(
+          chartNode(),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("children"),
+          bakeIndex = Some(0),
+          activation = Activation.User(true)
+        )
+      )
+    )
+    val errs = d.validate()
+    assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
+    assertEquals(windowOf(d.allQueries), List("7d"))
+    assertEquals(
+      d.varScopes
+        .get(NodeId.derived(LayoutNode.surfacePrefix("t0") + "c"))
+        .flatMap(_.get("window"))
+        .map(_.declarer),
+      Some(NodeId.derived("c"))
+    )
+  }
+
   test("the build asks what the dashboard asks: one read, at the default") {
     // A viewer's later value is checked at the write.
     val d = dash(box(Map("window" -> "7d"), chartNode()))

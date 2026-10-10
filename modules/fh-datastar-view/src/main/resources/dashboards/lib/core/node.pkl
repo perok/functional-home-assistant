@@ -167,7 +167,8 @@ abstract class Node extends LayoutNode {
     else if (children.isEmpty) null
     else new Mapping { [defaultRegion] = children }
   /// Node variables this node declares ([[varMod]]): name -> initial value. Its
-  /// subtree is where they apply; a surface does not see the page's.
+  /// subtree is where they apply, a tab panel or `If` branch included; a popup
+  /// does not see the page's.
   vars: Mapping<String, String>? = null
   /// Named values this node's own CEL reads: a literal, a live count
   /// (`q.from(xs).where(…).count()`, an `int`) or a live condition (`….any()`,

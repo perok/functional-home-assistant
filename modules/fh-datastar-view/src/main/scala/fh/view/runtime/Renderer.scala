@@ -167,32 +167,6 @@ class Renderer(
         case _                     => Nil
       }.distinct
 
-    /** Node variables in scope at each node, declared values only (issue #209).
-      * A set is a leaf, which is why `validate` refuses a variable read inside
-      * one.
-      */
-    val varScopes: Map[NodeId, Map[String, Renderer.InScope]] = {
-      def walk(
-          node: LayoutNode,
-          id: NodeId,
-          scope: Map[String, Renderer.InScope]
-      ): List[(NodeId, Map[String, Renderer.InScope])] = node match {
-        case c: LayoutNode.Component =>
-          // A nested declaration replacing the entry is shadowing.
-          val here = scope ++ c.vars.map { case (n, v) =>
-            n -> Renderer.InScope(id, v)
-          }
-          (id -> here) :: LayoutNode.steps(c.regions).flatMap {
-            case (step, ch) =>
-              walk(ch, LayoutNode.childId(idPrefix, id, step, ch), here)
-          }
-        case _: LayoutNode.SetNode => List(id -> scope)
-      }
-      walk(root, LayoutNode.rootId(idPrefix, root), Map.empty)
-        .filter(_._2.nonEmpty)
-        .toMap
-    }
-
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
         .collect { case (id, c: LayoutNode.Component) => id -> c }
@@ -243,8 +217,9 @@ class Renderer(
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
-  private val varScopes: Map[NodeId, Map[String, Renderer.InScope]] =
-    (mainIndex :: surfaceIndexes.values.toList).flatMap(_.varScopes).toMap
+  /** Declared values only; [[Dashboard.varScopes]] owns the rule. */
+  private val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] =
+    dashboard.varScopes.filter(_._2.nonEmpty)
 
   /** Never cached on the renderer or a `NodePlan`: both outlive a session, so a
     * choice held there would be served to the next viewer.
@@ -2015,8 +1990,6 @@ class Renderer(
 }
 
 object Renderer {
-
-  private[runtime] case class InScope(declarer: NodeId, declared: String)
 
   /** The chrome's scope: no names, only the body and dialog holes. */
   private final class PageScope(holes: Map[String, java.io.Writer => Unit])
