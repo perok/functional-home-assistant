@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.syntax.all.*
 import io.circe.Json
 
 import scala.concurrent.duration.*
@@ -31,6 +32,37 @@ class StateStoreSuite extends munit.FunSuite {
 
     assertEquals(changes.map(_.entityId), List("b"))
     assertEquals(changes.head.previous, None)
+  }
+
+  // The feed's subscription is interrupted on every narrowing and reconnect, so
+  // an apply can be cancelled at any step.
+  test(
+    "a change the store kept was published, even when its apply is cancelled"
+  ) {
+    val lost = (1 to 5000).toList
+      .traverse { _ =>
+        for {
+          store <- StateStore.inMemory(Map("a" -> st("a", "0")))
+          seen <- store.changes
+            .flatMap(fs2.Stream.emits)
+            .map(_.entityId)
+            .takeThrough(_ != "z")
+            .compile
+            .toList
+            .start
+          _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+          writer <- store.update(st("a", "1")).start
+          _ <- writer.cancel
+          kept <- store.snapshot.map(_.get("a").exists(_.state == "1"))
+          _ <- store.update(st("z", "1"))
+          published <- seen.joinWithNever.map(_.contains("a"))
+        } yield kept && !published
+      }
+      .map(_.count(identity))
+      .timeout(60.seconds)
+      .unsafeRunSync()
+
+    assertEquals(lost, 0)
   }
 
   test(
