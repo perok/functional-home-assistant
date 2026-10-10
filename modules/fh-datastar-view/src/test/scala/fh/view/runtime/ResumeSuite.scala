@@ -469,7 +469,7 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  /** The stream's `uiState` is what it CONNECTED with; the popup may have been
+  /** The stream's request is what it CONNECTED with; the popup may have been
     * closed, or another opened, since.
     */
   test("a dashboard edit repaints the popup open now, not the one at connect") {

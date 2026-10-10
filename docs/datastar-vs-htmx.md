@@ -123,7 +123,7 @@ idiom, and it means hand-building the value channel that `datastar-patch-signals
 | 4 | **Morph-preserve** of open `<dialog>`, focus, mid-drag slider | morph is the default swap | `innerMorph` / `outerMorph`, core in htmx 4 | **tie** — was htmx's weakness, now is not |
 | 5 | **Client-only reactive UI** — `_<id>__slide` drag bind, `ui_<id>` tab highlight | `data-bind`, `data-class`, zero round-trip | `hx-live` regresses (see above); Alpine `x-model` / `:class` works | **htmx worse** (needs a 2nd library) |
 | 6 | **Per-connection correlation** — `conn` round-tripped on every action | Datastar sends the signal store on every POST, so `conn` rides free (`connOf`) | send it explicitly via `hx-vals='js:{...}'` from the store | **tie** — more code, but explicit beats implicit |
-| 7 | **Reconnect state** — `_cursor.*`, `ui_*` survive a reconnect via the `datastar` query param (`Server.signalsOf`, `uiFromSignals`) | automatic, and the `_` prefix filter is what keeps it from bloating every request | nothing automatic; the resume protocol needs rebuilding on `hx-vals` | **htmx worse**, and the least-understood cost |
+| 7 | **Reconnect state** — `_cursor.*`, `ui_*` survive a reconnect via the `datastar` query param (`Server.signalsOf`, `popupFromSignals`) | automatic, and the `_` prefix filter is what keeps it from bloating every request | nothing automatic; the resume protocol needs rebuilding on `hx-vals` | **htmx worse**, and the least-understood cost |
 | 8 | **Seed-if-absent across a morph** (`data-signals__ifmissing`) | needed because signals are seeded from markup that gets re-morphed | **problem disappears** — a JS-owned store is not re-seeded by a swap | **htmx better** |
 | 9 | **Request-in-flight indicator** (`data-indicator`) | a named signal per `@post` | `hx-pending` / `hx-browser-indicator`, core extensions | **tie** |
 | 10 | **Fetch-lifecycle hooks** for drag rollback (`data-on:datastar-fetch__document`) | a Datastar CustomEvent on `document` | htmx's event model (`htmx:response:error`, `htmx:after:request`) | **tie** |
@@ -139,7 +139,7 @@ what keeps the verdict.
 
 - **Rebuild the value channel** that `datastar-patch-signals` provides — bounded, but it is the
   mechanism five ADRs are written around.
-- **Rebuild the resume protocol.** `Server.signalsOf`, `uiFromSignals`, `connOf` and `_cursor.*` all
+- **Rebuild the resume protocol.** `Server.signalsOf`, `popupFromSignals`, `connOf` and `_cursor.*` all
   assume the client sends its whole store unasked. htmx sends nothing by default. This is the least
   well understood cost in this document and would need a spike before any estimate is trusted.
 - **Re-encode swap semantics into HTML** as `hx-swap-oob` attributes the renderer injects.

@@ -26,7 +26,7 @@ import fh.view.model.{
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource}
-import fh.view.runtime.{EntityState, RenderInputs, Renderer}
+import fh.view.runtime.{EntityState, RenderInputs, Renderer, Selections}
 import io.circe.Json
 import fh.view.testkit.TestIds.given
 import fh.view.FHError
@@ -366,11 +366,11 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     )
     val r = Renderer.create(d)
     assertEquals(
-      r.queriesForSurface("popup", Map.empty, Map.empty, Map.empty),
+      r.queriesForSurface("popup", Map.empty, Selections.none, Map.empty),
       List(read())
     )
     assertEquals(
-      r.queriesForSurface("nope", Map.empty, Map.empty, Map.empty),
+      r.queriesForSurface("nope", Map.empty, Selections.none, Map.empty),
       Nil
     )
   }

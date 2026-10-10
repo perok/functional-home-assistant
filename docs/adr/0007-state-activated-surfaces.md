@@ -73,8 +73,8 @@ ADR 0003.
 ### Shared-pass placement (the cache consequence)
 
 Because a state selection is server truth, a state-activated group's selection
-is identical for every viewer. `Renderer` splits `bakeOwnerIds` into
-`userBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` does not seed
+is identical for every viewer. `SurfaceGraph` splits `bakeOwnerIds` into
+`varBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` does not seed
 state-activated members into a session's open set — their liveness is the shared
 pass's job, not a client's.
 

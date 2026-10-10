@@ -113,7 +113,7 @@ class QueryBench {
         Map.empty,
         rot,
         open,
-        renderer.surfaces.uiStateFrom(open)
+        renderer.surfaces.selectionsIn(open)
       )
       .unsafeRunSync()
   }
@@ -144,8 +144,7 @@ class QueryBench {
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
         st,
-        Map.empty,
-        None,
+        Selections.none,
         f
       )
     )

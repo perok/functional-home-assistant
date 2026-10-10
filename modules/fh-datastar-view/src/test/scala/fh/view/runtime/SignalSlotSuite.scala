@@ -163,7 +163,15 @@ class SignalSlotSuite extends ServerHarness {
       now: Map[String, EntityState]
   ): List[Addressed] = {
     val log = FragmentLog("test").touched(leaf, 1L)
-    resumeNow(r, log, documentHolds(r, was), now, 1L, Set.empty, Map.empty)
+    resumeNow(
+      r,
+      log,
+      documentHolds(r, was),
+      now,
+      1L,
+      Set.empty,
+      Selections.none
+    )
   }
 
   test("a signal-only change sends a frame and NO element patch") {
@@ -492,8 +500,7 @@ class SignalSlotSuite extends ServerHarness {
     val holds = r.renderPageHolds(
       Sink.buffer(r.pageBytesHint),
       lit(40),
-      Map.empty,
-      None,
+      Selections.none,
       QuerySnapshot.empty
     )
     val out = resumeNow(
@@ -503,7 +510,7 @@ class SignalSlotSuite extends ServerHarness {
       lit(41),
       1L,
       Set.empty,
-      Map.empty
+      Selections.none
     )
     assertEquals(
       out.map(_.patch),
@@ -523,7 +530,7 @@ class SignalSlotSuite extends ServerHarness {
       lit(41),
       1L,
       Set.empty,
-      Map.empty
+      Selections.none
     )
     assertEquals(
       out.map(_.patch),
@@ -617,7 +624,7 @@ class SignalSlotSuite extends ServerHarness {
       lock("unlocked"),
       1L,
       Set.empty,
-      Map.empty
+      Selections.none
     )
     assertEquals(
       out.map(_.patch),
@@ -674,7 +681,7 @@ class SignalSlotSuite extends ServerHarness {
       at("21.5"),
       1L,
       Set.empty,
-      Map.empty
+      Selections.none
     )
     assertEquals(
       out.map(_.patch),
@@ -751,7 +758,7 @@ class SignalSlotSuite extends ServerHarness {
       lightAt(41, "dim", "cool"),
       1L,
       Set.empty,
-      Map.empty
+      Selections.none
     )
     val entries = out.map(_.patch).collect { case s: Patch.Signals => s.values }
     assertEquals(entries.map(_.size), List(3), clue = entries)
@@ -807,7 +814,7 @@ class SignalSlotSuite extends ServerHarness {
       id -> Held(Some(p.digest), p.signals)
     }
     val out =
-      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Map.empty)
+      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
     assertEquals(
       out.map(_.patch),
       List(
@@ -833,7 +840,7 @@ class SignalSlotSuite extends ServerHarness {
       at("21.6"), // where it ended up, two moves later
       1L,
       Set.empty,
-      Map.empty
+      Selections.none
     )
     assertEquals(
       out.map(_.patch),
@@ -970,7 +977,7 @@ class SignalSlotSuite extends ServerHarness {
         at = 1L
       )
     )
-    val out = resumeNow(r, log, held, gone, 1L, Set.empty, Map.empty)
+    val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)
     assertEquals(
       out.map(_.patch),
       List(Patch.Remove(r.elementId("c_light_a"))),
@@ -1188,7 +1195,7 @@ class SignalSlotSuite extends ServerHarness {
     val holds = documentHolds(r, tinted("red"))
     val log = FragmentLog("test").touched("c", 1L)
     val out =
-      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Map.empty)
+      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Selections.none)
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a", tintRead) -> "blue")),

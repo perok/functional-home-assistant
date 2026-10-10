@@ -2,10 +2,23 @@ package fh.view.runtime
 
 import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
 
+/** What one viewer has selected: the popup it has open, and the member of each
+  * bake group a node variable selects (ADR 0033). A state group's branch is
+  * everyone's and is not here. [[SurfaceGraph.selections]] narrows both, so a
+  * reader trusts them.
+  */
+final case class Selections(popup: Option[String], panels: Map[NodeId, Int])
+    derives CanEqual
+
+object Selections {
+  val none: Selections = Selections(None, Map.empty)
+}
+
 /** Selection and visibility, beside [[MemberGraph]]; `Renderer` paints what
-  * they say. A user group's selection is per viewer (`uiState`); a state
-  * group's is the same for everyone, so a state surface hides nothing from
-  * anybody. Visibility derives from selection — one fact asked three ways.
+  * they say. A variable-selected group's selection is per viewer
+  * ([[Selections]]); a state group's is the same for everyone, so a state
+  * surface hides nothing from anybody. Visibility derives from selection — one
+  * fact asked three ways.
   *
   * @param surfaces
   *   not the whole `Dashboard`, which this has no use for.
@@ -55,16 +68,36 @@ private[runtime] final class SurfaceGraph(
       case Activation.Var(name) => name
     }
 
-  /** Each variable-selected group's member index from this viewer's variables,
-    * in the shape [[resolveActive]] reads. `env` is total over declarations and
-    * `validate` puts the variable in scope at the host, so every such group has
-    * an entry.
+  /** A viewer's selections: `requested` narrowed by [[openPopup]], and each
+    * variable-selected group's member from `env`. An index outside its group is
+    * dropped, so the group shows its first member; every value passed
+    * `refusals` or `validate`, so that is a guard, which [[selectionAnomalies]]
+    * reports.
     */
-  def varSelections(env: VarEnv): Map[String, String] =
-    userBakeOwnerIds.toList.flatMap { gid =>
+  def selections(requested: Option[String], env: VarEnv): Selections =
+    Selections(
+      openPopup(requested),
+      panelChoices(env).collect { case (gid, Right(i)) => gid -> i }
+    )
+
+  def selectionAnomalies(env: VarEnv): List[String] =
+    panelChoices(env).toList.sortBy(_._1).collect { case (_, Left(w)) => w }
+
+  // `env` is total over declarations and `validate` puts the variable in scope
+  // at the host, so every such group has an entry.
+  private def panelChoices(env: VarEnv): Map[NodeId, Either[String, Int]] =
+    varBakeOwnerIds.toList.flatMap { gid =>
       varSelecting(gid)
         .flatMap(name => env.get(gid).flatMap(_.get(name)))
-        .map(gid -> _)
+        .map { raw =>
+          val n = bakeGroup(gid).size
+          gid -> raw.toIntOption
+            .filter(i => i >= 0 && i < n)
+            .toRight(
+              s"selection '$raw' for bake group $gid is not a member index " +
+                s"(0..${n - 1}); using 0"
+            )
+        }
     }.toMap
 
   private val bakeOwnerIds: Set[NodeId] =
@@ -74,7 +107,7 @@ private[runtime] final class SurfaceGraph(
     * host, which a patch never carries; filling it is per client
     * ([[Patches.hostFill]]).
     */
-  val userBakeOwnerIds: Set[NodeId] =
+  val varBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
 
   /** If/else hosts: rendered once per slug for every viewer. */
@@ -103,9 +136,9 @@ private[runtime] final class SurfaceGraph(
   def shownWithin(
       sid: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      selections: Selections
   ): Set[String] = {
-    val selected = selectedSurfaces(uiState)
+    val selected = selectedSurfaces(selections)
     def close(acc: Set[String]): Set[String] = {
       val next = acc ++ acc.flatMap(activeStateSurfacesIn(_, states)) ++
         selected.filter(s => surfaceParent.get(s).exists(acc))
@@ -281,39 +314,15 @@ private[runtime] final class SurfaceGraph(
       }
       .toSet
 
-  /** A variable-selected group's member from [[varSelections]]' shape. Every
-    * entry passed `refusals` or `validate`, so the fallback to the first
-    * member, with a warning, is a guard rather than a path. No value is not a
-    * warning.
-    */
-  private[runtime] def resolveActive(
-      gid: NodeId,
-      uiState: Map[String, String]
-  ): (Int, Option[String]) = {
-    val n = bakeGroup(gid).size
-    val fallback = 0
-    uiState.get(gid) match {
-      case None      => (fallback, None)
-      case Some(raw) =>
-        raw.toIntOption.filter(i => i >= 0 && i < n) match {
-          case Some(i) => (i, None)
-          case None    =>
-            (
-              fallback,
-              Some(
-                s"selection '$raw' for bake group $gid is not a member index " +
-                  s"(0..${n - 1}); using $fallback"
-              )
-            )
-        }
-    }
-  }
+  /** The first member when nothing chose one. */
+  private[runtime] def resolveActive(gid: NodeId, selections: Selections): Int =
+    selections.panels.getOrElse(gid, 0)
 
   /** A session's open set. State-selected surfaces never enter it: the shared
     * per-slug pass owns them.
     */
   def selectedSurfaces(
-      uiState: Map[String, String] = Map.empty
+      selections: Selections = Selections.none
   ): Set[String] = {
     val (baked, unbaked) =
       surfaces.toList.partition(_._2.bakeInto.isDefined)
@@ -322,31 +331,21 @@ private[runtime] final class SurfaceGraph(
         .flatMap(_._2.bakeInto)
         .distinct
         .filterNot(isStateGroup)
-        .map(gid => bakeGroup(gid)(resolveActive(gid, uiState)._1))
+        .map(gid => bakeGroup(gid)(resolveActive(gid, selections)))
         .toSet
     val fromUnbaked =
       unbaked.collect { case (sid, s) if defaultOpenPopup(s) => sid }.toSet
-    fromGroups ++ fromUnbaked ++ openPopup(uiState)
+    fromGroups ++ fromUnbaked ++ selections.popup
   }
 
   /** `ui_<popups>` holds a surface id, not an index: the host is not a bake
     * group. Narrowed, since a stale URL can name a surface this dashboard
     * cannot serve.
     */
-  def openPopup(uiState: Map[String, String]): Option[String] =
-    uiState
-      .get(Dashboard.PopupHostId)
-      .filter(_.nonEmpty)
-      .filter(sid =>
-        surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
-      )
-
-  def uiStateAnomalies(uiState: Map[String, String]): List[String] =
-    surfaces.toList
-      .flatMap(_._2.bakeInto)
-      .distinct
-      .filterNot(isStateGroup)
-      .flatMap(gid => resolveActive(gid, uiState)._2)
+  def openPopup(requested: Option[String]): Option[String] =
+    requested.filter(sid =>
+      surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
+    )
 
   def surfacesAt(host: DomId): Set[String] =
     surfaces.collect {
@@ -375,14 +374,17 @@ private[runtime] final class SurfaceGraph(
         .getOrElse("")
     )
 
-  /** From the live `open`, not the connection's arriving `uiState`, which a tab
-    * click has since moved.
+  /** What `open` records: a live pull renders with these, since a press moves
+    * `open` and not the request its stream connected with.
     */
-  def uiStateFrom(open: Set[String]): Map[String, String] =
-    userBakeOwnerIds.toList.flatMap { gid =>
-      bakeGroup(gid).indexWhere(open) match {
-        case -1 => None
-        case i  => Some(gid -> i.toString)
-      }
-    }.toMap
+  def selectionsIn(open: Set[String]): Selections =
+    Selections(
+      surfacesAt(Dashboard.PopupHostId).find(open),
+      varBakeOwnerIds.toList.flatMap { gid =>
+        bakeGroup(gid).indexWhere(open) match {
+          case -1 => None
+          case i  => Some(gid -> i)
+        }
+      }.toMap
+    )
 }

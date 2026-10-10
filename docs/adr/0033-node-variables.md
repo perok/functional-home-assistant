@@ -231,7 +231,7 @@ a value is ambient session state, in hand before the walk, never computed by it.
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author
   names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists. It
   is also the last step for selections: the popup host lives in `theme.chrome`, outside every
-  node, so only a root declaration lets it become a variable and retire `ui_popups`, `uiStateOf`
-  and the `uiState` parameter every render path still takes for it (ADR 0005).
+  node, so only a root declaration lets it become a variable and retire `ui_popups`,
+  `Server.popupOf` and `Selections.popup`, the one selection a request still carries (ADR 0005).
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.

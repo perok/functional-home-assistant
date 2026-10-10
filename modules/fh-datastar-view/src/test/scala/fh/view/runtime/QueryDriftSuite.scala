@@ -169,18 +169,21 @@ class QueryDriftSuite extends munit.FunSuite {
     List(fixture("fixture-features"), fixture("fixture-surfaces"), shapes)
 
   /** No selection, each member of each tab group, and each popup open. */
-  private def uiStates(c: Case): List[Map[String, String]] = {
+  private def uiStates(c: Case): List[Selections] = {
     val r = c.renderer
-    val tabs: List[Map[String, String]] =
-      r.surfaces.userBakeOwnerIds.toList.sorted.flatMap(gid =>
-        r.surfaces.bakeGroup(gid).indices.map(i => Map(s"$gid" -> s"$i"))
+    val tabs: List[Selections] =
+      r.surfaces.varBakeOwnerIds.toList.sorted.flatMap(gid =>
+        r.surfaces
+          .bakeGroup(gid)
+          .indices
+          .map(i => Selections(None, Map(gid -> i)))
       )
-    val popups: List[Map[String, String]] =
+    val popups: List[Selections] =
       c.dashboard.surfaces.toList.collect {
         case (sid, s) if s.hostId == Dashboard.PopupHostId =>
-          Map(s"${Dashboard.PopupHostId}" -> sid)
+          Selections(Some(sid), Map.empty)
       }
-    Map.empty[String, String] :: tabs ++ popups
+    Selections.none :: tabs ++ popups
   }
 
   private def answered(reads: List[SlotRead]) =
@@ -196,7 +199,6 @@ class QueryDriftSuite extends munit.FunSuite {
         Sink.buffer(r.pageBytesHint),
         states,
         ui,
-        r.surfaces.openPopup(ui),
         snapshot
       )
     }
@@ -227,8 +229,7 @@ class QueryDriftSuite extends munit.FunSuite {
             r.renderPageInto(
               Sink.buffer(r.pageBytesHint),
               states,
-              Map.empty,
-              None,
+              Selections.none,
               answered(
                 r.queriesForPage(
                   r.surfaces.selectedSurfaces(),
@@ -257,7 +258,7 @@ class QueryDriftSuite extends munit.FunSuite {
       }
       // Precise, not everything: a plain node asks nothing, a chart asks.
       val (quiet, loud) = nodes.partition(id =>
-        r.readsForPull(List(id), Nil, c.houses.head, Map.empty, Map.empty)
+        r.readsForPull(List(id), Nil, c.houses.head, Selections.none, Map.empty)
           .isEmpty
       )
       assert(quiet.nonEmpty && loud.nonEmpty, clue = c.name)

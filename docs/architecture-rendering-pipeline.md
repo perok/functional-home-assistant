@@ -344,7 +344,7 @@ GET /sse/dashboard/:slug/patch
     // instead cannot tell "unchanged" from "changed while nobody was looking",
     // and the second leaves a client on a dashboard that no longer exists.
     // Its repaint takes the popup from `session.open` and the tabs from the
-    // session's variables, not the stream's `uiState`: that is what it
+    // session's variables, not the stream's request: that is what it
     // CONNECTED with, and would reopen a popup closed since.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
@@ -1080,11 +1080,12 @@ the URL follows what the server did rather than what was pressed.
 **A tab bar's panel is a reader too.** `c.tabs` declares `tab`, and its panel's bake group is
 selected by it (`Activation.Var`); `VarGraph.panelsSelectedBy` is that edge, so a tab press is a
 variable write that swaps the panel this viewer is shown (`swapHost`) before it commits. Every
-path that bakes takes a bar's member from the session's variables — `SurfaceGraph.varSelections`,
-merged over the request's popup selection by `Server.selectionsOf` at each entry: the page, an
-action, a minted session, a connect (after adopting the carried values) and a renderer swap. A
-pull reads `session.open`, which the write keeps in step. `uiState` is the shape all of them
-hand the renderer: a bake group's member index, and the popup host's surface id.
+path that bakes takes a bar's member from the session's variables: `SurfaceGraph.selections`
+pairs them with the request's popup at each entry (the page, an action, a minted session, a
+connect after adopting the carried values, a renderer swap), narrowing the popup to one this
+dashboard hosts and dropping an index outside its group. A pull reads `session.open` instead
+(`SurfaceGraph.selectionsIn`), which the write keeps in step. `Selections` is what all of them
+hand the renderer: the popup's surface id and each chosen bake group's member index.
 
 The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
 `tab` node per window. A button names the declaring node in the route it posts to and the signal
@@ -1387,7 +1388,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
-| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`; `lib/core/variable.pkl` · `Variable` (the template half) |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |

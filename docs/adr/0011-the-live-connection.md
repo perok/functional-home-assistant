@@ -199,7 +199,7 @@ descendant host has selected — and whichever a shared structure recorded would
 somebody.
 
 **A node whose own html differs between viewers needs no special treatment.** Since the
-session renders what it is owed, it renders with its own `uiState` and records the digest
+session renders what it is owed, it renders with its own `Selections` and records the digest
 in its own `holds` — no variant key, no second entry, nothing shared to disagree about.
 The rule that makes it safe is statement (1): a node's own rendering contains no region's
 contents, its own or a child's.
@@ -556,9 +556,9 @@ outside `#dashboard`. A repaint of the body alone left the dialog showing what i
 before the disconnect, with its nodes missing from `holds`, until some later pull
 re-sent them. So a repaint fills the host too (`Patches.repaint`), as an `inner` patch,
 which Datastar morphs: the open dialog is reconciled, not replaced. A swap's repaint
-takes the whole selection, the popup and every tab, from the session's open set
-(`SurfaceGraph.committedSelections`) rather than the stream's `uiState`, which is what
-the stream connected with: a tab clicked since would otherwise snap back on every edit.
+takes the popup from the session's open set (`SurfaceGraph.selectionsIn`) and every tab
+from the session's variables, rather than from the request, which is what the stream
+connected with: a tab clicked since would otherwise snap back on every edit.
 
 **Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that
@@ -813,7 +813,7 @@ are pinned by `DatastarMorphContractSuite`.
 
 It costs one prerequisite. A structural node bakes the viewer's selected panel, so
 every path that renders one has to know the viewer. Every render path therefore takes
-the viewer's selections (`uiState`), which is also what makes any variant machinery
+the viewer's selections (`Selections`), which is also what makes any variant machinery
 unnecessary (ADR 0012).
 
 What it buys: a re-render can no longer overwrite the tab a client actually

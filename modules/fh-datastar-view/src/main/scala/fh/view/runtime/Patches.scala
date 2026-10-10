@@ -88,7 +88,7 @@ private[runtime] object Patches {
     * Flipped state groups are recorded as [[Mutation]]s and excluded below (the
     * fill re-renders them). Only surfaces active from the page or a visible
     * surface contribute, so a hidden branch never gets updates by construction.
-    * No `uiState` is read.
+    * No viewer's [[Selections]] are read.
     */
   def plan(
       renderer: Renderer,
@@ -308,7 +308,7 @@ private[runtime] object Patches {
       env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
-      uiState: Map[String, String] = Map.empty
+      selections: Selections = Selections.none
   ): IO[List[Addressed]] = {
     val all = log.since(v, renderer.ancestry)
     // Only what this client can see; the rest would cost only bytes.
@@ -330,7 +330,7 @@ private[runtime] object Patches {
       .toList
       .sortBy(_._1)
       .flatMap { case (gid, entries) =>
-        val content = renderer.renderHost(gid, states, uiState, fragments)
+        val content = renderer.renderHost(gid, states, selections, fragments)
         branchPatch(
           renderer,
           gid,
@@ -365,7 +365,7 @@ private[runtime] object Patches {
             }
             .sortBy { case (_, _, at) => -at }
             .flatTraverse { case (nodeId, entityId, _) =>
-              bytes(renderer, cache, nodeId, states, uiState, fragments).map(
+              bytes(renderer, cache, nodeId, states, selections, fragments).map(
                 _.toList.flatMap { case NodeBytes(html, digest) =>
                   List(
                     Addressed(Patch.Remove(renderer.elementId(nodeId))),
@@ -390,7 +390,7 @@ private[runtime] object Patches {
     // than a body repaint.
     def refills(fragments: QuerySnapshot) = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
-      val content = renderer.renderHost(gid, states, uiState, fragments)
+      val content = renderer.renderHost(gid, states, selections, fragments)
       Addressed(
         Patch.Insert(
           content.parts.map(_._2).mkString,
@@ -430,13 +430,13 @@ private[runtime] object Patches {
     val hosts = (branch.map(_._2.container) ++ owed.refill).distinct
     for {
       fragments <- answers(
-        renderer.readsForPull(touchedIds, hosts, states, uiState, env)
+        renderer.readsForPull(touchedIds, hosts, states, selections, env)
       )
       morphs <- changed.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, fragments, _)
+        morph(renderer, cache, holds, states, selections, fragments, _)
       )
       open <- fromOpenIds.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, fragments, _)
+        morph(renderer, cache, holds, states, selections, fragments, _)
       )
       placed <- places(fragments)
     } yield signalFrame(renderer, holds, states, touchedIds) ++
@@ -495,11 +495,11 @@ private[runtime] object Patches {
       cache: RenderCache,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot,
       id: NodeId
   ): IO[Option[Addressed]] =
-    bytes(renderer, cache, id, states, uiState, fragments).map(_.flatMap {
+    bytes(renderer, cache, id, states, selections, fragments).map(_.flatMap {
       case NodeBytes(html, digest) =>
         Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
           Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
@@ -514,7 +514,7 @@ private[runtime] object Patches {
       cache: RenderCache,
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, fragments) match {
@@ -530,7 +530,7 @@ private[runtime] object Patches {
               renderer.renderNodeById(
                 id,
                 states,
-                uiState,
+                selections,
                 fragments = fragments
               ),
               id
@@ -540,7 +540,7 @@ private[runtime] object Patches {
       case None =>
         IO(
           renderer
-            .renderNodeById(id, states, uiState, fragments = fragments)
+            .renderNodeById(id, states, selections, fragments = fragments)
             .map(NodeBytes.of)
         )
     }
@@ -576,11 +576,11 @@ private[runtime] object Patches {
       host: DomId,
       arriving: Option[String],
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): Option[(Addressed, String)] =
     arriving
-      .flatMap(renderer.renderSurfaceTraced(_, states, uiState, fragments))
+      .flatMap(renderer.renderSurfaceTraced(_, states, selections, fragments))
       .map { t =>
         (
           Addressed(
@@ -601,16 +601,16 @@ private[runtime] object Patches {
   private[runtime] def repaint(
       renderer: Renderer,
       states: Map[String, EntityState],
-      uiState: Map[String, String],
+      selections: Selections,
       fragments: QuerySnapshot
   ): (List[SseFrame], Map[NodeId, Held]) = {
-    val body = renderer.renderBodyTraced(states, uiState, fragments)
+    val body = renderer.renderBodyTraced(states, selections, fragments)
     val popup = hostFill(
       renderer,
       Dashboard.PopupHostId,
-      renderer.surfaces.openPopup(uiState),
+      selections.popup,
       states,
-      uiState,
+      selections,
       fragments
     ).map(_._1)
     (

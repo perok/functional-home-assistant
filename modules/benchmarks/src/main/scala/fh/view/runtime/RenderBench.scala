@@ -1316,7 +1316,7 @@ class RenderBench {
           Map.empty,
           at,
           Set.empty,
-          Map.empty
+          Selections.none
         )
       }
       .unsafeRunSync()
@@ -1412,7 +1412,7 @@ class RenderBench {
         signalled.renderNodeById(
           id,
           moved,
-          Map.empty,
+          Selections.none,
           fragments = QuerySnapshot.empty
         )
       )
@@ -1528,7 +1528,7 @@ class RenderBench {
         signalled.renderNodeById(
           id,
           moved,
-          Map.empty,
+          Selections.none,
           fragments = QuerySnapshot.empty
         )
       )

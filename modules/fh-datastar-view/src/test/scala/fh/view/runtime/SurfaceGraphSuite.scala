@@ -16,9 +16,9 @@ import io.circe.Json
 
 /** Selection and visibility, with no server: which branch of a bake group
   * shows, and which clients a patch at a node may reach, are pure functions of
-  * (dashboard, uiState, entity state). A user group's selection is per viewer,
-  * so clients disagree legitimately; a state group's is the same for everyone,
-  * so a state surface hides nothing.
+  * (dashboard, selections, entity state). A chosen group's selection is per
+  * viewer, so clients disagree legitimately; a state group's is the same for
+  * everyone, so a state surface hides nothing.
   */
 class SurfaceGraphSuite extends munit.FunSuite {
 
@@ -106,10 +106,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val s = graphOf(Map("t0" -> state("c", "t0", 0, isOn("light.a"))))
     assert(!u.isStateGroup(gid))
     assert(s.isStateGroup(gid))
-    assertEquals(u.userBakeOwnerIds, Set("c"))
+    assertEquals(u.varBakeOwnerIds, Set("c"))
     assertEquals(u.stateBakeOwnerIds, Set.empty[String])
     assertEquals(s.stateBakeOwnerIds, Set("c"))
-    assertEquals(s.userBakeOwnerIds, Set.empty[String])
+    assertEquals(s.varBakeOwnerIds, Set.empty[String])
   }
 
   private def tabs = graphOf(
@@ -120,46 +120,41 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   )
 
+  private def tabAt(raw: String): VarEnv = Map(gid -> Map("tab" -> raw))
+
   test("an absent selection falls back to the first branch") {
     // The declared value fills every viewer's variables, so this is a guard.
-    assertEquals(tabs.resolveActive(gid, Map.empty), (0, None))
+    assertEquals(tabs.resolveActive(gid, Selections.none), 0)
+    assertEquals(tabs.selections(None, Map.empty), Selections.none)
+    assertEquals(tabs.selectionAnomalies(Map.empty), Nil)
   }
 
   test("a variable-selected group's index comes from the viewer's variables") {
-    val env: VarEnv = Map(gid -> Map("tab" -> "2"))
-    assertEquals(tabs.varSelections(env), Map("c" -> "2"))
-    assertEquals(tabs.resolveActive(gid, tabs.varSelections(env))._1, 2)
+    val chosen = tabs.selections(None, tabAt("2"))
+    assertEquals(chosen.panels, Map(gid -> 2))
+    assertEquals(tabs.resolveActive(gid, chosen), 2)
     assertEquals(tabs.varSelecting(gid), Some("tab"))
-  }
-
-  test("a valid index is taken as given, and warns about nothing") {
-    assertEquals(tabs.resolveActive(gid, Map("c" -> "1")), (1, None))
+    assertEquals(tabs.selectionAnomalies(tabAt("2")), Nil)
   }
 
   test("a malformed or out-of-range index falls back AND warns") {
-    // `Some` only for a present but unusable value; absent is the normal first
-    // paint.
-    val (garbage, gWarn) = tabs.resolveActive(gid, Map("c" -> "banana"))
-    val (high, hWarn) = tabs.resolveActive(gid, Map("c" -> "9"))
-    val (negative, nWarn) = tabs.resolveActive(gid, Map("c" -> "-1"))
-    assertEquals(garbage, 0)
-    assertEquals(high, 0)
-    assertEquals(negative, 0)
-    assert(gWarn.exists(_.contains("banana")), clue = gWarn)
-    assert(hWarn.isDefined && nWarn.isDefined)
+    // A warning only for a present but unusable value; absent is the normal
+    // first paint.
+    List("banana", "9", "-1").foreach { raw =>
+      assertEquals(tabs.selections(None, tabAt(raw)), Selections.none, raw)
+      assertEquals(
+        tabs.resolveActive(gid, tabs.selections(None, tabAt(raw))),
+        0,
+        raw
+      )
+      val warned = tabs.selectionAnomalies(tabAt(raw))
+      assert(warned.sizeIs == 1 && warned.head.contains(raw), clue = warned)
+    }
   }
 
-  test(
-    "uiStateAnomalies reports exactly the branches resolveActive warned on"
-  ) {
-    assertEquals(tabs.uiStateAnomalies(Map("c" -> "1")), Nil)
-    assertEquals(tabs.uiStateAnomalies(Map.empty), Nil)
-    assertEquals(tabs.uiStateAnomalies(Map("c" -> "nope")).size, 1)
-  }
-
-  test("a state group's uiState value is not an anomaly — no choice exists") {
+  test("a state group's variable is not an anomaly — no choice exists") {
     val g = graphOf(Map("t0" -> state("c", "t0", 0, isOn("light.a"))))
-    assertEquals(g.uiStateAnomalies(Map("c" -> "banana")), Nil)
+    assertEquals(g.selectionAnomalies(tabAt("banana")), Nil)
   }
 
   test("state selection is FIRST match in bakeIndex order") {
@@ -285,12 +280,15 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assert(g.visibleNode("who_knows", Set.empty, Map.empty))
   }
 
-  test("selectedSurfaces and uiStateFrom are inverses over user groups") {
-    assertEquals(tabs.selectedSurfaces(Map("c" -> "1")), Set("t1"))
-    assertEquals(tabs.uiStateFrom(Set("t1")), Map("c" -> "1"))
-    val defaulted = tabs.selectedSurfaces(Map.empty)
+  test("selectedSurfaces and selectionsIn are inverses over chosen groups") {
+    val chosen = Selections(None, Map(gid -> 1))
+    assertEquals(tabs.selectedSurfaces(chosen), Set("t1"))
+    assertEquals(tabs.selectionsIn(Set("t1")), chosen)
+    val defaulted = tabs.selectedSurfaces(Selections.none)
     assertEquals(defaulted, Set("t0"))
-    assertEquals(tabs.uiStateFrom(defaulted), Map("c" -> "0"))
+    assertEquals(tabs.selectionsIn(defaulted), Selections(None, Map(gid -> 0)))
+    val det = Selections(Some("detail"), Map.empty)
+    assertEquals(popups.selectionsIn(popups.selectedSurfaces(det)), det)
   }
 
   test("state-selected branches never enter a session's open set") {
@@ -302,7 +300,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
         "tab" -> user("d", "t0", 0)
       )
     )
-    assertEquals(g.selectedSurfaces(Map.empty), Set("tab"))
+    assertEquals(g.selectedSurfaces(Selections.none), Set("tab"))
   }
 
   test("an unbaked surface joins the open set only when defaultOpen") {
@@ -312,7 +310,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
         "hidden" -> Surface(col(), activation = Activation.User(false))
       )
     )
-    assertEquals(g.selectedSurfaces(Map.empty), Set("shown"))
+    assertEquals(g.selectedSurfaces(Selections.none), Set("shown"))
   }
 
   private def popups = graphOf(
@@ -325,16 +323,16 @@ class SurfaceGraphSuite extends munit.FunSuite {
   test("a popup claim is honoured only for a surface this dashboard has") {
     // A stale URL or another dashboard's dialog would put the session in a
     // state its renderer cannot serve.
-    val host: String = Dashboard.PopupHostId
-    assertEquals(popups.openPopup(Map(host -> "detail")), Some("detail"))
-    assertEquals(popups.openPopup(Map(host -> "ghost")), None)
-    assertEquals(popups.openPopup(Map(host -> "")), None)
-    assertEquals(popups.openPopup(Map.empty), None)
+    assertEquals(popups.openPopup(Some("detail")), Some("detail"))
+    assertEquals(popups.openPopup(Some("ghost")), None)
+    assertEquals(popups.openPopup(Some("")), None)
+    assertEquals(popups.openPopup(None), None)
+    assertEquals(popups.selections(Some("ghost"), Map.empty), Selections.none)
   }
 
   test("an open popup is part of the selection") {
     assertEquals(
-      popups.selectedSurfaces(Map(Dashboard.PopupHostId -> "detail")),
+      popups.selectedSurfaces(popups.selections(Some("detail"), Map.empty)),
       Set("detail")
     )
   }
@@ -444,12 +442,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
     val popup = g.committedSelection(Dashboard.PopupHostId, Some("det"))
     assertEquals(popup, Some(Dashboard.PopupHostId -> "det"))
-    assertEquals(g.openPopup(popup.toMap), Some("det"))
+    assertEquals(g.openPopup(popup.map(_._2)), Some("det"))
 
     val closed = g.committedSelection(Dashboard.PopupHostId, None)
     assertEquals(closed, Some(Dashboard.PopupHostId -> ""))
     assertEquals(
-      g.openPopup(closed.toMap),
+      g.openPopup(closed.map(_._2)),
       None,
       "a close must commit a value that reads back as no popup"
     )

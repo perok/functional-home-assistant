@@ -61,7 +61,10 @@ class ChartSlotSuite extends munit.FunSuite {
   test("a series slot renders its chart into the page") {
     val d = dashboardWith("{{{chart}}}")
     val html =
-      Renderer.create(d).renderBodyTraced(states, Map.empty, fragments()).html
+      Renderer
+        .create(d)
+        .renderBodyTraced(states, Selections.none, fragments())
+        .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
   }
@@ -73,7 +76,7 @@ class ChartSlotSuite extends munit.FunSuite {
     val escaped =
       Renderer
         .create(dashboardWith("{{chart}}"))
-        .renderBodyTraced(states, Map.empty, fragments())
+        .renderBodyTraced(states, Selections.none, fragments())
         .html
     assert(!escaped.contains(svg), clue = escaped)
     assert(escaped.contains("&lt;svg"), clue = escaped)
@@ -86,7 +89,7 @@ class ChartSlotSuite extends munit.FunSuite {
     val e = intercept[fh.view.FHError](
       Renderer
         .create(d)
-        .renderBodyTraced(states, Map.empty, QuerySnapshot.empty)
+        .renderBodyTraced(states, Selections.none, QuerySnapshot.empty)
     )
     assertEquals(e.status, 500)
     assert(e.getMessage.contains("not resolved for this render"))
@@ -94,7 +97,10 @@ class ChartSlotSuite extends munit.FunSuite {
     // …and when it IS resolved the rest of the card still renders from state;
     // the slot's `default` is not what fills a query slot.
     val html =
-      Renderer.create(d).renderBodyTraced(states, Map.empty, fragments()).html
+      Renderer
+        .create(d)
+        .renderBodyTraced(states, Selections.none, fragments())
+        .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
   }
