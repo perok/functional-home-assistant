@@ -7,6 +7,7 @@ import "../../core/node.pkl" as nodes
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/predicate.pkl" as pred
 import "../../core/tap.pkl" as tapMod
+import "../../core/variable.pkl" as varMod
 import "../../layout.pkl" as layout
 
 /// One tab in a `.tabs` bar, as BeerCSS's native `.tabs > a` markup: a [[Tabs]]
@@ -55,7 +56,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(tabGroup)) }" \(tapMod.pendingClearAgainst(tabGroup, tabCommitted))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-fh-url="['v.{{id}}.\(tabVar)', $\(tabCommitted)]">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ \(tabVar.own.pendingSeed) }" \(tabVar.own.pendingClear)>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" \(tabVar.own.urlMirror)>{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.
@@ -69,7 +70,7 @@ class Tabs extends nodes.Node {
   hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
   // A List, because the derivations below need each tab's index.
   hidden labels: List<String> = tabs.keys.toList()
-  vars = new Mapping { [tabVar] = "0" }
+  vars = tabVar.declare("0")
   inlineSurfaces = new Mapping {
     for (i, l in labels) {
       ["t\(i)"] = new surfaceMod.SurfaceDef {
@@ -77,7 +78,7 @@ class Tabs extends nodes.Node {
         bakeInto = nodes.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
-        activation = new surfaceMod.VarActivation { name = tabVar }
+        activation = tabVar.selects
       }
     }
   }
@@ -88,8 +89,8 @@ class Tabs extends nodes.Node {
         // Strict, as strings: loose `==` makes `'' == 0` true, so an unseeded
         // selection would highlight tab 0. `Number('')` is 0 too, hence
         // `String(…)`.
-        active = "String(\(tapMod.chosen(tabVar))) === '\(i)'"
-        tapAction = tapMod.setVar(tabVar, i.toString())
+        active = "String(\(tabVar.below.chosen)) === '\(i)'"
+        tapAction = tabVar.choose(i.toString())
       }
     }
   }
@@ -100,12 +101,7 @@ hidden tabs: Tabs = new Tabs {}
 
 /// The node variable a [[Tabs]] declares and its buttons write. Fixed, as the
 /// window chooser's is, so the declaration and its writers cannot drift.
-const tabVar: String = "tab"
-
-// The pending/committed pair (ADR 0025), from the bar's own `{{id}}`: it is the
-// declarer its buttons name.
-const local tabGroup: String = "var_{{id}}__\(tabVar)"
-const local tabCommitted: String = "_\(tabGroup)"
+const tabVar: varMod.Variable = new { name = "tab" }
 
 const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivation =
   new { condition = p }

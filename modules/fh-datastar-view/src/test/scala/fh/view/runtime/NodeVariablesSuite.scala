@@ -184,8 +184,9 @@ class NodeVariablesSuite extends munit.FunSuite {
       .setContainer(NodeId.derived("c_0"))
       .getOrElse(fail("no set at c_0"))
     val member: NodeId = r.members.memberIdOf(set, "sensor.t")
-    assertEquals(r.readersOf(NodeId.derived("c"), "window"), List(member))
-    val chosen = r.varEnv(Map((NodeId.derived("c"), "window") -> "1h"))
+    val window = VarKey(NodeId.derived("c"), "window")
+    assertEquals(r.vars.readersOf(window), List(member))
+    val chosen = r.vars.env(Map(window -> "1h"))
     assertEquals(windowOf(r.readsAt(member, chosen)), List("1h"))
   }
 
@@ -278,14 +279,15 @@ class NodeVariablesSuite extends munit.FunSuite {
   test("the renderer resolves a chart's window from the declaring ancestor") {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     val r = Renderer.create(d)
-    val html = paint(r, r.varEnv(Map.empty), "7d" -> "<svg id='seven'/>")
+    val html = paint(r, r.vars.env(Map.empty), "7d" -> "<svg id='seven'/>")
     assert(html.contains("<svg id='seven'/>"), clue = html)
   }
 
   test("a viewer's choice overrides the declared value") {
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
-    val chose7d = r.varEnv(Map(("panel": NodeId, "window") -> "7d"))
+    val chose7d =
+      r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
     assertEquals(
       r.queriesForPage(Set.empty, Map.empty, chose7d),
       List(readAt("7d"))
@@ -298,8 +300,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   test("two viewers on two windows are two reads, and neither sees the other") {
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
-    val a = r.varEnv(Map(("panel": NodeId, "window") -> "1h"))
-    val b = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
+    val a = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "1h"))
+    val b = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
 
     assertEquals(r.queriesForPage(Set.empty, Map.empty, a), List(readAt("1h")))
     assertEquals(r.queriesForPage(Set.empty, Map.empty, b), List(readAt("30d")))
@@ -330,7 +332,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     val inner = named("inner", Map("window" -> "1h"), chartNode())
     val d = dash(named("panel", Map("window" -> "24h"), chartNode(), inner))
     val r = Renderer.create(d)
-    val env = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
+    val env =
+      r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
     assertEquals(
       r.queriesForPage(Set.empty, Map.empty, env).toSet,
       Set(readAt("30d"), readAt("1h"))
@@ -342,10 +345,10 @@ class NodeVariablesSuite extends munit.FunSuite {
     // `SurfaceGraph.openPopup` treats a lost surface id.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
-    val env = r.varEnv(
+    val env = r.vars.env(
       Map(
-        ("gone": NodeId, "window") -> "7d",
-        ("panel": NodeId, "nosuch") -> "7d"
+        VarKey(NodeId.derived("gone"), "window") -> "7d",
+        VarKey(NodeId.derived("panel"), "nosuch") -> "7d"
       )
     )
     assertEquals(

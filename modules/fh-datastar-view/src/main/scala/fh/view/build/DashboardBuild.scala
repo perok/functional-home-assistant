@@ -82,8 +82,8 @@ object DashboardBuild {
   val NodeIdToken: String = "@@NODE_ID@@"
 
   /** Stands for the id of the nearest node declaring the node variable `name`
-    * (`varMod.declarer`), so a button can post to the chooser above it and read
-    * its signals (issue #209).
+    * (`varMod.Variable.declarer`), so a button can post to the chooser above it
+    * and read its signals (issue #209).
     */
   def declarerToken(name: String): String = s"@@VAR:$name@@"
 

@@ -119,7 +119,7 @@ stays healthy, and a deadline, which is what an earlier draft used, would only
 have been a worse-informed guess at exactly this.
 
 **So a connect restates the selections.** `SurfaceGraph.committedSelections`
-gives the popup's from a session's open set and `Server.committedVars` every
+gives the popup's from a session's open set and `VarGraph.committed` every
 declared variable's, and `openingSignals` carries both with the cursor on every
 connect. Without it, `_sse` clearing pending
 would drop the display back on whatever the last frame it received said — and a

@@ -56,7 +56,7 @@ resolved for one render, and is still what every cache keys on.
 **Resolution** is one walk at validate time carrying a scope stack. A `Var` resolves to the nearest
 declaring ancestor; a container that declares nothing is transparent; a nested declaration of the
 same name shadows. No declarer is a **build error** naming the node and the variable. The walk
-yields the declared edge and its inverse, `Renderer.readersOf` — the exact set a write re-renders.
+yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set a write re-renders.
 
 - **A popup is its own scope root; an owned surface inherits.** A popup can be opened from many
   places, and inheriting from one would let its content resolve differently per opener. A tab
@@ -67,15 +67,15 @@ yields the declared edge and its inverse, `Renderer.readersOf` — the exact set
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
 - **A candidate set's members read the scope at the set.** The candidates and each member's id
   (`LayoutNode.memberSegment`: set id plus entity id) are fixed at build time, and a member's
-  children render under the member's id, so a member is an ordinary reader: `Renderer.memberScopes`
-  gives each the scope of the indexed set above it, a set's reads are resolved per viewer for
+  children render under the member's id, so a member is an ordinary reader: `VarGraph` gives each the
+  scope of the indexed set above it, a set's reads are resolved per viewer for
   every clause (the snapshot is built before the walk picks one), and a write re-renders the
   present members this viewer is shown. A member's render key carries its whole subtree's reads,
   or a chart nested in a clause would keep its old window. A declaration inside a clause is
   refused: it would be every member's own choice, which nothing needs.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
-value: a button posting to it, or a highlight reading its committed signal. `varMod.declarer(name)`
+value: a button posting to it, or a highlight reading its committed signal. `Variable.declarer`
 is a token, `@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a popup
 its own root, none is a build error naming the node). It is spliced into each node's OWN fields with
 the scope at that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its
@@ -83,6 +83,16 @@ children the outer declarer. A candidate set's clause may use one to name a decl
 It is a build token rather than something the renderer resolves because
 a route or a signal name is a string inside a slot, which the renderer never parses; the check for
 unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the DOM.
+
+**One typed value on each side, never a bare name.** A component holds a variable as a
+`varMod.Variable`: its `ref` for a query parameter, `declarer` for a node below, its signals and URL
+param spelled from the declarer's own template (`own`) or from below it (`below`), the `selects`
+activation of a panel, `declare(value)` for the node's `vars`, and `choose(value)` for a guarded
+tap. So a component writes the name once, and a misspelt signal cannot exist. The server's half
+is `VarKey(declarer, name)`, which owns the same spellings where the server commits, seeds,
+adopts a reconnect's values and reads a link, and `VarGraph`, beside `SurfaceGraph` and
+`MemberGraph`, owns scopes (set members included), a viewer's environment, readers and the panels
+a write selects. `VarSignalNamesSuite` reads a real page's names and holds the two halves equal.
 
 **The value is per session, addressed to the DECLARER** — `Map[(NodeId, String), String]`. Keying
 by declarer is what makes a shadow safe from the write side: choosing on an outer panel cannot
@@ -115,7 +125,7 @@ opening frame again, both total over declarations at this viewer's values, so a 
 corrected and a control never shows the declared value over a linked choice.
 
 **The control is a node per value.** `c.windowChooser` declares `window` and builds its bar from
-one `Listing<Window>`, each value a `tab` node whose tap is `tapMod.setVar`: a guarded `Click`
+one `Listing<Window>`, each value a `tab` node whose tap is `Variable.choose`: a guarded `Click`
 naming the declarer by token in its route and its pending signal. Its name and value are typed as
 plain tokens, since they travel in a route segment and a JS string. A button per node is what lets
 each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` takes the variable's
@@ -123,8 +133,8 @@ name, so the pair cannot drift.
 
 **A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
 panel's surfaces are `Activation.Var("tab")`: the member whose `bakeIndex` is the variable as seen
-from the bar. Its buttons are `tapMod.setVar("tab", i)`, so a tab press is a variable write whose
-reader is the bake group (`Renderer.groupsSelectedBy`): the write swaps the panel this viewer is
+from the bar. Its buttons are `choose(i)` on that variable, so a tab press is a variable write whose
+reader is the bake group (`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is
 shown and commits after it, and a value that is not a member index of every panel it selects is
 refused like an unparseable window. A tab panel cannot be opened directly; the open route refuses
 it, since the panel would move without the variable. `validate` requires the variable in scope at
@@ -211,7 +221,7 @@ a value is ambient session state, in hand before the walk, never computed by it.
 - **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
   node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a
   node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
-  writes it meaning the tabs' id. A child naming its DECLARER is `varMod.declarer`; an explicit "I
+  writes it meaning the tabs' id. A child naming its DECLARER is `Variable.declarer`; an explicit "I
   own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
 - **A plain-slot reader** — a slot whose rendered value is a variable, re-rendered on a write. No
   component needs one. When one does, it is a slot shape and nothing on the write path: the write

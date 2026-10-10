@@ -155,7 +155,8 @@ class TabVariableSuite extends ServerHarness {
     assertEquals(
       Renderer
         .fromValidated(dash.validated().fold(e => fail(e.mkString), identity))
-        .groupsSelectedBy(NodeId.derived("bar"), "tab"),
+        .vars
+        .panelsSelectedBy(VarKey(NodeId.derived("bar"), "tab")),
       List(NodeId.derived("bar"))
     )
   }

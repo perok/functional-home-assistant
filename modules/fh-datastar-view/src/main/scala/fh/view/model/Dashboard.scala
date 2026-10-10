@@ -1725,7 +1725,7 @@ case class Dashboard(
     * owned surface (a tab panel, an `If` branch) has exactly one host, so it
     * starts with the scope at its `bakeInto` node: a chooser above a tab bar
     * reaches the charts in its panels. A set is a leaf here: its members take
-    * its scope in the renderer (`Renderer.memberScopes`).
+    * its scope in the runtime (`VarGraph`).
     */
   lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
     type Scope = Map[String, Dashboard.InScope]

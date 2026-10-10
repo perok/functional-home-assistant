@@ -7,7 +7,6 @@ import "node.pkl" as nodes
 import "slot.pkl" as slotMod
 import "simple.pkl" as simpleMod
 import "surface.pkl" as surfaceMod
-import "variable.pkl" as varMod
 import "../hass.pkl"
 import "../hass/actions.pkl" as hassActions
 
@@ -80,8 +79,9 @@ class OpenSurface extends Click {
   busy = true
 }
 
-/// A choice of a node variable ([[setVar]]). Guarded for the same reason as
-/// [[OpenSurface]]: the write answers once its readers have re-rendered.
+/// A choice of a node variable (`varMod.Variable.choose`). Guarded for the
+/// same reason as [[OpenSurface]]: the write answers once its readers have
+/// re-rendered.
 class SetVar extends Click {
   busy = true
 }
@@ -169,11 +169,6 @@ const busyChangeSig: String = "_{{id}}__busy_change"
 /// refused call (keyed on `?node={{id}}`); [[failedOn]] covers a non-200, whose
 /// body the bundle never parses.
 const errorSig: String = "_{{id}}__error"
-
-/// Tells the server which selection group a variable write answers, so a
-/// refusal can end its pending ask. A query parameter, because the value route already
-/// ends in positional segments.
-const local function groupQuery(group: String): String = "?group=\(group)'"
 
 /// Sets [[errorSig]] when this element's fetch fails and clears it when this
 /// element starts another, so a retry needs no separate clear.
@@ -384,9 +379,11 @@ const function guardSlots(t: TapAction): Mapping<String, String> =
     }
   }
 
-// `once`, so the node stays in the renderer's identity cache; it must resolve
-// on an unavailable entity, which is exactly the one you want to click.
-const local function clickSlot(transformExpr: String): slotMod.Slot = new {
+/// A click expression built by a transform, which is the only way to read
+/// `dashboard_slug`. `once`, so the node stays in the renderer's identity cache;
+/// it must resolve on an unavailable entity, which is exactly the one you want
+/// to click.
+const function clickSlot(transformExpr: String): slotMod.Slot = new {
   transform = transformExpr
   reads = "once"
   bypassUnavailable = false
@@ -423,35 +420,6 @@ const function pendingClearAgainst(groupId: String, committed: String): String =
 /// The pending value while one is outstanding, else the committed one.
 const function pendingOrCommittedOf(groupId: String, committed: String): String =
   "($" + pendingSignal(groupId) + " || $" + committed + ")"
-
-/// The selection group of the variable `name` declared above the node, named
-/// as the server names it (`Server.varGroupId`).
-const function varGroup(name: String): String = "var_\(varMod.declarer(name))__\(name)"
-
-/// The value the server committed for `name`, for this viewer.
-const function varCommitted(name: String): String = "_" + varGroup(name)
-
-/// Choose `value` for the variable `name` declared above the tapped node. It
-/// sets only the pending signal; the server commits once the readers have
-/// re-rendered (ADR 0025). Plain tokens, since the value rides a route segment
-/// and a JS string.
-const function setVar(
-  name: String(matches(Regex("[A-Za-z][A-Za-z0-9_]*"))),
-  value: String(matches(Regex("[A-Za-z0-9_.:-]+")))
-): SetVar =
-  let (group = varGroup(name))
-    new {
-      onclick = clickSlot(
-        "\"$" + pendingSignal(group) + " = '" + value + "'; " +
-          #"@post('sse/var/" + dashboard_slug + "/"# + varMod.declarer(name) +
-          "/" + name + "/" + value + groupQuery(group) + #")""#
-      )
-    }
-
-/// Pending while a choice of `name` is in flight, else the committed value: what
-/// a highlight compares against.
-const function chosen(name: String): String =
-  pendingOrCommittedOf(varGroup(name), varCommitted(name))
 
 /// `call("scene/turn_on", dump.entities.kveld)`. An area or floor target
 /// reaches entities the dashboard never names, so the server allows only the

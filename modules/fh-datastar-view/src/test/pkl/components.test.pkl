@@ -291,16 +291,29 @@ facts {
     // A window names the chooser by the token, never by an id it cannot know.
     let (week = bar[2] as nodes.Node)
       (week.slots["onclick"] as slotMod.Slot).transform.contains(
-        "/" + varMod.declarer("window") + "/window/7d?group=var_" + varMod.declarer("window") + "__window'"
+        "/" + historyMod.windowVar.declarer + "/window/7d?group=" + historyMod.windowVar.below.group + "'"
       )
       && (week.slots["active"] as String).endsWith("=== '7d'")
   }
 
   ["a variable choice is guarded, and takes only plain tokens"] {
-    tapMod.setVar("window", "7d").busy
+    historyMod.windowVar.choose("7d").busy
     // A space would split the route segment, and a `'` close the JS string.
-    module.catch(() -> tapMod.setVar("window", "7 d")).contains("matches")
-    module.catch(() -> tapMod.setVar("window", "it's")).contains("matches")
+    module.catch(() -> historyMod.windowVar.choose("7 d")).contains("matches")
+    module.catch(() -> historyMod.windowVar.choose("it's")).contains("matches")
+    // The name is spelled into signals and the URL, so it is a token too.
+    module.catch(() -> new varMod.Variable { name = "my window" }.declarer).contains("matches")
+  }
+
+  ["a variable spells its declarer one way from its own template, another from below"] {
+    local tab = new varMod.Variable { name = "tab" }
+    tab.own.committed == "_var_{{id}}__tab"
+    tab.own.urlParam == "v.{{id}}.tab"
+    tab.below.group == "var_@@VAR:tab@@__tab"
+    tab.below.pending == "_var_@@VAR:tab@@__tab__pending"
+    tab.ref.`var` == "tab"
+    tab.declare("0") == new Mapping { ["tab"] = "0" }
+    tab.selects.name == "tab"
   }
 
   ["the declared window moves with `starting`"] {
@@ -432,7 +445,7 @@ facts {
   ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {
     tapMod.openPopup("p").busy
     tapMod.openPopupInline(c.title("x")).busy
-    tapMod.setVar("tab", "0").busy
+    new varMod.Variable { name = "tab" }.choose("0").busy
     c.tap.moreInfo(outside).busy
     !tapMod.navigate("home").busy
     !tapMod.closePopup().busy

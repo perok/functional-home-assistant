@@ -20,7 +20,7 @@ import "../hass.pkl"
 typealias Window = "1h"|"24h"|"7d"|"30d"
 
 /// The `history` provider's question: one entity over one window. The window
-/// may be a [[varMod.ref]] of a declared variable; the entity may not, because
+/// may be a read of a declared variable ([[varMod.Variable.ref]]); the entity may not, because
 /// substituting it is an access question (ADR 0023).
 const function historyQuery(entityId: String, w: Window|varMod.Ref): slotMod.Slot =
   slotMod.querySlot("history", new Mapping {
@@ -116,7 +116,7 @@ class HistoryChart extends nodes.Node {
     let (self = this) (self) { chartWidth = w; chartHeight = h }
 
   /// Read the window from the nearest [[WindowChooser]] above this chart.
-  function chosen(): HistoryChart = over(varMod.ref(windowVar))
+  function chosen(): HistoryChart = over(windowVar.ref)
 }
 
 /// The history answer as data rather than a drawing: now, low and high over
@@ -161,7 +161,7 @@ class HistoryReadings extends nodes.Node {
   }
 
   function over(w: Window|varMod.Ref): HistoryReadings = let (self = this) (self) { window = w }
-  function chosen(): HistoryReadings = over(varMod.ref(windowVar))
+  function chosen(): HistoryReadings = over(windowVar.ref)
 }
 
 // Named by the node, so two readings cards never share one signal.
@@ -191,17 +191,11 @@ function historyChart(e: hass.SensorEntity): HistoryChart =
 
 /// The node variable a [[WindowChooser]] declares and [[HistoryChart.chosen]]
 /// reads. Fixed rather than an argument on either: see [[HistoryChart.chosen]].
-const windowVar: String = "window"
+const windowVar: varMod.Variable = new { name = "window" }
 
 /// The windows the bar offers. A second list beside the typealias, but typed
 /// by it, so the only possible drift is an omission — visible on the bar.
 const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
-
-// The pending/committed pair (ADR 0025), from the chooser's own `{{id}}`: it is
-// the declarer its buttons name (`tapMod.varGroup`).
-const local varGroup: String = "var_{{id}}__\(windowVar)"
-const local varCommitted: String = "_\(varGroup)"
-const local urlParam: String = "v.{{id}}.\(windowVar)"
 
 /// A window bar over the charts beneath it: press `7d` and every
 /// [[HistoryChart.chosen]] in this subtree redraws at a week.
@@ -224,12 +218,12 @@ class WindowChooser extends nodes.Node {
       ["bar"] = new nodes.Region {}
     }
     template = """
-      <div class="fh-col" data-fh-url="['\(urlParam)', $\(varCommitted)]"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" \(windowVar.own.urlMirror)><div class="tabs" data-signals__ifmissing="{ \(windowVar.own.pendingSeed) }" \(windowVar.own.pendingClear)>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
       """
   }
-  /// The declared window: shown first, and again if the session is forgotten.
+  /// The declared window: shown until a viewer chooses another.
   hidden start: Window = "24h"
-  vars = new Mapping { [windowVar] = start }
+  vars = windowVar.declare(start)
   // `let`: inside the Mapping's body `children` does not resolve to this node's.
   regions = let (charts = children as Listing<nodes.LayoutNode>)
     new Mapping {
@@ -237,8 +231,8 @@ class WindowChooser extends nodes.Node {
         for (w in windows) {
           new surfaces.TabButton {
             label = w
-            active = "\(tapMod.chosen(windowVar)) === '\(w)'"
-            tapAction = tapMod.setVar(windowVar, w)
+            active = "\(windowVar.below.chosen) === '\(w)'"
+            tapAction = windowVar.choose(w)
           }
         }
       }

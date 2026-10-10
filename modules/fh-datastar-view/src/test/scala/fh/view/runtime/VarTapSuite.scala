@@ -8,6 +8,7 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
+  NodeId,
   QueryTemplate,
   Reads,
   Ref,
@@ -16,7 +17,6 @@ import fh.view.model.{
   Transform
 }
 import fh.view.testkit.{FakeConfig, FixtureEntity}
-import fh.view.testkit.TestIds.given
 import org.http4s.*
 
 import java.time.Instant
@@ -211,7 +211,7 @@ class VarTapSuite extends ServerHarness {
         assertEquals(result._1, Status.NoContent)
         assertEquals(
           chose,
-          Some(Map(("panel": fh.view.model.NodeId, "window") -> "7d"))
+          Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
         )
         // The week's series: the write moved the query, not just a signal.
         val painted = queued.flatMap(_.data).mkString
@@ -384,7 +384,7 @@ class VarTapSuite extends ServerHarness {
             assertEquals(refused._1, Status.Ok)
             assertEquals(
               chose,
-              Some(Map(("panel": fh.view.model.NodeId, "e") -> "sensor.b"))
+              Some(Map(VarKey(NodeId.derived("panel"), "e") -> "sensor.b"))
             )
             assertEquals(linked.status, Status.BadRequest)
             assertEquals(entities, Set("sensor.a", "sensor.b"))
@@ -433,7 +433,7 @@ class VarTapSuite extends ServerHarness {
           ).parTupled
           chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
         } yield assertEquals(
-          chose.map(_.keySet.map(_._2)),
+          chose.map(_.keySet.map(_.name)),
           Some(Set("e", "window"))
         ),
       dashboard = entityDash
@@ -499,7 +499,7 @@ class VarTapSuite extends ServerHarness {
           .flatMap(sseFrom(_)(isCursor))
         chose <- ts.sessions.get(doc.conn).flatMap(_.traverse(_.vars.get))
       } yield assertEquals(
-        chose.flatMap(_.get(("panel": fh.view.model.NodeId) -> "window")),
+        chose.flatMap(_.get(VarKey(NodeId.derived("panel"), "window"))),
         Some("7d")
       )
     }
@@ -519,7 +519,7 @@ class VarTapSuite extends ServerHarness {
       .openingSignals(
         renderer,
         Set.empty,
-        Map((("panel": fh.view.model.NodeId), "window") -> "7d"),
+        Map(VarKey(NodeId.derived("panel"), "window") -> "7d"),
         "log",
         0L
       )

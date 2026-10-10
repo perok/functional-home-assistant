@@ -55,7 +55,7 @@ case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
     // Here because a pull has no request to read them off (issue #209).
-    vars: Ref[IO, Map[(NodeId, String), String]],
+    vars: Ref[IO, Map[VarKey, String]],
     control: Queue[IO, SseFrame],
     holds: Ref[IO, Map[NodeId, Held]],
     haDown: Ref[IO, Option[Boolean]],
@@ -108,7 +108,7 @@ object Session {
   def create(slug: String): IO[Session] =
     for {
       o <- Ref[IO].of(Set.empty[String])
-      v <- Ref[IO].of(Map.empty[(NodeId, String), String])
+      v <- Ref[IO].of(Map.empty[VarKey, String])
       q <- Queue.unbounded[IO, SseFrame]
       h <- Ref[IO].of(Map.empty[NodeId, Held])
       // A stream-minted session told nothing; assume no banner state.
