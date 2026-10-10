@@ -1,4 +1,4 @@
-/// When HA's frontend draws an entity ON — the tile's filled badge — vendored
+/// When HA's frontend draws an entity ON — the tile's lit badge — vendored
 /// from `src/common/entity/state_active.ts` (frontend `dev`, 2ebe452, checked
 /// 2026-10-09). `core/slot.pkl`'s `activeOf` turns these into a reading.
 ///

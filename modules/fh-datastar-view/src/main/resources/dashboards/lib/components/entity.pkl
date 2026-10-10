@@ -9,7 +9,7 @@ import "base/tile.pkl" as tileMod
 import "moreinfo.pkl"
 
 /// Icon, label, value (the state or an attribute, unit appended), an optional
-/// second line and an optional tap. Its badge fills while the entity is on, by
+/// second line and an optional tap. Its badge is lit while the entity is on, by
 /// HA's per-domain rule (`slotMod.activeOf`). A thin [[tileMod.Tile]]: its own inputs
 /// are entity-relative (`value("brightness")` names an attribute of THIS
 /// entity) and become the tile's `title`, `reading` and `glyph`.
