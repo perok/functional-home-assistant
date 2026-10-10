@@ -437,6 +437,51 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a title too long for its card stays on it and ends in an ellipsis") {
+    // A tile's title is a flex item that is not stretched, so it was sized to
+    // its whole line: the box ran past the card and so never cut.
+    withPage(
+      Scene
+        .of(SmokeDashboard.longTitleCards)
+        .entity(SmokeDashboard.longNameLight),
+      viewport = Some(360 -> 740)
+    ) { (page, _) =>
+      for {
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-text").first()).isVisible()
+        )
+        boxes <- IO
+          .blocking(
+            page
+              .evaluate(
+                """() => JSON.stringify([...document.querySelectorAll('.fh-text')].map(box => ({
+                |  text: box.textContent.trim(),
+                |  right: box.getBoundingClientRect().right,
+                |  cardRight: box.closest('article, button, a').getBoundingClientRect().right,
+                |  cut: box.scrollWidth > box.clientWidth,
+                |  textOverflow: getComputedStyle(box).textOverflow
+                |})))""".stripMargin
+              )
+              .toString
+          )
+          .flatMap(json =>
+            IO.fromEither(decode[List[UiSmokeSuite.TextBox]](json))
+          )
+      } yield {
+        val titles = boxes.filter(_.text == SmokeDashboard.longName)
+        assertEquals(
+          titles.size,
+          2,
+          clue = "the tile, the button"
+        )
+        boxes.foreach(b => assert(b.right <= b.cardRight + 0.5, clue = b))
+        titles.foreach(b =>
+          assert(b.cut && b.textOverflow == "ellipsis", clue = b)
+        )
+      }
+    }
+  }
+
   /** Media query and cascade already applied. */
   private def rootTouchAction(page: Page): IO[String] =
     IO.blocking(
@@ -561,5 +606,24 @@ object UiSmokeSuite {
       "badgeWidth",
       "badgeHeight"
     )(RowBox.apply)
+  }
+
+  /** One `.fh-text` box against the card it is on. */
+  final case class TextBox(
+      text: String,
+      right: Double,
+      cardRight: Double,
+      cut: Boolean,
+      textOverflow: String
+  )
+
+  object TextBox {
+    given Decoder[TextBox] = Decoder.forProduct5(
+      "text",
+      "right",
+      "cardRight",
+      "cut",
+      "textOverflow"
+    )(TextBox.apply)
   }
 }
