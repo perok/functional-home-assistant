@@ -505,8 +505,10 @@ class ControlSmokeSuite extends SmokeSuite {
         assertEquals(memberOff, tileOff, clue = looks)
         assertNotEquals(tileOn._1, tileOff._1, clue = looks)
         assertNotEquals(tileOn._2, tileOff._2, clue = looks)
-        // No off: the on glyph on the off seat.
-        assertEquals(sensor, (tileOff._1, tileOn._2), clue = looks)
+        // No off: the on glyph, on a seat of its own.
+        assertEquals(sensor._2, tileOn._2, clue = looks)
+        assertNotEquals(sensor._1, tileOn._1, clue = looks)
+        assertNotEquals(sensor._1, tileOff._1, clue = looks)
       }
     }
   }
