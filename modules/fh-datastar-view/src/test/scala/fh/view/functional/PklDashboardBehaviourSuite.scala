@@ -389,17 +389,27 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   /** Written out because it is the contract: the hoist's `bakeInto`, the
-    * `ui.<host>` param and the renderer's node id are this one string, and they
-    * have silently drifted apart.
+    * `v.<host>.tab` param and the renderer's node id are this one string, and
+    * they have silently drifted apart.
     */
   private val tabsHost = "s_c_1_then__c_0_1"
+
+  /** A connect carrying this viewer's committed tab, as a reconnect does
+    * (`Server.SseInclude`): a stream opened with no page has no session to hold
+    * the choice.
+    */
+  private def onTab(host: String, i: Int): String =
+    "?datastar=" + java.net.URLEncoder.encode(
+      s"""{"_var_${host}__tab":"$i"}""",
+      "UTF-8"
+    )
 
   private def flip(ts: TestServer): IO[Unit] =
     ts.change(light.entityId, "off") *> ts.frame(light)
 
   test("each tab is guarded on its own busy signal (issue #412)") {
     withBranchServer(_.page()).map { html =>
-      val tabs = s"""<a [^>]*open/${tabsHost}_t\\d[^>]*>""".r
+      val tabs = s"""<a [^>]*sse/var/[^/]+/$tabsHost/tab/\\d[^>]*>""".r
         .findAllIn(html)
         .toList
       assertEquals(tabs.size, 2, clue = html)
@@ -418,7 +428,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   test("first paint on the second tab: that panel's content, not the default") {
-    withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>
+    withBranchServer(_.page(s"?v.$tabsHost.tab=1")).map { html =>
       assert(html.contains("Outside Temperature"), clue = html)
       assert(!html.contains("Living Room"), clue = html)
     }
@@ -428,7 +438,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     withBranchServer { ts =>
       // The branch is re-rendered for the slug with no client, so only the fill
       // can put this viewer's panel in it.
-      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
+      ts.sentAfter(flip(ts), query = onTab(tabsHost, 1)).map { live =>
         // The branch and this viewer's panel arrive in one patch, so no frame
         // shows an empty tabs card. Not counted: how many flips land after
         // opening is timing.
@@ -462,17 +472,23 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The tabs host seeds its selection signal from the baked index, so a panel
-    * re-revealed with the wrong index, or none, highlights a different tab than
-    * the one shown. Invisible to a content check, so asserted on the wire.
+  /** The committed tab is the page shell's signal, so a re-revealed bar carries
+    * no seed of it that could reset the highlight to another tab than the one
+    * shown. Invisible to a content check, so asserted on the wire.
     */
-  test("a re-revealed panel carries THIS client's selection signal") {
+  test("a re-revealed bar cannot reset THIS client's committed tab") {
     withBranchServer { ts =>
-      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
-        // The pending signal follows the committed one in the seed, so the
-        // comma pins that a value is present.
-        assert(!live.contains(s"ui_$tabsHost: ,"), clue = live)
-        assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
+      ts.sentAfter(flip(ts), query = onTab(tabsHost, 1)).map { live =>
+        assert(live.contains("Light is on"), clue = live)
+        assert(!live.contains(s"_var_${tabsHost}__tab:"), clue = live)
+        assert(!live.contains(s"ui_$tabsHost"), clue = live)
+        // Only the pending ask is seeded there, and only if missing.
+        assert(
+          live.contains(
+            s"""data-signals__ifmissing="{ _var_${tabsHost}__tab__pending: '' }""""
+          ),
+          clue = live
+        )
       }
     }
   }
@@ -546,9 +562,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       for {
         first <- ts.page()
         firstAsked <- asked
-        linked <- ts.page(s"?ui.$siblingBar=1&ui.$innerBar=1")
+        linked <- ts.page(s"?v.$siblingBar.tab=1&v.$innerBar.tab=1")
         linkedAsked <- asked
-        _ <- ts.page(s"?ui.$outerBar=1&ui.$innerBar=1")
+        _ <- ts.page(s"?v.$outerBar.tab=1&v.$innerBar.tab=1")
         hiddenAsked <- asked
       } yield {
         assert(first.contains("a-one") && !first.contains("b-one"), first)
@@ -570,7 +586,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         doc <- ts.load()
         _ <- asked
         y <- ts.postResult(
-          s"sse/surface/nested-tabs/open/${outerBar}_t1?group=$outerBar",
+          s"sse/var/nested-tabs/$outerBar/tab/1",
           body = s"""{"${fh.view.runtime.Server.ConnSignal}":"${doc.conn}"}"""
         )
         yAsked <- asked
@@ -640,7 +656,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             chosen <- asked
             opened <- post(
               doc.conn,
-              s"sse/surface/chooser-tabs/open/${bar}_t1?group=$bar"
+              s"sse/var/chooser-tabs/$bar/tab/1"
             )
             revealed <- asked
           } yield {

@@ -84,67 +84,34 @@ fetched at the new window when opened.
 
 ### 4. A tab bar writes a variable
 
-The headline. A `Tabs` declares `tab` (its member index, `"0"` by default), its buttons are
-`setVar("tab", i)`, and its panel's bake group is SELECTED by that variable:
+The headline, in two PRs so each stays reviewable. Decided with the maintainer: the variable
+is named `tab` (fixed, as the chooser's `window` is), it holds the member index, and an old
+`ui.<id>` link is not read, so it lands on the declared tab.
 
-- `Surface.activation` gains a third case, `Var(name)`: the group's member is the one whose
-  `bakeIndex` equals the variable as seen from the `bakeInto` node. Only `Tabs` bakes a
-  `User` group today, so after the switch no bake group is `User`: `defaultOpen` and the bake
-  arms of `resolveActive` are deleted in the same change, not left beside `Var`. `User` stays
-  for a popup, which has no host of its own to bake into.
-- A write whose (declarer, name) selects a bake group swaps the host (`swapHost`, unchanged),
-  and the refusal for it is "no member at that index". This is the same reader-parses rule
-  `refusals` applies to a query. **The panel must count as a reader**: today `Server.setVar`
-  refuses a variable no query reads (`readers.isEmpty`), which would refuse every tab press.
-- `resolveActive`, `selectedSurfaces` and `committedSelections` read the `VarEnv` for these
-  groups, on **every** path that bakes: the page, a surface fill, an `If` flip's placement
-  (ADR 0007's crossing edge) and a reconnect. A nested bar's panel is baked inside its outer
-  panel's fill, so a path that misses the env shows the inner default. The commit is
-  `_var_<id>__tab`, the URL `v.<id>.tab`, and the pending and clear helpers are the variable
-  ones the chooser already uses.
-- **Unopened branches stay unrendered.** Selection still decides the open set, and the
-  visibility chain (`visibleSurface`) still filters it, so only the source of the choice
-  moves. #505's tests pin it with a recorder that counts fetches: side-by-side and nested bars,
-  a choice inside a hidden panel, and a tab opened live. They are written against today's
-  `ui_`, and step 4 must keep them passing unchanged except for the link spelling.
-- Several bars on one page and nested bars need nothing extra: each `Tabs` is its own
-  declarer, so its value, signal and URL param are keyed apart, and a nested bar's declaration
-  shadows the outer one (step 3b).
-- ADRs 0005, 0007, 0025 and 0033 and the arch doc get rewritten in the same change. The
-  `PklBuildSuite` snapshots and `UiSmokeSuite`'s `ui.` assertions move with the wire.
+**4a — tabs switch.** A `Tabs` declares `tab` (`"0"`), its buttons are `setVar("tab", i)`, and
+its panel's surfaces are `Activation.Var("tab")`.
+
+- The panel's bake group is a reader of the variable (`Renderer.groupsSelectedBy`): a write
+  swaps the panel this viewer is shown, then commits `_var_<id>__tab`, and `refusals` refuses
+  a value that is not a member index. The open route refuses a variable-selected panel.
+- Every path that bakes takes its selections from the session's variables
+  (`SurfaceGraph.varSelections`, merged at the request's edge by `Server.selectionsOf`): the
+  page, an action, a minted session, a connect (after adopting the carried values), a renderer
+  swap. The pull reads `session.open`, which the write keeps in step.
+- `validate` requires the variable in scope at the bar and a declared member index.
+- #505's fetch-counting tests pass with only the link spelling and the tab route changed, so
+  unopened branches stay unrendered.
+
+**4b — user-selected bake groups go.** After 4a nothing in the library bakes a `User` group,
+so `defaultOpen`, the bake arms of `resolveActive`, `committedSelection`'s bake case and
+`uiStateFrom` for user groups are deleted, and `validate` refuses a `User` member with a
+`bakeInto`. `User` stays for a popup. The Scala fixtures that build a `User` bake group move to
+`Var`: `BuildPhaseSuite`, `SurfaceGraphSuite`, `RendererSuite`, `LiveStreamSuite`,
+`QueryDriftSuite`, `QueryRenderInputsSuite`, `RenderCacheContentionSuite` and `ServerHarness`.
 
 **The popup host stays `ui_popups`.** It lives in `theme.chrome`, outside every node, so no
 node can declare it. Moving it needs ADR 0033's root declaration first, which is future work
-there. After step 4 `uiStateOf` carries exactly one key, and that is the honest marker of
-what is left.
-
-#### Open for the maintainer before step 4
-
-Each has a recommendation; none is built.
-
-- **Name the variable `tab` or let the author name it?** Recommended: fixed, as the chooser's
-  is, so the declaration and the buttons cannot drift. Naming it would let a button elsewhere
-  in the panel switch tabs, which step 1 makes possible; that can come when one is wanted.
-- **Index or label as the value?** Recommended: the index. It is what `bakeIndex` and today's
-  `ui.` carry, and `tapMod.setVar` refuses a label with a space or a `'`. A label would
-  survive reordering the tabs.
-- **Old `ui.<id>` links.** Recommended: let them land on the default tab, the treatment ADR
-  0033 gives a stale `v.` link. Translating them is cheap, but it is a second spelling to keep.
-
-#### What it moves
-
-It is not a reviewable diff without these, so they are listed rather than discovered:
-
-- **Existing tests, in two groups.** Those that build a `User` bake group in Scala move with
-  the model: `BuildPhaseSuite`, `SurfaceGraphSuite`, `RendererSuite`, `LiveStreamSuite`,
-  `QueryDriftSuite`, `QueryRenderInputsSuite`, `RenderCacheContentionSuite` and
-  `ServerHarness`'s fixtures. Those that read `ui_`/`ui.` off a page move with the wire:
-  `ServerRoutesSuite`, `ResumeSuite`, `SetMembershipSuite`, `PklDashboardBehaviourSuite`'s
-  tab tests, `UiSmokeSuite`, `DatastarMorphContractSuite`, the tab facts in
-  `components.test.pkl`, and the two wire snapshots. Some of the second group assert the
-  popup's `ui_popups`, which does not move.
-- **`uiStateOf` and its threading** stay for the popup, so every render path keeps its
-  `uiState` parameter. Dropping it waits on the popup host.
+there. `uiStateOf` and the `uiState` parameter every render path takes stay for it.
 
 ## Not in this plan
 

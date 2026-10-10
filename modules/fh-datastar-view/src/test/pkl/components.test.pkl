@@ -432,7 +432,7 @@ facts {
   ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {
     tapMod.openPopup("p").busy
     tapMod.openPopupInline(c.title("x")).busy
-    tapMod.selectSurface("t_t0", "t", "0").busy
+    tapMod.setVar("tab", "0").busy
     c.tap.moreInfo(outside).busy
     !tapMod.navigate("home").busy
     !tapMod.closePopup().busy

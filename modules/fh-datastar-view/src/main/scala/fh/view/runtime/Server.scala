@@ -507,12 +507,14 @@ class Server(
         .cursorAnomaly(req)
         .traverse_(w => logger.warn(w))
       // The popup it still has open included, so a reconnect does not orphan
-      // the dialog on screen.
-      _ <- rendererOpt.traverse_ { r =>
-        warnAnomalies(r, uiState) *>
-          session.open.set(
-            r.surfaces.selectedSurfaces(uiState)
-          ) *> adoptCarriedVars(session, r, req)
+      // the dialog on screen. A tab bar's panel follows the session's
+      // variables, adopted first so a forgotten session keeps its tabs.
+      selections <- rendererOpt.fold(IO.pure(uiState)) { r =>
+        adoptCarriedVars(session, r, req) *>
+          selectionsOf(session, r, uiState).flatTap { sel =>
+            warnAnomalies(r, sel) *>
+              session.open.set(r.surfaces.selectedSurfaces(sel))
+          }
       }
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
@@ -550,7 +552,7 @@ class Server(
           case None            => Stream.empty
           case Some((l, open)) =>
             Stream
-              .eval(openingPatches(slug, l, session, req, uiState, open))
+              .eval(openingPatches(slug, l, session, req, selections, open))
               .flatMap(Stream.emits) ++
               l.doorbell.discrete
                 .evalMap(pull(l, session, _))
@@ -854,10 +856,12 @@ class Server(
             case (Some(prev), Some(r)) if prev.headHash != r.headHash =>
               IO.pure(List(Server.reloadPatch))
             case (Some(prev), Some(r)) =>
-              session.open.get.flatMap { was =>
+              (session.open.get, envOf(session, r)).flatMapN { (was, env) =>
                 // What is selected NOW, not the `uiState` this stream connected
-                // with: tab clicks and popups since have moved `open`.
-                val ui = prev.surfaces.committedSelections(was)
+                // with: popups since have moved `open`, and tab presses the
+                // session's variables.
+                val ui = prev.surfaces.committedSelections(was) ++
+                  r.surfaces.varSelections(env)
                 val open = r.surfaces.selectedSurfaces(ui)
                 (session.open.set(open) *>
                   (stateStore.current, live.log.get).tupled)
@@ -904,6 +908,13 @@ class Server(
       case None =>
         IO.raiseError(
           FHError.notFound(s"no surface '$id' on this dashboard — reload")
+        )
+      case Some(surf)
+          if surf.bakeInto.flatMap(renderer.surfaces.varSelecting).nonEmpty =>
+        IO.raiseError(
+          FHError.badCondition(
+            s"'$id' is chosen by a node variable, not opened — reload"
+          )
         )
       case Some(surf) =>
         swapHost(session, renderer, surf.hostId, Some(id), uiState)
@@ -1009,7 +1020,8 @@ class Server(
     answer(renderer, renderer.queriesForPage(open, states, env), env)
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209). Per session, like a tab switch: no `Mutation`.
+    * (issue #209): the queries that read it, and the tab panels it selects,
+    * swapped as a tab press always was. Per session: no `Mutation`.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) inside the
     * `modify`, so two choices landing together cannot drop one. Committed last
@@ -1024,11 +1036,14 @@ class Server(
       uiState: Map[String, String]
   ): IO[Unit] = {
     val readers = renderer.readersOf(declarer, name)
+    val groups = renderer.groupsSelectedBy(declarer, name)
     for {
       store <- stateStore.current
       open <- session.open.get
       shown = renderer.surfaces.visibleNode(_, open, store.entities)
-      _ <- IO.raiseWhen(readers.isEmpty || !shown(declarer))(
+      _ <- IO.raiseWhen(
+        (readers.isEmpty && groups.isEmpty) || !shown(declarer)
+      )(
         FHError.notFound(
           s"no node this viewer is shown reads the variable '$name' declared on '$declarer'"
         )
@@ -1045,10 +1060,21 @@ class Server(
           _.leftMap(r => FHError.badCondition(r.mkString("; "))).liftTo[IO]
         )
       env = renderer.varEnv(proposed)
+      selections = uiState ++ renderer.surfaces.varSelections(env)
+      // `refusals` made the value a member index of every group it selects.
+      _ <- groups.filter(shown).traverse_ { gid =>
+        val sid = renderer.surfaces.bakeGroup(gid)(value.toInt)
+        renderer
+          .surface(sid)
+          .filterNot(_ => open(sid))
+          .traverse_(s =>
+            swapHost(session, renderer, s.hostId, Some(sid), selections)
+          )
+      }
       targets = readers.filter(shown)
       snapshot <- answer(
         renderer,
-        renderer.readsForPull(targets, Nil, store.entities, uiState, env),
+        renderer.readsForPull(targets, Nil, store.entities, selections, env),
         env
       )
       holds <- session.holds.get
@@ -1060,7 +1086,7 @@ class Server(
             l.cache,
             holds,
             store.entities,
-            uiState,
+            selections,
             snapshot,
             _
           )
@@ -1108,6 +1134,18 @@ class Server(
         )
     )
   }
+
+  /** The request's selections with each tab bar's from the session's variables,
+    * which win: a stale `ui.` param cannot pick a tab.
+    */
+  private def selectionsOf(
+      session: Session,
+      renderer: Renderer,
+      fromRequest: Map[String, String]
+  ): IO[Map[String, String]] =
+    envOf(session, renderer).map(env =>
+      fromRequest ++ renderer.surfaces.varSelections(env)
+    )
 
   // From the SESSION, not the request: a live pull has no request.
   private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
@@ -1164,7 +1202,8 @@ class Server(
                   sessionFor(slug, conn, renderer, uiState).flatMap {
                     case None => actionRefused(req, Server.WrongSlugMessage)
                     case Some(session) =>
-                      f(session, renderer, uiState) *> NoContent()
+                      selectionsOf(session, renderer, uiState)
+                        .flatMap(f(session, renderer, _)) *> NoContent()
                   }
               }
               // A 4xx becomes a refusal; a 5xx is our bug and stays with
@@ -1194,7 +1233,12 @@ class Server(
       case None          =>
         Session
           .create(slug)
-          .flatTap(_.open.set(renderer.surfaces.selectedSurfaces(uiState)))
+          .flatTap(s =>
+            selectionsOf(s, renderer, uiState)
+              .flatMap(sel =>
+                s.open.set(renderer.surfaces.selectedSurfaces(sel))
+              )
+          )
           .flatTap(sessions.register(conn, _))
           .flatTap(reapAfter(conn, _, Tenure.Fresh, windows.adoption))
           .map(Some(_))
@@ -1445,13 +1489,16 @@ class Server(
       req: Request[IO],
       choices: Map[(NodeId, String), String]
   ): IO[Response[IO]] = {
-    val uiState = Server.uiStateOf(req)
+    val fromRequest = Server.uiStateOf(req)
+    val uiState =
+      fromRequest ++ renderer.surfaces.varSelections(renderer.varEnv(choices))
     val editMode = req.uri.query.params.get("edit").contains("1")
     // Narrowed: a popup this dashboard cannot serve is not shown, so it must
-    // not be seeded back either.
-    val restoreUi = renderer.surfaces.openPopup(uiState) match {
-      case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
-      case None      => uiState - Dashboard.PopupHostId
+    // not be seeded back either. The request's only: a tab bar's choice is on
+    // the session, not forwarded as a `ui.` param.
+    val restoreUi = renderer.surfaces.openPopup(fromRequest) match {
+      case Some(sid) => fromRequest.updated(Dashboard.PopupHostId, sid)
+      case None      => fromRequest - Dashboard.PopupHostId
     }
     val open = renderer.surfaces.selectedSurfaces(uiState)
     for {
