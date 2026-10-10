@@ -34,7 +34,7 @@ layout.pkl  Row/Column/Grid                                  — the boxes you c
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
             light · lock · moreinfo · history · progress · tap
   components/base/  button · onoff · tile · slider ·         — the same, knowing no HA
-                    features · text · surface
+                    text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema

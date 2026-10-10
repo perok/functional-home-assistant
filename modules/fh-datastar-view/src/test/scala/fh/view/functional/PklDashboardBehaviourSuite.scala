@@ -802,11 +802,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .mapN {
         case ((restHtml, _), (movingHtml, _)) => {
           assert(
-            movingHtml.contains("card entity tappable fh-disabled"),
+            movingHtml.contains("fh-tile tappable fh-disabled"),
             clue = movingHtml
           )
           assert(
-            !restHtml.contains("card entity tappable fh-disabled"),
+            !restHtml.contains("fh-tile tappable fh-disabled"),
             clue = restHtml
           )
         }
@@ -1000,7 +1000,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(html.contains("fh-text-wrap"), clue = html)
           assert(
             html.contains(
-              """<span class="fh-text"><span class="fh-text-run">Kitchen"""
+              """<span class="fh-text"><span class="fh-text-run" >Kitchen"""
             ),
             clue = html
           )

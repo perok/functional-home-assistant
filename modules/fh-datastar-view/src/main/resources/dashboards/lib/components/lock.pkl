@@ -14,7 +14,6 @@ import "control.pkl" as control
 import "base/button.pkl" as buttonMod
 import "base/text.pkl" as textMod
 import "entity.pkl" as entityMod
-import "base/features.pkl" as featuresMod
 import "tap.pkl" as verbs
 
 /// Release the latch (`lock/open`; an unlocked door is still shut), behind a
@@ -47,5 +46,5 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
 /// no group to pass (ADR 0013).
 function controls(l: hass.LockEntity): nodes.LayoutNode =
   if (l.supportsOpen)
-    featuresMod.withFeatures(entityMod.entityCard(l), List(openLatch(l)))
+    entityMod.entityCard(l).features(List(openLatch(l)))
   else entityMod.entityCard(l)
