@@ -48,6 +48,26 @@ private[runtime] final class SurfaceGraph(
   def isStateGroup(gid: NodeId): Boolean =
     bakeGroup(gid).headOption.exists(isStateSurface)
 
+  /** The node variable selecting `gid`'s member, for a tab bar's panel. */
+  def varSelecting(gid: NodeId): Option[String] =
+    bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
+      case Activation.Var(name) => name
+    }
+
+  private def isVarGroup(gid: NodeId): Boolean = varSelecting(gid).isDefined
+
+  /** Each variable-selected group's member index from this viewer's variables,
+    * in the shape [[resolveActive]] reads. `env` is total over declarations and
+    * `validate` puts the variable in scope at the host, so every such group has
+    * an entry.
+    */
+  def varSelections(env: VarEnv): Map[String, String] =
+    userBakeOwnerIds.toList.flatMap { gid =>
+      varSelecting(gid)
+        .flatMap(name => env.get(gid).flatMap(_.get(name)))
+        .map(gid -> _)
+    }.toMap
+
   private val bakeOwnerIds: Set[NodeId] =
     surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
 
@@ -286,7 +306,7 @@ private[runtime] final class SurfaceGraph(
             (
               fallback,
               Some(
-                s"ui-state ui_$gid='$raw' is not a valid tab index " +
+                s"selection '$raw' for bake group $gid is not a member index " +
                   s"(0..${n - 1}); using $fallback"
               )
             )
@@ -353,7 +373,8 @@ private[runtime] final class SurfaceGraph(
         .flatMap(surfaces.get)
         .flatMap(_.bakeInto)
         .headOption
-        .filterNot(isStateGroup)
+        // A variable's commit is the variable's own signal.
+        .filterNot(gid => isStateGroup(gid) || isVarGroup(gid))
         .zip(newSurface)
         .flatMap { case (gid, sid) =>
           bakeGroup(gid).indexOf(sid) match {
@@ -366,7 +387,7 @@ private[runtime] final class SurfaceGraph(
     * swap's patch and its signal leaves them disagreeing.
     */
   def committedSelections(open: Set[String]): Map[String, String] =
-    uiStateFrom(open) +
+    uiStateFrom(open).filterNot((gid, _) => isVarGroup(NodeId.derived(gid))) +
       (Dashboard.PopupHostId -> surfacesAt(Dashboard.PopupHostId)
         .find(open)
         .getOrElse(""))

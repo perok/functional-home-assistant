@@ -587,8 +587,8 @@ render the DEFAULT tab and its repaint would morph the correct first paint away,
 dragging the URL mirror down with it. So `Server.Restore` puts the page's view state
 (bake selections, the open popup among them) on the `data-init` URL as ordinary
 query params; every later request carries live signals, which win wherever both
-name the same fact. The open popup is not a separate carrier: it is
-`ui.<PopupHostId>`, the same selection mechanism as a tab. See ADR 0005 for where
+name the same fact. A tab bar's selection needs neither: it is a node variable
+the page GET recorded on the session (ADR 0033). See ADR 0005 for where
 per-connection state lives.
 
 ### Nothing may be dropped from a stream that carries a cursor
@@ -805,16 +805,16 @@ does not spell out:
 > `__ifmissing` initialises a signal only if nothing has REFERENCED it yet. A
 > read creates the signal (as `""`), after which the seed correctly declines.
 
-Seeding from the panel could never work, because the tabs BAR reads `$ui_<id>`
-for its highlight and renders first — the signal stayed `""` and the URL mirror
+Seeding from the panel could never work, because the tabs BAR reads its
+selection signals for its highlight and renders first — the signal stayed `""` and the URL mirror
 faithfully wrote empty, which is how a deep link lost its selection. Seeding
 from the BAR works: a parent's seed reaches its children's readers. Both halves
 are pinned by `DatastarMorphContractSuite`.
 
-It costs one prerequisite. A tabs node's template reads `{{bakeIndex}}`, so its bytes
-depend on the selection and every path that renders it has to know the viewer. Every
-render path therefore takes the viewer's `uiState`, which is also what makes any variant
-machinery unnecessary (ADR 0012).
+It costs one prerequisite. A structural node bakes the viewer's selected panel, so
+every path that renders one has to know the viewer. Every render path therefore takes
+the viewer's selections (`uiState`), which is also what makes any variant machinery
+unnecessary (ADR 0012).
 
 What it buys: a re-render can no longer overwrite the tab a client actually
 chose, which closes the race between a tab click and a patch already in flight.

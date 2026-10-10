@@ -14,8 +14,8 @@
           "inlineSurfaces" : {
             "t0" : {
               "activation" : {
-                "defaultOpen" : true,
-                "kind" : "user"
+                "kind" : "var",
+                "name" : "tab"
               },
               "bakeAs" : "panel",
               "bakeIndex" : 0,
@@ -237,6 +237,10 @@
               }
             },
             "t1" : {
+              "activation" : {
+                "kind" : "var",
+                "name" : "tab"
+              },
               "bakeAs" : "panel",
               "bakeIndex" : 1,
               "bakeInto" : "@@NODE_ID@@",
@@ -320,14 +324,14 @@
                 "card" : "tab",
                 "kind" : "component",
                 "slots" : {
-                  "active" : "String(($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@)) === '0'",
+                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
                   "busy" : "1",
                   "busyVisual" : "1",
                   "label" : "Temp",
                   "onclick" : {
                     "bypassUnavailable" : false,
                     "reads" : "once",
-                    "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t0?group=@@NODE_ID@@')\""
+                    "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
                   },
                   "tappable" : "1"
                 }
@@ -336,14 +340,14 @@
                 "card" : "tab",
                 "kind" : "component",
                 "slots" : {
-                  "active" : "String(($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@)) === '1'",
+                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
                   "busy" : "1",
                   "busyVisual" : "1",
                   "label" : "Light",
                   "onclick" : {
                     "bypassUnavailable" : false,
                     "reads" : "once",
-                    "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t1?group=@@NODE_ID@@')\""
+                    "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
                   },
                   "tappable" : "1"
                 }
@@ -352,6 +356,9 @@
           },
           "slots" : {
             
+          },
+          "vars" : {
+            "tab" : "0"
           }
         },
         {
@@ -781,7 +788,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-fh-url=\"['ui.{{id}}', $ui_{{id}}]\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
+      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__tab__pending: '' }\" data-effect=\"$_var_{{id}}__tab__pending !== '' && $_var_{{id}}__tab == $_var_{{id}}__tab__pending && ($_var_{{id}}__tab__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-fh-url=\"['v.{{id}}.tab', $_var_{{id}}__tab]\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
     },
     "tile" : {
       "slots" : [

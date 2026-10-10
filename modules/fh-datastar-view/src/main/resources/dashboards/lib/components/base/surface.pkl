@@ -21,7 +21,7 @@ class TabButton extends nodes.Node {
     wrapAsCell = false
   }
   hidden label: String
-  hidden tapAction: tapMod.Selection
+  hidden tapAction: tapMod.SetVar
   /// A Datastar boolean expression for the `.active` class.
   hidden active: String
   slots {
@@ -33,16 +33,18 @@ class TabButton extends nodes.Node {
   }
 }
 
-/// A tab bar over one panel. Each tab's cards become an inline surface baked
-/// into this card's panel host; the first is open by default. The swap writes
-/// `ui_<id>`, which the panel mirrors into the URL, so a refresh restores the
-/// tab without a flash.
+/// A tab bar over one panel. It declares the node variable `tab`, the open
+/// tab's index; each tab's cards become an inline surface baked into the panel
+/// host and selected by it, and each button writes it (ADR 0033). The server
+/// commits `_var_<id>__tab` once the panel is in, the panel mirrors it into the
+/// URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
 class Tabs extends nodes.Node {
   card = "tabs"
-  // Both selection signals are seeded `__ifmissing` on the BAR, not the panel:
+  // The pending signal is seeded `__ifmissing` on the BAR, not the panel:
   // `__ifmissing` declines for a signal something already read, and the bar's
-  // buttons read both. A parent's seed reaches its children's readers, a later
-  // sibling's does not (`DatastarMorphContractSuite`).
+  // buttons read it. A parent's seed reaches its children's readers, a later
+  // sibling's does not (`DatastarMorphContractSuite`). The committed one is the
+  // page shell's, seeded for every declaration.
   //
   // The bar is structure: it holds the buttons and carries no live value; a
   // selection arrives as a signal frame. A live header goes beside the buttons
@@ -53,7 +55,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-fh-url="['ui.{{id}}', $ui_{{id}}]">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(tabGroup)) }" \(tapMod.pendingClearAgainst(tabGroup, tabCommitted))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-fh-url="['v.{{id}}.\(tabVar)', $\(tabCommitted)]">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.
@@ -67,6 +69,7 @@ class Tabs extends nodes.Node {
   hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
   // A List, because the derivations below need each tab's index.
   hidden labels: List<String> = tabs.keys.toList()
+  vars = new Mapping { [tabVar] = "0" }
   inlineSurfaces = new Mapping {
     for (i, l in labels) {
       ["t\(i)"] = new surfaceMod.SurfaceDef {
@@ -74,7 +77,7 @@ class Tabs extends nodes.Node {
         bakeInto = nodes.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
-        activation = if (i == 0) new surfaceMod.UserActivation { defaultOpen = true } else null
+        activation = new surfaceMod.VarActivation { name = tabVar }
       }
     }
   }
@@ -82,15 +85,11 @@ class Tabs extends nodes.Node {
     for (i, l in labels) {
       new TabButton {
         label = l
-        // Strict, as strings: pending is a string and committed a number, but
-        // loose `==` also makes `'' == 0` true, so an unseeded selection would
-        // highlight tab 0. `Number('')` is 0 too, hence `String(…)`.
-        active = "String(\(tapMod.pendingOrCommitted(nodes.NODE_ID))) === '\(i)'"
-        tapAction = tapMod.selectSurface(
-          "\(nodes.NODE_ID)_t\(i)",
-          nodes.NODE_ID,
-          i.toString()
-        )
+        // Strict, as strings: loose `==` makes `'' == 0` true, so an unseeded
+        // selection would highlight tab 0. `Number('')` is 0 too, hence
+        // `String(…)`.
+        active = "String(\(tapMod.chosen(tabVar))) === '\(i)'"
+        tapAction = tapMod.setVar(tabVar, i.toString())
       }
     }
   }
@@ -98,6 +97,15 @@ class Tabs extends nodes.Node {
 
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
 hidden tabs: Tabs = new Tabs {}
+
+/// The node variable a [[Tabs]] declares and its buttons write. Fixed, as the
+/// window chooser's is, so the declaration and its writers cannot drift.
+const tabVar: String = "tab"
+
+// The pending/committed pair (ADR 0025), from the bar's own `{{id}}`: it is the
+// declarer its buttons name.
+const local tabGroup: String = "var_{{id}}__\(tabVar)"
+const local tabCommitted: String = "_\(tabGroup)"
 
 const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivation =
   new { condition = p }

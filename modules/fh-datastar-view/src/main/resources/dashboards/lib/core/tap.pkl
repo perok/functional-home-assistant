@@ -86,9 +86,6 @@ class SetVar extends Click {
   busy = true
 }
 
-/// What a tab-like bar's button takes: it selects, and the server commits.
-typealias Selection = OpenSurface|SetVar
-
 // URLs are relative to the page's <base href>, which is the ingress prefix
 // behind the HA proxy. Every route names the dashboard slug so the server can
 // admit only calls that dashboard declares (ADR 0023): `{{dashboardSlug}}` in a
@@ -173,8 +170,8 @@ const busyChangeSig: String = "_{{id}}__busy_change"
 /// body the bundle never parses.
 const errorSig: String = "_{{id}}__error"
 
-/// Tells the server which selection group a surface open answers, so a refusal
-/// can end its pending ask. A query parameter, because the value route already
+/// Tells the server which selection group a variable write answers, so a
+/// refusal can end its pending ask. A query parameter, because the value route already
 /// ends in positional segments.
 const local function groupQuery(group: String): String = "?group=\(group)'"
 
@@ -396,23 +393,17 @@ const local function clickSlot(transformExpr: String): slotMod.Slot = new {
 }
 
 // A transform rather than a constant, because only a transform can read
-// `dashboard_slug`. `head` is the pending assignment, run first so the display
-// moves on the press; `group` is the selection group a refusal ends
-// ([[pendingClear]]), null for a popup.
-const local function openSurfaceOnclick(
-  surfaceId: String,
-  head: String,
-  group: String?
-): slotMod.Slot =
+// `dashboard_slug`.
+const local function openSurfaceOnclick(surfaceId: String): slotMod.Slot =
   clickSlot(
     // `"\""`, not `#"""#`, which would open a multi-line string.
-    "\"" + head + #"@post('sse/surface/""# +
-      #" + dashboard_slug + "/open/"# + surfaceId +
-      (if (group == null) "'" else groupQuery(group)) + #")""#
+    #""@post('sse/surface/""# + #" + dashboard_slug + "/open/"# + surfaceId +
+      #"')""#
   )
 
-/// What this client has ASKED a selection group to show; `ui_<groupId>` is
-/// what the server says it shows (ADR 0025). Cleared by [[pendingClear]].
+/// What this client has ASKED a selection group to show; the committed signal
+/// is what the server says it shows (ADR 0025). Cleared by
+/// [[pendingClearAgainst]].
 const function pendingSignal(groupId: String): String = "_\(groupId)__pending"
 
 /// The pending signal's seed entry, for splicing into a host's existing
@@ -423,32 +414,15 @@ const function pendingSeedEntry(groupId: String): String =
 
 /// Empties the pending signal once the committed value agrees. Comparing to
 /// the committed value, rather than clearing in the frame, is what keeps tap
-/// A's response from clearing tap B's pending. `==` is loose: the seed is a
-/// number, a committed index a string. The page-wide ends (a dead stream, a
-/// non-200) are `Server.PendingSweep`'s.
-const function pendingClear(groupId: String): String =
-  pendingClearAgainst(groupId, "ui_\(groupId)")
-
-/// [[pendingClear]] against a named committed signal (a node variable's lives
-/// under `_var_`).
+/// A's response from clearing tap B's pending. The page-wide ends (a dead
+/// stream, a non-200) are `Server.PendingSweep`'s.
 const function pendingClearAgainst(groupId: String, committed: String): String =
   let (sig = pendingSignal(groupId))
     #"data-effect="$\#(sig) !== '' && $\#(committed) == $\#(sig) && ($\#(sig) = '')""#
 
 /// The pending value while one is outstanding, else the committed one.
-const function pendingOrCommitted(groupId: String): String =
-  pendingOrCommittedOf(groupId, "ui_\(groupId)")
-
 const function pendingOrCommittedOf(groupId: String, committed: String): String =
   "($" + pendingSignal(groupId) + " || $" + committed + ")"
-
-/// A tab bar's open-a-member click. It sets only the pending signal; the
-/// committed `ui_<groupId>` is the server's to write. Public because the bar is
-/// built in `components/base/surface.pkl`.
-const function selectSurface(surfaceId: String, groupId: String, value: String): OpenSurface =
-  new {
-    onclick = openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
-  }
 
 /// The selection group of the variable `name` declared above the node, named
 /// as the server names it (`Server.varGroupId`).
@@ -549,14 +523,14 @@ function closePopup(): Click =
 // No pending assignment: nothing on the page displays a popup selection.
 function openPopup(surfaceId: String): OpenSurface =
   new {
-    onclick = openSurfaceOnclick(surfaceId, "", null)
+    onclick = openSurfaceOnclick(surfaceId)
   }
 
 /// Open `body` in a popup of this node's own; the hoist mints its id
 /// (`<NODE_ID>_self`). A separate function from [[openPopup]] because Pkl
 /// cannot dispatch on String|Node (ADR 0006).
 function openPopupInline(body: nodes.LayoutNode): OpenSurface = new {
-  onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "", null)
+  onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self")
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }

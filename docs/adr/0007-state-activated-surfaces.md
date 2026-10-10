@@ -21,10 +21,10 @@ gated on live entity state. The requirements that shaped the design:
 
 A tabs group already has the exact shape an if/else needs: **one stable host
 element, N alternative subtrees registered as surfaces, exactly one baked in,
-the inactive ones not rendered and not streamed** (ADR 0002). The tab *bar*,
-the active-tab signal, and its URL mirror are authoring-layer composition the
-`tabs` card adds — the backend never required them. So an if/else is a bake
-group whose member is selected by a **condition** instead of a click:
+the inactive ones not rendered and not streamed** (ADR 0002). The tab *bar*
+and its URL mirror are authoring-layer composition the `tabs` card adds, and
+its selection is a node variable (ADR 0033). So an if/else is a bake group
+whose member is selected by a **condition** instead of a viewer's choice:
 
 - **No new `LayoutNode` kind.** An `If` is an ordinary host card (`ifhost`,
   template `<div id="{{id}}">{{{branch}}}</div>`) plus inline surfaces riding
@@ -33,9 +33,9 @@ group whose member is selected by a **condition** instead of a click:
   (inactive surfaces are simply never consulted), not a guard bolted onto the
   patch loop.
 - **`Surface.activation` is a sum**, replacing the flat `defaultOpen` flag:
-  `User(defaultOpen)` | `State(condition: Predicate)`. The sum
-  makes the invalid combination (a default-open flag AND a condition on one
-  member) unrepresentable; a bake group must be mode-homogeneous
+  `User(defaultOpen)` | `Var(name)` | `State(condition: Predicate)`, where
+  `Var` is a tab bar's (ADR 0033). The sum makes the invalid combination (a
+  default-open flag AND a condition on one member) unrepresentable; a bake group must be mode-homogeneous
   (`Dashboard.validate` rejects mixing). The flat wire field is retired — no
   legacy decode; an absent `activation` decodes to `User(false)`, so plain
   popups author nothing new.

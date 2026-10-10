@@ -20,7 +20,7 @@ open class SurfaceDef {
   bakeInto: String? = null
   bakeAs: String? = null
   bakeIndex: Int? = null
-  activation: (UserActivation|StateActivation)? = null
+  activation: (UserActivation|VarActivation|StateActivation)? = null
 }
 
 /// Shown by a user action, so which member a client sees is per session.
@@ -28,6 +28,14 @@ open class SurfaceDef {
 class UserActivation {
   kind: "user" = "user"
   defaultOpen: Boolean = false
+}
+
+/// The member whose `bakeIndex` is the node variable `name`, as seen from the
+/// node it bakes into: a tab bar's panel. Per viewer, like [[UserActivation]],
+/// but declared, so a choice is a variable write (ADR 0033).
+class VarActivation {
+  kind: "var" = "var"
+  name: String
 }
 
 /// Shown while `condition` holds over live state — the same for every viewer.

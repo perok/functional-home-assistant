@@ -460,8 +460,11 @@ object Predicate:
 
 /** How a [[Surface]] becomes visible.
   *
-  *   - `User`: a tap or tab click, optionally open from first paint. The
-  *     selection is per connection (ADR 0005).
+  *   - `User`: a tap, optionally open from first paint. The selection is per
+  *     connection (ADR 0005).
+  *   - `Var`: the member whose `bakeIndex` is the node variable `name`, as seen
+  *     from the `bakeInto` node — a tab bar's panel (ADR 0033). Per viewer,
+  *     like `User`, but declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
@@ -470,6 +473,7 @@ object Predicate:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
+  case Var(name: String)
   case State(condition: Predicate)
 
 sealed trait LayoutNode derives ConfiguredDecoder {
@@ -909,7 +913,7 @@ case class Dashboard(
     referencedEntities ++ deciders(card) ++ surfaces.values.toList.flatMap(s =>
       deciders(s.content) ++ (s.activation match {
         case Activation.State(c) => Predicate.referencedEntities(c)
-        case _: Activation.User  => Nil
+        case _: Activation.User | _: Activation.Var => Nil
       })
     )
   }
@@ -1620,14 +1624,28 @@ case class Dashboard(
         .flatMap { case (gid, members) =>
           val kinds = members.map {
             case (_, _, _: Activation.User)  => "user"
+            case (_, _, _: Activation.Var)   => "var"
             case (_, _, _: Activation.State) => "state"
           }.distinct
+          val names = members.collect { case (_, _, Activation.Var(n)) => n }
           Option
             .when(kinds.size > 1)(
-              s"bake group '$gid' mixes user- and state-activated members: " +
-                members.map(_._2).sorted.mkString(", ")
+              s"bake group '$gid' mixes " +
+                List("user", "var", "state")
+                  .filter(kinds.contains)
+                  .map(_ + "-")
+                  .mkString(" and ") +
+                "activated members: " + members.map(_._2).sorted.mkString(", ")
             )
-            .toList
+            .toList ++ names.distinct.match {
+            case List(name) => varSelectionErrors(gid, name, members.size)
+            case Nil        => Nil
+            case many       =>
+              List(
+                s"bake group '$gid' is selected by more than one variable: " +
+                  many.sorted.mkString(", ")
+              )
+          }
         }
 
     val unboundConditions: List[String] =
@@ -1744,6 +1762,30 @@ case class Dashboard(
       surfaces.toList.sortBy(_._1)
     )
   }
+
+  /** A variable-selected group needs its variable in scope at the host, and a
+    * declared value that is a member index: the declared value is what bakes
+    * before anyone chooses, and only a viewer's choice is checked at the write.
+    */
+  private def varSelectionErrors(
+      gid: NodeId,
+      name: String,
+      size: Int
+  ): List[String] =
+    varScopes.get(gid).flatMap(_.get(name)) match {
+      case None =>
+        List(
+          s"bake group '$gid' is selected by the variable '$name', which no " +
+            "node at or above it declares"
+        )
+      case Some(in)
+          if !in.declared.toIntOption.exists(i => i >= 0 && i < size) =>
+        List(
+          s"bake group '$gid' is selected by '$name', declared '${in.declared}' " +
+            s"on ${in.declarer}, which is not a member index (0..${size - 1})"
+        )
+      case Some(_) => Nil
+    }
 
   /** The declared values a surface's content starts with ([[varScopes]]). */
   def scopeOf(s: Surface): Map[String, String] =

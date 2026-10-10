@@ -5,8 +5,9 @@ choice **writes** it for that viewer's session. Resolution is up the ancestor ch
 Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it replaces the
 `settable` draft of [#210](https://github.com/perok/functional-home-assistant/issues/210).
 
-The first user is a chart's window: `c.windowChooser` declares `window`, and every
-`c.historyChart(s).chosen()` beneath it reads it, so pressing `7d` redraws them all.
+Two users: a chart's window — `c.windowChooser` declares `window`, and every
+`c.historyChart(s).chosen()` beneath it reads it, so pressing `7d` redraws them all — and a tab
+bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
 
 ## Context
 
@@ -76,8 +77,7 @@ would otherwise chart the lock from a `Public` dashboard. A refused write is ADR
 signals; a refused URL is a 400 before any session exists; a refused carry is dropped with a
 warning, leaving the declared values. A choice naming no declaration is
 inert, not an error — a stale link after a rename, treated as `SurfaceGraph.openPopup` treats a
-gone surface. `v.` is its own prefix rather than `ui.`: a `ui.` entry is a bake branch that
-`SurfaceGraph` narrows, a variable is a value its reader narrows.
+gone surface, and an old `ui.<id>` tab link is not read at all. `ui.` is now only the popup's.
 
 **A write re-renders the readers this viewer is shown, then commits** (ADR 0025): the press writes
 `_var_<declarer>__<name>__pending`, the server commits `_var_<declarer>__<name>` after the repaints,
@@ -90,6 +90,16 @@ one `Listing<Window>`, each value a `tab` node whose tap is `tapMod.setVar`: a g
 naming the declarer by token in its route and its pending signal. A button per node is what lets
 each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` takes the variable's
 name, so the pair cannot drift.
+
+**A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
+panel's surfaces are `Activation.Var("tab")`: the member whose `bakeIndex` is the variable as seen
+from the bar. Its buttons are `tapMod.setVar("tab", i)`, so a tab press is a variable write whose
+reader is the bake group (`Renderer.groupsSelectedBy`): the write swaps the panel this viewer is
+shown and commits after it, and a value that is not a member index of every panel it selects is
+refused like an unparseable window. A tab panel cannot be opened directly; the open route refuses
+it, since the panel would move without the variable. `validate` requires the variable in scope at
+the bar and its declared value to be a member index. Several bars, and a bar nested in another's
+panel, are kept apart by being different declarers.
 
 A highlight reads the committed `_var_<declarer>__<name>`, which the server writes for every
 declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
@@ -130,8 +140,9 @@ a value is ambient session state, in hand before the walk, never computed by it.
 
 ## Consequences
 
-- **The render key gained nothing.** Only a query parameter can read a variable, and two viewers on
-  different windows already produce different `SlotRead`s, which the render key and both caches
+- **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
+  bake group's selection is structure, which is never cached. Two viewers on different windows
+  already produce different `SlotRead`s, which the render key and both caches
   distinguish. Measured: two windows over one sensor are unordered in `RenderCache`, so
   alternating viewers re-render each time — a mustache splice of SVG already drawn, since
   `renderNodeById` takes a `QuerySnapshot` and cannot fetch or draw. No bucketing; reopen only if
@@ -164,7 +175,3 @@ a value is ambient session state, in hand before the walk, never computed by it.
   names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists.
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.
-- **Whether the bake selection becomes a variable.** Same kind of fact — session state, committed
-  by the server, mirrored to the URL — and "it is client state" is the plausible wrong reason to
-  leave it. The real one is blast radius: ADRs 0005, 0007 and 0025 and the tab bar, for no new
-  capability. Revisit once node variables have more than one user.

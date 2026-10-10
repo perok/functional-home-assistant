@@ -228,9 +228,11 @@ word the runtime uses; not to be confused with a **region**, which is the declar
 
 **Bake** — to render chosen content into a host. A surface declares which node it bakes **into**;
 the host renders it as **bakeAs**; **bakeIndex** is which member of the group is currently chosen,
-exposed so a tab bar can show the selection without JavaScript.
+exposed so a card can show the selection without JavaScript.
 
-**Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time.
+**Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
+chooses is the group's activation: a node variable for a tab bar (`Activation.Var`, ADR 0033), a
+condition for an `If` branch.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

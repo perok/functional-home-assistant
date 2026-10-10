@@ -247,6 +247,16 @@ class Renderer(
         id
     }
 
+  /** The variable-selected bake groups a write of `(declarer, name)` moves: the
+    * panel a tab press swaps. A reader as much as a query is, so a write that
+    * reaches one is not refused for lacking a query reader.
+    */
+  def groupsSelectedBy(declarer: NodeId, name: String): List[NodeId] =
+    surfaces.userBakeOwnerIds.toList.sorted.filter(gid =>
+      surfaces.varSelecting(gid).contains(name) &&
+        varScopes.get(gid).flatMap(_.get(name)).exists(_.declarer == declarer)
+    )
+
   /** One line per refused choice. Every reader must still parse and read only
     * an entity this dashboard shows — the read-side twin of an action's bound
     * (ADR 0023), without which a variable fed to `entity` charts any sensor.
@@ -254,10 +264,15 @@ class Renderer(
   def refusals(choices: Map[(NodeId, String), String]): List[String] = {
     val env = varEnv(choices)
     choices.toList.flatMap { case ((declarer, name), value) =>
-      val why = readersOf(declarer, name)
+      val why = (readersOf(declarer, name)
         .flatMap(readsAt(_, env))
-        .flatMap(r => refusal(r.query))
-        .distinct
+        .flatMap(r => refusal(r.query)) ++
+        groupsSelectedBy(declarer, name).flatMap { gid =>
+          val n = surfaces.bakeGroup(gid).size
+          Option.unless(value.toIntOption.exists(i => i >= 0 && i < n))(
+            s"$gid has members 0..${n - 1}"
+          )
+        }).distinct
       Option.when(why.nonEmpty)(
         s"'$value' is not a value '$name' can take: ${why.mkString("; ")}"
       )

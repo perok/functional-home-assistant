@@ -114,7 +114,7 @@ CLUSTER of stragglers at one older version stops sharing with itself. The newest
 is what more arrivals are coming for, so it is what the single slot should hold.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
-`{{bakeIndex}}` in a tab bar, the no-JS selection display — is now just a node: the session renders
+`{{bakeIndex}}`, the selection a card can show without scripts — is now just a node: the session renders
 it with its own `uiState`, and the key needs no selection in it — such a node holds regions,
 which makes it structure, and structure is never cached. No deferral, no memo, no per-variant
 log entry, no classification. This is the
@@ -143,7 +143,7 @@ patch an id its DOM lacks.
 `If` flip all evict a host's occupants, render the arriving surface, and overwrite the
 host. The model already said so: both kinds of member are surfaces with
 `bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.hostId` derives a group's host from its
-members' `Surface.hostId`. What differs is the SELECTOR (a client's `ui_<gid>` signal vs
+members' `Surface.hostId`. What differs is the SELECTOR (a viewer's node variable vs
 a condition over entity state) and where the claim lands: a flip records a `Mutation`,
 because it is server truth every client must be replayed; a tab switch claims into the
 SESSION (`Patches.hostFill`), because one client switching a tab says nothing about
@@ -160,8 +160,8 @@ anyone else's DOM.
 - **Patch shape may legitimately differ between clients**, and that is the point: what a
   client is owed is computed against what it has. The wire is unchanged for any single
   client, which is how the flip was verified (ADR 0009's suites over emitted SSE).
-- **The popup is not a special channel**: it is `ui_<hostId>`, set by its own taps like
-  any tab (ADR 0005).
+- **The popup is not a special channel**: it is `ui_<hostId>`, committed by its own
+  swaps as a tab's variable is by its write (ADR 0005).
 - **A slug nobody is watching records nothing.** The gate is the session lookup the
   recorder already does for visibility; a client returning across such a stretch is
   repainted (`FragmentLog.reaches`).
@@ -169,7 +169,7 @@ anyone else's DOM.
 ## Why the no-JS path is worth its cost
 
 `{{bakeIndex}}` is the only way a selection is visible without scripts — a
-tab click is then an `<a href="?ui.<host>=N">` and the answer is a fresh document.
+tab click is then an `<a href="?v.<host>.tab=N">` and the answer is a fresh document.
 Supporting it used to cost four concepts and a branch in the diff path. It now costs
 nothing: the renderer already takes a `uiState`, and a node whose markup reads the selection
 is structure, which is never cached — so no key has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
