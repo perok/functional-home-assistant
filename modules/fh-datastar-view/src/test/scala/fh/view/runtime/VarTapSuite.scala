@@ -224,6 +224,51 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
+  test("two choices landing together end on the later one everywhere") {
+    // The first is held in the recorder while the second arrives. Unless one
+    // write waits for the other, the second commits first and the first lands
+    // over it: the chart and the commit at 7d, the session at 1h.
+    (Deferred[IO, Unit], Deferred[IO, Unit]).tupled.flatMap {
+      (entered, release) =>
+        val held: Recorder = (start, end, entity) =>
+          IO.whenA(end.toEpochMilli - start.toEpochMilli == 7.days.toMillis)(
+            entered.complete(()).void *> release.get
+          ) *> span(start, end, entity)
+        served(
+          ts =>
+            for {
+              conn <- ts.load().map(_.conn)
+              session <- ts.sessions.get(conn)
+              first <- post(ts, conn, varPath(ts, "window/7d")).start
+              _ <- entered.get
+              second <- post(ts, conn, varPath(ts, "window/1h")).start
+              // Its chance to overtake.
+              _ <- IO.sleep(200.millis)
+              _ <- release.complete(())
+              _ <- first.joinWithNever
+              _ <- second.joinWithNever
+              chose <- session.traverse(_.vars.get)
+              queued <- drain(session)
+            } yield {
+              assertEquals(
+                chose,
+                Some(Map(VarKey(NodeId.derived("panel"), "window") -> "1h"))
+              )
+              val charts = queued.flatMap(_.data).filter(_.contains("<span>"))
+              assert(
+                charts.lastOption.exists(_.contains(1.hour.toMillis.toString)),
+                clue = charts
+              )
+              assertEquals(
+                queued.lastOption.flatMap(_.data),
+                Some(committed("1h"))
+              )
+            },
+          recorder = held
+        )
+    }
+  }
+
   /** A candidate set of charts under the panel's window: each member reads it
     * through the set's scope (ADR 0033).
     */
