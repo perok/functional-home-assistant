@@ -572,6 +572,83 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
+  /** Redrawn by a write (its window) and by a pull (its entity), so the order
+    * the two reach the client decides what it shows.
+    */
+  private val bothDash = dash.copy(
+    cards = dash.cards + ("both" -> CardDef(
+      """<span>s={{state}} w={{chart}}</span>""",
+      slots = List("state", "chart")
+    )),
+    card = LayoutNode.Component(
+      "panel",
+      regions = LayoutNode.kids(
+        LayoutNode.Component(
+          "both",
+          slots = chartNode.slots +
+            ("state" -> SlotSource(entityId = Some("sensor.a")))
+        )
+      ),
+      id = Some("panel"),
+      vars = Map("window" -> "24h")
+    )
+  )
+
+  private def until[A](read: IO[A])(done: A => Boolean): IO[A] =
+    fs2.Stream
+      .repeatEval(read <* IO.sleep(5.millis))
+      .find(done)
+      .compile
+      .lastOrError
+      .timeout(15.seconds)
+
+  test("a write the server made before a pull reaches the client before it") {
+    // The client is held mid-frame, as a slow socket holds it. The first write
+    // is taken off the control queue and stuck behind it, so the second waits
+    // in the queue; the pull after it is not on that queue.
+    served(
+      ts =>
+        for {
+          doc <- ts.load()
+          session <- ts.sessions
+            .get(doc.conn)
+            .flatMap(IO.fromOption(_)(RuntimeException("no session")))
+          flowing <- fs2.concurrent.SignallingRef[IO].of(true)
+          seen <- CeRef[IO].of(Vector.empty[ServerSentEvent])
+          resp <- ts.get(doc.stream)
+          reader <- resp.body
+            .through(ServerSentEvent.decoder[IO])
+            .evalMap(e => seen.update(_ :+ e) *> flowing.waitUntil(identity))
+            .compile
+            .drain
+            .start
+          _ <- until(seen.get)(_.exists(isCursor))
+          _ <- flowing.set(false)
+          _ <- post(ts, doc.conn, varPath(ts, "window/7d"))
+          _ <- until(seen.get)(_.exists(_.data.exists(_.contains(Week))))
+          _ <- post(ts, doc.conn, varPath(ts, "window/1h"))
+          // Still queued: the control side waits for the client.
+          queued <- session.control.size
+          _ <- ts.change("sensor.a", "2")
+          _ <- flowing.set(true)
+          sent <- until(seen.get)(es =>
+            es.exists(_.data.contains(committed("1h"))) &&
+              es.exists(_.data.exists(_.contains("s=2")))
+          )
+          _ <- reader.cancel
+        } yield {
+          assert(queued > 0, clue = "the write was not held back")
+          val drawn = sent.flatMap(_.data).filter(_.contains("s="))
+          // The server holds `s=2`: the pull redrew it after the write.
+          assert(
+            drawn.lastOption.exists(_.contains("s=2")),
+            clue = drawn.mkString("\n")
+          )
+        },
+      dashboard = bothDash
+    )
+  }
+
   test("the opening frame states every declared variable, chosen or not") {
     // Total over the declarations, so a control still showing last session's
     // window is corrected on connect.
