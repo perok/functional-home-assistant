@@ -340,6 +340,34 @@ class NodeVariablesSuite extends munit.FunSuite {
     )
   }
 
+  test("every node in scope sees its own declarers' values, chosen or not") {
+    // Nodes share their scope's resolution, so this pins that sharing never
+    // hands a node a neighbour's declarer.
+    val inner = named("inner", Map("window" -> "1h"), chartNode(), chartNode())
+    val d = dash(
+      named("panel", Map("window" -> "24h"), chartNode(), box(Map.empty, inner))
+    )
+    val r = Renderer.create(d)
+    val chosen = Map(VarKey(NodeId.derived("inner"), "window") -> "7d")
+    val env = r.vars.env(chosen)
+    val scoped = d.varScopes.filter(_._2.nonEmpty)
+    assertEquals(env.keySet, scoped.keySet)
+    scoped.foreach { (id, scope) =>
+      assertEquals(
+        env.get(id),
+        Some(scope.map { case (name, in) =>
+          name -> chosen.getOrElse(VarKey(in.declarer, name), in.declared)
+        }),
+        clue = id
+      )
+    }
+    assertEquals(
+      env.values.toSet,
+      Set(Map("window" -> "24h"), Map("window" -> "7d"))
+    )
+    assertEquals(env, Map.from(env))
+  }
+
   test("a choice naming a variable nothing declares is inert, not an error") {
     // A stale URL naming a lost node matches no scope and is never read, as
     // `SurfaceGraph.openPopup` treats a lost surface id.
