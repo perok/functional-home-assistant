@@ -222,4 +222,41 @@ object SmokeDashboard {
          |""".stripMargin,
       HouseFixture.dumpWith(switchLight)
     )
+
+  /** [[longName]] as an entity's own name, so every card naming it takes it. */
+  val longNameLight: FixtureEntity = FixtureEntity(
+    "light.spotlights",
+    "on",
+    Map(
+      "friendly_name" -> Json.fromString(longName),
+      "supported_color_modes" -> Json.arr(Json.fromString("onoff"))
+    )
+  )
+
+  /** Each card that places a title, on [[longNameLight]]. The tile and the
+    * button with a second line hold theirs in an `.fh-lines` column, the switch
+    * in a flex row.
+    */
+  val longTitleCards: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-long-title",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Long Title"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.entityCard(dump.entities.${longNameLight.dumpKey})
+         |    c.entityButton(dump.entities.${longNameLight.dumpKey}).secondary("$longName")
+         |    c.toggle(dump.entities.${longNameLight.dumpKey})
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(longNameLight)
+    )
 }
