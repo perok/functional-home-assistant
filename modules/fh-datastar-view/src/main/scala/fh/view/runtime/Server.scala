@@ -245,7 +245,13 @@ class Server(
     // Addressed to the node that declared the variable (issue #209).
     case req @ POST -> Root / "sse" / "var" / slug / node / name / value =>
       withSession(req, slug)((session, renderer, uiState) =>
-        setVar(session, renderer, NodeId.derived(node), name, value, uiState)
+        setVar(
+          session,
+          renderer,
+          VarKey(NodeId.derived(node), name),
+          value,
+          uiState
+        )
       )
   }
 
@@ -1030,27 +1036,26 @@ class Server(
   private def setVar(
       session: Session,
       renderer: Renderer,
-      declarer: NodeId,
-      name: String,
+      key: VarKey,
       value: String,
       uiState: Map[String, String]
   ): IO[Unit] = {
-    val readers = renderer.readersOf(declarer, name)
-    val groups = renderer.groupsSelectedBy(declarer, name)
+    val readers = renderer.vars.readersOf(key)
+    val groups = renderer.vars.panelsSelectedBy(key)
     for {
       store <- stateStore.current
       open <- session.open.get
       shown = renderer.surfaces.visibleNode(_, open, store.entities)
       _ <- IO.raiseWhen(
-        (readers.isEmpty && groups.isEmpty) || !shown(declarer)
+        (readers.isEmpty && groups.isEmpty) || !shown(key.declarer)
       )(
         FHError.notFound(
-          s"no node this viewer is shown reads the variable '$name' declared on '$declarer'"
+          s"no node this viewer is shown reads the variable '${key.name}' declared on '${key.declarer}'"
         )
       )
       proposed <- session.vars
         .modify { current =>
-          val proposed = current + ((declarer, name) -> value)
+          val proposed = current + (key -> value)
           renderer.refusals(proposed) match {
             case Nil     => (proposed, Right(proposed))
             case refused => (current, Left(refused))
@@ -1059,7 +1064,7 @@ class Server(
         .flatMap(
           _.leftMap(r => FHError.badCondition(r.mkString("; "))).liftTo[IO]
         )
-      env = renderer.varEnv(proposed)
+      env = renderer.vars.env(proposed)
       selections = uiState ++ renderer.surfaces.varSelections(env)
       // `refusals` made the value a member index of every group it selects.
       _ <- groups.filter(shown).traverse_ { gid =>
@@ -1098,7 +1103,7 @@ class Server(
       _ <- patches.traverse_(p => session.control.offer(p.patch.toSse))
       _ <- session.control.offer(
         Datastar.patchSignals(
-          Server.varJson(Map((declarer, name) -> value)).noSpaces
+          VarKey.signalsJson(Map(key -> value)).noSpaces
         )
       )
     } yield ()
@@ -1149,7 +1154,7 @@ class Server(
 
   // From the SESSION, not the request: a live pull has no request.
   private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
-    session.vars.get.map(renderer.varEnv)
+    session.vars.get.map(renderer.vars.env)
 
   /** With no resolver wired only a render that reads a query raises, so a
     * dashboard without charts still works.
@@ -1472,7 +1477,7 @@ class Server(
           val choices = Server
             .varChoicesOf(req)
             .view
-            .filterKeys(renderer.declarations.contains)
+            .filterKeys(renderer.vars.declarations.contains)
             .toMap
           renderer.refusals(choices) match {
             case Nil     => renderPage(slug, renderer, log, conn, req, choices)
@@ -1491,11 +1496,11 @@ class Server(
       log: FragmentLog,
       conn: String,
       req: Request[IO],
-      choices: Map[(NodeId, String), String]
+      choices: Map[VarKey, String]
   ): IO[Response[IO]] = {
     val fromRequest = Server.uiStateOf(req)
     val uiState =
-      fromRequest ++ renderer.surfaces.varSelections(renderer.varEnv(choices))
+      fromRequest ++ renderer.surfaces.varSelections(renderer.vars.env(choices))
     val editMode = req.uri.query.params.get("edit").contains("1")
     // Narrowed: a popup this dashboard cannot serve is not shown, so it must
     // not be seeded back either. The request's only: a tab bar's choice is on
@@ -1595,7 +1600,7 @@ class Server(
               restore,
               editMode,
               haDown = !live,
-              committed = Server.committedVars(renderer, choices)
+              committed = renderer.vars.committed(choices)
             )
             // Flush, not close: `readOutputStream` owns the stream.
             w.flush()
@@ -1683,7 +1688,7 @@ class Server(
       // Seeded ahead of the body: a control seeding its own highlight could
       // only name the declared value, and would mirror it into the URL over
       // the viewer's choice until connect.
-      committed: Map[(NodeId, String), String]
+      committed: Map[VarKey, String]
   ): Unit = {
     // Inline card and theme scripts are emitted verbatim (authored source, not user
     // input); as classic scripts they run before the deferred modules.
@@ -1752,9 +1757,12 @@ class Server(
       s"$$_popupUrl = new URLSearchParams(location.search).get('$popupParamName') ?? ''; " +
         s"$$_popupUrl === $$$popupSignalName || ($$_popupUrl ? " +
         s"@post('sse/surface/$slug/open/' + $$_popupUrl) : @post('sse/popup/$slug/close'))"
-    val varSeed = committed.toList.sorted.map { case ((declarer, name), v) =>
-      s", ${Server.varSignal(declarer, name)}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
-    }.mkString
+    val varSeed = committed.toList
+      .sortBy(_._1.committedSignal)
+      .map { (key, v) =>
+        s", ${key.committedSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
+      }
+      .mkString
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
@@ -2316,23 +2324,6 @@ object Server {
   val UiParamPrefix: String = "ui."
   val UiSignalPrefix: String = "ui_"
 
-  /** `v.<declarer>.<name>`, outside `ui.` (bake selections). URL only: a choice
-    * enters through the route and lives on the session.
-    */
-  val VarParamPrefix: String = "v."
-
-  /** Keyed by declarer, so two choosers do not move each other. `_`-prefixed so
-    * only the SSE GET carries it ([[SseInclude]]); its pending twin matches
-    * `PendingSweep`.
-    */
-  private[runtime] def varGroupId(declarer: NodeId, name: String): String =
-    s"var_${declarer}__$name"
-
-  private[runtime] def varSignal(declarer: NodeId, name: String): String =
-    "_" + varGroupId(declarer, name)
-
-  private[runtime] val VarSignalPrefix: String = "_var_"
-
   /** The committed values a reconnect carries for this build's declarations,
     * looked up by exact name: a declarer id may itself contain `__`, so the
     * signal name cannot be parsed back. Untrusted; the caller checks them.
@@ -2340,46 +2331,17 @@ object Server {
   private[runtime] def carriedVars(
       req: Request[IO],
       renderer: Renderer
-  ): Map[(NodeId, String), String] =
+  ): Map[VarKey, String] =
     signalsOf(req).fold(Map.empty) { c =>
-      renderer.declarations.keys.toList.flatMap { case key @ (declarer, name) =>
-        c.downField(varSignal(declarer, name))
-          .as[String]
-          .toOption
-          .map(key -> _)
+      renderer.vars.declarations.keys.toList.flatMap { key =>
+        c.downField(key.committedSignal).as[String].toOption.map(key -> _)
       }.toMap
     }
 
-  /** Total over declarations, so a control never shows the declared value over
-    * a choice.
-    */
-  private[runtime] def committedVars(
-      renderer: Renderer,
-      chosen: Map[(NodeId, String), String]
-  ): Map[(NodeId, String), String] =
-    renderer.declarations.map { case (key, declared) =>
-      key -> chosen.getOrElse(key, declared)
-    }
-
-  private[runtime] def varJson(
-      values: Map[(NodeId, String), String]
-  ): Json =
-    Json.obj(values.toList.map { case ((declarer, name), value) =>
-      varSignal(declarer, name) -> Json.fromString(value)
-    }*)
-
   /** Untrusted and not narrowed; the caller narrows to declarations. */
-  def varChoicesOf(req: Request[IO]): Map[(NodeId, String), String] =
+  def varChoicesOf(req: Request[IO]): Map[VarKey, String] =
     req.uri.query.params.toList
-      .collect {
-        case (k, v) if k.startsWith(VarParamPrefix) =>
-          k.drop(VarParamPrefix.length).split('.').toList match {
-            case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
-              Some((NodeId.derived(node), name) -> v)
-            case _ => None
-          }
-      }
-      .flatten
+      .flatMap((k, v) => VarKey.fromParam(k).map(_ -> v))
       .toMap
 
   private[runtime] def awaitAnswers(
@@ -2737,14 +2699,14 @@ object Server {
   private[runtime] def openingSignals(
       renderer: Renderer,
       open: Set[String],
-      chosen: Map[(NodeId, String), String],
+      chosen: Map[VarKey, String],
       logId: String,
       version: Long
   ): SseFrame =
     Datastar.patchSignals(
       cursorJson(renderer, logId, version)
         .deepMerge(selectionJson(renderer, open))
-        .deepMerge(varJson(committedVars(renderer, chosen)))
+        .deepMerge(VarKey.signalsJson(renderer.vars.committed(chosen)))
         .noSpaces
     )
 
@@ -2783,7 +2745,7 @@ object Server {
     * this process forgot adopts the choices from it ([[carriedVars]]).
     */
   private[runtime] val SseInclude: String =
-    s"^($ConnSignal$$|$UiSignalPrefix${Dashboard.PopupHostId}$$|$CursorSignal\\.|$VarSignalPrefix(?!.*__pending$$))"
+    s"^($ConnSignal$$|$UiSignalPrefix${Dashboard.PopupHostId}$$|$CursorSignal\\.|${VarKey.SignalPrefix}(?!.*__pending$$))"
 
   /** `always`: the pinned bundle's default retries a dropped connection but not
     * a completed 200, and this stream should never end. A deleted slug's

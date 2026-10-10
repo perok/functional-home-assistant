@@ -138,7 +138,7 @@ class CursorSuite extends munit.FunSuite {
     val include = Server.SseInclude.r
     val declarer: fh.view.model.NodeId =
       fh.view.model.NodeId.derived("s_detail__c_0")
-    val committed = Server.varSignal(declarer, "window")
+    val committed = VarKey(declarer, "window").committedSignal
     assert(include.findFirstIn(committed).isDefined, clue = committed)
     val pending = committed + "__pending"
     assert(include.findFirstIn(pending).isEmpty, clue = pending)

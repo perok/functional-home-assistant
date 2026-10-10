@@ -70,7 +70,7 @@ class ServerRoutesSuite extends ServerHarness {
     val r = tabsRenderer
     val uiState =
       r.surfaces.varSelections(
-        r.varEnv(Map((NodeId.derived("c"), "tab") -> "1"))
+        r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
       )
     assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t1"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))

@@ -1060,7 +1060,7 @@ declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
 URL is a 400, before any session exists, rather than a page that dies mid-walk.
 
-**The write re-renders the readers this viewer is shown, and commits last.** `Renderer.readersOf`
+**The write re-renders the readers this viewer is shown, and commits last.** `VarGraph.readersOf`
 inverts the declared edge, which the write needs twice over: to check the value against every
 reader, and to decide what to repaint — narrowed there to what `SurfaceGraph.visibleNode` says
 this session shows, the filter a pull uses, since a closed surface renders the value when it opens.
@@ -1070,7 +1070,7 @@ shows the press immediately from its own pending signal and the ask ends only wh
 agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
 the display on a value that never moved. The committed signals are seeded by the document's shell,
 ahead of the body, and ride the opening frame again — both TOTAL over the build's declarations at
-this viewer's values (`Server.committedVars`), so a stale control is corrected and a control never
+this viewer's values (`VarGraph.committed`), so a stale control is corrected and a control never
 seeds the declared value over a linked choice. The committed values also ride the SSE GET
 (`Server.SseInclude`), so a session this process forgot (a restart, a reap) adopts them through
 `Renderer.refusals` instead of resetting the bar (`Server.carriedVars`). The control
@@ -1078,7 +1078,7 @@ mirrors the committed value into the `v.` param with `data-fh-url`, as the popup
 the URL follows what the server did rather than what was pressed.
 
 **A tab bar's panel is a reader too.** `c.tabs` declares `tab`, and its panel's bake group is
-selected by it (`Activation.Var`); `Renderer.groupsSelectedBy` is that edge, so a tab press is a
+selected by it (`Activation.Var`); `VarGraph.panelsSelectedBy` is that edge, so a tab press is a
 variable write that swaps the panel this viewer is shown (`swapHost`) before it commits. Every
 path that bakes takes a bar's member from the session's variables — `SurfaceGraph.varSelections`,
 merged over the request's popup selection by `Server.selectionsOf` at each entry: the page, an
@@ -1388,6 +1388,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
+| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`; `lib/core/variable.pkl` · `Variable` (the template half) |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |

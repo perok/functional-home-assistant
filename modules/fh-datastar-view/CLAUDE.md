@@ -338,11 +338,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
-  by name in a query parameter (`varMod.ref`), resolving up the ancestor chain so a nested
-  declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
+  by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
+  one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving
+  up the ancestor chain so a nested declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader can parse, which is why a declaration carries no list
   of allowed values. `c.windowChooser` is the one shipped control: it declares `window`, its bar is
-  a `tab` node per window whose `tapMod.setVar` names the chooser by `varMod.declarer` (a build
+  a `tab` node per window whose `choose` names the chooser by `Variable.declarer` (a build
   token), and `c.historyChart(s).chosen()` reads it),
   **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
   or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own

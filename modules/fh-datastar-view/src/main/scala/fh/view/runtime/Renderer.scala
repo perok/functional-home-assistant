@@ -78,7 +78,7 @@ private[runtime] enum SlotForm derives CanEqual {
   def isPatch: Boolean = this == SlotForm.Patch
 }
 
-/** Per render, never cached on the renderer ([[Renderer.varEnv]]). */
+/** Per render, never cached on the renderer ([[VarGraph.env]]). */
 type VarEnv = Map[NodeId, Map[String, String]]
 
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
@@ -214,87 +214,44 @@ class Renderer(
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
-  /** Declared values only; [[Dashboard.varScopes]] owns the rule. */
-  private val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] =
-    dashboard.varScopes.filter(_._2.nonEmpty)
-
-  /** A member reads its set's scope. Candidates and member ids are static, and
-    * `validate` keeps declarations out of a clause, so the scope at the one
-    * indexed set above it is the whole answer (ADR 0033).
+  /** Lazy: the member graph, the ancestry and the surface graph are built
+    * below.
     */
-  private lazy val memberScopes: Map[NodeId, Map[String, Dashboard.InScope]] =
-    if (varScopes.isEmpty) Map.empty
-    else
-      members.memberIds.toList.flatMap { m =>
-        ancestry
-          .ancestorsOf(m)
-          .find(a =>
-            allIndexed.get(a).exists {
-              case (_: LayoutNode.SetNode, _) => true
-              case _                          => false
-            }
-          )
-          .flatMap(varScopes.get)
-          .map(m -> _)
-      }.toMap
-
-  private lazy val allScopes: Map[NodeId, Map[String, Dashboard.InScope]] =
-    varScopes ++ memberScopes
-
-  /** Never cached on the renderer or a `NodePlan`: both outlive a session, so a
-    * choice held there would be served to the next viewer.
-    */
-  def varEnv(choices: Map[(NodeId, String), String]): VarEnv =
-    if (varScopes.isEmpty) Map.empty
-    else
-      allScopes.view.mapValues { scope =>
-        scope.view.map { case (name, in) =>
-          name -> choices.getOrElse((in.declarer, name), in.declared)
-        }.toMap
-      }.toMap
-
-  val declarations: Map[(NodeId, String), String] =
-    varScopes.values.flatten.map { case (name, in) =>
-      (in.declarer, name) -> in.declared
-    }.toMap
-
-  /** Exact: a write both validates against every reader and re-renders them. */
-  def readersOf(declarer: NodeId, name: String): List[NodeId] =
-    allScopes.toList.collect {
-      case (id, scope)
-          if scope.get(name).exists(_.declarer == declarer) &&
-            queriesForNode(id).exists(_.query.references.contains(name)) =>
-        id
-    }
-
-  /** The variable-selected bake groups a write of `(declarer, name)` moves: the
-    * panel a tab press swaps. A reader as much as a query is, so a write that
-    * reaches one is not refused for lacking a query reader.
-    */
-  def groupsSelectedBy(declarer: NodeId, name: String): List[NodeId] =
-    surfaces.userBakeOwnerIds.toList.sorted.filter(gid =>
-      surfaces.varSelecting(gid).contains(name) &&
-        varScopes.get(gid).flatMap(_.get(name)).exists(_.declarer == declarer)
+  private[runtime] lazy val vars: VarGraph = {
+    val indexedSets = allIndexed.collect {
+      case (id, (_: LayoutNode.SetNode, _)) => id
+    }.toSet
+    new VarGraph(
+      scopes = dashboard.varScopes.filter(_._2.nonEmpty),
+      setOfMember = members.memberIds.toList.flatMap { m =>
+        ancestry.ancestorsOf(m).find(indexedSets).map(m -> _)
+      }.toMap,
+      panelsSelected = surfaces.userBakeOwnerIds.toList
+        .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
+        .toMap,
+      asksAt = queriesForNode
     )
+  }
 
   /** One line per refused choice. Every reader must still parse and read only
     * an entity this dashboard shows — the read-side twin of an action's bound
     * (ADR 0023), without which a variable fed to `entity` charts any sensor.
     */
-  def refusals(choices: Map[(NodeId, String), String]): List[String] = {
-    val env = varEnv(choices)
-    choices.toList.flatMap { case ((declarer, name), value) =>
-      val why = (readersOf(declarer, name)
+  def refusals(choices: Map[VarKey, String]): List[String] = {
+    val env = vars.env(choices)
+    choices.toList.flatMap { (key, value) =>
+      val why = (vars
+        .readersOf(key)
         .flatMap(readsAt(_, env))
         .flatMap(r => refusal(r.query)) ++
-        groupsSelectedBy(declarer, name).flatMap { gid =>
+        vars.panelsSelectedBy(key).flatMap { gid =>
           val n = surfaces.bakeGroup(gid).size
           Option.unless(value.toIntOption.exists(i => i >= 0 && i < n))(
             s"$gid has members 0..${n - 1}"
           )
         }).distinct
       Option.when(why.nonEmpty)(
-        s"'$value' is not a value '$name' can take: ${why.mkString("; ")}"
+        s"'$value' is not a value '${key.name}' can take: ${why.mkString("; ")}"
       )
     }
   }
