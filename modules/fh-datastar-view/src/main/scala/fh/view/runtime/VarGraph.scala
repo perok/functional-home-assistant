@@ -3,8 +3,8 @@ package fh.view.runtime
 import fh.view.model.{Dashboard, NodeId, SlotAsk}
 import io.circe.Json
 
-/** A node variable's identity: the node declaring it and its name (ADR 0033).
-  * A viewer's choice is keyed by it, and every spelling of the variable on the
+/** A node variable's identity: the node declaring it and its name (ADR 0033). A
+  * viewer's choice is keyed by it, and every spelling of the variable on the
   * wire comes from it. `core/variable.pkl`'s `Spelling` is the template half,
   * and `VarSignalNamesSuite` holds the two equal.
   */
@@ -26,15 +26,18 @@ object VarKey:
   val ParamPrefix: String = "v."
   val SignalPrefix: String = "_var_"
 
-  /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations. */
+  /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations.
+    */
   def fromParam(key: String): Option[VarKey] =
-    Option.when(key.startsWith(ParamPrefix))(key.drop(ParamPrefix.length)).flatMap {
-      _.split('.').toList match {
-        case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
-          Some(VarKey(NodeId.derived(node), name))
-        case _ => None
+    Option
+      .when(key.startsWith(ParamPrefix))(key.drop(ParamPrefix.length))
+      .flatMap {
+        _.split('.').toList match {
+          case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
+            Some(VarKey(NodeId.derived(node), name))
+          case _ => None
+        }
       }
-    }
 
   /** A signals frame, never carrying a null (`Datastar.signalsJson`). */
   def signalsJson(values: Map[VarKey, String]): Json =
@@ -106,6 +109,9 @@ private[runtime] final class VarGraph(
     panelsSelected.toList.sortBy(_._1).collect {
       case (gid, name)
           if name == key.name &&
-            scopes.get(gid).flatMap(_.get(name)).exists(_.declarer == key.declarer) =>
+            scopes
+              .get(gid)
+              .flatMap(_.get(name))
+              .exists(_.declarer == key.declarer) =>
         gid
     }
