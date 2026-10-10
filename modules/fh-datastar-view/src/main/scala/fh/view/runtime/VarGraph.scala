@@ -83,15 +83,29 @@ private[runtime] final class VarGraph(
   def committed(chosen: Map[VarKey, String]): Map[VarKey, String] =
     declarations.map((key, declared) => key -> chosen.getOrElse(key, declared))
 
-  /** Never cached on the renderer or a `NodePlan`: both outlive a session, so a
+  // Every node under one declarer chain sees the same scope, so a page has a
+  // handful of distinct ones however many nodes it has.
+  private val distinctScopes: Vector[Map[String, Dashboard.InScope]] =
+    allScopes.values.toVector.distinct
+
+  private val scopeIndex: Map[NodeId, Int] = {
+    val index = distinctScopes.zipWithIndex.toMap
+    allScopes.view.mapValues(index).toMap
+  }
+
+  /** Resolves each distinct scope once: building a map per node cost two thirds
+    * of a quiet pull on a 274-node page (`VarEnvBench`).
+    *
+    * Never cached on the renderer or a `NodePlan`: both outlive a session, so a
     * choice held there would be served to the next viewer.
     */
   def env(chosen: Map[VarKey, String]): VarEnv =
-    allScopes.view.mapValues { scope =>
-      scope.view.map { case (name, in) =>
+    VarGraph.SharedEnv(
+      scopeIndex,
+      distinctScopes.map(_.map { case (name, in) =>
         name -> chosen.getOrElse(VarKey(in.declarer, name), in.declared)
-      }.toMap
-    }.toMap
+      })
+    )
 
   /** Exact: a write both checks every reader and re-renders them. */
   def readersOf(key: VarKey): List[NodeId] =
@@ -115,3 +129,31 @@ private[runtime] final class VarGraph(
               .exists(_.declarer == key.declarer) =>
         gid
     }
+
+private[runtime] object VarGraph {
+
+  /** A [[VarEnv]] whose nodes point into the resolved distinct scopes, so it
+    * costs nothing per node until one is looked up.
+    */
+  private final class SharedEnv(
+      scopeIndex: Map[NodeId, Int],
+      resolved: Vector[Map[String, String]]
+  ) extends scala.collection.immutable.AbstractMap[
+        NodeId,
+        Map[String, String]
+      ] {
+    def get(id: NodeId): Option[Map[String, String]] =
+      scopeIndex.get(id).map(resolved)
+    def iterator: Iterator[(NodeId, Map[String, String])] =
+      scopeIndex.iterator.map((id, i) => id -> resolved(i))
+    override def size: Int = scopeIndex.size
+    override def knownSize: Int = scopeIndex.size
+    def removed(id: NodeId): Map[NodeId, Map[String, String]] =
+      Map.from(iterator).removed(id)
+    def updated[V >: Map[String, String]](
+        id: NodeId,
+        value: V
+    ): Map[NodeId, V] =
+      Map.from(iterator).updated(id, value)
+  }
+}
