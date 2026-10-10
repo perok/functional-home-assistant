@@ -566,6 +566,11 @@ class Server(
               )
               .merge(haDown)
         }
+        // Reaped under it (a shutdown, a test's reap): the tenure ends the
+        // stream as well, whichever is seen first.
+        .handleErrorWith(e =>
+          if (Session.isEnded(e)) Stream.empty else Stream.raiseError[IO](e)
+        )
 
       // Bracketed to the stream, not done in the handler: a handler that
       // registers and never reaches a body (it raised, or ember dropped the
@@ -1251,6 +1256,8 @@ class Server(
         Session
           .create(
             slug,
+            supervisor,
+            logger,
             SessionState.initial.copy(open =
               renderer.surfaces.selectedSurfaces(
                 selectionsOf(renderer, requested, Map.empty)
@@ -1277,8 +1284,35 @@ class Server(
       .flatMap {
         case Some(adopted) => IO.pure(adopted)
         // A session minted by its own stream is Held(1) from birth.
-        case None => Session.create(slug).flatTap(_.adopt).map(_ -> 1)
+        case None =>
+          Session
+            .create(slug, supervisor, logger)
+            .flatTap(_.adopt)
+            .flatTap(reapUnregistered(conn, _))
+            .map(_ -> 1)
       }
+
+  /** A stream registers the session it minted only once its body runs. One that
+    * never does (the slug is not served, or the response was dropped first)
+    * would stay `Held(1)` with nothing to reap it, its owner kept on the
+    * supervisor until shutdown.
+    */
+  private def reapUnregistered(conn: String, session: Session): IO[Unit] =
+    supervisor
+      .supervise(
+        IO.sleep(windows.adoption) *>
+          sessions
+            .get(conn)
+            .flatMap(current =>
+              IO.unlessA(current.exists(_ eq session))(
+                session.tenure.update {
+                  case Tenure.Held(1) => Tenure.Reaped
+                  case t              => t
+                }
+              )
+            )
+      )
+      .void
 
   /** Drop `conn`'s session after `after`, unless its tenure moved off
     * `expected` — for a document that never opened a stream ([[Tenure.Fresh]])
@@ -1511,7 +1545,12 @@ class Server(
       // agree, or the stream repeats it or skips a real change.
       live <- healthy.get
       session <- Session
-        .create(slug, SessionState.initial.copy(open = open, vars = choices))
+        .create(
+          slug,
+          supervisor,
+          logger,
+          SessionState.initial.copy(open = open, vars = choices)
+        )
         .flatTap(_.haDown.set(Some(!live)))
       // REGISTERED BEFORE THE SNAPSHOT IS READ — see [[recordFrame]].
       _ <- sessions.register(conn, session)
@@ -1620,7 +1659,11 @@ class Server(
         // `Validated`), so it is only logged.
         .onFinalizeCase {
           case Resource.ExitCase.Succeeded =>
-            ownRef.get.flatMap(held => session.update(_.copy(holds = held)))
+            // A load abandoned past its adoption window has no session left to
+            // record for.
+            ownRef.get
+              .flatMap(held => session.update(_.copy(holds = held)))
+              .recover { case e if Session.isEnded(e) => () }
           case Resource.ExitCase.Errored(e) =>
             logger.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit

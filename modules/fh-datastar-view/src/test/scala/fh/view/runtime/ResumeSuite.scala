@@ -183,7 +183,9 @@ class ResumeSuite extends ServerHarness {
       live <- site.liveFor("dashboard").map(_.get)
       sessions <- Sessions.create
       // A slug nobody watches records nothing.
-      _ <- Session.create("dashboard").flatMap(sessions.register("watching", _))
+      _ <- ownerlessSession("dashboard").flatMap(
+        sessions.register("watching", _)
+      )
       fake <- FakeHomeAssistant.create(Nil)
       opening <- Supervisor[IO].use { supervisor =>
         val server = new Server(

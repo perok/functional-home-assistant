@@ -106,7 +106,7 @@ class SurfaceTapSuite extends ServerHarness {
     // and node) since the bundle parses a body only on 200.
     live(popupDash, warm) { ts =>
       for {
-        elsewhere <- Session.create("other")
+        elsewhere <- ownerlessSession("other")
         _ <- ts.sessions.register("shared", elsewhere)
         result <- ts.postResult(
           s"sse/surface/${ts.slug}/open/det?group=tabs",

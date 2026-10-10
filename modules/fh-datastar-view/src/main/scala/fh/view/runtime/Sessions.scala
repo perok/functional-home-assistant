@@ -4,9 +4,11 @@ import cats.effect.{Deferred, IO}
 import cats.effect.kernel.Ref
 import fs2.Stream
 import cats.syntax.all.*
-import cats.effect.std.Queue
+import cats.effect.std.{Queue, Supervisor}
+import fh.view.FHError
 import fh.view.model.NodeId
 import fs2.concurrent.SignallingRef
+import org.typelevel.log4cats.Logger
 
 /** `Fresh -> Held(1) -> Lingering(1) -> Held(2) -> ... -> Reaped`, one value so
   * "reaped but held" is unrepresentable. Every transition is guarded by the
@@ -99,6 +101,8 @@ object Outlet {
   * the keepalive all go through it. A step that raises leaves the state as it
   * was and sends nothing. Frames for a client with no stream (a write landing
   * while it reconnects) wait as a backlog and go out first when one attaches.
+  * The owner ends when the session is reaped, or the server shuts down; a step
+  * asked of it after that is refused with [[Session.ended]].
   *
   * '''What others read''' ([[state]]) is the last state a step left, with one
   * exception that runs ahead: [[reveal]].
@@ -111,19 +115,31 @@ final class Session private (
     val haDown: Ref[IO, Option[Boolean]],
     val tenure: SignallingRef[IO, Tenure],
     inbox: Queue[IO, Session.Command],
-    published: Ref[IO, SessionState]
+    published: Ref[IO, SessionState],
+    stopped: Deferred[IO, Unit]
 ) {
   import Session.{Command, Step}
 
   /** Run `step` against the current state once the steps before it are done.
     * Its answer is returned once its frames are queued; its error is raised
-    * here, and nothing it built is kept. A step must not `run` on its own
-    * session: the owner is busy running it, so that waits forever.
+    * here, and nothing it built is kept. Once the owner has stopped it raises
+    * [[Session.ended]]. A step must not `run` on its own session: the owner is
+    * busy running it, so that waits forever.
     */
   def run[A](step: SessionState => IO[Step[A]]): IO[A] =
     Deferred[IO, Either[Throwable, A]].flatMap { reply =>
-      inbox.offer(Command.Run(step, reply)) *> reply.get.rethrow
+      submit(Command.Run(step, reply)) *> reply.get.rethrow
     }
+
+  /** The owner marks itself stopped before refusing what is queued, and this
+    * looks after queueing, so one of the two refuses `command`.
+    */
+  private def submit(command: Command): IO[Unit] =
+    inbox.offer(command) *>
+      stopped.tryGet.flatMap(s => IO.whenA(s.isDefined)(refuseQueued))
+
+  private def refuseQueued: IO[Unit] =
+    inbox.tryTakeN(None).flatMap(_.traverse_(_.refuse))
 
   def update(f: SessionState => SessionState): IO[Unit] =
     run(s => IO.pure(Step(f(s), Nil, ())))
@@ -143,18 +159,18 @@ final class Session private (
     published.update(s => s.copy(open = s.open ++ surfaces))
 
   /** Deliver to `outlet` from now on, the backlog first. */
-  def attach(outlet: Outlet): IO[Unit] = inbox.offer(Command.Attach(outlet))
+  def attach(outlet: Outlet): IO[Unit] = submit(Command.Attach(outlet))
 
   /** A no-op unless `outlet` is still the one attached, so a displaced stream's
     * end does not detach its successor. What it never took goes back to the
     * backlog.
     */
-  def detach(outlet: Outlet): IO[Unit] = inbox.offer(Command.Detach(outlet))
+  def detach(outlet: Outlet): IO[Unit] = submit(Command.Detach(outlet))
 
   /** Test seam: what a session with no stream has queued for one. */
   private[runtime] def takeBacklog: IO[List[SseFrame]] =
     Deferred[IO, List[SseFrame]].flatMap(reply =>
-      inbox.offer(Command.TakeBacklog(reply)) *> reply.get
+      submit(Command.TakeBacklog(reply)) *> reply.get
     )
 
   /** The new epoch, or `None` if reaped. Every earlier epoch must stop: two
@@ -201,19 +217,34 @@ final class Session private (
       backlog: Vector[SseFrame],
       outlet: Option[Outlet]
   ): IO[Unit] =
-    inbox.take.flatMap {
+    // Cancellable only while waiting and while handling, and a command taken
+    // is refused if the handling is cancelled. A cancel landing between the
+    // take and the handler lost the command, and its caller waited forever.
+    IO.uncancelable(poll =>
+      poll(inbox.take).flatMap(command =>
+        poll(handle(current, backlog, outlet, command)).onCancel(command.refuse)
+      )
+    ).flatMap(own(_, _, _))
+
+  private def handle(
+      current: SessionState,
+      backlog: Vector[SseFrame],
+      outlet: Option[Outlet],
+      command: Command
+  ): IO[(SessionState, Vector[SseFrame], Option[Outlet])] =
+    command match {
       case run: Command.Run[?] =>
-        step(current, backlog, outlet, run).flatMap(own(_, _, outlet))
+        step(current, backlog, outlet, run).map((s, b) => (s, b, outlet))
       case Command.Attach(next) =>
         outlet
           .foldMapM(_.takeAll)
-          .flatMap(left => next.put(left ++ backlog)) *>
-          own(current, Vector.empty, Some(next))
+          .flatMap(left => next.put(left ++ backlog))
+          .as((current, Vector.empty, Some(next)))
       case Command.Detach(gone) if outlet.exists(_ eq gone) =>
-        gone.takeAll.flatMap(left => own(current, left ++ backlog, None))
-      case Command.Detach(_)          => own(current, backlog, outlet)
+        gone.takeAll.map(left => (current, left ++ backlog, None))
+      case Command.Detach(_)          => IO.pure((current, backlog, outlet))
       case Command.TakeBacklog(reply) =>
-        reply.complete(backlog.toList) *> own(current, Vector.empty, outlet)
+        reply.complete(backlog.toList).as((current, Vector.empty, outlet))
     }
 
   private def step[A](
@@ -255,15 +286,36 @@ object Session {
     case Attach(outlet: Outlet)
     case Detach(outlet: Outlet)
     case TakeBacklog(reply: Deferred[IO, List[SseFrame]])
+
+    /** Answer it as an owner that has stopped would; a no-op once answered. */
+    def refuse: IO[Unit] = this match {
+      case run: Run[?]        => run.reply.complete(Left(ended)).void
+      case TakeBacklog(reply) => reply.complete(Nil).void
+      case Attach(_)          => IO.unit
+      case Detach(_)          => IO.unit
+    }
   }
 
-  /** The owner is started bare, not supervised: parked on an inbox only the
-    * session reaches, it is collected with the session. So a reap never has to
-    * stop it, and a POST still holding a reaped session is answered rather than
-    * left waiting.
+  /** What a step asked of an owner that has stopped is refused with: its
+    * session was reaped, or the server is shutting down.
+    */
+  def ended: FHError = FHError.notFound(EndedMessage)
+
+  def isEnded(e: Throwable): Boolean = e match {
+    case FHError(404, EndedMessage) => true
+    case _                          => false
+  }
+
+  private val EndedMessage = "this page's session has ended — reload"
+
+  /** The owner lives on `supervisor`, which cancels it at shutdown, and ends
+    * when the session is reaped: a supervisor holds every fiber until it
+    * completes, and an owner left waiting on its inbox never does.
     */
   def create(
       slug: String,
+      supervisor: Supervisor[IO],
+      logger: Logger[IO],
       initial: SessionState = SessionState.initial
   ): IO[Session] =
     for {
@@ -272,8 +324,19 @@ object Session {
       // A stream-minted session told nothing; assume no banner state.
       haDown <- Ref[IO].of(Option.empty[Boolean])
       tenure <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
-      session = new Session(slug, haDown, tenure, inbox, published)
-      _ <- session.own(initial, Vector.empty, None).start
+      stopped <- Deferred[IO, Unit]
+      session = new Session(slug, haDown, tenure, inbox, published, stopped)
+      _ <- supervisor.supervise(
+        IO.race(
+          tenure.waitUntil(_ == Tenure.Reaped),
+          session.own(initial, Vector.empty, None)
+        ).void
+          // Only a bug ends it otherwise: a step's own error is its caller's.
+          .handleErrorWith(e =>
+            logger.error(e)(s"a session owner on '$slug' stopped")
+          )
+          .guarantee(stopped.complete(()) *> session.refuseQueued)
+      )
     } yield session
 }
 
