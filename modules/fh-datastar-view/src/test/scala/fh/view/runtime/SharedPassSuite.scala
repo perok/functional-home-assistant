@@ -57,8 +57,8 @@ class SharedPassSuite extends ServerHarness {
         _ <- ts.connect()
         _ <- ts.change("sensor.a", "a1")
         session <- ts.sessions.forSlug(ts.slug).map(_.head)
-        at <- session.position.get
-        held <- session.holds.get
+        at <- session.state.map(_.position)
+        held <- session.state.map(_.holds)
         now <- ts.store.current
       } yield {
         val renderer = Renderer.create(twoLeafDash)

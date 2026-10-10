@@ -42,8 +42,8 @@ class SurfaceTapSuite extends ServerHarness {
         // The tap re-establishes the session, so the patch waits for the
         // reconnecting stream to adopt and drain it.
         revived <- ts.sessions.get(conn)
-        open <- revived.traverse(_.open.get)
-        queued <- revived.flatTraverse(_.control.tryTake)
+        open <- revived.traverse(_.state.map(_.open))
+        queued <- revived.flatTraverse(_.takeBacklog.map(_.headOption))
       } yield {
         assertEquals(status, Status.NoContent)
         assertEquals(revived.map(_.slug), Some(ts.slug))
@@ -83,12 +83,7 @@ class SurfaceTapSuite extends ServerHarness {
   }
 
   private def drain(session: Session): IO[String] =
-    fs2.Stream
-      .repeatEval(session.control.tryTake)
-      .unNoneTerminate
-      .compile
-      .toList
-      .map(_.flatMap(_.data).mkString("\n"))
+    session.takeBacklog.map(_.flatMap(_.data).mkString("\n"))
 
   test("a tap on a surface this build no longer has says so") {
     // Ids are location-derived, so an edit renames surfaces below it and a page

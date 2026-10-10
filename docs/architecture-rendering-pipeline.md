@@ -93,7 +93,7 @@ flowchart TB
     PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds + open set"]
     SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record<br/>— the CURSOR merges into it when no<br/>element patch separates them"]
     APPL["Patches.applied<br/>forget the hosts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
-    MERGE["merge: pulls ▸ control ▸ reloads<br/>▸ haDown ▸ keepAlive"]
+    MERGE["the session's owner: one step at a time<br/>(opening, pulls, writes, repaints, keepAlive)<br/>into the stream's Outlet IN STEP ORDER<br/>▸ merged with haDown"]
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
@@ -108,7 +108,7 @@ flowchart TB
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
   VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
-  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position + vars (this viewer's choices)"]
+  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: digest + signals),<br/>position, told, vars (this viewer's choices)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
@@ -123,7 +123,7 @@ flowchart TB
   GATE --> ACT
   GATE -.->|untilRevoked: a logout or an HA revocation sends _reload,<br/>then the merge ends the stream — a goodbye, not a cut| SSE
   ACT --> SESS
-  SESS -->|per-connection control queue| MERGE
+  SESS -->|a write's frames, or the backlog on attach| MERGE
   ACT -.->|hostFill claims into holds| SESS
   SESS -.->|openSets: which surfaces are worth recording| PLAN
   GATE --> VAR
@@ -177,7 +177,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the query side: `QueryResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Membership` (held in its fold, reset per renderer), the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections and node-variable choices (`vars`). One lock (`serving`) is held by whatever reads `open`, `vars` or `holds` and sends by them — a pull, a selection write, the opening, a repaint — so two quick tab presses cannot interleave their panels and commits |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -282,7 +282,7 @@ GET /d/:slug
     changed error message the page must show. Non-HTML consumers see
     a failed slug as absent, exactly like an unknown one
   render the WHOLE page from the current snapshot
-  mint conn; create Session{slug, open surfaces, control queue, holds, position}
+  mint conn; create Session{slug, open surfaces, vars, holds, position} and its owner
   holds = the digest of every node this render painted   // what THIS client's DOM has
           + every seeded signal, structure's included (no digest: it has no bytes
           of its own), so the first frame after a load sends only what moved
@@ -330,7 +330,9 @@ GET /sse/dashboard/:slug/patch
       value (read BEFORE the log) for a resume, since a resume can only answer
       for versions the changelog describes; the snapshot's version for a
       repaint, which painted all of it
-  then stream: pulls ▸ control ▸ reloads ▸ haDown ▸ keepAlive
+  then stream: the outlet (pulls, writes, reloads, keepAlive — one step at a
+    time, in step order; a pull waits for the outlet to drain, so versions
+    landing while a slow client reads coalesce) ▸ merged with haDown
     // PULLS have no window to nest around: the doorbell hands a new watcher
     // its current value, and the pull USES it, so a frame recorded before this
     // stream existed still wakes it.
@@ -1518,14 +1520,15 @@ Live list — delete an entry when it is answered, and say where the answer land
   is one node, not the document, and `holds` is committed in the stream's finalizer on success.
   Churn fell 672 kB (19%), not the ~10% the entry projected.
 
-- **`session.control` is an unbounded `Queue[IO, SseFrame]`, and the bound is incidental.** Nothing
-  in the type stops it growing; what stops it in practice is that only `swapHost` writes to it — a
-  SURFACE TAP, never a tick. So a session whose stream has dropped accumulates one frame per tap
-  the client still manages to POST (the fetch works when the SSE does not), for as long as the
-  linger lasts, and the reaper drops the queue with the session. That is small, and it is a
-  property of today's three call sites rather than of the queue.
+- **A session's backlog is an unbounded `Vector[SseFrame]`, and the bound is incidental.** Nothing
+  in the type stops it growing; what stops it in practice is that only a selection write (a surface
+  tap, a variable) runs while no stream is attached — a pull or a keepalive is a stream's own. So a
+  session whose stream has dropped accumulates one write's frames per tap the client still manages
+  to POST (the fetch works when the SSE does not), for as long as the linger lasts, and the reaper
+  drops the backlog with the session. That is small, and it is a property of today's call sites
+  rather than of the type.
 
-  Worth bounding anyway if a fourth writer ever appears, and the answer is not "drop the oldest" —
+  Worth bounding anyway if anything else ever runs with no stream attached, and the answer is not "drop the oldest" —
   a patch is a delta, so a dropped one leaves the DOM permanently wrong. Dropping the SESSION and
   letting it repaint from `holds` is the recovery that already exists.
 

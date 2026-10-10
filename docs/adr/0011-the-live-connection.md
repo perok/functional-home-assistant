@@ -432,8 +432,8 @@ same operation.
 
 Two removals that look like exceptions and are not: an entity vanishing from HA
 triggers a registry re-evaluation and therefore a renderer swap, which mints a new
-`logId`; and a popup close is a per-session control patch that dies with the
-connection.
+`logId`; and a popup close is a per-session patch, sent to that session alone and
+never logged.
 
 > **Note for later — positional changes on the LIVE path.** Member order is
 > ascending by entity id today, so a member cannot change position without a

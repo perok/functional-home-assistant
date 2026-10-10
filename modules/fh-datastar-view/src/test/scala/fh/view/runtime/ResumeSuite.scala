@@ -140,7 +140,7 @@ class ResumeSuite extends ServerHarness {
         v <- ts.viewer()
         _ <- v.change(es("sensor.a", "hot"))
         _ <- v.change(es("sensor.a", "warm"))
-        floor <- v.session.position.get
+        floor <- v.session.state.map(_.position)
         slug <- ts.server.liveSlug(ts.slug)
         _ <- slug.log.update(
           _.removed("c", "c_old", floor - 1).removed("c", "c_new", floor + 5)
@@ -584,8 +584,8 @@ class ResumeSuite extends ServerHarness {
         _ <- ts.post(s"sse/surface/${ts.slug}/open/det", body = body)
         _ <- ts.post(s"sse/surface/${ts.slug}/open/other", body = body)
         _ <- ts.post(s"sse/popup/${ts.slug}/close", body = body)
-        emitted <- v.session.control.tryTakeN(None)
-        open <- v.session.open.get
+        emitted <- v.session.takeBacklog
+        open <- v.session.state.map(_.open)
       } yield {
         val commits = emitted
           .flatMap(_.signals)

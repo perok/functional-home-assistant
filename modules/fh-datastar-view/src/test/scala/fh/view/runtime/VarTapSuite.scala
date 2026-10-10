@@ -146,7 +146,7 @@ class VarTapSuite extends ServerHarness {
     * and an accepted one always commits (ADR 0025).
     */
   private def drain(session: Option[Session]): IO[List[SseFrame]] =
-    session.fold(IO.pure(List.empty[SseFrame]))(s => s.control.tryTakeN(None))
+    session.fold(IO.pure(List.empty[SseFrame]))(s => s.takeBacklog)
 
   /** What the control's highlight falls back to once its pending value clears
     * (ADR 0025).
@@ -205,7 +205,7 @@ class VarTapSuite extends ServerHarness {
         // A viewer who has chosen nothing gets the declared window.
         session <- ts.sessions.get(conn)
         result <- post(ts, conn, varPath(ts, "window/7d"))
-        chose <- session.traverse(_.vars.get)
+        chose <- session.traverse(_.state.map(_.vars))
         queued <- drain(session)
       } yield {
         assertEquals(result._1, Status.NoContent)
@@ -247,7 +247,7 @@ class VarTapSuite extends ServerHarness {
               _ <- release.complete(())
               _ <- first.joinWithNever
               _ <- second.joinWithNever
-              chose <- session.traverse(_.vars.get)
+              chose <- session.traverse(_.state.map(_.vars))
               queued <- drain(session)
             } yield {
               assertEquals(
@@ -348,7 +348,7 @@ class VarTapSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
         result <- post(ts, conn, varPath(ts, "window/4h"))
-        chose <- session.traverse(_.vars.get)
+        chose <- session.traverse(_.state.map(_.vars))
         queued <- drain(session)
       } yield {
         val (status, body) = result
@@ -370,7 +370,7 @@ class VarTapSuite extends ServerHarness {
       for {
         conn <- ts.load().map(_.conn)
         result <- post(ts, conn, varPath(ts, "nosuch/7d"))
-        chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
+        chose <- ts.sessions.get(conn).flatMap(_.traverse(_.state.map(_.vars)))
       } yield {
         // ADR 0024: a refused action is a 200 carrying signals.
         assertEquals(result._1, Status.Ok)
@@ -421,7 +421,9 @@ class VarTapSuite extends ServerHarness {
             conn <- ts.load().map(_.conn)
             named <- post(ts, conn, varPath(ts, "e/sensor.b"))
             refused <- post(ts, conn, varPath(ts, "e/lock.front_door"))
-            chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
+            chose <- ts.sessions
+              .get(conn)
+              .flatMap(_.traverse(_.state.map(_.vars)))
             linked <- ts.pageResponse("?v.panel.e=lock.front_door")
             entities <- asked.get
           } yield {
@@ -476,7 +478,9 @@ class VarTapSuite extends ServerHarness {
             post(ts, conn, varPath(ts, "e/sensor.b")),
             post(ts, conn, varPath(ts, "window/7d"))
           ).parTupled
-          chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
+          chose <- ts.sessions
+            .get(conn)
+            .flatMap(_.traverse(_.state.map(_.vars)))
         } yield assertEquals(
           chose.map(_.keySet.map(_.name)),
           Some(Set("e", "window"))
@@ -540,7 +544,9 @@ class VarTapSuite extends ServerHarness {
             )
           )
           _ <- client.drain
-          chose <- ts.sessions.get("forgotten").flatMap(_.traverse(_.vars.get))
+          chose <- ts.sessions
+            .get("forgotten")
+            .flatMap(_.traverse(_.state.map(_.vars)))
         } yield assertEquals(
           chose,
           Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
@@ -564,7 +570,9 @@ class VarTapSuite extends ServerHarness {
             )
           )
           .flatMap(sseFrom(_)(isCursor))
-        chose <- ts.sessions.get(doc.conn).flatMap(_.traverse(_.vars.get))
+        chose <- ts.sessions
+          .get(doc.conn)
+          .flatMap(_.traverse(_.state.map(_.vars)))
       } yield assertEquals(
         chose.flatMap(_.get(VarKey(NodeId.derived("panel"), "window"))),
         Some("7d")
@@ -603,16 +611,13 @@ class VarTapSuite extends ServerHarness {
       .timeout(15.seconds)
 
   test("a write the server made before a pull reaches the client before it") {
-    // The client is held mid-frame, as a slow socket holds it. The first write
-    // is taken off the control queue and stuck behind it, so the second waits
-    // in the queue; the pull after it is not on that queue.
+    // The client is held mid-frame, as a slow socket holds it, while a second
+    // write and then a pull are made. Frames returned to two branches of a
+    // merge left it in whichever order the merge took them.
     served(
       ts =>
         for {
           doc <- ts.load()
-          session <- ts.sessions
-            .get(doc.conn)
-            .flatMap(IO.fromOption(_)(RuntimeException("no session")))
           flowing <- fs2.concurrent.SignallingRef[IO].of(true)
           seen <- CeRef[IO].of(Vector.empty[ServerSentEvent])
           resp <- ts.get(doc.stream)
@@ -627,8 +632,6 @@ class VarTapSuite extends ServerHarness {
           _ <- post(ts, doc.conn, varPath(ts, "window/7d"))
           _ <- until(seen.get)(_.exists(_.data.exists(_.contains(Week))))
           _ <- post(ts, doc.conn, varPath(ts, "window/1h"))
-          // Still queued: the control side waits for the client.
-          queued <- session.control.size
           _ <- ts.change("sensor.a", "2")
           _ <- flowing.set(true)
           sent <- until(seen.get)(es =>
@@ -637,7 +640,6 @@ class VarTapSuite extends ServerHarness {
           )
           _ <- reader.cancel
         } yield {
-          assert(queued > 0, clue = "the write was not held back")
           val drawn = sent.flatMap(_.data).filter(_.contains("s="))
           // The server holds `s=2`: the pull redrew it after the write.
           assert(

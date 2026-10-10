@@ -51,8 +51,8 @@ names the dashboard it belongs to.
 
 **2. An unknown `conn` MINTS a session instead of dropping the tap.** This is
 what the stream route already does (`adoptOrMint`); the action path was the one
-place that dropped instead — one mechanism, not two. The patch queues in the
-fresh session's `control` and is delivered the moment the reconnecting stream
+place that dropped instead — one mechanism, not two. The patch waits in the
+fresh session's backlog and is delivered the moment the reconnecting stream
 adopts it, so the first tap lands. An abandoned mint is reaped on the same
 adoption window a document's is: this is either a page whose stream is on its
 way back, or a page that is gone.

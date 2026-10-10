@@ -90,7 +90,7 @@ class SessionLifecycleSuite extends ServerHarness {
       for {
         doc <- ts.load()
         established <- ts.sessions.get(doc.conn)
-        held <- established.traverse(_.holds.get)
+        held <- established.traverse(_.state.map(_.holds))
         _ <- ts.get(doc.stream).flatMap(sseFrom(_)(isCursor))
         // A first epoch on the document's object proves the stream took that
         // session. Lingering by now: the stream read its opening block and
@@ -298,7 +298,7 @@ class SessionLifecycleSuite extends ServerHarness {
         _ <- openThenDrop(ts, doc.stream)
         _ <- awaitTenure(ts, doc.conn, Tenure.Lingering(1))
         before <- ts.sessions.get(doc.conn)
-        heldBefore <- before.traverse(_.holds.get)
+        heldBefore <- before.traverse(_.state.map(_.holds))
         // The same URL, as Datastar's retry does.
         second <- ts.get(doc.stream)
         current <- second.body.compile.drain.start

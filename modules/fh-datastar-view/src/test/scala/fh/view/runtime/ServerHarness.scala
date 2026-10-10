@@ -547,7 +547,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           (store.current, sessions.forSlug("dashboard")).flatMapN {
             (now, all) =>
               all
-                .traverse(s => (s.tenure.get, s.position.get).tupled)
+                .traverse(s => (s.tenure.get, s.state.map(_.position)).tupled)
                 .map(_.collect { case (_: Tenure.Held, at) => at })
                 .map(live => live.nonEmpty && live.forall(_ >= now.version))
           } <* IO.sleep(5.millis)

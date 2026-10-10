@@ -866,7 +866,7 @@ class SignalSlotSuite extends ServerHarness {
         _ <- ts.record(fixture(both("21.6", "44"))("sensor.a"))
         _ <- ts.record(fixture(both("21.6", "48"))("sensor.b"))
         first <- v.pull
-        position <- v.session.position.get
+        position <- v.session.state.map(_.position)
         again <- v.pull
       } yield {
         // `sensor.a` appears once despite moving twice.

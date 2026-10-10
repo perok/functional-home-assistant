@@ -150,20 +150,20 @@ class AckedResumeSuite extends ServerHarness {
         session <- ts.sessions
           .get(tab.document.conn)
           .map(_.getOrElse(fail(s"no session for ${tab.document.conn}")))
-        toldBefore <- session.told.get
+        toldBefore <- session.state.map(_.told)
         // An attribute the card does not read: pulled, and owed nothing.
         _ <- ts.record(
           FixtureEntity("sensor.a", "cold", Map("noise" -> Json.fromInt(1)))
         )
         // Its pull still ran and claimed the version.
         _ <- fs2.Stream
-          .repeatEval(session.position.get <* IO.sleep(10.millis))
+          .repeatEval(session.state.map(_.position) <* IO.sleep(10.millis))
           .find(_ > tab.documentCursor)
           .compile
           .drain
           .timeout(30.seconds)
-        position <- session.position.get
-        told <- session.told.get
+        position <- session.state.map(_.position)
+        told <- session.state.map(_.told)
         _ <- release
         back <- tab.connect(tab.documentCursor)
       } yield {
