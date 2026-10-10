@@ -527,6 +527,28 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
+  test("a reconnect keeps each carried value its readers take, not none") {
+    // A value naming an entity this dashboard does not show must not cost the
+    // window carried beside it.
+    served(
+      ts =>
+        for {
+          client <- ts.connect(
+            "?datastar=" + java.net.URLEncoder.encode(
+              s"""{"${Server.ConnSignal}":"forgotten","_var_panel__window":"7d","_var_panel__e":"lock.front_door"}""",
+              "UTF-8"
+            )
+          )
+          _ <- client.drain
+          chose <- ts.sessions.get("forgotten").flatMap(_.traverse(_.vars.get))
+        } yield assertEquals(
+          chose,
+          Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
+        ),
+      dashboard = entityDash
+    )
+  }
+
   test("a live session's own choice wins over what its reconnect carries") {
     // The stream that would have delivered a commit can die with it, so the
     // client may still hold the value before.
