@@ -24,8 +24,9 @@ class SmokeFixtureSuite extends munit.FunSuite {
   }
 
   test("the lock composition places both of its controls") {
-    // A lock reporting OPEN gets a latch as its tile's feature, outside the
-    // tile's tappable row: inside it, the latch would also fire lock/unlock.
+    // Lock and Unlock, and for a lock reporting OPEN the latch, as its tile's
+    // features, outside the tile's tappable row: inside it, a press would also
+    // fire the tile's tap.
     val withFeatures = nodes.filter(_.regions.contains("features"))
     assertEquals(withFeatures.map(_.card), List("tile"))
     assert(
@@ -33,6 +34,9 @@ class SmokeFixtureSuite extends munit.FunSuite {
       clue = withFeatures.map(n => n.card -> n.subjectEntity)
     )
     val features = withFeatures.flatMap(_.regions("features").flatMap(walk))
-    assertEquals(features.map(_.card), List("button"))
+    assertEquals(
+      features.map(_.card),
+      List("fhrow", "button", "button", "button")
+    )
   }
 }

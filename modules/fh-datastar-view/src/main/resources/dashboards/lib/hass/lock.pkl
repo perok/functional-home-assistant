@@ -24,3 +24,9 @@ const CANNOT_OPEN: List<LockState> = List(
   "unlocking",
   "locking"
 )
+
+/// HA's `canLock` and `canUnlock` the same way: the state the press would
+/// reach, and the transient ones. HA's `assumed_state` exception, which enables
+/// both on a lock that cannot report its state, is not modelled.
+const CANNOT_LOCK: List<LockState> = List("locked", "opening", "unlocking", "locking")
+const CANNOT_UNLOCK: List<LockState> = List("unlocked", "opening", "unlocking", "locking")

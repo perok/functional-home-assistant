@@ -40,11 +40,27 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
   }
 }
 
-/// The tile, carrying the latch as a feature when the lock reports `OPEN`.
-/// One card rather than two cells, so the control stays the tile's and sits
-/// outside its tappable element. Read off the entity: a one-bit capability has
+/// Lock and Unlock side by side, HA's `lock-commands` card feature: two fixed
+/// presses rather than one that reads the state, so a second press while a
+/// slow lock catches up repeats the first instead of undoing it.
+function lockButtons(l: hass.LockEntity): layout.Row = new layout.Row {
+  children {
+    control.entityButton(l).label("Lock").tapAction(verbs.locks.lock(l)).icon("mdi:lock")
+    control.entityButton(l).label("Unlock").tapAction(verbs.locks.unlock(l)).icon("mdi:lock-open-variant")
+  }
+}
+
+/// The tile with [[lockButtons]] as its feature, and the latch under them when
+/// the lock reports `OPEN`, as HA's area dashboards compose a lock. The
+/// features sit outside the tile's tappable row; the tile opens more-info,
+/// which shows [[moreInfoCard]]. Read off the entity: a one-bit capability has
 /// no group to pass (ADR 0013).
-function controls(l: hass.LockEntity): nodes.LayoutNode =
-  if (l.supportsOpen)
-    entityMod.entityCard(l).features(List(openLatch(l)))
-  else entityMod.entityCard(l)
+function controls(l: hass.LockEntity): nodes.LayoutNode = withControls(entityMod.entityCard(l), l)
+
+/// [[controls]] for the more-info popup: the same buttons, and a tile that
+/// opens nothing, since it would only open the popup it is in.
+function moreInfoCard(l: hass.LockEntity): nodes.LayoutNode =
+  withControls((entityMod.entityCard(l)) { tapAction = null }, l)
+
+local function withControls(card: entityMod.EntityCard, l: hass.LockEntity): nodes.LayoutNode =
+  card.features(List(lockButtons(l)) + (if (l.supportsOpen) List(openLatch(l)) else List()))

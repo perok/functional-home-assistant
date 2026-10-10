@@ -88,3 +88,9 @@ const ACTIONS: Mapping<String, DomainAction> = new {
 
 /// What a tap on `domain` calls, or null, which a card turns into more-info.
 const function forDomain(domain: String): DomainAction? = ACTIONS.getOrNull(domain)
+
+/// Domains whose CARD opens more-info though the domain has a service, so a
+/// stray tap on a wall tablet cannot unlock the front door. The service stays
+/// in [[ACTIONS]] for what is pressed on purpose: an entity button, a toggle.
+/// HA's tile never acts on a lock either.
+const cardOpensMoreInfo: Set<String> = Set("lock")
