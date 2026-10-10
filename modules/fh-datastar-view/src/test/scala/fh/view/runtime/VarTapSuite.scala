@@ -224,6 +224,77 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
+  /** A candidate set of charts under the panel's window: each member reads it
+    * through the set's scope (ADR 0033).
+    */
+  private val setDash = {
+    def chartOf(entity: String) = LayoutNode.SetMember(
+      List(
+        LayoutNode.SetClause(node =
+          chartNode.copy(slots =
+            Map(
+              "chart" -> SlotSource(
+                query = Some(
+                  QueryTemplate(
+                    "history",
+                    Map(
+                      "entity" -> Ref.Literal(entity),
+                      "window" -> Ref.Var("window")
+                    )
+                  )
+                ),
+                transform = Transform.Stage.Passthrough,
+                reads = Reads.OnRender
+              )
+            )
+          )
+        )
+      )
+    )
+    dash.copy(card =
+      LayoutNode.Component(
+        "panel",
+        regions = LayoutNode.kids(
+          LayoutNode.SetNode(
+            candidates = List("sensor.a", "sensor.b"),
+            members = Map(
+              "sensor.a" -> chartOf("sensor.a"),
+              "sensor.b" -> chartOf("sensor.b")
+            )
+          )
+        ),
+        id = Some("panel"),
+        vars = Map("window" -> "24h")
+      )
+    )
+  }
+
+  test("a write redraws every member of a set at the new window") {
+    served(
+      ts =>
+        for {
+          page <- ts.page()
+          conn <- ts.load().map(_.conn)
+          session <- ts.sessions.get(conn)
+          result <- post(ts, conn, varPath(ts, "window/7d"))
+          queued <- drain(session)
+        } yield {
+          assertEquals(page.sliding(Day.length).count(_ == Day), 2, page)
+          assertEquals(result._1, Status.NoContent)
+          val painted = queued.flatMap(_.data).mkString
+          // Both members, each patched under its own id, at the week.
+          assertEquals(
+            painted.sliding(Week.length).count(_ == Week),
+            2,
+            painted
+          )
+          assert(!painted.contains(Day), clue = painted)
+          assertEquals(queued.lastOption.flatMap(_.data), Some(committed("7d")))
+        },
+      dashboard = setDash
+    )
+  }
+
   test("a value no reader can parse is refused, and nothing moves") {
     // `HistoryQuery.parse` is the authority on what a window may be, so a list
     // beside the declaration could only copy it.

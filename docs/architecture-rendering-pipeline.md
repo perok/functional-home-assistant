@@ -1123,7 +1123,8 @@ with a chart in every position against exactly the decided set, and fails on any
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
 answered. An unselected tab is not; switching to it fetches its own (`setVar`, then `swapHost`). A pull asks for
-exactly what it renders: each target's own reads (a set member's are its set's) and what each host
+exactly what it renders: each target's own reads (a set member's include its whole subtree's, at
+this viewer's values, and the sets above it) and what each host
 it fills shows. A target is a leaf or a member, never structure, so a pull that moves only plain
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.

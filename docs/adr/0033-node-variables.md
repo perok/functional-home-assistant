@@ -31,7 +31,7 @@ not be enumerated there. A declared reference can.
 5. A node sees its own declarations.
 6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
    the scope of the one node it is baked into.
-7. Inside a candidate set, a read is refused; naming a declarer above the set is allowed.
+7. A candidate set's members read the scope at the set. A node inside a clause cannot declare.
 8. A read with no declarer is a build error naming the node and the variable.
 9. A value is per viewer, kept on the session and addressed by declarer and name, so a write to
    an inner declaration cannot move a reader of an outer one.
@@ -65,13 +65,14 @@ yields the declared edge and its inverse, `Renderer.readersOf` — the exact set
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
-- **A variable read inside a candidate set is refused** — an implementation limit, not a missing
-  fact. The candidates and each member's id (`LayoutNode.memberSegment`: set id plus entity id)
-  are fixed at build time, and the set's scope is known. What is missing is the plumbing: a set's
-  reads are resolved once per build at the declared values (`Dashboard.queriesIn`), not per
-  viewer, and a write re-renders only nodes in the renderer's index (`readersOf`), which members
-  are not. A plain query inside a set still works. A test holds this, so lifting it is
-  deliberate.
+- **A candidate set's members read the scope at the set.** The candidates and each member's id
+  (`LayoutNode.memberSegment`: set id plus entity id) are fixed at build time, and a member's
+  children render under the member's id, so a member is an ordinary reader: `Renderer.memberScopes`
+  gives each the scope of the indexed set above it, a set's reads are resolved per viewer for
+  every clause (the snapshot is built before the walk picks one), and a write re-renders the
+  present members this viewer is shown. A member's render key carries its whole subtree's reads,
+  or a chart nested in a clause would keep its old window. A declaration inside a clause is
+  refused: it would be every member's own choice, which nothing needs.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `varMod.declarer(name)`
