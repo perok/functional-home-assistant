@@ -22,6 +22,26 @@ not be enumerated there. A declared reference can.
 
 ## Decision
 
+### The rules, in one place
+
+1. A node declares variables: a name and the value it holds before anyone chooses.
+2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
+3. A node that declares nothing is transparent.
+4. A nested declaration of the same name shadows the outer one, for its own subtree only.
+5. A node sees its own declarations.
+6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
+   the scope of the one node it is baked into.
+7. Inside a candidate set, a read is refused; naming a declarer above the set is allowed.
+8. A read with no declarer is a build error naming the node and the variable.
+9. A value is per viewer, kept on the session and addressed by declarer and name, so a write to
+   an inner declaration cannot move a reader of an outer one.
+10. Only a viewer's choice writes a value — `POST /sse/var`, a `v.` link, or what a reconnect
+    carries — and every reader must accept it, or the write is refused.
+
+Rules 2–6 are lexical scoping, as in Scheme, ML or Pkl itself: where a node stands in the tree
+decides, never where it is shown. Rule 6 is what keeps that true for surfaces — a popup can be
+opened from many places, so inheriting from its opener would be dynamic scoping.
+
 **Declaration.** `LayoutNode.Component.vars: Map[String, String]` — a name and the value it holds
 before anyone chooses. In Pkl, `vars = new Mapping { ["window"] = "24h" }` — assigned, because a null-defaulted
 `Mapping?` cannot be amended (ADR 0034). Nothing else: no type, no list of
@@ -45,17 +65,23 @@ yields the declared edge and its inverse, `Renderer.readersOf` — the exact set
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
-- **A variable read inside a candidate set is refused**, because a member's id is minted at run
-  time and has no scope entry. A plain query inside a set still works. A test holds this, so
-  lifting it is deliberate.
+- **A variable read inside a candidate set is refused** — an implementation limit, not a missing
+  fact. The candidates and each member's id (`LayoutNode.memberSegment`: set id plus entity id)
+  are fixed at build time, and the set's scope is known. What is missing is the plumbing: a set's
+  reads are resolved once per build at the declared values (`Dashboard.queriesIn`), not per
+  viewer, and a write re-renders only nodes in the renderer's index (`readersOf`), which members
+  are not. A plain query inside a set still works. A test holds this, so lifting it is
+  deliberate.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `varMod.declarer(name)`
 is a token, `@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a popup
 its own root, none is a build error naming the node). It is spliced into each node's OWN fields with
 the scope at that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its
-children the outer declarer. A candidate set's clause may use one: the declarer's id is static even
-where the member's is not.
+children the outer declarer. A candidate set's clause may use one to name a declarer above the set.
+It is a build token rather than something the renderer resolves because
+a route or a signal name is a string inside a slot, which the renderer never parses; the check for
+unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the DOM.
 
 **The value is per session, addressed to the DECLARER** — `Map[(NodeId, String), String]`. Keying
 by declarer is what makes a shadow safe from the write side: choosing on an outer panel cannot
@@ -67,9 +93,11 @@ against a different environment is not representable.
 **It arrives three ways and passes one check.** `POST /sse/var/:slug/:declarer/:name/:value` while
 the page is live, and `v.<declarer>.<name>` on the page URL, which survives a refresh and is
 recorded on the session because a pull has no request to read it off again. The third is a
-reconnect: the SSE GET carries the committed values, and a session this process forgot (a
-restart, a reap) adopts them, where it would otherwise reset every bar to its declared value. A
-live session's own choices win over them, since a commit can be lost with its stream. All go through
+reconnect: the SSE GET carries the committed values (not their pending asks), and a session this
+process forgot (a restart, a reap) adopts them, where it would otherwise reset every bar to its
+declared value. A live session's own choices win over them, since a commit can be lost with its
+stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
+parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
 `Renderer.refusals`: every declared reader must still parse what it would then ask, and read only
 an entity the dashboard names or one of its queries names at its declared values — ADR 0023's
 bound on the read side, because a `Ref` is legal on any parameter and a variable fed to `entity`
@@ -87,7 +115,8 @@ corrected and a control never shows the declared value over a linked choice.
 
 **The control is a node per value.** `c.windowChooser` declares `window` and builds its bar from
 one `Listing<Window>`, each value a `tab` node whose tap is `tapMod.setVar`: a guarded `Click`
-naming the declarer by token in its route and its pending signal. A button per node is what lets
+naming the declarer by token in its route and its pending signal. Its name and value are typed as
+plain tokens, since they travel in a route segment and a JS string. A button per node is what lets
 each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` takes the variable's
 name, so the pair cannot drift.
 
@@ -98,8 +127,11 @@ reader is the bake group (`Renderer.groupsSelectedBy`): the write swaps the pane
 shown and commits after it, and a value that is not a member index of every panel it selects is
 refused like an unparseable window. A tab panel cannot be opened directly; the open route refuses
 it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member index. Several bars, and a bar nested in another's
-panel, are kept apart by being different declarers.
+the bar and its declared value to be a member index, and refuses a `User`-activated member with
+a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
+and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
+being different declarers. Every path that bakes takes a bar's member from the session's
+variables, so a stale `ui.<id>` param cannot pick a tab.
 
 A highlight reads the committed `_var_<declarer>__<name>`, which the server writes for every
 declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
@@ -128,6 +160,17 @@ ships a hole — and it is the second mechanism #210's draft was rejected for.
 **Making the window a bake group.** Zero new machinery, since tab bars ship. But a control over
 three charts is twelve surfaces with each chart written four times, and one window cannot steer
 charts outside its panel.
+
+**Letting the author name a tab bar's variable.** It would let a button elsewhere in a panel switch
+tabs, which the declarer token makes possible. Fixed, as the chooser's `window` is, the
+declaration and its writers cannot drift; naming it can come when a control needs it.
+
+**A tab's label as the value.** It would survive reordering the tabs, but a label can carry a
+space or a `'`, and the value travels in a route segment and a JS string. The index is what
+`bakeIndex` already says.
+
+**Translating old `ui.<id>` tab links.** Cheap, but a second spelling to keep for as long as any
+link exists. An old link lands on the declared tab, which is what a stale `v.` link does.
 
 **Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022), which is
 why `@@NODE_ID@@` exists at all.
@@ -169,9 +212,15 @@ a value is ambient session state, in hand before the walk, never computed by it.
   node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
   writes it meaning the tabs' id. A child naming its DECLARER is `varMod.declarer`; an explicit "I
   own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
+- **A plain-slot reader** — a slot whose rendered value is a variable, re-rendered on a write. No
+  component needs one. When one does, it is a slot shape and nothing on the write path: the write
+  already re-renders whatever `readersOf` returns.
 - **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
   header cannot steer charts in a sibling column. A root declaration would, addressed through a
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author
-  names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists.
+  names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists. It
+  is also the last step for selections: the popup host lives in `theme.chrome`, outside every
+  node, so only a root declaration lets it become a variable and retire `ui_popups`, `uiStateOf`
+  and the `uiState` parameter every render path still takes for it (ADR 0005).
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.

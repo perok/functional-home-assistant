@@ -75,8 +75,8 @@ list and which of it is present, counted live, the same thing a state condition'
 — or a **condition**, decided live.
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
-**Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
-word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
+**Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ;
+ADR 0033 lists its scoping rules in one place. The word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
 calls CSS custom properties the same, so a bare "vars" in prose is ambiguous three ways.
 
 Three words go with it, and they are not interchangeable:

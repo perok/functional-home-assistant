@@ -35,11 +35,12 @@ so node ids are unique within a dashboard and **not slug-prefixed**.
 
 A **surface** (`model.Surface`) is a named layout subtree registered in
 `Dashboard.surfaces`, rendered on demand and streamed only while it is
-*active* — for a **user-activated** surface, while a connection has it open;
-for a **state-activated** one (an if/else branch — ADR 0007), while its
-condition over live entity state selects it. Its fields are `(content,
-bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
-`User(defaultOpen) | State(condition)`:
+*active* — for a popup, while a connection has it open; for a tab panel, while
+the viewer's node variable selects it (ADR 0033); for a **state-activated** one
+(an if/else branch — ADR 0007), while its condition over live entity state
+selects it. Its fields are `(content, bakeInto, bakeAs, bakeIndex,
+activation)`, where `activation` is the sum `User(defaultOpen) | Var(name) |
+State(condition)`:
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the
@@ -55,8 +56,8 @@ bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
   the component whose id equals `bakeInto` receives the selected member's
   rendered content under the template var `bakeAs`, so the selected panel is
   in the initial HTML with no round-trip and no flash. How the member is
-  selected is the group's activation mode: user-activated groups take the
-  `defaultOpen` (or URL-restored — ADR 0005) member; state-activated
+  selected is the group's activation mode: a variable-selected group takes
+  the member its variable names, declared or chosen (ADR 0033); state-activated
   groups take the first member whose condition holds (ADR 0007). Baked HTML
   and a later live switch are byte-identical.
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so

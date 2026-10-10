@@ -2,7 +2,6 @@ package fh.view.runtime
 
 import fh.view.query.QuerySnapshot
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -37,7 +36,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect("?ui.c_1=1")
+        onT1 <- world.connect(onTabs("c_1" -> 1))
         _ <- onT0.drain
         _ <- onT1.drain
 
@@ -121,20 +120,22 @@ class LiveStreamSuite extends ServerHarness {
       )
     ),
     surfaces = Map(
-      "then" -> stateMember(LayoutNode.Component("tabs"), "c_1", 0, armedCond),
-      "else" -> stateMember(branchCard("sensor.z"), "c_1", 1, always),
-      "t0" -> Surface(
-        branchCard("sensor.a"),
-        bakeInto = Some("s_then__c"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.User(defaultOpen = true)
+      "then" -> stateMember(
+        LayoutNode.Component("tabs", vars = TabDeclared),
+        "c_1",
+        0,
+        armedCond
       ),
-      "t1" -> Surface(
+      "else" -> stateMember(branchCard("sensor.z"), "c_1", 1, always),
+      "t0" -> tabMember(
+        branchCard("sensor.a"),
+        "s_then__c",
+        0
+      ),
+      "t1" -> tabMember(
         branchCard("sensor.b"),
-        bakeInto = Some("s_then__c"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        "s_then__c",
+        1
       )
     )
   )
@@ -165,21 +166,19 @@ class LiveStreamSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "col",
-          regions = LayoutNode.kids(LayoutNode.Component("tabs"))
+          regions =
+            LayoutNode.kids(LayoutNode.Component("tabs", vars = TabDeclared))
         )
       ),
-      "t0" -> Surface(
+      "t0" -> tabMember(
         branchCard("sensor.a"),
-        bakeInto = Some("s_det__c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.User(defaultOpen = true)
+        "s_det__c_0",
+        0
       ),
-      "t1" -> Surface(
+      "t1" -> tabMember(
         branchCard("sensor.b"),
-        bakeInto = Some("s_det__c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        "s_det__c_0",
+        1
       )
     )
   )
@@ -546,23 +545,21 @@ class LiveStreamSuite extends ServerHarness {
                 slots = Map("title" -> SlotSource(Some("sensor.title")))
               )
             )
-          )
+          ),
+          vars = TabDeclared
         )
       )
     ),
     surfaces = Map(
-      "t0" -> Surface(
+      "t0" -> tabMember(
         branchCard("sensor.a"),
-        bakeInto = Some("c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.User(defaultOpen = true)
+        "c_0",
+        0
       ),
-      "t1" -> Surface(
+      "t1" -> tabMember(
         branchCard("sensor.b"),
-        bakeInto = Some("c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1)
+        "c_0",
+        1
       )
     )
   )
@@ -582,7 +579,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect("?ui.c_0=1")
+        onT1 <- world.connect(onTabs("c_0" -> 1))
         _ <- onT0.drain
         _ <- onT1.drain
         _ <- world.change("sensor.title", "T1")
@@ -624,7 +621,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect("?ui.c_0=1")
+        onT1 <- world.connect(onTabs("c_0" -> 1))
         _ <- onT0.drain
         _ <- onT1.drain
         _ <- world.change("sensor.title", "T1")
@@ -663,7 +660,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect("?ui.s_then__c=1")
+        onT1 <- world.connect(onTabs("s_then__c" -> 1))
         open0 <- onT0.drain
         open1 <- onT1.drain
         _ = assert(
@@ -808,7 +805,7 @@ class LiveStreamSuite extends ServerHarness {
         firstOnT0 <- world.connect()
         secondOnT0 <- world.connect()
         // So the shared verdict is not simply "everyone".
-        onT1 <- world.connect("?ui.s_then__c=1")
+        onT1 <- world.connect(onTabs("s_then__c" -> 1))
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
         _ <- onT1.drain

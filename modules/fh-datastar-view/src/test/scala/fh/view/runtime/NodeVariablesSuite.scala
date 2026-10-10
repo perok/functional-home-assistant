@@ -161,7 +161,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a variable read from inside a candidate set is refused, for now") {
-    // A member's id is minted at run time, so it has no scope entry. Stated as
+    // Members are outside the per-viewer read path (ADR 0033), not unknown: the
+    // candidates and member ids are fixed at build time. Stated as
     // a test so lifting the bound is a deliberate act.
     val d = dash(
       box(
@@ -202,14 +203,14 @@ class NodeVariablesSuite extends munit.FunSuite {
     // is a scope root does not apply: a chooser above a tab bar reaches the
     // charts in its panels.
     val d = dash(
-      box(Map("window" -> "7d"), box(Map.empty)),
+      box(Map("window" -> "7d"), box(Map("tab" -> "0"))),
       surfaces = Map(
         "t0" -> Surface(
           chartNode(),
           bakeInto = Some("c_0"),
           bakeAs = Some("children"),
           bakeIndex = Some(0),
-          activation = Activation.User(true)
+          activation = Activation.Var("tab")
         )
       )
     )

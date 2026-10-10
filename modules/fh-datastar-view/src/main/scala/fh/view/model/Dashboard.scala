@@ -460,16 +460,17 @@ object Predicate:
 
 /** How a [[Surface]] becomes visible.
   *
-  *   - `User`: a tap, optionally open from first paint. The selection is per
-  *     connection (ADR 0005).
+  *   - `User`: a popup, opened by a tap, optionally from first paint. The
+  *     selection is per connection (ADR 0005). Never a baked member.
   *   - `Var`: the member whose `bakeIndex` is the node variable `name`, as seen
-  *     from the `bakeInto` node — a tab bar's panel (ADR 0033). Per viewer,
-  *     like `User`, but declared, so the server knows what selects it.
+  *     from the `bakeInto` node — a tab bar's panel (ADR 0033). Per viewer, and
+  *     declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
   *
-  * A bake group must be one mode (`validate`), so any member decides it.
+  * A bake group must be one mode, `Var` or `State` (`validate`), so any member
+  * decides it.
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
@@ -1025,7 +1026,8 @@ case class Dashboard(
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
-        // A member's id is minted at run time, so it has no scope yet.
+        // A set's reads resolve once, at declared values, and a write re-renders
+        // indexed nodes only, which members are not (ADR 0033).
         val inSetErrors =
           Option.when(inSet && template.references.nonEmpty)(
             s"$nodeId: slot '$name' reads a variable from inside a candidate " +
@@ -1628,14 +1630,22 @@ case class Dashboard(
             case (_, _, _: Activation.State) => "state"
           }.distinct
           val names = members.collect { case (_, _, Activation.Var(n)) => n }
+          // A baked member has a host, and what fills a host is a choice the
+          // server knows: a viewer's variable or a condition (ADR 0033).
+          val unchosen = members.collect { case (_, sid, _: Activation.User) =>
+            sid
+          }.sorted
           Option
-            .when(kinds.size > 1)(
-              s"bake group '$gid' mixes " +
-                List("user", "var", "state")
-                  .filter(kinds.contains)
-                  .map(_ + "-")
-                  .mkString(" and ") +
-                "activated members: " + members.map(_._2).sorted.mkString(", ")
+            .when(unchosen.nonEmpty)(
+              s"bake group '$gid' has members nothing selects (" +
+                unchosen.mkString(", ") + "): a baked surface is chosen by a " +
+                "node variable (activation kind \"var\") or a condition " +
+                "(\"state\")"
+            )
+            .toList ++ Option
+            .when(kinds.size > 1 && unchosen.isEmpty)(
+              s"bake group '$gid' mixes var- and state-activated members: " +
+                members.map(_._2).sorted.mkString(", ")
             )
             .toList ++ names.distinct.match {
             case List(name) => varSelectionErrors(gid, name, members.size)
