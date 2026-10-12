@@ -151,7 +151,10 @@ floor" is a list, not a reflection over the module. Floors live under
 `dump.floors` rather than at the module top level for the same reason: a
 namespace is what has an `all`, and a floor slug can then no longer collide
 with `entities` or `areas`. A member slugged `all` becomes `all_<kind>`
-(`dump.areas.all_area`). A home with no devices or users still has no
+(`dump.areas.all_area`). A floor names its areas as properties beside its own
+fields, so an area slugged like one of them (`level`, `areas`, `all`, …) becomes
+`<slug>_area` there (`dump.floors.ground.level_area`), with a doc comment on the
+property and a dump warning saying so. A home with no devices or users still has no
 `devices`/`users` namespace at all.
 
 **`all` leaves out the entities hidden in HA** (`id_hidden`, from the registry's
