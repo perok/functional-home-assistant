@@ -6,10 +6,10 @@ import io.circe.{Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Slot transforms in [CEL](https://cel.dev), over `state`, `attr`,
-  * `entity_id`, `domain` and `dashboard_slug`; only the slot's own entity is
-  * reachable, plus what the node's expression values say about others (a count,
-  * as a number). `attr` is an adapted JVM map, so a raw `attr['x']` on an
-  * absent key is an error: reads are guarded with `attr[?'x']`. `str(x)`
+  * `entity_id`, `domain`, `dashboard_slug` and `time_zone`; only the slot's own
+  * entity is reachable, plus what the node's expression values say about others
+  * (a count, as a number). `attr` is an adapted JVM map, so a raw `attr['x']`
+  * on an absent key is an error: reads are guarded with `attr[?'x']`. `str(x)`
   * renders numbers exactly as the engine renders a bare numeric result.
   *
   * Compiled once at validation. A failing evaluation renders its error message

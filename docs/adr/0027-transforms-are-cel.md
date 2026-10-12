@@ -52,6 +52,12 @@ and the `jsonata` bench cells.
   transform that does not compile fails the build — and during the swap it
   caught exactly its defect class: a re-authored `fillExpr` splice had dropped
   a paren, and the library refused to build.
+- **`time_zone` is the process's zone, not one fetched from HA.** Under the
+  add-on that is HA's own: core pushes its `time_zone` to Supervisor, which
+  sets `TZ` on every add-on container (`supervisor/docker/app.py`). Asking HA
+  (`get_config`) would thread a value through server, renderer and transforms
+  for the same answer; a laptop's `dashboardServe` shows its own zone, which
+  is the one its viewer is in. `slotMod.CLOCK_TIME_EXPR` is the one reader.
 - **Two stringifier decisions, both measured:** the `str()` helper adopts the
   pre-existing 10-digit `numToString` (strips `.0`, `[a, b]` lists, HALF_UP)
   rather than CEL-native `string()` — this normalised most of Phase 0's

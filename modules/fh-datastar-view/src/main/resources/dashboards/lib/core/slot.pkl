@@ -146,6 +146,23 @@ const function activeOf(e: hass.Entity): Slot? =
     bypassUnavailable = false
   }
 
+/// A timestamp state as the clock time it names, `18:03`, in `time_zone`: the
+/// server's, which under the add-on is HA's own (Supervisor sets `TZ`). Any
+/// other state passes through, so `unknown` still reads.
+const CLOCK_TIME_EXPR: String = #"""
+  state.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T')
+    ? cel.bind(t, timestamp(state),
+        cel.bind(h, t.getHours(time_zone), cel.bind(m, t.getMinutes(time_zone),
+          (h < 10 ? '0' : '') + string(h) + ':' + (m < 10 ? '0' : '') + string(m))))
+    : state
+  """#
+
+/// What an entity card reads out when told nothing: the clock time of a scene
+/// or a button's last activation, else null (the state with its unit).
+const function readingOf(e: hass.Entity): Expr? =
+  if (activeTables.lastHappened.contains(e.domain)) new Expr { transform = CLOCK_TIME_EXPR }
+  else null
+
 /// The section for optional markup holding a slot:
 ///
 /// ```
