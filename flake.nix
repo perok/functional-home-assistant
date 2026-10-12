@@ -317,7 +317,7 @@
           nodejs_24 # the frontend build (NpmPlugin), the Playwright driver, `npx skills`
           coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
-          async-profiler # asprof: allocation-site sampling (issue #237); JFR is built-in
+          async-profiler # allocation-site sampling (issue #237); JFR is built-in
           uv
           python3 # runtime for jcodemunch-mcp
           # /lib64 loader for non-nix binaries (cs-installed native tools like
@@ -691,16 +691,15 @@
 
         ## Profiling
 
-        JFR is in the JDK, and async-profiler ships as `asprof` for naming
-        allocation sites (pid from `jps`):
+        JFR is in the JDK, and async-profiler (nixpkgs names its `asprof`
+        binary `async-profiler`) names allocation sites (pid from `jps`):
 
-            asprof -d 30 -e alloc -f /tmp/alloc.html <pid>
+            async-profiler -d 30 -e alloc -f /tmp/alloc.html <pid>
 
         `alloc` and `wall` work under `--cap-drop=ALL`; `cpu` needs kernel perf
         access, so profile cpu on the Pi. In JMH:
-        `-prof async:event=alloc,libPath=<path to libasyncProfiler.so>`, found
-        with `find $(dirname $(readlink -f $(which asprof))) -name
-        'libasyncProfiler.so'`.
+        `-prof async:event=alloc,libPath=$(dirname $(readlink -f $(which
+        async-profiler)))/../lib/libasyncProfiler.so`.
 
         ## Pinning
 
