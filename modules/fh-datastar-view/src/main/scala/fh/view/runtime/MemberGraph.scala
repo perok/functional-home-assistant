@@ -551,21 +551,30 @@ private[runtime] object MemberGraph {
       b: String,
       states: Map[String, EntityState]
   ): Int = {
-    val raw = term.by match {
+    def directed(raw: Int) = if (term.descending) -raw else raw
+    term.by match {
       case LayoutNode.SortKey.Holds(p) =>
         def holds(id: String) =
           states.get(id).exists(st => Conditions.matchesIn(p, st, states))
-        java.lang.Boolean.compare(holds(b), holds(a))
+        directed(java.lang.Boolean.compare(holds(b), holds(a)))
       case LayoutNode.SortKey.Prop(property) =>
         def read(id: String) =
           states.get(id).fold("")(Conditions.propertyOf(property, _))
         val (l, r) = (read(a), read(b))
-        // Numeric when both are numbers, so 2 < 10.
-        (l.toDoubleOption, r.toDoubleOption) match {
-          case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
-          case _                  => l.compareTo(r)
-        }
+        // Last in either direction: `unknown` is no value, not the largest
+        // string, which under `desc` crowned a scene never activated.
+        if (hasNoValue(l) || hasNoValue(r))
+          java.lang.Boolean.compare(hasNoValue(l), hasNoValue(r))
+        else
+          // Numeric when both are numbers, so 2 < 10.
+          directed((l.toDoubleOption, r.toDoubleOption) match {
+            case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
+            case _                  => l.compareTo(r)
+          })
     }
-    if (term.descending) -raw else raw
   }
+
+  /** HA's two no-value states, and an attribute the entity does not report. */
+  private def hasNoValue(v: String): Boolean =
+    v.isEmpty || v == "unknown" || v == "unavailable"
 }

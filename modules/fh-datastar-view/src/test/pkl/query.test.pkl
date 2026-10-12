@@ -629,4 +629,53 @@ facts {
     wire.apply(dataForm) == wire.apply(candidateForm)
     ids.apply(dataForm) == List("light.taklys", "light.lampe", "binary_sensor.stue_motion")
   }
+
+  ["`first()` is a constant when the build can tell who leads"] {
+    local a: hass.SceneEntity = new { entity_id = "scene.a"; area_id = "stue" }
+    local b: hass.SceneEntity = new { entity_id = "scene.b" }
+    q.from(List(a, b)).first().eq(a) == true
+    q.from(List(a, b)).first().eq(b) == false
+    q.from(List(a, b)).first().ne(b) == true
+    // A registry key sorts at build time, so it leaves nothing live either.
+    q.from(List(a, b)).orderBy(q.desc(q.prop("entity_id"))).first().eq(b) == true
+  }
+
+  ["`first()` over a live ordering is a leader condition the runtime decides"] {
+    local a: hass.SceneEntity = new { entity_id = "scene.a"; area_id = "stue" }
+    local b: hass.SceneEntity = new { entity_id = "scene.b" }
+    local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
+    local lead = latest.eq(a) as pred.First
+    lead.entity == "scene.a"
+    lead.candidates.toList() == List("scene.a", "scene.b")
+    lead.orderBy.toList().single.dir == "desc"
+    (lead.orderBy.toList().single.by as pred.SortProp).property == "state"
+    latest.ne(a) is pred.PNot
+  }
+
+  ["`first()` reads `where`: a member the build dropped never leads"] {
+    local a: hass.SceneEntity = new { entity_id = "scene.a"; area_id = "stue" }
+    local b: hass.SceneEntity = new { entity_id = "scene.b" }
+    local inStue = q.from(List(a, b))
+      .where(q.eq(q.prop("area_id"), "stue"))
+      .orderBy(q.desc(q.stateProp))
+      .first()
+    inStue.eq(b) == false
+    (inStue.eq(a) as pred.First).candidates.toList() == List("scene.a")
+  }
+
+  ["`first().eq` of an entity outside the set is refused"] {
+    local a: hass.SceneEntity = new { entity_id = "scene.a" }
+    local b: hass.SceneEntity = new { entity_id = "scene.b" }
+    module.catch(() -> q.from(List(a)).first().eq(b))
+      .contains("'scene.b' is not one of the set's candidates")
+  }
+
+  ["a pill lights while its scene leads"] {
+    local a: hass.SceneEntity = new { entity_id = "scene.a" }
+    local b: hass.SceneEntity = new { entity_id = "scene.b" }
+    local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
+    local p = c.pill("A", c.tap.activate(a)).active(latest.eq(a))
+    p.derivedValues["__active"] == latest.eq(a)
+    p.liveClasses.containsKey("fh-active")
+  }
 }

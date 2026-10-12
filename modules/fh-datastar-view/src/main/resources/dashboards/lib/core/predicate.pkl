@@ -51,6 +51,17 @@ class Count extends Predicate {
   value: Any
 }
 
+/// Whether [[entity]] is the first present candidate under [[orderBy]]: the
+/// scene activated last, in a row of scenes. `candidates` are in the build's
+/// order, which breaks ties; `when` guards as for [[Count]].
+class First extends Predicate {
+  kind: "first" = "first"
+  candidates: Listing<String>
+  `when`: Mapping<String, Predicate> = new {}
+  orderBy: Listing<SortTerm> = new {}
+  entity: String
+}
+
 class PAnd extends Predicate {
   kind: "and" = "and"
   items: Listing<Predicate>
