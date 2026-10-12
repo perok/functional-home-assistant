@@ -58,7 +58,7 @@ function tap(e: hass.Entity): tapMod.TapAction = tapVerbs.default(e)
 /// `c.simple.percent("brightness", 1, 255)`.
 hidden simple: simpleMod = simpleMod
 
-/// `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
+/// `c.light.slider(l)`, `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
 hidden light: lightMod = lightMod
 
 /// `c.lock.controls(l)`, `c.lock.openLatch(l)`.
@@ -101,6 +101,9 @@ typealias EntityButton = control.EntityButton
 typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
 typealias Tabs = surfaces.Tabs
+typealias Modes = surfaces.Modes
+typealias Mode = surfaces.Mode
+typealias LightSlider = lightMod.LightSlider
 typealias If = surfaces.If
 typealias Slider = sliderBaseMod.Slider
 typealias EntitySlider = sliderMod.EntitySlider
@@ -119,6 +122,8 @@ hidden grid: layoutMod.Grid = layoutMod.grid
 hidden popup: surfaceMod.Popup = surfaceMod.popup
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
 hidden tabs: surfaces.Tabs = surfaces.tabs
+/// `(c.modes) { modes { new c.Mode { icon = …; label = …; body = … } } }`.
+hidden modes: surfaces.Modes = surfaces.modes
 
 // ---- mixins ----
 

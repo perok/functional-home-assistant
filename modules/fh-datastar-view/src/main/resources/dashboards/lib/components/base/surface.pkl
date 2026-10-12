@@ -3,6 +3,7 @@
 /// `core/surface.pkl`; the backend never reads a card name (ADR 0002/0007).
 module components.base.surface
 
+import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodes
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/predicate.pkl" as pred
@@ -98,6 +99,105 @@ class Tabs extends nodes.Node {
 
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
 hidden tabs: Tabs = new Tabs {}
+
+/// One panel of a [[Modes]]: its button, and the node it shows.
+class Mode {
+  /// An MDI name, `mdi:palette`.
+  icon: String
+  /// The button's accessible name and tooltip.
+  label: String
+  body: nodes.LayoutNode
+}
+
+/// A round button in a [[Modes]] bar. Built by the bar, not by an author.
+class ModeButton extends nodes.Node {
+  card = "modeButton"
+  cardDef = new nodes.CardDef {
+    template = #"<button class="fh-circle" title="{{label}}" aria-label="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard) data-class:fh-chosen="{{{active}}}" data-attr:aria-pressed="({{{active}}}) ? 'true' : 'false'"><i class="{{glyph}}"></i></button>"#
+    slots { "label"; "glyph"; "onclick"; "active" }
+  }
+  hidden label: String
+  hidden icon: String
+  hidden tapAction: tapMod.SetVar
+  /// A Datastar boolean expression, as [[TabButton.active]].
+  hidden active: String
+  slots {
+    ["label"] = label
+    ["glyph"] = "mdi " + icons.mdiClass(icon)
+    ["active"] = active
+    for (k, v in tapMod.tapSlots(tapAction)) {
+      [k] = v
+    }
+  }
+}
+
+/// One control at a time, with a round button per mode beside it, as HA's
+/// light dialog and Mushroom's light card switch brightness, colour
+/// temperature and colour. The [[Tabs]] machinery with icons for labels: it
+/// declares the node variable `mode`, the open panel's index, so the choice is
+/// per viewer, survives a refresh through the URL, and a panel not shown is
+/// neither rendered nor kept live. One mode renders no buttons.
+///
+///   (c.modes) { modes { new c.Mode { icon = "mdi:blinds"; label = "Position"; body = c.entitySlider(cover) } } }
+open class Modes extends nodes.Node {
+  card = "modes"
+  // The pending seed sits on the wrapper, the parent of both the panel and the
+  // buttons that read it — the placement [[Tabs]] explains.
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      [nodes.defaultRegion] = new nodes.Region {}
+      ["panel"] = new nodes.Region { fill = "baked" }
+    }
+    template = """
+      <div class="fh-modes" data-signals__ifmissing="{ \(modeVar.own.pendingSeed) }" \(modeVar.own.pendingClear)><div id="{{hostId}}" class="fh-modes-panel" \(modeVar.own.urlMirror)>{{#panel}}{{{html}}}{{/panel}}</div><div class="fh-modes-bar">{{#children}}{{{html}}}{{/children}}</div></div>
+      """
+    css = modesCss
+  }
+  hidden modes: Listing<Mode> = new {}
+  vars = modeVar.declare("0")
+  inlineSurfaces = new Mapping {
+    for (i, m in modes) {
+      ["m\(i)"] = new surfaceMod.SurfaceDef {
+        content = m.body
+        bakeInto = nodes.NODE_ID
+        bakeAs = "panel"
+        bakeIndex = i
+        activation = modeVar.selects
+      }
+    }
+  }
+  children = new Listing {
+    when (modes.length > 1) {
+      for (i, m in modes) {
+        new ModeButton {
+          label = m.label
+          icon = m.icon
+          // Strict, as [[Tabs]]' buttons, so an unseeded choice lights none.
+          active = "String(\(modeVar.below.chosen)) === '\(i)'"
+          // A switch answers too fast for a spinner to mean anything.
+          tapAction = (modeVar.choose(i.toString())) { busyVisual = false }
+        }
+      }
+    }
+  }
+}
+
+/// `(c.modes) { modes { … } }`.
+hidden modes: Modes = new Modes {}
+
+/// The node variable a [[Modes]] declares and its buttons write.
+const modeVar: varMod.Variable = new { name = "mode" }
+
+// The bar wraps under the control where the cell is too narrow for both. The
+// cell variables are reset, or the panel's cell inherits a grid's third (#546).
+const local modesCss: String = """
+  .fh-modes{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;--fh-cell-flex:0 0 auto;--fh-cell-width:auto}
+  .fh-modes-panel{display:flex;flex:1 1 12rem;min-inline-size:0}
+  .fh-modes-panel>.fh-cell{flex:1 1 auto}
+  .fh-modes-bar{display:flex;gap:.25rem}
+  .fh-modes-bar>.fh-cell>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-modes-bar>.fh-cell>button.fh-chosen{background:var(--fh-accent);color:var(--fh-on-accent)}
+  """
 
 /// The node variable a [[Tabs]] declares and its buttons write. Fixed, as the
 /// window chooser's is, so the declaration and its writers cannot drift.

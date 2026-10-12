@@ -225,6 +225,49 @@ object SmokeDashboard {
       HouseFixture.dumpWith(switchLight)
     )
 
+  /** A colour light that is on, warm and mid-bright: every `c.light.slider`
+    * mode has a value to show.
+    */
+  val colourLamp: FixtureEntity = FixtureEntity(
+    "light.lamp",
+    "on",
+    Map(
+      "friendly_name" -> Json.fromString("Lamp"),
+      "supported_color_modes" -> Json.arr(
+        Json.fromString("color_temp"),
+        Json.fromString("hs")
+      ),
+      "min_color_temp_kelvin" -> Json.fromInt(2000),
+      "max_color_temp_kelvin" -> Json.fromInt(6500),
+      "color_temp_kelvin" -> Json.fromInt(3000),
+      "brightness" -> Json.fromInt(150),
+      "hs_color" -> Json.arr(Json.fromInt(30), Json.fromInt(60)),
+      "rgb_color" -> Json.arr(
+        Json.fromInt(255),
+        Json.fromInt(179),
+        Json.fromInt(102)
+      )
+    )
+  )
+
+  /** `c.light.slider` in a grid cell, its usual home. */
+  val lightSlider: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.grid) { children { c.light.slider(dump.entities.${colourLamp.dumpKey}) } }
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp)
+    )
+
   /** A row of pills under a column: the nesting a column's inherited cell width
     * leaked through, stacking the pills.
     */

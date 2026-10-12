@@ -146,6 +146,38 @@ class ComponentVisualSuite extends SmokeSuite {
     }
   }
 
+  private val lightSliderScene =
+    Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
+
+  private def lightSliderCell(page: Page) =
+    page.locator(".fh-cell:has(> .fh-modes)")
+
+  test("the light slider looks right on brightness") {
+    withPage(lightSliderScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-brightness",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  test("the light slider looks right on colour") {
+    withPage(lightSliderScene, viewport) { (page, _) =>
+      IO.blocking {
+        page.locator(".fh-modes-bar button[aria-label='Colour']").click()
+        assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-colour",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
   test("the full dashboard looks right") {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
