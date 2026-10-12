@@ -82,7 +82,7 @@ card = (c.grid) {
     // matching clause and is not rendered. The set's root is itself a grid cell
     // (fullWidth here); its members flow in its own 12-column grid, two-up.
     c.title("Active now").fullWidth()
-    q.from(dump.all)
+    q.from(dump.entities.all)
       .where(q.eq(q.stateProp, "on"))
       .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
       .`else`((e) -> c.entityCard(e)
@@ -98,7 +98,7 @@ card = (c.grid) {
     // name only SOME candidates carry is an error rather than a silent live
     // attribute. The charge level is the sensor's state, so that half is live.
     c.title("Low battery").fullWidth()
-    q.from(dump.sensors)
+    q.from(dump.sensors.all)
       .where(q.eq(q.optional(q.prop("device_class")), "battery"))
       .where(q.lt(q.stateProp, 20))
       .render((e) -> c.entityCard(e)

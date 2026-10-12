@@ -744,10 +744,10 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-dashboard/hass.pkl"
         |import "@fh-home/dump.pkl" as dump
         |
-        |house = dump.lights.map((e) -> e.entity_id)
+        |house = dump.lights.all.map((e) -> e.entity_id)
         |room = hass.lights(dump.areas.kjokken.all).length
         |floor = hass.lights(dump.floors.ground_floor.all).length
-        |withHidden = hass.lights(dump.allWithHidden).length
+        |withHidden = hass.lights(dump.entities.allWithHidden).length
         |byName = dump.entities.light_stashed.entity_id
         |""".stripMargin
     )
@@ -765,7 +765,7 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("a modelled domain's house-wide list is derived, and partitions `all`") {
-    // The generator writes only `all`; `dump.locks` comes from the base's
+    // The generator fills each namespace; `dump.locks.all` comes from the base's
     // selector. A domain modelled in `hass.pkl` but left in `generic` reads as
     // "no locks in this house", silently.
     val tmp = os.temp.dir()
@@ -800,10 +800,10 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |import "@fh-home/dump.pkl" as dump
         |
-        |lockIds = dump.locks.map((l) -> l.entity_id)
-        |latch = dump.locks.first.supportsOpen
-        |genericIds = dump.generic.map((e) -> e.entity_id)
-        |allCount = dump.all.length
+        |lockIds = dump.locks.all.map((l) -> l.entity_id)
+        |latch = dump.locks.all.first.supportsOpen
+        |genericIds = dump.generic.all.map((e) -> e.entity_id)
+        |allCount = dump.entities.all.length
         |""".stripMargin
     )
 
@@ -865,12 +865,12 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |import "@fh-dashboard/components.pkl" as c
         |
-        |scenes = dump.scenes.map((s) -> s.entity_id)
-        |sets = dump.scenes.first.members.map((m) -> m.entity_id)
-        |fired = (dump.scripts + dump.buttons + dump.inputButtons)
+        |scenes = dump.scenes.all.map((s) -> s.entity_id)
+        |sets = dump.scenes.kveld.members.map((m) -> m.entity_id)
+        |fired = (dump.scripts.all + dump.buttons.all + dump.inputButtons.all)
         |  .map((x) -> c.tap.activate(x).service)
-        |sceneTap = c.tap(dump.scenes.first).service
-        |genericCount = dump.generic.length
+        |sceneTap = c.tap(dump.scenes.kveld).service
+        |genericCount = dump.generic.all.length
         |""".stripMargin
     )
 
@@ -893,6 +893,87 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[Int]("genericCount").toOption, Some(0))
   }
 
+  test("every domain namespace is its selector over `dump.entities.all`") {
+    // The generator decides which namespace an entity lands in; the selectors
+    // are what an author filters a scope with. One house holding every domain
+    // must give the same answer both ways, and name each member once.
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    val domains = List(
+      "light",
+      "lock",
+      "sensor",
+      "binary_sensor",
+      "switch",
+      "scene",
+      "script",
+      "button",
+      "input_button",
+      "number",
+      "media_player"
+    )
+    val entities = domains.map { d =>
+      s""""${d}_a": { "entity_id": "$d.a", "domain": "$d", "attributes": {} }"""
+    } :+
+      """"scene_all": { "entity_id": "scene.all", "domain": "scene", "attributes": {} }"""
+    writeDump(
+      tmp,
+      PklDump.render(
+        io.circe.parser
+          .parse(
+            s"""{ "areas": {}, "floors": {}, "entities": { ${entities.mkString(
+                ","
+              )} } }"""
+          )
+          .toOption
+          .get
+      )
+    )
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/hass.pkl"
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |local all = dump.entities.all
+        |local ids = (xs: List<hass.Entity>) -> xs.map((e) -> e.entity_id)
+        |agree = List(
+        |  dump.lights.all == hass.lights(all),
+        |  dump.locks.all == hass.locks(all),
+        |  dump.sensors.all == hass.sensors(all),
+        |  dump.binarySensors.all == hass.binarySensors(all),
+        |  dump.switches.all == hass.switches(all),
+        |  dump.scenes.all == hass.scenes(all),
+        |  dump.scripts.all == hass.scripts(all),
+        |  dump.buttons.all == hass.buttons(all),
+        |  dump.inputButtons.all == hass.inputButtons(all),
+        |  dump.generic.all == hass.generic(all)
+        |)
+        |generic = ids.apply(dump.generic.all)
+        |byName = List(dump.lights.a, dump.scenes.a, dump.scenes.all_scene).map((e) -> e.entity_id)
+        |count = all.length
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.get[List[Boolean]]("agree").toOption,
+      Some(List.fill(10)(true))
+    )
+    assertEquals(
+      c.get[List[String]]("generic").toOption,
+      Some(List("media_player.a", "number.a"))
+    )
+    assertEquals(
+      c.get[List[String]]("byName").toOption,
+      Some(List("light.a", "scene.a", "scene.all"))
+    )
+    assertEquals(c.get[Int]("count").toOption, Some(12))
+  }
+
   test("a bare `new Theme {}` is a whole theme, popups included") {
     // Every Theme property has a default, so a third-party theme states only
     // what it changes. What the defaults must still give: a frame that passes
@@ -908,7 +989,7 @@ class PklBuildSuite extends munit.FunSuite {
         |card = (c.column) {
         |  children {
         |    c.button("Open", c.tap.openPopupInline(c.title("x")))
-        |    c.entitySlider(dump.lights.first)
+        |    c.entitySlider(dump.lights.all.first)
         |  }
         |}
         |""".stripMargin
@@ -1152,7 +1233,7 @@ class PklBuildSuite extends munit.FunSuite {
        |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.call("homeassistant/toggle", dump.entities.light_kitchen))
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.entitySlider(dump.entities.light_kitchen)
-       |    q.from(dump.lights)
+       |    q.from(dump.lights.all)
        |      .where(q.eq(q.stateProp, "on"))
        |      .render((e) -> c.entityCard(e))
        |      .build()

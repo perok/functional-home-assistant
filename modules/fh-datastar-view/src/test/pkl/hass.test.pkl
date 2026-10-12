@@ -64,7 +64,7 @@ local class Appliance extends hass.Device {
 local stue: Stue = new {}
 local loft: Loft = new {}
 local dev: Appliance = new {}
-local house: dumpBase = new { allWithHidden = everything }
+local house: dumpBase.EntityNamespace = new { allWithHidden = everything }
 
 /// Hidden in HA, so no default list may show it.
 const local stashed: hass.LightEntity = new {
@@ -118,16 +118,23 @@ facts {
     ids.apply(dev.all) == ids.apply(dev.entities)
   }
 
-  ["the house's per-domain lists are the selectors over its `all`"] {
-    // The everyday spelling (`dump.lights`) and the scoped one
+  ["the house's per-domain namespaces are the selectors over its `all`"] {
+    // The everyday spelling (`dump.lights.all`) and the scoped one
     // (`hass.lights(area.all)`) must be the same function, not two filters that
-    // agree today.
-    house.lights == hass.lights(house.all)
-    house.locks == hass.locks(house.all)
-    house.sensors == hass.sensors(house.all)
-    house.binarySensors == hass.binarySensors(house.all)
-    house.switches == hass.switches(house.all)
-    house.generic == hass.generic(house.all)
+    // agree today. Which entities the generator puts in each namespace is
+    // `PklBuildSuite`'s to hold; this is the base's half.
+    (new dumpBase.LightNamespace { allWithHidden = hass.lights(everything) }).all
+      == hass.lights(house.all)
+    (new dumpBase.LockNamespace { allWithHidden = hass.locks(everything) }).all
+      == hass.locks(house.all)
+    (new dumpBase.SensorNamespace { allWithHidden = hass.sensors(everything) }).all
+      == hass.sensors(house.all)
+    (new dumpBase.BinarySensorNamespace { allWithHidden = hass.binarySensors(everything) }).all
+      == hass.binarySensors(house.all)
+    (new dumpBase.SwitchNamespace { allWithHidden = hass.switches(everything) }).all
+      == hass.switches(house.all)
+    (new dumpBase.GenericNamespace { allWithHidden = hass.generic(everything) }).all
+      == hass.generic(house.all)
   }
 
   ["an EMPTY scope answers an empty list, never an error"] {
@@ -136,13 +143,13 @@ facts {
     // `Cannot find property` at eval, on a first boot; a declared default
     // cannot fail that way.
     local bare: dumpBase = new {}
-    bare.all.isEmpty
-    bare.lights.isEmpty
-    bare.locks.isEmpty
-    bare.sensors.isEmpty
-    bare.binarySensors.isEmpty
-    bare.switches.isEmpty
-    bare.generic.isEmpty
+    bare.entities.all.isEmpty
+    bare.lights.all.isEmpty
+    bare.locks.all.isEmpty
+    bare.sensors.all.isEmpty
+    bare.binarySensors.all.isEmpty
+    bare.switches.all.isEmpty
+    bare.generic.all.isEmpty
     (new Loft { areas = List() }).all.isEmpty
     (new Appliance { entities = List() }).all.isEmpty
   }
@@ -153,12 +160,13 @@ facts {
     local room = new Stue { allWithHidden = withStashed }
     local floor = new Loft { areas = List(room) }
     local appliance = new Appliance { entities = withStashed }
-    local home: dumpBase = new { allWithHidden = withStashed }
+    local home: dumpBase.EntityNamespace = new { allWithHidden = withStashed }
+    local homeLights: dumpBase.LightNamespace = new { allWithHidden = hass.lights(withStashed) }
     !room.all.contains(stashed) && room.allWithHidden.contains(stashed)
     !floor.all.contains(stashed) && floor.allWithHidden.contains(stashed)
     !appliance.all.contains(stashed) && appliance.allWithHidden.contains(stashed)
     !home.all.contains(stashed) && home.allWithHidden.contains(stashed)
-    !home.lights.contains(stashed)
+    !homeLights.all.contains(stashed) && homeLights.allWithHidden.contains(stashed)
     ids.apply(home.all) == ids.apply(everything)
   }
 
@@ -252,15 +260,23 @@ facts {
     parts.toSet() == withFired.toSet()
   }
 
-  ["the house's fired-domain lists are the selectors over its `all`"] {
-    local home: dumpBase = new { allWithHidden = withFired }
-    home.scenes == hass.scenes(home.all)
-    home.scripts == hass.scripts(home.all)
-    home.buttons == hass.buttons(home.all)
-    home.inputButtons == hass.inputButtons(home.all)
-    ids.apply(hass.scenes((new Stue { allWithHidden = withFired }).all)) == List("scene.kveld")
+  ["an empty house's namespaces each answer an empty `all`"] {
+    // The first-boot property: the starter queries these having never seen the
+    // home, and a generator emits a namespace only when it has members.
     local bare: dumpBase = new {}
-    bare.scenes.isEmpty && bare.scripts.isEmpty
-    bare.buttons.isEmpty && bare.inputButtons.isEmpty
+    bare.entities.all.isEmpty && bare.generic.all.isEmpty
+    bare.lights.all.isEmpty && bare.locks.all.isEmpty && bare.switches.all.isEmpty
+    bare.sensors.all.isEmpty && bare.binarySensors.all.isEmpty
+    bare.scenes.all.isEmpty && bare.scripts.all.isEmpty
+    bare.buttons.all.isEmpty && bare.inputButtons.all.isEmpty
+  }
+
+  ["a namespace's `all` leaves out what HA hides, as a scope's does"] {
+    local secret: hass.SceneEntity = new { entity_id = "scene.secret"; id_hidden = true }
+    local scenes: dumpBase.SceneNamespace = new { allWithHidden = List(kveld, secret) }
+    ids.apply(scenes.all) == List("scene.kveld")
+    local everyone: dumpBase.EntityNamespace = new { allWithHidden = withFired + List(secret) }
+    ids.apply(everyone.all) == ids.apply(withFired)
+    ids.apply(hass.scenes((new Stue { allWithHidden = withFired }).all)) == List("scene.kveld")
   }
 }

@@ -45,25 +45,39 @@ object PklDump {
         )} = ${entityLiteral(eo, known)}""".stripMargin
     }
 
-    val entitiesClass =
-      s"""class Entities {
-         |${entities
-          .map { case (key, _) =>
-            s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
-          }
-          .mkString("\n")}
-         |}
-         |
-         |entities: Entities = new {}""".stripMargin
+    // Each subclasses its `internal/dump-base.pkl` namespace, which declares the
+    // property (so an empty house still has it) and derives `all`.
+    val entitiesClass = namespace(
+      "Entities",
+      "entities",
+      "EntityNamespace",
+      named = entities.map { case (key, _) => key -> key }
+    )
 
-    // Declared (with a `List()` default) in `internal/dump-base.pkl`, which also
-    // derives `all` and the per-domain lists; only filled here.
-    val domainLists =
-      Option
-        .when(entities.nonEmpty)(
-          s"allWithHidden = List(${entities.map { case (key, _) => tick(s"e_$key") }.mkString(", ")})"
-        )
-        .getOrElse("")
+    val domainNamespaces = DomainNamespaces.flatMap { ns =>
+      val members =
+        entities.filter { case (_, eo) => namespaceOf(eo) == ns }
+      Option.when(members.nonEmpty)(
+        if (ns == Generic)
+          namespace(
+            ns.className,
+            ns.property,
+            ns.base,
+            unnamed = members.map(_._1)
+          )
+        else
+          namespace(
+            ns.className,
+            ns.property,
+            ns.base,
+            named = members.map { case (key, eo) =>
+              val objectId =
+                str(eo, "domain").fold(key)(d => key.stripPrefix(s"${d}_"))
+              (if (objectId == "all") s"all_${ns.kind}" else objectId) -> key
+            }
+          )
+      )
+    }
 
     val areaClasses = areas.map { case (slug, ao) =>
       val areaId = str(ao, "area_id")
@@ -196,12 +210,11 @@ object PklDump {
     s"""/// GENERATED from the live HA registry by PklDump — do not edit.
        |/// The entity/area/floor dump, typed against `hass.pkl`.
        |///
-       |/// EXTENDS the shared base so the house-wide lists (`all`, and the
-       |/// per-domain `lights`/`locks`/`sensors`/`switches`/`generic` derived
-       |/// from it) are a declared contract with `List()` defaults, not
-       |/// properties this generator has to remember to emit.
-       |/// `extends` rather than `amends` because an amending module may not
-       |/// declare classes, and a dump is mostly classes.
+       |/// EXTENDS the shared base so the house-wide namespaces (`entities`,
+       |/// `lights`, …, `generic`, each answering `all`) are a declared contract
+       |/// with `List()` defaults, not properties this generator has to remember
+       |/// to emit. `extends` rather than `amends` because an amending module may
+       |/// not declare classes, and a dump is mostly classes.
        |extends "@fh-dashboard/internal/dump-base.pkl"
        |
        |import "@fh-dashboard/hass.pkl"
@@ -210,7 +223,7 @@ object PklDump {
        |
        |$entitiesClass
        |
-       |$domainLists
+       |${domainNamespaces.mkString("\n\n")}
        |
        |${areaClasses.mkString("\n\n")}
        |
@@ -255,6 +268,119 @@ object PklDump {
        |
        |${className.toLowerCase}: $className = new {}""".stripMargin
   }
+
+  /** One of `internal/dump-base.pkl`'s entity namespaces, filled: `named` as
+    * (property, entity key) members, and `allWithHidden` of every member in
+    * entity-id order. `unnamed` members are listed without a property.
+    */
+  private def namespace(
+      className: String,
+      property: String,
+      base: String,
+      named: List[(String, String)] = Nil,
+      unnamed: List[String] = Nil
+  ): String = {
+    val props = named.map { case (n, key) =>
+      s"  ${tick(n)}: ${entityClass(key)} = ${tick(s"e_$key")}"
+    }
+    val refs = named.map(n => tick(n._1)) ++ unnamed.map(k => tick(s"e_$k"))
+    val all =
+      Option.when(refs.nonEmpty)(
+        s"  allWithHidden = List(${refs.mkString(", ")})"
+      )
+    s"""class $className extends $base {
+       |${(props ++ all).mkString("\n")}
+       |}
+       |
+       |$property: $className = new {}""".stripMargin
+  }
+
+  /** A typed domain's house namespace. Its `kind` renames a member slugged
+    * `all` (`all_light`), as [[container]] does.
+    */
+  private case class DomainNamespace(
+      entityType: String,
+      property: String,
+      className: String,
+      base: String,
+      kind: String
+  ) derives CanEqual
+
+  private val Generic =
+    DomainNamespace("", "generic", "Generic", "GenericNamespace", "generic")
+
+  /** One per selector in `hass.pkl`; a number or select is typed but has none,
+    * so it lands in [[Generic]] as `hass.generic` puts it.
+    */
+  private val DomainNamespaces: List[DomainNamespace] = List(
+    DomainNamespace(
+      "hass.LightEntity",
+      "lights",
+      "Lights",
+      "LightNamespace",
+      "light"
+    ),
+    DomainNamespace(
+      "hass.LockEntity",
+      "locks",
+      "Locks",
+      "LockNamespace",
+      "lock"
+    ),
+    DomainNamespace(
+      "hass.SensorEntity",
+      "sensors",
+      "Sensors",
+      "SensorNamespace",
+      "sensor"
+    ),
+    DomainNamespace(
+      "hass.BinarySensorEntity",
+      "binarySensors",
+      "BinarySensors",
+      "BinarySensorNamespace",
+      "binary_sensor"
+    ),
+    DomainNamespace(
+      "hass.SwitchEntity",
+      "switches",
+      "Switches",
+      "SwitchNamespace",
+      "switch"
+    ),
+    DomainNamespace(
+      "hass.SceneEntity",
+      "scenes",
+      "Scenes",
+      "SceneNamespace",
+      "scene"
+    ),
+    DomainNamespace(
+      "hass.ScriptEntity",
+      "scripts",
+      "Scripts",
+      "ScriptNamespace",
+      "script"
+    ),
+    DomainNamespace(
+      "hass.ButtonEntity",
+      "buttons",
+      "Buttons",
+      "ButtonNamespace",
+      "button"
+    ),
+    DomainNamespace(
+      "hass.InputButtonEntity",
+      "inputButtons",
+      "InputButtons",
+      "InputButtonNamespace",
+      "input_button"
+    ),
+    Generic
+  )
+
+  private def namespaceOf(eo: JsonObject): DomainNamespace =
+    DomainNamespaces.find(_.entityType == entityType(eo)).getOrElse(Generic)
 
   private def deviceSection(
       classes: List[String],

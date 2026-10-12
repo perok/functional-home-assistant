@@ -13,7 +13,7 @@
 // `["home"] = import("my-dashboard.pkl")`.
 //
 // It names NO concrete entity: every section is a query over one of the dump's
-// house-wide lists (`dump.lights`, `dump.switches`, `dump.sensors`, `dump.all`),
+// house-wide lists (`dump.lights.all`, `dump.switches.all`, `dump.sensors.all`, `dump.entities.all`),
 // so it renders on any installation. WHICH entities exist is decided when the
 // dump is built; what the query decides live is which of them are shown, and
 // how. For entity-specific cards, reference `dump.entities.<your_entity>` —
@@ -54,14 +54,14 @@ dashboards {
         // light changing swaps its own card and touches nothing else. The card
         // needs no `tap`: `light/toggle` is what its domain implies (issue
         // #106).
-        q.from(dump.lights)
+        q.from(dump.lights.all)
           .caseOf(q.eq(q.stateProp, "on"), c.entitySlider)
           .`else`(c.entityCard)
           .build()
           .fullWidth()
 
         c.title("Switches").fullWidth()
-        q.from(dump.switches).render(c.entityCard).build().fullWidth()
+        q.from(dump.switches.all).render(c.entityCard).build().fullWidth()
 
         c.title("Low battery").fullWidth()
         // `device_class` is registry data, so it SELECTS the candidates at
@@ -69,7 +69,7 @@ dashboards {
         // sensors do not report one, and without it a name only some
         // candidates carry is an error rather than a silent live attribute.
         // The charge level is the sensor's own state, so that half stays live.
-        q.from(dump.sensors)
+        q.from(dump.sensors.all)
           .where(q.eq(q.optional(q.prop("device_class")), "battery"))
           .where(q.lt(q.stateProp, 20))
           .render((e) -> (c.entityCard(e)) {
@@ -86,7 +86,7 @@ dashboards {
   //
   //   ["kitchen"] {
   //     title = "Kitchen"
-  //     card = (c.grid) { children { q.from(dump.lights).render(c.entityCard).build() } }
+  //     card = (c.grid) { children { q.from(dump.lights.all).render(c.entityCard).build() } }
   //   }
   //
   // …or in its own file, for a big one — write `kitchen.pkl` starting with
