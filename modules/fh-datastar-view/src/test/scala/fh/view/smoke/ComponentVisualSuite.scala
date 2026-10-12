@@ -161,6 +161,8 @@ class ComponentVisualSuite extends SmokeSuite {
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
         page.locator(".fh-modes-bar button[aria-label='Brightness']").click()
         assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
+        // Off the button it pressed, whose hover tint is not the look.
+        page.mouse().move(0, 0)
         settle(page)
         VisualSnapshot.check(
           "light-slider-brightness",
@@ -175,6 +177,7 @@ class ComponentVisualSuite extends SmokeSuite {
       IO.blocking {
         page.locator(".fh-modes-bar button[aria-label='Colour']").click()
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
+        page.mouse().move(0, 0)
         settle(page)
         VisualSnapshot.check(
           "light-slider-colour",
