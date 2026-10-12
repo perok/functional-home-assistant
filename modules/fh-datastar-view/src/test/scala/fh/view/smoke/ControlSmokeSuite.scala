@@ -62,7 +62,7 @@ class ControlSmokeSuite extends SmokeSuite {
     withPage(scene) { (page, ts) =>
       val kitchenState = page
         .locator(
-          "article.entity",
+          "article.fh-entity",
           new com.microsoft.playwright.Page.LocatorOptions()
             .setHasText("Kitchen")
         )
@@ -225,10 +225,10 @@ class ControlSmokeSuite extends SmokeSuite {
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
         val slider = page.locator("input[type=range]")
-        val wrapper = page.locator(".slider.max")
+        val wrapper = page.locator(".fh-slider")
         // The commit's busy pieces put BeerCSS's `.shape.loading-indicator` on
         // the head badge, so its glyph spins while in flight.
-        val badge = page.locator(".slider-icon")
+        val badge = page.locator(".fh-slider-icon")
         def busy: IO[Boolean] =
           IO.blocking(
             wrapper
@@ -278,7 +278,7 @@ class ControlSmokeSuite extends SmokeSuite {
       Scene.of(SmokeDashboard.busyIcon),
       fakeConfig = FakeConfig(callDelay = 2.seconds)
     ) { (page, _) =>
-      val icon = page.locator(".slider-actions button")
+      val icon = page.locator(".fh-slider-actions button")
       def spinning: IO[Boolean] =
         IO.blocking(
           icon
@@ -296,14 +296,16 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("an icon-only button is ROUND, not stretched to its cell") {
-    // `.fh-cell>:is(.button,button)` sets `inline-size:100%` at (0,2,0), which
+    // `.fh-cell>:is(.fh-button,button)` sets `inline-size:100%` at (0,2,0), which
     // beat BeerCSS's `.circle` (0,1,0) and stretched the round button into a
     // wide, short pill. Geometry rather than a screenshot: a computed size is
     // assertable directly, with no font-dependent baseline, and no visual
     // baseline has a round button anyway.
     withPage(Scene.of(SmokeDashboard.busyIcon)) { (page, _) =>
       for {
-        box <- IO.blocking(page.locator(".slider-actions button").boundingBox())
+        box <- IO.blocking(
+          page.locator(".fh-slider-actions button").boundingBox()
+        )
         _ <- IO(
           assert(
             box.width > 8 && box.height > 8,
@@ -391,7 +393,7 @@ class ControlSmokeSuite extends SmokeSuite {
     withPage(switchScene) { (page, ts) =>
       for {
         card <- IO.blocking(
-          page.locator("article.slider-card").boundingBox()
+          page.locator("article.fh-slider-card").boundingBox()
         )
         _ <- IO.blocking(
           page.mouse().click(card.x + card.width / 2, card.y + card.height - 4)
@@ -425,14 +427,14 @@ class ControlSmokeSuite extends SmokeSuite {
             .hasCount(2)
         )
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-cell.fh-active>article.entity"))
+          assertThat(page.locator(".fh-cell.fh-active>article.fh-entity"))
             .hasCount(1)
         )
         json <- IO.blocking(
           page
             .evaluate(
               """() => {
-                |  const tile = document.querySelector('article.entity');
+                |  const tile = document.querySelector('article.fh-entity');
                 |  const [plain, long] = document.querySelectorAll('article.toggle');
                 |  const look = el => getComputedStyle(el);
                 |  const title = long.querySelector('.fh-text');
@@ -443,7 +445,7 @@ class ControlSmokeSuite extends SmokeSuite {
                 |    switchBadge: look(plain.querySelector('.fh-badge')).backgroundColor,
                 |    cut: title.scrollWidth > title.clientWidth,
                 |    textOverflow: look(title).textOverflow,
-                |    switchRight: long.querySelector('.switch').getBoundingClientRect().right,
+                |    switchRight: long.querySelector('.fh-switch').getBoundingClientRect().right,
                 |    cardRight: long.getBoundingClientRect().right
                 |  });
                 |}""".stripMargin
@@ -515,7 +517,7 @@ class ControlSmokeSuite extends SmokeSuite {
   test("an unavailable slider is disabled, and a stray change posts nothing") {
     withPage(scene) { (page, ts) =>
       val input = page.locator("input[type=range]")
-      val track = page.locator(".slider.max")
+      val track = page.locator(".fh-slider")
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(assertThat(input).isEnabled())
@@ -562,7 +564,7 @@ class ControlSmokeSuite extends SmokeSuite {
           page.evaluate("matchMedia('(pointer:coarse)').matches")
         )
         _ = assertEquals(coarse, true: Any)
-        box <- IO.blocking(page.locator(".slider.max").boundingBox())
+        box <- IO.blocking(page.locator(".fh-slider").boundingBox())
         _ <- IO.blocking(
           page
             .touchscreen()

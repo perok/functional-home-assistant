@@ -26,8 +26,8 @@ open class Tile extends nodes.ActiveNode {
     // title with its reading and second line under it. A `div`, not BeerCSS's
     // `<header>`, which is a 4rem app-bar grid.
     template = """
-      <article class="card entity fh-tile-card">
-        <div class="fh-tile{{#tappable}} tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
+      <article class="fh-card fh-entity fh-tile-card">
+        <div class="fh-tile{{#tappable}} fh-tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun("label"))</span>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
         <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>{{#features}}{{{html}}}{{/features}}
@@ -39,7 +39,7 @@ open class Tile extends nodes.ActiveNode {
     // each feature is a full-width cell under it, the card resetting what a
     // cell inherits.
     css = """
-      .card.tappable,.fh-tile.tappable{cursor:pointer}
+      .fh-card.fh-tappable,.fh-tile.fh-tappable{cursor:pointer}
       .fh-tile-card{--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
       .fh-tile-card>.fh-cell{margin:0 1rem .5rem}
       .fh-tile-card>.fh-tile+.fh-cell{margin-block-start:-.25rem}

@@ -24,9 +24,12 @@ class UiSmokeSuite extends SmokeSuite {
 
   test("tabs: the bar swaps the panel, no reload") {
     withPage(scene) { (page, _) =>
-      val panel = page.locator(".tab-panel")
+      val panel = page.locator(".fh-tab-panel")
       val climateTab =
-        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+        page.locator(
+          ".fh-tabs a",
+          new Page.LocatorOptions().setHasText("Climate")
+        )
       for {
         _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
         _ <- IO.blocking(climateTab.click())
@@ -37,7 +40,7 @@ class UiSmokeSuite extends SmokeSuite {
 
   test("tabs: a selection on the URL survives the SSE connect") {
     withPage(scene) { (page, ts) =>
-      val panel = page.locator(".tab-panel")
+      val panel = page.locator(".fh-tab-panel")
       for {
         // Read off the first paint: a hardcoded path id shifts with layout
         // edits.
@@ -57,7 +60,7 @@ class UiSmokeSuite extends SmokeSuite {
           HouseFixture.outsideTemp.attributes
         )
         _ <- IO.blocking(
-          assertThat(page.locator("article.entity").first())
+          assertThat(page.locator("article.fh-entity").first())
             .containsText("13.1")
         )
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
@@ -76,9 +79,12 @@ class UiSmokeSuite extends SmokeSuite {
     // or a gone route produces, which Datastar reports as `error` from
     // `onopen`.
     withPage(scene) { (page, ts) =>
-      val panel = page.locator(".tab-panel")
+      val panel = page.locator(".fh-tab-panel")
       val climateTab =
-        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+        page.locator(
+          ".fh-tabs a",
+          new Page.LocatorOptions().setHasText("Climate")
+        )
       for {
         _ <- ts.awaitLive()
         // The mirror applies the seeded selection shortly after connect, so
@@ -132,9 +138,12 @@ class UiSmokeSuite extends SmokeSuite {
     // requests, so the open stream would survive and the banner would assert a
     // healthy connection. The blocked reconnect keeps it failed.
     withPage(scene) { (page, ts) =>
-      val panel = page.locator(".tab-panel")
+      val panel = page.locator(".fh-tab-panel")
       val climateTab =
-        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+        page.locator(
+          ".fh-tabs a",
+          new Page.LocatorOptions().setHasText("Climate")
+        )
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
@@ -161,15 +170,15 @@ class UiSmokeSuite extends SmokeSuite {
     withPage(scene) { (page, _) =>
       val kitchenCard = page
         .locator(
-          "article.entity",
+          "article.fh-entity",
           new Page.LocatorOptions().setHasText("Kitchen")
         )
-      val popup = page.locator(".popup")
+      val popup = page.locator(".fh-popup")
       for {
         _ <- IO.blocking(assertThat(popup).hasCount(0))
         _ <- IO.blocking(kitchenCard.click())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        _ <- IO.blocking(page.locator(".popup-close").click())
+        _ <- IO.blocking(page.locator(".fh-popup-close").click())
         _ <- IO.blocking(assertThat(popup).hasCount(0))
       } yield ()
     }
@@ -183,10 +192,10 @@ class UiSmokeSuite extends SmokeSuite {
     withPage(scene) { (page, ts) =>
       val kitchenCard = page
         .locator(
-          "article.entity",
+          "article.fh-entity",
           new Page.LocatorOptions().setHasText("Kitchen")
         )
-      val popup = page.locator(".popup")
+      val popup = page.locator(".fh-popup")
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(
@@ -218,10 +227,10 @@ class UiSmokeSuite extends SmokeSuite {
     withPage(scene) { (page, ts) =>
       val kitchenCard = page
         .locator(
-          "article.entity",
+          "article.fh-entity",
           new Page.LocatorOptions().setHasText("Kitchen")
         )
-      val popup = page.locator(".popup")
+      val popup = page.locator(".fh-popup")
       for {
         _ <- IO.blocking(kitchenCard.click())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
@@ -274,14 +283,14 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
-  /** `--_end` is the distance from the right edge, so a drag right lowers it.
-    * Read computed, since `beer.min.js` and Datastar's style plugin both write
-    * the inline style.
+  /** `--_end` on the track's span is the distance from the right edge, so a
+    * drag right lowers it. It is the card's `--fh-fill` through theme-beer's
+    * bridge, so this reads what BeerCSS paints.
     */
   private def fillEnd(page: Page): IO[String] = IO.blocking(
     page
       .evaluate(
-        "getComputedStyle(document.querySelector('.slider')).getPropertyValue('--_end')"
+        "getComputedStyle(document.querySelector('.fh-slider>span')).getPropertyValue('--_end')"
       )
       .toString
       .trim
@@ -358,10 +367,10 @@ class UiSmokeSuite extends SmokeSuite {
     IO.blocking(
       page
         .evaluate(
-          """() => JSON.stringify([...document.querySelectorAll('.slider-head')].map(head => {
-            |  const card = head.closest('article.slider-card').getBoundingClientRect();
+          """() => JSON.stringify([...document.querySelectorAll('.fh-slider-head')].map(head => {
+            |  const card = head.closest('article.fh-slider-card').getBoundingClientRect();
             |  const readout = head.querySelector('.fh-reading').getBoundingClientRect();
-            |  const badge = head.querySelector('.slider-icon').getBoundingClientRect();
+            |  const badge = head.querySelector('.fh-slider-icon').getBoundingClientRect();
             |  return {
             |    cardRight: card.right, headRight: head.getBoundingClientRect().right,
             |    readoutRight: readout.right,
@@ -418,7 +427,7 @@ class UiSmokeSuite extends SmokeSuite {
     ) { (page, _) =>
       for {
         _ <- IO.blocking(
-          assertThat(page.locator(".slider-icon").first()).isVisible()
+          assertThat(page.locator(".fh-slider-icon").first()).isVisible()
         )
         rows <- sliderRows(page)
       } yield {
@@ -552,9 +561,9 @@ class UiSmokeSuite extends SmokeSuite {
         back <- eventually(IO.blocking(slider.inputValue()))(_ == before)
         fill <- IO.blocking(
           page
-            .locator("div.slider")
+            .locator(".fh-slider>span")
             .first()
-            .evaluate("e => e.style.getPropertyValue('--_end')")
+            .evaluate("e => e.style.getPropertyValue('--fh-fill')")
             .toString
         )
       } yield {

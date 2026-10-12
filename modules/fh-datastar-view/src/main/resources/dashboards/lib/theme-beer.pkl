@@ -1,7 +1,8 @@
 /// The BeerCSS Material 3 theme (ADR 0026), the default. BeerCSS styles
 /// semantic elements (`<article>`, `<button>`, `<dialog>`), which is what the
-/// cards emit, so `styles` carries only paint (ADR 0020): two colour bridges
-/// and the few rules that name something BeerCSS owns.
+/// cards emit, and `classes` puts its own classes beside the cards' `fh-` ones
+/// (`fh-slider` -> `slider max`), so `styles` carries only paint (ADR 0020): two
+/// colour bridges and the few rules that name something BeerCSS owns.
 ///
 /// Retune by amending: `theme = (beer.theme) { md3Light { ["primary"] = "#7d5260" } }`,
 /// or the HA tokens with `(beer.theme) { tokens { ["primary-color"] = "#..." } }`.
@@ -19,14 +20,6 @@ import "theme.pkl" as themeMod
 /// Pinned; bump deliberately and re-check the facts ADR 0026 rests on.
 const local beerVersion: String = "4.0.23"
 const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersion)/dist/cdn"
-
-/// Material Design Icons, HA's own set, so an entity's `icon` renders as its
-/// author chose. ~500 KB for a few dozen used glyphs: the way out is to inline
-/// the used icons as SVG paths at build time (`@mdi/js`), since every icon name
-/// is known then.
-const local mdiVersion: String = "7.4.47"
-const local mdiCdn: String =
-  "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
 
 /// The text font BeerCSS's `--font` asks for and never loads. Without it each
 /// engine falls back to a different sans, and a label sits centred in one and
@@ -127,11 +120,6 @@ class BeerTheme extends themeMod.Theme {
     interCdn
   }
 
-  // Nothing about the layout depends on the icon font, so it waits.
-  deferredStylesheets {
-    mdiCdn
-  }
-
   // For this theme's CSS, not behaviour: the slider fill is JS-driven, and the
   // light/dark body class comes from here. Its listeners are delegated, so they
   // survive morphs.
@@ -154,6 +142,14 @@ class BeerTheme extends themeMod.Theme {
     ["fh-size-small"] = "small"
     ["fh-size-medium"] = ""
     ["fh-size-large"] = "large"
+    // The cards' own classes, onto the BeerCSS ones that style them.
+    ["fh-button"] = "fh-button button"
+    ["fh-circle"] = "fh-circle circle small"
+    ["fh-chip"] = "fh-chip chip"
+    ["fh-switch"] = "fh-switch switch"
+    ["fh-slider"] = "fh-slider slider max"
+    ["fh-tabs"] = "fh-tabs tabs"
+    ["fh-chosen"] = "fh-chosen active"
   }
 
   styles = """
@@ -216,8 +212,11 @@ class BeerTheme extends themeMod.Theme {
     }
     /* BeerCSS's card-scale knob, which its other rules also read: half the
        default, matched by the slider line's own .5rem. */
-    .slider-card{--_padding:.5rem}
-    .slider-members .card{--_padding:0}
+    .fh-slider-card{--_padding:.5rem}
+    .fh-slider-members .fh-card{--_padding:0}
+    /* The track fill is the card's `--fh-fill`, on the span where BeerCSS reads
+       `--_end`; the wrapper's `--_end` is beer.min.js's. */
+    .fh-slider>span:not([class]){--_end:var(--fh-fill)}
     """
 }
 

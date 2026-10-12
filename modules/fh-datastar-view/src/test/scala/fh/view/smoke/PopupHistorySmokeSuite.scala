@@ -50,7 +50,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
       List(HouseFixture.kitchenLight)
     )
 
-  private def dialog(page: Page) = page.locator("dialog.popup")
+  private def dialog(page: Page) = page.locator("dialog.fh-popup")
 
   private def click(page: Page, text: String): IO[Unit] =
     IO.blocking(page.getByText(text, exactText).click())
@@ -138,7 +138,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
         _ <- showing(page, "First popup")
         _ <- click(page, "Open second")
         _ <- showing(page, "Second popup")
-        _ <- IO.blocking(page.locator(".popup-close").click())
+        _ <- IO.blocking(page.locator(".fh-popup-close").click())
         _ <- showing(page, "First popup")
         _ <- IO.blocking(page.keyboard().press("Escape"))
         _ <- closed(page)
@@ -156,7 +156,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
         sep = if (start.contains("?")) "&" else "?"
         _ <- IO.blocking(page.navigate(s"$start${sep}ui.popups=first"))
         _ <- showing(page, "First popup")
-        _ <- IO.blocking(page.locator(".popup-close").click())
+        _ <- IO.blocking(page.locator(".fh-popup-close").click())
         _ <- closed(page)
         after <- eventually(href(page))(!_.matches(popupParam))
         _ <- IO.blocking(

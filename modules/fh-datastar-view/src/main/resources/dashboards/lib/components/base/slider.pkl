@@ -62,7 +62,7 @@ class SliderHead extends nodes.ActiveNode {
   card = "sliderHead"
   // `display:contents`, so the cell is no box, and the group rules can still
   // tell the master's head from its members'.
-  cellClasses { "slider-head-cell" }
+  cellClasses { "fh-slider-head-cell" }
   cardDef = new nodes.CardDef {
     // Everything else on this row that moves is a signal (ADR 0017), which is
     // what lets the head be structure.
@@ -71,14 +71,14 @@ class SliderHead extends nodes.ActiveNode {
       ["actions"] = new nodes.Region {}
     }
     template = """
-      <div class="slider-body">
-        <div class="slider-head">
-          \(badgeMod.seat(" slider-icon", "mdi {{icon}}", "{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}"))
+      <div class="fh-slider-body">
+        <div class="fh-slider-head">
+          \(badgeMod.seat(" fh-slider-icon", "mdi {{icon}}", "{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}"))
           {{#text}}{{{html}}}{{/text}}
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
-          <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
+          <div class="fh-slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
+        <div class="fh-slider" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
@@ -88,8 +88,8 @@ class SliderHead extends nodes.ActiveNode {
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
             data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}/{{dataKey}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
-          <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
-          {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
+          <span style="--fh-fill: {{fill}};background:{{fillColor}}" \(slotMod.signalBind("fill")) \(slotMod.signalBind("fillColor"))></span>
+          {{#toggle}}<button type="button" class="fh-slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))
             data-on:click="\(tapMod.busyGuardChange)\(tapMod.click)"
             \(tapMod.busyAttrsChange)></button>{{/toggle}}
@@ -107,7 +107,7 @@ class SliderHead extends nodes.ActiveNode {
 /// grid still places `strong` and `.fh-sub`.
 class SliderText extends nodes.Node {
   card = "sliderText"
-  cellClasses { "slider-text" }
+  cellClasses { "fh-slider-text" }
   cardDef = new nodes.CardDef {
     template = """
       <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>\(slotMod.ifSlot("secondary"))<span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))
@@ -150,7 +150,7 @@ open class Slider extends nodes.Node {
   /// Where the device is, as the input's number. Server-written; the drag moves
   /// [[slideSig]] and adopts this.
   hidden position: slotMod.Slot
-  /// The track fill as BeerCSS's `--_end`, a distance from the right edge. The
+  /// The track fill as `--fh-fill`, a distance from the right edge. The
   /// value carries its own `%`.
   hidden fill: slotMod.Slot
   /// Null paints [[fillDefault]].
@@ -206,9 +206,9 @@ open class Slider extends nodes.Node {
     // makes `data-attr:value` inert from the first pass
     // (`DatastarMorphContractSuite`). The live position is [[slideSig]].
     ["value"] = (position) { signal = slotMod.asAttr("value") }
-    ["fill"] = (fill) { signal = slotMod.asStyle("--_end") }
-    // On the span's own style, not the wrapper's, which beer.min.js overwrites
-    // wholesale on every repaint.
+    // This and `fillColor` are on the span's own style, not the wrapper's, which
+    // beer.min.js overwrites wholesale on every repaint.
+    ["fill"] = (fill) { signal = slotMod.asStyle("--fh-fill") }
     ["fillColor"] =
       if (fillColor != null)
         (fillColor!!) {
@@ -247,7 +247,7 @@ open class Slider extends nodes.Node {
   }
   slots {
     when (!members.isEmpty) {
-      ["group"] = "slider-group"
+      ["group"] = "fh-slider-group"
     }
   }
   children = new Mapping {
@@ -272,17 +272,18 @@ open class Slider extends nodes.Node {
     let (self = this) (self) { actions = xs.toListing() }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function disabled(d: nodes.BooleanInput): Slider = let (self = this) (self) { disabled = d }
-  // BeerCSS's slider markup: the `.slider` wrapper and a trailing `<span>`
-  // painted as the track, without `.tooltip`, whose text bled through behind
-  // the track. The fill is ours, not BeerCSS's: its JS writes an inline style a
-  // morph wipes. The label line is `.slider-head`, not a `<header>` (BeerCSS
-  // makes that an app bar) nor `.row` (which squeezes the readout).
+  // BeerCSS's slider markup, `fh-slider` being its `.slider.max`: the wrapper
+  // and a trailing `<span>` painted as the track, without `.tooltip`, whose
+  // text bled through behind the track. The fill is ours, `--fh-fill` on the
+  // span, not BeerCSS's: its JS writes the wrapper's inline style, which a morph
+  // wipes. The label line is `.fh-slider-head`, not a `<header>` (BeerCSS makes
+  // that an app bar) nor `.row` (which squeezes the readout).
   //
   // A press row puts its button LAST, over the fill, and reuses the commit's
   // `__busy_change` signal: it stands where the commit did, and the power button
   // may hold the other name (ADR 0019).
   //
-  // A member-less slider still renders an empty `.slider-members`: a card is
+  // A member-less slider still renders an empty `.fh-slider-members`: a card is
   // one shape, its optional pieces absent rather than different.
   cardDef = new nodes.CardDef {
     regions = new Mapping {
@@ -290,7 +291,7 @@ open class Slider extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
-      <article class="card slider-card{{#group}} {{group}}{{/group}}">{{#head}}{{{html}}}{{/head}}<div class="slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
+      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}">{{#head}}{{{html}}}{{/head}}<div class="fh-slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
       """
     css = sliderCss
     script = sliderTouchScript
@@ -336,7 +337,7 @@ const local sliderTouchScript: String = """
 
     document.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') return;
-      const slider = e.target && e.target.closest && e.target.closest('.slider.max');
+      const slider = e.target && e.target.closest && e.target.closest('.fh-slider');
       if (!slider) return;
       release();
       const range = slider.querySelector('input[type=range]');
@@ -373,8 +374,9 @@ const local sliderTouchScript: String = """
   """
 
 // Colour goes through `--fh-*`; BeerCSS's private knobs stay with the theme.
-// `.slider.max` is BeerCSS's class but this card emits it, so its rules are
-// here.
+// The track is `.fh-slider-body>.fh-slider`, never `.fh-slider` alone: BeerCSS
+// styles it as `.slider.max` (`all:unset`, its own cursor), and one class less
+// would lose to that and leave the touch rules inert.
 const local sliderCss: String = """
   /* Painted over the track, so it must not take the pointer. The readout is
      pushed right rather than `space-between`, which would centre the label
@@ -383,84 +385,84 @@ const local sliderCss: String = """
      `100 %` does not move the label's clip edge. */
   /* `min-inline-size:0`: as a member row's grid item the head's automatic
      minimum is the whole nowrap label, which pushed the reading off the card. */
-  .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
-  .slider-head>.fh-reading{margin-inline-start:auto;flex:0 0 auto;
+  .fh-slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
+  .fh-slider-head>.fh-reading{margin-inline-start:auto;flex:0 0 auto;
   min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
   /* The control's edge, OVER the fill: a nearly-full bright slider otherwise has
      no visible end. A pseudo-element, because an inset box-shadow paints behind
      the descendants. */
-  .slider-card{position:relative}
-  .slider-card:after{content:"";position:absolute;inset:0;border-radius:inherit;
+  .fh-slider-card{position:relative}
+  .fh-slider-card:after{content:"";position:absolute;inset:0;border-radius:inherit;
   box-shadow:inset 0 0 0 .0625rem var(--fh-border);pointer-events:none;z-index:4}
-  .slider.max,.slider.max>input{cursor:ew-resize}
-  .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
-  .slider.max>input::-moz-range-thumb{cursor:ew-resize}
+  .fh-slider-body>.fh-slider,.fh-slider-body>.fh-slider>input{cursor:ew-resize}
+  .fh-slider-body>.fh-slider>input::-webkit-slider-thumb{cursor:ew-resize}
+  .fh-slider-body>.fh-slider>input::-moz-range-thumb{cursor:ew-resize}
   /* The wrapper and input each set their own cursor, so `.fh-loading` alone
      never beats them. */
-  .slider.max.fh-loading,.slider.max.fh-loading>input{cursor:progress}
-  .slider.max.fh-loading>input::-webkit-slider-thumb{cursor:progress}
-  .slider.max.fh-loading>input::-moz-range-thumb{cursor:progress}
+  .fh-slider-body>.fh-slider.fh-loading,.fh-slider-body>.fh-slider.fh-loading>input{cursor:progress}
+  .fh-slider-body>.fh-slider.fh-loading>input::-webkit-slider-thumb{cursor:progress}
+  .fh-slider-body>.fh-slider.fh-loading>input::-moz-range-thumb{cursor:progress}
   /* Slide the fill to a state change, but not under a drag, where a transition
      reads as lag. `:focus-within` too: a pointer drag ends with the input
      focused. */
-  .slider.max>span:not([class]){transition:inset .3s cubic-bezier(.2,0,0,1),background .3s linear}
-  .slider.max:is(:active,:focus-within,.fh-armed)>span:not([class]){transition:none}
+  .fh-slider-body>.fh-slider>span:not([class]){transition:inset .3s cubic-bezier(.2,0,0,1),background .3s linear}
+  .fh-slider-body>.fh-slider:is(:active,:focus-within,.fh-armed)>span:not([class]){transition:none}
   /* Touch: the input is inert so a swipe scrolls; sliderTouchScript drives the
      value. */
   @media (pointer:coarse){
-  .slider.max{touch-action:pan-y}
-  .slider.max>input{pointer-events:none}
-  .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--fh-accent)}
+  .fh-slider-body>.fh-slider{touch-action:pan-y}
+  .fh-slider-body>.fh-slider>input{pointer-events:none}
+  .fh-slider-body>.fh-slider.fh-armed{box-shadow:inset 0 0 0 .125rem var(--fh-accent)}
   }
   /* The toggle variant's whole-track button, invisible on purpose: the fill is
      the feedback. Not `all:unset`, which drops the box the click needs.
      `block-size:auto`: BeerCSS's fixed button height over-constrains `inset:0`,
      leaving a 40px strip at the top of the card. */
-  .slider-toggle{position:absolute;inset:0;block-size:auto;inline-size:auto;
+  .fh-slider-toggle{position:absolute;inset:0;block-size:auto;inline-size:auto;
   z-index:1;margin:0;padding:0;border:0;
   background:none;box-shadow:none;color:inherit;font:inherit;border-radius:inherit;
   appearance:none;-webkit-appearance:none;cursor:pointer}
-  .slider-body{display:contents}
-  .slider-head-cell{display:contents}
-  .slider-members:empty{display:none}
+  .fh-slider-body{display:contents}
+  .fh-slider-head-cell{display:contents}
+  .fh-slider-members:empty{display:none}
   /* A slider holding sliders: the master's fill is the whole card's
      background, behind the rows, so the group reads as one control. */
-  .slider-group{overflow:hidden}
-  /* Through `.slider-body`, so these miss the members' own heads. Rows are
+  .fh-slider-group{overflow:hidden}
+  /* Through `.fh-slider-body`, so these miss the members' own heads. Rows are
      declared, or the taller badge pushes the label's two lines apart; `1/3`
      rather than `1/-1` for the same explicit grid. */
-  .slider-group>.slider-head-cell>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
   grid-template-rows:auto auto;align-items:center;align-content:center;
   min-block-size:4.5rem;box-sizing:border-box;gap:0 .75rem}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>strong{grid-column:2;grid-row:1}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.fh-sub{grid-column:2;grid-row:2}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.fh-reading{grid-column:3;grid-row:1/3}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
-  .slider-text,.slider-actions>.fh-cell{display:contents}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-text>strong{grid-column:2;grid-row:1}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-text>.fh-sub{grid-column:2;grid-row:2}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon{grid-row:1/3}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-reading{grid-column:3;grid-row:1/3}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-actions{grid-column:4;grid-row:1/3}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon{inline-size:2.75rem;block-size:2.75rem}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon>i{font-size:1.5rem}
+  .fh-slider-text,.fh-slider-actions>.fh-cell{display:contents}
   /* The buttons are the row's only controls, so they take the pointer back. */
-  .slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
-  .slider-actions:empty{display:none}
+  .fh-slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
+  .fh-slider-actions:empty{display:none}
   /* By position, not by a class of their own; an active button keeps its look. */
-  .slider-actions>.fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-slider-actions>.fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
   /* The master's track spans the whole card, members included, so a drag lands
      on the master wherever its fill is. */
-  .slider-group>.slider-head-cell>.slider-body>.slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
+  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
   /* Above the master's span, and indented to the head's badge, so the rows read
      as the head's own. */
-  .slider-members{display:flex;flex-direction:column;gap:.25rem;
+  .fh-slider-members{display:flex;flex-direction:column;gap:.25rem;
   padding:0 .5rem .5rem;z-index:2}
   /* A member: card and track share one grid cell, so the label rides on the
      fill. No elevation: a shadow over the master's fill reads as grime. */
-  .slider-members .card{display:grid;min-block-size:3rem;margin:0;
+  .fh-slider-members .fh-card{display:grid;min-block-size:3rem;margin:0;
   background:var(--fh-surface-sunken);
   border-radius:1.5rem;overflow:hidden}
-  .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
-  .slider-members .slider-head{align-items:center;padding-block:0;padding-inline:.75rem}
-  .slider-members .slider.max{margin:0;block-size:100%}
-  .slider-members .slider.max>input{block-size:100%}
-  .slider-members .slider.max:before{display:none}
-  .slider-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
+  .fh-slider-members :is(.fh-slider-head,.fh-slider-body>.fh-slider){grid-area:1/1}
+  .fh-slider-members .fh-slider-head{align-items:center;padding-block:0;padding-inline:.75rem}
+  .fh-slider-members .fh-slider-body>.fh-slider{margin:0;block-size:100%}
+  .fh-slider-members .fh-slider-body>.fh-slider>input{block-size:100%}
+  .fh-slider-members .fh-slider-body>.fh-slider:before{display:none}
+  .fh-slider-members .fh-slider-body>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0}
   """

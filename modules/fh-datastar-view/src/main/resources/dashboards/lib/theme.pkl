@@ -21,15 +21,24 @@
 ///
 /// ## What a card guarantees you
 ///
-/// The classes your `styles` may restyle: `.fh-grid`/`.fh-row`/`.fh-col`, the
-/// node wrapper `.fh-cell`, a query set's `.fh-group` (always a passthrough),
-/// `.fh-cols-<1..12>`/`.fh-cols-full`, `.fh-start`, `.card`, `.fh-section`, a
-/// labelled button's `.fh-press`, a tile's `.fh-tile` row, the shared glyph `.fh-badge`
-/// and the `.fh-lines` text column,
-/// `.fh-reading`, `.fh-sub`, `.popup`/`.popup-close`, `.tabs`/`.tabbar`/`.tab`,
-/// `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, and the slider's
-/// `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-actions`/
-/// `.slider-body`/`.slider-members`/`.slider-group`.
+/// A card's markup carries `fh-` classes only, besides an icon's `mdi` ones
+/// (`PklLibraryTestSuite` checks every card), so these are all your `styles`
+/// and [[classes]] need: `.fh-grid`/`.fh-row`/`.fh-col`, the node wrapper
+/// `.fh-cell`, a query set's `.fh-group` (always a passthrough),
+/// `.fh-cols-<1..12>`/`.fh-cols-full`, `.fh-start`, `.fh-card`, `.fh-section`,
+/// a labelled button's `.fh-press` and an icon-only one's `.fh-circle`, a link
+/// button's `.fh-button`, `.fh-chip`, a tile's `.fh-tile` row, the toggle's
+/// `.fh-switch` (a `<label>` round a checkbox and a `<span>`), the shared glyph
+/// `.fh-badge` and the `.fh-lines` text column, `.fh-reading`, `.fh-sub`,
+/// `.fh-popup`/`.fh-popup-close`, a tab bar's `.fh-tabs` with the open tab's
+/// `.fh-chosen`, `.fh-entity-info`/`.fh-entity-info-id`/`.fh-entity-info-attrs`,
+/// and the slider's `.fh-slider-card`/`.fh-slider-head`/`.fh-slider-icon`/
+/// `.fh-slider-actions`/`.fh-slider-body`/`.fh-slider-members`/`.fh-slider-group`.
+/// Its track is `.fh-slider`, a range input and a class-less `<span>` whose
+/// `--fh-fill` is the fill's distance from the right edge.
+///
+/// A glyph spinning for a slow tap has `aria-busy="true"`, whatever
+/// [[classes]] made of `fh-busy-spin`.
 ///
 /// A guarded action in flight puts `.fh-disabled` (inert) and `.fh-loading`
 /// (still working) on the tapped element; a press the entity's state refuses
@@ -82,6 +91,14 @@ module theme
 
 import "tokens.pkl" as tokenPalette
 
+/// Material Design Icons, HA's own set, so an entity's `icon` renders as its
+/// author chose under any theme: the cards emit its `mdi mdi-x` classes. ~500 KB
+/// for a few dozen used glyphs: the way out is to inline the used icons as SVG
+/// paths at build time (`@mdi/js`), since every icon name is known then.
+const local mdiVersion: String = "7.4.47"
+const mdiCdn: String =
+  "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
+
 open class Theme {
   /// HA-named tokens, emitted as `:root` properties; every `--fh-*` variable
   /// falls back to them.
@@ -91,8 +108,9 @@ open class Theme {
   stylesheets: Listing<String> = new {}
   /// Loaded off the critical path, so only for a sheet whose absence leaves the
   /// layout intact (an icon font). A text font stays in [[stylesheets]]:
-  /// swapping it mid-paint moves every line.
-  deferredStylesheets: Listing<String> = new {}
+  /// swapping it mid-paint moves every line. Amend rather than assign, or the
+  /// cards' icons go with [[mdiCdn]].
+  deferredStylesheets: Listing<String> = new { mdiCdn }
   /// ES module URLs, run after first paint.
   scripts: Listing<String> = new {}
   /// Classic scripts inlined in the head, run before first paint, after every

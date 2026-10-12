@@ -10,20 +10,20 @@ import "../../core/tap.pkl" as tapMod
 import "../../core/variable.pkl" as varMod
 import "../../layout.pkl" as layout
 
-/// One tab in a `.tabs` bar, as BeerCSS's native `.tabs > a` markup: a [[Tabs]]
+/// One tab in an `.fh-tabs` bar, an anchor straight under it: a [[Tabs]]
 /// member, or a window in `c.windowChooser`. Built by the bar, not by an author.
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class="{active: {{{active}}}}">{{label}}</a>"#
+    template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class:fh-chosen="{{{active}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
-    // than shortened. Unwrapped, because BeerCSS styles `.tabs > a`.
+    // than shortened. Unwrapped, so a theme can style the bar's `> a`.
     wrapAsCell = false
   }
   hidden label: String
   hidden tapAction: tapMod.SetVar
-  /// A Datastar boolean expression for the `.active` class.
+  /// A Datastar boolean expression for `fh-chosen`, the open tab.
   hidden active: String
   slots {
     ["label"] = label
@@ -56,11 +56,11 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ \(tabVar.own.pendingSeed) }" \(tabVar.own.pendingClear)>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" \(tabVar.own.urlMirror)>{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="fh-tabs" data-signals__ifmissing="{ \(tabVar.own.pendingSeed) }" \(tabVar.own.pendingClear)>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="fh-tab-panel" \(tabVar.own.urlMirror)>{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.
-    css = ".tab-panel{display:contents}"
+    css = ".fh-tab-panel{display:contents}"
   }
   cellClasses { "fh-cols-full" }
   /// label -> that tab's cards, in bar order. A tab amends into existence:

@@ -872,7 +872,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(dashboard.cards.keySet, Set("fhcol", "sectionTitle"))
     // The slider's structure CSS ships with a slider, not with every page.
     assert(
-      !dashboard.cardCss.contains(".slider-head{"),
+      !dashboard.cardCss.contains(".fh-slider-head{"),
       clue = dashboard.cardCss
     )
   }
@@ -1754,7 +1754,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
-    assertEquals(group.slots("group").literal, Some("slider-group"))
+    assertEquals(group.slots("group").literal, Some("fh-slider-group"))
     // A head does not repeat a readout its rows carry.
     assert(!rowOf(group).slots.contains("state"), clue = group.slots.keySet)
     assertEquals(rowOf(group).slots("entity_id").literal, Some("light.lys"))

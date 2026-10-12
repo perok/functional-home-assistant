@@ -263,16 +263,16 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   nullable value) and why each failed.
   Customers: `tile`'s `value` (text), a live `secondary` on any card (text), and all four of
   the slider's moving slots — `state`
-  (text), `value` (`attr:value`), `fill` (`style:--_end`) and
+  (text), `value` (`attr:value`), `fill` (`style:--fh-fill`, on the track's `<span>`, which
+  theme-beer turns into BeerCSS's `--_end`) and
   `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
   `data-bind`-ed to a separate client-owned `_<id>__slide`, because `data-on-signal-patch` fires on
   local writes too, so one signal cannot tell the server's write from the drag's — and while the
   drag wrote the server's slot, a FAILED commit left the thumb where the finger was, with `holds`
   stale so no correcting frame ever came. Two handlers reconcile: adopt on a server write, and the
   same restore on a refusal or a dead stream. A DRAG paints the fill (and a percent readout) itself, from
-  `data-on:input` — the style plugin re-applies its property whenever anything else writes the
-  `style` attribute, which `beer.min.js` does on every move, so without that the whole gesture
-  showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken
+  `data-on:input`: the span's `--fh-fill` is the server's signal alone, so without that the whole
+  gesture showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken
   implementation still updates the card, because the morph the frame was meant to replace is still
   being sent — so `SignalSlotSuite` asserts what is *not* on the wire.
 - **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`
@@ -355,8 +355,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `.disabled(lit.none())` — a condition lowered onto a derived `__` value; `Slot.type = "bool"`
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
   tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cssProperty("--x",
-  reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which BeerCSS
-  owns on `.slider`) — ADR 0034,
+  reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which the
+  track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.tap.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.

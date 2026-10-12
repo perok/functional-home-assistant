@@ -111,7 +111,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // BeerCSS's own class, through the theme's class rules.
       assert(
         html.contains(
-          """<a class="button fh-press large" href="d/other">""" +
+          """<a class="fh-button button fh-press large" href="d/other">""" +
             """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
         ),
         clue = html
@@ -207,7 +207,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              s"class=\"fh-badge fh-icon-shape slider-icon fh-onoff\" data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
+              s"class=\"fh-badge fh-icon-shape fh-slider-icon fh-onoff\" data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
             ),
             clue = html
           )
@@ -699,7 +699,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .fromWorkspace("fixture-plug", plugEntry, List(plug))
       .use { ts =>
         ts.page().map { html =>
-          assert(html.contains("class=\"slider-toggle\""), clue = html)
+          assert(html.contains("class=\"fh-slider-toggle\""), clue = html)
           assert(!html.contains("type=\"range\""), clue = html)
           // The service is spliced as a quoted literal, the spelling a
           // state-dependent tap fills with a signal read, so one template
@@ -714,7 +714,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             clue = html
           )
           // The switch-fill token: a switch-only light reports no colour.
-          assert(html.contains("--_end: 0%"), clue = html)
+          assert(html.contains("--fh-fill: 0%"), clue = html)
           assert(
             html.contains("background:var(--fh-default-color)"),
             clue = html
@@ -806,11 +806,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .mapN {
         case ((restHtml, _), (movingHtml, _)) => {
           assert(
-            movingHtml.contains("fh-tile tappable fh-disabled"),
+            movingHtml.contains("fh-tile fh-tappable fh-disabled"),
             clue = movingHtml
           )
           assert(
-            !restHtml.contains("fh-tile tappable fh-disabled"),
+            !restHtml.contains("fh-tile fh-tappable fh-disabled"),
             clue = restHtml
           )
         }

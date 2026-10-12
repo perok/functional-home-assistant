@@ -19,9 +19,9 @@ const local restoreSwitch: String =
     "$" + slotMod.signalRef("checked") + " = $" + slotMod.signalRef("switched")
   )
 
-/// BeerCSS's `.switch`, a checkbox styled as an MD3 switch. It must show which
-/// state it is in, so [[on]] is a live reading. No href arm: a checkbox cannot
-/// be an `<a>`.
+/// `fh-switch`, BeerCSS's `.switch` under the default theme: a checkbox styled
+/// as an MD3 switch. It must show which state it is in, so [[on]] is a live
+/// reading. No href arm: a checkbox cannot be an `<a>`.
 ///
 /// Its badge's on look is [[active]], a boolean reading: [[on]] is a string the
 /// checkbox compares, so it cannot also be one.
@@ -29,9 +29,9 @@ open class Switch extends nodes.ActiveNode {
   card = "switch"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card toggle fh-tile-card" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
+      <article class="fh-card fh-toggle fh-tile-card" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
         <div class="fh-tile">\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.run("label"))</span></span>
-        <label class="switch">
+        <label class="fh-switch">
           <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
         </label></div>
@@ -41,7 +41,7 @@ open class Switch extends nodes.ActiveNode {
     // The tile's row (`core/css.pkl`), ending on the switch. A long label must
     // never shrink the switch off the card.
     css = """
-      .fh-tile>.switch{flex:0 0 auto}
+      .fh-tile>.fh-switch{flex:0 0 auto}
       """
   }
   hidden label: (String|slotMod.Expr)? = null

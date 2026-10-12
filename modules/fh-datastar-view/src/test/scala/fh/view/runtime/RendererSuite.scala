@@ -53,7 +53,7 @@ class RendererSuite extends munit.FunSuite {
     "tabs" -> CardDef(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
         """{{#children}}{{{html}}}{{/children}}</div>""" +
-        """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
+        """<div id="{{hostId}}" class="fh-tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
       regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
     // The live header is a node in the bar region, so a title tick patches that
@@ -915,7 +915,7 @@ class RendererSuite extends munit.FunSuite {
     val body = rr.renderBody(states)
     assert(
       body.contains(
-        """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">"""
+        """<div id="c_panel" class="fh-tab-panel" data-signals="{ tab_c: 0 }">"""
       ),
       clue = body
     )
@@ -963,7 +963,7 @@ class RendererSuite extends munit.FunSuite {
     val body = rr.renderBody(states, picking("c" -> 1))
     assert(
       body.contains(
-        """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 1 }">"""
+        """<div id="c_panel" class="fh-tab-panel" data-signals="{ tab_c: 1 }">"""
       ),
       clue = body
     )

@@ -4,7 +4,7 @@
 
 Every value that can move cost its whole card. A thermometer ticking from `21.4` to `21.5`
 re-rendered its node, re-hashed it, found the digest moved, and morphed the entire
-`<article class="card entity">…</article>` across the wire. The bytes were dominated by markup that
+`<article class="fh-card fh-entity">…</article>` across the wire. The bytes were dominated by markup that
 had not changed, and the client did a DOM diff to discover that.
 
 The pipeline was already as narrow as a *node* can make it — ADR 0012's per-session pull, suppressed
@@ -372,19 +372,19 @@ not optional: getting any one of them wrong re-renders the card and the other th
 |---|---|---|
 | `state` | `text` | the readout |
 | `value` | `bind` | the range input's position — replaces a hand-rolled `data-signals="{ _val_<id>: … }"`, so there is one signal where there were two |
-| `fill` | `style:--_end` | the track fill; the transform now emits its own `%` |
-| `fillColor` | `style:background` | moves with a light's colour |
+| `fill` | `style:--fh-fill` | the track fill, on the track's `<span>`; the transform emits its own `%` |
+| `fillColor` | `style:background` | moves with a light's colour, on the same `<span>` |
 
-**The predicted fight happened, and the drag lost.** Datastar's style plugin keeps a
+**Both bind the `<span>`, not the wrapper.** `beer.min.js` repaints the slider fill on `input` by
+rewriting the wrapper's whole `style.cssText`, and Datastar's style plugin keeps a
 `MutationObserver` on the `style` attribute and re-applies its property when anything else writes
-there; `beer.min.js` repaints the slider fill on `input` by rewriting the wrapper's whole
-`style.cssText`. So every move of a drag was answered by the server's last `--_end` snapping back,
-and the gesture showed nothing at all until the release committed it.
+there. With the fill on the wrapper, as BeerCSS's `--_end`, every move of a drag was answered by the
+server's last value snapping back. On the span, which BeerCSS never writes, the two never meet:
+theme-beer points the span's `--_end` at the card's `--fh-fill` (ADR 0020).
 
-The fix keeps the binding server-owned and gives the drag its own paint: `data-on:input` on the
+The span's fill is the server's signal alone, so the drag gets its own paint: `data-on:input` on the
 range input writes `$…__fill` (and, where the readout is a percent, `$…__state`) from
-`evt.target.value` — so the very re-application that was clobbering the fill now re-applies the
-right value. It reads the event rather than the bound signal because `data-bind` listens for
+`evt.target.value`. It reads the event rather than the bound signal because `data-bind` listens for
 `input` on the same element and the earlier-registered listener wins.
 
 This is **optimistic**: the server's next value overwrites it, and a call HA rejects leaves the fill

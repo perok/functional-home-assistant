@@ -202,8 +202,8 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   `bakeInto`/`bakeAs`/`bakeIndex` and selected by the bar's `tab` variable,
   ADR 0033; the Listing-valued mapping
   default lets a tab body list cards with no `new`/`children`). The bar is
-  BeerCSS-native markup: a `TabButton` card per tab (`.tabs > a` anchors,
-  `data-class` active + a variable-writing onclick) — internal to `Tabs`, not an
+  BeerCSS-native markup under the default theme: a `TabButton` card per tab
+  (`.fh-tabs > a` anchors, `data-class:fh-chosen` + a variable-writing onclick) — internal to `Tabs`, not an
   authoring surface (0002/0005).
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
