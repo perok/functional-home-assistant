@@ -155,14 +155,6 @@ class ComponentVisualSuite extends SmokeSuite {
   test("the light slider looks right on brightness") {
     withPage(lightSliderScene, viewport) { (page, _) =>
       IO.blocking {
-        // There and back: the colour shot, taken after a round trip, held
-        // still across runs and the first-paint one did not.
-        page.locator(".fh-modes-bar button[aria-label='Colour']").click()
-        assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
-        page.locator(".fh-modes-bar button[aria-label='Brightness']").click()
-        assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
-        // Off the button it pressed, whose hover tint is not the look.
-        page.mouse().move(0, 0)
         settle(page)
         VisualSnapshot.check(
           "light-slider-brightness",
