@@ -60,9 +60,12 @@ The verbs are HA's `tap_action` variants, each taking its target, with no
 `Tap` suffix because the namespace already says it: `c.tap.toggle(e)`,
 `c.tap.default(e)`, `c.tap.moreInfo(e)`, `c.tap.call(service, target)` (with
 `.with(key, value)` for one value), `c.tap.navigate(slug)` and the popup verbs.
-A domain gets a typed namespace where a typed verb is wanted —
-`c.tap.lights.off(scope)` over a light, an area or a floor;
-`c.tap.locks.openLatch(l)` — and `call` covers the rest. `c.tap` is a
+`c.tap(e)` is `c.tap.default(e)` under the shorter name: a facade method beside
+the namespace, which Pkl keeps apart. A domain gets a typed namespace where a
+typed verb is wanted — `c.tap.lights.off(scope)` over a light, an area or a
+floor; `c.tap.locks.openLatch(l)` — and one verb spans the domains a tap fires
+(`c.tap.activate(x)`: a scene, a script, a button, a helper button), so the
+service name stays in the table. `call` covers the rest. `c.tap` is a
 dashboard-tier module (`components/tap.pkl`) because `moreInfo` and the
 more-info fallback are components; the core kit (`core/tap.pkl`) keeps the
 classes, `byDomain` and the rendering (ADR 0015).

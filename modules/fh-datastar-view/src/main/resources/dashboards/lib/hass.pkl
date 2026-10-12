@@ -233,6 +233,36 @@ open class SelectEntity extends Entity {
   domain: "select" = "select"
 }
 
+/// developers.home-assistant.io/docs/core/entity/scene
+///
+/// Has no on or off: its state is when it was last activated, or `unknown`.
+/// [[members]] are the entities it sets, for a scene HA defines; one an
+/// integration supplies (a Hue scene) reports none.
+open class SceneEntity extends Entity {
+  domain: "scene" = "scene"
+}
+
+/// `on` while a run is in progress.
+open class ScriptEntity extends Entity {
+  domain: "script" = "script"
+}
+
+/// developers.home-assistant.io/docs/core/entity/button
+///
+/// Its state is when it was last pressed, as a scene's is.
+open class ButtonEntity extends Entity {
+  domain: "button" = "button"
+}
+
+/// A helper button: [[ButtonEntity]]'s state, defined in HA rather than by an
+/// integration.
+open class InputButtonEntity extends Entity {
+  domain: "input_button" = "input_button"
+}
+
+/// What is fired rather than switched: `c.tap.activate(x)` takes any of them.
+typealias Activatable = SceneEntity|ScriptEntity|ButtonEntity|InputButtonEntity
+
 /// Every domain without a class of its own; add one (and a `PklDump` row) to
 /// specialise a domain.
 open class GenericEntity extends Entity {}
@@ -302,10 +332,24 @@ function binarySensors(scope: List<Entity>): List<BinarySensorEntity> =
 function switches(scope: List<Entity>): List<SwitchEntity> =
   scope.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
 
+function scenes(scope: List<Entity>): List<SceneEntity> =
+  scope.filter((e) -> e is SceneEntity) as List<SceneEntity>
+
+function scripts(scope: List<Entity>): List<ScriptEntity> =
+  scope.filter((e) -> e is ScriptEntity) as List<ScriptEntity>
+
+function buttons(scope: List<Entity>): List<ButtonEntity> =
+  scope.filter((e) -> e is ButtonEntity) as List<ButtonEntity>
+
+function inputButtons(scope: List<Entity>): List<InputButtonEntity> =
+  scope.filter((e) -> e is InputButtonEntity) as List<InputButtonEntity>
+
 /// The entities no selector claims. A number or select lands here despite its
 /// typed class: nothing has wanted every number in the house as a group yet.
 function generic(scope: List<Entity>): List<Entity> =
   scope.filter((e) ->
     !(e is LightEntity) && !(e is LockEntity)
       && !(e is SensorEntity) && !(e is BinarySensorEntity)
-      && !(e is SwitchEntity))
+      && !(e is SwitchEntity) && !(e is SceneEntity)
+      && !(e is ScriptEntity) && !(e is ButtonEntity)
+      && !(e is InputButtonEntity))

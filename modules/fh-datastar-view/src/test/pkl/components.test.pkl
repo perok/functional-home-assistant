@@ -1393,6 +1393,28 @@ facts {
     c.tap.default(outside).inlineSurfaces != null
   }
 
+  ["`c.tap.activate` fires each domain through its own service"] {
+    local kveld: hass.SceneEntity = new { entity_id = "scene.kveld" }
+    local night: hass.ScriptEntity = new { entity_id = "script.night" }
+    local restart: hass.ButtonEntity = new { entity_id = "button.restart" }
+    local bell: hass.InputButtonEntity = new { entity_id = "input_button.bell" }
+    c.tap.activate(kveld) == c.tap.call("scene/turn_on", kveld)
+    c.tap.activate(night) == c.tap.call("script/turn_on", night)
+    c.tap.activate(restart) == c.tap.call("button/press", restart)
+    c.tap.activate(bell) == c.tap.call("input_button/press", bell)
+    c.tap.activate(kveld).with("transition", "2").dataKey == "transition"
+  }
+
+  ["`c.tap(e)` is what a tap on `e`'s own card does"] {
+    local kveld: hass.SceneEntity = new { entity_id = "scene.kveld" }
+    c.tap(kveld) == c.tap.activate(kveld)
+    c.tap(kitchen) == c.tap.toggle(kitchen)
+    c.tap(kveld) == c.entityCard(kveld).tapAction
+    // A lock's tap opens more-info rather than unlocking the door.
+    c.tap(frontLock).inlineSurfaces != null
+    c.tap(outside).inlineSurfaces != null
+  }
+
   ["a value-carrying tap is the same call with one more segment"] {
     // Not a second route builder: `serviceClick` covers both, and a tap with no
     // value declares no `dataKey`, so the section closes over nothing.

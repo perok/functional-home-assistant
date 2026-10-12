@@ -76,6 +76,14 @@ local withStashed = everything + List(stashed)
 
 local ids = (xs: List<hass.Entity>) -> xs.map((e) -> e.entity_id)
 
+// The domains a tap fires rather than switches, beside the rest.
+const local kveld: hass.SceneEntity = new { entity_id = "scene.kveld"; area_id = "stue" }
+const local goodnight: hass.ScriptEntity = new { entity_id = "script.goodnight" }
+const local restart: hass.ButtonEntity = new { entity_id = "button.restart" }
+const local doorbell: hass.InputButtonEntity = new { entity_id = "input_button.doorbell" }
+const local withFired: List<hass.Entity> =
+  everything + List(kveld, goodnight, restart, doorbell)
+
 facts {
   ["a selector picks one domain out of any scope"] {
     ids.apply(hass.lights(stue.all)) == List("light.a")
@@ -222,5 +230,37 @@ facts {
       device_class = "lock"
     }).onMeans == "unlocked"
     (new hass.BinarySensorEntity { entity_id = "binary_sensor.x" }).onMeans == null
+  }
+
+  ["a scene, a script and both buttons each have a selector of their own"] {
+    ids.apply(hass.scenes(withFired)) == List("scene.kveld")
+    ids.apply(hass.scripts(withFired)) == List("script.goodnight")
+    ids.apply(hass.buttons(withFired)) == List("button.restart")
+    ids.apply(hass.inputButtons(withFired)) == List("input_button.doorbell")
+    // A helper button is not a button: two domains, two services.
+    hass.buttons(withFired).every((e) -> e.domain == "button")
+  }
+
+  ["the selectors partition `all` with the fired domains in it"] {
+    local parts = hass.lights(withFired) + hass.locks(withFired)
+      + hass.sensors(withFired) + hass.binarySensors(withFired)
+      + hass.switches(withFired) + hass.scenes(withFired)
+      + hass.scripts(withFired) + hass.buttons(withFired)
+      + hass.inputButtons(withFired)
+      + hass.generic(withFired)
+    parts.length == withFired.length
+    parts.toSet() == withFired.toSet()
+  }
+
+  ["the house's fired-domain lists are the selectors over its `all`"] {
+    local home: dumpBase = new { allWithHidden = withFired }
+    home.scenes == hass.scenes(home.all)
+    home.scripts == hass.scripts(home.all)
+    home.buttons == hass.buttons(home.all)
+    home.inputButtons == hass.inputButtons(home.all)
+    ids.apply(hass.scenes((new Stue { allWithHidden = withFired }).all)) == List("scene.kveld")
+    local bare: dumpBase = new {}
+    bare.scenes.isEmpty && bare.scripts.isEmpty
+    bare.buttons.isEmpty && bare.inputButtons.isEmpty
   }
 }

@@ -325,7 +325,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   label that fits sits still and nothing measures anything. A tab bar is deliberately outside it — it
   scrolls sideways, so a tab is reached rather than shortened,
   expr/exprOf,
-  the `c.tap` namespace (`components/tap.pkl`: verbs that each NAME their target — `toggle(e)`/`default(e)`/`moreInfo(e)`/`call(service, target)` with `.with(key, value)`/`navigate`/the popup ones, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`components/tap.pkl`: verbs that each NAME their target — `toggle(e)`/`default(e)`/`moreInfo(e)`/`activate(x)` (a scene, script, button or helper button — `hass.Activatable`)/`call(service, target)` with `.with(key, value)`/`navigate`/the popup ones, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it; `c.tap(e)` is the facade METHOD beside it, the same as `default(e)`), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not — and more-info for a `lock` too, whose Lock/Unlock buttons are what act
   (`hass/actions.pkl`'s `cardOpensMoreInfo`, `c.lock.controls`) — and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
