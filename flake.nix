@@ -44,19 +44,15 @@
               ;;
             skills-update)
               shift
-              exec skills update "$@"
+              exec npx --yes skills update "$@"
               ;;
             tools-update)
               # the bootstrap installs these once and then guards on the binary
-              # existing, so this is the only way they ever move. Everything
-              # else in the box (sbt, the JDK, node, the agents) is pinned by
-              # the flake and moves with `nix flake update`.
+              # existing, so this is the only way they ever move
               echo "==> cs update" >&2
               cs update
               echo "==> uv tool upgrade --all" >&2
               uv tool upgrade --all
-              echo "==> npm update -g" >&2
-              npm update -g
               ;;
             mcp)
               shift
@@ -94,8 +90,8 @@
             *)
               echo "usage: devbox readme" >&2
               echo "       devbox mcp <server>...             # jcodemunch | metals | context7" >&2
-              echo "       devbox skills-update [skills...]   # skills CLI" >&2
-              echo "       devbox tools-update                # cs + uv + npm" >&2
+              echo "       devbox skills-update [skills...]   # npx skills update" >&2
+              echo "       devbox tools-update                # cs + uv" >&2
               echo "       devbox jcodemunch-setup [args...]  # jcodemunch-mcp init --hooks" >&2
               exit 1
               ;;
@@ -120,8 +116,7 @@
             # different XDG_CACHE_HOME — or one whose entry got evicted — still
             # passes -x and fails only when you run it:
             #   /opt/agent/bin/scala: .../bin/scala: No such file or directory
-            # Both caches live in /opt/agent now, but check the target anyway:
-            # -x alone is not evidence the tool works.
+            # so -x alone is not evidence the tool works.
             # The JVM apps (scalac, scalafmt, metals-mcp) are full bootstrap
             # scripts instead, hence anchoring to line 2 and to a leading `/` —
             # matching `exec "$JAVA"` deeper in those would refetch every boot.
@@ -160,25 +155,17 @@
               uv tool install jcodemunch-mcp
             fi
 
-            if [ ! -x "${state}/bin/skills" ]; then
-              echo "==> npm install -g skills" >&2
-              npm install -g --silent skills
-            fi
-
             # --copy, not symlink: canonical store must survive restarts, and
             # the skills CLI's own agent paths move around between versions —
             # guard on the stable claude-code one
             if [ ! -e "$HOME/.claude/skills/cellar" ]; then
-              echo "==> skills add VirtusLab/cellar (claude-code + opencode)" >&2
-              skills add VirtusLab/cellar --skill cellar --copy -g -a claude-code -a opencode -y
+              echo "==> npx skills add VirtusLab/cellar (claude-code + opencode)" >&2
+              npx --yes skills add VirtusLab/cellar --skill cellar --copy -g -a claude-code -a opencode -y
             fi
 
-            # AGENTBOX_GH=1 hands the token in as a FILE, not `-e`, so it never
-            # appears in the host's `docker run` argv (world-readable via
-            # /proc/<pid>/cmdline unless the host sets hidepid) nor in the
-            # container config that `docker inspect` prints. Exported here so
-            # every command gets it, interactive or not — /etc/bashrc would miss
-            # `agentbox claude -p …`.
+            # The wrapper hands the token in as a file (see its GH_TOKEN
+            # comment). Exported here rather than in /etc/bashrc so
+            # non-interactive commands like `agentbox claude -p …` get it too.
             if [ -r /run/gh-token ]; then
               GH_TOKEN="$(cat /run/gh-token)"
               export GH_TOKEN
@@ -228,14 +215,9 @@
         HISTCONTROL=ignoredups
       '';
 
-      # One box, two windows: `docs` (this README, then a shell) and `work`.
-      # The point is running an agent and the project side by side without a
-      # second `nix run` — a second box would be a second container sharing
-      # /opt/agent, and two sbt servers on one Coursier cache is not a thing to
-      # do casually.
-      #
-      # nixpkgs builds tmux with `--sysconfdir=/etc`, so this is the system
-      # config and needs nothing in the throwaway home.
+      # README "Two windows" says why. nixpkgs builds tmux with
+      # `--sysconfdir=/etc`, so this is the system config and needs nothing in
+      # the throwaway home.
       #
       # The two commands are a pair, and neither works alone:
       #   * `new-session -d` runs when the SERVER starts, which is early enough
@@ -243,9 +225,6 @@
       #   * `default-client-command` is what a bare `tmux` runs in place of its
       #     built-in `new-session`, so it lands in the session above instead of
       #     creating an unnamed second one next to it.
-      # Anything more specific (`tmux new -s foo`) still gets its own plain
-      # session — this only redefines what "no arguments" means. It does start
-      # the server, though, so `box` gets laid out alongside it either way.
       tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
         new-session -d -s box -n docs -c /work "devbox greet; exec bash"
         new-window -d -t box: -n work -c /work
@@ -258,29 +237,11 @@
         set -sg escape-time 10
       '';
 
-      # GitHub's SSH host keys, so the first `git push` out of a fresh box
-      # authenticates the host instead of stopping to ask.
-      #
-      # The box has no `~/.ssh` under the default `AGENTBOX_SSH=agent` — that
-      # mode forwards the AGENT SOCKET, which carries the ability to sign but
-      # says nothing about who github.com is. So ssh had the credentials and
-      # not the host identity, and every fresh box hit an interactive
-      # fingerprint prompt on its first push. An agent cannot answer that
-      # prompt, so an unattended one hangs or fails.
-      #
-      # `/etc/ssh/ssh_known_hosts` is OpenSSH's own `GlobalKnownHostsFile`
-      # default (`ssh -G github.com` in the image confirms it), so this needs no
-      # ssh_config, no `GIT_SSH_COMMAND`, and nothing in the throwaway home.
-      #
-      # PINNED, deliberately, rather than `StrictHostKeyChecking=accept-new`:
-      # accept-new is trust-on-first-use — it silently accepts whatever answers
-      # first, which is the check, not the prompt, being turned off. These are
-      # GitHub's PUBLISHED keys, so an impostor fails even on a first contact.
-      # Verified against `StrictHostKeyChecking=yes`, the strictest mode, which
-      # refuses an unknown host outright.
-      #
-      # Refresh (GitHub rotated its RSA key once, in 2023) with:
-      #     gh api meta --jq '.ssh_keys[] | "github.com \(.)"'
+      # GitHub's published SSH host keys, pinned rather than
+      # `StrictHostKeyChecking=accept-new` — README "Git & GitHub" says why and
+      # how to refresh them. `/etc/ssh/ssh_known_hosts` is OpenSSH's own
+      # `GlobalKnownHostsFile` default (`ssh -G github.com` confirms it), so
+      # this needs no ssh_config and nothing in the throwaway home.
       knownHosts = pkgs.writeTextDir "etc/ssh/ssh_known_hosts" ''
         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
         github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
@@ -326,7 +287,9 @@
           });
       '';
 
-      image = pkgs.dockerTools.buildLayeredImage {
+      # A script that streams the image into `docker load`, so no multi-GB
+      # tarball lands in the store on every rebuild.
+      image = pkgs.dockerTools.streamLayeredImage {
         inherit name tag;
 
         contents = with pkgs; [
@@ -351,7 +314,7 @@
           gh
           opencode
           claude-code
-          nodejs_24 # runtime for the skills CLI
+          nodejs_24 # the frontend build (NpmPlugin), the Playwright driver, `npx skills`
           coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
           async-profiler # asprof: allocation-site sampling (issue #237); JFR is built-in
@@ -378,7 +341,7 @@
           touch home/dev/.claude.json
           chmod 1777 tmp
           chmod -R 0777 home/dev work opt/agent
-          # cs/uv/npm-installed launchers use #!/usr/bin/env; the image only
+          # cs/uv-installed launchers use #!/usr/bin/env; the image only
           # populates /bin
           mkdir -p usr
           ln -s /bin usr/bin
@@ -436,8 +399,10 @@
             # don't touch it.
             "DISABLE_ERROR_REPORTING=1"
             "DISABLE_BUG_COMMAND=1"
-            # nix glibc's loader only searches the store by default; cs-installed
-            # native binaries (cellar) need this to find their extra libs
+            # nix glibc's loader only searches the store, and the cs-installed
+            # native binaries (cellar, and the scala-cli behind `scala`) need
+            # libz.so.1. Global rather than per tool: it is the same zlib the
+            # nix binaries in this image already link.
             "LD_LIBRARY_PATH=${pkgs.zlib}/lib"
             "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
             "TERM=xterm-256color"
@@ -464,7 +429,7 @@
             devbox readme              # this document
             devbox mcp jcodemunch      # wire an MCP server into both agents
             devbox skills-update       # update installed agent skills
-            devbox tools-update        # update the cs / uv / npm tools
+            devbox tools-update        # update the cs / uv tools
 
         Unfree packages (claude-code) are allowed in the flake itself — no env
         vars or `--impure` needed.
@@ -591,7 +556,7 @@
         docker network to attach to, a seccomp profile.
 
         The **container half** is the image plus its `bootstrap` entrypoint,
-        which installs the Coursier/uv/npm tools into `/opt/agent` on first run
+        which installs the Coursier/uv tools into `/opt/agent` on first run
         and then execs your command.
 
         There is deliberately no devShell. This flake builds a box to work in;
@@ -692,8 +657,9 @@
           `.mcp.json` in the repo.** Project hooks and MCP servers land in your
           diff, so review before running the repo's tooling on the host.
         - **The bootstrap installs unpinned code on first run.** `cs`, `uv` and
-          `npm` all resolve latest, and `skills add VirtusLab/cellar -y` writes
-          an unpinned third-party skill into your real `~/.claude/skills`.
+          `npx` all resolve latest, and `npx skills add VirtusLab/cellar -y`
+          writes an unpinned third-party skill into your real
+          `~/.claude/skills` when it is missing there.
         - **`AGENTBOX_PORT` binds `0.0.0.0`**, so a published dashboard is on the
           LAN, not just localhost. That is deliberate (phone access); prefix the
           value with `127.0.0.1:` if you would rather it were not.
@@ -818,11 +784,11 @@
         claude-code and opencode; installs land in your real `~/.claude/skills`
         and `~/.config/opencode/skills`:
 
-            skills add <owner/repo> -a claude-code -a opencode
-            devbox skills-update       # = skills update
+            npx skills add <owner/repo> -a claude-code -a opencode
+            devbox skills-update       # = npx skills update
 
-        Cellar's skill is preinstalled for both agents, so they know when to
-        reach for it.
+        The bootstrap adds Cellar's skill for both agents when it is missing, so
+        they know when to reach for it.
 
         ## MCP servers
 
@@ -874,14 +840,18 @@
 
         **Pinned by the flake lock** — opencode, claude-code, the JDK, Node and
         the Coursier launcher itself. `nix flake update` is the only way they
-        move.
+        move. `/opt/agent/bin` comes first on `PATH`, so an `npm install -g` of
+        one of these silently shadows the pinned copy — check `which claude`
+        if a version looks wrong.
 
         **Installed once into `/opt/agent`, resolving latest** — `sbt`, `scala`,
         `scalac`, `scalafmt`, `metals-mcp`, `cellar` (Coursier);
-        `jcodemunch-mcp` (uv); `skills` (npm). The bootstrap guards on
-        the binary existing, so they never move on their own:
+        `jcodemunch-mcp` (uv). The bootstrap guards on the binary existing, so
+        they never move on their own:
 
-            devbox tools-update        # cs update + uv tool upgrade + npm update -g
+            devbox tools-update        # cs update + uv tool upgrade
+
+        The `skills` CLI is not installed at all; `npx` fetches it on use.
 
         The `sbt` here is only the launcher; which sbt actually builds your
         project is `sbt.version` in `project/build.properties`, so the launcher
@@ -890,16 +860,12 @@
         Pin one by hand if it matters:
 
             uv tool install jcodemunch-mcp==1.20.0
-            npm install -g skills@1.5.23
+            npx skills@1.5.23 update
 
         ## Escape hatches
 
-            nix build .#image       # just the tarball
+            nix build .#image && ./result | docker load   # just the image
             AGENTBOX_RELOAD=1 nix run .#   # re-load the image into Docker
-
-        If sbt/zinc throws `NoSuchFileException` on `.semanticdb` files, the
-        shared `target/` holds partial state from an interrupted run —
-        `rm -rf target` and recompile.
       '';
 
       agentbox = pkgs.writeShellApplication {
@@ -907,7 +873,7 @@
         text = ''
           IMG="${name}:${tag}"
           # the store path identifies the exact build; tagging it lets a plain
-          # inspect decide freshness without touching the 1.5G tarball
+          # inspect decide freshness without streaming the image
           BUILD_TAG="${name}:build-$(basename "${image}")"
 
           command -v docker >/dev/null || { echo "docker not found on PATH" >&2; exit 1; }
@@ -932,7 +898,7 @@
 
           if [ "''${AGENTBOX_RELOAD:-0}" = "1" ] || ! docker image inspect "$BUILD_TAG" >/dev/null 2>&1; then
             echo "==> loading $IMG" >&2
-            docker load --input ${image} >&2
+            ${image} | docker load >&2
             docker tag "$IMG" "$BUILD_TAG"
           fi
 
@@ -971,15 +937,10 @@
             -v "$PWD:/work"
           )
 
-          # ~/.claude has to be writable — sessions, transcripts and the OAuth
-          # refresh all land in it. But two files in there are EXECUTED or
-          # injected by your host Claude Code on its next run: settings.json
-          # defines hooks (shell commands), and CLAUDE.md is the global
-          # instruction file for every project. Writable, they are a
-          # container-to-host escape: the box edits one, you run claude on the
-          # host, the host runs what the box wrote. Neither is written during
-          # normal use, so both go back read-only on top of the rw mount.
-          # (Nested binds resolve by depth, so mount order does not matter.)
+          # Your host Claude Code executes settings.json hooks and injects
+          # CLAUDE.md, so writable copies would be a container-to-host escape.
+          # Read-only on top of the rw ~/.claude; nested binds resolve by depth,
+          # so mount order does not matter.
           for f in settings.json CLAUDE.md; do
             [ -e "$HOME/.claude/$f" ] && MOUNTS+=(-v "$HOME/.claude/$f:/home/dev/.claude/$f:ro")
           done
@@ -988,25 +949,8 @@
           # it, so it is the one identity file mounted unconditionally.
           if [ -f "$HOME/.gitconfig" ]; then MOUNTS+=(-v "$HOME/.gitconfig:/home/dev/.gitconfig:ro"); fi
 
-          # Git/GitHub credentials are OPT-IN — the box is a containment
-          # boundary, and anything running in it can read every mount.
-          #   AGENTBOX_SSH=agent  forward the host ssh-agent socket. Preferred:
-          #                       the box can ASK the agent to sign, but the
-          #                       private keys never enter it.
-          #   AGENTBOX_SSH=keys   bind-mount ~/.ssh read-only (keys ARE in the
-          #                       box; only needed for a passphrase-less key
-          #                       with no agent, or for ~/.ssh/config).
-          #   AGENTBOX_GH=1       pass `gh auth token` in as GH_TOKEN. Not a
-          #                       mount: ~/.config/gh is the box's to REWRITE if
-          #                       mounted, and on a home-manager host its
-          #                       config.yml is a /nix/store symlink that dangles
-          #                       inside the container ("failed to write config
-          #                       after migration"). The token still carries your
-          #                       full scopes — see the README for the narrower
-          #                       fine-grained-PAT route.
-          #   AGENTBOX_GPG=agent  forward gpg-agent's EXTRA socket for signed
-          #                       commits. Same trade as SSH=agent: the box can
-          #                       ask for a signature, never holds the key.
+          # Credentials are opt-in; README "Git & GitHub" has the trade-offs of
+          # each mode.
           case "''${AGENTBOX_SSH:-}" in
             agent)
               if [ -z "''${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
@@ -1023,19 +967,8 @@
             *) echo "AGENTBOX_SSH must be 'agent', 'keys' or unset" >&2; exit 1 ;;
           esac
 
-          # Commit SIGNING is a different subsystem from ssh auth: with
-          # gpg.format unset git shells out to gpg, which needs an agent socket
-          # — AGENTBOX_SSH=agent forwards S.gpg-agent.ssh, which speaks only the
-          # ssh-agent protocol and cannot produce an OpenPGP signature.
-          # The EXTRA socket is the one gnupg documents for handing an agent to
-          # a less-trusted machine: restricted command set, cannot export secret
-          # keys. That is the whole reason it is this socket and not S.gpg-agent.
-          # NOT opt-in, unlike the credential mounts above. A box that cannot
-          # sign is not a usable box here: `commit.gpgsign` is on, so the choice
-          # is between signing and a silent downgrade to unsigned commits, and
-          # an unsigned commit that LOOKS fine is the worse failure. So the
-          # default follows your git config, and a box that is asked to sign but
-          # cannot refuses to start rather than discovering it at commit time.
+          # Signing is NOT opt-in, and uses gpg-agent's restricted EXTRA socket —
+          # README "Signed commits" says why for both.
           #   unset / auto  sign iff `git config commit.gpgsign` is true
           #   agent         always forward; error if the socket is unusable
           #   off           explicit, loud opt-out — unsigned commits
@@ -1116,19 +1049,9 @@
               exit 1
             fi
           fi
-          # also forwards a GH_TOKEN you exported yourself (e.g. a fine-grained
-          # PAT), which is the narrower way in
-          #
-          # Handed over as a FILE rather than `-e`: an `-e` lands in the host's
-          # `docker run` argv, which any local user can read out of
-          # /proc/<pid>/cmdline, and in the container config `docker inspect`
-          # prints. A bind-mounted file is in neither. `bootstrap` exports it
-          # inside the box.
-          #
-          # /dev/shm because it is tmpfs: unlike /tmp, which is ordinary disk on
-          # a default install, the token never lands in the filesystem. Not an
-          # absolute guarantee — tmpfs pages can be swapped — but a swapped page
-          # is not a file anyone can open, and this one is unlinked on exit.
+          # Also forwards a GH_TOKEN you exported yourself. A file, not `-e`,
+          # and in /dev/shm rather than /tmp — README "What the box can reach"
+          # says why. `bootstrap` exports it inside the box.
           if [ -n "''${GH_TOKEN:-}" ]; then
             if [ -d /dev/shm ] && [ -w /dev/shm ]; then
               GH_TOKEN_FILE="$(mktemp --tmpdir=/dev/shm agentbox-gh.XXXXXXXX)"
@@ -1145,16 +1068,9 @@
           # must exist as a file, or docker creates a directory in its place
           [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
-          # Publishing is OPT-IN: AGENTBOX_PORT=8080 exposes the Datastar
-          # dashboard, any other value remaps it. Nothing is published by
-          # default, so a box never collides with a dashboard already running
-          # on the host.
-          # Kept as TWO arrays because they belong to different containers when
-          # a browser sidecar is running: the publish flag follows whoever owns
-          # the network namespace, while the banner URL is always the box's.
-          # Bundling them meant clearing the publish flag also silently took the
-          # URL away, and the box then announced "no port published" about a
-          # port that was published and working.
+          # Two arrays because they can belong to different containers: the
+          # publish flag follows whoever owns the network namespace (the sidecar,
+          # under AGENTBOX_BROWSER=1), while the banner URL is always the box's.
           PORT="''${AGENTBOX_PORT:-}"
           if [ -n "$PORT" ]; then
             PUBLISH_ARGS=(-p "''${PORT}:8080")
@@ -1170,9 +1086,6 @@
           # pipe or from CI ("the input device is not a TTY")
           if [ -t 0 ] && [ -t 1 ]; then TTY_ARGS=(-it); else TTY_ARGS=(-i); fi
 
-          # AGENTBOX_BROWSER=1 starts a Playwright sidecar so the browser smoke
-          # tests can run in the box, which otherwise has no browser at all.
-          #
           # The sidecar OWNS the network namespace and the box joins it, rather
           # than the other way round, for two reasons. Docker refuses to publish
           # a port on a container using another's namespace ("conflicting
@@ -1243,9 +1156,8 @@
             # Polled, NOT `docker logs -f | grep -m1`: grep leaves at the first
             # match, but `docker logs -f` only learns the pipe is gone when it
             # next writes, and a server that has said READY says nothing more —
-            # so that pipeline blocks for the whole timeout on success. It looks
-            # like a slow start rather than a bug, which is how it survived a
-            # first round of testing here.
+            # so that pipeline blocks for the whole timeout on success, which
+            # looks like a slow start rather than a bug.
             READY=""
             for _ in $(seq 1 300); do
               if docker logs "$BROWSER_NAME" 2>&1 | grep -q '^READY '; then
