@@ -78,7 +78,7 @@ class SliderHead extends nodes.ActiveNode {
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="fh-slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="fh-slider" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
+        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
@@ -166,6 +166,10 @@ open class Slider extends nodes.Node {
   /// The rest of a list the dragged number leads, for a key whose value is one:
   /// `,100` makes a hue `hs_color = [h, 100]`.
   hidden valueRest: String? = null
+  /// Paints the track with the hues it picks and draws the fill as a marker at
+  /// the position, in [[fillDefault]]: on a hue, a fill from the left edge
+  /// says nothing.
+  hidden hueTrack: Boolean = false
   /// Set, the track is one button posting this, with no range input.
   hidden press: tapMod.TapAction? = null
   /// Whether the commit's busy look shows. The guard and the input freeze stay
@@ -235,6 +239,9 @@ open class Slider extends nodes.Node {
     }
     when (valueRest != null) {
       ["valueRest"] = valueRest!!
+    }
+    when (hueTrack) {
+      ["hueTrack"] = "1"
     }
     for (k, v in tapMod.tapRoute(press ?? commit ?? throw("A slider needs a commit or a press."))) {
       [k] = v
@@ -487,4 +494,10 @@ const local sliderCss: String = """
   .fh-slider-members .fh-slider-body>.fh-slider>input{block-size:100%}
   .fh-slider-members .fh-slider-body>.fh-slider:before{display:none}
   .fh-slider-members .fh-slider-body>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0}
+  /* The veil keeps the label readable over a saturated band. */
+  .fh-slider-body>.fh-slider.fh-track-hue{--fh-track-veil:color-mix(in srgb,var(--fh-surface) 35%,transparent);
+  background:linear-gradient(var(--fh-track-veil),var(--fh-track-veil)),
+  linear-gradient(to right,#f00,#ff0 16.67%,#0f0 33.33%,#0ff 50%,#00f 66.67%,#f0f 83.33%,#f00)}
+  .fh-slider-body>.fh-slider.fh-track-hue>span:not([class]){inset:0 var(--fh-fill) 0 auto;inline-size:.375rem;
+  margin-inline-end:-.1875rem;border-radius:.1875rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.35)}
   """

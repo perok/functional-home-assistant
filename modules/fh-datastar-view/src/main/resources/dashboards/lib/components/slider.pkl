@@ -29,7 +29,8 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 
 // The fill colour paints what the slider drives: a kelvin axis gets a warm→cool
 // ramp over its own range, an axis on a colour light the light's `rgb_color`,
-// anything else the theme's paint.
+// anything else the theme's paint. A hue axis has no fill, only a marker over
+// a track painted with the hues (`hueTrack`).
 //
 // Every read keeps a presence guard (`attr[?'x']…orValue('')`): capability is a
 // build-time fact but a live state may drop the attribute, and in CEL a missing
@@ -124,7 +125,7 @@ class EntitySlider extends sliderBase.Slider {
   /// Whether the fill colour can change. Where it cannot — most lights — the
   /// base paints a constant, with no signal and no CEL behind it.
   hidden fillColourMoves: Boolean =
-    (on is hass.ColourTemp && reportsKelvin) || reportsRgb
+    (on is hass.ColourTemp && reportsKelvin) || (reportsRgb && !hue)
   /// The guarded position read, an optional (empty while a light is off): splice
   /// it as `\(valueExpr).optMap(v, …).orValue(…)`.
   hidden valueExpr: String =
@@ -199,7 +200,9 @@ class EntitySlider extends sliderBase.Slider {
   fillColor = if (fillColourMoves) new slotMod.Slot { transform = fillColorExpr } else null
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
   // reads as text: `--fh-default-color` is the paint for an assumed colour.
-  fillDefault = if (toggleOnly) "var(--fh-default-color)" else "currentcolor"
+  fillDefault =
+    if (toggleOnly) "var(--fh-default-color)" else if (hue) "#fff" else "currentcolor"
+  hueTrack = hue
   reading =
     if (shownReadout == "none") null
     else if (shownReadout is slotMod.Expr)
