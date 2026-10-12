@@ -225,6 +225,38 @@ object SmokeDashboard {
       HouseFixture.dumpWith(switchLight)
     )
 
+  /** A row of pills under a column: the nesting a column's inherited cell width
+    * leaked through, stacking the pills.
+    */
+  val pillRowInColumn: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-pill-row",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Pill Row"
+         |
+         |$fontPinnedTheme
+         |
+         |local k = dump.entities.${HouseFixture.kitchenLight.dumpKey}
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.row) {
+         |      children {
+         |        c.pill("Kveld", c.tap.toggle(k))
+         |        c.pill("Morgen", c.tap.toggle(k))
+         |        c.pill("Film", c.tap.toggle(k))
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(HouseFixture.kitchenLight)
+    )
+
   /** Every card with a badge, on, off and with no off, and an off card inside
     * an on slider, in that DOM order.
     */
