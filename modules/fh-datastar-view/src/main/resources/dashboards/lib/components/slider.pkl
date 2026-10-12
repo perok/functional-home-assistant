@@ -63,11 +63,11 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
   if (ovr != null) ovr else "\(get.apply(spec))"
 
 /// What an [[EntitySlider]] drives: an entity (its domain's default axis) or
-/// one of its capability groups (`l.colourTemp`), which carries its owner. A
-/// value rather than a selector, so `c.entitySlider(l.colourTemp)` on a light
-/// with no kelvin range is a nullability error the editor shows (ADR 0013,
-/// "Shapes considered").
-typealias SlideAxis = hass.Entity|hass.ColourTemp
+/// one of its capability groups (`l.colourTemp`, `l.colour` for the hue), which
+/// carries its owner. A value rather than a selector, so
+/// `c.entitySlider(l.colourTemp)` on a light with no kelvin range is a
+/// nullability error the editor shows (ADR 0013, "Shapes considered").
+typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
 
 /// The named readouts: the two that need the card's axis config, and none.
 /// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
@@ -91,19 +91,26 @@ class EntitySlider extends sliderBase.Slider {
   /// either one is enough.
   hidden on: SlideAxis = entity
   hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
-    if (on is hass.ColourTemp) on.owner else on
+    if (on is hass.ColourTemp) on.owner else if (on is hass.Colour) on.owner else on
+  /// The hue lives at `hs_color[0]`, which no simple shape reaches, so this
+  /// axis reads through CEL.
+  hidden hue: Boolean = on is hass.Colour
   hidden label: (String|slotMod.Expr)? = null
   // Overrides of the domain default. Each defaults to what the axis says, so a
   // capability axis configures the whole slider and an author's amend still
   // wins.
-  hidden action: String? = if (on is hass.ColourTemp) "light/turn_on" else null
-  hidden key: String? = if (on is hass.ColourTemp) "color_temp_kelvin" else null
-  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else null
-  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else null
+  hidden action: String? = if (on is hass.ColourTemp || hue) "light/turn_on" else null
+  hidden key: String? =
+    if (on is hass.ColourTemp) "color_temp_kelvin" else if (hue) "hs_color" else null
+  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else if (hue) 0 else null
+  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else if (hue) 360 else null
   // The attribute holding the live position, so a second axis of the same
   // entity tracks the value it writes.
   hidden valueAttr: String? =
-    if (on is hass.ColourTemp) "color_temp_kelvin" else null
+    if (on is hass.ColourTemp) "color_temp_kelvin" else if (hue) "hs_color" else null
+  /// Full saturation, as Mushroom's hue slider: a pastel is a colour wheel's
+  /// job, and white is the kelvin axis'.
+  valueRest = if (hue) ",100" else null
   hidden spec: SliderSpec = sliderSpec[entity.domain]!!
   hidden reportsRgb: Boolean =
     if (entity is hass.LightEntity) entity.reportsRgbColour else false
@@ -121,7 +128,8 @@ class EntitySlider extends sliderBase.Slider {
   /// The guarded position read, an optional (empty while a light is off): splice
   /// it as `\(valueExpr).optMap(v, …).orValue(…)`.
   hidden valueExpr: String =
-    if (valueAttr != null) "attr[?'\(valueAttr!!)']"
+    if (hue) "attr[?'hs_color'].optMap(hs, double(hs[0]))"
+    else if (valueAttr != null) "attr[?'\(valueAttr!!)']"
     else "attr[?'\(spec.value)']"
   hidden valueAttrName: String = valueAttr ?? spec.value
   rangeMin = min ?? spec.min
@@ -172,7 +180,9 @@ class EntitySlider extends sliderBase.Slider {
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".
   position = new slotMod.Slot {
-    transform = simpleMod.attr(valueAttrName)
+    transform =
+      if (hue) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
+      else simpleMod.attr(valueAttrName)
     default = "0"
     bypassUnavailable = false
   }
@@ -181,6 +191,7 @@ class EntitySlider extends sliderBase.Slider {
   fill = new slotMod.Slot {
     transform =
       if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
+      else if (hue) "\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')"
       else simpleMod.fill(valueAttrName, rangeMin, rangeMax)
     default = "100%"
     bypassUnavailable = false
@@ -195,7 +206,8 @@ class EntitySlider extends sliderBase.Slider {
       new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform }
     else if (shownReadout == "percent")
       new slotMod.Slot {
-        transform = simpleMod.percent(valueAttrName, rangeMin, rangeMax)
+        transform =
+          if (hue) percentExpr else simpleMod.percent(valueAttrName, rangeMin, rangeMax)
         default = "0 %"
         bypassUnavailable = false
       }
@@ -232,7 +244,7 @@ class EntitySlider extends sliderBase.Slider {
 }
 
 /// `c.entitySlider(l)` is brightness; `c.entitySlider(l.colourTemp)` is colour
-/// temperature.
+/// temperature, `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
 /// The constructor as a value, for a query's render positions.
 hidden entitySlider: (hass.Entity) -> EntitySlider = (e) -> entitySlider(e)

@@ -2386,6 +2386,58 @@ class PklBuildSuite extends munit.FunSuite {
     }
   }
 
+  test("a colour axis slides the hue and posts it as hs_color = [h, 100]") {
+    val s = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "hs" }
+          |  colour = new hass.Colour { owner = l }""".stripMargin,
+        "c.entitySlider(l.colour!!)"
+      )
+    )
+    val row = rowOf(s)
+    assertEquals(row.slots("service").literal, Some("light/turn_on"))
+    assertEquals(row.slots("dataKey").literal, Some("hs_color"))
+    assertEquals(row.slots("min").literal, Some("0"))
+    assertEquals(row.slots("max").literal, Some("360"))
+    // The rest of the list after the dragged hue: full saturation.
+    assertEquals(row.slots("valueRest").literal, Some(",100"))
+    // The hue is `hs_color[0]`, guarded: a light that is off reports none.
+    assertEquals(
+      row.slots("value").valueKey,
+      "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
+    )
+    assertEquals(
+      row.slots("fill").valueKey,
+      "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
+    )
+  }
+
+  test("a brightness axis carries no list rest") {
+    val s = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "brightness" }""",
+        "c.entitySlider(l)"
+      )
+    )
+    assert(!rowOf(s).slots.contains("valueRest"), clue = rowOf(s).slots)
+  }
+
+  test("lightControls adds a hue slider for a light with the colour group") {
+    val col = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "color_temp"; "hs" }
+          |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }
+          |  colour = new hass.Colour { owner = l }""".stripMargin,
+        "c.light.controls(l)"
+      )
+    )
+    val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
+    assertEquals(
+      kids.map(k => rowOf(k).slots("dataKey").literal),
+      List(Some("brightness"), Some("color_temp_kelvin"), Some("hs_color"))
+    )
+  }
+
   test("lightControls emits one control per capability the light has") {
     val col = probeComponent(
       lightProbe(
