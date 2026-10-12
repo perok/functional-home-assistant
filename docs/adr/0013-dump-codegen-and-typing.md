@@ -110,12 +110,18 @@ the only way to know, and a wrong entry is silent: the dashboards keep working,
 they just rebuild forever. (`color_mode` is the clearest exclusion — the
 template path baked it onto every light; it is a live value.)
 
-### Stage 1c — house-wide lists, declared rather than emitted
+### Stage 1c — house-wide namespaces, declared rather than emitted
 
-The dump carries `all` plus one list per modelled domain — `lights`, `locks`,
-`sensors`, `binarySensors`, `switches` and `generic`, which partition it.
-`hidden`, because they reference the entities `entities` already holds and
-rendering them would emit the house twice.
+The dump carries `entities` plus one NAMESPACE per selector — `lights`, `locks`,
+`sensors`, `binarySensors`, `switches`, `scenes`, `scripts`, `buttons`,
+`inputButtons` and `generic`, whose `all`s partition `dump.entities.all`. Each
+names its members by object id (`dump.scenes.kveld`, `dump.lights.kitchen`) and
+answers `all`, the shape `dump.floors` and `dump.areas` already had, so the
+house's X is always `dump.X.all`. `generic` has no members by name: it spans
+domains, so an object id is not unique in it. There is no module-level `all`;
+the house's scope is `dump.entities`. Plain lists (`dump.lights`) were the
+earlier shape: a list cannot also name its members, and it made `dump.all` and
+`dump.lights` the odd ones out beside `dump.floors.all`.
 
 They exist because a candidate set needs candidates at BUILD time (ADR 0003),
 and the starter dashboard names no concrete entity by design — every section is
@@ -123,25 +129,30 @@ a query over one of these, so it renders on any installation.
 
 **They are DECLARED in `@fh-dashboard/dump-base.pkl`, which the generated module
 `extends`, not properties this generator remembers to emit.** The difference
-matters for exactly the entry that depends on them: `site.pkl` queries the
-lists having never seen this home's dump, so a generator that stopped emitting
-one would fail as `Cannot find property` at eval — on somebody's first boot. A
-declaration with a `List()` default cannot fail that way; a home with no
-switches answers `List()`. The empty assignment is therefore omitted from the
-generated file.
+matters for exactly the entry that depends on them: `site.pkl` queries them
+having never seen this home's dump, so a generator that stopped emitting one
+would fail as `Cannot find property` at eval — on somebody's first boot. Each is
+declared as an `open class` (`SceneNamespace`, …) whose `allWithHidden` defaults
+to `List()`; the generator subclasses only the ones it has members for
+(`class Scenes extends SceneNamespace`) and redeclares the property with that
+subclass, so a home with no switches answers `List()` from the base.
 
 `extends` rather than `amends`: an amending module may not declare classes
 ("Class needs a `local` modifier"), and a dump is mostly classes. Pkl's own
 error names `extends` as the way out.
 
-**Only `allWithHidden` is generated, per scope.** `all` and the per-domain
-lists are derived from it, in the base, by functions in `hass.pkl` —
-`hass.shown`, then the SELECTORS (`hass.lights(scope)`, `hass.locks(scope)`, …)
-— the same functions an author calls, so a generated list and a hand-written
-filter cannot answer differently. Every smaller scope answers the same two
-names: `hass.Area` has `allWithHidden` filled by the generator, `hass.Floor`
-derives both from its areas, `hass.Device` from its entities, and a domain
-comes out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+**Only `allWithHidden` is generated, per scope and per namespace.** `all` is
+derived from it, in the base, by functions in `hass.pkl` — `hass.shown`, then
+the domain's SELECTOR (`hass.lights(…)`, `hass.locks(…)`, …), the same functions
+an author calls. A namespace's class body cannot read the module's other
+properties (Pkl: "not `const`"), so each namespace carries its own members
+rather than filtering one module-level list; which namespace an entity lands in
+is therefore the generator's call, and `PklBuildSuite` holds every namespace's
+`all` equal to its selector over `dump.entities.all`. Every smaller scope
+answers the same two names: `hass.Area` has `allWithHidden` filled by the
+generator, `hass.Floor` derives both from its areas, `hass.Device` from its
+entities, and a domain comes out of any of them the one way —
+`hass.lights(dump.floors.loft.all)`.
 
 **Every namespace answers `all` too.** Areas, floors, devices and users each sit
 in a generated namespace class (`dump.areas.stue`, `dump.floors.loft`), and that
@@ -151,7 +162,7 @@ floor" is a list, not a reflection over the module. Floors live under
 `dump.floors` rather than at the module top level for the same reason: a
 namespace is what has an `all`, and a floor slug can then no longer collide
 with `entities` or `areas`. A member slugged `all` becomes `all_<kind>`
-(`dump.areas.all_area`). A floor names its areas as properties beside its own
+(`dump.areas.all_area`, `dump.scenes.all_scene`). A floor names its areas as properties beside its own
 fields, so an area slugged like one of them (`level`, `areas`, `all`, …) becomes
 `<slug>_area` there (`dump.floors.ground.level_area`), with a doc comment on the
 property and a dump warning saying so. A home with no devices or users still has no
@@ -172,8 +183,8 @@ The alternative, a `lights`/`locks`/… on every scope, is one list per
 each time a domain is modelled — three of those places in this generator. A
 selector is one function per domain, it works on any `List<Entity>` including
 one an author has already filtered, and it makes `generic` a single hand-written
-complement instead of four. The house keeps its lists because `dump.lights` is
-the everyday spelling; that is a convenience over `all`, not a second source.
+complement instead of four. Only the house names its entities per domain (`dump.lights`),
+because that is where an author looks one up by name; a smaller scope is filtered.
 
 ### Stage 1d — the live-attribute schema, derived and never observed
 
@@ -533,7 +544,7 @@ knows:
 | `switch` | Typed | [switch](https://developers.home-assistant.io/docs/core/entity/switch) |
 | `number` | Typed | [number](https://developers.home-assistant.io/docs/core/entity/number) |
 | `select` | Typed | [select](https://developers.home-assistant.io/docs/core/entity/select) |
-| `scene`, `script`, `button`, `input_button` | Typed, with a selector and a house list each (`dump.scenes`, …) — the domains a tap fires rather than switches, which is what `hass.Activatable` and `c.tap.activate` take. A scene's `members` are the entities it sets | [scene](https://developers.home-assistant.io/docs/core/entity/scene), [button](https://developers.home-assistant.io/docs/core/entity/button) |
+| `scene`, `script`, `button`, `input_button` | Typed, with a selector and a house namespace each (`dump.scenes.all`, `dump.scenes.kveld`) — the domains a tap fires rather than switches, which is what `hass.Activatable` and `c.tap.activate` take. A scene's `members` are the entities it sets | [scene](https://developers.home-assistant.io/docs/core/entity/scene), [button](https://developers.home-assistant.io/docs/core/entity/button) |
 | `cover`, `fan` | Generic — but both have a `sliderSpec` row, so `c.entitySlider` works on them | [cover](https://developers.home-assistant.io/docs/core/entity/cover), [fan](https://developers.home-assistant.io/docs/core/entity/fan) |
 | `climate`, `media_player`, `vacuum`, `lawn_mower`, `water_heater`, `humidifier`, `alarm_control_panel`, `valve`, `remote`, `siren`, `camera`, `weather` | Generic — **bitmask domains**, the next candidates: each has an `*EntityFeature` IntFlag to vendor exactly as `light`'s was | [climate](https://developers.home-assistant.io/docs/core/entity/climate), [media_player](https://developers.home-assistant.io/docs/core/entity/media-player), [vacuum](https://developers.home-assistant.io/docs/core/entity/vacuum), [lawn_mower](https://developers.home-assistant.io/docs/core/entity/lawn-mower), [water_heater](https://developers.home-assistant.io/docs/core/entity/water-heater), [humidifier](https://developers.home-assistant.io/docs/core/entity/humidifier), [alarm_control_panel](https://developers.home-assistant.io/docs/core/entity/alarm-control-panel), [valve](https://developers.home-assistant.io/docs/core/entity/valve), [remote](https://developers.home-assistant.io/docs/core/entity/remote), [siren](https://developers.home-assistant.io/docs/core/entity/siren), [camera](https://developers.home-assistant.io/docs/core/entity/camera), [weather](https://developers.home-assistant.io/docs/core/entity/weather) |
 | `text`, `date`, `datetime`, `time`, `event`, `todo`, `calendar`, `update`, `image`, `notify`, `device_tracker`, `geo_location`, `air_quality` | Generic — no feature bitmask; `device_class` (already carried) is most of what they have | [text](https://developers.home-assistant.io/docs/core/entity/text), [date](https://developers.home-assistant.io/docs/core/entity/date), [datetime](https://developers.home-assistant.io/docs/core/entity/datetime), [time](https://developers.home-assistant.io/docs/core/entity/time), [event](https://developers.home-assistant.io/docs/core/entity/event), [todo](https://developers.home-assistant.io/docs/core/entity/todo), [calendar](https://developers.home-assistant.io/docs/core/entity/calendar), [update](https://developers.home-assistant.io/docs/core/entity/update), [image](https://developers.home-assistant.io/docs/core/entity/image), [notify](https://developers.home-assistant.io/docs/core/entity/notify), [device_tracker](https://developers.home-assistant.io/docs/core/entity/device-tracker), [geo_location](https://developers.home-assistant.io/docs/core/entity/geo-location), [air_quality](https://developers.home-assistant.io/docs/core/entity/air-quality) |
@@ -564,8 +575,10 @@ The recipe, in the order the pieces depend on each other:
    bake conclusions into the generator.
 5. **Select the domain**: one `function <domain>s(scope)` in `hass.pkl`, removed
    from `generic`'s complement in the same edit — the two together are what keep
-   the lists a partition — and one derived `hidden <domain>s` on
-   `internal/dump-base.pkl`. The generator emits no list: it emits `all`.
+   the lists a partition — an `open class <Domain>Namespace` and its
+   `<domain>s` property on `internal/dump-base.pkl`, and a `DomainNamespaces`
+   row in `PklDump`. The generator fills the namespace's `allWithHidden`; `all`
+   derives in the base.
 6. **Emit the data** in `PklDump`: a `schemaFields` branch for the always-present
    values, a `schemaGroups` branch for the narrowed group declarations, and the
    attribute names the domain now owns listed in `SchemaModelled` so

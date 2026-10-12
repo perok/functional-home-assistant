@@ -23,7 +23,7 @@ class MinifierSuite extends munit.CatsEffectSuite {
         |import "@fh-home/dump.pkl" as dump
         |card = (c.column) {
         |  children {
-        |    c.entitySlider(dump.lights.first)
+        |    c.entitySlider(dump.lights.all.first)
         |    c.button("Open", c.tap.openPopupInline(c.title("x")))
         |  }
         |}

@@ -1,18 +1,20 @@
-/// The house-wide lists every generated dump has, as a contract rather than
-/// whatever `PklDump` emits (ADR 0013). The seeded starter site names no
-/// entity, only queries over these, so a list the generator stopped emitting
-/// would fail somebody's first boot; a declaration with a `List()` default
-/// answers an empty house instead.
+/// The house-wide namespaces every generated dump has, as a contract rather
+/// than whatever `PklDump` emits (ADR 0013). The seeded starter site names no
+/// entity, only queries over these, so a namespace the generator stopped
+/// emitting would fail somebody's first boot; a declaration whose lists default
+/// to `List()` answers an empty house instead.
 ///
-/// Only the house carries per-domain lists. A smaller scope answers `all`, and
-/// a selector takes the domain out of it:
+/// Each answers `all`, as `dump.floors` and an area do, and names its members:
 ///
-///     q.from(dump.lights)                          // the house
-///     q.from(hass.lights(dump.areas.stue.all))     // one room
+///     q.from(dump.lights.all)                       // the house
+///     dump.scenes.kveld                             // one, by its object id
+///     q.from(hass.lights(dump.areas.stue.all))      // one room
 ///
-/// Only `allWithHidden` is generated; the rest derive through the functions an
-/// author calls, so the two cannot disagree. `entities`/`areas`/`floors`/…
-/// are typed per home and declared by the generator.
+/// The generator subclasses each one it has members for and fills
+/// `allWithHidden`; `all` derives from it here. Which namespace an entity lands
+/// in is the generator's call, so `PklBuildSuite` holds each `all` equal to its
+/// selector over `dump.entities.all`. `areas`/`floors`/`devices`/`users` are
+/// typed per home and declared by the generator alone.
 ///
 /// `open`, because the dump `extends` it: `amends` would forbid its class
 /// declarations.
@@ -20,23 +22,78 @@ open module dumpBase
 
 import "../hass.pkl"
 
-/// Every entity, hidden ones included, in entity-id order: the one list the
-/// generator fills.
-hidden allWithHidden: List<hass.Entity> = List()
+/// Every entity, by its key (`dump.entities.light_kitchen`): the house's
+/// scope, so `all` is every entity HA does not hide, in entity-id order.
+open class EntityNamespace {
+  hidden allWithHidden: List<hass.Entity> = List()
+  hidden all: List<hass.Entity> = hass.shown(allWithHidden)
+}
 
-/// [[allWithHidden]] minus the entities hidden in HA. Every list below derives
-/// from it.
-hidden all: List<hass.Entity> = hass.shown(allWithHidden)
+// One per selector in `hass.pkl`, typed, since a class cannot take a type
+// parameter. Members are named by object id (`dump.lights.kitchen`).
 
-/// In entity-id order; sort with plain Pkl before `from` for another.
-hidden lights: List<hass.LightEntity> = hass.lights(all)
-hidden locks: List<hass.LockEntity> = hass.locks(all)
-hidden sensors: List<hass.SensorEntity> = hass.sensors(all)
-hidden binarySensors: List<hass.BinarySensorEntity> = hass.binarySensors(all)
-hidden switches: List<hass.SwitchEntity> = hass.switches(all)
-hidden scenes: List<hass.SceneEntity> = hass.scenes(all)
-hidden scripts: List<hass.ScriptEntity> = hass.scripts(all)
-hidden buttons: List<hass.ButtonEntity> = hass.buttons(all)
-hidden inputButtons: List<hass.InputButtonEntity> = hass.inputButtons(all)
-/// Every entity no other list claims.
-hidden generic: List<hass.Entity> = hass.generic(all)
+open class LightNamespace {
+  hidden allWithHidden: List<hass.LightEntity> = List()
+  hidden all: List<hass.LightEntity> = hass.lights(hass.shown(allWithHidden))
+}
+
+open class LockNamespace {
+  hidden allWithHidden: List<hass.LockEntity> = List()
+  hidden all: List<hass.LockEntity> = hass.locks(hass.shown(allWithHidden))
+}
+
+open class SensorNamespace {
+  hidden allWithHidden: List<hass.SensorEntity> = List()
+  hidden all: List<hass.SensorEntity> = hass.sensors(hass.shown(allWithHidden))
+}
+
+open class BinarySensorNamespace {
+  hidden allWithHidden: List<hass.BinarySensorEntity> = List()
+  hidden all: List<hass.BinarySensorEntity> =
+    hass.binarySensors(hass.shown(allWithHidden))
+}
+
+open class SwitchNamespace {
+  hidden allWithHidden: List<hass.SwitchEntity> = List()
+  hidden all: List<hass.SwitchEntity> = hass.switches(hass.shown(allWithHidden))
+}
+
+open class SceneNamespace {
+  hidden allWithHidden: List<hass.SceneEntity> = List()
+  hidden all: List<hass.SceneEntity> = hass.scenes(hass.shown(allWithHidden))
+}
+
+open class ScriptNamespace {
+  hidden allWithHidden: List<hass.ScriptEntity> = List()
+  hidden all: List<hass.ScriptEntity> = hass.scripts(hass.shown(allWithHidden))
+}
+
+open class ButtonNamespace {
+  hidden allWithHidden: List<hass.ButtonEntity> = List()
+  hidden all: List<hass.ButtonEntity> = hass.buttons(hass.shown(allWithHidden))
+}
+
+open class InputButtonNamespace {
+  hidden allWithHidden: List<hass.InputButtonEntity> = List()
+  hidden all: List<hass.InputButtonEntity> =
+    hass.inputButtons(hass.shown(allWithHidden))
+}
+
+/// Every entity no other namespace claims. No members by name: they span
+/// domains, so an object id is not unique here; `dump.entities` names them.
+open class GenericNamespace {
+  hidden allWithHidden: List<hass.Entity> = List()
+  hidden all: List<hass.Entity> = hass.generic(hass.shown(allWithHidden))
+}
+
+entities: EntityNamespace = new {}
+lights: LightNamespace = new {}
+locks: LockNamespace = new {}
+sensors: SensorNamespace = new {}
+binarySensors: BinarySensorNamespace = new {}
+switches: SwitchNamespace = new {}
+scenes: SceneNamespace = new {}
+scripts: ScriptNamespace = new {}
+buttons: ButtonNamespace = new {}
+inputButtons: InputButtonNamespace = new {}
+generic: GenericNamespace = new {}

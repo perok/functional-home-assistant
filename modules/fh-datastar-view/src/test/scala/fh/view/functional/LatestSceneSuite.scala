@@ -24,11 +24,11 @@ class LatestSceneSuite extends munit.CatsEffectSuite {
       |import "@fh-dashboard/query.pkl" as q
       |import "@fh-home/dump.pkl" as dump
       |
-      |local latest = q.from(dump.scenes).orderBy(q.desc(q.stateProp)).first()
+      |local latest = q.from(dump.scenes.all).orderBy(q.desc(q.stateProp)).first()
       |
       |card = (c.row) {
       |  children {
-      |    for (s in dump.scenes) {
+      |    for (s in dump.scenes.all) {
       |      c.pill(s.entity_id, c.tap.activate(s)).active(latest.eq(s))
       |    }
       |  }

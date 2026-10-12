@@ -244,7 +244,7 @@ and the rabbit hole gets deep fast — partial orders, attribute ranges,
 cross-entity terms. Not worth the machinery.
 
 **The wire is linear in candidates, and that is the trade.** ~982 B per candidate
-measured on a real entity card, so an unscoped `q.from(dump.all)` over a
+measured on a real entity card, so an unscoped `q.from(dump.entities.all)` over a
 1069-entity house is ~1.8 MB of `dashboard.json` and ~900 ms of eval, where the
 old query group expressed the same thing in ~1 KB. It costs eval time, server
 memory and editor latency — never client bytes, since `dashboard.json` does not

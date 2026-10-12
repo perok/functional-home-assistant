@@ -153,21 +153,21 @@ class PklDumpMembersSuite extends munit.FunSuite {
         entity("media_player.tv", "media_player")
       )
     )
-    // Assigned, not declared: the type and the `List()` default live in
-    // `@fh-dashboard/internal/dump-base.pkl`, which the module extends.
+    // Assigned, not declared: the type and the `List()` default live on the
+    // namespace class in `@fh-dashboard/internal/dump-base.pkl`, which the
+    // module extends.
     assert(
       src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
       clue = src
     )
     assert(
       src.contains(
-        "allWithHidden = List(e_light_a, e_light_b, e_media_player_tv, e_sensor_s, e_switch_z)"
+        "allWithHidden = List(light_a, light_b, media_player_tv, sensor_s, switch_z)"
       ),
       clue = src
     )
-    // `all` and the per-domain lists are derived in the base by the author's
-    // functions; a second source from the generator is how they came to
-    // disagree.
+    // `all` is derived in the base by the author's functions; a second source
+    // from the generator is how they came to disagree.
     assert(!src.linesIterator.exists(_.trim.startsWith("all =")), clue = src)
     assert(!src.contains("lights ="), clue = src)
     assert(!src.contains("generic ="), clue = src)

@@ -122,7 +122,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
     val ws = stage(
       siteWith(
         """  ["count"] {
-          |    card = (c.grid) { children { c.title("n=\(dump.all.length)") } }
+          |    card = (c.grid) { children { c.title("n=\(dump.entities.all.length)") } }
           |  }""".stripMargin
       )
     )
