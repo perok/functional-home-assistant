@@ -26,6 +26,7 @@ private[runtime] object Conditions {
           StateStore.jsonToString(c.value),
           c.op
         )
+      case f: Predicate.First => leader(f, states).contains(f.entity)
       // Rather than reading the subject's value by accident.
       case Predicate.Cmp(_, _, _, Some(other)) if !states.contains(other) =>
         false
@@ -58,9 +59,25 @@ private[runtime] object Conditions {
 
   /** Unguarded means present, as for a set member. */
   def present(t: Predicate.Tally, states: Map[String, EntityState]): Int =
-    t.candidates.count(id =>
-      t.when.get(id).forall(g => states.get(id).exists(matchesIn(g, _, states)))
-    )
+    t.candidates.count(isPresent(t, _, states))
+
+  private def isPresent(
+      t: Predicate.Tally,
+      id: String,
+      states: Map[String, EntityState]
+  ): Boolean =
+    t.when.get(id).forall(g => states.get(id).exists(matchesIn(g, _, states)))
+
+  /** The earliest wins a tie, as a set's stable sort keeps candidate order. */
+  private def leader(
+      f: Predicate.First,
+      states: Map[String, EntityState]
+  ): Option[String] =
+    f.candidates
+      .filter(isPresent(f.tally, _, states))
+      .reduceLeftOption((best, id) =>
+        if (MemberGraph.precedes(f.orderBy, id, best, states)) id else best
+      )
 
   /** No `reg:`: registry facts fold away at build time, so one here is a build
     * bug.

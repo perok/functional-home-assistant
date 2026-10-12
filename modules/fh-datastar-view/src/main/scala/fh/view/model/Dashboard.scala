@@ -155,6 +155,12 @@ object ExprValue:
     case Predicate.Not(x)   => s"not(${predicateKey(x)})"
     case c: Predicate.Count =>
       s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
+    case f: Predicate.First =>
+      s"first(${tallyKey(f.tally)},${f.orderBy.map(sortKey).mkString(";")},${f.entity})"
+
+  private def sortKey(t: LayoutNode.SortTerm): String = t.by match
+    case LayoutNode.SortKey.Prop(p)  => s"${t.dir}:prop($p)"
+    case LayoutNode.SortKey.Holds(p) => s"${t.dir}:holds(${predicateKey(p)})"
 
   given Decoder[ExprValue] = Decoder.instance { c =>
     c.value.fold(
@@ -431,6 +437,25 @@ object Predicate:
   ) extends Predicate:
     def tally: Tally = Tally(candidates, when)
 
+  /** Whether `entity` is the first present candidate under `orderBy`, ties
+    * going to candidate order. Subject-independent, as a [[Count]] is.
+    */
+  case class First(
+      candidates: List[String] = Nil,
+      when: Map[String, Predicate] = Map.empty,
+      orderBy: List[LayoutNode.SortTerm] = Nil,
+      entity: String
+  ) extends Predicate:
+    def tally: Tally = Tally(candidates, when)
+
+    /** The sort reads every candidate's state, so a holds-key's own entities
+      * can move the leader too.
+      */
+    def referencedEntities: List[String] =
+      tally.referencedEntities ++ orderBy.flatMap(_.by match
+        case LayoutNode.SortKey.Holds(p) => Predicate.referencedEntities(p)
+        case _: LayoutNode.SortKey.Prop  => Nil)
+
   /** A static candidate list and which of it is present: a [[Count]] before the
     * comparison.
     */
@@ -447,16 +472,18 @@ object Predicate:
     case Or(items)       => items.flatMap(referencedEntities)
     case Not(item)       => referencedEntities(item)
     case c: Count        => c.tally.referencedEntities
+    case f: First        => f.referencedEntities
 
-  /** Rejected under an [[Activation.State]], which supplies no subject. A
-    * count's guards are bound to their own candidates, so they do not count.
+  /** Rejected under an [[Activation.State]], which supplies no subject. The
+    * guards of a count or a leader are bound to their own candidates, so they
+    * do not count.
     */
   def hasFreeSubject(p: Predicate): Boolean = p match
     case Cmp(_, _, _, entity) => entity.isEmpty
     case And(items)           => items.exists(hasFreeSubject)
     case Or(items)            => items.exists(hasFreeSubject)
     case Not(item)            => hasFreeSubject(item)
-    case _: Count             => false
+    case _: Count | _: First  => false
 
 /** How a [[Surface]] becomes visible.
   *

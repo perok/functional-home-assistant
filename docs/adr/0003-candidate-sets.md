@@ -100,6 +100,10 @@ Three more things fell out of the same change:
   `SortKey.Holds` (a predicate's truth), compared only among the PRESENT
   members. An ordering that folded entirely to registry facts leaves
   `candidates` pre-sorted and `orderBy` empty, so the runtime compares nothing.
+  A value compares numerically when both sides are numbers and as a string
+  otherwise (an HA timestamp is UTC ISO, so it sorts as one); NO value —
+  `unknown`, `unavailable`, an unreported attribute — sorts last in either
+  direction, since as a string it would outrank every timestamp under `desc`.
 - **`limit`** — at most this many present members, after ordering. Every
   candidate still ships, because which are cut depends on live values.
 
@@ -202,6 +206,15 @@ ordering by a live value, counting, limiting, presence. Which rooms exist is
 registry data, so "a tile per room" is a plain `for` with a set inside; a set
 nested in another set's `render` is for when the OUTER membership is live too
 (HA light groups that are on).
+
+**A set can name its leader without rendering anything.**
+`q.from(scenes).orderBy(q.desc(q.stateProp)).first().eq(s)` is a condition — a
+`Predicate.First` over the set's candidates, guards and live ordering, the
+sibling of `count()`'s `Count` — so a FIXED row of pills can light the scene
+activated last (`.active(latest.eq(s))`). Rendering the set with `limit(1)`
+would show the leader alone, and ordering the whole row by it would move a pill
+under the finger that pressed it. It folds to a constant when the ordering is
+registry-only and the first candidate's presence is settled.
 
 ## What this replaced
 

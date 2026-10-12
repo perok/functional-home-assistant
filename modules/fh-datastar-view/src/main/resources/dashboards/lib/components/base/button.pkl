@@ -178,8 +178,8 @@ open class Button extends nodes.ActiveNode {
 /// A compact chip sized to its label, for a run of small choices (floors,
 /// scenes) where full-width buttons would read as unrelated slabs. Its cell
 /// defaults to `fh-hug`, so pills pack and wrap as one group; `columns(n)`
-/// still composes on top.
-class Pill extends nodes.Node {
+/// still composes on top. Lit while [[active]] holds, as a button is.
+class Pill extends nodes.ActiveNode {
   card = "pill"
   cardDef = new nodes.CardDef {
     // BeerCSS's `.chip` under the default theme, already border-box, so no
@@ -195,6 +195,8 @@ class Pill extends nodes.Node {
       border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
       .fh-card .fh-cell>.fh-chip{background:var(--fh-surface-alt);box-shadow:none}
       .fh-cell>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
+      .fh-cell.fh-active>.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
+      .fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
       """
   }
   cellClasses { "fh-hug" }
@@ -224,6 +226,9 @@ class Pill extends nodes.Node {
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
   function icon(i: String): Pill = let (self = this) (self) { icon = i }
   function tapAction(a: tapMod.TapAction): Pill = let (self = this) (self) { tapAction = a }
+  /// `c.pill("Kveld", c.tap.activate(s)).active(latest.eq(s))`, where
+  /// `latest = q.from(scenes).orderBy(q.desc(q.stateProp)).first()`.
+  function active(a: nodes.BooleanInput): Pill = let (self = this) (self) { active = a }
 }
 
 /// `c.button("Close", c.tap.closePopup())`.

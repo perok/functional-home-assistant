@@ -420,6 +420,25 @@ class EntitySet {
   function none(): Cond = count().eq(0)
   function all(): Cond = let (l = this) count().eq(l.count().residuals.length)
 
+  /// The first present member under [[orderBy]], waiting to be compared:
+  /// `.first().eq(s)` holds while `s` leads. Reads `where` and `orderBy`, not
+  /// `limit` or a rendering, so a fixed row can mark the scene activated last:
+  ///
+  ///     local latest = q.from(scenes).orderBy(q.desc(q.stateProp)).first()
+  ///     for (s in scenes) { c.pill(s.friendly_name, c.tap.activate(s)).active(latest.eq(s)) }
+  ///
+  /// A scene never activated (`unknown`) cannot lead while one has been: no
+  /// value sorts last in either direction.
+  function first(): FirstRef =
+    let (l = this)
+      let (ordering = foldOrder(l.items, l.specs))
+        let (prepared = l.filters.map((f) -> ready(l.items, f)))
+          new FirstRef {
+            residuals = ordering.entities.map((e) ->
+              Pair(e.entity_id, foldAll(prepared.map((r) -> decide(r, l.items, e)))))
+            terms = ordering.terms
+          }
+
   /// The layout node. Pkl has no implicit conversion, so a chain ends here.
   function build(): pred.SetNode =
     let (l = this)
@@ -468,6 +487,44 @@ class CountRef extends pred.Tally {
           op = cmpOp
           value = v
         }
+}
+
+/// The leader of an ordered set, waiting to be compared with a member. A
+/// constant when the build can tell: no live ordering and a first present
+/// candidate whose presence is settled.
+class FirstRef {
+  /// Candidate id -> its presence, in the build's order: `false` where the
+  /// build dropped it, which is not the same as not being a candidate.
+  hidden residuals: List<Pair<String, Boolean|pred.Predicate>>
+  hidden terms: List<pred.SortTerm>
+
+  function eq(e: hass.Entity): Boolean|pred.Predicate =
+    let (l = this)
+      let (present = l.residuals.filter((p) -> p.second != false))
+        if (!l.residuals.any((p) -> p.first == e.entity_id))
+          throw("""
+            first().eq: '\(e.entity_id)' is not one of the set's candidates, so
+            it could never lead. Compare a member of the list given to `from`.
+            """)
+        else if (!present.any((p) -> p.first == e.entity_id)) false
+        else if (l.terms.isEmpty && present.first.second == true)
+          present.first.first == e.entity_id
+        else
+          new pred.First {
+            candidates = new Listing { for (p in present) { p.first } }
+            `when` = new Mapping {
+              for (p in present) {
+                when (p.second is pred.Predicate) {
+                  [p.first] = p.second as pred.Predicate
+                }
+              }
+            }
+            orderBy = l.terms.toListing()
+            entity = e.entity_id
+          }
+
+  function ne(e: hass.Entity): Boolean|pred.Predicate =
+    let (r = this.eq(e)) if (r is Boolean) !r else (r as pred.Predicate).not()
 }
 
 const local function staticCompare(cmpOp: String, n: Int, v: Int): Boolean =

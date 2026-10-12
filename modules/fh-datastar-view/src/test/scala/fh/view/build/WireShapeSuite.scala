@@ -139,6 +139,10 @@ class WireShapeSuite extends munit.FunSuite {
     check("Count", Predicate.Count(op = fh.view.model.Op.Gt, value = Json.Null))
   }
 
+  test("the leader predicate agrees on both sides") {
+    check("First", Predicate.First(entity = "scene.a"))
+  }
+
   test("ordering and layout-cell shapes agree on both sides") {
     check("SortTerm", LayoutNode.SortTerm(LayoutNode.SortKey.Prop("x")))
     check("Cell", Cell())
