@@ -385,14 +385,17 @@ const local sliderCss: String = """
      `100 %` does not move the label's clip edge. */
   /* `min-inline-size:0`: as a member row's grid item the head's automatic
      minimum is the whole nowrap label, which pushed the reading off the card. */
-  .fh-slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
+  .fh-slider-head{display:flex;gap:.75rem;align-items:center;padding:1rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
   .fh-slider-head>.fh-reading{margin-inline-start:auto;flex:0 0 auto;
   min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
-  /* The control's edge, OVER the fill: a nearly-full bright slider otherwise has
-     no visible end. A pseudo-element, because an inset box-shadow paints behind
-     the descendants. */
-  .fh-slider-card{position:relative}
-  .fh-slider-card:after{content:"";position:absolute;inset:0;border-radius:inherit;
+  /* The insets are the rows', as on a tile (`.fh-tile`), so the badge sits
+     where a tile's does whatever the theme pads an `<article>` with. */
+  .fh-slider-card{position:relative;padding:0}
+  /* A member row's edge, OVER the fill: an off row is otherwise invisible on a
+     dark palette, and a full one has no end. A pseudo-element, because an inset
+     box-shadow paints behind the descendants. A slider card of its own has none,
+     like a tile. */
+  .fh-slider-members .fh-slider-card:after{content:"";position:absolute;inset:0;border-radius:inherit;
   box-shadow:inset 0 0 0 .0625rem var(--fh-border);pointer-events:none;z-index:4}
   .fh-slider-body>.fh-slider,.fh-slider-body>.fh-slider>input{cursor:ew-resize}
   .fh-slider-body>.fh-slider>input::-webkit-slider-thumb{cursor:ew-resize}
@@ -429,18 +432,17 @@ const local sliderCss: String = """
      background, behind the rows, so the group reads as one control. */
   .fh-slider-group{overflow:hidden}
   /* Through `.fh-slider-body`, so these miss the members' own heads. Rows are
-     declared, or the taller badge pushes the label's two lines apart; `1/3`
-     rather than `1/-1` for the same explicit grid. */
+     declared, or the badge spanning both pushes the label's two lines apart;
+     `1/3` rather than `1/-1` for the same explicit grid. A tile's height with a
+     second line. */
   .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
   grid-template-rows:auto auto;align-items:center;align-content:center;
-  min-block-size:4.5rem;box-sizing:border-box;gap:0 .75rem}
+  min-block-size:5rem;box-sizing:border-box;gap:0 .75rem}
   .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-text>strong{grid-column:2;grid-row:1}
   .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-text>.fh-sub{grid-column:2;grid-row:2}
   .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon{grid-row:1/3}
   .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-reading{grid-column:3;grid-row:1/3}
   .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-actions{grid-column:4;grid-row:1/3}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon{inline-size:2.75rem;block-size:2.75rem}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon>i{font-size:1.5rem}
   .fh-slider-text,.fh-slider-actions>.fh-cell{display:contents}
   /* The buttons are the row's only controls, so they take the pointer back. */
   .fh-slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
@@ -453,7 +455,7 @@ const local sliderCss: String = """
   /* Above the master's span, and indented to the head's badge, so the rows read
      as the head's own. */
   .fh-slider-members{display:flex;flex-direction:column;gap:.25rem;
-  padding:0 .5rem .5rem;z-index:2}
+  padding:0 1rem 1rem;z-index:2}
   /* A member: card and track share one grid cell, so the label rides on the
      fill. No elevation: a shadow over the master's fill reads as grime. */
   .fh-slider-members .fh-card{display:grid;min-block-size:3rem;margin:0;
