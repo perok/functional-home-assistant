@@ -274,6 +274,10 @@ object PklDump {
       case Some("switch")        => "hass.SwitchEntity"
       case Some("number")        => "hass.NumberEntity"
       case Some("select")        => "hass.SelectEntity"
+      case Some("scene")         => "hass.SceneEntity"
+      case Some("script")        => "hass.ScriptEntity"
+      case Some("button")        => "hass.ButtonEntity"
+      case Some("input_button")  => "hass.InputButtonEntity"
       case _                     => "hass.GenericEntity"
     }
 

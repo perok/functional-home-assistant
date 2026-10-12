@@ -46,8 +46,13 @@ import "recipes.pkl" as recipesMod
 
 /// What a click does, each verb naming what it acts on: `c.tap.toggle(l)`,
 /// `c.tap.moreInfo(l)`, `c.tap.lights.off(dump.areas.stue)`,
-/// `c.tap.call("scene/turn_on", s)`, `c.tap.navigate("under")`.
+/// `c.tap.activate(scene)`, `c.tap.navigate("under")`. `c.tap(e)` is the
+/// method beside it: what a tap on `e`'s own card does.
 hidden tap: tapVerbs = tapVerbs
+
+/// What a tap on `e` means, from its domain: a scene activates, a light
+/// toggles, a lock or a sensor opens more-info (`c.tap.default`).
+function tap(e: hass.Entity): tapMod.TapAction = tapVerbs.default(e)
 
 /// The fast-tier slot constructors: `c.simple.attr("brightness")`,
 /// `c.simple.percent("brightness", 1, 255)`.

@@ -4,7 +4,8 @@
 ///     c.button("Kjøkken", c.tap.toggle(dump.entities.kjokken))
 ///     c.entityCard(l).tapAction(c.tap.moreInfo(l))
 ///     c.button("Stue av", c.tap.lights.off(dump.areas.stue))
-///     c.pill("Kveld", c.tap.call("scene/turn_on", dump.entities.kveld))
+///     c.pill("Kveld", c.tap.activate(dump.entities.kveld))
+///     c.button("Stue", c.tap(dump.entities.stue))
 ///
 /// A dashboard-tier module because [[moreInfo]] is a component; the tap kit a
 /// component author builds on is `core/tap.pkl`.
@@ -22,8 +23,13 @@ function toggle(e: hass.Entity): core.Call = core.toggle(e)
 
 /// What a tap on an entity card does unless told otherwise: its domain's
 /// service where it has one, more-info where it does not or the domain is a
-/// lock (ADR 0016).
+/// lock (ADR 0016). `c.tap(e)` is the same.
 function default(e: hass.Entity): core.TapAction = moreinfo.defaultTap(e)
+
+/// Fire `x` through its own domain's service: `scene/turn_on`, `script/turn_on`,
+/// `button/press` or `input_button/press`. `.with("transition", "2")` fades a
+/// scene in.
+function activate(x: hass.Activatable): core.Call = core.byDomain(x)!!
 
 /// Open `e`'s more-info popup: its card, its domain's controls, and every
 /// attribute it reports.

@@ -822,6 +822,77 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[Int]("allCount").toOption, Some(2))
   }
 
+  test("a scene, a script and both buttons are typed, listed and fired") {
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(
+      tmp,
+      PklDump.render(
+        io.circe.parser
+          .parse("""
+            {
+              "areas": {},
+              "floors": {},
+              "entities": {
+                "light_sofa": {
+                  "entity_id": "light.sofa", "domain": "light", "attributes": {}
+                },
+                "scene_kveld": {
+                  "entity_id": "scene.kveld", "domain": "scene",
+                  "attributes": {}, "members": ["light.sofa"]
+                },
+                "script_night": {
+                  "entity_id": "script.night", "domain": "script", "attributes": {}
+                },
+                "button_restart": {
+                  "entity_id": "button.restart", "domain": "button", "attributes": {}
+                },
+                "input_button_bell": {
+                  "entity_id": "input_button.bell", "domain": "input_button",
+                  "attributes": {}
+                }
+              }
+            }
+          """)
+          .toOption
+          .get
+      )
+    )
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-home/dump.pkl" as dump
+        |import "@fh-dashboard/components.pkl" as c
+        |
+        |scenes = dump.scenes.map((s) -> s.entity_id)
+        |sets = dump.scenes.first.members.map((m) -> m.entity_id)
+        |fired = (dump.scripts + dump.buttons + dump.inputButtons)
+        |  .map((x) -> c.tap.activate(x).service)
+        |sceneTap = c.tap(dump.scenes.first).service
+        |genericCount = dump.generic.length
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.get[List[String]]("scenes").toOption,
+      Some(List("scene.kveld"))
+    )
+    assertEquals(
+      c.get[List[String]]("sets").toOption,
+      Some(List("light.sofa"))
+    )
+    assertEquals(
+      c.get[List[String]]("fired").toOption,
+      Some(List("script/turn_on", "button/press", "input_button/press"))
+    )
+    assertEquals(c.get[String]("sceneTap").toOption, Some("scene/turn_on"))
+    assertEquals(c.get[Int]("genericCount").toOption, Some(0))
+  }
+
   test("a bare `new Theme {}` is a whole theme, popups included") {
     // Every Theme property has a default, so a third-party theme states only
     // what it changes. What the defaults must still give: a frame that passes
