@@ -19,8 +19,9 @@ import dev.cel.runtime.{
 import java.util.Optional
 
 /** CEL on the planner runtime, compiled once at validation. Bindings are
-  * `state`, `attr`, `entity_id`, `domain` and `dashboard_slug` (ADR 0023), plus
-  * the node's expression values the expression reads, typed.
+  * `state`, `attr`, `entity_id`, `domain`, `dashboard_slug` (ADR 0023) and
+  * `time_zone` (the process's zone, which Supervisor sets to HA's), plus the
+  * node's expression values the expression reads, typed.
   *
   * Two helpers: `str(x)` renders numbers through [[numToString]], so the engine
   * and the `Simple` tier cannot drift, and lists as `[a,b]`; `num(x)` parses a
@@ -126,6 +127,7 @@ object Cel {
     .addVar("entity_id", SimpleType.STRING)
     .addVar("domain", SimpleType.STRING)
     .addVar("dashboard_slug", SimpleType.STRING)
+    .addVar("time_zone", SimpleType.STRING)
     .addFunctionDeclarations(strDecl, numDecl)
     .build()
 
@@ -162,9 +164,13 @@ object Cel {
   // The compile-time optimizers were measured and declined: no CPU gain and
   // ~1-2% more allocation per eval, since no shipped shape repeats a subtree.
 
+  /** Read once: a running server does not follow a later change of HA's zone.
+    */
+  private val timeZone: String = java.time.ZoneId.systemDefault.getId
+
   /** Every expression has these, so an expression value may not take one. */
   val fixedNames: Set[String] =
-    Set("state", "attr", "entity_id", "domain", "dashboard_slug")
+    Set("state", "attr", "entity_id", "domain", "dashboard_slug", "time_zone")
 
   /** `env`: the node's expression values the source reads, declared beside
     * [[fixedNames]] so a name the node does not declare fails here.
@@ -255,6 +261,7 @@ object Cel {
       case "entity_id" => Optional.ofNullable[Object](entity.entityId)
       case "domain"    => Optional.ofNullable[Object](entity.domain)
       case "dashboard_slug" => Optional.ofNullable[Object](slug)
+      case "time_zone"      => Optional.of[Object](timeZone)
       case other            =>
         values.get(other).fold(Optional.empty[Object]())(Optional.of(_))
     }

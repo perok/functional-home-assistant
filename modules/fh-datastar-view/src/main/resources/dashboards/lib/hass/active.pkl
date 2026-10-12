@@ -7,9 +7,9 @@
 /// has no off, so here it has no on look either.
 module hass_active
 
-/// No on look: HA's `TIMESTAMP_STATE_DOMAINS`, and `sensor`.
-const neutral: Set<String> = Set(
-  "sensor",
+/// HA's `TIMESTAMP_STATE_DOMAINS` (`src/common/const.ts`): the state is an
+/// ISO instant, or `unknown`.
+const timestampState: Set<String> = Set(
   "ai_task",
   "button",
   "conversation",
@@ -26,6 +26,14 @@ const neutral: Set<String> = Set(
   "wake_word",
   "datetime"
 )
+
+/// The timestamp domains whose instant is when something last happened, so the
+/// clock time alone reads right. Not `datetime`, whose state is a moment someone
+/// chose: an alarm set for tomorrow would read as today's.
+const lastHappened: Set<String> = timestampState.filter((d) -> d != "datetime")
+
+/// No on look: the timestamp domains, and `sensor`.
+const neutral: Set<String> = timestampState.add("sensor")
 
 /// On in exactly these states.
 const onIn: Mapping<String, List<String>> = new {

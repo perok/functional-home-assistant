@@ -50,7 +50,7 @@ SPELLING, as Pkl wrote them, since a `Float` 2.0 and an `Int` 2 have one value; 
 object that carries a `kind`, a tally the one that does not. The expression compiles against the
 fixed names plus the node's (`Transform.CelKey`: source and typed names), so a typo, an unknown
 name or `lights_on + ' on'` (no `int + string` overload) fails the BUILD. Refused too: a name that
-is not a CEL identifier, one hiding `state`/`attr`/`entity_id`/`domain`/`dashboard_slug`, a value
+is not a CEL identifier, one hiding `state`/`attr`/`entity_id`/`domain`/`dashboard_slug`/`time_zone`, a value
 no slot reads, a slot read `once` that reads a count or a condition (the once-cache keys by what a
 value IS, so it would show the first answer forever), and a condition comparing an entity it does
 not name — a value is shared by content across nodes, so it has no subject, as a state condition

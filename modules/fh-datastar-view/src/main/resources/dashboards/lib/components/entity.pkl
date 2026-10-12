@@ -8,7 +8,8 @@ import "../hass.pkl"
 import "base/tile.pkl" as tileMod
 import "moreinfo.pkl"
 
-/// Icon, label, value (the state or an attribute, unit appended), an optional
+/// Icon, label, value (the state or an attribute, unit appended; a scene's or a
+/// button's last activation as a clock time, [[slotMod.readingOf]]), an optional
 /// second line and an optional tap. Its badge is lit while the entity is on, by
 /// HA's per-domain rule (`slotMod.activeOf`). A thin [[tileMod.Tile]]: its own inputs
 /// are entity-relative (`value("brightness")` names an attribute of THIS
@@ -24,7 +25,7 @@ open class EntityCard extends tileMod.Tile {
   tapAction = moreinfo.defaultTap(entity)
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)
-  reading = slotMod.valueSlot(value)
+  reading = slotMod.valueSlot(value ?? slotMod.readingOf(entity))
   glyph = icons.glyphOf(entity, icon)
   active = slotMod.activeOf(entity) ?? false
   // Each option is also a chainable method,
