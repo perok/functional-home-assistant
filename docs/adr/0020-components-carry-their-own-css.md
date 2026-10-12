@@ -151,12 +151,9 @@ own names: `--_padding` (its card-scale knob), `--_size` behind `--fh-press-size
 font-family restatement. The icon font itself is every theme's: `Theme`'s default
 `deferredStylesheets` loads MDI, since the cards emit its classes.
 
-**Every registered card's CSS is emitted, used or not.** A dashboard's registry
-is one library's worth, a handful of KB, and pruning it would have to account for
-surfaces and dynamic cases; the renderer has the information when that becomes
-worth doing. The same block is also hand-minified in the Pkl sources — a runtime
-minifier would let the sources be written for humans instead, and is the more
-valuable of the two follow-ups.
+**A page carries the CSS of the cards its dashboard uses, and no others.** The
+registry is read off the nodes (`nodes.cardsIn` over the tree and every surface's
+content, `entry.pkl`), so a card no dashboard places costs that dashboard nothing.
 
 **A card's JavaScript rides with it too: `cardDef.script`.** The same argument
 as its CSS — the slider's touch rules leave the range input inert and its
