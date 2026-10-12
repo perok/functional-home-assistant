@@ -8,6 +8,8 @@ Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it 
 Two users: a chart's window — `c.windowChooser` declares `window`, and every
 `c.historyChart(s).chosen()` beneath it reads it, so pressing `7d` redraws them all — and a tab
 bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
+`c.modes` (`c.light.slider(l)`'s switch between brightness, colour temperature and hue) is a tab
+bar with icons for labels, declaring `mode` the same way.
 
 ## Context
 

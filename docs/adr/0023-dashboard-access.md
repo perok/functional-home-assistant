@@ -243,7 +243,8 @@ picks (a lock's `unlock`/`lock`) declares every arm of its match. The value
 rides in the body, `{"data": {<key>: <value>}}`, at most one key, and stays
 free: a slider's position is the one thing the build cannot know. It is JSON as
 the page typed it, so a number is a number, text is text and a list is a list,
-with nothing on the server guessing which from a path segment.
+with nothing on the server guessing which from a path segment. A hue slider's
+`hs_color = [h, 100]` is such a list.
 
 It is decidable statically because a candidate set's membership is live but its
 candidate LIST is not (ADR 0003) — the walk covers the layout and every surface

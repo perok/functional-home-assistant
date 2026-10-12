@@ -295,11 +295,13 @@ several independent nullable fields:
 
 ```pkl
 class ColourTemp { min_kelvin: Int; max_kelvin: Int }
+class Colour {}   // no values: the hue range is HA's 0–360, so the group is the predicate
 
 open class LightEntity extends Entity {
   hidden colourModes: Listing<ColorMode> = new Listing {}
   hidden supported_features: Int = 0
   hidden colourTemp: ColourTemp? = null
+  hidden colour: Colour? = null
   hidden effects: Effects? = null
 }
 ```
@@ -358,10 +360,11 @@ takes **the group alone** and still knows its subject:
 ```pkl
 c.entitySlider(l)               // the domain's default axis — a light's brightness
 c.entitySlider(l.colourTemp)    // colour temperature, bounds from the light itself
+c.entitySlider(l.colour)        // the hue, posted as hs_color = [h, 100]
 c.light.effectPills(l.effects)
 ```
 
-`EntitySlider` accepts `SlideAxis = hass.Entity|hass.ColourTemp` and pattern-matches
+`EntitySlider` accepts `SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour` and pattern-matches
 with `is` to derive its entity, key, bounds and tracked attribute. Three
 properties fall out, and each was a defect in an earlier shape:
 
@@ -372,7 +375,7 @@ properties fall out, and each was a defect in an earlier shape:
   on a light without a range is a `ColourTemp?` where `ColourTemp` is required:
   pkl-lsp reports "Nullability mismatch" on the line, no evaluation involved.
 - **Capabilities are discovered on the entity.** Typing `l.` lists
-  `colourTemp`, `effects` — completion verified against pkl-lsp 0.8.0 — so a
+  `colourTemp`, `colour`, `effects` — completion verified against pkl-lsp 0.8.0 — so a
   new capability appears with no new API name to learn.
 
 The owner is a back-reference from the entity's own class to its own const,
@@ -537,7 +540,7 @@ knows:
 
 | Domain | Level | HA spec |
 |---|---|---|
-| `light` | **Modelled** — `colourTemp`, `effects` groups; colour/brightness/flash/transition predicates; `ColorMode` + `LightEntityFeature` vendored | [light](https://developers.home-assistant.io/docs/core/entity/light) |
+| `light` | **Modelled** — `colourTemp`, `colour`, `effects` groups; colour/brightness/flash/transition predicates; `ColorMode` + `LightEntityFeature` vendored | [light](https://developers.home-assistant.io/docs/core/entity/light) |
 | `lock` | **Modelled** — `supportsOpen` off the feature bit; `LockState` + `LockEntityFeature` vendored | [lock](https://developers.home-assistant.io/docs/core/entity/lock) |
 | `sensor` | **Modelled** — `device_class`/`state_class`/`unit_of_measurement`/`options` typed on the class; `isNumeric`/`isInstant`/`durationSeconds` derived; `SensorDeviceClass` + `SensorStateClass` vendored | [sensor](https://developers.home-assistant.io/docs/core/entity/sensor) |
 | `binary_sensor` | **Modelled** — `device_class` typed, `onMeans` derived; `BinarySensorDeviceClass` vendored | [binary_sensor](https://developers.home-assistant.io/docs/core/entity/binary-sensor) |
