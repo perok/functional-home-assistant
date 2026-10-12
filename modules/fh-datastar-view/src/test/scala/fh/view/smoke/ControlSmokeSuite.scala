@@ -423,7 +423,7 @@ class ControlSmokeSuite extends SmokeSuite {
       for {
         // Both badges paint from bindings, so wait for those to land.
         _ <- IO.blocking(
-          assertThat(page.locator("article.toggle[data-switched=on]"))
+          assertThat(page.locator("article.fh-toggle[data-switched=on]"))
             .hasCount(2)
         )
         _ <- IO.blocking(
@@ -435,7 +435,7 @@ class ControlSmokeSuite extends SmokeSuite {
             .evaluate(
               """() => {
                 |  const tile = document.querySelector('article.fh-entity');
-                |  const [plain, long] = document.querySelectorAll('article.toggle');
+                |  const [plain, long] = document.querySelectorAll('article.fh-toggle');
                 |  const look = el => getComputedStyle(el);
                 |  const title = long.querySelector('.fh-text');
                 |  return JSON.stringify({

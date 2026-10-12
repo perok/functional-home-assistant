@@ -63,7 +63,7 @@ class ComponentVisualSuite extends SmokeSuite {
       IO.blocking {
         settle(page)
         val sliderCard = page.locator(
-          "article.card",
+          "article.fh-card",
           new Page.LocatorOptions().setHas(page.locator("input[type=range]"))
         )
         // The native range input's fill edge moves a few pixels by Chromium
