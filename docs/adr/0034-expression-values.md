@@ -106,10 +106,9 @@ both. Only a custom property (`--…`), since a plain property would fight the t
 which writes `!important` utilities; a reading that is certainly a bool is refused — that is
 `classWhen`'s job.
 
-It cannot drive the slider's own fill: BeerCSS declares `--_end:0%` on `.slider` itself, so a value
-inherited from the cell is shadowed, and `beer.min.js` rewrites the element's `style.cssText` on
-every move. The slider keeps its element-level `style:--_end` slot, the same mechanism on its own
-element.
+It cannot drive the slider's own fill: the track's `<span>` declares its own `--fh-fill` inline, so
+a value inherited from the cell is shadowed. The slider keeps its element-level `style:--fh-fill`
+slot, the same mechanism on its own element.
 
 ### What is shared with `c.iff`, and what is not
 

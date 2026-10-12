@@ -19,8 +19,8 @@ Every rule the dashboard needed lived in one string: `theme-beer.pkl`'s `styles`
   same for every theme, and already written as a shared `const layoutCss` each
   theme was asked to interpolate at the top of its own `styles`. "Asked to" is
   the problem: a theme that forgot produced a dashboard with no layout at all.
-- **Each card's structure** — `.slider-head`'s flex line, `.entity-info-attrs`'
-  scroll cap, `.popup-close`'s corner. Working on the slider meant editing the
+- **Each card's structure** — `.fh-slider-head`'s flex line, `.fh-entity-info-attrs`'
+  scroll cap, `.fh-popup-close`'s corner. Working on the slider meant editing the
   slider's markup in one file and the 30 rules that make it a slider in another,
   400 lines away, with nothing keeping the two in step.
 - **The actual theme** — the MD3 palette, BeerCSS's own knobs, the paint.
@@ -120,19 +120,36 @@ through csso with `restructure` off, since merging rules across the sheet would 
 cascade the three layers depend on, and every script through terser. So a comment in a card's
 `css` costs the page nothing.
 
-**The DOM is still BeerCSS-flavoured, deliberately.** `<article class="card">`,
-`.slider.max`, `.chip`, `.switch`, `.tabs > a` stay in the templates, and the
-rules keyed on them moved *into* the cards that emit them. Renaming them to
-`fh-*` would not neutralise the DOM; it would move the entire MD3 look into
-hand-written CSS and give up "BeerCSS styles semantic elements for us", which is
-why the dashboard has a Material look at all. What a card owes a future theme is
-its own class contract (`.slider-head`, `.entity-info`, `.popup-close`) and
-colour through `--fh-*` — both of which it now has.
+**The markup is BeerCSS-shaped; its classes are all ours.** The templates keep
+the structure BeerCSS styles — `<article>`, `<dialog>`, a `<label>` round a
+checkbox and a `<span>`, a range wrapper over a class-less `<span>` track,
+anchors straight under a tab bar — because that is what gives the dashboard a
+Material look without restating it in CSS. But every class a template writes, and
+every class a card's CSS selects, is an `fh-` one (an icon's `mdi` classes
+aside), and `PklLibraryTestSuite` checks every card for it. Theme-beer puts
+BeerCSS's classes beside them through `classes` (`fh-slider` -> `slider max`,
+`fh-tabs` -> `tabs`, `fh-chosen` -> `active`), so another framework is a theme,
+not a rewrite of the cards. BeerCSS 4 has no `.card` rule at all (it styles
+`<article>`), so `fh-card` needs none.
 
-**A few BeerCSS-private hooks stay in the theme**, because they name things no
-card emits: `--_padding` (its card-scale knob), `.shape`'s paint, the `.mdi`
-font-family restatement. The rule that decides is "does this card emit the
-selector", not "is this declaration structural".
+Two things follow that a card author has to know:
+
+- **A card rule that overrides a framework rule must match its specificity on
+  the `fh-` side**, because the framework's selector may count two classes where
+  the card's counts one. BeerCSS styles the slider track as `.slider.max`
+  (`all:unset`, its own cursor), so the card writes `.fh-slider-body>.fh-slider`:
+  `.fh-slider` alone loses, and the touch rules go inert with nothing failing.
+- **A card's CSS cannot tell a theme's state by the theme's class.** The spinner
+  is `shape loading-indicator` under BeerCSS and `fh-busy-spin` under no theme,
+  so `core/tap.pkl` also sets `aria-busy="true"` on a spinning glyph, which no
+  class rule reaches; a card that paints a badge leaves a busy one alone with
+  `:not([aria-busy=true])`.
+
+**A few BeerCSS-private hooks stay in the theme**, because they are BeerCSS's
+own names: `--_padding` (its card-scale knob), `--_size` behind `--fh-press-size`,
+`--_end` pointed at the slider span's `--fh-fill`, `.shape`'s paint, the `.mdi`
+font-family restatement. The icon font itself is every theme's: `Theme`'s default
+`deferredStylesheets` loads MDI, since the cards emit its classes.
 
 **Every registered card's CSS is emitted, used or not.** A dashboard's registry
 is one library's worth, a handful of KB, and pruning it would have to account for

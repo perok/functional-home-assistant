@@ -53,19 +53,19 @@ const local pressCss: String = """
   .fh-press.fh-size-small{--fh-press-size:2rem}
   .fh-press.fh-size-medium{--fh-press-size:2.5rem}
   .fh-press.fh-size-large{--fh-press-size:3rem}
-  .fh-cell>:is(.button,button).fh-press{inline-size:100%;box-sizing:border-box;
+  .fh-cell>:is(.fh-button,button).fh-press{inline-size:100%;box-sizing:border-box;
   block-size:auto;min-block-size:var(--fh-press-size,3rem);justify-content:flex-start;gap:.75rem;
   padding:calc(var(--fh-press-size,3rem) * .125) 1.25rem;border-radius:999px;text-align:start;
   --fh-badge-size:calc(var(--fh-press-size,3rem) * .75);
   background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
-  .fh-cell>:is(.button,button).fh-press.fh-badged{padding-inline-start:.5rem}
-  .card .fh-cell>:is(.button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
-  .card .fh-press .fh-badge:not(.shape){background:var(--fh-surface)}
+  .fh-cell>:is(.fh-button,button).fh-press.fh-badged{padding-inline-start:.5rem}
+  .fh-card .fh-cell>:is(.fh-button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
+  .fh-card .fh-press .fh-badge:not([aria-busy=true]){background:var(--fh-surface)}
   .fh-press .fh-sub{color:var(--fh-text-dim)}
-  .fh-cell.fh-active>:is(.button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
+  .fh-cell.fh-active>:is(.fh-button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
   .fh-cell.fh-active>.fh-press .fh-sub{color:inherit;opacity:.8}
-  .fh-cell>:is(.button,button).circle{background:var(--fh-surface-alt);color:var(--fh-accent)}
-  .fh-cell.fh-active>:is(.button,button).circle{background:var(--fh-accent);color:var(--fh-on-accent)}
+  .fh-cell>:is(.fh-button,button).fh-circle{background:var(--fh-surface-alt);color:var(--fh-accent)}
+  .fh-cell.fh-active>:is(.fh-button,button).fh-circle{background:var(--fh-accent);color:var(--fh-on-accent)}
   """
 
 /// A label, a glyph and a tap that names its own target.
@@ -73,15 +73,16 @@ open class Button extends nodes.ActiveNode {
   card = "button"
   cardDef = new nodes.CardDef {
     // A navigating button is an `<a href>`, so the browser gives it
-    // middle-click and a click that works before Datastar loads. BeerCSS styles
-    // `:is(button,.button)`, so both forms look the same.
+    // middle-click and a click that works before Datastar loads. `fh-button`
+    // is for a theme that styles a class where it styles `<button>`, so both
+    // forms look the same.
     //
     // A labelled button is a card-like pill (`fh-press`), its glyph in a round
-    // badge that also carries the spinner. Icon-only is `round` (`circle
-    // small`): a glyph alone in a rectangle reads as a broken label, and there
-    // the button itself spins.
+    // badge that also carries the spinner. Icon-only is `round`
+    // (`fh-circle`): a glyph alone in a rectangle reads as a broken label, and
+    // there the button itself spins.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
+      {{#href}}<a class="fh-button {{#round}}fh-circle{{/round}}{{^round}}\(pressClass){{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}fh-circle{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
       """
     slots { "label" }
     css = pressCss
@@ -181,17 +182,19 @@ open class Button extends nodes.ActiveNode {
 class Pill extends nodes.Node {
   card = "pill"
   cardDef = new nodes.CardDef {
-    // BeerCSS's `.chip`, already border-box, so no round variant. It wears the
+    // BeerCSS's `.chip` under the default theme, already border-box, so no
+    // round variant. Its glyph keeps the spinner's colour (`aria-busy`, which
+    // any theme's spinner carries). It wears the
     // button's surface, so a run of pills and a button read as one family.
     template = """
-      {{#href}}<a class="chip\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="fh-chip\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
     css = """
-      .fh-cell>.chip{background:var(--fh-surface);color:var(--fh-text);
+      .fh-cell>.fh-chip{background:var(--fh-surface);color:var(--fh-text);
       border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
-      .card .fh-cell>.chip{background:var(--fh-surface-alt);box-shadow:none}
-      .fh-cell>.chip:not(.shape)>i.mdi{color:var(--fh-accent)}
+      .fh-card .fh-cell>.fh-chip{background:var(--fh-surface-alt);box-shadow:none}
+      .fh-cell>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
       """
   }
   cellClasses { "fh-hug" }

@@ -65,20 +65,20 @@ class Popup extends nodes.Node {
   card = "popup"
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = #"<div class="popup-backdrop" data-on:click="\#(closeExpr)"></div><dialog open class="popup"><button class="popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    template = #"<div class="fh-popup-backdrop" data-on:click="\#(closeExpr)"></div><dialog open class="fh-popup"><button class="fh-popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
     // The frame is the theme's `<dialog>`. The ✕ is 44px, the touch-target
     // minimum, with a surface of its own, and `z-index:1`: at that size it
     // overlaps a title, which was otherwise on top of it. The dialog is not
     // modal, so the backdrop is what stops a tap beside it reaching the page.
     css = """
-      .popup-backdrop{position:fixed;inset:0;z-index:100;background:var(--fh-scrim)}
-      dialog.popup{max-inline-size:min(90vw,32rem);z-index:101}
-      .popup-close{position:absolute;inset-block-start:.5rem;inset-inline-end:.5rem;
+      .fh-popup-backdrop{position:fixed;inset:0;z-index:100;background:var(--fh-scrim)}
+      dialog.fh-popup{max-inline-size:min(90vw,32rem);z-index:101}
+      .fh-popup-close{position:absolute;inset-block-start:.5rem;inset-inline-end:.5rem;
       display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
       inline-size:2.75rem;block-size:2.75rem;padding:0;border:0;border-radius:999px;z-index:1;
       background:var(--fh-surface-alt);color:var(--fh-text-dim);
       font-size:1.25rem;line-height:1;cursor:pointer}
-      .popup-close:is(:hover,:focus-visible){color:var(--fh-text)}
+      .fh-popup-close:is(:hover,:focus-visible){color:var(--fh-text)}
       """
   }
 }

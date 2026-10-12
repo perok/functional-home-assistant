@@ -61,9 +61,10 @@ fill is `--_start`/`--_end` private properties it writes on `input` events. A
 Datastar morph wipes an inline style it did not author, and with the properties
 defaulting to 0% the track snapped to *fully filled*. So the value is baked
 server-side and the JS repaint is treated as the transient one, not the source
-of truth (`components/slider.pkl` carries the split, including why the fill
-colour rides an inner `<span>`: beer.min.js assigns the wrapper's whole
-`style.cssText`).
+of truth (`components/base/slider.pkl` carries the split: the fill, as the
+card's own `--fh-fill`, and its colour ride the inner `<span>`, because
+beer.min.js assigns the wrapper's whole `style.cssText`, and theme-beer points
+the span's `--_end` at `--fh-fill`).
 
 The general rule: a framework behaviour that survives a morph may be used;
 one that *re-establishes state after* a morph may not be relied on for
@@ -93,10 +94,13 @@ glyph, so it must not hold up the first paint.
   the page URLs; any fetch failure falls back to the original URL. Local
   controls keep working when the internet does not, which is the case that
   matters.
-- **Framework class names can leak into our contract classes.** `.tabs` is a
-  BeerCSS element class and the Tabs container emits `fh-col tabs`; the theme
-  neutralises the overlap explicitly. Expect to check for this when adding a
-  contract class whose name is a plausible framework one.
+- **BeerCSS reaches a card only through the theme's class rules.** A card emits
+  `fh-` classes alone, and theme-beer's `classes` adds BeerCSS's beside them
+  (`fh-tabs` -> `fh-tabs tabs`, `fh-slider` -> `fh-slider slider max`; ADR
+  0020). One leak is left: BeerCSS also matches class SUBSTRINGS
+  (`[class*=-round]` sets `border-radius !important`; also `margin`, `-text`,
+  `-padding`, `-width`, `divider`, `blur`, `ripple`), so a new `fh-` name must
+  contain none of them unless it means BeerCSS's.
 - **Tabs run on BeerCSS's native `.tabs > a` markup** (ADR 0006's `TabButton`),
   which means its indicator rules own the geometry: a `.tabs>a{inline-size:auto}`
   override to make labels hug their text was tried and reverted — it detaches

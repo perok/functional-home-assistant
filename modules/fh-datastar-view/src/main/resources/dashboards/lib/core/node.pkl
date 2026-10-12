@@ -261,7 +261,7 @@ class CardDef {
   /// listeners: the card's DOM is morphed under it.
   script: String? = null
   // `false` only for a card whose root must be a direct child of a framework
-  // parent (a [[TabButton]] under `.tabs > a`). It does not decide whether the
+  // parent (a [[TabButton]] under `.fh-tabs > a`). It does not decide whether the
   // card is a morph target; its shape does.
   wrapAsCell: Boolean? = null
 }

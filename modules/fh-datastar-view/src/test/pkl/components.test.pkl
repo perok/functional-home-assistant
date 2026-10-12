@@ -458,7 +458,7 @@ facts {
     // BeerCSS paints a card box only on `<article>`; a `<div class="card">`
     // left the lock floating on the page background.
     local t = c.cards["tile"].template
-    t.startsWith(#"<article class="card entity fh-tile-card">"#)
+    t.startsWith(#"<article class="fh-card fh-entity fh-tile-card">"#)
     // The tap is the ROW's, and the features region opens after the row has
     // closed: nested inside it, one press would post the latch AND the tile's
     // tap.
@@ -598,6 +598,34 @@ facts {
     cssMod.baseCss.contains("--fh-border:var(--divider-color)")
   }
 
+  ["a card names only fh- classes, so a theme reaches every one (ADR 0020)"] {
+    // `Theme.classes` rewrites `fh-` classes only, so a framework's class in a
+    // card is one no theme can take out, and that card looks right under one
+    // framework alone. Mustache holes are a runtime value, not a literal.
+    local holes = Regex(#"\{\{[^}]*\}\}"#)
+    local classTokens = (t: String) ->
+      Regex(#"(?<![\w:-])class="([^"]*)""#).findMatchesIn(t)
+        .flatMap((m) -> m.groups[1]!!.value.replaceAll(holes, " ").split(Regex(#"\s+"#)))
+        .filter((s) -> !s.isEmpty)
+    local boundTokens = (t: String) ->
+      Regex(#"data-class:([\w-]+)"#).findMatchesIn(t).map((m) -> m.groups[1]!!.value)
+    local cssTokens = (css: String) ->
+      Regex(#"\.([A-Za-z_][\w-]*)"#).findMatchesIn(css.replaceAll(Regex(#"(?s)/\*.*?\*/"#), ""))
+        .map((m) -> m.groups[1]!!.value)
+    local own = (s: String) -> s.startsWith("fh-") || s == "mdi" || s.startsWith("mdi-")
+    local foreign = c.cards.toMap()
+      .mapValues((_, d) ->
+        (classTokens.apply(d.template) + boundTokens.apply(d.template) + cssTokens.apply(d.css))
+          .filter((s) -> !own.apply(s)).distinct)
+      .filter((_, v) -> !v.isEmpty)
+    foreign == Map()
+    // Nor a framework's private custom property; the theme points its own at
+    // the card's (`--_end` at `--fh-fill`).
+    c.cards.toMap().values.every((d) -> !d.template.contains("--_") && !d.css.contains("--_"))
+    // Nor the object form of a class binding, which the rewrite does not read.
+    c.cards.toMap().values.every((d) -> !d.template.contains(#"data-class="{"#))
+  }
+
   ["a control still holds its own label, however long"] {
     local cards = c.cards
     // A framework sizes a button to one line and a row to nowrap; a label
@@ -607,11 +635,11 @@ facts {
     // it out: a button free to grow down, and a switch that never shrinks.
     cards["button"].css.contains("min-block-size:var(--fh-press-size,3rem)")
     cards["button"].css.contains("block-size:auto")
-    cards["switch"].css.contains(".fh-tile>.switch{flex:0 0 auto}")
+    cards["switch"].css.contains(".fh-tile>.fh-switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["switch"].template.contains(#"<article class="card toggle fh-tile-card""#)
+    cards["switch"].template.contains(#"<article class="fh-card fh-toggle fh-tile-card""#)
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["switch"].template.contains(#"<span class="fh-text">"#)
@@ -672,7 +700,7 @@ facts {
     local cards = c.cards
     // 2.75rem = 44px, the platform touch-target minimum; it was a bare glyph
     // with .25rem of padding, in the corner of the screen.
-    cards["popup"].css.contains(".popup-close{position:absolute")
+    cards["popup"].css.contains(".fh-popup-close{position:absolute")
     cards["popup"].css.contains("inline-size:2.75rem;block-size:2.75rem")
     // The hairline that makes an OFF member row visible on a dark palette,
     // through the contract rather than as a literal.
@@ -685,7 +713,7 @@ facts {
     // The property, not the rule: whatever draws the edge has to be painted
     // above the descendants, because the fill IS a descendant and reaches the
     // card's boundary at 100 %. An inset shadow on the card itself cannot.
-    cards["slider"].css.contains(".slider-card:after{content:\"\";position:absolute")
+    cards["slider"].css.contains(".fh-slider-card:after{content:\"\";position:absolute")
     // One edge, not two: the member row's own inset shadow was the invisible
     // one, and it is this rule's job now.
     cards["slider"].css.split("box-shadow:inset 0 0 0 .0625rem var(--fh-border)").length == 2
@@ -730,7 +758,7 @@ facts {
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
-    c.cards["sliderHead"].template.contains("{{#toggle}}<button type=\"button\" class=\"slider-toggle\"")
+    c.cards["sliderHead"].template.contains("{{#toggle}}<button type=\"button\" class=\"fh-slider-toggle\"")
     c.cards["sliderHead"].template.contains("{{^toggle}}<input type=\"range\"")
     // ...and a light that CAN dim is untouched by all of it — as is one that
     // says NOTHING about its modes, which is what an entity that was
@@ -753,11 +781,11 @@ facts {
     // the registry rather than on the class: a card whose `css` never reaches
     // it renders unstyled.
     local cards = c.cards
-    cards["slider"].css.contains(".slider-head{display:flex")
-    cards["tile"].css.contains(".card.tappable,.fh-tile.tappable{cursor:pointer}")
-    cards["entityInfo"].css.contains(".entity-info-attrs{")
-    cards["popup"].css.contains("dialog.popup{")
-    cards["tabs"].css.contains(".tab-panel{display:contents}")
+    cards["slider"].css.contains(".fh-slider-head{display:flex")
+    cards["tile"].css.contains(".fh-card.fh-tappable,.fh-tile.fh-tappable{cursor:pointer}")
+    cards["entityInfo"].css.contains(".fh-entity-info-attrs{")
+    cards["popup"].css.contains("dialog.fh-popup{")
+    cards["tabs"].css.contains(".fh-tab-panel{display:contents}")
     // Colour goes through the `--fh-*` contract, never a framework's own role
     // name — that is what makes a card portable to another theme.
     !cards["slider"].css.contains("--surface-container")
@@ -1076,7 +1104,7 @@ facts {
     local tapSeat = badgeMod.seat("", "{{icon}}", badgeMod.tapSpin)
     c.cards["tile"].template.contains(tapSeat)
     c.cards["switch"].template.contains(tapSeat)
-    c.cards["sliderHead"].template.contains(#"<span class="fh-badge fh-icon-shape slider-icon"#)
+    c.cards["sliderHead"].template.contains(#"<span class="fh-badge fh-icon-shape fh-slider-icon"#)
     // No card paints a badge's look of its own: that is how the switch and the
     // tile came to disagree (#522). The button keeps its seat under its pill.
     local paints = Regex(#"\.fh-badge[^{,]*\{[^}]*(background|color):"#)
@@ -1151,11 +1179,11 @@ facts {
   ["a slider with no actions still renders the strip, and the theme hides it"] {
     // A card is ONE shape: its optional pieces are absent, not different. The
     // strip is always in the markup and `:empty` is what removes it, the same
-    // way `.slider-members:empty` handles a member-less group.
+    // way `.fh-slider-members:empty` handles a member-less group.
     local plain = c.entitySlider(kitchen)
     plain.children["head"][0].children["actions"].isEmpty
-    c.cards["sliderHead"].template.contains(#"<div class="slider-actions">"#)
-    c.cards["slider"].css.contains(".slider-actions:empty{display:none}")
+    c.cards["sliderHead"].template.contains(#"<div class="fh-slider-actions">"#)
+    c.cards["slider"].css.contains(".fh-slider-actions:empty{display:none}")
   }
 
   ["the head is STRUCTURE, so nothing on it reads live as bytes"] {
@@ -1198,7 +1226,7 @@ facts {
     local sw = c.toggle(kitchen)
     local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
-    t.contains(#"<article class="card toggle fh-tile-card" "#)
+    t.contains(#"<article class="fh-card fh-toggle fh-tile-card" "#)
     t.split("<label").first.contains("data-class:fh-error")
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,

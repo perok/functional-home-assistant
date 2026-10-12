@@ -22,18 +22,18 @@ class EntityInfo extends nodes.Node {
   card = "entityInfo"
   cardDef = new nodes.CardDef {
     template = """
-      <div class="card entity-info">
-        <code class="entity-info-id">{{entity_id}}</code>{{#attributes}}
-        <pre class="entity-info-attrs">{{attributes}}</pre>{{/attributes}}
+      <div class="fh-card fh-entity-info">
+        <code class="fh-entity-info-id">{{entity_id}}</code>{{#attributes}}
+        <pre class="fh-entity-info-attrs">{{attributes}}</pre>{{/attributes}}
       </div>
       """
     slots { "entity_id"; "attributes" }
     // Capped, so a chatty entity cannot push the controls and ✕ off screen.
     css = """
-      .entity-info{display:flex;flex-direction:column;gap:.5rem}
-      .entity-info-id{font-family:monospace;font-size:.8rem;word-break:break-all;
+      .fh-entity-info{display:flex;flex-direction:column;gap:.5rem}
+      .fh-entity-info-id{font-family:monospace;font-size:.8rem;word-break:break-all;
       color:var(--fh-text-dim)}
-      .entity-info-attrs{margin:0;max-block-size:14rem;overflow:auto;font-size:.75rem;
+      .fh-entity-info-attrs{margin:0;max-block-size:14rem;overflow:auto;font-size:.75rem;
       line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
       color:var(--fh-text-dim)}
       """

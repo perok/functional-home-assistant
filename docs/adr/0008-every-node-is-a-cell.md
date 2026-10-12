@@ -37,8 +37,9 @@ know.
    parsing anywhere).
 2. **`CardDef.wrapAsCell` is the escape hatch** (default `true`). A card sets
    it `false` only when its template root must remain a *direct* child of a
-   framework-structural parent. The one opt-out is the `tab` card: BeerCSS
-   styles tab bars via the structural selector `.tabs > a`. Everything that
+   framework-structural parent. The one opt-out is the `tab` card: a theme
+   styles a tab bar by the structural selector `.fh-tabs > a` (BeerCSS's
+   `.tabs > a`, under the default theme). Everything that
    rides on the wrapper is unusable on such a card, and would fail *silently*
    at render time — so `Dashboard.validate` rejects the three shapes loudly:
    live-entity slots (an unwrapped node has nothing to patch, so its pushed

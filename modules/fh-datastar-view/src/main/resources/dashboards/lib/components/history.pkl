@@ -78,7 +78,7 @@ class HistoryChart extends nodes.Node {
   card = "historyChart"
   cardDef = new nodes.CardDef {
     template = """
-      <div class="card fh-chart">{{{chart}}}</div>
+      <div class="fh-card fh-chart">{{{chart}}}</div>
       """
     slots { "chart" }
     // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled
@@ -131,7 +131,7 @@ class HistoryReadings extends nodes.Node {
   card = "historyReadings"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card fh-readings" data-signals:\(readingsSignal)="{{readings}}">
+      <article class="fh-card fh-readings" data-signals:\(readingsSignal)="{{readings}}">
         <header>\(textMod.hole("label"))</header>
         <dl>
           <div><dt>Now</dt><dd data-text="\(stat("p[p.length - 1]"))"></dd></div>
@@ -218,7 +218,7 @@ class WindowChooser extends nodes.Node {
       ["bar"] = new nodes.Region {}
     }
     template = """
-      <div class="fh-col" \(windowVar.own.urlMirror)><div class="tabs" data-signals__ifmissing="{ \(windowVar.own.pendingSeed) }" \(windowVar.own.pendingClear)>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" \(windowVar.own.urlMirror)><div class="fh-tabs" data-signals__ifmissing="{ \(windowVar.own.pendingSeed) }" \(windowVar.own.pendingClear)>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
       """
   }
   /// The declared window: shown until a viewer chooses another.

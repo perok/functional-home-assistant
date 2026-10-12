@@ -40,7 +40,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
 
   private def button(page: Page, w: String) =
     page.locator(
-      ".tabs a",
+      ".fh-tabs a",
       new Page.LocatorOptions().setHasText(Pattern.compile(s"^$w$$"))
     )
 
@@ -203,7 +203,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
       withPageOn(slowServed("moreinfo-slow", moreInfo, slow)) { (page, _) =>
         // The tile's row: it, not the `<article>`, owns the tap and its look,
         // so a feature under it can have its own.
-        val card = page.locator("article.entity .fh-tile").first()
+        val card = page.locator("article.fh-entity .fh-tile").first()
         for {
           _ <- slow.set(true)
           _ <- IO.blocking(card.click())
@@ -239,7 +239,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     withPageOn(moreInfo) { (page, _) =>
       val dialog = page.locator("dialog[open]")
       for {
-        _ <- IO.blocking(page.locator("article.entity").first().click())
+        _ <- IO.blocking(page.locator("article.fh-entity").first().click())
         _ <- IO.blocking(assertThat(dialog).isVisible())
         _ <- press(page, "7d")
         _ <- IO.blocking(assertThat(button(page, "7d")).hasClass(active))

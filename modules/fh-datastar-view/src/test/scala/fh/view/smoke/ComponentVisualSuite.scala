@@ -31,7 +31,7 @@ class ComponentVisualSuite extends SmokeSuite {
       IO.blocking {
         settle(page)
         val livingRoomCard = page.locator(
-          "article.entity",
+          "article.fh-entity",
           new Page.LocatorOptions().setHasText("Living Room")
         )
         VisualSnapshot.check("entity-card-off", livingRoomCard.screenshot())
@@ -63,7 +63,7 @@ class ComponentVisualSuite extends SmokeSuite {
       IO.blocking {
         settle(page)
         val sliderCard = page.locator(
-          "article.card",
+          "article.fh-card",
           new Page.LocatorOptions().setHas(page.locator("input[type=range]"))
         )
         // The native range input's fill edge moves a few pixels by Chromium
@@ -82,13 +82,13 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // `.tab-panel` is `display:contents`, a boxless wrapper, so the Tabs
+        // `.fh-tab-panel` is `display:contents`, a boxless wrapper, so the Tabs
         // card's own `.fh-cell` is the innermost real box holding bar and
         // panel; `.last()` picks it over the page root's.
         val tabsCell = page
           .locator(
             ".fh-cell",
-            new Page.LocatorOptions().setHas(page.locator(".tabs"))
+            new Page.LocatorOptions().setHas(page.locator(".fh-tabs"))
           )
           .last()
         VisualSnapshot.check("tabs", tabsCell.screenshot())
@@ -98,7 +98,7 @@ class ComponentVisualSuite extends SmokeSuite {
 
   test("an open popup looks right") {
     withPage(scene, viewport) { (page, _) =>
-      val popup = page.locator(".popup")
+      val popup = page.locator(".fh-popup")
       for {
         _ <- IO.blocking(kitchenCard(page).click())
         _ <- IO.blocking(assertThat(popup).isVisible())
@@ -121,7 +121,8 @@ class ComponentVisualSuite extends SmokeSuite {
         val lockCard = page
           .locator(".fh-cell")
           .filter(
-            new Locator.FilterOptions().setHas(page.locator("article.entity"))
+            new Locator.FilterOptions()
+              .setHas(page.locator("article.fh-entity"))
           )
           .filter(
             new Locator.FilterOptions().setHas(
@@ -163,7 +164,7 @@ class ComponentVisualSuite extends SmokeSuite {
 
   private def kitchenCard(page: Page) =
     page.locator(
-      "article.entity",
+      "article.fh-entity",
       new Page.LocatorOptions().setHasText("Kitchen")
     )
 }

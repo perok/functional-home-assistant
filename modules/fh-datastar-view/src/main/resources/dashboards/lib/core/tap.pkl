@@ -227,9 +227,10 @@ const local function slowCopy(sig: String): String = #"""
   data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)"
   """#
 
-// A theme swaps the class through `Theme.classes`.
+// A theme swaps the class through `Theme.classes`, so a card's CSS tells a
+// spinning glyph by `aria-busy`, which no theme rule reaches.
 const local function busySpinner(sig: String): String =
-  slowCopy(sig) + #" data-class:fh-busy-spin="$\#(sig)_slow""#
+  slowCopy(sig) + #" data-class:fh-busy-spin="$\#(sig)_slow" data-attr:aria-busy="$\#(sig)_slow""#
 
 /// The spinner splice, for an element hosting an `i.mdi` glyph.
 const busyShapeClass: String = busySpinner("_{{id}}__busy")
@@ -245,7 +246,7 @@ const busyTextClass: String =
 ///
 ///   <input … \(tapMod.busyAttrsChange)
 ///     data-on:change="\(tapMod.busyGuardChange)@post(…)" />
-///   <div class="slider max" … \(tapMod.busyClassChange)>
+///   <div class="fh-slider" … \(tapMod.busyClassChange)>
 ///
 /// Disabling the input while busy is safe because busy starts on RELEASE, never
 /// mid-drag.

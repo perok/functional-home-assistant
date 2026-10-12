@@ -418,7 +418,7 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   busy). While the signal is set the input is also `disabled` — safe because
   busy can only become true on release — so a drag back on is frozen at the
   browser and a programmatic `change` is swallowed by the guard. The busy class
-  rides the `.slider.max` track wrapper (and the head badge, whose icon spins
+  rides the `.fh-slider` track wrapper (and the head badge, whose icon spins
   during the commit).
 - **A refusal is signals on a 200, not a status** (ADR 0024). Every refused
   action — HA rejecting the call, a call this dashboard does not declare, an
