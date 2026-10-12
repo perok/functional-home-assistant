@@ -44,19 +44,15 @@
               ;;
             skills-update)
               shift
-              exec skills update "$@"
+              exec npx --yes skills update "$@"
               ;;
             tools-update)
               # the bootstrap installs these once and then guards on the binary
-              # existing, so this is the only way they ever move. Everything
-              # else in the box (sbt, the JDK, node, the agents) is pinned by
-              # the flake and moves with `nix flake update`.
+              # existing, so this is the only way they ever move
               echo "==> cs update" >&2
               cs update
               echo "==> uv tool upgrade --all" >&2
               uv tool upgrade --all
-              echo "==> npm update -g" >&2
-              npm update -g
               ;;
             mcp)
               shift
@@ -94,8 +90,8 @@
             *)
               echo "usage: devbox readme" >&2
               echo "       devbox mcp <server>...             # jcodemunch | metals | context7" >&2
-              echo "       devbox skills-update [skills...]   # skills CLI" >&2
-              echo "       devbox tools-update                # cs + uv + npm" >&2
+              echo "       devbox skills-update [skills...]   # npx skills update" >&2
+              echo "       devbox tools-update                # cs + uv" >&2
               echo "       devbox jcodemunch-setup [args...]  # jcodemunch-mcp init --hooks" >&2
               exit 1
               ;;
@@ -120,8 +116,7 @@
             # different XDG_CACHE_HOME — or one whose entry got evicted — still
             # passes -x and fails only when you run it:
             #   /opt/agent/bin/scala: .../bin/scala: No such file or directory
-            # Both caches live in /opt/agent now, but check the target anyway:
-            # -x alone is not evidence the tool works.
+            # so -x alone is not evidence the tool works.
             # The JVM apps (scalac, scalafmt, metals-mcp) are full bootstrap
             # scripts instead, hence anchoring to line 2 and to a leading `/` —
             # matching `exec "$JAVA"` deeper in those would refetch every boot.
@@ -160,25 +155,17 @@
               uv tool install jcodemunch-mcp
             fi
 
-            if [ ! -x "${state}/bin/skills" ]; then
-              echo "==> npm install -g skills" >&2
-              npm install -g --silent skills
-            fi
-
             # --copy, not symlink: canonical store must survive restarts, and
             # the skills CLI's own agent paths move around between versions —
             # guard on the stable claude-code one
             if [ ! -e "$HOME/.claude/skills/cellar" ]; then
-              echo "==> skills add VirtusLab/cellar (claude-code + opencode)" >&2
-              skills add VirtusLab/cellar --skill cellar --copy -g -a claude-code -a opencode -y
+              echo "==> npx skills add VirtusLab/cellar (claude-code + opencode)" >&2
+              npx --yes skills add VirtusLab/cellar --skill cellar --copy -g -a claude-code -a opencode -y
             fi
 
-            # AGENTBOX_GH=1 hands the token in as a FILE, not `-e`, so it never
-            # appears in the host's `docker run` argv (world-readable via
-            # /proc/<pid>/cmdline unless the host sets hidepid) nor in the
-            # container config that `docker inspect` prints. Exported here so
-            # every command gets it, interactive or not — /etc/bashrc would miss
-            # `agentbox claude -p …`.
+            # The wrapper hands the token in as a file (see its GH_TOKEN
+            # comment). Exported here rather than in /etc/bashrc so
+            # non-interactive commands like `agentbox claude -p …` get it too.
             if [ -r /run/gh-token ]; then
               GH_TOKEN="$(cat /run/gh-token)"
               export GH_TOKEN
@@ -228,14 +215,9 @@
         HISTCONTROL=ignoredups
       '';
 
-      # One box, two windows: `docs` (this README, then a shell) and `work`.
-      # The point is running an agent and the project side by side without a
-      # second `nix run` — a second box would be a second container sharing
-      # /opt/agent, and two sbt servers on one Coursier cache is not a thing to
-      # do casually.
-      #
-      # nixpkgs builds tmux with `--sysconfdir=/etc`, so this is the system
-      # config and needs nothing in the throwaway home.
+      # README "Two windows" says why. nixpkgs builds tmux with
+      # `--sysconfdir=/etc`, so this is the system config and needs nothing in
+      # the throwaway home.
       #
       # The two commands are a pair, and neither works alone:
       #   * `new-session -d` runs when the SERVER starts, which is early enough
@@ -243,9 +225,6 @@
       #   * `default-client-command` is what a bare `tmux` runs in place of its
       #     built-in `new-session`, so it lands in the session above instead of
       #     creating an unnamed second one next to it.
-      # Anything more specific (`tmux new -s foo`) still gets its own plain
-      # session — this only redefines what "no arguments" means. It does start
-      # the server, though, so `box` gets laid out alongside it either way.
       tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
         new-session -d -s box -n docs -c /work "devbox greet; exec bash"
         new-window -d -t box: -n work -c /work
@@ -258,29 +237,11 @@
         set -sg escape-time 10
       '';
 
-      # GitHub's SSH host keys, so the first `git push` out of a fresh box
-      # authenticates the host instead of stopping to ask.
-      #
-      # The box has no `~/.ssh` under the default `AGENTBOX_SSH=agent` — that
-      # mode forwards the AGENT SOCKET, which carries the ability to sign but
-      # says nothing about who github.com is. So ssh had the credentials and
-      # not the host identity, and every fresh box hit an interactive
-      # fingerprint prompt on its first push. An agent cannot answer that
-      # prompt, so an unattended one hangs or fails.
-      #
-      # `/etc/ssh/ssh_known_hosts` is OpenSSH's own `GlobalKnownHostsFile`
-      # default (`ssh -G github.com` in the image confirms it), so this needs no
-      # ssh_config, no `GIT_SSH_COMMAND`, and nothing in the throwaway home.
-      #
-      # PINNED, deliberately, rather than `StrictHostKeyChecking=accept-new`:
-      # accept-new is trust-on-first-use — it silently accepts whatever answers
-      # first, which is the check, not the prompt, being turned off. These are
-      # GitHub's PUBLISHED keys, so an impostor fails even on a first contact.
-      # Verified against `StrictHostKeyChecking=yes`, the strictest mode, which
-      # refuses an unknown host outright.
-      #
-      # Refresh (GitHub rotated its RSA key once, in 2023) with:
-      #     gh api meta --jq '.ssh_keys[] | "github.com \(.)"'
+      # GitHub's published SSH host keys, pinned rather than
+      # `StrictHostKeyChecking=accept-new` — README "Git & GitHub" says why and
+      # how to refresh them. `/etc/ssh/ssh_known_hosts` is OpenSSH's own
+      # `GlobalKnownHostsFile` default (`ssh -G github.com` confirms it), so
+      # this needs no ssh_config and nothing in the throwaway home.
       knownHosts = pkgs.writeTextDir "etc/ssh/ssh_known_hosts" ''
         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
         github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
@@ -326,7 +287,9 @@
           });
       '';
 
-      image = pkgs.dockerTools.buildLayeredImage {
+      # A script that streams the image into `docker load`, so no multi-GB
+      # tarball lands in the store on every rebuild.
+      image = pkgs.dockerTools.streamLayeredImage {
         inherit name tag;
 
         contents = with pkgs; [
@@ -351,10 +314,10 @@
           gh
           opencode
           claude-code
-          nodejs_24 # runtime for the skills CLI
+          nodejs_24 # the frontend build (NpmPlugin), the Playwright driver, `npx skills`
           coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
-          async-profiler # asprof: allocation-site sampling (issue #237); JFR is built-in
+          async-profiler # allocation-site sampling (issue #237); JFR is built-in
           uv
           python3 # runtime for jcodemunch-mcp
           # /lib64 loader for non-nix binaries (cs-installed native tools like
@@ -378,7 +341,7 @@
           touch home/dev/.claude.json
           chmod 1777 tmp
           chmod -R 0777 home/dev work opt/agent
-          # cs/uv/npm-installed launchers use #!/usr/bin/env; the image only
+          # cs/uv-installed launchers use #!/usr/bin/env; the image only
           # populates /bin
           mkdir -p usr
           ln -s /bin usr/bin
@@ -436,8 +399,10 @@
             # don't touch it.
             "DISABLE_ERROR_REPORTING=1"
             "DISABLE_BUG_COMMAND=1"
-            # nix glibc's loader only searches the store by default; cs-installed
-            # native binaries (cellar) need this to find their extra libs
+            # nix glibc's loader only searches the store, and the cs-installed
+            # native binaries (cellar, and the scala-cli behind `scala`) need
+            # libz.so.1. Global rather than per tool: it is the same zlib the
+            # nix binaries in this image already link.
             "LD_LIBRARY_PATH=${pkgs.zlib}/lib"
             "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
             "TERM=xterm-256color"
@@ -449,155 +414,83 @@
       readme = pkgs.writeTextDir "share/doc/${name}/README.md" ''
         # agentbox
 
-        Single Nix flake producing an OCI image with opencode, Claude Code,
-        the jCodeMunch MCP server, and a Coursier-managed
-        Scala toolchain on JDK 25. Agent configs and auth are bind-mounted from
-        the host, so the container shares your existing setup.
+        One Nix flake: an OCI image with opencode, Claude Code, jCodeMunch and
+        a Coursier-managed Scala toolchain on JDK 25, and the `agentbox`
+        wrapper that runs it with your agent configs bind-mounted from the host.
 
         ## Use
 
-            nix run .#                 # tmux in the container, cwd as /work
-            nix run .# -- opencode
-            nix run .# -- claude
-            AGENTBOX_TMUX=0 nix run .# # ... or a plain shell
+            nix run .#                     # tmux in the container, cwd as /work
+            nix run .# -- claude           # or opencode; naming a command skips tmux
+            AGENTBOX_TMUX=0 nix run .#     # a plain shell
+            AGENTBOX_PORT=8080 nix run .#  # publish the dashboard; 8081 remaps it
             # inside the box:
             devbox readme              # this document
             devbox mcp jcodemunch      # wire an MCP server into both agents
             devbox skills-update       # update installed agent skills
-            devbox tools-update        # update the cs / uv / npm tools
+            devbox tools-update        # update the cs / uv tools
 
-        Unfree packages (claude-code) are allowed in the flake itself — no env
-        vars or `--impure` needed.
+        The wrapper loads the image into Docker whenever the build changes.
+        Unfree claude-code is allowed in the flake itself, so no `--impure`.
+        Needs an x86_64-linux builder; elsewhere change `system` and check that
+        `pkgs.opencode` / `pkgs.claude-code` build there.
+
+        A published port reaches the container's eth0, so the server inside
+        must bind `0.0.0.0` (`HOST=0.0.0.0` in `.env` for the dashboard) or
+        `-p` looks silently broken.
 
         ### Two windows
 
-        `nix run .#` lands in tmux: window `docs` with this README already
-        printed and a shell under it, window `work` in `/work`. Run the agent
-        in one and `sbt` in the other.
-
-        `C-b d` detaches to a plain shell in the same box rather than ending
-        it, so `tmux` returns to both windows with the sbt server still up, and
-        `exit` from there leaves. `AGENTBOX_TMUX=0` skips it for a plain shell.
-
-        Reach for a window before starting a SECOND box: two containers share
-        `/opt/agent`, so they share one Coursier cache and one bash history,
-        and two sbt servers over that is not a thing to do casually.
-
-        Naming a command (`nix run .# -- claude`) skips tmux entirely, as does
-        a box with no tty. Inside, `tmux new -s spike` still gets its own plain
-        session — `/etc/tmux.conf` only redefines what "no arguments" means,
-        via `default-client-command`. The layout lives there too, so pointing
-        the first window at the project's own README instead is a one-line
-        change.
-
-        Nothing is published to the host by default. `AGENTBOX_PORT=8080`
-        exposes the Datastar dashboard, any other value remaps it:
-
-            AGENTBOX_PORT=8081 nix run .#   # dashboard on localhost:8081
-
-        The server inside the box must bind `0.0.0.0`, not `127.0.0.1` —
-        docker forwards a published port to the container's eth0, so a
-        loopback-bound server is unreachable and `-p` looks silently broken.
-        For this repo's dashboard that is `HOST=0.0.0.0` in `.env`.
+        `nix run .#` lands in tmux: window `docs` (this README, then a shell)
+        and window `work`, both in `/work`. `C-b d` detaches to a shell in the
+        same box with sbt still up — `tmux` returns, `exit` leaves. Use a window
+        rather than a second box: two boxes share `/opt/agent`, so two sbt
+        servers would share one Coursier cache and one bash history. The layout
+        is `/etc/tmux.conf`; `tmux new -s other` still gets a plain session.
 
         ### Telling the box from the host
 
-        A box and a host terminal look identical once you are a few commands
-        in, and the two are not the same thing to be wrong about — one has your
-        real keys, your real gh account and your whole home directory. So the
-        repo ships a Claude Code status line (`.claude/statusline.sh`, wired
-        from `.claude/settings.json`) whose first row answers that question
-        before anything else:
-
-            ▣ agentbox · ssh gh gpg :8080 │ ⑂ my-branch ●3 ↑2 │ ⌂ a-worktree
-            Opus │ ▓▓▓░░░░░░░ 31% │ $1.23 │ 14m
-
-        against a red `△ host  not contained` when it is not in a box. The
-        badge keys off `AGENTBOX=1`, which is baked into the image rather than
-        passed by the wrapper — so it describes the filesystem the script is
-        running on, and a host shell that happens to have exported the variable
-        cannot borrow the badge.
-
-        The chips after it are the point, not decoration: they are what was
-        actually handed in, each detected from inside the box (a socket, a
-        mounted file) rather than from the `AGENTBOX_*` variable that asked for
-        it. `unsigned` appears when no gpg socket arrived, which is the one
-        state worth noticing before you commit rather than after.
+        The repo's Claude Code status line (`.claude/statusline.sh`) opens with
+        `▣ agentbox · ssh gh gpg :8080` in a box and a red
+        `△ host  not contained` outside one. It keys off `AGENTBOX=1`, baked
+        into the image, so a host shell that exported it cannot borrow the
+        badge. Each chip is detected from inside (a socket, a mounted file);
+        `unsigned` means no gpg socket arrived.
 
         ### Browser tests
 
-        There is no browser in this image. `AGENTBOX_BROWSER=1` starts a
-        Playwright sidecar next to the box instead, and the smoke suites
-        connect to it:
+        The image has no browser. `AGENTBOX_BROWSER=1` starts a Playwright
+        sidecar (`mcr.microsoft.com/playwright:v<version>`, the version read
+        from `build.sbt` so client and server cannot drift) for the smoke
+        suites to connect to:
 
             AGENTBOX_BROWSER=1 nix run .#
             # inside: sbt 'fh-datastar-view/testFull'
 
-        Without it the box has no browser at all and those suites die in
-        `beforeAll`, so run them as `sbt 'fh-datastar-view/testOnly * --
-        --exclude-tags=Slow'`.
+        Without it, run `sbt 'fh-datastar-view/testOnly * -- --exclude-tags=Slow'`.
+        The first start installs `playwright-core` into `~/.agentbox/playwright`
+        and takes a minute. The sidecar owns the network namespace, so it is
+        the container that publishes `AGENTBOX_PORT`.
 
-        The sidecar image is `mcr.microsoft.com/playwright:v<version>`, with the
-        version read out of `build.sbt` — the Java client pin decides it, so the
-        two halves cannot drift apart. The first start installs
-        `playwright-core` into `~/.agentbox/playwright` and takes a minute;
-        later starts reuse it.
+        `ComponentVisualSuite`'s `entity-card-off` lands just over its 0.3%
+        budget here, because font rasterization differs from CI's. **CI is
+        authoritative for the visual baselines** — never regenerate them in
+        the box.
 
-        `ComponentVisualSuite` is expected to differ here: six of its seven
-        snapshots match, and `entity-card-off` lands at 0.308% changed pixels
-        against a 0.3% budget, because font rasterization is not identical to
-        CI's runner. **CI stays authoritative for the visual baselines** — do
-        not regenerate them from inside the box.
-
-        The sidecar deliberately does **not** get `--ipc=host`, which
-        Playwright's own docs recommend for Chromium. That flag hands the
-        container the host's IPC namespace — host shared memory and SysV IPC
-        objects, shared with every other process on the machine — which is a
-        real weakening of the boundary this box exists to draw, and it would be
-        the only place we punched a hole in it for convenience. The flag exists
-        to stop Chromium exhausting `/dev/shm` under load; nothing here has hit
-        that (28 tests, three suites in parallel). If it ever does, the symptom
-        is a browser CRASH partway through a suite rather than a test failure —
-        raise the sidecar's `--shm-size` first, which costs nothing in
-        isolation, and treat `--ipc=host` as a last resort to argue for
-        explicitly.
-
-        `/work` is your working tree, `target/` included, so the box and the
-        host share one set of build outputs. Alternating `sbt` between them can
-        leave incremental state the other does not recognise, which surfaces as
-        a compiler crash rather than anything that names the cause —
-        `NoSuchFileException ...semanticdb` or *"Cannot invoke
-        AbstractFile.jpath() because clsFile is null"*. `sbt <module>/clean`
-        fixes it. Not specific to browser tests; it is just easiest to hit when
-        you run the same suite both ways.
-
-        Under `AGENTBOX_BROWSER=1` the sidecar owns the network namespace and
-        the box joins it, so `AGENTBOX_PORT` is published by the sidecar. The
-        two compose normally; it is only worth knowing if you go looking for the
-        published port on the wrong container.
-
-        The wrapper loads the image into Docker when the build changes. Inside
-        the box, `devbox readme` shows this document. Requires an
-        x86_64-linux builder; on macOS/aarch64 add a linux builder or change
-        `system` and confirm `pkgs.opencode` / `pkgs.claude-code` build there.
+        No `--ipc=host`, though Playwright recommends it: it would hand the box
+        the host's IPC namespace. It guards against Chromium exhausting
+        `/dev/shm`, which shows up as a browser crash mid-suite; if that ever
+        happens, raise the sidecar's `--shm-size` first.
 
         ## Two halves
 
-        The **host half** is one shell script, `agentbox` — it loads the image
-        when the build changed, writes the passwd file, decides the mounts and
-        the port, and calls `docker run`. That script is the only thing that
-        runs outside the container, so anything that must be arranged *before*
-        the box starts belongs there: an egress proxy to CONNECT through, a
-        docker network to attach to, a seccomp profile.
-
-        The **container half** is the image plus its `bootstrap` entrypoint,
-        which installs the Coursier/uv/npm tools into `/opt/agent` on first run
-        and then execs your command.
-
-        There is deliberately no devShell. This flake builds a box to work in;
-        it does not put a toolchain on your host, and a shell you enter first
-        could not do the host-side setup above anyway — it only adds binaries
-        to your PATH.
+        The **host half** is the `agentbox` script: it loads the image, writes
+        the passwd file, picks the mounts and the port, and calls `docker run`.
+        Anything that must exist before the box starts (an egress proxy, a
+        docker network, a seccomp profile) belongs there — which is also why
+        there is no devShell. The **container half** is the image and its
+        `bootstrap` entrypoint, which installs the Coursier/uv tools on first
+        run and execs your command.
 
         ## Shared with the host
 
@@ -623,44 +516,29 @@
         | `gh auth token`               | `/run/gh-token` (ro, tmpfs) | `AGENTBOX_GH=1`    |
         | `~/.agentbox/playwright`      | `/pw` (in the sidecar, not the box) | `AGENTBOX_BROWSER=1` |
 
-        Signing is the exception to opt-in — if your git config asks for it, the
-        gpg mounts are on by default and the box will not start without them:
+        Signing follows your git config instead (see Signed commits):
 
         | Host                          | Container                 | Enabled by         |
         |-------------------------------|---------------------------|--------------------|
         | gpg-agent's *extra* socket    | `~/.gnupg/S.gpg-agent`    | `commit.gpgsign`   |
         | `pubring.kbx`, `trustdb.gpg`  | `~/.gnupg` (copy, public half) | `commit.gpgsign` |
 
-        Claude Code and opencode both live in the Nix store or `/opt/agent`
-        and are pinned; only their state is shared. Sessions, project history
-        and settings written inside the container land in your real `~/.claude`.
+        Claude Code's credentials are `~/.claude/.credentials.json` on Linux, so
+        the box starts logged in; on macOS they are in the Keychain, so export
+        `ANTHROPIC_API_KEY` or log in once inside.
 
-        On Linux the Claude Code credential file is `~/.claude/.credentials.json`
-        and is therefore inside the container. On macOS credentials are in the
-        Keychain, so the container starts logged out — export `ANTHROPIC_API_KEY`
-        or run `claude` once inside and log in. Either way, auth tokens are
-        readable by anything running in there. Trusted repos only; a container
-        is not an exfiltration boundary.
-
-        The Scala toolchain — `sbt`, `scala`, `scalac`, `scalafmt` — is
-        Coursier-installed into `/opt/agent` on first run; network needed once,
-        then cached. The agents, the JDK and everything else come pinned from
-        nixpkgs. Tool caches and XDG state/cache also live in `/opt/agent`, so
-        they survive container restarts.
+        `/work` includes `target/`, so box and host share build outputs, and
+        alternating sbt between them can crash the compiler
+        (`NoSuchFileException ...semanticdb`, *"clsFile is null"*).
+        `sbt <module>/clean` fixes it.
 
         ## Permissions
 
-        Nothing in the box ever runs as root. The wrapper passes
+        Nothing in the box runs as root: the wrapper passes
         `--user $(id -u):$(id -g)`, `--security-opt no-new-privileges` and
         `--cap-drop=ALL`, and mounts a generated `/etc/passwd` naming that uid
-        `dev` (docker's `--user` adds no NSS entry of its own, and a uid without
-        one makes Node's `os.userInfo()` throw). Files created in `/work` and in
-        the mounts are owned by you on the host — no root-owned strays.
-
-        Claude Code's own allow/deny rules are a separate, softer layer that it
-        enforces itself; put them in the repo's `.claude/settings.json`, not
-        `settings.local.json`, which "don't ask again" rewrites. The mount list
-        above is the real boundary — nothing else on the host is reachable.
+        `dev` (without an entry, Node's `os.userInfo()` throws). Files created
+        in `/work` and the mounts are yours on the host.
 
         ## What the box can reach, and what we accept
 
@@ -692,50 +570,29 @@
           `.mcp.json` in the repo.** Project hooks and MCP servers land in your
           diff, so review before running the repo's tooling on the host.
         - **The bootstrap installs unpinned code on first run.** `cs`, `uv` and
-          `npm` all resolve latest, and `skills add VirtusLab/cellar -y` writes
-          an unpinned third-party skill into your real `~/.claude/skills`.
+          `npx` all resolve latest, and `npx skills add VirtusLab/cellar -y`
+          writes an unpinned third-party skill into your real
+          `~/.claude/skills` when it is missing there.
         - **`AGENTBOX_PORT` binds `0.0.0.0`**, so a published dashboard is on the
           LAN, not just localhost. That is deliberate (phone access); prefix the
           value with `127.0.0.1:` if you would rather it were not.
-        - **`AGENTBOX_GH=1` puts a token inside the box**, where anything
-          running there can read it. Unlike SSH and gpg there is no narrower
-          option: those forward an AGENT, so the box can ask for an operation
-          without holding the key, and GitHub has no such thing — a token IS the
-          credential.
-
-          It is handed over as a bind-mounted file rather than `-e`, so it is in
-          neither the host's `docker run` argv (readable by ANY local user via
-          /proc/<pid>/cmdline, unless the host sets `hidepid` — wider than root)
-          nor the container config `docker inspect` prints. The file is made
-          with `mktemp` in `/dev/shm`, which is tmpfs, and unlinked when the box
-          exits; `/tmp` is ordinary disk on a default install, so it is not the
-          place for it. Swap means tmpfs is not an absolute guarantee.
-
-          The narrower way in remains a fine-grained PAT (below): it limits what
-          the token can DO, which beats limiting who can see one that carries
-          your full scopes.
-        - **The forwarded gpg socket lets the box sign anything, for as long as
-          it runs** — a commit you did not write, a mail, a release tarball.
-          Accepted deliberately, and unlike the other rows it is on by default,
-          because unsigned commits were judged the worse outcome. It is the
-          *extra* socket precisely to bound it: use ends when the container
-          does, because the key itself never went in. `AGENTBOX_GPG=off` opts
-          out.
-        - **`AGENTBOX_BROWSER=1` runs a third-party image alongside the box**
-          (`mcr.microsoft.com/playwright`), sharing its network namespace — so
-          it reaches whatever the box reaches, and a browser is a general
-          fetcher. It gets no host mounts beyond its own `playwright-core`
-          directory, and its automation port is bound to loopback inside that
-          shared namespace, so nothing outside the pair can drive it. Off by
-          default.
-
-          The obvious simplification — point the box at a Playwright server
-          running on the HOST, which already has the browsers — is rejected on
-          purpose. A Playwright server has no ACL or restricted mode, so it
-          would let the box drive a browser running as you, `file:///` reads of
-          `~/.ssh` included, i.e. everything the box deliberately has no mount
-          for. Putting the browser in a container keeps it inside the same
-          boundary as the box; that is the whole point of the sidecar.
+        - **`AGENTBOX_GH=1` puts a token inside the box.** GitHub has no agent
+          to forward the way SSH and gpg do, so the token IS the credential. It
+          goes in as a file, not `-e`, so it is in neither the host's
+          `docker run` argv (readable by any local user via
+          `/proc/<pid>/cmdline`) nor `docker inspect`; the file is made in tmpfs
+          `/dev/shm` rather than on-disk `/tmp` and unlinked on exit. A
+          fine-grained PAT (below) is the narrower way in.
+        - **The forwarded gpg socket lets the box sign anything while it
+          runs.** On by default, because an unsigned commit was judged the
+          worse outcome; the key never goes in, so it ends with the container.
+          `AGENTBOX_GPG=off` opts out.
+        - **`AGENTBOX_BROWSER=1` runs a third-party image** in the box's network
+          namespace, and a browser is a general fetcher. It gets no host mounts
+          beyond its own `playwright-core` dir, and its automation port is on
+          loopback. A Playwright server on the HOST is rejected: it has no ACL,
+          so the box could drive a browser running as you, `file:///` reads of
+          `~/.ssh` included.
 
         The box is a boundary against *accidents and reach*, not against a
         determined attacker who already has code running inside it. Trusted
@@ -758,59 +615,42 @@
         material inside, and is only needed for a passphrase-less key with no
         agent running, or when something reads `~/.ssh/config`.
 
-        **github.com's host keys ship in the image** (`/etc/ssh/ssh_known_hosts`,
-        which is OpenSSH's own global default). `agent` forwards the ability to
-        SIGN but says nothing about who github.com is, and the box has no
-        `~/.ssh` in that mode — so without this the first push out of every
-        fresh box stopped on an interactive fingerprint prompt, which an agent
-        cannot answer.
-
-        They are GitHub's published keys, PINNED — not
-        `StrictHostKeyChecking=accept-new`, which would silence the prompt by
-        trusting whatever answers first. Refresh them (GitHub rotated its RSA
-        key once, in 2023) with:
+        **github.com's host keys ship in the image**
+        (`/etc/ssh/ssh_known_hosts`): under `agent` the box has no `~/.ssh`, and
+        an agent cannot answer the first push's fingerprint prompt. They are
+        pinned rather than `accept-new`, which trusts whatever answers first.
+        Refresh them (GitHub rotated its RSA key in 2023) with:
 
             gh api meta --jq '.ssh_keys[] | "github.com \(.)"'
 
-        `AGENTBOX_GH=1` passes a token rather than mounting `~/.config/gh`, for
-        two reasons: a mounted config dir is the box's to rewrite (it can change
-        which account your *host* `gh` authenticates as), and on a home-manager
-        host `config.yml` is a `/nix/store` symlink that dangles inside the
-        container, so `gh` fails outright with *"failed to write config after
-        migration"*. The token still carries every scope your `gh` login has —
-        for narrow, separately revocable access, export `GH_TOKEN` yourself from
-        a fine-grained PAT and leave `AGENTBOX_GH` unset:
+        `AGENTBOX_GH=1` passes a token rather than mounting `~/.config/gh`: a
+        mounted config is the box's to rewrite, and on a home-manager host its
+        `/nix/store` symlink dangles inside (*"failed to write config after
+        migration"*). The token carries every scope your `gh` login has; for
+        narrower access export a fine-grained PAT and leave `AGENTBOX_GH`
+        unset:
 
             GH_TOKEN=github_pat_… nix run .#
 
         ### Signed commits
 
-        **This one is not opt-in.** If `git config commit.gpgsign` is true, the
-        box signs — and if it cannot, it refuses to start. The alternative was a
-        box that quietly produces unsigned commits, and an unsigned commit that
-        looks fine in the log is a worse outcome than a startup error.
+        **Not opt-in.** If `git config commit.gpgsign` is true the box signs, and
+        if it cannot it refuses to start — an unsigned commit that looks fine in
+        the log is worse than a startup error.
 
             nix run .#                      # signs, because your git config says so
             AGENTBOX_GPG=agent nix run .#   # force it on regardless of git config
             AGENTBOX_GPG=off   nix run .#   # deliberately unsigned; warns on the way in
 
-        Signing is a different subsystem from ssh auth, and the difference bites
-        if gpg-agent is also your ssh agent: `AGENTBOX_SSH=agent` forwards
-        `S.gpg-agent.ssh`, which speaks only the ssh-agent protocol. It
-        authenticates `git push`; it cannot produce an OpenPGP signature.
+        `AGENTBOX_SSH=agent` does not cover this even when gpg-agent is your ssh
+        agent: `S.gpg-agent.ssh` speaks only the ssh-agent protocol. What gets
+        forwarded is `S.gpg-agent.extra`, gnupg's restricted socket for a less
+        trusted machine — it signs, but refuses `gpg --export-secret-keys`.
+        Only the public keyring goes in, as a copy under `~/.agentbox/gnupg`
+        because gpg needs a writable home.
 
-        What gets forwarded is `S.gpg-agent.extra` — the socket gnupg provides
-        for handing an agent to a machine you trust less. It serves a restricted
-        command set, so the box can ask for a signature but
-        `gpg --export-secret-keys` is refused by the agent. Only the public half
-        of your keyring (`pubring.kbx`, `trustdb.gpg`) goes in, as a *copy* under
-        `~/.agentbox/gnupg`, so the box cannot alter your real `~/.gnupg` either.
-        A copy rather than a read-only mount because gpg needs a writable home
-        for its lockfiles and random seed.
-
-        One surprise worth knowing: `gpg -K` may list nothing over a restricted
-        socket while signing works fine. The agent refuses the key *listing*,
-        not the signing — so test with `gpg --clearsign`, not `gpg -K`.
+        `gpg -K` may list nothing over that socket while signing works — test
+        with `gpg --clearsign`.
 
         ## Agent skills
 
@@ -818,11 +658,11 @@
         claude-code and opencode; installs land in your real `~/.claude/skills`
         and `~/.config/opencode/skills`:
 
-            skills add <owner/repo> -a claude-code -a opencode
-            devbox skills-update       # = skills update
+            npx skills add <owner/repo> -a claude-code -a opencode
+            devbox skills-update       # = npx skills update
 
-        Cellar's skill is preinstalled for both agents, so they know when to
-        reach for it.
+        The bootstrap adds Cellar's skill for both agents when it is missing, so
+        they know when to reach for it.
 
         ## MCP servers
 
@@ -851,37 +691,32 @@
 
         ## Profiling
 
-        JFR is already in the JDK — zero install for issue #237's metric:
-        `-prof jfr` in JMH, or `-XX:StartFlightRecording` / `jcmd` against the
-        running server. `-prof gc` (JMH) gives the per-op allocation TOTAL but
-        not the sites; to NAME the allocation sites use async-profiler, which
-        ships in the image as `asprof`, attachable to the running add-on:
+        JFR is in the JDK, and async-profiler (nixpkgs names its `asprof`
+        binary `async-profiler`) names allocation sites (pid from `jps`):
 
-            jps   # find the server pid
-            asprof -d 30 -e alloc -f /tmp/alloc.html <pid>   # where the MB go
-            asprof -d 30 -e cpu   -f /tmp/cpu.jfr   <pid>    # wall/cpu view
+            async-profiler -d 30 -e alloc -f /tmp/alloc.html <pid>
 
-        `alloc` and `wall` need no kernel perf access (fine under this
-        container's `--cap-drop=ALL`); `cpu` does, so run cpu profiles on the
-        Pi, whose unprivileged perf I denied nothing. In JMH the equivalent is
-        `-prof async:event=alloc,libPath=<async-profiler store>/lib/libasyncProfiler.so` —
-        find it with `find $(dirname $(readlink -f $(which asprof))) -name
-        'libasyncProfiler.so'`.
+        `alloc` and `wall` work under `--cap-drop=ALL`; `cpu` needs kernel perf
+        access, so profile cpu on the Pi. In JMH:
+        `-prof async:event=alloc,libPath=$(dirname $(readlink -f $(which
+        async-profiler)))/../lib/libasyncProfiler.so`.
 
         ## Pinning
 
-        Two populations, two update paths.
-
         **Pinned by the flake lock** — opencode, claude-code, the JDK, Node and
         the Coursier launcher itself. `nix flake update` is the only way they
-        move.
+        move. `/opt/agent/bin` comes first on `PATH`, so an `npm install -g` of
+        one of these silently shadows the pinned copy — check `which claude`
+        if a version looks wrong.
 
         **Installed once into `/opt/agent`, resolving latest** — `sbt`, `scala`,
         `scalac`, `scalafmt`, `metals-mcp`, `cellar` (Coursier);
-        `jcodemunch-mcp` (uv); `skills` (npm). The bootstrap guards on
-        the binary existing, so they never move on their own:
+        `jcodemunch-mcp` (uv). The bootstrap guards on the binary existing, so
+        they never move on their own:
 
-            devbox tools-update        # cs update + uv tool upgrade + npm update -g
+            devbox tools-update        # cs update + uv tool upgrade
+
+        The `skills` CLI is not installed at all; `npx` fetches it on use.
 
         The `sbt` here is only the launcher; which sbt actually builds your
         project is `sbt.version` in `project/build.properties`, so the launcher
@@ -890,16 +725,12 @@
         Pin one by hand if it matters:
 
             uv tool install jcodemunch-mcp==1.20.0
-            npm install -g skills@1.5.23
+            npx skills@1.5.23 update
 
         ## Escape hatches
 
-            nix build .#image       # just the tarball
+            nix build .#image && ./result | docker load   # just the image
             AGENTBOX_RELOAD=1 nix run .#   # re-load the image into Docker
-
-        If sbt/zinc throws `NoSuchFileException` on `.semanticdb` files, the
-        shared `target/` holds partial state from an interrupted run —
-        `rm -rf target` and recompile.
       '';
 
       agentbox = pkgs.writeShellApplication {
@@ -907,7 +738,7 @@
         text = ''
           IMG="${name}:${tag}"
           # the store path identifies the exact build; tagging it lets a plain
-          # inspect decide freshness without touching the 1.5G tarball
+          # inspect decide freshness without streaming the image
           BUILD_TAG="${name}:build-$(basename "${image}")"
 
           command -v docker >/dev/null || { echo "docker not found on PATH" >&2; exit 1; }
@@ -932,7 +763,7 @@
 
           if [ "''${AGENTBOX_RELOAD:-0}" = "1" ] || ! docker image inspect "$BUILD_TAG" >/dev/null 2>&1; then
             echo "==> loading $IMG" >&2
-            docker load --input ${image} >&2
+            ${image} | docker load >&2
             docker tag "$IMG" "$BUILD_TAG"
           fi
 
@@ -971,15 +802,10 @@
             -v "$PWD:/work"
           )
 
-          # ~/.claude has to be writable — sessions, transcripts and the OAuth
-          # refresh all land in it. But two files in there are EXECUTED or
-          # injected by your host Claude Code on its next run: settings.json
-          # defines hooks (shell commands), and CLAUDE.md is the global
-          # instruction file for every project. Writable, they are a
-          # container-to-host escape: the box edits one, you run claude on the
-          # host, the host runs what the box wrote. Neither is written during
-          # normal use, so both go back read-only on top of the rw mount.
-          # (Nested binds resolve by depth, so mount order does not matter.)
+          # Your host Claude Code executes settings.json hooks and injects
+          # CLAUDE.md, so writable copies would be a container-to-host escape.
+          # Read-only on top of the rw ~/.claude; nested binds resolve by depth,
+          # so mount order does not matter.
           for f in settings.json CLAUDE.md; do
             [ -e "$HOME/.claude/$f" ] && MOUNTS+=(-v "$HOME/.claude/$f:/home/dev/.claude/$f:ro")
           done
@@ -988,25 +814,8 @@
           # it, so it is the one identity file mounted unconditionally.
           if [ -f "$HOME/.gitconfig" ]; then MOUNTS+=(-v "$HOME/.gitconfig:/home/dev/.gitconfig:ro"); fi
 
-          # Git/GitHub credentials are OPT-IN — the box is a containment
-          # boundary, and anything running in it can read every mount.
-          #   AGENTBOX_SSH=agent  forward the host ssh-agent socket. Preferred:
-          #                       the box can ASK the agent to sign, but the
-          #                       private keys never enter it.
-          #   AGENTBOX_SSH=keys   bind-mount ~/.ssh read-only (keys ARE in the
-          #                       box; only needed for a passphrase-less key
-          #                       with no agent, or for ~/.ssh/config).
-          #   AGENTBOX_GH=1       pass `gh auth token` in as GH_TOKEN. Not a
-          #                       mount: ~/.config/gh is the box's to REWRITE if
-          #                       mounted, and on a home-manager host its
-          #                       config.yml is a /nix/store symlink that dangles
-          #                       inside the container ("failed to write config
-          #                       after migration"). The token still carries your
-          #                       full scopes — see the README for the narrower
-          #                       fine-grained-PAT route.
-          #   AGENTBOX_GPG=agent  forward gpg-agent's EXTRA socket for signed
-          #                       commits. Same trade as SSH=agent: the box can
-          #                       ask for a signature, never holds the key.
+          # Credentials are opt-in; README "Git & GitHub" has the trade-offs of
+          # each mode.
           case "''${AGENTBOX_SSH:-}" in
             agent)
               if [ -z "''${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
@@ -1023,19 +832,8 @@
             *) echo "AGENTBOX_SSH must be 'agent', 'keys' or unset" >&2; exit 1 ;;
           esac
 
-          # Commit SIGNING is a different subsystem from ssh auth: with
-          # gpg.format unset git shells out to gpg, which needs an agent socket
-          # — AGENTBOX_SSH=agent forwards S.gpg-agent.ssh, which speaks only the
-          # ssh-agent protocol and cannot produce an OpenPGP signature.
-          # The EXTRA socket is the one gnupg documents for handing an agent to
-          # a less-trusted machine: restricted command set, cannot export secret
-          # keys. That is the whole reason it is this socket and not S.gpg-agent.
-          # NOT opt-in, unlike the credential mounts above. A box that cannot
-          # sign is not a usable box here: `commit.gpgsign` is on, so the choice
-          # is between signing and a silent downgrade to unsigned commits, and
-          # an unsigned commit that LOOKS fine is the worse failure. So the
-          # default follows your git config, and a box that is asked to sign but
-          # cannot refuses to start rather than discovering it at commit time.
+          # Signing is NOT opt-in, and uses gpg-agent's restricted EXTRA socket —
+          # README "Signed commits" says why for both.
           #   unset / auto  sign iff `git config commit.gpgsign` is true
           #   agent         always forward; error if the socket is unusable
           #   off           explicit, loud opt-out — unsigned commits
@@ -1116,19 +914,9 @@
               exit 1
             fi
           fi
-          # also forwards a GH_TOKEN you exported yourself (e.g. a fine-grained
-          # PAT), which is the narrower way in
-          #
-          # Handed over as a FILE rather than `-e`: an `-e` lands in the host's
-          # `docker run` argv, which any local user can read out of
-          # /proc/<pid>/cmdline, and in the container config `docker inspect`
-          # prints. A bind-mounted file is in neither. `bootstrap` exports it
-          # inside the box.
-          #
-          # /dev/shm because it is tmpfs: unlike /tmp, which is ordinary disk on
-          # a default install, the token never lands in the filesystem. Not an
-          # absolute guarantee — tmpfs pages can be swapped — but a swapped page
-          # is not a file anyone can open, and this one is unlinked on exit.
+          # Also forwards a GH_TOKEN you exported yourself. A file, not `-e`,
+          # and in /dev/shm rather than /tmp — README "What the box can reach"
+          # says why. `bootstrap` exports it inside the box.
           if [ -n "''${GH_TOKEN:-}" ]; then
             if [ -d /dev/shm ] && [ -w /dev/shm ]; then
               GH_TOKEN_FILE="$(mktemp --tmpdir=/dev/shm agentbox-gh.XXXXXXXX)"
@@ -1145,16 +933,9 @@
           # must exist as a file, or docker creates a directory in its place
           [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
-          # Publishing is OPT-IN: AGENTBOX_PORT=8080 exposes the Datastar
-          # dashboard, any other value remaps it. Nothing is published by
-          # default, so a box never collides with a dashboard already running
-          # on the host.
-          # Kept as TWO arrays because they belong to different containers when
-          # a browser sidecar is running: the publish flag follows whoever owns
-          # the network namespace, while the banner URL is always the box's.
-          # Bundling them meant clearing the publish flag also silently took the
-          # URL away, and the box then announced "no port published" about a
-          # port that was published and working.
+          # Two arrays because they can belong to different containers: the
+          # publish flag follows whoever owns the network namespace (the sidecar,
+          # under AGENTBOX_BROWSER=1), while the banner URL is always the box's.
           PORT="''${AGENTBOX_PORT:-}"
           if [ -n "$PORT" ]; then
             PUBLISH_ARGS=(-p "''${PORT}:8080")
@@ -1170,9 +951,6 @@
           # pipe or from CI ("the input device is not a TTY")
           if [ -t 0 ] && [ -t 1 ]; then TTY_ARGS=(-it); else TTY_ARGS=(-i); fi
 
-          # AGENTBOX_BROWSER=1 starts a Playwright sidecar so the browser smoke
-          # tests can run in the box, which otherwise has no browser at all.
-          #
           # The sidecar OWNS the network namespace and the box joins it, rather
           # than the other way round, for two reasons. Docker refuses to publish
           # a port on a container using another's namespace ("conflicting
@@ -1243,9 +1021,8 @@
             # Polled, NOT `docker logs -f | grep -m1`: grep leaves at the first
             # match, but `docker logs -f` only learns the pipe is gone when it
             # next writes, and a server that has said READY says nothing more —
-            # so that pipeline blocks for the whole timeout on success. It looks
-            # like a slow start rather than a bug, which is how it survived a
-            # first round of testing here.
+            # so that pipeline blocks for the whole timeout on success, which
+            # looks like a slow start rather than a bug.
             READY=""
             for _ in $(seq 1 300); do
               if docker logs "$BROWSER_NAME" 2>&1 | grep -q '^READY '; then
