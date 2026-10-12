@@ -17,7 +17,8 @@ class LightSliderSmokeSuite extends SmokeSuite {
   private def mode(page: Page, label: String) =
     page.locator(s".fh-modes-bar button[aria-label='$label']")
 
-  test("the mode buttons sit on one line, right of the slider") {
+  test("the mode buttons sit on one line, clear of the slider") {
+    // Beside it where the cell is wide enough, under it in a grid's third.
     withPage(scene, Some(900 -> 700)) { (page, _) =>
       IO.blocking {
         val buttons = page.locator(".fh-modes-bar button")
@@ -26,7 +27,12 @@ class LightSliderSmokeSuite extends SmokeSuite {
           page.locator(".fh-modes-panel article.fh-card").boundingBox()
         val boxes = (0 until 3).map(i => buttons.nth(i).boundingBox())
         assertEquals(boxes.map(_.y).distinct.size, 1, clue = boxes.map(_.y))
-        assert(boxes.forall(_.x >= slider.x + slider.width), clue = slider.x)
+        assert(
+          boxes.forall(b =>
+            b.x >= slider.x + slider.width || b.y >= slider.y + slider.height
+          ),
+          clue = (slider.x, slider.y, slider.width, slider.height)
+        )
       }
     }
   }
