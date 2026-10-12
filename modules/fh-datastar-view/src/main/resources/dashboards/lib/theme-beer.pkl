@@ -210,10 +210,6 @@ class BeerTheme extends themeMod.Theme {
       /* The morph is the mask's own `<animate>`, which CSS cannot reach. */
       .shape.loading-indicator{mask-image:none;border-radius:50%}
     }
-    /* BeerCSS's card-scale knob, which its other rules also read: half the
-       default, matched by the slider line's own .5rem. */
-    .fh-slider-card{--_padding:.5rem}
-    .fh-slider-members .fh-card{--_padding:0}
     /* The track fill is the card's `--fh-fill`, on the span where BeerCSS reads
        `--_end`; the wrapper's `--_end` is beer.min.js's. */
     .fh-slider>span:not([class]){--_end:var(--fh-fill)}

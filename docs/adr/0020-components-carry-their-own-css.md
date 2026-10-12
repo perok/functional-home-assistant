@@ -146,8 +146,7 @@ Two things follow that a card author has to know:
   `:not([aria-busy=true])`.
 
 **A few BeerCSS-private hooks stay in the theme**, because they are BeerCSS's
-own names: `--_padding` (its card-scale knob), `--_size` behind `--fh-press-size`,
-`--_end` pointed at the slider span's `--fh-fill`, `.shape`'s paint, the `.mdi`
+own names: `--_size` behind `--fh-press-size`, `--_end` pointed at the slider span's `--fh-fill`, `.shape`'s paint, the `.mdi`
 font-family restatement. The icon font itself is every theme's: `Theme`'s default
 `deferredStylesheets` loads MDI, since the cards emit its classes.
 
