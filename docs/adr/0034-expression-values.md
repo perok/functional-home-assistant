@@ -157,7 +157,9 @@ alone sends nothing, because the frame is diffed against what each session holds
 - A condition value on a card with a subject is named under that entity's signal path, since the
   slot inherits the subject; its own `valueKey` keeps it distinct.
 - Values are node-local, so a STRUCTURAL card puts a condition's value on the child node whose slot
-  reads it — the slider's `disabled` declares `__disabled` on its head.
+  reads it — the slider's `disabled` declares `__disabled` on its head. An author's values go on
+  the card, and the card hands each part the ones that part's slots name (`nodes.valuesNamedIn`):
+  a slider's second line reads them on its text node, its readout on its head.
 - Not built, and why: a `names` value (the present members' names — a list, so a second CEL type
   and an order to decide); a `Simple` shape over values (a percent of two counts needs its own
   totality rule for `total = 0`); a `"number"` slot type (needs a numeric signal value); a
