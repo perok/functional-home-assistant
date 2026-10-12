@@ -144,46 +144,31 @@ actually lives, and this would add browser time to every CI run to re-check it
 one layer out. Worth adding when a bug is found that only a second real page can
 see.
 
-#### Known limitation: native form controls aren't snapshot-portable
+#### Visual snapshots compare exactly, against CI's own render
 
-`ComponentVisualSuite."slider looks right"` screenshots a native
-`<input type=range>`. Its thumb/fill is drawn by the browser's **built-in
-form-control styling**, which `settle` does NOT neutralize — `settle` pins fonts
-and kills CSS animation, but the range control's rendering is neither. That
-rendering differs by a few pixels across Chromium builds/platforms, so a baseline
-generated on CI (`ubuntu-latest`) can report ~0.45% (224 px, a solid ~4 px bar at
-the fill boundary — not scattered antialiasing) on a dev machine that renders the
-identical model. It is a **false positive**, confirmed by: the input `value` is
-correct (fixture brightness 180) in every run; the evaluated model/HTML/CSS is
-byte-identical; and it reproduces on commits that never touched the slider. It
-sits right at the 0.2 % budget, so it is intermittent (usually green on a
-full-suite re-run).
+`VisualSnapshot` fails on any changed pixel. Measured on 2026-10-12 by failing
+every snapshot on purpose and counting: CI renders an unchanged page
+byte-identically (four of nine snapshots at zero changed pixels), and every
+nonzero count was a REAL change the old tolerances had let through — the off
+look #527 gave a badge (105–154 px per card, inside a 0.3 % budget) and a
+removed 1px hairline (1,955 px, each a channel delta of at most 31, under
+pixelmatch's 0.1 threshold). Five baselines had been stale for two PRs, each
+one green.
 
-**A percentage budget makes a LARGE snapshot blind to the regression it exists
-for**, and that is not hypothetical — it was measured on a run where every
-rebaselined image had been generated locally with MDI unloaded, so all of them
-were missing their glyphs:
+A ratio budget was always the wrong shape: it lets a LARGE snapshot absorb the
+regression it exists for (the same 190 missing glyphs failed `lock-controls`
+and passed `full-dashboard`). The pixelmatch knobs — threshold, anti-alias
+skip, ratio, dimension slack — stay in `VisualSnapshot` at zero, so an
+environment that genuinely varies can be loosened with a measured number.
 
-| snapshot | pixels | 0.3 % budget | missing glyphs | result |
-|---|---|---|---|---|
-| `lock-controls` | 35,360 | 106 | ~190 | fails |
-| `tabs` | 163,540 | 490 | ~190 | passes |
-| `full-dashboard` | 630,000 | 1,890 | ~950 | passes |
+Two consequences:
 
-The same defect, in the same pixels, caught only on the smallest image. So a
-green full-dashboard proves less than it looks, and a diff budget wants a floor
-in ABSOLUTE pixels rather than a bare ratio. Do not guess the number: that pair
-says ~190 px was ALL glyph, so genuine cross-environment antialiasing noise is
-well under it — measure it off a clean CI pair before picking a cap.
-
-**Do not** regenerate the baseline locally (`sbt dashboardSnapshotsUpdate`) to
-"fix" it — that overwrites the CI-portable image with one machine's rendering and
-moves the failure elsewhere. The durable fix is to take the native control out of
-the equation: style the slider with `appearance: none` + an explicit
-track/thumb in the (already environment-pinned) theme, so the snapshot compares
-only theme-controlled pixels — then regenerate once. Until then this one snapshot
-is a known, ignorable local flake. (`SmokeDashboard`'s font-pinning comment
-covers text portability; it deliberately says nothing about form controls.)
+- **A baseline is CI's image.** A dev machine rasterizes text and the native
+  range input differently, so a local visual run fails and says nothing; and
+  regenerating locally (`dashboardVisualSnapshotsUpdate`) records that machine.
+  Let CI fail and commit its `.actual.png` from the uploaded artifact.
+- **A Playwright or Chromium bump fails every snapshot at once.** That is one
+  deliberate rebaseline from CI's artifact, in the same PR as the bump.
 
 ### 5. Reach-in unit tests stay, narrowed
 

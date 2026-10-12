@@ -4,18 +4,17 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
 
-/** Perceptual PNG snapshots for the component visual suite. Every asset is
-  * fetched at a version pinned in its CDN URL and
-  * [[fh.view.smoke.SmokeSuite.settle]] kills animations, so the only
-  * cross-environment variance left is font rasterization. Hence a
-  * [[Pixelmatch]] port (Playwright's `toHaveScreenshot` algorithm): a pixel
-  * differs only past [[Threshold]] and when not anti-aliased in either image,
-  * and the snapshot fails past [[MaxDiffRatio]]. Within ±[[MaxDimDelta]]px the
-  * shared rectangle is compared; beyond it is a real reflow.
+/** PNG snapshots for the component visual suite, compared EXACTLY. Every asset
+  * is fetched at a version pinned in its CDN URL and
+  * [[fh.view.smoke.SmokeSuite.settle]] kills animations, so CI renders an
+  * unchanged page byte-identically; measured 2026-10-12, four of nine snapshots
+  * at zero changed pixels, and every nonzero one was a real change the old 0.3%
+  * budget had let through (ADR 0009). The [[Pixelmatch]] port's knobs
+  * ([[Threshold]], [[SkipAntiAliased]], [[MaxDiffRatio]], [[MaxDimDelta]])
+  * stay, at zero, for an environment that ever needs them.
   *
-  * Regenerate with `sbt dashboardVisualSnapshotsUpdate`, and normally don't: a
-  * local baseline records this machine's rasterization. Let CI fail and decide
-  * from its before/after artifact.
+  * The baseline is CI's render: a local one records this machine's
+  * rasterization. Let CI fail and take its `.actual.png` from the artifact.
   */
 object VisualSnapshot {
 
@@ -34,16 +33,16 @@ object VisualSnapshot {
         os.pwd / "modules" / "fh-datastar-view" / "target" / "visual-failures"
       )
 
-  /** Pixelmatch's default. */
-  private val Threshold = 0.1
-
-  /** Small, since anti-aliased edges, the bulk of the noise, are already
-    * excluded.
+  /** Pixelmatch's default is 0.1, which hid a removed 1px hairline (a channel
+    * delta of 31).
     */
-  private val MaxDiffRatio = 0.003
+  private val Threshold = 0.0
 
-  /** A content-derived box can round by a pixel under another rasterizer. */
-  private val MaxDimDelta = 2
+  private val SkipAntiAliased = false
+
+  private val MaxDiffRatio = 0.0
+
+  private val MaxDimDelta = 0
 
   /** Its own gate: sharing `FH_UPDATE_SNAPSHOTS` meant the routine wire
     * rebaseline silently rewrote these.
@@ -55,8 +54,8 @@ object VisualSnapshot {
   private def decode(bytes: Array[Byte]): BufferedImage =
     ImageIO.read(new ByteArrayInputStream(bytes))
 
-  /** `maxDiffRatio` loosens the budget for a snapshot with a known
-    * environment-dependent band, such as the slider's value-fill edge.
+  /** `maxDiffRatio` loosens the budget for one snapshot, should a part of it
+    * ever render differently between runs.
     */
   def check(
       name: String,
@@ -108,7 +107,12 @@ object VisualSnapshot {
       val expectedCrop = expectedImg.getSubimage(0, 0, w, h)
       val actualCrop = actualImg.getSubimage(0, 0, w, h)
       val total = w * h
-      val diff = Pixelmatch.diffPixels(expectedCrop, actualCrop, Threshold)
+      val diff = Pixelmatch.diffPixels(
+        expectedCrop,
+        actualCrop,
+        Threshold,
+        SkipAntiAliased
+      )
       val budget = math.floor(total * maxDiffRatio).toInt
       if (diff > budget) {
         fail(
@@ -120,12 +124,18 @@ object VisualSnapshot {
   }
 }
 
-/** A port of mapbox/pixelmatch (ISC), restricted to counting visually
-  * different, non-anti-aliased pixels over packed-ARGB rasters.
+/** A port of mapbox/pixelmatch (ISC), restricted to counting the pixels past
+  * `threshold`, and with `skipAntiAliased` not the anti-aliased ones, over
+  * packed-ARGB rasters.
   */
 private object Pixelmatch {
 
-  def diffPixels(a: BufferedImage, b: BufferedImage, threshold: Double): Int = {
+  def diffPixels(
+      a: BufferedImage,
+      b: BufferedImage,
+      threshold: Double,
+      skipAntiAliased: Boolean
+  ): Int = {
     val w = a.getWidth
     val h = b.getHeight
     val img1 = a.getRGB(0, 0, w, h, null, 0, w)
@@ -141,9 +151,8 @@ private object Pixelmatch {
         if (
           math.abs(colorDelta(img1, img2, pos, pos, yOnly = false)) > maxDelta
         ) {
-          val aa =
-            antialiased(img1, img2, x, y, w, h) ||
-              antialiased(img2, img1, x, y, w, h)
+          val aa = skipAntiAliased && (antialiased(img1, img2, x, y, w, h) ||
+            antialiased(img2, img1, x, y, w, h))
           if (!aa) diff += 1
         }
         x += 1
