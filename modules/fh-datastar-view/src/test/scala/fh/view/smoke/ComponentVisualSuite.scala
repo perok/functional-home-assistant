@@ -66,14 +66,7 @@ class ComponentVisualSuite extends SmokeSuite {
           "article.fh-card",
           new Page.LocatorOptions().setHas(page.locator("input[type=range]"))
         )
-        // The native range input's fill edge moves a few pixels by Chromium
-        // build (a full-height column is ~0.11%; CI drifts up to ~4px). 0.7%
-        // tolerates ~6px and still fails a real colour or layout change.
-        VisualSnapshot.check(
-          "slider",
-          sliderCard.screenshot(),
-          maxDiffRatio = 0.007
-        )
+        VisualSnapshot.check("slider", sliderCard.screenshot())
       }
     }
   }
