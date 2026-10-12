@@ -646,6 +646,84 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[List[String]]("users").toOption, Some(List("u1")))
   }
 
+  test("a floor's area named like one of the floor's own fields is renamed") {
+    val house = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "level": { "area_id": "lv", "area_name": "Level" },
+            "areas": { "area_id": "ar", "area_name": "Areas" },
+            "all": { "area_id": "al", "area_name": "All" },
+            "hall": { "area_id": "h", "area_name": "Hall" }
+          },
+          "floors": {
+            "ground": {
+              "floor_id": "g", "floor_name": "Ground", "level": 0,
+              "areas": { "level": {}, "areas": {}, "all": {}, "hall": {} }
+            }
+          },
+          "entities": {}
+        }
+      """)
+      .toOption
+      .get
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(house))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |local g = dump.floors.ground
+        |level = g.level
+        |areas = g.areas.map((a) -> a.area_id)
+        |renamed = List(g.level_area, g.areas_area, g.all_area).map((a) -> a.area_id)
+        |kept = g.hall.area_id
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(c.get[Int]("level").toOption, Some(0))
+    assertEquals(
+      c.get[List[String]]("areas").toOption,
+      Some(List("al", "ar", "h", "lv"))
+    )
+    assertEquals(
+      c.get[List[String]]("renamed").toOption,
+      Some(List("lv", "ar", "al"))
+    )
+    assertEquals(c.get[String]("kept").toOption, Some("h"))
+    val warned = PklDump.warnings(house)
+    List("level", "areas", "all").foreach { slug =>
+      assert(warned.exists(_.contains(s"${slug}_area")), clue = warned)
+    }
+  }
+
+  test("the names a floor's area gives way to are exactly hass.Floor's own") {
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(HouseFixture.transformedDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "pkl:reflect"
+        |import "@fh-dashboard/hass.pkl"
+        |
+        |names = reflect.Class(hass.Floor).properties.keys.toList()
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    assertEquals(
+      result.toOption.get.value.hcursor.get[Set[String]]("names").toOption,
+      Some(PklDump.FloorMembers)
+    )
+  }
+
   test("an entity hidden in HA is off every default list, and still named") {
     val stashed = io.circe.parser
       .parse("""

@@ -129,10 +129,14 @@ object PklDump {
         .flatMap(_.asObject)
         .map(_.keys.toList.sorted)
         .getOrElse(Nil)
-      val areaProps =
-        floorAreas.map(a => s"  ${tick(a)}: ${tick(s"Area_$a")} = new {}")
+      val areaProps = floorAreas.flatMap { a =>
+        val prop = s"  ${tick(floorAreaName(a))}: ${tick(s"Area_$a")} = new {}"
+        if (floorAreaName(a) == a) List(prop)
+        else
+          List(s"  /// Area `$a`: the floor's own `$a` keeps the name.", prop)
+      }
       val areasList = Option.when(floorAreas.nonEmpty)(
-        s"  areas = List(${floorAreas.map(tick).mkString(", ")})"
+        s"  areas = List(${floorAreas.map(a => tick(floorAreaName(a))).mkString(", ")})"
       )
       val fields = List(
         str(fo, "floor_id").map(v => s"  floor_id = ${pklString(v)}"),
@@ -219,6 +223,15 @@ object PklDump {
        |${deviceSection(deviceClasses, devicesClass)}
        |""".stripMargin
   }
+
+  /** `hass.Floor`'s own properties. A floor class names each of its areas as a
+    * property, and an area slugged like one of these would override it.
+    */
+  private[build] val FloorMembers =
+    Set("floor_id", "floor_name", "areas", "level", "all", "allWithHidden")
+
+  private def floorAreaName(slug: String): String =
+    if (FloorMembers.contains(slug)) s"${slug}_area" else slug
 
   /** A namespace class holding one property per member, in `members` order, and
     * the same members as its `all`. A member slugged `all` is renamed
@@ -401,14 +414,26 @@ object PklDump {
 
   /** Not fatal: one odd integration must not stop the house's dump. */
   def warnings(transformed: Json): List[String] = {
-    val entities = transformed.hcursor
-      .downField("entities")
-      .focus
-      .flatMap(_.asObject)
-      .map(_.toList.flatMap { case (k, v) => v.asObject.map(k -> _) })
-      .getOrElse(Nil)
+    def objects(field: String): List[(String, JsonObject)] =
+      transformed.hcursor
+        .downField(field)
+        .focus
+        .flatMap(_.asObject)
+        .map(_.toList.flatMap { case (k, v) => v.asObject.map(k -> _) })
+        .getOrElse(Nil)
 
-    entities
+    val renamedAreas = objects("floors").sortBy(_._1).flatMap { case (f, fo) =>
+      fo("areas")
+        .flatMap(_.asObject)
+        .fold(Nil)(_.keys.toList.sorted)
+        .filter(a => floorAreaName(a) != a)
+        .map(a =>
+          s"floor $f: area '$a' is `${floorAreaName(a)}` on the floor, " +
+            s"which has a '$a' of its own"
+        )
+    }
+
+    renamedAreas ++ objects("entities")
       .sortBy(_._1)
       .filter { case (_, eo) =>
         str(eo, "domain").contains("light")
