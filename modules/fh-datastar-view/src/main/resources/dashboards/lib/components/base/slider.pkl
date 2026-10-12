@@ -250,17 +250,31 @@ open class Slider extends nodes.Node {
       ["group"] = "fh-slider-group"
     }
   }
+  // An author's values go on the slider, but its readings are on the head and
+  // the text, so each takes the ones it reads. One nothing here reads stays on
+  // the slider, where the build names it.
+  hidden headValues: Map<String, nodes.ExpressionValue> = nodes.valuesNamedIn(expressionValues, headSlots)
+  hidden textValues: Map<String, nodes.ExpressionValue> = nodes.valuesNamedIn(expressionValues, textSlots)
+  values =
+    let (ownRead = nodes.valuesNamedIn(expressionValues, slots)
+        + nodes.valuesNamedIn(expressionValues, liveClasses)
+        + nodes.valuesNamedIn(expressionValues, liveProperties))
+    let (own = expressionValues.toMap().filter((name, _) ->
+        ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
+      if (own.isEmpty && derivedValues.isEmpty) null
+      else new Mapping { ...own; ...derivedValues }
   children = new Mapping {
     ["head"] = new Listing {
       let (headActive = active) (new SliderHead {}) {
         active = headActive
         slots = headSlots
+        expressionValues = headValues.toMapping()
         // On the head, the node whose slot reads it: values are local.
         derivedValues {
           when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
         }
         children = new Mapping {
-          ["text"] = new Listing { (new SliderText {}) { slots = textSlots } }
+          ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }
           ["actions"] = new Listing { ...leadingActions ...actions }
         }
       }

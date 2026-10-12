@@ -493,6 +493,39 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
+  // The second line and the readout are the slider's head and text nodes, not
+  // the slider: values reach them through the slider, which an author sees.
+  private def countedSlider(secondary: String, readout: String): String =
+    s"""    ((c.entitySlider(dump.entities.${kitchen.dumpKey})
+       |      .secondary(c.expr($secondary))
+       |      .readout(c.expr($readout)))) {
+       |      expressionValues {
+       |        ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
+       |        ["lights_total"] = lights.length
+       |      }
+       |    }""".stripMargin
+
+  test("a slider's second line and readout read the slider's own values") {
+    val body =
+      countedSlider(counted, "#\"string(lights_on) + ' lit'\"#")
+    withServer(body)(_.page()).map { html =>
+      assert(html.contains(">1 / 2 on</span>"), clue = html)
+      assert(html.contains(">1 lit</span>"), clue = html)
+    }
+  }
+
+  test("a value no part of a slider reads fails the build") {
+    val errs = errorsOf(
+      countedSlider("#\"string(lights_on)\"#", "#\"string(lights_on)\"#")
+    )
+    assert(
+      errs.exists(e =>
+        e.contains("'lights_total'") && e.contains("read by no")
+      ),
+      errs
+    )
+  }
+
   private def propertyButton(property: String): String =
     s"""    c.button("Stue", c.tap.closePopup())
        |      .secondary(c.expr("string(n) + ' on'"))

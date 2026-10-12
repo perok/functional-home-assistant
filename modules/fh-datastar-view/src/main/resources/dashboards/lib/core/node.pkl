@@ -207,6 +207,19 @@ abstract class Node extends LayoutNode {
     let (self = this) (self) { expressionValues = vs }
 }
 
+/// The entries of `vs` some CEL reading in `slots` names. Values are
+/// node-local (ADR 0034), so a structural card hands each of its parts the ones
+/// that part's slots read; the build's own parse then checks every part.
+const function valuesNamedIn(
+  vs: Mapping<String, ExpressionValue>,
+  slots: Mapping<String, slotMod.Slot|String>
+): Map<String, ExpressionValue> =
+  let (cels = slots.toMap().values
+      .filter((s) -> s is slotMod.Slot && s.transform is String)
+      .map((s) -> (s as slotMod.Slot).transform as String))
+    vs.toMap().filter((name, _) ->
+      cels.any((t) -> t.contains(Regex(#"(?<![\w.])\#(name)(?!\w)"#))))
+
 /// A [[Node]] with an on look: `fh-active` on its cell while [[active]] holds,
 /// for the card's CSS to paint. A button fills its pill; a badge takes
 /// `css.pkl`'s look, the card marking it `badge.pkl`'s way when it can be off.
