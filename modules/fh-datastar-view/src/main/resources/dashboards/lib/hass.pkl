@@ -88,6 +88,13 @@ class Effects {
   list: Listing<String>
 }
 
+/// Present only on lights with a colour mode (`hass_light.COLOUR_MODES`). No
+/// values: the hue range is HA's own, 0–360, so the group is the predicate and
+/// the owner alone (`c.entitySlider(l.colour)`).
+class Colour {
+  owner: LightEntity
+}
+
 /// developers.home-assistant.io/docs/core/entity/light
 open class LightEntity extends Entity {
   domain: "light" = "light"
@@ -99,6 +106,7 @@ open class LightEntity extends Entity {
   hidden supported_features: Int = 0
 
   hidden colourTemp: ColourTemp? = null
+  hidden colour: Colour? = null
   hidden effects: Effects? = null
 
   // Derived here, beside the vendored constants they read, not by the generator.

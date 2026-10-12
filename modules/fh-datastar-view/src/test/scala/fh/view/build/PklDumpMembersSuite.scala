@@ -113,6 +113,29 @@ class PklDumpMembersSuite extends munit.FunSuite {
     assert(src.contains("""code_format: String = "^\\d{4}$""""), clue = src)
   }
 
+  test(
+    "a light with a colour mode gets the colour group; a white one does not"
+  ) {
+    def modes(ms: String*) =
+      "supported_color_modes" -> Json.fromValues(ms.map(Json.fromString))
+    val src = PklDump.render(
+      dump(
+        entity(
+          "light.rgb",
+          "light",
+          attributes = Seq(modes("color_temp", "xy"))*
+        ),
+        entity("light.warm", "light", attributes = Seq(modes("color_temp"))*),
+        entity("light.dim", "light", attributes = Seq(modes("brightness"))*)
+      )
+    )
+    assert(
+      src.contains("hidden colour: hass.Colour = new { owner = e_light_rgb }"),
+      clue = src
+    )
+    assertEquals(src.linesIterator.count(_.contains("hass.Colour")), 1, src)
+  }
+
   test("no devices in the dump means no Devices namespace at all") {
     val src = PklDump.render(dump(entity("light.a", "light")))
     assert(!src.contains("class Devices"), clue = src)
