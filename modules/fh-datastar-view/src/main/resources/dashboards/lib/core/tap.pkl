@@ -14,6 +14,17 @@ import "../hass/actions.pkl" as hassActions
 /// room later is included.
 typealias Target = hass.Entity|hass.Area|hass.Floor
 
+typealias CallScalar = String|Number|Boolean
+typealias CallValue = CallScalar|List<CallScalar>
+
+const local jsonRenderer = new JsonRenderer {}
+
+/// Placed in an HTML attribute by an escaping `{{…}}`, so a `"` reaches the
+/// expression as written.
+const function jsonLiteral(v: CallValue): String =
+  if (v is List) "[" + v.map((x) -> jsonRenderer.renderValue(x)).join(",") + "]"
+  else jsonRenderer.renderValue(v)
+
 /// A [[Call]] or a [[Click]], rendered in one place ([[tapRoute]]).
 ///
 /// A card that can be an anchor must prefer `href` when set: that is what gives
@@ -44,20 +55,18 @@ class Call extends TapAction {
   /// Named by the tap, never borrowed from the card, so a card may show one
   /// entity and act on another, or on a room.
   target: Target
-  /// The one value a call carries, as the route's trailing `/<key>/<value>`. A
+  /// The one value a call carries, in its body as `{data: {<key>: <value>}}`. A
   /// key with no value is a commit whose value the card supplies (the slider).
   dataKey: String? = null
+  /// A JS literal, spliced as written: JSON, so it is one for a string too.
   dataValue: String? = null
-  /// `call("light/turn_on", l).with("effect", "colorloop")`.
-  ///
-  /// A space breaks the path segment, and a `'` would close the JS string the
-  /// URL sits in: Mustache's `&#39;` is decoded back before the expression is
-  /// parsed.
-  function with(key: String, value: String): Call =
+  /// `call("light/turn_on", l).with("effect", "colorloop")`, or
+  /// `.with("hs_color", List(120, 100))`. HA gets the value as typed here.
+  function with(key: String, value: CallValue): Call =
     let (self = this)
       (self) {
         dataKey = key
-        dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
+        dataValue = jsonLiteral(value)
       }
   /// States of the target in which this call is meaningless, so every card that
   /// sends it refuses the press. On the call rather than the card, so a second
@@ -91,8 +100,13 @@ class SetVar extends Click {
 // admit only calls that dashboard declares (ADR 0023): `{{dashboardSlug}}` in a
 // template, `dashboard_slug` in a transform, whose output is inserted raw.
 //
-// A call reads nothing from the request body, so it sends no signals.
+// A call reads only its value from the request body, so it sends no signals.
 const noSignals = #"{filterSignals:{exclude:'.*'}}"#
+
+/// A call's request options carrying `value`, a JS expression, as its body
+/// (`Server.callData`). The bundle sends a `payload` instead of the signals.
+const function withData(key: String, value: String): String =
+  "{payload: {data: {'" + key + "': " + value + " } } }"
 
 // What a card writes for a guarded tap:
 //
@@ -269,10 +283,10 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 /// tile's bytes stay constant across lock/unlock (ADR 0017).
 const serviceClick: String =
   #"@post('sse/call/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
-    #" + '/{{targetKind}}/{{targetId}}"# +
-    slotMod.ifSlot("dataKey") + "/{{dataKey}}/{{dataValue}}" +
+    #" + '/{{targetKind}}/{{targetId}}?node={{id}}', "# +
+    slotMod.ifSlot("dataKey") + withData("{{dataKey}}", "{{dataValue}}") +
     slotMod.endIfSlot("dataKey") +
-    #"?node={{id}}', "# + noSignals + ")"
+    slotMod.ifNoSlot("dataKey") + noSignals + slotMod.endIfNoSlot("dataKey") + ")"
 
 /// What every card with a tap places: `data-on:click="\(guardClick)\(click)"`.
 /// The arm is picked by whether [[tapSlots]] emitted a `service` slot. Service

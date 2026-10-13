@@ -9,6 +9,7 @@ import fh.view.testkit.{
   ServiceCall
 }
 import io.circe.Json
+import org.http4s.Status
 
 /** The whole loop against a stubbed HA (snapshot -> `StateStore` -> `Server` ->
   * HTTP/SSE, and control -> `callService`), asserted at the HTTP boundary. Each
@@ -98,7 +99,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   test("a value-carrying control passes its data through to HA") {
     withServer(calling("light/turn_on", Some("brightness"))) { ts =>
       ts.post(
-        s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen/brightness/200"
+        s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
+        body = """{"data":{"brightness":200}}"""
       ) *>
         ts.fake.recordedCalls
     }.assertEquals(
@@ -111,6 +113,48 @@ class DashboardBehaviourSuite extends FunctionalSuite {
         )
       )
     )
+  }
+
+  test("a value in the call's body reaches HA as the JSON it was") {
+    withServer(calling("light/turn_on", Some("hs_color"))) { ts =>
+      ts.post(
+        s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
+        body = """{"data":{"hs_color":[120,100]}}"""
+      ) *> ts.fake.recordedCalls
+    }.assertEquals(
+      Vector(
+        ServiceCall(
+          "light",
+          "turn_on",
+          "light.kitchen",
+          Json.obj("hs_color" -> Json.arr(Json.fromInt(120), Json.fromInt(100)))
+        )
+      )
+    )
+  }
+
+  test(
+    "a body value under a key no tap declares is refused, and HA never hears"
+  ) {
+    withServer(calling("light/turn_on", Some("brightness"))) { ts =>
+      for {
+        undeclared <- ts.postResult(
+          s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
+          body = """{"data":{"effect":"colorloop"}}"""
+        )
+        twoKeys <- ts.postResult(
+          s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
+          body = """{"data":{"brightness":1,"effect":"colorloop"}}"""
+        )
+        calls <- ts.fake.recordedCalls
+      } yield {
+        List(undeclared, twoKeys).foreach { (status, body) =>
+          assertEquals(status, Status.Ok, clue = body)
+          assert(body.contains("_toast"), clue = body)
+        }
+        assertEquals(calls, Vector.empty)
+      }
+    }
   }
 
   test("round-trip: act on HA, then the consequent state reaches the browser") {

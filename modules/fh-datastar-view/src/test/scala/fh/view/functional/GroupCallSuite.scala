@@ -136,17 +136,21 @@ class GroupCallSuite extends FunctionalSuite {
   test("every part of the call is checked, not only the area") {
     val undeclared = List(
       // Named by the dashboard, but no tap calls this on it.
-      s"light/turn_off/entity/${HouseFixture.kitchenLight.entityId}",
-      "lock/unlock/area/stue",
-      "light/turn_off/area/kjokken",
-      "light/turn_off/floor/stue",
-      "light/turn_off/device/stue",
-      "light/turn_off/area/stue/brightness/100"
+      s"light/turn_off/entity/${HouseFixture.kitchenLight.entityId}" -> "",
+      "lock/unlock/area/stue" -> "",
+      "light/turn_off/area/kjokken" -> "",
+      "light/turn_off/floor/stue" -> "",
+      "light/turn_off/device/stue" -> "",
+      "light/turn_off/area/stue" -> """{"data":{"brightness":100}}"""
     )
     withServer(house, Access.Public) { ts =>
       for {
-        answers <- undeclared.traverse(p =>
-          ts.postResult(s"sse/call/${ts.slug}/$p?node=c_1", as = None)
+        answers <- undeclared.traverse((p, body) =>
+          ts.postResult(
+            s"sse/call/${ts.slug}/$p?node=c_1",
+            as = None,
+            body = body
+          )
         )
         calls <- ts.fake.recordedCalls
       } yield {

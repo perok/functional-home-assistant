@@ -49,7 +49,8 @@ class ActionConcurrencySuite extends ServerHarness {
       .use { ts =>
         def setBrightness(v: Int) =
           ts.post(
-            s"sse/call/${ts.slug}/light/turn_on/entity/sensor.a/brightness/$v"
+            s"sse/call/${ts.slug}/light/turn_on/entity/sensor.a",
+            body = s"""{"data":{"brightness":$v}}"""
           )
         for {
           // Arrival order at HA is not asserted; see below.

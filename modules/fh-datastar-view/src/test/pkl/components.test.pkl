@@ -1415,7 +1415,7 @@ facts {
     c.tap(outside).inlineSurfaces != null
   }
 
-  ["a value-carrying tap is the same call with one more segment"] {
+  ["a value-carrying tap is the same call carrying its value as a JSON literal"] {
     // Not a second route builder: `serviceClick` covers both, and a tap with no
     // value declares no `dataKey`, so the section closes over nothing.
     local plain = c.tap.call("light/turn_on", kitchen)
@@ -1425,13 +1425,14 @@ facts {
     valued.service == "light/turn_on"
     valued.target == kitchen
     valued.dataKey == "effect"
-    // PERCENT-ENCODED for the two characters that break the two contexts the
-    // value passes through: a space is invalid in a path segment, and a `'`
-    // would close the JS string the URL sits in — Mustache escapes it to
-    // `&#39;`, which the browser decodes back to `'` BEFORE the expression is
-    // parsed, so the attribute escape cannot save it.
-    valued.dataValue == "Color%20loop"
-    c.tap.call("a/b", kitchen).with("k", "it's").dataValue == "it%27s"
+    // Double-quoted, so a `'` cannot close it: Mustache's `&#39;` is decoded
+    // back before the expression is parsed, and a `"` arrives as `&quot;`.
+    valued.dataValue == #""Color loop""#
+    c.tap.call("a/b", kitchen).with("k", "it's").dataValue == #""it's""#
+    c.tap.call("a/b", kitchen).with("k", "say \"hi\"").dataValue == #""say \"hi\"""#
+    c.tap.call("a/b", kitchen).with("k", 128).dataValue == "128"
+    c.tap.call("a/b", kitchen).with("k", true).dataValue == "true"
+    c.tap.call("a/b", kitchen).with("k", List(120, 100)).dataValue == "[120,100]"
   }
 
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {

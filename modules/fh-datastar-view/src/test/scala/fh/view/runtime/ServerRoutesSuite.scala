@@ -90,10 +90,30 @@ class ServerRoutesSuite extends ServerHarness {
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
-  test("parseValue picks the most specific JSON type") {
-    assertEquals(Server.parseValue("128"), Json.fromInt(128))
-    assertEquals(Server.parseValue("21.5"), Json.fromDoubleOrNull(21.5))
-    assertEquals(Server.parseValue("heat"), Json.fromString("heat"))
+  test("callData keeps the value as the page typed it") {
+    def value(json: String) =
+      Server.callData(s"""{"data":{"k":$json}}""").map(_.map(_._2))
+    assertEquals(value("128"), Right(Some(Json.fromInt(128))))
+    assertEquals(value("\"128\""), Right(Some(Json.fromString("128"))))
+    assertEquals(
+      value("\"Fire, slow\""),
+      Right(Some(Json.fromString("Fire, slow")))
+    )
+    assertEquals(
+      value("[120,100]"),
+      Right(Some(Json.arr(Json.fromInt(120), Json.fromInt(100))))
+    )
+  }
+
+  test("callData: no body, no data or an empty one is a call with no value") {
+    List("", "  ", "{}", """{"data":{}}""").foreach(body =>
+      assertEquals(Server.callData(body), Right(None), clue = body)
+    )
+  }
+
+  test("callData refuses what no page sends") {
+    List("brightness=1", """{"data":{"a":1,"b":2}}""", """{"data":[1]}""")
+      .foreach(body => assert(Server.callData(body).isLeft, clue = body))
   }
 
   test("escapeHtml neutralizes HTML metacharacters") {
