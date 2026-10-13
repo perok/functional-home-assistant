@@ -218,12 +218,14 @@ class WindowChooser extends nodes.Node {
       ["bar"] = new nodes.Region {}
     }
     template = """
-      <div class="fh-col" \(windowVar.own.urlMirror)><div class="fh-tabs" data-signals__ifmissing="{ \(windowVar.own.pendingSeed) }" \(windowVar.own.pendingClear)>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" \(windowVar.own.urlMirror("{{start}}"))><div class="fh-tabs" data-signals__ifmissing="{ \(windowVar.own.pendingSeed) }" \(windowVar.own.pendingClear)>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
       """
   }
   /// The declared window: shown until a viewer chooses another.
   hidden start: Window = "24h"
   vars = windowVar.declare(start)
+  // For the URL mirror, which drops the param at the declared window.
+  slots { ["start"] = start }
   // `let`: inside the Mapping's body `children` does not resolve to this node's.
   regions = let (charts = children as Listing<nodes.LayoutNode>)
     new Mapping {

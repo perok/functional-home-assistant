@@ -162,7 +162,7 @@
                                           ]
                                         },
                                         "slots" : {
-                                          
+                                          "start" : "24h"
                                         },
                                         "vars" : {
                                           "window" : "24h"
@@ -524,7 +524,7 @@
                                           ]
                                         },
                                         "slots" : {
-                                          
+                                          "start" : "24h"
                                         },
                                         "vars" : {
                                           "window" : "24h"
@@ -748,7 +748,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\" data-fh-url=\"['v.{{id}}.window', $_var_{{id}}__window]\"><div class=\"fh-tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\">{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "<div class=\"fh-col\" data-fh-url=\"['v.{{id}}.window', $_var_{{id}}__window, '{{start}}']\"><div class=\"fh-tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\">{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>"
     },
     "ifhost" : {
       "regions" : {
@@ -790,7 +790,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\"><div class=\"fh-tabs\" data-signals__ifmissing=\"{ _var_{{id}}__tab__pending: '' }\" data-effect=\"$_var_{{id}}__tab__pending !== '' && $_var_{{id}}__tab == $_var_{{id}}__tab__pending && ($_var_{{id}}__tab__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"fh-tab-panel\" data-fh-url=\"['v.{{id}}.tab', $_var_{{id}}__tab]\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
+      "template" : "<div class=\"fh-col\"><div class=\"fh-tabs\" data-signals__ifmissing=\"{ _var_{{id}}__tab__pending: '' }\" data-effect=\"$_var_{{id}}__tab__pending !== '' && $_var_{{id}}__tab == $_var_{{id}}__tab__pending && ($_var_{{id}}__tab__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"fh-tab-panel\" data-fh-url=\"['v.{{id}}.tab', $_var_{{id}}__tab, '0']\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
     },
     "tile" : {
       "regions" : {

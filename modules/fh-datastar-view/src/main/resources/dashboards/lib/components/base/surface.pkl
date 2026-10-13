@@ -56,7 +56,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="fh-tabs" data-signals__ifmissing="{ \(tabVar.own.pendingSeed) }" \(tabVar.own.pendingClear)>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="fh-tab-panel" \(tabVar.own.urlMirror)>{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="fh-tabs" data-signals__ifmissing="{ \(tabVar.own.pendingSeed) }" \(tabVar.own.pendingClear)>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="fh-tab-panel" \(tabVar.own.urlMirror("0"))>{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.
