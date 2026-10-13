@@ -18,7 +18,7 @@ class LightSliderSmokeSuite extends SmokeSuite {
   private def modeButton(page: Page) =
     page.locator(".fh-slider-pill button.fh-mode:visible")
 
-  test("the pill sits at the track's end, with one mode button showing") {
+  test("the pill sits over the track's end, with one mode button showing") {
     withPage(scene, Some(900 -> 700)) { (page, _) =>
       IO.blocking {
         assertThat(modeButton(page)).hasCount(1)
@@ -26,10 +26,11 @@ class LightSliderSmokeSuite extends SmokeSuite {
         val track =
           page.locator(".fh-slider-modes-panel .fh-slider").boundingBox()
         val pill = page.locator(".fh-slider-pill").boundingBox()
-        // The track ends where the pill starts, so a drag reaches the end.
+        // Over the track's right end, as any slider's buttons are.
         assert(
-          pill.x >= track.x + track.width - 1,
-          clue = (track.x, track.width, pill.x)
+          pill.x > track.x &&
+            pill.x + pill.width <= track.x + track.width + 1,
+          clue = (track.x, track.width, pill.x, pill.width)
         )
       }
     }
