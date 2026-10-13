@@ -177,10 +177,10 @@ hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser
 /// it: `local shade = c.variable("shade")`.
 function variable(name: String): varMod.Variable =
   let (n = name) new varMod.Variable { name = n }
-/// One value of `v` from `options`, chosen with buttons until
-/// `.style("dropdown")` or `.style("cycle")`. Something above declares `v`.
-function select(v: varMod.Variable, options: List<varMod.Value|selectMod.Choice>): selectMod.Select =
-  selectMod.select(v, options)
+/// One value for `t` — a node variable something above declares, a select
+/// entity, or a light's `effects` — as buttons until `.style("dropdown")` or
+/// `.style("cycle")`; `.options(…)` picks, orders and relabels them.
+function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
 /// A section shown while `p` holds over live state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 /// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.

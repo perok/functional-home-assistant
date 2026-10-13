@@ -1,18 +1,31 @@
-/// `c.select`: one value of a node variable, in a style. Outside `lib/` for the
+/// `c.select`: one value for a target, in a style. Outside `lib/` for the
 /// reason `components.test.pkl` gives.
 amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 
 local shade = c.variable("shade")
 
+local mode: hass.SelectEntity = new {
+  entity_id = "select.robot_mode"
+  options { "quiet"; "turbo"; "it's max" }
+}
+
+local lamp: hass.LightEntity = new {
+  entity_id = "light.lamp"
+  colourModes { "hs" }
+  effects = new hass.Effects { owner = lamp; list { "none"; "Rainbow Slow" } }
+}
+
 local function route(n: Any): String = (n.slots["onclick"] as slotMod.Slot).transform as String
 
 facts {
-  ["buttons by default: one per option, each choosing its own value"] {
-    local s = c.select(shade, List("pale", "deep"))
+  ["over a variable: buttons by default, one per option, each choosing its own"] {
+    local s = c.select(shade).options(List("pale", "deep"))
     s is selectMod.SelectButtons
     local opts = s.children.toList()
     opts.length == 2
@@ -23,36 +36,67 @@ facts {
   }
 
   ["a style is the same choice in another card"] {
-    local base = c.select(shade, List("pale", "deep"))
+    local base = c.select(shade).options(List("pale", "deep"))
     base.style("dropdown").card == "selectDropdown"
     base.style("cycle").card == "selectCycle"
     base.style("dropdown").style("buttons").card == "selectButtons"
     base.style("cycle").choices == base.choices
   }
 
-  ["a dropdown names the chosen option's label, escaped for a JS string"] {
-    local d = c.select(shade, List(new selectMod.Choice { value = "pale"; label = "it's pale" }, "deep"))
+  ["a variable's dropdown names the chosen label on the client, escaped"] {
+    local d = c.select(shade)
+      .options(List(new selectMod.Choice { value = "pale"; label = "it's pale" }, "deep"))
       .style("dropdown")
-    local shown = d.slots["chosen"] as String
+    local shown = d.slots["chosenText"] as String
     shown.contains(#"'pale': 'it\'s pale'"#)
     shown.contains("'deep': 'deep'")
   }
 
-  ["a cycle shows the chosen option, and a press chooses the next, round"] {
-    local cyc = c.select(shade, List("a", "b", "c")).style("cycle")
+  ["a variable's cycle shows the chosen option, and a press chooses the next, round"] {
+    local cyc = c.select(shade).options(List("a", "b", "c")).style("cycle")
     local bs = cyc.children.toList()
     bs.length == 3
     route(bs[0]).contains("/shade/b") && route(bs[1]).contains("/shade/c") && route(bs[2]).contains("/shade/a")
     (bs[2].slots["shown"] as String).endsWith("=== 'c'")
     // An icon replaces the label on the face.
-    local iconic = c.select(shade, List(new selectMod.Choice { value = "a"; icon = "mdi:palette" }, "b"))
+    local iconic = c.select(shade)
+      .options(List(new selectMod.Choice { value = "a"; icon = "mdi:palette" }, "b"))
       .style("cycle").children.toList()
     iconic[0].slots["glyph"] == "mdi mdi-palette"
     !iconic[1].slots.containsKey("glyph")
   }
 
-  ["no options, or a value no route can carry, is a build error"] {
-    module.catch(() -> c.select(shade, List()).card).contains("c.select(shade) has no options")
-    module.catch(() -> c.select(shade, List("two words")).choices).contains("two words")
+  ["over a select entity: its own options, each a call lit by the state"] {
+    local opts = c.select(mode).children.toList()
+    opts.map((o) -> o.slots["label"]) == List("quiet", "turbo", "it's max")
+    local tap = (opts[1] as selectMod.EntityOption).tapAction
+    tap.service == "select/select_option"
+    tap.dataKey == "option" && tap.dataValue == #""turbo""#
+    ((opts[2] as selectMod.EntityOption).active as slotMod.Expr).transform == #"state == 'it\'s max'"#
+    // The dropdown's label is the server's, so the first HTML names it.
+    local shown = c.select(mode).style("dropdown").slots["chosen"] as slotMod.Slot
+    shown.entityId == "select.robot_mode"
+    shown.signal == slotMod.asText
+  }
+
+  ["over a light's effects: turn_on with the effect, lit by its attribute"] {
+    local cyc = c.select(lamp.effects!!).style("cycle").children.toList()
+    local tap = (cyc[0] as selectMod.EntityOption).tapAction
+    tap.service == "light/turn_on"
+    tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
+    ((cyc[1] as selectMod.EntityOption).active as slotMod.Expr).transform.contains("attr[?'effect']")
+  }
+
+  [".options picks, orders and relabels an entity's, and refuses one it lacks"] {
+    local picked = c.select(mode)
+      .options(List("turbo", new selectMod.Choice { value = "quiet"; label = "Shh" }))
+    picked.children.toList().map((o) -> o.slots["label"]) == List("turbo", "Shh")
+    module.catch(() -> c.select(mode).options(List("eco")).card)
+      .contains("c.select(select.robot_mode) offers no eco: it has quiet, turbo, it's max")
+  }
+
+  ["no options, or a variable value no route can carry, is a build error"] {
+    module.catch(() -> c.select(shade).children).contains("has no options: give them with .options(…)")
+    module.catch(() -> c.select(shade).options(List("two words")).children.toList()[0].slots).contains("two words")
   }
 }

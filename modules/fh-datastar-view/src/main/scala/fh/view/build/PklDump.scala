@@ -439,7 +439,8 @@ object PklDump {
       "unit_of_measurement",
       "options"
     ),
-    "binary_sensor" -> Set("device_class")
+    "binary_sensor" -> Set("device_class"),
+    "select" -> Set("options")
   )
 
   private def entityClass(key: String): String = tick(s"E_$key")
@@ -481,6 +482,11 @@ object PklDump {
             .flatMap(pklTyped)
             .map { case (_, rendered) => s"  options = $rendered" }
             .toList
+      case Some("select") =>
+        attrs("options")
+          .flatMap(pklTyped)
+          .map { case (_, rendered) => s"  options = $rendered" }
+          .toList
       case Some("binary_sensor") =>
         vocabField(
           attrs,

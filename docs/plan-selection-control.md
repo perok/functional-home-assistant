@@ -104,13 +104,20 @@ script runs. The fix is a bake group selected by value, a runtime change.
 
 ### Status
 
-- `c.variable(name)`, `c.select(v, options)` and `.style(…)` over a node
-  variable, in all three styles (`components/select.pkl`): Pkl facts
-  (`select.test.pkl`), a render test (`SelectSuite`), a browser smoke test
-  (`SelectSmokeSuite`).
+- Done (`components/select.pkl`): `c.variable(name)`;
+  `c.select(target).options(…).style(…)` over a node variable, a `select`
+  entity (the dump now carries its `options`) and a light's `effects`, in all
+  three styles.
+  - Over an entity, each option is an `ActiveNode` lit by the server, so the
+    first HTML is right in every style, the cycle included.
+  - The server refuses a choice of a variable that nothing on the page
+    reads, so a variable select needs a reader (a chart's `.over(v.ref)`, a
+    bake group).
+  - Tests: Pkl facts (`select.test.pkl`), the real build and a write
+    (`SelectSuite`), a browser smoke test (`SelectSmokeSuite`).
 - Not yet in the library's card index (`components.pkl`'s `modules`), which
   `PklBuildSuite` pins: adding it is an edit to that existing test.
-- Next: the entity target.
+- `input_select` has no entity class yet; it follows `select` once it does.
 
 ### Tests
 

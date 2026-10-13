@@ -4,6 +4,7 @@ import cats.effect.IO
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.runtime.TestServer
+import fh.view.testkit.HouseFixture
 
 import java.util.regex.Pattern
 
@@ -12,25 +13,30 @@ import java.util.regex.Pattern
   */
 class SelectSmokeSuite extends SmokeSuite {
 
+  private val sensor = HouseFixture.outsideTemp
+
   private val entry =
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
        |
        |access = c.access.public
        |
        |local shade = c.variable("shade")
        |
        |card = (c.column) {
-       |  vars = shade.declare("pale")
+       |  vars = shade.declare("24h")
        |  children {
-       |    c.select(shade, List("pale", "deep", "dusk")).style("dropdown")
-       |    c.select(shade, List("pale", "deep", "dusk")).style("cycle")
+       |    c.select(shade).options(List("24h", "7d", "30d")).style("dropdown")
+       |    c.select(shade).options(List("24h", "7d", "30d")).style("cycle")
+       |    // A reader: the server refuses a choice nothing on the page reads.
+       |    c.historyChart(dump.entities.${sensor.dumpKey}).over(shade.ref)
        |  }
        |}
        |""".stripMargin
 
-  private def served = TestServer.servedWorkspace("select", entry, Nil)
+  private def served = TestServer.servedWorkspace("select", entry, List(sensor))
 
   private def summary(page: Page) = page.locator(".fh-select-summary")
 
@@ -58,25 +64,25 @@ class SelectSmokeSuite extends SmokeSuite {
   test("a dropdown opens, a choice closes it, and the commit reaches the URL") {
     withPageOn(served) { (page, _) =>
       IO.blocking {
-        assertThat(summary(page)).hasText("pale")
-        assertThat(visibleCycle(page)).hasText("pale")
+        assertThat(summary(page)).hasText("24h")
+        assertThat(visibleCycle(page)).hasText("24h")
         summary(page).click()
         assertThat(page.locator(".fh-select-menu")).hasAttribute("open", "")
-        choosing(page, "deep")(
+        choosing(page, "7d")(
           page
             .locator(
               ".fh-select-list a",
-              new Page.LocatorOptions().setHasText(Pattern.compile("^deep$"))
+              new Page.LocatorOptions().setHasText(Pattern.compile("^7d$"))
             )
             .click()
         )
         assertThat(page.locator(".fh-select-menu"))
           .not()
           .hasAttribute("open", "")
-        assertThat(summary(page)).hasText("deep")
+        assertThat(summary(page)).hasText("7d")
         // The other style follows the same variable.
-        assertThat(visibleCycle(page)).hasText("deep")
-        awaitParam(page, "deep")
+        assertThat(visibleCycle(page)).hasText("7d")
+        awaitParam(page, "7d")
       }
     }
   }
@@ -84,13 +90,13 @@ class SelectSmokeSuite extends SmokeSuite {
   test("a cycle steps round, and the declared value leaves no param") {
     withPageOn(served) { (page, _) =>
       IO.blocking {
-        choosing(page, "deep")(visibleCycle(page).click())
-        assertThat(visibleCycle(page)).hasText("deep")
-        choosing(page, "dusk")(visibleCycle(page).click())
-        assertThat(visibleCycle(page)).hasText("dusk")
-        awaitParam(page, "dusk")
-        choosing(page, "pale")(visibleCycle(page).click())
-        assertThat(visibleCycle(page)).hasText("pale")
+        choosing(page, "7d")(visibleCycle(page).click())
+        assertThat(visibleCycle(page)).hasText("7d")
+        choosing(page, "30d")(visibleCycle(page).click())
+        assertThat(visibleCycle(page)).hasText("30d")
+        awaitParam(page, "30d")
+        choosing(page, "24h")(visibleCycle(page).click())
+        assertThat(visibleCycle(page)).hasText("24h")
         awaitParam(page, "")
       }
     }
