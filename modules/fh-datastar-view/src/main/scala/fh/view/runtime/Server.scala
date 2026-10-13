@@ -2833,7 +2833,7 @@ object Server {
 
   /** A call's value, from its body `{"data": {<key>: <value>}}`, typed as the
     * page sent it. One key at most: a tap declares one (ADR 0023). An empty
-    * body is a call with no data, which is what a page with no JS posts.
+    * body is a call with no data.
     */
   def callData(body: String): Either[String, Option[(String, Json)]] =
     if (body.isBlank) Right(None)
