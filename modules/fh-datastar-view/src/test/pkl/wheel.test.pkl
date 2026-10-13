@@ -1,0 +1,59 @@
+/// The colour wheel and `c.entitySlider(l).colour(…)`. Outside `lib/` for the
+/// reason `components.test.pkl` gives.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/components/wheel.pkl" as wheelMod
+
+local lamp: hass.LightEntity = new {
+  entity_id = "light.lamp"
+  colourModes { "color_temp"; "hs" }
+  colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+  colour = new hass.Colour { owner = lamp }
+}
+
+local function wheelIn(t: Any): wheelMod.ColourWheel? =
+  if (t is tapMod.OpenSurface)
+    let (popup = t.inlineSurfaces["self"].content)
+      popup.children.toList().first as wheelMod.ColourWheel
+  else null
+
+facts {
+  ["the wheel reads hs_color and sets it, through the JSON body"] {
+    local w = wheelMod.colourWheel(lamp)
+    (w.slots["hue"] as slotMod.Slot).transform.contains("attr[?'hs_color']")
+    (w.slots["hue"] as slotMod.Slot).signal == slotMod.asStyle("--fh-h")
+    w.slots["service"] == "light/turn_on"
+    w.slots["dataKey"] == "hs_color"
+    w.cardDef.template.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
+    // A light with no colour mode has no wheel.
+    module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
+      .contains("colour != null")
+  }
+
+  ["colour on the slider by default; popup trades the hue track for a wheel button"] {
+    c.entitySlider(lamp).offeredModes == List("brightness", "colourTemp", "colour")
+    c.entitySlider(lamp).leadingActions.isEmpty
+    local popped = c.entitySlider(lamp).colour("popup")
+    popped.offeredModes == List("brightness", "colourTemp")
+    popped.leadingActions.toList().length == 1
+    wheelIn(popped.leadingActions.toList()[0].tapAction)?.light?.entity_id == "light.lamp"
+    // On the pill, beside the mode button.
+    popped.pillActions.toList().length == 1
+    local both = c.entitySlider(lamp).colour("both")
+    both.offeredModes == List("brightness", "colourTemp", "colour")
+    both.leadingActions.toList().length == 1
+  }
+
+  ["a light without colour offers no wheel, whatever it is asked"] {
+    local warm: hass.LightEntity = new {
+      entity_id = "light.warm"
+      colourModes { "color_temp" }
+      colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
+    }
+    c.entitySlider(warm).colour("popup").leadingActions.isEmpty
+  }
+}
