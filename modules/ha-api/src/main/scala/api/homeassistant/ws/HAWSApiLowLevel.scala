@@ -145,10 +145,7 @@ object HAWSApiLowLevel {
       }
       .flatMap { ha =>
         for {
-          incrementer <- Ref[IO]
-            .of(1)
-            .map(ref => ref.getAndUpdate(_ + 1))
-            .toResource
+          nextId <- Ref[IO].of(1).toResource
 
           // Left = abnormal, Right = clean socket end.
           terminated <- IO.deferred[Either[Throwable, Unit]].toResource
@@ -182,7 +179,7 @@ object HAWSApiLowLevel {
             .fromQueueUnterminated(messageQueue)
             .evalMap { msg =>
               for {
-                id <- incrementer
+                id <- nextId.getAndUpdate(_ + 1)
                 _ <- routes.update(_.updated(id, msg.response))
                 _ <- msg.id.complete(id)
                 _ <- {
@@ -207,7 +204,7 @@ object HAWSApiLowLevel {
             .receiveStreamDecode[WSCommandPhaseServerPayload]()
             .chunks
             .evalTap { frame =>
-              routes.get.flatMap { open =>
+              (routes.get, nextId.get).flatMapN { (open, unissued) =>
                 frame.toList
                   .groupBy(_.id)
                   .toList
@@ -215,9 +212,14 @@ object HAWSApiLowLevel {
                     open.get(id) match {
                       case Some(queue) =>
                         queue.offer(Some(Chunk.from(payloads)))
+                      // A route we closed: the keepalive cancels a ping when
+                      // other traffic beats its pong, and events trail an
+                      // unsubscribe.
+                      case None if id < unissued =>
+                        log.debug(s"Late reply to closed id $id: $payloads")
                       case None =>
                         log.error(
-                          s"Received message, but not receivers: $payloads"
+                          s"Received message for id $id, never issued: $payloads"
                         )
                     }
                   }

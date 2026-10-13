@@ -97,6 +97,27 @@ class HAWSApiLowLevelSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test(
+    "a reply to a cancelled command is dropped; later commands still route"
+  ) {
+    withConn { (fake, ll) =>
+      val call = ll.sendCommand(CommandPhase.get_config())
+      for {
+        _ <- fake.hold("get_config")
+        abandoned <- call.start
+        _ <- waitFor(fake.sentCommands.map(_.size >= 2))
+        lateId <- fake.idOf(2)
+        _ <- abandoned.cancel
+        _ <- fake.emit(result(lateId, Json.fromString("late")))
+        next <- call.start
+        _ <- waitFor(fake.sentCommands.map(_.size >= 3))
+        nextId <- fake.idOf(3)
+        _ <- fake.emit(result(nextId, Json.fromString("next")))
+        answer <- next.joinWithNever
+      } yield assertEquals(answer, Json.fromString("next"))
+    }
+  }
+
   test("subscribe acquire waits for the ack; a rejection raises there") {
     FakeHaSocket
       .create()
