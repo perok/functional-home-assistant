@@ -150,7 +150,7 @@ class ComponentVisualSuite extends SmokeSuite {
     Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
 
   private def lightSliderCell(page: Page) =
-    page.locator(".fh-cell:has(> .fh-modes)")
+    page.locator(".fh-cell:has(> article.fh-slider-card)")
 
   test("the light slider looks right on brightness") {
     withPage(lightSliderScene, viewport) { (page, _) =>
