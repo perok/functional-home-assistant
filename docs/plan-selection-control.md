@@ -8,7 +8,8 @@ modes and the pill) have landed. Three PRs, in order:
   wherever a node goes: a card's actions, a pill, a bar, a popup.
 - **B** — a colour wheel in the popup, the colour mode's `"slider" | "popup" |
   "both"`.
-- **C** — a hold-and-drag radial menu as another style of A, on Orbit.
+- **C** — a hold-and-drag radial menu as another style of A; Orbit or our own
+  ring, see C.
 
 ## A — `c.select`
 
@@ -149,23 +150,30 @@ script runs. The fix is a bake group selected by value, a runtime change.
   - Drawn with Orbit if its arcs fit, else a CSS `conic-gradient` with a
     radial white fade.
 
-## C — the radial menu, on Orbit
+## C — the radial menu
 
 A style for phones: press and hold on the select, a ring of options appears
 around the finger, drag to one and release to choose it.
 
-- **The library is [Orbit](https://zumerlab.com/orbit-docs/)** (`@zumer/orbit`,
-  MIT, no dependencies). It is CSS plus a small runtime with custom elements,
-  and it watches the DOM, so a server-rendered ring survives a Datastar
-  repaint. It lays the ring out and draws arcs; the hold-and-drag gesture is
-  ours.
-  - It is also the candidate for later radial views, a thermostat's dial
-    among them.
-- **Spike first:**
-  - whether anything is cleaner than Orbit for the ring;
-  - how a hold coexists with a tap (cycle) and with a page scroll.
-- **Older browsers:** a radial part may not render on an old tablet (iPadOS
-  15). That is accepted; a plain tap still gives the dropdown.
+**First spike (reading Orbit's source, 1.5.0):**
+
+- **What Orbit needs from the browser.** Its satellites are placed with CSS
+  `sin()`/`cos()` (Safari 15.4+, Chrome 111+); without them it paints an
+  "update this browser" box. Its arcs and progress rings also need container
+  style queries (`@container style(…)`, Safari 18+). Its own size: about 43 KB
+  of JS source plus its SCSS.
+- **A menu ring needs none of that.** The options and their count are known
+  at build time, so the server can place each one with a plain transform,
+  `rotate(a) translate(r) rotate(-a)`, which works on iPadOS 15 too. The only
+  script is the gesture: a hold opens the ring, a drag picks the nearest
+  option by angle, a release chooses it. That is the same few dozen lines with
+  or without a library.
+- **Recommendation, for the maintainer to decide:** C as our own ring, with
+  no dependency. Orbit stays the candidate for
+  what it is built for, the arcs: a thermostat dial, gauges, and maybe the
+  colour wheel in B.
+- **Still to try in a browser:** how a hold coexists with a tap (the cycle)
+  and with a page scroll (`touch-action`, a hold threshold).
 
 ## Open questions
 
