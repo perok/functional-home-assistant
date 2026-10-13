@@ -24,6 +24,11 @@ const local function posFrom(v: String): String =
 
 const local dragPos: String = posFrom("evt.target.value")
 
+/// A hue track's marker is painted in the hue under it, the same `hsl` the
+/// server's `fillColor` sends, so a drag recolours it before any commit.
+const local function hueMarker(hue: String): String =
+  "$\(slotMod.signalRef("fillColor")) = 'hsl(' + Math.round(\(hue)) + ',100%,50%)'"
+
 /// What the control SHOWS: the finger during a gesture, the server's last word
 /// at rest. A second signal beside the value slot, because
 /// `data-on-signal-patch` fires on local writes too, so one signal cannot tell
@@ -43,7 +48,8 @@ const local rollbackToCommitted: String =
     "$\(slideSig) = \(committed), " +
       "$\(slotMod.signalRef("fill")) = (100 - \(posFrom(committed))) + '%'" +
       "{{#dragPercent}}, $\(slotMod.signalRef("state")) = " +
-      "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}"
+      "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}" +
+      "{{#hueTrack}}, \(hueMarker(committed)){{/hueTrack}}"
 
 /// The two ways an ask ends with no commit coming (ADR 0025): the stream is
 /// down, or the server refused (ADR 0024).
@@ -89,7 +95,7 @@ class SliderHead extends nodes.ActiveNode {
             \(adoptCommitted)
             \(restoreOnDeadStream)
             \(tapMod.busyAttrsChange)
-            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
+            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}{{#hueTrack}}; \(hueMarker("evt.target.value")){{/hueTrack}}"
             data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', \(tapMod.withData("{{dataKey}}", "{{#valueRest}}[{{/valueRest}}Number($\(slideSig)){{#valueRest}}{{valueRest}}]{{/valueRest}}")))" />{{/toggle}}
           <span style="--fh-fill: {{fill}};background:{{fillColor}}" \(slotMod.signalBind("fill")) \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="fh-slider-toggle" aria-label="{{label}}"
@@ -632,6 +638,9 @@ const local sliderCss: String = """
   .fh-slider-body>.fh-slider.fh-track-hue{--fh-track-veil:color-mix(in srgb,var(--fh-surface) 35%,transparent);
   background:linear-gradient(var(--fh-track-veil),var(--fh-track-veil)),
   linear-gradient(to right,#f00,#ff0 16.67%,#0f0 33.33%,#0ff 50%,#00f 66.67%,#f0f 83.33%,#f00)}
-  .fh-slider-body>.fh-slider.fh-track-hue>span:not([class]){inset:0 var(--fh-fill) 0 auto;inline-size:.375rem;
-  margin-inline-end:-.1875rem;border-radius:.1875rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.35)}
+  /* The marker is a knob in the hue it marks, ringed so it reads on any band.
+     `.fh-slider-card` outranks a group master's span rule. */
+  .fh-slider-card .fh-slider-body>.fh-slider.fh-track-hue>span:not([class]){inset:.375rem var(--fh-fill) .375rem auto;
+  block-size:auto;inline-size:.875rem;transform:translateX(50%);border-radius:.4375rem;opacity:1;pointer-events:none;
+  box-shadow:0 0 0 .1875rem #fff,0 0 0 .25rem rgba(0,0,0,.35),0 .125rem .375rem .25rem rgba(0,0,0,.25)}
   """

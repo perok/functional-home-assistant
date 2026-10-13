@@ -1475,6 +1475,20 @@ facts {
     module.catch(() -> c.entitySlider(dimmer).modes(List("colour")).offeredModes).contains("light.dimmer")
   }
 
+  ["a hue slider's marker is painted in the hue it marks"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "hs" }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local head = c.entitySlider(lamp.colour!!).headNode
+    local paint = head.slots["fillColor"] as slotMod.Slot
+    paint.reads == "live"
+    (paint.transform as String).contains("'hsl(' + str(math.round(h)) + ',100%,50%)'")
+    // A drag repaints it with the same hsl, before any commit.
+    head.slots["hueTrack"] == "1"
+  }
+
   ["a group's rows have their own modes, or switch with the head on syncRows"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"
