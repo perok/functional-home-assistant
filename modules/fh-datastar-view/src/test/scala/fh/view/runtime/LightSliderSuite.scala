@@ -69,10 +69,10 @@ class LightSliderSuite extends CatsEffectSuite {
           modeRoute.findAllMatchIn(html).map(_.group(2)).toList,
           List("0", "1", "2")
         )
-        assert(html.contains("/brightness/'"), clue = html)
+        assert(html.contains("{'brightness': Number("), clue = html)
         // A panel not shown is not rendered.
-        assert(!html.contains("/hs_color/'"), clue = html)
-        assert(!html.contains("/color_temp_kelvin/'"), clue = html)
+        assert(!html.contains("{'hs_color': "), clue = html)
+        assert(!html.contains("{'color_temp_kelvin': "), clue = html)
       }
     }
   }
@@ -94,8 +94,8 @@ class LightSliderSuite extends CatsEffectSuite {
           .map(_.flatMap(_.data).mkString("\n"))
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
-        assert(sent.contains("/hs_color/' + $"), clue = sent)
-        assert(sent.contains(",100?node="), clue = sent)
+        assert(sent.contains("{'hs_color': [Number($"), clue = sent)
+        assert(sent.contains(",100] } } }"), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
         assert(sent.contains(s"\"_var_${declarer}__mode\":\"2\""), clue = sent)
@@ -109,7 +109,8 @@ class LightSliderSuite extends CatsEffectSuite {
     served(lamp) { ts =>
       for {
         status <- ts.post(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.lamp/hs_color/120,100"
+          s"sse/call/${ts.slug}/light/turn_on/entity/light.lamp",
+          body = """{"data":{"hs_color":[120,100]}}"""
         )
         calls <- ts.fake.recordedCalls
       } yield {
@@ -125,7 +126,7 @@ class LightSliderSuite extends CatsEffectSuite {
   test("a light that only dims is one slider and no buttons") {
     served(dimmer) { ts =>
       ts.page().map { html =>
-        assert(html.contains("/brightness/'"), clue = html)
+        assert(html.contains("{'brightness': Number("), clue = html)
         assertEquals(modeRoute.findAllMatchIn(html).size, 0, clue = html)
       }
     }
