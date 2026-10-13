@@ -87,9 +87,19 @@ class UiSmokeSuite extends SmokeSuite {
         )
       for {
         _ <- ts.awaitLive()
-        // The mirror applies the seeded selection shortly after connect, so
-        // read `before` once it has, or this races initialization.
-        before <- eventually(href(page))(_.contains("v."))
+        // The seeded selection applies shortly after connect, so read
+        // `before` once the first tab is lit, or this races initialization.
+        // At its declared tab the bar puts no param on the URL (ADR 0005).
+        _ <- IO.blocking(
+          assertThat(
+            page.locator(
+              ".fh-tabs a",
+              new Page.LocatorOptions().setHasText("Lights")
+            )
+          ).hasClass(active)
+        )
+        before <- href(page)
+        _ = assert(!before.contains("v."), clue = before)
         _ <- IO.blocking(
           page.route(
             "**/sse/var/**",
