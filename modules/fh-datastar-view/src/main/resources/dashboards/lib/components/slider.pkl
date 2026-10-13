@@ -70,6 +70,22 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
 /// nullability error the editor shows (ADR 0013, "Shapes considered").
 typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
 
+/// What a light's slider can switch to, in the order [[EntitySlider]] offers
+/// them. On/off is not one: it is the pill's power button.
+typealias SliderMode = "brightness"|"colourTemp"|"colour"
+
+const local modeIcons: Mapping<SliderMode, String> = new {
+  ["brightness"] = "mdi:brightness-6"
+  ["colourTemp"] = "mdi:thermometer"
+  ["colour"] = "mdi:palette"
+}
+
+const local modeLabels: Mapping<SliderMode, String> = new {
+  ["brightness"] = "Brightness"
+  ["colourTemp"] = "Colour temperature"
+  ["colour"] = "Colour"
+}
+
 /// The named readouts: the two that need the card's axis config, and none.
 /// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
 typealias Readout = "state"|"percent"|"none"
@@ -224,6 +240,93 @@ class EntitySlider extends sliderBase.Slider {
     }
   }
 
+  /// What a light given as itself can switch to: brightness, then each
+  /// capability it has. A capability axis (`l.colourTemp`) is one axis.
+  hidden availableModes: List<SliderMode> =
+    if (on is hass.LightEntity && on.supportsBrightness)
+      List("brightness")
+        + (if (on.colourTemp != null) List("colourTemp") else List())
+        + (if (on.colour != null) List("colour") else List())
+    else List()
+  /// [[modes]]'s choice; null offers every one the light has.
+  hidden modeChoice: List<SliderMode>? = null
+  hidden singleMode: Boolean = false
+  /// Set on a group's row by its head: the head's modes, which the row shows
+  /// in step, greyed where it lacks one.
+  hidden followModes: List<SliderMode>? = null
+  hidden offeredModes: List<SliderMode> =
+    if (singleMode) List()
+    else if (modeChoice == null) availableModes
+    else
+      let (picked = modeChoice!!.filter((m) -> availableModes.contains(m)))
+        if (picked.isEmpty)
+          throw("c.entitySlider(\(entity.entity_id)).modes(\(modeChoice!!)): the light has none of them; it has \(availableModes)")
+        else picked
+  /// This slider's own head as the given mode's axis — its default one for
+  /// brightness — dimmed and disabled for a mode a group's row lacks. On a
+  /// slider with a pill, the actions are the pill's.
+  function modeHead(m: SliderMode, dim: Boolean, keepActions: Boolean): sliderBase.SliderHead =
+    let (self = this)
+    let (axis =
+        if (m == "colourTemp") (on as hass.LightEntity).colourTemp!!
+        else if (m == "colour") (on as hass.LightEntity).colour!!
+        else self.on)
+      (self) {
+        on = axis
+        singleMode = true
+        followModes = null
+        members = new {}
+        readout = self.readout
+        greyed = dim
+        disabled = if (dim) true else self.disabled
+        tapAction = if (keepActions) self.tapAction else null
+        actions = if (keepActions) self.actions else new {}
+      }.headNode
+  hidden following: Boolean = followModes != null && followModes!!.length > 1
+  modes =
+    if (following)
+      followModes!!.map((m) ->
+        new sliderBase.ModeHead {
+          icon = modeIcons[m]
+          label = modeLabels[m]
+          head =
+            if (m == "brightness" || availableModes.contains(m)) modeHead(m, false, true)
+            else modeHead("brightness", true, true)
+        })
+    else if (offeredModes.length > 1)
+      offeredModes.map((m) ->
+        new sliderBase.ModeHead { icon = modeIcons[m]; label = modeLabels[m]; head = modeHead(m, false, false) })
+    else List()
+  declaresMode = !following && modes.length > 1
+  /// One mode left by [[modes]] that is not brightness: the slider is that axis.
+  headNode =
+    if (!following && offeredModes.length == 1 && offeredModes[0] != "brightness")
+      modeHead(offeredModes[0], false, true)
+    else super.headNode
+  pill =
+    if (declaresMode)
+      let (n = modes.length)
+        new Listing {
+          for (i, m in modes) {
+            new sliderBase.ModeButton {
+              label = m.label
+              icon = m.icon
+              // Strict, as a tab bar's, so an unseeded choice lights none.
+              active = "String(\(sliderBase.modeVar.below.chosen)) === '\(i)'"
+              // A switch answers too fast for a spinner to mean anything.
+              tapAction = (sliderBase.modeVar.choose(((i + 1) % n).toString())) { busyVisual = false }
+            }
+          }
+          ...leadingActions
+          ...actions
+        }
+    else new {}
+  memberRows =
+    if (declaresMode)
+      let (ms = offeredModes)
+        members.toList().map((n) -> if (n is EntitySlider) (n) { followModes = ms } else n).toListing()
+    else members
+
   function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
   function action(a: String): EntitySlider = let (self = this) (self) { action = a }
   function key(k: String): EntitySlider = let (self = this) (self) { key = k }
@@ -231,6 +334,13 @@ class EntitySlider extends sliderBase.Slider {
   function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
   function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
+  /// One axis, the light's first: brightness on a dimmer. No mode switch.
+  function single(): EntitySlider = let (self = this) (self) { singleMode = true }
+  /// These modes, in this order, where the light has them; one left is that
+  /// axis alone. A light with none of them is a build error naming it.
+  ///
+  ///   c.entitySlider(l).modes(List("colour", "colourTemp"))
+  function modes(ms: List<SliderMode>): EntitySlider = let (self = this) (self) { modeChoice = ms }
   /// The member rows, each composed by the caller:
   ///
   ///   c.entitySlider(l).withSubSliders(
@@ -246,8 +356,9 @@ class EntitySlider extends sliderBase.Slider {
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
 
-/// `c.entitySlider(l)` is brightness; `c.entitySlider(l.colourTemp)` is colour
-/// temperature, `c.entitySlider(l.colour)` the hue.
+/// `c.entitySlider(l)` is brightness, switching to each other mode the light
+/// has; `c.entitySlider(l.colourTemp)` is colour temperature alone,
+/// `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
 /// The constructor as a value, for a query's render positions.
 hidden entitySlider: (hass.Entity) -> EntitySlider = (e) -> entitySlider(e)

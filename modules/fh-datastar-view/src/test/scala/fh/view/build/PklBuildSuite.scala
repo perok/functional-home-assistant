@@ -1153,6 +1153,8 @@ class PklBuildSuite extends munit.FunSuite {
         "max"
       ),
       "sliderText" -> List("label"),
+      "sliderModes" -> Nil,
+      "modeButton" -> List("label", "glyph", "onclick", "active"),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil,

@@ -8,7 +8,6 @@ import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "../layout.pkl" as layout
 import "base/button.pkl" as buttonMod
-import "base/surface.pkl" as surfaceBase
 import "entity.pkl" as entityMod
 import "slider.pkl" as sliderMod
 
@@ -24,11 +23,12 @@ function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
 
 /// A brightness slider when it dims (a tappable card when it only switches), a
 /// colour-temperature slider when it has a kelvin range, a hue slider when it
-/// shows colour, effect pills when it names effects.
+/// shows colour, effect pills when it names effects: every control at once,
+/// where `c.entitySlider(l)` switches between them.
 function controls(l: hass.LightEntity): layout.Column = new layout.Column {
   children {
     when (l.supportsBrightness) {
-      sliderMod.entitySlider(l)
+      sliderMod.entitySlider(l).single()
     } else {
       (entityMod.entityCard(l)) |> entityMod.tappable
     }
@@ -43,30 +43,3 @@ function controls(l: hass.LightEntity): layout.Column = new layout.Column {
     }
   }
 }
-
-/// One slider that switches between what the light can do — brightness, colour
-/// temperature, colour — with a round button per mode beside it, as HA's light
-/// dialog does. A light with one of them is a plain slider with no buttons.
-/// Each mode is an ordinary [[sliderMod.EntitySlider]], amendable on its own:
-///
-///   (c.light.slider(l)) { brightness = c.entitySlider(l).readout("percent") }
-class LightSlider extends surfaceBase.Modes {
-  hidden light: hass.LightEntity
-  hidden brightness: sliderMod.EntitySlider = sliderMod.entitySlider(light)
-  hidden colourTemp: sliderMod.EntitySlider? =
-    if (light.colourTemp != null) sliderMod.entitySlider(light.colourTemp!!) else null
-  hidden colour: sliderMod.EntitySlider? =
-    if (light.colour != null) sliderMod.entitySlider(light.colour!!) else null
-  modes {
-    new surfaceBase.Mode { icon = "mdi:brightness-6"; label = "Brightness"; body = brightness }
-    when (colourTemp != null) {
-      new surfaceBase.Mode { icon = "mdi:thermometer"; label = "Colour temperature"; body = colourTemp!! }
-    }
-    when (colour != null) {
-      new surfaceBase.Mode { icon = "mdi:palette"; label = "Colour"; body = colour!! }
-    }
-  }
-}
-
-/// `c.light.slider(l)`.
-function slider(l: hass.LightEntity): LightSlider = new LightSlider { light = l }

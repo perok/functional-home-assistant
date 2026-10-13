@@ -6,47 +6,48 @@ import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.testkit.{Scene, SmokeDashboard}
 import io.circe.Json
 
-/** `c.light.slider` in a browser (#547): the bar beside the control, and a
-  * press that swaps the panel the page shows.
+/** `c.entitySlider(l)` on a colour light in a browser (#547): the pill at the
+  * track's end, and a tap on its mode button stepping to the next head.
   */
 class LightSliderSmokeSuite extends SmokeSuite {
 
   private val scene =
     Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
 
-  private def mode(page: Page, label: String) =
-    page.locator(s".fh-modes-bar button[aria-label='$label']")
+  /** Only the shown mode's button is visible. */
+  private def modeButton(page: Page) =
+    page.locator(".fh-slider-pill button.fh-mode:visible")
 
-  test("the mode buttons sit on one line, clear of the slider") {
-    // Beside it where the cell is wide enough, under it in a grid's third.
+  test("the pill sits at the track's end, with one mode button showing") {
     withPage(scene, Some(900 -> 700)) { (page, _) =>
       IO.blocking {
-        val buttons = page.locator(".fh-modes-bar button")
-        assertThat(buttons).hasCount(3)
-        val slider =
-          page.locator(".fh-modes-panel article.fh-card").boundingBox()
-        val boxes = (0 until 3).map(i => buttons.nth(i).boundingBox())
-        assertEquals(boxes.map(_.y).distinct.size, 1, clue = boxes.map(_.y))
+        assertThat(modeButton(page)).hasCount(1)
+        assertThat(modeButton(page)).hasAttribute("aria-label", "Brightness")
+        val track =
+          page.locator(".fh-slider-modes-panel .fh-slider").boundingBox()
+        val pill = page.locator(".fh-slider-pill").boundingBox()
+        // The track ends where the pill starts, so a drag reaches the end.
         assert(
-          boxes.forall(b =>
-            b.x >= slider.x + slider.width || b.y >= slider.y + slider.height
-          ),
-          clue = (slider.x, slider.y, slider.width, slider.height)
+          pill.x >= track.x + track.width - 1,
+          clue = (track.x, track.width, pill.x)
         )
       }
     }
   }
 
-  test("pressing Colour swaps the brightness track for the hue") {
+  test("each tap on the mode button steps to the next head, and round") {
     withPage(scene) { (page, _) =>
       IO.blocking {
         assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
-        mode(page, "Colour").click()
-        assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
+        modeButton(page).click()
+        assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
         assertThat(page.locator("input[type=range][max='255']")).hasCount(0)
-        assertThat(mode(page, "Colour")).hasAttribute("aria-pressed", "true")
-        assertThat(mode(page, "Brightness"))
-          .hasAttribute("aria-pressed", "false")
+        assertThat(modeButton(page))
+          .hasAttribute("aria-label", "Colour temperature")
+        modeButton(page).click()
+        assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
+        modeButton(page).click()
+        assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
       }
     }
   }
@@ -55,7 +56,11 @@ class LightSliderSmokeSuite extends SmokeSuite {
     withPage(scene) { (page, ts) =>
       val hue = page.locator("input[type=range][max='360']")
       for {
-        _ <- IO.blocking(mode(page, "Colour").click())
+        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(
+          assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
+        )
+        _ <- IO.blocking(modeButton(page).click())
         _ <- IO.blocking(assertThat(hue).hasCount(1))
         // End jumps the thumb to `max` and releases.
         _ <- IO.blocking(hue.focus())

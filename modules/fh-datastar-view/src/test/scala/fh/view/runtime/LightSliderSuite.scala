@@ -8,9 +8,9 @@ import org.http4s.Status
 
 import scala.concurrent.duration.*
 
-/** `c.light.slider(l)` end to end (#547): one slider at a time, a mode button
-  * per capability, a press that is a node-variable write swapping the panel,
-  * and a hue drag that reaches HA as `hs_color = [h, 100]`.
+/** `c.entitySlider(l)` on a colour light end to end (#547): one head at a time,
+  * a mode button per capability, a press that is a node-variable write swapping
+  * the panel, and a hue drag that reaches HA as `hs_color = [h, 100]`.
   */
 class LightSliderSuite extends CatsEffectSuite {
 
@@ -48,7 +48,7 @@ class LightSliderSuite extends CatsEffectSuite {
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-home/dump.pkl" as dump
        |
-       |card = (c.column) { children { c.light.slider(dump.entities.${light.dumpKey}) } }
+       |card = (c.column) { children { c.entitySlider(dump.entities.${light.dumpKey}) } }
        |""".stripMargin
 
   private def served[A](light: FixtureEntity)(f: TestServer => IO[A]): IO[A] =
@@ -67,7 +67,7 @@ class LightSliderSuite extends CatsEffectSuite {
         }
         assertEquals(
           modeRoute.findAllMatchIn(html).map(_.group(2)).toList,
-          List("0", "1", "2")
+          List("1", "2", "0")
         )
         assert(html.contains("{'brightness': Number("), clue = html)
         // A panel not shown is not rendered.
@@ -121,6 +121,52 @@ class LightSliderSuite extends CatsEffectSuite {
         )
       }
     }
+  }
+
+  test("a group's rows switch with its head, greyed where they lack the mode") {
+    val lamp2 = lamp.copy(entityId = "light.lamp2")
+    val card =
+      s"c.entitySlider(dump.entities.${lamp.dumpKey}).withSubSliders(List(" +
+        s"c.entitySlider(dump.entities.${lamp2.dumpKey}), " +
+        s"c.entitySlider(dump.entities.${dimmer.dumpKey})))"
+    val groupEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) { children { $card } }
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("lamps", groupEntry, List(lamp, lamp2, dimmer))
+      .use { ts =>
+        for {
+          doc <- ts.load()
+          declarers = modeRoute.findAllMatchIn(doc.html).map(_.group(1)).toSet
+          session <- ts.sessions.get(doc.conn)
+          result <- ts.postResult(
+            s"sse/var/${ts.slug}/${declarers.head}/mode/2",
+            body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
+          )
+          sent <- session
+            .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
+            .map(_.flatMap(_.data).mkString("\n"))
+        } yield {
+          // One declarer: only the head has a pill.
+          assertEquals(declarers.size, 1, clue = declarers)
+          assert(!doc.html.contains(" fh-slider-greyed\""), clue = doc.html)
+          assertEquals(result._1, Status.NoContent, clue = result._2)
+          // The head and the colour row both slide the hue now.
+          assertEquals(
+            "\\{'hs_color': \\[Number\\(\\$".r.findAllMatchIn(sent).size,
+            2,
+            clue = sent
+          )
+          // The dimmer stands in with its brightness, dimmed and disabled.
+          assert(sent.contains(" fh-slider-greyed\""), clue = sent)
+        }
+      }
+      .timeout(60.seconds)
   }
 
   test("a light that only dims is one slider and no buttons") {

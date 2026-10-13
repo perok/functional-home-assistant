@@ -5,11 +5,14 @@
 module components.base.slider
 
 import "../../core/badge.pkl" as badgeMod
+import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodes
 import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
+import "../../core/surface.pkl" as surfaceMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
+import "../../core/variable.pkl" as varMod
 import "button.pkl" as buttonMod
 
 // The dragged position as a percentage of the card's range, in JS. The range
@@ -72,13 +75,13 @@ class SliderHead extends nodes.ActiveNode {
     }
     template = """
       <div class="fh-slider-body">
-        <div class="fh-slider-head">
+        <div class="fh-slider-head{{#greyed}} fh-slider-greyed{{/greyed}}">
           \(badgeMod.seat(" fh-slider-icon", "mdi {{icon}}", "{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}"))
           {{#text}}{{{html}}}{{/text}}
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="fh-slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
+        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
@@ -115,6 +118,68 @@ class SliderText extends nodes.Node {
     // Guarded by the slot's presence, not its value: a live one is blank in the
     // patch form, and a value guard would delete its element.
     slots { "label" }
+  }
+}
+
+/// The node variable a slider with modes declares: the index of the head it
+/// shows. A group's rows read the head's, so they switch with it.
+const modeVar: varMod.Variable = new { name = "mode" }
+
+/// One head a [[SliderModes]] can show, and what its button says.
+class ModeHead {
+  /// An MDI name, `mdi:palette`.
+  icon: String
+  label: String
+  head: SliderHead
+}
+
+/// The pill's mode button: one per mode, only the shown mode's visible, each
+/// choosing the next, so a tap steps through them. Built by the slider.
+class ModeButton extends nodes.Node {
+  card = "modeButton"
+  cardDef = new nodes.CardDef {
+    template = #"<button class="fh-circle fh-mode" title="{{label}}" aria-label="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard) data-class:fh-chosen="{{{active}}}"><i class="{{glyph}}"></i></button>"#
+    slots { "label"; "glyph"; "onclick"; "active" }
+  }
+  hidden label: String
+  hidden icon: String
+  hidden tapAction: tapMod.SetVar
+  /// A Datastar boolean expression, as `TabButton.active`.
+  hidden active: String
+  slots {
+    ["label"] = label
+    ["glyph"] = "mdi " + icons.mdiClass(icon)
+    ["active"] = active
+    for (k, v in tapMod.tapSlots(tapAction)) {
+      [k] = v
+    }
+  }
+}
+
+/// A slider's head as one of several, chosen by [[modeVar]], with the pill
+/// beside it. The tabs machinery (ADR 0033): a head not shown is neither
+/// rendered nor kept live. A group's row has the heads and no pill.
+class SliderModes extends nodes.Node {
+  card = "sliderModes"
+  cellClasses { "fh-slider-modes-cell" }
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      [nodes.defaultRegion] = new nodes.Region {}
+      ["panel"] = new nodes.Region { fill = "baked" }
+    }
+    template = #"<div class="fh-slider-modes"><div id="{{hostId}}" class="fh-slider-modes-panel">{{#panel}}{{{html}}}{{/panel}}</div><div class="fh-slider-pill">{{#children}}{{{html}}}{{/children}}</div></div>"#
+  }
+  hidden modes: List<ModeHead>
+  inlineSurfaces = new Mapping {
+    for (i, m in modes) {
+      ["m\(i)"] = new surfaceMod.SurfaceDef {
+        content = m.head
+        bakeInto = nodes.NODE_ID
+        bakeAs = "panel"
+        bakeIndex = i
+        activation = modeVar.selects
+      }
+    }
   }
 }
 
@@ -243,6 +308,9 @@ open class Slider extends nodes.Node {
     when (hueTrack) {
       ["hueTrack"] = "1"
     }
+    when (greyed) {
+      ["greyed"] = "1"
+    }
     for (k, v in tapMod.tapRoute(press ?? commit ?? throw("A slider needs a commit or a press."))) {
       [k] = v
     }
@@ -258,9 +326,26 @@ open class Slider extends nodes.Node {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
   }
+  /// The heads it switches between, the first shown before anyone chooses. One
+  /// or none is the plain [[headNode]].
+  hidden modes: List<ModeHead> = List()
+  /// Whether this node declares [[modeVar]]; false on a group's row, which
+  /// reads its head's.
+  hidden declaresMode: Boolean = modes.length > 1
+  /// The buttons beside the shown head, under it in no cell: what the head's
+  /// actions are on a slider with modes.
+  hidden pill: Listing<nodes.LayoutNode> = new {}
+  /// Dimmed and disabled: a group's row standing in for a mode it lacks.
+  hidden greyed: Boolean = false
+  /// What fills the member region; a subclass may adapt [[members]].
+  hidden memberRows: Listing<nodes.LayoutNode> = members
+  vars = if (declaresMode) modeVar.declare("0") else null
   slots {
     when (!members.isEmpty) {
       ["group"] = "fh-slider-group"
+    }
+    when (declaresMode) {
+      ["modeHost"] = "1"
     }
   }
   // An author's values go on the slider, but its readings are on the head and
@@ -276,23 +361,30 @@ open class Slider extends nodes.Node {
         ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
       if (own.isEmpty && derivedValues.isEmpty) null
       else new Mapping { ...own; ...derivedValues }
-  children = new Mapping {
-    ["head"] = new Listing {
-      let (headActive = active) (new SliderHead {}) {
-        active = headActive
-        slots = headSlots
-        expressionValues = headValues.toMapping()
-        // On the head, the node whose slot reads it: values are local.
-        derivedValues {
-          when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
-        }
-        children = new Mapping {
-          ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }
-          ["actions"] = new Listing { ...leadingActions ...actions }
-        }
+  /// This slider's own row; a slider with [[modes]] shows one of theirs.
+  hidden headNode: SliderHead =
+    let (headActive = active) (new SliderHead {}) {
+      active = headActive
+      slots = headSlots
+      expressionValues = headValues.toMapping()
+      // On the head, the node whose slot reads it: values are local.
+      derivedValues {
+        when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
+      }
+      children = new Mapping {
+        ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }
+        ["actions"] = new Listing { ...leadingActions ...actions }
       }
     }
-    ["children"] = members
+  children = new Mapping {
+    ["head"] = new Listing {
+      when (modes.length > 1) {
+        let (ms = modes) let (buttons = pill) new SliderModes { modes = ms; children = buttons }
+      } else {
+        headNode
+      }
+    }
+    ["children"] = memberRows
   }
 
   function actions(xs: List<buttonMod.Button>): Slider =
@@ -318,7 +410,7 @@ open class Slider extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
-      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}">{{#head}}{{{html}}}{{/head}}<div class="fh-slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
+      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}"{{#modeHost}} data-signals__ifmissing="{ \(modeVar.own.pendingSeed) }" \(modeVar.own.pendingClear) \(modeVar.own.urlMirror){{/modeHost}}>{{#head}}{{{html}}}{{/head}}<div class="fh-slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
       """
     css = sliderCss
     script = sliderTouchScript
@@ -458,18 +550,28 @@ const local sliderCss: String = """
   /* A slider holding sliders: the master's fill is the whole card's
      background, behind the rows, so the group reads as one control. */
   .fh-slider-group{overflow:hidden}
+  /* Modes: the shown head beside the pill. The panel is the track's box, so the
+     track ends where the pill starts and a drag can reach its right end. */
+  .fh-slider-modes-cell,.fh-slider-pill>.fh-cell{display:contents}
+  .fh-slider-modes{display:flex;align-items:center}
+  .fh-slider-modes-panel{position:relative;flex:1 1 auto;min-inline-size:0;align-self:stretch;border-radius:inherit}
+  .fh-slider-pill{display:flex;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3}
+  .fh-slider-pill:empty{display:none}
+  .fh-slider-pill>.fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-slider-pill>.fh-cell>button.fh-mode:not(.fh-chosen){display:none}
+  .fh-slider-greyed{opacity:.45}
   /* Through `.fh-slider-body`, so these miss the members' own heads. Rows are
      declared, or the badge spanning both pushes the label's two lines apart;
      `1/3` rather than `1/-1` for the same explicit grid. A tile's height with a
      second line. */
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
   grid-template-rows:auto auto;align-items:center;align-content:center;
   min-block-size:5rem;box-sizing:border-box;gap:0 .75rem}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-text>strong{grid-column:2;grid-row:1}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-text>.fh-sub{grid-column:2;grid-row:2}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-icon{grid-row:1/3}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-reading{grid-column:3;grid-row:1/3}
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider-head>.fh-slider-actions{grid-column:4;grid-row:1/3}
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-text>strong{grid-column:2;grid-row:1}
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-text>.fh-sub{grid-column:2;grid-row:2}
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-icon{grid-row:1/3}
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-reading{grid-column:3;grid-row:1/3}
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-actions{grid-column:4;grid-row:1/3}
   .fh-slider-text,.fh-slider-actions>.fh-cell{display:contents}
   /* The buttons are the row's only controls, so they take the pointer back. */
   .fh-slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
@@ -478,7 +580,7 @@ const local sliderCss: String = """
   .fh-slider-actions>.fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
   /* The master's track spans the whole card, members included, so a drag lands
      on the master wherever its fill is. */
-  .fh-slider-group>.fh-slider-head-cell>.fh-slider-body>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
+  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
   /* Above the master's span, and indented to the head's badge, so the rows read
      as the head's own. */
   .fh-slider-members{display:flex;flex-direction:column;gap:.25rem;

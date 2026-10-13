@@ -358,7 +358,8 @@ Each group holds `owner`, the entity whose capability it is. A card therefore
 takes **the group alone** and still knows its subject:
 
 ```pkl
-c.entitySlider(l)               // the domain's default axis — a light's brightness
+c.entitySlider(l)               // the domain's default axis — on a light, brightness, plus a
+                                // mode for each capability below that it has
 c.entitySlider(l.colourTemp)    // colour temperature, bounds from the light itself
 c.entitySlider(l.colour)        // the hue, posted as hs_color = [h, 100]
 c.light.effectPills(l.effects)
@@ -385,6 +386,18 @@ consts lazily and order-independently.
 `lightControls(l)` remains the "give me what this light supports" shortcut — a
 `when` per capability, deciding which cards exist at all, which no single-node
 mechanism can do.
+
+**A light given as itself switches between its capabilities.** `c.entitySlider(l)`
+offers brightness, then colour temperature, then colour, as far as `l` has them,
+with a button that steps to the next. `.single()` keeps the first alone, and
+`.modes(List("colour", "colourTemp"))` picks and orders them. Naming modes by
+string looks like the selector "Shapes considered" rejects, and is not: it is a
+FILTER over what the light has, so a mode the light lacks is skipped rather
+than failing (which is what lets one `map` over mixed lights work), the literal
+union still catches a misspelling in the editor, and none left is a build error
+naming the light. The checked way to ask for exactly one axis is still the
+group: `c.entitySlider(l.colourTemp)`. The derived default can never name a
+capability the light lacks, so it needs no checking at all.
 
 ##### Shapes considered
 

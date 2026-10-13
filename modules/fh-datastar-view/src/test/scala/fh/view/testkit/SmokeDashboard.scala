@@ -225,7 +225,7 @@ object SmokeDashboard {
       HouseFixture.dumpWith(switchLight)
     )
 
-  /** A colour light that is on, warm and mid-bright: every `c.light.slider`
+  /** A colour light that is on, warm and mid-bright: every `c.entitySlider(l)`
     * mode has a value to show.
     */
   val colourLamp: FixtureEntity = FixtureEntity(
@@ -250,7 +250,7 @@ object SmokeDashboard {
     )
   )
 
-  /** `c.light.slider` in a grid cell, its usual home. */
+  /** `c.entitySlider(l)` with modes in a grid cell, its usual home. */
   val lightSlider: Dashboard =
     PklFixture.buildDashboard(
       "smoke-light-slider",
@@ -263,7 +263,7 @@ object SmokeDashboard {
          |
          |$fontPinnedTheme
          |
-         |card = (c.grid) { children { c.light.slider(dump.entities.${colourLamp.dumpKey}) } }
+         |card = (c.grid) { children { c.entitySlider(dump.entities.${colourLamp.dumpKey}) } }
          |""".stripMargin,
       HouseFixture.dumpWith(colourLamp)
     )

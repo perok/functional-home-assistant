@@ -167,7 +167,11 @@ class ComponentVisualSuite extends SmokeSuite {
   test("the light slider looks right on colour") {
     withPage(lightSliderScene, viewport) { (page, _) =>
       IO.blocking {
-        page.locator(".fh-modes-bar button[aria-label='Colour']").click()
+        // Brightness, then colour temperature, then colour.
+        val mode = page.locator(".fh-slider-pill button.fh-mode:visible")
+        mode.click()
+        assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
+        mode.click()
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
         page.mouse().move(0, 0)
         settle(page)
