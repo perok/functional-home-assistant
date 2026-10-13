@@ -146,6 +146,97 @@ class ComponentVisualSuite extends SmokeSuite {
     }
   }
 
+  private val lightSliderScene =
+    Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
+
+  private def lightSliderCell(page: Page) =
+    page.locator(".fh-cell:has(> article.fh-slider-card)").first()
+
+  test("the light slider looks right on brightness") {
+    withPage(lightSliderScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-brightness",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  test("the light slider looks right on colour") {
+    withPage(lightSliderScene, viewport) { (page, _) =>
+      IO.blocking {
+        // Brightness, then colour temperature, then colour.
+        val mode = page.locator(".fh-slider-pill button.fh-mode:visible")
+        mode.click()
+        assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
+        mode.click()
+        assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
+        page.mouse().move(0, 0)
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-colour",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  private val lightSliderGroupScene =
+    Scene
+      .of(SmokeDashboard.lightSliderGroup)
+      .entity(SmokeDashboard.colourLamp)
+      .entity(SmokeDashboard.colourLamp2)
+      .entity(SmokeDashboard.groupDimmer)
+
+  test("a light group's slider looks right on brightness") {
+    withPage(lightSliderGroupScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-group-brightness",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  test("a light group's slider looks right on colour, its dimmer row greyed") {
+    withPage(lightSliderGroupScene, viewport) { (page, _) =>
+      IO.blocking {
+        val mode = page.locator(".fh-slider-pill button.fh-mode")
+        mode.click()
+        assertThat(page.locator("input[type=range][max='6500']")).hasCount(2)
+        mode.click()
+        assertThat(page.locator("input[type=range][max='360']")).hasCount(2)
+        page.mouse().move(0, 0)
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-group-colour",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  test("a group's rows with modes of their own look right") {
+    val scene = Scene
+      .of(SmokeDashboard.lightSliderRows)
+      .entity(SmokeDashboard.groupDimmer)
+      .entity(SmokeDashboard.colourLamp)
+      .entity(SmokeDashboard.colourLamp2)
+    withPage(scene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-rows",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
   test("the full dashboard looks right") {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {

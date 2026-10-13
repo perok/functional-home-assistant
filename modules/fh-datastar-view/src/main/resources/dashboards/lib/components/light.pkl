@@ -22,17 +22,21 @@ function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
 }
 
 /// A brightness slider when it dims (a tappable card when it only switches), a
-/// colour-temperature slider when it has a kelvin range, effect pills when it
-/// names effects.
+/// colour-temperature slider when it has a kelvin range, a hue slider when it
+/// shows colour, effect pills when it names effects: every control at once,
+/// where `c.entitySlider(l)` switches between them.
 function controls(l: hass.LightEntity): layout.Column = new layout.Column {
   children {
     when (l.supportsBrightness) {
-      sliderMod.entitySlider(l)
+      sliderMod.entitySlider(l).single()
     } else {
       (entityMod.entityCard(l)) |> entityMod.tappable
     }
     when (l.colourTemp != null) {
       sliderMod.entitySlider(l.colourTemp!!)
+    }
+    when (l.colour != null) {
+      sliderMod.entitySlider(l.colour!!)
     }
     when (l.effects != null) {
       effectPills(l.effects!!)

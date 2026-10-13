@@ -225,6 +225,122 @@ object SmokeDashboard {
       HouseFixture.dumpWith(switchLight)
     )
 
+  /** A colour light that is on, warm and mid-bright: every `c.entitySlider(l)`
+    * mode has a value to show.
+    */
+  val colourLamp: FixtureEntity = FixtureEntity(
+    "light.lamp",
+    "on",
+    Map(
+      "friendly_name" -> Json.fromString("Lamp"),
+      "supported_color_modes" -> Json.arr(
+        Json.fromString("color_temp"),
+        Json.fromString("hs")
+      ),
+      "min_color_temp_kelvin" -> Json.fromInt(2000),
+      "max_color_temp_kelvin" -> Json.fromInt(6500),
+      "color_temp_kelvin" -> Json.fromInt(3000),
+      "brightness" -> Json.fromInt(150),
+      "hs_color" -> Json.arr(Json.fromInt(30), Json.fromInt(60)),
+      "rgb_color" -> Json.arr(
+        Json.fromInt(255),
+        Json.fromInt(179),
+        Json.fromInt(102)
+      )
+    )
+  )
+
+  /** `c.entitySlider(l)` with modes in a grid cell, its usual home. */
+  val lightSlider: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.grid) { children { c.entitySlider(dump.entities.${colourLamp.dumpKey}) } }
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp)
+    )
+
+  /** A second colour lamp and a dimmer, the rows of [[lightSliderGroup]]. */
+  val colourLamp2: FixtureEntity =
+    colourLamp.copy(
+      entityId = "light.lamp2",
+      attributes = colourLamp.attributes +
+        ("friendly_name" -> Json.fromString("Lamp 2"))
+    )
+  val groupDimmer: FixtureEntity = FixtureEntity(
+    "light.dimmer",
+    "on",
+    Map(
+      "friendly_name" -> Json.fromString("Dimmer"),
+      "supported_color_modes" -> Json.arr(Json.fromString("brightness")),
+      "brightness" -> Json.fromInt(90)
+    )
+  )
+
+  /** A colour light's slider over two rows, with a power button: the shape a
+    * house's light groups take.
+    */
+  val lightSliderGroup: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-group",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider Group"
+         |
+         |$fontPinnedTheme
+         |
+         |local head = dump.entities.${colourLamp.dumpKey}
+         |card = (c.grid) {
+         |  children {
+         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).syncRows().withSubSliders(List(
+         |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
+         |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
+         |    ))
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp, colourLamp2, groupDimmer)
+    )
+
+  /** A dimmer's slider with a power button over two colour rows, each with a
+    * pill of its own: a kitchen's shape, where the head has no modes.
+    */
+  val lightSliderRows: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-rows",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider Rows"
+         |
+         |$fontPinnedTheme
+         |
+         |local head = dump.entities.${groupDimmer.dumpKey}
+         |card = (c.column) {
+         |  children {
+         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).secondary("Kitchen").withSubSliders(List(
+         |      c.entitySlider(dump.entities.${colourLamp.dumpKey}).readout("percent").icon(null),
+         |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null)
+         |    ))
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp, colourLamp2, groupDimmer)
+    )
+
   /** A row of pills under a column: the nesting a column's inherited cell width
     * leaked through, stacking the pills.
     */

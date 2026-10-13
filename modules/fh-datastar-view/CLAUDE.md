@@ -332,12 +332,18 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   four `CallByState` domains. `c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch,
   and a `c.button`/`c.pill` with no action, or a `c.entityButton`/`c.toggle` whose domain implies none, is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
-  (`c.entitySlider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
+  (`c.entitySlider(l.colourTemp)` / `c.entitySlider(l.colour)` (the hue) / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
   carries its `owner`, so ONE argument is both the values and the subject: the entity is named once,
   capabilities are discovered by completion on `l.`, and passing a group the entity lacks is a
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
-  from static analysis; ADR 0013 "Shapes considered" has the four attempts),
+  from static analysis; ADR 0013 "Shapes considered" has the four attempts. The light ITSELF,
+  `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
+  them: a head per mode in a bake group selected by the node variable `mode` the slider declares
+  (`base/slider.pkl`'s `SliderModes`), with a pill over the track's end, as any slider's buttons, holding the mode button, which
+  steps to the next, and the actions. A group's rows have their own; on `.syncRows()` they follow the
+  head's `mode` instead, greyed where they lack one. A slider a candidate set renders per member
+  keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `.single()` / `.modes(List(…))` narrow it — a filter over what the light has, ADR 0013),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
   by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving

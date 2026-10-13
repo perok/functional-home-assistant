@@ -32,6 +32,11 @@ private[build] object HassVocabulary {
     "white"
   )
 
+  /** `COLOUR_MODES` — `hass/light.pkl`: the modes that earn a light its
+    * `colour` group.
+    */
+  val ColourModes: Set[String] = Set("hs", "xy", "rgb", "rgbw", "rgbww")
+
   /** `SensorStateClass` — `hass/sensor.pkl`. */
   val SensorStateClasses: Set[String] =
     Set("measurement", "measurement_angle", "total", "total_increasing")

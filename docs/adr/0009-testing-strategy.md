@@ -144,9 +144,16 @@ actually lives, and this would add browser time to every CI run to re-check it
 one layer out. Worth adding when a bug is found that only a second real page can
 see.
 
-#### Visual snapshots compare exactly, against CI's own render
+#### Visual snapshots compare nearly exactly, against CI's own render
 
-`VisualSnapshot` fails on any changed pixel. Measured on 2026-10-12 by failing
+`VisualSnapshot` fails on any changed pixel beyond two measured slacks. A
+colour threshold of 0.01 ignores a channel step or two: the gradient behind a
+hue slider's pill came back one step off on 77 pixels in one run of four. A
+0.1 % budget absorbs a button or badge edge that flips between two
+anti-aliasings on 6–7 pixels in about half the runs (0.03 % of a card at most).
+Both sit far below the regressions below, which still fail.
+
+The comparison was exact before those flakes were seen. Measured on 2026-10-12 by failing
 every snapshot on purpose and counting: CI renders an unchanged page
 byte-identically (four of nine snapshots at zero changed pixels), and every
 nonzero count was a REAL change the old tolerances had let through — the off
@@ -157,9 +164,9 @@ one green.
 
 A ratio budget was always the wrong shape: it lets a LARGE snapshot absorb the
 regression it exists for (the same 190 missing glyphs failed `lock-controls`
-and passed `full-dashboard`). The pixelmatch knobs — threshold, anti-alias
-skip, ratio, dimension slack — stay in `VisualSnapshot` at zero, so an
-environment that genuinely varies can be loosened with a measured number.
+and passed `full-dashboard`), which is why the budget is a tenth of a percent
+and not the old 0.3 %. Any further slack is a measured number, as these two
+are.
 
 Two consequences:
 

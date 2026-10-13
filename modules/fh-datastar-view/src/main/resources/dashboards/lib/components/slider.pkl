@@ -29,7 +29,8 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 
 // The fill colour paints what the slider drives: a kelvin axis gets a warm→cool
 // ramp over its own range, an axis on a colour light the light's `rgb_color`,
-// anything else the theme's paint.
+// anything else the theme's paint. A hue axis has no fill, only a marker over
+// a track painted with the hues (`hueTrack`).
 //
 // Every read keeps a presence guard (`attr[?'x']…orValue('')`): capability is a
 // build-time fact but a live state may drop the attribute, and in CEL a missing
@@ -63,11 +64,27 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
   if (ovr != null) ovr else "\(get.apply(spec))"
 
 /// What an [[EntitySlider]] drives: an entity (its domain's default axis) or
-/// one of its capability groups (`l.colourTemp`), which carries its owner. A
-/// value rather than a selector, so `c.entitySlider(l.colourTemp)` on a light
-/// with no kelvin range is a nullability error the editor shows (ADR 0013,
-/// "Shapes considered").
-typealias SlideAxis = hass.Entity|hass.ColourTemp
+/// one of its capability groups (`l.colourTemp`, `l.colour` for the hue), which
+/// carries its owner. A value rather than a selector, so
+/// `c.entitySlider(l.colourTemp)` on a light with no kelvin range is a
+/// nullability error the editor shows (ADR 0013, "Shapes considered").
+typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
+
+/// What a light's slider can switch to, in the order [[EntitySlider]] offers
+/// them. On/off is not one: it is the pill's power button.
+typealias SliderMode = "brightness"|"colourTemp"|"colour"
+
+const local modeIcons: Mapping<SliderMode, String> = new {
+  ["brightness"] = "mdi:brightness-6"
+  ["colourTemp"] = "mdi:thermometer"
+  ["colour"] = "mdi:palette"
+}
+
+const local modeLabels: Mapping<SliderMode, String> = new {
+  ["brightness"] = "Brightness"
+  ["colourTemp"] = "Colour temperature"
+  ["colour"] = "Colour"
+}
 
 /// The named readouts: the two that need the card's axis config, and none.
 /// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
@@ -91,19 +108,26 @@ class EntitySlider extends sliderBase.Slider {
   /// either one is enough.
   hidden on: SlideAxis = entity
   hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
-    if (on is hass.ColourTemp) on.owner else on
+    if (on is hass.ColourTemp) on.owner else if (on is hass.Colour) on.owner else on
+  /// The hue lives at `hs_color[0]`, which no simple shape reaches, so this
+  /// axis reads through CEL.
+  hidden hue: Boolean = on is hass.Colour
   hidden label: (String|slotMod.Expr)? = null
   // Overrides of the domain default. Each defaults to what the axis says, so a
   // capability axis configures the whole slider and an author's amend still
   // wins.
-  hidden action: String? = if (on is hass.ColourTemp) "light/turn_on" else null
-  hidden key: String? = if (on is hass.ColourTemp) "color_temp_kelvin" else null
-  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else null
-  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else null
+  hidden action: String? = if (on is hass.ColourTemp || hue) "light/turn_on" else null
+  hidden key: String? =
+    if (on is hass.ColourTemp) "color_temp_kelvin" else if (hue) "hs_color" else null
+  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else if (hue) 0 else null
+  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else if (hue) 360 else null
   // The attribute holding the live position, so a second axis of the same
   // entity tracks the value it writes.
   hidden valueAttr: String? =
-    if (on is hass.ColourTemp) "color_temp_kelvin" else null
+    if (on is hass.ColourTemp) "color_temp_kelvin" else if (hue) "hs_color" else null
+  /// Full saturation, as Mushroom's hue slider: a pastel is a colour wheel's
+  /// job, and white is the kelvin axis'.
+  valueRest = if (hue) ",100" else null
   hidden spec: SliderSpec = sliderSpec[entity.domain]!!
   hidden reportsRgb: Boolean =
     if (entity is hass.LightEntity) entity.reportsRgbColour else false
@@ -117,11 +141,12 @@ class EntitySlider extends sliderBase.Slider {
   /// Whether the fill colour can change. Where it cannot — most lights — the
   /// base paints a constant, with no signal and no CEL behind it.
   hidden fillColourMoves: Boolean =
-    (on is hass.ColourTemp && reportsKelvin) || reportsRgb
+    (on is hass.ColourTemp && reportsKelvin) || (reportsRgb && !hue)
   /// The guarded position read, an optional (empty while a light is off): splice
   /// it as `\(valueExpr).optMap(v, …).orValue(…)`.
   hidden valueExpr: String =
-    if (valueAttr != null) "attr[?'\(valueAttr!!)']"
+    if (hue) "attr[?'hs_color'].optMap(hs, double(hs[0]))"
+    else if (valueAttr != null) "attr[?'\(valueAttr!!)']"
     else "attr[?'\(spec.value)']"
   hidden valueAttrName: String = valueAttr ?? spec.value
   rangeMin = min ?? spec.min
@@ -172,7 +197,9 @@ class EntitySlider extends sliderBase.Slider {
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".
   position = new slotMod.Slot {
-    transform = simpleMod.attr(valueAttrName)
+    transform =
+      if (hue) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
+      else simpleMod.attr(valueAttrName)
     default = "0"
     bypassUnavailable = false
   }
@@ -181,6 +208,7 @@ class EntitySlider extends sliderBase.Slider {
   fill = new slotMod.Slot {
     transform =
       if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
+      else if (hue) "\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')"
       else simpleMod.fill(valueAttrName, rangeMin, rangeMax)
     default = "100%"
     bypassUnavailable = false
@@ -188,14 +216,17 @@ class EntitySlider extends sliderBase.Slider {
   fillColor = if (fillColourMoves) new slotMod.Slot { transform = fillColorExpr } else null
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
   // reads as text: `--fh-default-color` is the paint for an assumed colour.
-  fillDefault = if (toggleOnly) "var(--fh-default-color)" else "currentcolor"
+  fillDefault =
+    if (toggleOnly) "var(--fh-default-color)" else if (hue) "#fff" else "currentcolor"
+  hueTrack = hue
   reading =
     if (shownReadout == "none") null
     else if (shownReadout is slotMod.Expr)
       new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform }
     else if (shownReadout == "percent")
       new slotMod.Slot {
-        transform = simpleMod.percent(valueAttrName, rangeMin, rangeMax)
+        transform =
+          if (hue) percentExpr else simpleMod.percent(valueAttrName, rangeMin, rangeMax)
         default = "0 %"
         bypassUnavailable = false
       }
@@ -209,6 +240,90 @@ class EntitySlider extends sliderBase.Slider {
     }
   }
 
+  /// What a light given as itself can switch to: brightness, then each
+  /// capability it has. A capability axis (`l.colourTemp`) is one axis.
+  hidden availableModes: List<SliderMode> =
+    if (on is hass.LightEntity && on.supportsBrightness)
+      List("brightness")
+        + (if (on.colourTemp != null) List("colourTemp") else List())
+        + (if (on.colour != null) List("colour") else List())
+    else List()
+  /// [[modes]]'s choice; null offers every one the light has.
+  hidden modeChoice: List<SliderMode>? = null
+  hidden singleMode: Boolean = false
+  /// Whether the head's mode button switches its rows too; otherwise each row
+  /// with modes has its own pill ([[syncRows]]).
+  hidden rowsFollow: Boolean = false
+  /// Set on a group's row by a head with [[rowsFollow]]: the head's modes,
+  /// which the row shows in step, greyed where it lacks one.
+  hidden followModes: List<SliderMode>? = null
+  hidden pickedModes: List<SliderMode> =
+    if (modeChoice == null) availableModes
+    else
+      let (picked = modeChoice!!.filter((m) -> availableModes.contains(m)))
+        if (picked.isEmpty)
+          throw("c.entitySlider(\(entity.entity_id)).modes(\(modeChoice!!)): the light has none of them; it has \(availableModes)")
+        else picked
+  /// Rendered once per member of a candidate set, a slider cannot declare
+  /// [[sliderBase.modeVar]] (ADR 0033), so it keeps its first mode.
+  hidden offeredModes: List<SliderMode> =
+    if (singleMode || perMember) pickedModes.take(1) else pickedModes
+  /// This slider's own head as the given mode's axis — its default one for
+  /// brightness — dimmed and disabled for a mode a group's row lacks. On a
+  /// slider with a pill, the actions are the pill's.
+  function modeHead(m: SliderMode, dim: Boolean, keepActions: Boolean): sliderBase.SliderHead =
+    let (self = this)
+    let (axis =
+        if (m == "colourTemp") (on as hass.LightEntity).colourTemp!!
+        else if (m == "colour") (on as hass.LightEntity).colour!!
+        else self.on)
+      (self) {
+        on = axis
+        singleMode = true
+        modeChoice = null
+        followModes = null
+        members = new {}
+        readout = self.readout
+        greyed = dim
+        disabled = if (dim) true else self.disabled
+        tapAction = if (keepActions) self.tapAction else null
+        actions = if (keepActions) self.actions else new {}
+      }.headNode
+  hidden following: Boolean = followModes != null && followModes!!.length > 1
+  modes =
+    if (following)
+      followModes!!.map((m) ->
+        new sliderBase.ModeHead {
+          head =
+            if (m == "brightness" || availableModes.contains(m)) modeHead(m, false, true)
+            else modeHead("brightness", true, true)
+        })
+    else if (offeredModes.length > 1)
+      let (n = offeredModes.length)
+        offeredModes.mapIndexed((i, m) ->
+          new sliderBase.ModeHead {
+            head = modeHead(m, false, false)
+            button = new sliderBase.ModeButton {
+              label = modeLabels[m]
+              icon = modeIcons[m]
+              // A switch answers too fast for a spinner to mean anything.
+              tapAction = (sliderBase.modeVar.choose(((i + 1) % n).toString())) { busyVisual = false }
+            }
+          })
+    else List()
+  declaresMode = !following && modes.length > 1
+  /// One mode left by [[modes]] that is not brightness: the slider is that axis.
+  headNode =
+    if (!following && offeredModes.length == 1 && offeredModes[0] != "brightness")
+      modeHead(offeredModes[0], false, true)
+    else super.headNode
+  pillActions = if (declaresMode) new Listing { ...leadingActions ...actions } else new {}
+  memberRows =
+    if (declaresMode && rowsFollow)
+      let (ms = offeredModes)
+        members.toList().map((n) -> if (n is EntitySlider) (n) { followModes = ms } else n).toListing()
+    else members
+
   function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
   function action(a: String): EntitySlider = let (self = this) (self) { action = a }
   function key(k: String): EntitySlider = let (self = this) (self) { key = k }
@@ -216,6 +331,16 @@ class EntitySlider extends sliderBase.Slider {
   function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
   function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
+  /// The head's mode button switches the rows too: one press, the whole group
+  /// on colour. A row lacking the mode shows its brightness, greyed.
+  function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
+  /// One axis, the light's first: brightness on a dimmer. No mode switch.
+  function single(): EntitySlider = let (self = this) (self) { singleMode = true }
+  /// These modes, in this order, where the light has them; one left is that
+  /// axis alone. A light with none of them is a build error naming it.
+  ///
+  ///   c.entitySlider(l).modes(List("colour", "colourTemp"))
+  function modes(ms: List<SliderMode>): EntitySlider = let (self = this) (self) { modeChoice = ms }
   /// The member rows, each composed by the caller:
   ///
   ///   c.entitySlider(l).withSubSliders(
@@ -231,8 +356,9 @@ class EntitySlider extends sliderBase.Slider {
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
 
-/// `c.entitySlider(l)` is brightness; `c.entitySlider(l.colourTemp)` is colour
-/// temperature.
+/// `c.entitySlider(l)` is brightness, switching to each other mode the light
+/// has; `c.entitySlider(l.colourTemp)` is colour temperature alone,
+/// `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
 /// The constructor as a value, for a query's render positions.
 hidden entitySlider: (hass.Entity) -> EntitySlider = (e) -> entitySlider(e)

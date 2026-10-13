@@ -639,7 +639,7 @@ const local function buildSet(
   let (presenceOf = kept.toMap((p) -> p.first.entity_id, (p) -> p.second))
   let (rendered = dispatched.map((p) ->
         Pair(p.first, p.second.map((b) ->
-          Pair(b.first.render.apply(p.first),
+          Pair((b.first.render.apply(p.first)) { perMember = true },
                conjoin(presenceOf[p.first.entity_id], b.second))))))
     new pred.SetNode {
       candidates = new Listing { for (p in dispatched) { p.first.entity_id } }

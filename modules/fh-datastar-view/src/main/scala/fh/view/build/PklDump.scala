@@ -532,12 +532,17 @@ object PklDump {
             )
           case _ => None
         }
+        val colour = Option.when(
+          attrs("supported_color_modes")
+            .flatMap(_.asArray)
+            .exists(_.flatMap(_.asString).exists(HassVocabulary.ColourModes))
+        )(s"  hidden colour: hass.Colour = new { $owner }")
         val effects = attrs("effect_list")
           .flatMap(pklTyped)
           .map { case (_, rendered) =>
             s"  hidden effects: hass.Effects = new { $owner; list = $rendered }"
           }
-        List(colourTemp, effects).flatten
+        List(colourTemp, colour, effects).flatten
       case _ => Nil
     }
   }

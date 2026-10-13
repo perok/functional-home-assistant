@@ -4,14 +4,11 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
 
-/** PNG snapshots for the component visual suite, compared EXACTLY. Every asset
-  * is fetched at a version pinned in its CDN URL and
-  * [[fh.view.smoke.SmokeSuite.settle]] kills animations, so CI renders an
-  * unchanged page byte-identically; measured 2026-10-12, four of nine snapshots
-  * at zero changed pixels, and every nonzero one was a real change the old 0.3%
-  * budget had let through (ADR 0009). The [[Pixelmatch]] port's knobs
-  * ([[Threshold]], [[SkipAntiAliased]], [[MaxDiffRatio]], [[MaxDimDelta]])
-  * stay, at zero, for an environment that ever needs them.
+/** PNG snapshots for the component visual suite, compared with two measured
+  * slacks and no more (ADR 0009): [[Threshold]] ignores a channel step or two,
+  * and [[MaxDiffRatio]] a few anti-aliased edge pixels, the two ways CI was
+  * seen to render an unchanged page differently. Both are far below the real
+  * regressions the old 0.3% budget let through.
   *
   * The baseline is CI's render: a local one records this machine's
   * rasterization. Let CI fail and take its `.actual.png` from the artifact.
@@ -33,14 +30,19 @@ object VisualSnapshot {
         os.pwd / "modules" / "fh-datastar-view" / "target" / "visual-failures"
       )
 
-  /** Pixelmatch's default is 0.1, which hid a removed 1px hairline (a channel
-    * delta of 31).
+  /** A YIQ distance of 3.5: the gradient behind a hue slider's pill came back a
+    * channel step off on 77 pixels in one run of four. Pixelmatch's default,
+    * 0.1, hid a removed 1px hairline (a channel delta of 31, distance ~485).
     */
-  private val Threshold = 0.0
+  private val Threshold = 0.01
 
   private val SkipAntiAliased = false
 
-  private val MaxDiffRatio = 0.0
+  /** A button or badge edge flips between two anti-aliasings on 6–7 pixels in
+    * about half the runs (0.03% of a card at most); #527's badge regression was
+    * 0.5–0.8% of one.
+    */
+  private val MaxDiffRatio = 0.001
 
   private val MaxDimDelta = 0
 

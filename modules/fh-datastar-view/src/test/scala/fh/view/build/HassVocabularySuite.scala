@@ -60,6 +60,21 @@ class HassVocabularySuite extends munit.FunSuite {
     )
   }
 
+  test("ColourModes agrees with the vendored COLOUR_MODES") {
+    val src = BundledLib
+      .entries()
+      .collectFirst {
+        case (n, b) if n == "hass/light.pkl" => new String(b, "UTF-8")
+      }
+      .getOrElse(fail("hass/light.pkl is not in the bundled lib"))
+    val listed = """const COLOUR_MODES: List<ColorMode> = List\(([^)]*)\)""".r
+      .findFirstMatchIn(src)
+      .map(m => """"([a-z]+)"""".r.findAllMatchIn(m.group(1)).map(_.group(1)))
+      .getOrElse(fail("hass/light.pkl declares no COLOUR_MODES list"))
+      .toSet
+    assertEquals(HassVocabulary.ColourModes, listed)
+  }
+
   test("SensorStateClass agrees with the vendored union") {
     assertEquals(
       HassVocabulary.SensorStateClasses,

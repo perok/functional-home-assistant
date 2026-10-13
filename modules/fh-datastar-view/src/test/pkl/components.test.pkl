@@ -1435,6 +1435,66 @@ facts {
     c.tap.call("a/b", kitchen).with("k", List(120, 100)).dataValue == "[120,100]"
   }
 
+  ["a light's slider switches between what it can do, brightness first"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local s = c.entitySlider(lamp)
+    s.offeredModes == List("brightness", "colourTemp", "colour")
+    s.declaresMode
+    s.modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // One button per mode, each choosing the next, so a tap steps round.
+    local steps = s.modes.map((m) -> (m.button!!.slots["onclick"] as slotMod.Slot).transform as String)
+    steps.length == 3
+    steps[0].contains("/mode/1") && steps[1].contains("/mode/2") && steps[2].contains("/mode/0")
+    // A dimmer, or a capability axis, is one head and no pill.
+    !c.entitySlider(dimmer).declaresMode
+    !c.entitySlider(lamp.colourTemp!!).declaresMode
+    // `.single()`: the first mode alone.
+    local single = c.entitySlider(lamp).single()
+    !single.declaresMode
+    single.headNode.slots["dataKey"] == "brightness"
+    // `.modes(…)`: these, in this order, where the light has them.
+    c.entitySlider(lamp).modes(List("colour", "colourTemp")).modes.map((m) -> m.button!!.label) == List("Colour", "Colour temperature")
+    // One left is that axis, with no switch.
+    local hueOnly = c.entitySlider(lamp).modes(List("colour"))
+    !hueOnly.declaresMode
+    hueOnly.headNode.slots["dataKey"] == "hs_color"
+    // Rendered once per member of a set, where it cannot declare `mode`, it
+    // keeps its first.
+    local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
+    !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresMode
+    // A light with none of them names itself.
+    module.catch(() -> c.entitySlider(dimmer).modes(List("colour")).offeredModes).contains("light.dimmer")
+  }
+
+  ["a group's rows have their own modes, or switch with the head on syncRows"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    // By default each row is its own: a colour row has a pill of its own.
+    local apart = c.entitySlider(lamp).withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
+    local apartRows = apart.memberRows.toList().map((r) -> r as c.EntitySlider)
+    apartRows[0].declaresMode && apartRows[0].modes.every((m) -> m.button != null)
+    !apartRows[1].declaresMode
+    // `.syncRows()`: the head's button switches them all.
+    local g = c.entitySlider(lamp).syncRows().withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
+    g.declaresMode
+    local rows = g.memberRows.toList().map((r) -> r as c.EntitySlider)
+    // The rows read the head's variable rather than declaring their own.
+    rows.every((r) -> !r.declaresMode && r.modes.length == 3 && r.modes.every((m) -> m.button == null))
+    rows[0].modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // The dimmer stands in with its brightness, dimmed and disabled.
+    rows[1].modes.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)
+    rows[1].modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "brightness", "brightness")
+  }
+
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
     // Availability is a different axis from transitional state: HA rejects a
     // service call on an unavailable entity in EVERY domain, so it is one rule
