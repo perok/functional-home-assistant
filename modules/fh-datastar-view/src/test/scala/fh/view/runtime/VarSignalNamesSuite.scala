@@ -76,4 +76,50 @@ class VarSignalNamesSuite extends CatsEffectSuite {
         }
       }
   }
+
+  /** A node whose template knows nothing of variables can declare one: the
+    * shell seeds and clears every ask, and the declarer's cell mirrors it.
+    */
+  test("any node can declare: the shell holds the ask, the cell the mirror") {
+    val plain =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |
+         |card = (c.column) {
+         |  vars = new Mapping { ["shade"] = "pale"; ["size"] = "s" }
+         |  children { c.title("x") }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("var-plain", plain, Nil)
+      .use(_.page())
+      .timeout(60.seconds)
+      .map { html =>
+        val keys = List("shade" -> "pale", "size" -> "s").map { (name, at) =>
+          val id = s"""data-fh-url:$name="\\['v\\.([A-Za-z0-9_]+)\\.$name'""".r
+            .findFirstMatchIn(html)
+            .map(_.group(1))
+            .getOrElse(fail(s"no mirror of $name", clues(html)))
+          VarKey(NodeId.derived(id), name) -> at
+        }
+        keys.foreach { (key, at) =>
+          assert(
+            html.contains(
+              s"""data-fh-url:${key.name}="['${key.urlParam}', $$${key.committedSignal}, '$at']""""
+            ),
+            clue = key
+          )
+          assert(
+            html.contains(
+              s"${key.committedSignal}: '$at', ${key.pendingSignal}: ''"
+            ),
+            clue = key
+          )
+          assert(html.contains(key.pendingClear), clue = key)
+        }
+        // Both on the one cell: the mirrors are keyed, so neither drops.
+        assertEquals(keys.map(_._1.declarer).distinct.size, 1)
+      }
+  }
 }

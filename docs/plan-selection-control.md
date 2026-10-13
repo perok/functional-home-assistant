@@ -46,6 +46,20 @@ for `mode`. That is one way to declare a variable, not two, and the build's
 existing "no declarer" error covers a select with nothing above it. The
 window chooser stays a small convenience built from the two.
 
+That needs any node to be able to declare, and a declarer used to write three
+attributes in its own template: the pending ask's seed, its clear, and the URL
+mirror. So, first:
+
+1. **The shell holds every ask, the cell every mirror.** The page shell seeds
+   each pending ask beside its committed value and clears them all in one
+   effect; the renderer puts `data-fh-url:<name>` on the declarer's
+   `.fh-cell`. Done, with the template copies still in place.
+2. **The template copies go**, from the tab bar, the window chooser and the
+   slider. Waiting on the maintainer: two existing tests pin the template seed
+   (`PklDashboardBehaviourSuite` "a re-revealed bar…", `ActionSignalNamesSuite`'s
+   group regex) and three pin the unkeyed mirror (`VarSignalNamesSuite`,
+   `PklDashboardBehaviourSuite`'s window regexes).
+
 ### Styles
 
 `typealias SelectStyle = "buttons" | "dropdown" | "cycle"`, with `"radial"`

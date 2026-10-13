@@ -82,8 +82,9 @@ name, like `conn`.
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
   the value into the `data-signals` seed it already emits.
-- **A variable at its declared value has no param.** A node variable's mirror
-  carries the declaration's value as a third element,
+- **A variable at its declared value has no param.** A node variable's mirror,
+  on its declarer's `.fh-cell` as `data-fh-url:<name>`, carries the
+  declaration's value as a third element,
   `['v.<id>.mode', $signal, '0']`, and drops the param at it: no param already
   means the declared value when the server reads the query, so the param said
   nothing, and a page with a dozen mode sliders wrote a dozen of them on every

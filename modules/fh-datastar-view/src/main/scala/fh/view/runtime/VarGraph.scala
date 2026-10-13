@@ -21,6 +21,20 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
   /** The URL mirror, which survives a refresh. */
   def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
 
+  /** Empties the ask once the commit agrees; `core/tap.pkl`'s
+    * `pendingClearAgainst` is the template half.
+    */
+  def pendingClear: String =
+    s"$$$pendingSignal !== '' && $$$committedSignal == $$$pendingSignal && ($$$pendingSignal = '')"
+
+  /** The declarer's `data-fh-url`, keyed by the name because a node may declare
+    * several and an element holds one attribute per name. No param at
+    * `declared` (ADR 0005).
+    */
+  def urlMirrorAttr(declared: String): String =
+    s"""data-fh-url:$name="['$urlParam', $$$committedSignal, '${Server
+        .escapeHtml(Server.escapeJsString(declared))}']""""
+
 object VarKey:
 
   val ParamPrefix: String = "v."

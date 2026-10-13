@@ -1792,9 +1792,18 @@ class Server(
     val varSeed = committed.toList
       .sortBy(_._1.committedSignal)
       .map { (key, v) =>
-        s", ${key.committedSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
+        s", ${key.committedSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}', ${key.pendingSignal}: ''"
       }
       .mkString
+    // Every ask's clear in one effect: pending signals are client-only, so the
+    // shell can hold them for every declarer, shown or not.
+    val varClear =
+      if (committed.isEmpty) ""
+      else
+        committed.keys.toList
+          .sortBy(_.committedSignal)
+          .map(_.pendingClear)
+          .mkString(s"""\n  <div $hidden data-effect="""", "; ", "\"></div>")
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
@@ -1804,7 +1813,7 @@ class Server(
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:$sseEvent="$$_sse = $sseLatched">
-         |  <div $hidden ${Server.PendingSweep}></div>
+         |  <div $hidden ${Server.PendingSweep}></div>$varClear
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
