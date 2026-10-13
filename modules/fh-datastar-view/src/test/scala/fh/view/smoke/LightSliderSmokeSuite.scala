@@ -53,6 +53,29 @@ class LightSliderSmokeSuite extends SmokeSuite {
     }
   }
 
+  test(
+    "the first mode puts no param on the URL; another does, until it steps round"
+  ) {
+    val param = """.*[?&]v\.[^=&]+\.mode=.*"""
+    def href(page: Page) =
+      IO.blocking(page.evaluate("() => location.href").toString)
+    withPage(scene) { (page, _) =>
+      for {
+        _ <- IO.blocking(assertThat(modeButton(page)).hasCount(1))
+        loaded <- href(page)
+        _ = assert(!loaded.matches(param), clue = loaded)
+        _ <- IO.blocking(modeButton(page).click())
+        _ <- eventually(href(page))(_.matches(param))
+        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(
+          assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
+        )
+        back <- eventually(href(page))(!_.matches(param))
+      } yield assert(!back.matches(param), clue = back)
+    }
+  }
+
   test("a hue release posts hs_color at full saturation") {
     withPage(scene) { (page, ts) =>
       val hue = page.locator("input[type=range][max='360']")

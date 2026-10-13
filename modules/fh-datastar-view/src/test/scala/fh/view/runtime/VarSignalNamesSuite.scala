@@ -32,6 +32,9 @@ class VarSignalNamesSuite extends CatsEffectSuite {
        |}
        |""".stripMargin
 
+  /** What the entry declares, which the mirror drops the param at. */
+  private val declared = Map("window" -> "24h", "tab" -> "0")
+
   private val mirrored =
     """data-fh-url="\['v\.([A-Za-z0-9_]+)\.(window|tab)'""".r
 
@@ -51,7 +54,9 @@ class VarSignalNamesSuite extends CatsEffectSuite {
           // and every button's route and ask.
           assert(
             html.contains(
-              s"""data-fh-url="['${key.urlParam}', $$${key.committedSignal}]""""
+              s"""data-fh-url="['${key.urlParam}', $$${key.committedSignal}, '${declared(
+                  key.name
+                )}']""""
             ),
             clue = key
           )

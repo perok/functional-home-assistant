@@ -101,6 +101,10 @@ class Spelling {
   fixed pendingSeed: String = tapMod.pendingSeedEntry(group)
   /// Empties the ask once the commit agrees.
   fixed pendingClear: String = tapMod.pendingClearAgainst(group, committed)
-  /// Mirrors the commit into the URL.
-  fixed urlMirror: String = #"data-fh-url="['\#(urlParam)', $\#(committed)]""#
+  /// Mirrors the commit into the URL, and drops the param at `declared`, the
+  /// declaration's value: no param already means it, so a URL names only what
+  /// a viewer changed. `declared` is spliced into a JS string as written — a
+  /// [[Value]], or a Mustache hole for one that varies per node.
+  function urlMirror(declared: String): String =
+    #"data-fh-url="['\#(urlParam)', $\#(committed), '\#(declared)']""#
 }

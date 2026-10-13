@@ -13,9 +13,11 @@
 import { attribute, effect } from "./vendor/datastar/datastar.js"
 
 /**
- * `data-fh-url="['<param>', $signal]"`: mirror one piece of view state into
- * the page URL without navigating, for as long as the element is in the
- * document (ADR 0005). An empty value drops the param, and so does the last
+ * `data-fh-url="['<param>', $signal, '<declared>']"`: mirror one piece of view
+ * state into the page URL without navigating, for as long as the element is in
+ * the document (ADR 0005). An empty value drops the param, and so does the
+ * optional declared one — a node variable's own, which no param already means —
+ * so a URL names only what a viewer changed; so does the last
  * element for that param leaving (issue #411): a closed popup takes its tab
  * bars and window choosers with it, and nothing else would ever clear what they
  * wrote.
@@ -47,8 +49,9 @@ attribute({
   apply({ rx, mods }) {
     let held: string | null = null
     const stop = effect(() => {
-      const [key, raw] = rx() as [string, unknown]
-      const value = raw == null ? "" : String(raw)
+      const [key, raw, declared] = rx() as [string, unknown, string?]
+      const shownValue = raw == null ? "" : String(raw)
+      const value = shownValue === declared ? "" : shownValue
       if (held !== key) {
         if (held !== null) release(held)
         held = key

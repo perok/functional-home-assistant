@@ -252,6 +252,24 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     }
   }
 
+  test(
+    "the declared window puts no param on the URL, and choosing it again drops one"
+  ) {
+    val param = """.*[?&]v\.[^=&]+\.window=.*"""
+    withPageOn(served) { (page, _) =>
+      for {
+        _ <- IO.blocking(assertThat(button(page, "24h")).hasClass(active))
+        loaded <- href(page)
+        _ = assert(!loaded.matches(param), clue = loaded)
+        _ <- press(page, "1h")
+        _ <- eventually(href(page))(_.matches(param))
+        _ <- press(page, "24h")
+        _ <- IO.blocking(assertThat(button(page, "24h")).hasClass(active))
+        back <- eventually(href(page))(!_.matches(param))
+      } yield assert(!back.matches(param), clue = back)
+    }
+  }
+
   test("a chosen window is on the URL and survives a reload") {
     withPageOn(served) { (page, _) =>
       for {

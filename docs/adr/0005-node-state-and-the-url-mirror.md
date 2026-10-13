@@ -82,6 +82,12 @@ name, like `conn`.
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
   the value into the `data-signals` seed it already emits.
+- **A variable at its declared value has no param.** A node variable's mirror
+  carries the declaration's value as a third element,
+  `['v.<id>.mode', $signal, '0']`, and drops the param at it: no param already
+  means the declared value when the server reads the query, so the param said
+  nothing, and a page with a dozen mode sliders wrote a dozen of them on every
+  load. A URL names only what a viewer changed.
 - **A param lives as long as the element that mirrors it** (issue #411).
   `data-fh-url` is a Datastar attribute, bundled with the vendored Datastar
   into one module, so its cleanup is Datastar's: when the last element

@@ -436,7 +436,7 @@ open class Slider extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
-      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}"{{#modeHost}} data-signals__ifmissing="{ \(modeVar.own.pendingSeed) }" \(modeVar.own.pendingClear) \(modeVar.own.urlMirror){{/modeHost}}>{{#head}}{{{html}}}{{/head}}<div class="fh-slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
+      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}"{{#modeHost}} data-signals__ifmissing="{ \(modeVar.own.pendingSeed) }" \(modeVar.own.pendingClear) \(modeVar.own.urlMirror("0")){{/modeHost}}>{{#head}}{{{html}}}{{/head}}<div class="fh-slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
       """
     css = sliderCss
     script = sliderTouchScript

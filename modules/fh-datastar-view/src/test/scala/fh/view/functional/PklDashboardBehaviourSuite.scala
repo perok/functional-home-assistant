@@ -894,7 +894,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // Off the bar's markup: the seed also names the chooser in the
           // more-info popup.
           val ids =
-            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window\]"""".r
+            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window, '[^']*'\]"""".r
               .findAllMatchIn(html)
               .map(_.group(1))
               .toSet
