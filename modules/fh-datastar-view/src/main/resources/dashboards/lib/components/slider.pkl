@@ -254,14 +254,17 @@ class EntitySlider extends sliderBase.Slider {
   /// Set on a group's row by its head: the head's modes, which the row shows
   /// in step, greyed where it lacks one.
   hidden followModes: List<SliderMode>? = null
-  hidden offeredModes: List<SliderMode> =
-    if (singleMode) List()
-    else if (modeChoice == null) availableModes
+  hidden pickedModes: List<SliderMode> =
+    if (modeChoice == null) availableModes
     else
       let (picked = modeChoice!!.filter((m) -> availableModes.contains(m)))
         if (picked.isEmpty)
           throw("c.entitySlider(\(entity.entity_id)).modes(\(modeChoice!!)): the light has none of them; it has \(availableModes)")
         else picked
+  /// Rendered once per member of a candidate set, a slider cannot declare
+  /// [[sliderBase.modeVar]] (ADR 0033), so it keeps its first mode.
+  hidden offeredModes: List<SliderMode> =
+    if (singleMode || perMember) pickedModes.take(1) else pickedModes
   /// This slider's own head as the given mode's axis — its default one for
   /// brightness — dimmed and disabled for a mode a group's row lacks. On a
   /// slider with a pill, the actions are the pill's.
@@ -274,6 +277,7 @@ class EntitySlider extends sliderBase.Slider {
       (self) {
         on = axis
         singleMode = true
+        modeChoice = null
         followModes = null
         members = new {}
         readout = self.readout
@@ -287,15 +291,22 @@ class EntitySlider extends sliderBase.Slider {
     if (following)
       followModes!!.map((m) ->
         new sliderBase.ModeHead {
-          icon = modeIcons[m]
-          label = modeLabels[m]
           head =
             if (m == "brightness" || availableModes.contains(m)) modeHead(m, false, true)
             else modeHead("brightness", true, true)
         })
     else if (offeredModes.length > 1)
-      offeredModes.map((m) ->
-        new sliderBase.ModeHead { icon = modeIcons[m]; label = modeLabels[m]; head = modeHead(m, false, false) })
+      let (n = offeredModes.length)
+        offeredModes.mapIndexed((i, m) ->
+          new sliderBase.ModeHead {
+            head = modeHead(m, false, false)
+            button = new sliderBase.ModeButton {
+              label = modeLabels[m]
+              icon = modeIcons[m]
+              // A switch answers too fast for a spinner to mean anything.
+              tapAction = (sliderBase.modeVar.choose(((i + 1) % n).toString())) { busyVisual = false }
+            }
+          })
     else List()
   declaresMode = !following && modes.length > 1
   /// One mode left by [[modes]] that is not brightness: the slider is that axis.
@@ -303,24 +314,7 @@ class EntitySlider extends sliderBase.Slider {
     if (!following && offeredModes.length == 1 && offeredModes[0] != "brightness")
       modeHead(offeredModes[0], false, true)
     else super.headNode
-  pill =
-    if (declaresMode)
-      let (n = modes.length)
-        new Listing {
-          for (i, m in modes) {
-            new sliderBase.ModeButton {
-              label = m.label
-              icon = m.icon
-              // Strict, as a tab bar's, so an unseeded choice lights none.
-              active = "String(\(sliderBase.modeVar.below.chosen)) === '\(i)'"
-              // A switch answers too fast for a spinner to mean anything.
-              tapAction = (sliderBase.modeVar.choose(((i + 1) % n).toString())) { busyVisual = false }
-            }
-          }
-          ...leadingActions
-          ...actions
-        }
-    else new {}
+  pillActions = if (declaresMode) new Listing { ...leadingActions ...actions } else new {}
   memberRows =
     if (declaresMode)
       let (ms = offeredModes)

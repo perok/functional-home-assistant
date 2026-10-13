@@ -59,15 +59,19 @@ class LightSliderSuite extends CatsEffectSuite {
 
   private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/(\d)""".r
 
-  test("first paint is the brightness slider, with a button per mode") {
+  test(
+    "first paint is the brightness slider, its button stepping to the next"
+  ) {
     served(lamp) { ts =>
       ts.page().map { html =>
-        List("Brightness", "Colour temperature", "Colour").foreach { l =>
-          assert(html.contains(s"""aria-label="$l""""), clue = l)
+        // Only the shown mode's button is in the page: no script picks it.
+        assert(html.contains("""aria-label="Brightness""""), clue = html)
+        List("Colour temperature", "Colour").foreach { l =>
+          assert(!html.contains(s"""aria-label="$l""""), clue = l)
         }
         assertEquals(
           modeRoute.findAllMatchIn(html).map(_.group(2)).toList,
-          List("1", "2", "0")
+          List("1")
         )
         assert(html.contains("{'brightness': Number("), clue = html)
         // A panel not shown is not rendered.

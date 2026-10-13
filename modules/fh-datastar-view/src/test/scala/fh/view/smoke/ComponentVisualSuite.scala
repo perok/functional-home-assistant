@@ -150,7 +150,7 @@ class ComponentVisualSuite extends SmokeSuite {
     Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
 
   private def lightSliderCell(page: Page) =
-    page.locator(".fh-cell:has(> article.fh-slider-card)")
+    page.locator(".fh-cell:has(> article.fh-slider-card)").first()
 
   test("the light slider looks right on brightness") {
     withPage(lightSliderScene, viewport) { (page, _) =>
@@ -177,6 +177,43 @@ class ComponentVisualSuite extends SmokeSuite {
         settle(page)
         VisualSnapshot.check(
           "light-slider-colour",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  private val lightSliderGroupScene =
+    Scene
+      .of(SmokeDashboard.lightSliderGroup)
+      .entity(SmokeDashboard.colourLamp)
+      .entity(SmokeDashboard.colourLamp2)
+      .entity(SmokeDashboard.groupDimmer)
+
+  test("a light group's slider looks right on brightness") {
+    withPage(lightSliderGroupScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-group-brightness",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
+  test("a light group's slider looks right on colour, its dimmer row greyed") {
+    withPage(lightSliderGroupScene, viewport) { (page, _) =>
+      IO.blocking {
+        val mode = page.locator(".fh-slider-pill button.fh-mode")
+        mode.click()
+        assertThat(page.locator("input[type=range][max='6500']")).hasCount(2)
+        mode.click()
+        assertThat(page.locator("input[type=range][max='360']")).hasCount(2)
+        page.mouse().move(0, 0)
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-group-colour",
           lightSliderCell(page).screenshot()
         )
       }

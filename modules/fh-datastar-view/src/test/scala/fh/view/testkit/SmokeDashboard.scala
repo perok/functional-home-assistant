@@ -268,6 +268,51 @@ object SmokeDashboard {
       HouseFixture.dumpWith(colourLamp)
     )
 
+  /** A second colour lamp and a dimmer, the rows of [[lightSliderGroup]]. */
+  val colourLamp2: FixtureEntity =
+    colourLamp.copy(
+      entityId = "light.lamp2",
+      attributes = colourLamp.attributes +
+        ("friendly_name" -> Json.fromString("Lamp 2"))
+    )
+  val groupDimmer: FixtureEntity = FixtureEntity(
+    "light.dimmer",
+    "on",
+    Map(
+      "friendly_name" -> Json.fromString("Dimmer"),
+      "supported_color_modes" -> Json.arr(Json.fromString("brightness")),
+      "brightness" -> Json.fromInt(90)
+    )
+  )
+
+  /** A colour light's slider over two rows, with a power button: the shape a
+    * house's light groups take.
+    */
+  val lightSliderGroup: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-group",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider Group"
+         |
+         |$fontPinnedTheme
+         |
+         |local head = dump.entities.${colourLamp.dumpKey}
+         |card = (c.grid) {
+         |  children {
+         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).withSubSliders(List(
+         |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
+         |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
+         |    ))
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp, colourLamp2, groupDimmer)
+    )
+
   /** A row of pills under a column: the nesting a column's inherited cell width
     * leaked through, stacking the pills.
     */
