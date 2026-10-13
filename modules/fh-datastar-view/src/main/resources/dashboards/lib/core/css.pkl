@@ -42,6 +42,9 @@ const local paletteVars: String = """
 ///     to 12 fit one row exactly.
 ///   - `.fh-row`: children share the width. `.fh-col`: children fill it.
 ///   - `.fh-hug`: the cell shrinks to its content instead of filling its share.
+///   - `.fh-wrap` on a row: cells keep their own width and wrap, where the
+///     default `1 1 0` with `min-width:0` shrinks them all onto one line.
+///   - `.fh-justify-center`/`-end`: along the box's own direction.
 ///
 /// A container states its children's layout as INHERITED custom properties
 /// (`--fh-cell-flex`, …), never a child selector: a query set's `.fh-group` is
@@ -60,6 +63,9 @@ const layoutCss: String = """
 
   .fh-cols-full{flex-basis:100%}
   .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap;--fh-cell-flex:1 1 0;--fh-cell-width:auto;--fh-cell-align-self:flex-start}
+  .fh-row.fh-wrap{--fh-cell-flex:0 1 auto}
+  .fh-justify-center{justify-content:center}
+  .fh-justify-end{justify-content:flex-end}
   .fh-cell.fh-hug{flex:0 0 auto}
   .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%}
   .fh-cell:has(>.fh-ifhost:empty){display:none}

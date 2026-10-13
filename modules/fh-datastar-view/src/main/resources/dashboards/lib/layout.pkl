@@ -22,6 +22,10 @@ abstract class Box extends nodes.Node {
   }
 }
 
+/// Where a box's children sit along its own direction when they do not fill
+/// it: a row's hugging pills, a column taller than its cards.
+typealias Justify = "start"|"center"|"end"
+
 const local function boxDef(cls: String): nodes.CardDef = new {
   regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
   template = #"<div class="\#(cls){{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>"#
@@ -30,7 +34,18 @@ const local function boxDef(cls: String): nodes.CardDef = new {
 class Row extends Box {
   card = "fhrow"
   cardDef = boxDef("fh-row")
+  hidden justify: Justify = "start"
+  hidden wraps: Boolean = false
+  ownClasses {
+    when (justify != "start") { "fh-justify-\(justify)" }
+    when (wraps) { "fh-wrap" }
+  }
   function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
+  /// `"center"` centres a row of pills; each wrapped line is placed alike.
+  function justify(j: Justify): Row = let (self = this) (self) { justify = j }
+  /// Children keep their own width and wrap onto a new line when the row is
+  /// full, rather than all shrinking to share one line.
+  function wrap(): Row = let (self = this) (self) { wraps = true }
 }
 
 /// `(c.row) { children { ... } }`. The parens are required around any amend
@@ -41,7 +56,13 @@ hidden row: Row = new Row {}
 class Column extends Box {
   card = "fhcol"
   cardDef = boxDef("fh-col")
+  hidden justify: Justify = "start"
+  ownClasses {
+    when (justify != "start") { "fh-justify-\(justify)" }
+  }
   function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
+  /// Where the cards sit in a column taller than they are.
+  function justify(j: Justify): Column = let (self = this) (self) { justify = j }
 }
 /// `(c.column) { children { ... } }`.
 hidden column: Column = new Column {}
