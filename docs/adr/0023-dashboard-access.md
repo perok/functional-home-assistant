@@ -235,13 +235,15 @@ two come apart badly — the call route forwards whatever service and target are
 in its URL, so admission to the most permissive dashboard in the house would be
 admission to every service on every entity in it. `Public` makes that sharp: no
 login, and the front door lock one URL edit away from the street. So
-`POST /sse/call/:slug/<domain>/<service>/<entity|area|floor>/<id>[/<key>/<value>]`
-carries its dashboard, and `Server` refuses any call that dashboard's taps do
-not declare: the allowlist is `Dashboard.calls`, the exact (service, target,
-value key) combinations read off `tap.pkl`'s route slots. A service the
-target's state picks (a lock's `unlock`/`lock`) declares every arm of its match.
-The value itself stays free: a slider's position is the one thing the build
-cannot know.
+`POST /sse/call/:slug/<domain>/<service>/<entity|area|floor>/<id>` carries its
+dashboard, and `Server` refuses any call that dashboard's taps do not declare:
+the allowlist is `Dashboard.calls`, the exact (service, target, value key)
+combinations read off `tap.pkl`'s route slots. A service the target's state
+picks (a lock's `unlock`/`lock`) declares every arm of its match. The value
+rides in the body, `{"data": {<key>: <value>}}`, at most one key, and stays
+free: a slider's position is the one thing the build cannot know. It is JSON as
+the page typed it, so a number is a number, text is text and a list is a list,
+with nothing on the server guessing which from a path segment.
 
 It is decidable statically because a candidate set's membership is live but its
 candidate LIST is not (ADR 0003) — the walk covers the layout and every surface

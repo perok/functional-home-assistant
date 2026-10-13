@@ -2410,11 +2410,11 @@ class PklBuildSuite extends munit.FunSuite {
       pills.map(_.slots("label").literal),
       List(Some("off"), Some("Color loop"))
     )
-    // The value is a literal slot the template puts in the route's trailing
-    // `/<key>/<value>`; the space is percent-encoded.
+    // The value is a literal slot the template puts in the call's body, as a
+    // JSON literal.
     assertEquals(pills(1).slots("service").literal, Some("light/turn_on"))
     assertEquals(pills(1).slots("dataKey").literal, Some("effect"))
-    assertEquals(pills(1).slots("dataValue").literal, Some("Color%20loop"))
+    assertEquals(pills(1).slots("dataValue").literal, Some("\"Color loop\""))
     // Exact bytes: the transform string ships and hashes as written, so its
     // shape is a contract. The colour-temperature span is the light's own range
     // baked (4535.0), not a constant.

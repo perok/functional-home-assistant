@@ -183,12 +183,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`). `POST /sse/call/:slug/:domain/:service/:kind/:id` triggers a
-  no-data service on a target — `kind` is `entity`, `area` or `floor`, and HA expands the last two;
-  the value-carrying variant `.../:id/:key/:value` builds `service_data` (the value rides in the URL
-  path, since Datastar template-literal URL interpolation isn't confirmed in v1 — use
-  `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
-  the persistent SSE stream.
+  `HomeAssistantApi.callService`). `POST /sse/call/:slug/:domain/:service/:kind/:id` calls a
+  service on a target — `kind` is `entity`, `area` or `floor`, and HA expands the last two. A value
+  rides in the body as `{"data": {<key>: <value>}}` (`Server.callData`; one key at most), sent with
+  the bundle's `@post(url, {payload: …})`, which replaces the signals — `tapMod.withData` spells it,
+  and `Call.with` takes a string, number, boolean or list and splices it as a JSON literal. The
+  resulting state change flows back over the persistent SSE stream.
   The `:slug` is what BOUNDS the call (ADR 0023): it is refused unless one of that dashboard's taps
   declares exactly that (service, target, value key) — `Dashboard.calls`, read off `tap.pkl`'s
   route slots — so admission to one dashboard is not admission to the whole house. A tap names its

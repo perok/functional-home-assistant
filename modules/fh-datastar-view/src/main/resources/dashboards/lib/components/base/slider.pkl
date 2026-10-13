@@ -87,7 +87,7 @@ class SliderHead extends nodes.ActiveNode {
             \(restoreOnDeadStream)
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}/{{dataKey}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
+            data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', \(tapMod.withData("{{dataKey}}", "Number($\(slideSig))")))" />{{/toggle}}
           <span style="--fh-fill: {{fill}};background:{{fillColor}}" \(slotMod.signalBind("fill")) \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="fh-slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))

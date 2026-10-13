@@ -217,17 +217,12 @@ class Server(
     // (`homeassistant.toggle` on a `light`). `kind` is `entity`, `area` or
     // `floor`; HA expands the last two (issue #389).
     case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id =>
-      tapCall(req, slug, domain, service, kind, id, None)
-
-    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id / dataKey / dataValue =>
-      tapCall(
-        req,
-        slug,
-        domain,
-        service,
-        kind,
-        id,
-        Some(dataKey -> dataValue)
+      req.bodyText.compile.string.flatMap(body =>
+        Server.callData(body) match {
+          case Right(data) =>
+            tapCall(req, slug, domain, service, kind, id, data)
+          case Left(why) => actionRefused(req, why)
+        }
       )
 
     // The slug is what the rule checks (ADR 0023), and the only way to
@@ -266,7 +261,7 @@ class Server(
       service: String,
       kind: String,
       id: String,
-      data: Option[(String, String)]
+      data: Option[(String, Json)]
   ): IO[Response[IO]] =
     gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
       (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
@@ -280,9 +275,7 @@ class Server(
                 domain,
                 service,
                 call.target,
-                data.fold(Json.obj())((k, v) =>
-                  Json.obj(k -> Server.parseValue(v))
-                ),
+                data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
                 req
               )
             case None =>
@@ -2838,10 +2831,24 @@ object Server {
       .replace("\"", "&quot;")
       .replace("'", "&#39;")
 
-  /** Int, then double, else string, so HA gets `brightness: 128`. */
-  def parseValue(raw: String): Json =
-    raw.toIntOption
-      .map(Json.fromInt)
-      .orElse(raw.toDoubleOption.flatMap(Json.fromDouble))
-      .getOrElse(Json.fromString(raw))
+  /** A call's value, from its body `{"data": {<key>: <value>}}`, typed as the
+    * page sent it. One key at most: a tap declares one (ADR 0023). An empty
+    * body is a call with no data.
+    */
+  def callData(body: String): Either[String, Option[(String, Json)]] =
+    if (body.isBlank) Right(None)
+    else
+      io.circe.parser
+        .parse(body)
+        .toOption
+        .toRight("the call's body is not JSON")
+        .flatMap(_.hcursor.downField("data").focus match {
+          case None       => Right(None)
+          case Some(data) =>
+            data.asObject.map(_.toList) match {
+              case Some(Nil)           => Right(None)
+              case Some(single :: Nil) => Right(Some(single))
+              case _ => Left("a call's data is one key and its value")
+            }
+        })
 }
