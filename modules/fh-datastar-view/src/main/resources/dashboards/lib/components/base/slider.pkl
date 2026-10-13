@@ -584,8 +584,9 @@ const local sliderCss: String = """
   .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3;--fh-cell-flex:0 0 auto;--fh-cell-width:auto}
   .fh-slider-pill .fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
   /* A group's master track is the whole card, rows included, as without
-     modes: the pill sits over its end, as the head's actions did. */
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-modes-panel{position:static}
+     modes: the pill sits over its end, as the head's actions did. Static, or
+     BeerCSS's `*{position:relative}` makes the wrapper the track's box. */
+  .fh-slider-group>:not(.fh-slider-members) :is(.fh-slider-modes,.fh-slider-modes-panel){position:static}
   /* A row has no pill, so its wrappers are no boxes, and its head and track
      share the row's grid cell as they do without modes. */
   .fh-slider-members :is(.fh-slider-modes,.fh-slider-modes-panel){display:contents}
