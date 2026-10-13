@@ -90,9 +90,27 @@ markup:
 | `WindowChooser` (`components/history.pkl`) | `window` | a row of buttons over charts |
 | the slider's `ModeButton` (`components/base/slider.pkl`) | `mode` | one button stepping round |
 
-The slider pill moves onto `c.select` in A. The tab bar and the window
-chooser move only if their markup survives unchanged (their visual baselines
-say); otherwise each gets an issue.
+The tab bar and the window chooser move only if their markup survives
+unchanged (their visual baselines say); otherwise each gets an issue.
+
+The slider pill does NOT move yet, a question for the maintainer. Its buttons
+are baked, one panel per mode selected by `mode`, which is what keeps the
+right button in the first HTML. A bake group is selected by a member INDEX
+(`Activation.Var`, `Renderer.refusals`), while a select's values are names
+(`7d`), so `c.select`'s cycle shows its buttons with `data-show` instead: all
+hidden in the first HTML, the chosen one shown once Datastar reads the
+committed value. Moving the pill onto it brings back a blank pill until the
+script runs. The fix is a bake group selected by value, a runtime change.
+
+### Status
+
+- `c.variable(name)`, `c.select(v, options)` and `.style(…)` over a node
+  variable, in all three styles (`components/select.pkl`): Pkl facts
+  (`select.test.pkl`), a render test (`SelectSuite`), a browser smoke test
+  (`SelectSmokeSuite`).
+- Not yet in the library's card index (`components.pkl`'s `modules`), which
+  `PklBuildSuite` pins: adding it is an edit to that existing test.
+- Next: the entity target.
 
 ### Tests
 

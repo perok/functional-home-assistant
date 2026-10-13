@@ -40,6 +40,8 @@ import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
 import "components/progress.pkl" as progressMod
 import "components/tap.pkl" as tapVerbs
+import "components/select.pkl" as selectMod
+import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
 
 // ---- namespaces ----
@@ -171,6 +173,14 @@ function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
 /// A window bar over the charts beneath it:
 /// `(c.windowChooser) { children { c.historyChart(s).chosen() } }`.
 hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser
+/// A node variable named `name`, for a node's `vars` and a [[select]] below
+/// it: `local shade = c.variable("shade")`.
+function variable(name: String): varMod.Variable =
+  let (n = name) new varMod.Variable { name = n }
+/// One value of `v` from `options`, chosen with buttons until
+/// `.style("dropdown")` or `.style("cycle")`. Something above declares `v`.
+function select(v: varMod.Variable, options: List<varMod.Value|selectMod.Choice>): selectMod.Select =
+  selectMod.select(v, options)
 /// A section shown while `p` holds over live state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 /// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.

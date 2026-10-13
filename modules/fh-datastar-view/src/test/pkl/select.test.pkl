@@ -1,0 +1,58 @@
+/// `c.select`: one value of a node variable, in a style. Outside `lib/` for the
+/// reason `components.test.pkl` gives.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+
+local shade = c.variable("shade")
+
+local function route(n: Any): String = (n.slots["onclick"] as slotMod.Slot).transform as String
+
+facts {
+  ["buttons by default: one per option, each choosing its own value"] {
+    local s = c.select(shade, List("pale", "deep"))
+    s is selectMod.SelectButtons
+    local opts = s.children.toList()
+    opts.length == 2
+    route(opts[0]).contains("/shade/pale") && route(opts[1]).contains("/shade/deep")
+    // Lit by the ask while one is out, else the commit.
+    (opts[1].slots["active"] as String).endsWith("=== 'deep'")
+    (opts[1].slots["active"] as String).contains("__pending")
+  }
+
+  ["a style is the same choice in another card"] {
+    local base = c.select(shade, List("pale", "deep"))
+    base.style("dropdown").card == "selectDropdown"
+    base.style("cycle").card == "selectCycle"
+    base.style("dropdown").style("buttons").card == "selectButtons"
+    base.style("cycle").choices == base.choices
+  }
+
+  ["a dropdown names the chosen option's label, escaped for a JS string"] {
+    local d = c.select(shade, List(new selectMod.Choice { value = "pale"; label = "it's pale" }, "deep"))
+      .style("dropdown")
+    local shown = d.slots["chosen"] as String
+    shown.contains(#"'pale': 'it\'s pale'"#)
+    shown.contains("'deep': 'deep'")
+  }
+
+  ["a cycle shows the chosen option, and a press chooses the next, round"] {
+    local cyc = c.select(shade, List("a", "b", "c")).style("cycle")
+    local bs = cyc.children.toList()
+    bs.length == 3
+    route(bs[0]).contains("/shade/b") && route(bs[1]).contains("/shade/c") && route(bs[2]).contains("/shade/a")
+    (bs[2].slots["shown"] as String).endsWith("=== 'c'")
+    // An icon replaces the label on the face.
+    local iconic = c.select(shade, List(new selectMod.Choice { value = "a"; icon = "mdi:palette" }, "b"))
+      .style("cycle").children.toList()
+    iconic[0].slots["glyph"] == "mdi mdi-palette"
+    !iconic[1].slots.containsKey("glyph")
+  }
+
+  ["no options, or a value no route can carry, is a build error"] {
+    module.catch(() -> c.select(shade, List()).card).contains("c.select(shade) has no options")
+    module.catch(() -> c.select(shade, List("two words")).choices).contains("two words")
+  }
+}
