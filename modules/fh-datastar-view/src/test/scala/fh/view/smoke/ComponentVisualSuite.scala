@@ -220,6 +220,23 @@ class ComponentVisualSuite extends SmokeSuite {
     }
   }
 
+  test("a group's rows with modes of their own look right") {
+    val scene = Scene
+      .of(SmokeDashboard.lightSliderRows)
+      .entity(SmokeDashboard.groupDimmer)
+      .entity(SmokeDashboard.colourLamp)
+      .entity(SmokeDashboard.colourLamp2)
+    withPage(scene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-rows",
+          lightSliderCell(page).screenshot()
+        )
+      }
+    }
+  }
+
   test("the full dashboard looks right") {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {

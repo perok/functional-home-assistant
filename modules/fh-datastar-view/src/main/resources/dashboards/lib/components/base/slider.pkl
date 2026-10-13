@@ -587,9 +587,12 @@ const local sliderCss: String = """
      modes: the pill sits over its end, as the head's actions did. Static, or
      BeerCSS's `*{position:relative}` makes the wrapper the track's box. */
   .fh-slider-group>:not(.fh-slider-members) :is(.fh-slider-modes,.fh-slider-modes-panel){position:static}
-  /* A row has no pill, so its wrappers are no boxes, and its head and track
-     share the row's grid cell as they do without modes. */
-  .fh-slider-members :is(.fh-slider-modes,.fh-slider-modes-panel){display:contents}
+  /* A row's head and track share the panel's one grid cell, as they share the
+     row's without modes, so the label stays centred; its pill, if it has one,
+     sits at the row's end, in line with the head's buttons above. */
+  .fh-slider-members .fh-slider-modes{align-items:stretch}
+  .fh-slider-members .fh-slider-modes-panel{display:grid}
+  .fh-slider-members .fh-slider-pill{padding-inline:.25rem}
   .fh-slider-greyed{opacity:.45}
   /* Through `.fh-slider-body`, so these miss the members' own heads. Rows are
      declared, or the badge spanning both pushes the label's two lines apart;

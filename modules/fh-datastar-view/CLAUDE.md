@@ -341,8 +341,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
   them: a head per mode in a bake group selected by the node variable `mode` the slider declares
   (`base/slider.pkl`'s `SliderModes`), with a pill at the track's end holding the mode button, which
-  steps to the next, and the actions. A group's rows follow the head's `mode`, greyed where they lack
-  one. `.single()` / `.modes(List(…))` narrow it — a filter over what the light has, ADR 0013),
+  steps to the next, and the actions. A group's rows have their own; on `.syncRows()` they follow the
+  head's `mode` instead, greyed where they lack one. A slider a candidate set renders per member
+  keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `.single()` / `.modes(List(…))` narrow it — a filter over what the light has, ADR 0013),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
   by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving

@@ -303,9 +303,37 @@ object SmokeDashboard {
          |local head = dump.entities.${colourLamp.dumpKey}
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).withSubSliders(List(
+         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).syncRows().withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
+         |    ))
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp, colourLamp2, groupDimmer)
+    )
+
+  /** A dimmer's slider with a power button over two colour rows, each with a
+    * pill of its own: a kitchen's shape, where the head has no modes.
+    */
+  val lightSliderRows: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-rows",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider Rows"
+         |
+         |$fontPinnedTheme
+         |
+         |local head = dump.entities.${groupDimmer.dumpKey}
+         |card = (c.column) {
+         |  children {
+         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).secondary("Kitchen").withSubSliders(List(
+         |      c.entitySlider(dump.entities.${colourLamp.dumpKey}).readout("percent").icon(null),
+         |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null)
          |    ))
          |  }
          |}

@@ -251,8 +251,11 @@ class EntitySlider extends sliderBase.Slider {
   /// [[modes]]'s choice; null offers every one the light has.
   hidden modeChoice: List<SliderMode>? = null
   hidden singleMode: Boolean = false
-  /// Set on a group's row by its head: the head's modes, which the row shows
-  /// in step, greyed where it lacks one.
+  /// Whether the head's mode button switches its rows too; otherwise each row
+  /// with modes has its own pill ([[syncRows]]).
+  hidden rowsFollow: Boolean = false
+  /// Set on a group's row by a head with [[rowsFollow]]: the head's modes,
+  /// which the row shows in step, greyed where it lacks one.
   hidden followModes: List<SliderMode>? = null
   hidden pickedModes: List<SliderMode> =
     if (modeChoice == null) availableModes
@@ -316,7 +319,7 @@ class EntitySlider extends sliderBase.Slider {
     else super.headNode
   pillActions = if (declaresMode) new Listing { ...leadingActions ...actions } else new {}
   memberRows =
-    if (declaresMode)
+    if (declaresMode && rowsFollow)
       let (ms = offeredModes)
         members.toList().map((n) -> if (n is EntitySlider) (n) { followModes = ms } else n).toListing()
     else members
@@ -328,6 +331,9 @@ class EntitySlider extends sliderBase.Slider {
   function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
   function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
+  /// The head's mode button switches the rows too: one press, the whole group
+  /// on colour. A row lacking the mode shows its brightness, greyed.
+  function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
   /// One axis, the light's first: brightness on a dimmer. No mode switch.
   function single(): EntitySlider = let (self = this) (self) { singleMode = true }
   /// These modes, in this order, where the light has them; one left is that

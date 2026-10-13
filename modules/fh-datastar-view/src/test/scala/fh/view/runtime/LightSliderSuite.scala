@@ -127,10 +127,12 @@ class LightSliderSuite extends CatsEffectSuite {
     }
   }
 
-  test("a group's rows switch with its head, greyed where they lack the mode") {
+  test(
+    "on syncRows, a group's rows switch with its head, greyed where they lack it"
+  ) {
     val lamp2 = lamp.copy(entityId = "light.lamp2")
     val card =
-      s"c.entitySlider(dump.entities.${lamp.dumpKey}).withSubSliders(List(" +
+      s"c.entitySlider(dump.entities.${lamp.dumpKey}).syncRows().withSubSliders(List(" +
         s"c.entitySlider(dump.entities.${lamp2.dumpKey}), " +
         s"c.entitySlider(dump.entities.${dimmer.dumpKey})))"
     val groupEntry =
