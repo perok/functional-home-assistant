@@ -48,14 +48,30 @@ class ColourWheelSmokeSuite extends SmokeSuite {
           assertThat(wheel).isVisible()
           wheel.boundingBox()
         }
-        (cx, cy, r) = (box.x + box.width / 2, box.y + box.height / 2, box.width / 2)
+        (cx, cy, r) = (
+          box.x + box.width / 2,
+          box.y + box.height / 2,
+          box.width / 2
+        )
         _ <- IO.blocking {
           // Start at the top (red), end right of centre at half the radius:
           // hue 90, saturation 50.
           page.mouse().move(cx, cy - r * 0.9)
           page.mouse().down()
-          page.mouse().move(cx + r * 0.25, cy, new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5))
-          page.mouse().move(cx + r * 0.5, cy, new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5))
+          page
+            .mouse()
+            .move(
+              cx + r * 0.25,
+              cy,
+              new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5)
+            )
+          page
+            .mouse()
+            .move(
+              cx + r * 0.5,
+              cy,
+              new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5)
+            )
           page.mouse().up()
         }
         calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
