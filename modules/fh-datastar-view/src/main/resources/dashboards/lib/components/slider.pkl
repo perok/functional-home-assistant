@@ -136,12 +136,14 @@ class EntitySlider extends sliderBase.Slider {
       entity.colourModes.toList().contains("color_temp")
     else false
   hidden fillColorExpr: String =
-    if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
+    if (hue) "\(valueExpr).optMap(h, 'hsl(' + str(math.round(h)) + ',100%,50%)').orValue('')"
+    else if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
     else sliderFillColourRgb
   /// Whether the fill colour can change. Where it cannot — most lights — the
-  /// base paints a constant, with no signal and no CEL behind it.
+  /// base paints a constant, with no signal and no CEL behind it. A hue's is
+  /// its marker, in the hue it marks.
   hidden fillColourMoves: Boolean =
-    (on is hass.ColourTemp && reportsKelvin) || (reportsRgb && !hue)
+    hue || (on is hass.ColourTemp && reportsKelvin) || reportsRgb
   /// The guarded position read, an optional (empty while a light is off): splice
   /// it as `\(valueExpr).optMap(v, …).orValue(…)`.
   hidden valueExpr: String =
