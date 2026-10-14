@@ -242,7 +242,7 @@ class VarSelectDropdown extends Select {
   }
   inlineSurfaces =
     let (cs = choices)
-      panelsOf(target as varMod.Variable, cs.map((ch) -> new ChoiceLabel { label = ch.label }), cs)
+      panelsOf(target as varMod.Variable, cs.map((ch) -> new ChoiceLabel { label = ch.label; icon = ch.icon }), cs)
 }
 
 /// One button showing the chosen option; a press chooses the next, round. Over
@@ -359,14 +359,22 @@ const local function ringCount(cs: List<Choice>): String =
   else cs.length.toString()
 
 /// The label a [[VarSelectDropdown]] shows for one option.
+/// An icon replaces the label, as on a cycle's face, so a dropdown fits a
+/// slider's pill; the list still names every option.
 class ChoiceLabel extends nodes.Node {
   card = "selectChoice"
   cardDef = new nodes.CardDef {
-    template = "<span>{{label}}</span>"
+    template = #"{{#glyph}}<i class="{{glyph}}" title="{{label}}"></i>{{/glyph}}{{^glyph}}<span>{{label}}</span>{{/glyph}}"#
     slots { "label" }
   }
   hidden label: String
-  slots { ["label"] = label }
+  hidden icon: String? = null
+  slots {
+    ["label"] = label
+    when (icon != null) {
+      ["glyph"] = "mdi " + icons.mdiClass(icon!!)
+    }
+  }
 }
 
 /// The button a [[VarSelectCycle]] shows for one option; a press chooses the

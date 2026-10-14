@@ -59,6 +59,12 @@ facts {
     members(d).map((m) -> (m.first as selectMod.ChoiceLabel).label) == List("it's pale", "deep")
     // The list still holds every option.
     d.children.toList().length == 2
+    // An icon takes the label's place on the face.
+    local iconic = members(c.select(shade)
+      .options(List(new selectMod.Choice { value = "a"; label = "A"; icon = "mdi:palette" }, "b"))
+      .style("dropdown"))
+    (iconic[0].first as selectMod.ChoiceLabel).slots["glyph"] == "mdi mdi-palette"
+    !(iconic[1].first as selectMod.ChoiceLabel).slots.containsKey("glyph")
   }
 
   ["a variable's cycle bakes one button per option, each choosing the next, round"] {
