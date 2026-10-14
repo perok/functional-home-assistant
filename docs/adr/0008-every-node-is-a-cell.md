@@ -142,8 +142,8 @@ says the same from the other side — it rejects a live BYTES slot on structure
 0011, "what is a log key"). Candidate-set roots are in the same class, for the
 same reason.
 
-**A structural card may read `bakeIndex`.** It is the node's own selected index,
-and the shipped tab bar seeds a signal from it. What a structural card may not
+**A structural card may read `bakeIndex`.** It is the node's own selected
+index, which no live state moves. What a structural card may not
 do is show a live value as BYTES: it holds content, so it would have to be
 patched for those bytes to move, and it cannot be. A card wanting its own markup
 to change puts that markup in a region, as a node — a slider's head is a card of

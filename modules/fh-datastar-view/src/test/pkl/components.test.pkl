@@ -322,13 +322,11 @@ facts {
   ["the declared window moves with `starting`"] {
     local week = (c.windowChooser).starting("7d")
     week.vars["window"] == "7d"
-    // The page seeds the highlight from the viewer's value, so the bar
-    // carries no copy of the declared one to disagree with it. The URL
-    // mirror's is the declaration itself, which it drops the param at.
-    local mirrorDefault = "__window, '{{start}}']"
-    week.cardDef.template.contains(mirrorDefault)
-    !week.cardDef.template.replaceFirst(mirrorDefault, "").contains("{{start}}")
-    week.slots["start"] == "7d"
+    // The page seeds the highlight from the viewer's value, and the cell's URL
+    // mirror takes the declared one from `vars`, so the template carries no
+    // copy of it to disagree with either.
+    !week.cardDef.template.contains("{{start}}")
+    !week.slots.containsKey("start")
   }
 
   ["a label node is the core label, its tone a slot"] {

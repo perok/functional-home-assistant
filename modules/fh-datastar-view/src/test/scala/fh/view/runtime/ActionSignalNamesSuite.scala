@@ -58,9 +58,10 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
           // follow.
           val nodeId =
             firstMatch("""data-fh-node="([A-Za-z0-9_]+)"""".r, html, "node id")
-          // A tab bar's group is its node variable's (ADR 0033).
+          // A tab bar's group is its node variable's (ADR 0033), as its
+          // buttons send it.
           val groupId = firstMatch(
-            """\{ _(var_[A-Za-z0-9_]+)__pending:""".r,
+            """\?group=(var_[A-Za-z0-9_]+)'""".r,
             html,
             "tab group id"
           )
