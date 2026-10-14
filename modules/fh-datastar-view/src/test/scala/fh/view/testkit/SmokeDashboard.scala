@@ -268,6 +268,33 @@ object SmokeDashboard {
       HouseFixture.dumpWith(colourLamp)
     )
 
+  /** `c.select(v).style("radial")` with room above for its ring. */
+  val selectRadial: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-select-radial",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |
+         |title = "Smoke Select Radial"
+         |
+         |$fontPinnedTheme
+         |
+         |local shade = c.variable("shade")
+         |
+         |card = (c.column) {
+         |  vars = shade.declare("24h")
+         |  children {
+         |    c.title("Window")
+         |    c.label("Hold to choose")
+         |    c.label("or tap")
+         |    c.select(shade).options(List("24h", "7d", "30d", "1y", "All")).style("radial")
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.transformedDump
+    )
+
   /** A second colour lamp and a dimmer, the rows of [[lightSliderGroup]]. */
   val colourLamp2: FixtureEntity =
     colourLamp.copy(

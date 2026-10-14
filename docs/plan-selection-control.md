@@ -163,8 +163,17 @@ around the finger, drag to one and release to choose it.
   or without a library.
 - **Decided:** C as our own ring, with no dependency. Orbit stays the
   candidate for what it is built for, the arcs: a thermostat dial, gauges.
-- **Still to try in a browser:** how a hold coexists with a tap (the cycle)
-  and with a page scroll (`touch-action`, a hold threshold).
+- **Status (its own PR on A3):** `.style("radial")`, a `selectRadial` card
+  (entity, live face) and a `selectVarRadial` (variable, face baked by value).
+  - The ring is CSS: each option's `--fh-i` from `:nth-child`, `--fh-n` from
+    the count, so the server sends no angles; up to 12 options, more is a
+    build error pointing at the dropdown.
+  - A hold of 250 ms opens it; a drag picks by the pointer's angle outside the
+    face; the release clicks the picked option's own button, so it is that
+    option's tap, guard and busy look. A quick tap opens the ring for tapping,
+    and a second tap closes it.
+  - `touch-action:none` on the face only, so a scroll that starts elsewhere
+    still scrolls. Not yet tried on a phone.
 
 ## Open questions
 

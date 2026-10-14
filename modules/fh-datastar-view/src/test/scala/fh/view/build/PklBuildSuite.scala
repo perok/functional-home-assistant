@@ -1170,6 +1170,8 @@ class PklBuildSuite extends munit.FunSuite {
       "selectVarDropdown" -> Nil,
       "selectVarCycle" -> Nil,
       "selectChoice" -> List("label"),
+      "selectRadial" -> List("chosen", "count"),
+      "selectVarRadial" -> List("count"),
       "selectCycleButton" -> List("label", "onclick"),
       "selectEntityOption" -> List("label")
     )

@@ -1,0 +1,93 @@
+package fh.view.smoke
+
+import cats.effect.IO
+import com.microsoft.playwright.Page
+import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
+import fh.view.runtime.TestServer
+
+/** `c.select(v).style("radial")` under a real pointer: a hold opens the ring, a
+  * drag picks the option at the pointer's angle and the release chooses it; a
+  * quick tap opens the ring for tapping instead.
+  */
+class RadialSelectSmokeSuite extends SmokeSuite {
+
+  private val entry =
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |
+      |access = c.access.public
+      |
+      |local shade = c.variable("shade")
+      |
+      |card = (c.column) {
+      |  vars = shade.declare("24h")
+      |  children {
+      |    // Room above, so the ring's top option is on the page.
+      |    c.title("Window")
+      |    c.label("Hold to choose")
+      |    c.label("or tap")
+      |    c.select(shade).options(List("24h", "7d", "30d", "1y")).style("radial")
+      |  }
+      |}
+      |""".stripMargin
+
+  private def served = TestServer.servedWorkspace("radial", entry, Nil)
+
+  private def face(page: Page) = page.locator(".fh-radial-face")
+  private def ring(page: Page) = page.locator(".fh-radial-ring")
+
+  private def choosing(page: Page, value: String)(act: => Unit): Unit = {
+    val _ = page.waitForResponse(
+      (r: com.microsoft.playwright.Response) =>
+        r.url().contains(s"/shade/$value"),
+      () => act
+    )
+  }
+
+  test("hold, drag towards an option and release: that option is chosen") {
+    withPageOn(served, Some(600 -> 600)) { (page, _) =>
+      IO.blocking {
+        assertThat(face(page)).hasText("24h")
+        val box = face(page).boundingBox()
+        val (cx, cy) = (box.x + box.width / 2, box.y + box.height / 2)
+        // Four options from the top, clockwise: 7d is to the right.
+        page.mouse().move(cx, cy)
+        page.mouse().down()
+        page.waitForTimeout(400)
+        assertThat(ring(page)).isVisible()
+        page
+          .mouse()
+          .move(
+            cx + 80,
+            cy,
+            new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5)
+          )
+        assertThat(ring(page)).hasAttribute("data-pick", "1")
+        choosing(page, "7d")(page.mouse().up())
+        assertThat(face(page)).hasText("7d")
+        assertThat(ring(page)).isHidden()
+      }
+    }
+  }
+
+  test("a quick tap opens the ring, and a tap on an option chooses it") {
+    withPageOn(served, Some(600 -> 600)) { (page, _) =>
+      IO.blocking {
+        face(page).click()
+        assertThat(ring(page)).isVisible()
+        choosing(page, "30d")(
+          ring(page)
+            .getByText(
+              "30d",
+              new com.microsoft.playwright.Locator.GetByTextOptions()
+                .setExact(true)
+            )
+            .click()
+        )
+        assertThat(face(page)).hasText("30d")
+        assertThat(ring(page)).isHidden()
+      }
+    }
+  }
+}

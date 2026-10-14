@@ -5,6 +5,7 @@
 ///     c.select(shade).options(List("pale", "deep")).style("dropdown")  // a node variable
 ///     c.select(dump.entities.robot_mode)                               // a select entity's options
 ///     c.select(lamp.effects!!).style("cycle")                          // a light's effects
+///     c.select(shade).options(List("1h", "24h", "7d")).style("radial") // a ring, by a hold and a drag
 ///
 /// A node variable is only chosen, never declared: whatever holds its readers
 /// declares it, and the build refuses a select with no declarer above it (ADR
@@ -27,7 +28,7 @@ import "../core/variable.pkl" as varMod
 import "../hass.pkl"
 import "base/surface.pkl" as surfaces
 
-typealias SelectStyle = "buttons"|"dropdown"|"cycle"
+typealias SelectStyle = "buttons"|"dropdown"|"cycle"|"radial"
 
 /// What a select chooses for.
 typealias Target = varMod.Variable|hass.SelectEntity|hass.Effects
@@ -120,6 +121,9 @@ abstract class Select extends nodes.Node {
       else if (s == "dropdown")
         if (t is varMod.Variable) new VarSelectDropdown { target = t; choices = cs }
         else new SelectDropdown { target = t; choices = cs }
+      else if (s == "radial")
+        if (t is varMod.Variable) new VarSelectRadial { target = t; choices = cs }
+        else new SelectRadial { target = t; choices = cs }
       else if (t is varMod.Variable) new VarSelectCycle { target = t; choices = cs }
       else new SelectCycle { target = t; choices = cs }
 
@@ -170,6 +174,18 @@ class SelectButtons extends Select {
   }
 }
 
+/// The chosen option's label, live from the entity's state.
+const local function chosenLabel(t: hass.SelectEntity|hass.Effects, cs: List<Choice>): slotMod.Slot =
+  let (labels = labelMap(cs))
+    new slotMod.Slot {
+      entityId = if (t is hass.Effects) t.owner.entity_id else (t as hass.SelectEntity).entity_id
+      transform =
+        if (t is hass.Effects) "\(labels)[?attr[?'effect'].orValue('')].orValue('')"
+        else "\(labels)[?state].orValue(state)"
+      signal = slotMod.asText
+      bypassUnavailable = false
+    }
+
 // The menu's markup around its label; the label differs by target.
 const local function menuTemplate(chosen: String): String =
   #"<details class="fh-select-menu" data-on:click__outside="el.open = false"><summary class="fh-select-summary">"# +
@@ -211,16 +227,7 @@ class SelectDropdown extends Select {
   }
   // A class-level property: a nested body cannot see `target`, which `Select`
   // declares.
-  hidden chosen: slotMod.Slot =
-    let (t = target) let (labels = labelMap(choices))
-      new slotMod.Slot {
-        entityId = if (t is hass.Effects) t.owner.entity_id else (t as hass.SelectEntity).entity_id
-        transform =
-          if (t is hass.Effects) "\(labels)[?attr[?'effect'].orValue('')].orValue('')"
-          else "\(labels)[?state].orValue(state)"
-        signal = slotMod.asText
-        bypassUnavailable = false
-      }
+  hidden chosen: slotMod.Slot = chosenLabel(target as hass.SelectEntity|hass.Effects, choices)
   slots { ["chosen"] = chosen }
 }
 
@@ -264,6 +271,92 @@ class VarSelectCycle extends Select {
   children = new Listing {}
   inlineSurfaces = panelsOf(target as varMod.Variable, optionNodes, choices)
 }
+
+// ---- radial ----
+//
+// Press and hold the face, and the options ring it; drag to one and release to
+// choose it. A quick tap opens the ring for tapping instead. The ring is placed
+// by CSS from each option's position, so the server sends nothing per angle;
+// the script only reads the pointer. A choice clicks the option's own button,
+// so it is that option's tap, guard and busy look.
+
+const local ringMax: Int = 12
+
+const local ringScript: String = """
+  window.fhRing=function(e,el,n){var r=el.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2;if(Math.hypot(x,y)<r.width/2+8)return -1;return Math.round(((Math.atan2(x,-y)*180/Math.PI+360)%360)/(360/n))%n};
+  window.fhRingChoose=function(el,i){var c=el.parentElement.querySelector('.fh-radial-ring').children[i];if(c)(c.matches('a,button')?c:c.querySelector('a,button')).click()}
+  """
+
+// A ring's signals are this node's own and client-only.
+const local function ringSig(name: String): String = "$_{{id}}__" + name
+
+const local function radialTemplate(face: String): String =
+  #"<div class="fh-radial" data-signals__ifmissing="{ _{{id}}__ring: false, _{{id}}__pick: -1, _{{id}}__was: false, _{{id}}__hold: 0 }" data-class:fh-open="\#(ringSig("ring"))" data-on:click__outside="\#(ringSig("ring")) = false">"# +
+    #"<button type="button" class="fh-radial-face" "# +
+    #"data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(ringSig("was")) = \#(ringSig("ring")); \#(ringSig("pick")) = -1; \#(ringSig("hold")) = setTimeout(() => \#(ringSig("ring")) = true, 250)" "# +
+    #"data-on:pointermove="\#(ringSig("ring")) && (\#(ringSig("pick")) = fhRing(evt, el, {{count}}))" "# +
+    #"data-on:pointerup="clearTimeout(\#(ringSig("hold"))); \#(ringSig("pick")) >= 0 ? (fhRingChoose(el, \#(ringSig("pick"))), \#(ringSig("ring")) = false, \#(ringSig("pick")) = -1) : (\#(ringSig("ring")) = !\#(ringSig("was")))" "# +
+    #"data-on:pointercancel="clearTimeout(\#(ringSig("hold"))); \#(ringSig("ring")) = false; \#(ringSig("pick")) = -1">"# +
+    face +
+    #"</button><div class="fh-radial-ring" style="--fh-n:{{count}}" data-attr:data-pick="\#(ringSig("pick"))" data-on:click="\#(ringSig("ring")) = false">{{#children}}{{{html}}}{{/children}}</div></div>"#
+
+const local ringCss: String = """
+  .fh-radial{position:relative;display:inline-block}
+  .fh-radial-face{display:inline-flex;align-items:center;gap:.25rem;touch-action:none;user-select:none;
+  min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-radial-face .fh-cell{display:contents}
+  .fh-radial-ring{--fh-ring-r:5rem;position:absolute;left:50%;top:50%;inline-size:0;block-size:0;z-index:20;display:none}
+  .fh-radial.fh-open .fh-radial-ring{display:block}
+  .fh-radial-ring>*{position:absolute;left:0;top:0;white-space:nowrap;
+  transform:translate(-50%,-50%) rotate(calc(var(--fh-i) * 360deg / var(--fh-n))) translateY(calc(-1 * var(--fh-ring-r))) rotate(calc(var(--fh-i) * -360deg / var(--fh-n)));
+  padding:.5rem .75rem;border-radius:999px;background:var(--fh-surface);color:var(--fh-text);box-shadow:0 .125rem .5rem rgba(0,0,0,.3)}
+  .fh-radial-ring a{color:inherit;cursor:pointer}
+  .fh-radial-ring>:is(a.fh-chosen,.fh-active){font-weight:600}
+  """ + IntSeq(1, ringMax).map((k) -> ".fh-radial-ring>:nth-child(\(k)){--fh-i:\(k - 1)}").join("")
+    + IntSeq(1, ringMax).map((k) -> #".fh-radial-ring[data-pick="\#(k - 1)"]>:nth-child(\#(k)){background:var(--fh-accent);color:var(--fh-on-accent)}"#).join("")
+
+/// A ring of options round its face, chosen by a hold and a drag: a phone's
+/// select. Over an entity the face is the live state's label;
+/// [[VarSelectRadial]] is a variable's.
+class SelectRadial extends Select {
+  card = "selectRadial"
+  cardDef = new nodes.CardDef {
+    regions = optionsRegion
+    template = radialTemplate(#"<span \#(slotMod.signalBind("chosen"))>{{chosen}}</span>"#)
+    slots { "chosen"; "count" }
+    css = ringCss
+    script = ringScript
+  }
+  hidden chosen: slotMod.Slot = chosenLabel(target as hass.SelectEntity|hass.Effects, choices)
+  hidden count: String = ringCount(choices)
+  slots {
+    ["chosen"] = chosen
+    ["count"] = count
+  }
+}
+
+/// [[SelectRadial]] over a node variable: its face is one member per option,
+/// baked by the variable's value.
+class VarSelectRadial extends Select {
+  card = "selectVarRadial"
+  cardDef = new nodes.CardDef {
+    regions = (optionsRegion) { ...panelRegion }
+    template = radialTemplate(#"<span id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</span>"#)
+    slots { "count" }
+    css = ringCss
+    script = ringScript
+  }
+  inlineSurfaces =
+    let (cs = choices)
+      panelsOf(target as varMod.Variable, cs.map((ch) -> new ChoiceLabel { label = ch.label }), cs)
+  hidden count: String = ringCount(choices)
+  slots { ["count"] = count }
+}
+
+const local function ringCount(cs: List<Choice>): String =
+  if (cs.length > ringMax)
+    throw("c.select(…).style(\"radial\") rings up to \(ringMax) options; this has \(cs.length). A dropdown holds more.")
+  else cs.length.toString()
 
 /// The label a [[VarSelectDropdown]] shows for one option.
 class ChoiceLabel extends nodes.Node {
