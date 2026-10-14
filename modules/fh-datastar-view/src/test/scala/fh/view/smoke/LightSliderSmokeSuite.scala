@@ -53,6 +53,29 @@ class LightSliderSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a mode dropdown on the pill switches the head, and closes") {
+    withPage(
+      Scene
+        .of(SmokeDashboard.lightSliderDropdown)
+        .entity(SmokeDashboard.colourLamp)
+    ) { (page, _) =>
+      IO.blocking {
+        val summary = page.locator(".fh-select-summary")
+        assertThat(summary).hasText("Brightness")
+        summary.click()
+        page
+          .locator(
+            ".fh-select-list a",
+            new Page.LocatorOptions().setHasText("Colour temperature")
+          )
+          .click()
+        assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
+        assertThat(summary).hasText("Colour temperature")
+        assertThat(page.locator(".fh-select-list")).isHidden()
+      }
+    }
+  }
+
   test(
     "the first mode puts no param on the URL; another does, until it steps round"
   ) {

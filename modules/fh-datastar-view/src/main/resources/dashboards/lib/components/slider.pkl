@@ -8,6 +8,7 @@ import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "base/slider.pkl" as sliderBase
+import "select.pkl" as selectMod
 import "../hass.pkl"
 
 /// A domain's slider config: the service, the key the value rides on, the
@@ -294,6 +295,16 @@ class EntitySlider extends sliderBase.Slider {
           })
     else List()
   declaresMode = !following && modes.length > 1
+  /// [[modeStyle]]'s choice; the cycling button by default.
+  hidden modeStyleChoice: selectMod.SelectStyle = "cycle"
+  modeSwitchNode =
+    if (modeStyleChoice == "cycle") null
+    else
+      let (ms = offeredModes)
+        selectMod.select(sliderBase.modeVar)
+          .options(ms.mapIndexed((i, m) ->
+            new selectMod.Choice { value = i.toString(); label = modeLabels[m]; icon = modeIcons[m] }))
+          .style(modeStyleChoice)
   /// One mode left by [[modes]] that is not brightness: the slider is that axis.
   headNode =
     if (!following && offeredModes.length == 1 && offeredModes[0] != "brightness")
@@ -315,6 +326,10 @@ class EntitySlider extends sliderBase.Slider {
   /// The head's mode button switches the rows too: one press, the whole group
   /// on colour. A row lacking the mode shows its brightness, greyed.
   function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
+  /// How the modes are switched: `"cycle"`, the one button stepping round (the
+  /// default), or a `c.select` of them, `"dropdown"` or `"buttons"`.
+  function modeStyle(s: selectMod.SelectStyle): EntitySlider =
+    let (self = this) (self) { modeStyleChoice = s }
   /// One axis, the light's first: brightness on a dimmer. No mode switch.
   function single(): EntitySlider = let (self = this) (self) { singleMode = true }
   /// These modes, in this order, where the light has them; one left is that

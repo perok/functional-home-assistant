@@ -183,6 +183,29 @@ class ComponentVisualSuite extends SmokeSuite {
     }
   }
 
+  private val lightSliderDropdownScene =
+    Scene
+      .of(SmokeDashboard.lightSliderDropdown)
+      .entity(SmokeDashboard.colourLamp)
+
+  test("a light slider's mode dropdown looks right, closed and open") {
+    withPage(lightSliderDropdownScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-dropdown",
+          lightSliderCell(page).screenshot()
+        )
+        page.locator(".fh-select-summary").click()
+        assertThat(page.locator(".fh-select-list")).isVisible()
+        page.mouse().move(0, 0)
+        settle(page)
+        // The list hangs below the cell, so the page.
+        VisualSnapshot.check("light-slider-dropdown-open", page.screenshot())
+      }
+    }
+  }
+
   private val lightSliderGroupScene =
     Scene
       .of(SmokeDashboard.lightSliderGroup)

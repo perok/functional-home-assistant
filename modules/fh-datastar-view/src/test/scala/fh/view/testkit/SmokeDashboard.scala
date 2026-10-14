@@ -268,6 +268,33 @@ object SmokeDashboard {
       HouseFixture.dumpWith(colourLamp)
     )
 
+  /** [[lightSlider]] switching its modes from a dropdown on the pill, between a
+    * power pill and the colour wheel's.
+    */
+  val lightSliderDropdown: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-dropdown",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider Dropdown"
+         |
+         |$fontPinnedTheme
+         |
+         |local l = dump.entities.${colourLamp.dumpKey}
+         |
+         |card = (c.grid) {
+         |  children {
+         |    c.entitySlider(l).modeStyle("dropdown")
+         |      .buttons(List(c.tap.toggle(l), c.modeSwitch, c.view.colourWheel(l.colour)))
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp)
+    )
+
   /** A second colour lamp and a dimmer, the rows of [[lightSliderGroup]]. */
   val colourLamp2: FixtureEntity =
     colourLamp.copy(

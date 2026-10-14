@@ -93,9 +93,11 @@ which is what tabs and the slider's modes choose by. Over a variable,
 shows the viewer's option, as the slider pill does. The buttons style is lit by
 the client, as a tab bar is.
 
-The slider pill can now move onto `c.select`, which is what gives the slider a
-dropdown or buttons for its modes (`.modeStyle(…)`); waiting on the pill
-buttons design (B2).
+The slider's modes can be switched by a `c.select` of `mode` (done,
+`.modeStyle("dropdown" | "buttons")`), placed on the pill as the mode switch.
+`"cycle"`, the default, is still the baked `ModeButton`: moving it onto
+`c.select`'s cycle too changes its markup and the `light-slider-*` baselines,
+so it waits on the maintainer.
 
 ### Status
 
