@@ -226,7 +226,8 @@ const modules: List<Module> = List(
   surfaces,
   surfaceMod,
   moreinfo,
-  historyMod
+  historyMod,
+  selectMod
 )
 
 /// Every concrete card class in [[modules]], by card name. A class that

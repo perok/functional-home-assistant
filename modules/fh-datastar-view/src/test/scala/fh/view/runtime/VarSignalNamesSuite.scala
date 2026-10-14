@@ -36,7 +36,7 @@ class VarSignalNamesSuite extends CatsEffectSuite {
   private val declared = Map("window" -> "24h", "tab" -> "0")
 
   private val mirrored =
-    """data-fh-url="\['v\.([A-Za-z0-9_]+)\.(window|tab)'""".r
+    """data-fh-url:(window|tab)="\['v\.([A-Za-z0-9_]+)\.\1'""".r
 
   test("the page spells every variable as the server does") {
     TestServer
@@ -46,22 +46,22 @@ class VarSignalNamesSuite extends CatsEffectSuite {
       .map { html =>
         val keys = mirrored
           .findAllMatchIn(html)
-          .map(m => VarKey(NodeId.derived(m.group(1)), m.group(2)))
+          .map(m => VarKey(NodeId.derived(m.group(2)), m.group(1)))
           .toList
         assertEquals(keys.map(_.name).sorted, List("tab", "window"), html)
         keys.foreach { key =>
-          // The mirror, the shell's seed, the bar's pending seed and clear,
-          // and every button's route and ask.
+          // The mirror, the shell's seeds and clear, and every button's route
+          // and ask.
           assert(
             html.contains(
-              s"""data-fh-url="['${key.urlParam}', $$${key.committedSignal}, '${declared(
+              s"""data-fh-url:${key.name}="['${key.urlParam}', $$${key.committedSignal}, '${declared(
                   key.name
                 )}']""""
             ),
             clue = key
           )
           assert(html.contains(s"${key.committedSignal}: '"), clue = key)
-          assert(html.contains(s"{ ${key.pendingSignal}: '' }"), clue = key)
+          assert(html.contains(s"${key.pendingSignal}: ''"), clue = key)
           assert(
             html
               .contains(s"$$${key.committedSignal} == $$${key.pendingSignal}"),

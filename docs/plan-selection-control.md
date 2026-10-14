@@ -8,8 +8,8 @@ modes and the pill) have landed. Three PRs, in order:
   wherever a node goes: a card's actions, a pill, a bar, a popup.
 - **B** — a colour wheel in the popup, the colour mode's `"slider" | "popup" |
   "both"`.
-- **C** — a hold-and-drag radial menu as another style of A; Orbit or our own
-  ring, see C.
+- **C** — a hold-and-drag radial menu as another style of A, our own ring
+  with no library.
 
 ## A — `c.select`
 
@@ -47,19 +47,11 @@ for `mode`. That is one way to declare a variable, not two, and the build's
 existing "no declarer" error covers a select with nothing above it. The
 window chooser stays a small convenience built from the two.
 
-That needs any node to be able to declare, and a declarer used to write three
-attributes in its own template: the pending ask's seed, its clear, and the URL
-mirror. So, first:
-
-1. **The shell holds every ask, the cell every mirror.** The page shell seeds
-   each pending ask beside its committed value and clears them all in one
-   effect; the renderer puts `data-fh-url:<name>` on the declarer's
-   `.fh-cell`. Done, with the template copies still in place.
-2. **The template copies go**, from the tab bar, the window chooser and the
-   slider. Waiting on the maintainer: two existing tests pin the template seed
-   (`PklDashboardBehaviourSuite` "a re-revealed bar…", `ActionSignalNamesSuite`'s
-   group regex) and three pin the unkeyed mirror (`VarSignalNamesSuite`,
-   `PklDashboardBehaviourSuite`'s window regexes).
+That needs any node to be able to declare, so a declarer's template carries
+nothing for its variables (done): the page shell seeds each pending ask beside
+its committed value and clears them all in one effect, and the renderer puts
+`data-fh-url:<name>` on the declarer's `.fh-cell`. The tab bar, the window
+chooser and the slider lost their own copies of the three.
 
 ### Styles
 
@@ -116,8 +108,7 @@ script runs. The fix is a bake group selected by value, a runtime change.
     bake group).
   - Tests: Pkl facts (`select.test.pkl`), the real build and a write
     (`SelectSuite`), a browser smoke test (`SelectSmokeSuite`).
-- Not yet in the library's card index (`components.pkl`'s `modules`), which
-  `PklBuildSuite` pins: adding it is an edit to that existing test.
+- In the library's card index (`components.pkl`'s `modules`).
 - `input_select` has no entity class yet; it follows `select` once it does.
 
 ### Tests
@@ -172,10 +163,8 @@ around the finger, drag to one and release to choose it.
   script is the gesture: a hold opens the ring, a drag picks the nearest
   option by angle, a release chooses it. That is the same few dozen lines with
   or without a library.
-- **Recommendation, for the maintainer to decide:** C as our own ring, with
-  no dependency. Orbit stays the candidate for
-  what it is built for, the arcs: a thermostat dial, gauges, and maybe the
-  colour wheel in B.
+- **Decided:** C as our own ring, with no dependency. Orbit stays the
+  candidate for what it is built for, the arcs: a thermostat dial, gauges.
 - **Still to try in a browser:** how a hold coexists with a tap (the cycle)
   and with a page scroll (`touch-action`, a hold threshold).
 

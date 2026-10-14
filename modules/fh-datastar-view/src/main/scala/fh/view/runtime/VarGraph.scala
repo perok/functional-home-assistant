@@ -21,8 +21,9 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
   /** The URL mirror, which survives a refresh. */
   def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
 
-  /** Empties the ask once the commit agrees; `core/tap.pkl`'s
-    * `pendingClearAgainst` is the template half.
+  /** Empties the ask once the commit agrees. Comparing to the commit, rather
+    * than clearing in the frame, keeps tap A's response from clearing tap B's
+    * ask.
     */
   def pendingClear: String =
     s"$$$pendingSignal !== '' && $$$committedSignal == $$$pendingSignal && ($$$pendingSignal = '')"

@@ -1163,7 +1163,12 @@ class PklBuildSuite extends munit.FunSuite {
       // The chart's entity rides in the query's params, so no `entity_id`.
       "historyChart" -> List("chart"),
       "historyWindows" -> Nil,
-      "historyReadings" -> List("label", "readings", "unit", "entity_id")
+      "historyReadings" -> List("label", "readings", "unit", "entity_id"),
+      "selectButtons" -> Nil,
+      "selectDropdown" -> List("chosen"),
+      "selectCycle" -> Nil,
+      "selectCycleButton" -> List("label", "onclick", "shown"),
+      "selectEntityOption" -> List("label")
     )
     assertEquals(
       cards.keys.map(_.toSet),
@@ -1181,11 +1186,12 @@ class PklBuildSuite extends munit.FunSuite {
         Some(slots),
         clue = name
       )
-      // `tab` is the one wrapAsCell opt-out (the `.fh-tabs > a` selector); every
-      // other card omits the key, which defaults to true.
+      // The wrapAsCell opt-outs: `tab` (the `.fh-tabs > a` selector) and a
+      // cycle's button, which shows alone. Every other card omits the key,
+      // which defaults to true.
       assertEquals(
         card.get[Option[Boolean]]("wrapAsCell").toOption.flatten,
-        Option.when(name == "tab")(false),
+        Option.when(Set("tab", "selectCycleButton")(name))(false),
         clue = name
       )
     }
