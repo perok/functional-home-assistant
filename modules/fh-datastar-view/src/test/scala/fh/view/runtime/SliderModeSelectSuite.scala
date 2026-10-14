@@ -46,7 +46,8 @@ class SliderModeSelectSuite extends CatsEffectSuite {
   private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/(\d)""".r
 
   private val label =
-    """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><span>([^<]*)</span>""".r
+    // A mode's icon is the face; its label is the icon's title.
+    """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><i class="[^"]*" title="([^"]*)">""".r
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer
@@ -102,7 +103,7 @@ class SliderModeSelectSuite extends CatsEffectSuite {
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
         assert(sent.contains("max=\"360\""), clue = sent)
-        assert(sent.contains("><span>Colour</span></div>"), clue = sent)
+        assert(sent.contains("title=\"Colour\"></i></div>"), clue = sent)
         assert(sent.contains(s"\"_var_${declarer}__mode\":\"2\""), clue = sent)
       }
     }

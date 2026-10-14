@@ -61,7 +61,8 @@ class LightSliderSmokeSuite extends SmokeSuite {
     ) { (page, _) =>
       IO.blocking {
         val summary = page.locator(".fh-select-summary")
-        assertThat(summary).hasText("Brightness")
+        val face = summary.locator("i")
+        assertThat(face).hasAttribute("title", "Brightness")
         summary.click()
         page
           .locator(
@@ -70,7 +71,7 @@ class LightSliderSmokeSuite extends SmokeSuite {
           )
           .click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
-        assertThat(summary).hasText("Colour temperature")
+        assertThat(face).hasAttribute("title", "Colour temperature")
         assertThat(page.locator(".fh-select-list")).isHidden()
       }
     }

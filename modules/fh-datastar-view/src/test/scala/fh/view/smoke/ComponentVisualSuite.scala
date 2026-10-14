@@ -188,7 +188,7 @@ class ComponentVisualSuite extends SmokeSuite {
       .of(SmokeDashboard.lightSliderDropdown)
       .entity(SmokeDashboard.colourLamp)
 
-  test("a light slider's mode dropdown looks right, closed and open") {
+  test("a light slider's mode dropdown looks right, closed") {
     withPage(lightSliderDropdownScene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
@@ -196,6 +196,13 @@ class ComponentVisualSuite extends SmokeSuite {
           "light-slider-dropdown",
           lightSliderCell(page).screenshot()
         )
+      }
+    }
+  }
+
+  test("a light slider's mode dropdown looks right, open") {
+    withPage(lightSliderDropdownScene, viewport) { (page, _) =>
+      IO.blocking {
         page.locator(".fh-select-summary").click()
         assertThat(page.locator(".fh-select-list")).isVisible()
         page.mouse().move(0, 0)
