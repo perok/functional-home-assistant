@@ -8,14 +8,20 @@
 ///
 /// A node variable is only chosen, never declared: whatever holds its readers
 /// declares it, and the build refuses a select with no declarer above it (ADR
-/// 0033). The server refuses a choice nothing on the page reads, so a select
-/// of a variable needs a reader: a chart's `.over(v.ref)`, a bake group. Each option is a node of its own, so a press dims only the option
+/// 0033). Each option is a node of its own, so a press dims only the option
 /// pressed (ADR 0019).
+///
+/// Over a variable, the cycle and the dropdown's label are bake groups selected
+/// by its value, so the first HTML shows the chosen option; the buttons are lit
+/// by the client, as a tab bar's are. The server refuses a choice nothing on the
+/// page reads, so `buttons` over a variable needs a reader: a chart's
+/// `.over(v.ref)`, a bake group.
 module components.select
 
 import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
+import "../core/surface.pkl" as surfaceMod
 import "../core/tap.pkl" as tapMod
 import "../core/variable.pkl" as varMod
 import "../hass.pkl"
@@ -74,6 +80,24 @@ const local function entityCall(t: hass.SelectEntity|hass.Effects, v: String): t
 const local optionsRegion: Mapping<String, nodes.Region> =
   new { [nodes.defaultRegion] = new nodes.Region {} }
 
+const local panelRegion: Mapping<String, nodes.Region> =
+  new { ["panel"] = new nodes.Region { fill = "baked" } }
+
+// One member per option, shown while `v` is at its value: the server renders the
+// chosen one, as a slider's mode panels.
+const local function panelsOf(v: varMod.Variable, nodesFor: List<nodes.LayoutNode>, cs: List<Choice>): Mapping<String, surfaceMod.SurfaceDef> =
+  new Mapping {
+    for (i, ch in cs) {
+      ["o\(i)"] = new surfaceMod.SurfaceDef {
+        content = nodesFor[i]
+        bakeInto = nodes.NODE_ID
+        bakeAs = "panel"
+        bakeIndex = i
+        activation = v.selecting(ch.value)
+      }
+    }
+  }
+
 abstract class Select extends nodes.Node {
   hidden target: Target
   hidden choices: List<Choice> = offered(target).map((v) -> choiceOf(v))
@@ -93,7 +117,10 @@ abstract class Select extends nodes.Node {
   function style(s: SelectStyle): Select =
     let (t = target) let (cs = choices)
       if (s == "buttons") new SelectButtons { target = t; choices = cs }
-      else if (s == "dropdown") new SelectDropdown { target = t; choices = cs }
+      else if (s == "dropdown")
+        if (t is varMod.Variable) new VarSelectDropdown { target = t; choices = cs }
+        else new SelectDropdown { target = t; choices = cs }
+      else if (t is varMod.Variable) new VarSelectCycle { target = t; choices = cs }
       else new SelectCycle { target = t; choices = cs }
 
   /// One option's node: choosing `pick` on a press, lit while `ch` is chosen.
@@ -105,7 +132,6 @@ abstract class Select extends nodes.Node {
             new CycleButton {
               label = ch.label
               icon = ch.icon
-              shown = lit
               tapAction = t.choose(pick.value)
             }
           else
@@ -122,15 +148,14 @@ abstract class Select extends nodes.Node {
           tapAction = entityCall(t, pick.value)
         }
 
-  children =
+  /// Each option's node, in order.
+  hidden optionNodes: List<nodes.LayoutNode> =
     let (self = this) let (cs = choices)
       if (cs.isEmpty)
         throw("c.select(\(targetName(target))) has no options\(if (target is varMod.Variable) ": give them with .options(…)" else "").")
-      else new Listing {
-        for (i, ch in cs) {
-          self.optionNode(ch, if (self.cycling) cs[(i + 1) % cs.length] else ch)
-        }
-      }
+      else cs.mapIndexed((i, ch) -> self.optionNode(ch, if (self.cycling) cs[(i + 1) % cs.length] else ch))
+
+  children = optionNodes.toListing()
 }
 
 /// One button per option, the chosen one lit: a window chooser's bar.
@@ -145,85 +170,125 @@ class SelectButtons extends Select {
   }
 }
 
+// The menu's markup around its label; the label differs by target.
+const local function menuTemplate(chosen: String): String =
+  #"<details class="fh-select-menu" data-on:click__outside="el.open = false"><summary class="fh-select-summary">"# +
+    chosen +
+    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{#children}}{{{html}}}{{/children}}</div></details>"#
+
+const local menuCss: String = """
+  .fh-select-menu{position:relative;display:inline-block}
+  .fh-select-summary{display:inline-flex;align-items:center;gap:.25rem;list-style:none;cursor:pointer;
+  min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-select-summary::-webkit-details-marker{display:none}
+  .fh-select-summary .fh-cell{display:contents}
+  .fh-select-list{position:absolute;inset-block-start:calc(100% + .25rem);inset-inline-start:0;z-index:10;
+  display:flex;flex-direction:column;min-inline-size:100%;padding-block:.25rem;border-radius:.75rem;
+  background:var(--fh-surface);box-shadow:0 .25rem 1rem rgba(0,0,0,.25)}
+  .fh-select-list .fh-cell{display:contents}
+  .fh-select-list a{display:block;padding:.5rem 1rem;white-space:nowrap;cursor:pointer;color:var(--fh-text)}
+  .fh-select-list :is(a.fh-chosen,.fh-active>a){font-weight:600;background:var(--fh-surface-alt)}
+  """
+
+const local cycleCss: String = """
+  .fh-select-cycles{display:inline-flex}
+  .fh-select-lit>.fh-cell:not(.fh-active){display:none}
+  .fh-select-cycles :is(.fh-select-cycle,.fh-select-opt){display:inline-flex;align-items:center;
+  min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
+  """
+
 /// The chosen option, opening a list of all of them. A `<details>`, so it
 /// opens with no script, and on iPadOS 15, which has no `popover`. A choice
-/// closes it, and so does a tap outside.
+/// closes it, and so does a tap outside. Over an entity, the label is a live
+/// slot; [[VarSelectDropdown]] is a variable's.
 class SelectDropdown extends Select {
   card = "selectDropdown"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    // A variable's label is read on the client, where its commit lives
-    // (`chosenText`); an entity's is a live slot, so the first HTML names it.
-    template = #"<details class="fh-select-menu" data-on:click__outside="el.open = false"><summary class="fh-select-summary"><span{{#chosenText}} data-text="{{chosenText}}"{{/chosenText}} \#(slotMod.signalBind("chosen"))>{{chosen}}</span><i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{#children}}{{{html}}}{{/children}}</div></details>"#
+    template = menuTemplate(#"<span \#(slotMod.signalBind("chosen"))>{{chosen}}</span>"#)
     slots { "chosen" }
-    css = """
-      .fh-select-menu{position:relative;display:inline-block}
-      .fh-select-summary{display:inline-flex;align-items:center;gap:.25rem;list-style:none;cursor:pointer;
-      min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
-      .fh-select-summary::-webkit-details-marker{display:none}
-      .fh-select-list{position:absolute;inset-block-start:calc(100% + .25rem);inset-inline-start:0;z-index:10;
-      display:flex;flex-direction:column;min-inline-size:100%;padding-block:.25rem;border-radius:.75rem;
-      background:var(--fh-surface);box-shadow:0 .25rem 1rem rgba(0,0,0,.25)}
-      .fh-select-list .fh-cell{display:contents}
-      .fh-select-list a{display:block;padding:.5rem 1rem;white-space:nowrap;cursor:pointer;color:var(--fh-text)}
-      .fh-select-list :is(a.fh-chosen,.fh-active>a){font-weight:600;background:var(--fh-surface-alt)}
-      """
+    css = menuCss
   }
-  slots {
-    ...let (t = target) let (labels = labelMap(choices))
-      if (t is varMod.Variable)
-        new Mapping {
-          ["chosen"] = ""
-          ["chosenText"] = "(\(labels))[\(t.below.chosen)] ?? ''"
-        }
-      else
-        new Mapping {
-          ["chosen"] = new slotMod.Slot {
-            entityId = if (t is hass.Effects) t.owner.entity_id else (t as hass.SelectEntity).entity_id
-            transform =
-              if (t is hass.Effects) "\(labels)[?attr[?'effect'].orValue('')].orValue('')"
-              else "\(labels)[?state].orValue(state)"
-            signal = slotMod.asText
-            bypassUnavailable = false
-          }
-        }
-  }
+  // A class-level property: a nested body cannot see `target`, which `Select`
+  // declares.
+  hidden chosen: slotMod.Slot =
+    let (t = target) let (labels = labelMap(choices))
+      new slotMod.Slot {
+        entityId = if (t is hass.Effects) t.owner.entity_id else (t as hass.SelectEntity).entity_id
+        transform =
+          if (t is hass.Effects) "\(labels)[?attr[?'effect'].orValue('')].orValue('')"
+          else "\(labels)[?state].orValue(state)"
+        signal = slotMod.asText
+        bypassUnavailable = false
+      }
+  slots { ["chosen"] = chosen }
 }
 
-/// One button showing the chosen option; a press chooses the next, round.
+/// [[SelectDropdown]] over a node variable: its label is one member per option,
+/// baked by the variable's value.
+class VarSelectDropdown extends Select {
+  card = "selectVarDropdown"
+  cardDef = new nodes.CardDef {
+    regions = (optionsRegion) { ...panelRegion }
+    template = menuTemplate(#"<span id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</span>"#)
+    css = menuCss
+  }
+  inlineSurfaces =
+    let (cs = choices)
+      panelsOf(target as varMod.Variable, cs.map((ch) -> new ChoiceLabel { label = ch.label }), cs)
+}
+
+/// One button showing the chosen option; a press chooses the next, round. Over
+/// an entity every option is rendered and the server lights the chosen one;
+/// [[VarSelectCycle]] is a variable's.
 class SelectCycle extends Select {
   card = "selectCycle"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = #"<div class="fh-select-cycles">{{#children}}{{{html}}}{{/children}}</div>"#
-    css = """
-      .fh-select-cycles{display:inline-flex}
-      .fh-select-cycles>.fh-cell:not(.fh-active){display:none}
-      .fh-select-cycles :is(.fh-select-cycle,.fh-select-opt){display:inline-flex;align-items:center;
-      min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
-      """
+    template = #"<div class="fh-select-cycles fh-select-lit">{{#children}}{{{html}}}{{/children}}</div>"#
+    css = cycleCss
   }
   cycling = true
 }
 
-/// One option of a [[SelectCycle]] over a variable: shown while its option is
-/// chosen, and a press chooses the next.
+/// [[SelectCycle]] over a node variable: one member per option, baked by the
+/// variable's value, so only the chosen option's button is sent.
+class VarSelectCycle extends Select {
+  card = "selectVarCycle"
+  cardDef = new nodes.CardDef {
+    regions = panelRegion
+    template = #"<div id="{{hostId}}" class="fh-select-cycles">{{#panel}}{{{html}}}{{/panel}}</div>"#
+    css = cycleCss
+  }
+  cycling = true
+  children = new Listing {}
+  inlineSurfaces = panelsOf(target as varMod.Variable, optionNodes, choices)
+}
+
+/// The label a [[VarSelectDropdown]] shows for one option.
+class ChoiceLabel extends nodes.Node {
+  card = "selectChoice"
+  cardDef = new nodes.CardDef {
+    template = "<span>{{label}}</span>"
+    slots { "label" }
+  }
+  hidden label: String
+  slots { ["label"] = label }
+}
+
+/// The button a [[VarSelectCycle]] shows for one option; a press chooses the
+/// next.
 class CycleButton extends nodes.Node {
   card = "selectCycleButton"
   cardDef = new nodes.CardDef {
-    // Hidden until Datastar shows the chosen one: no button can be right
-    // before the committed value is read.
-    template = #"<button class="fh-select-cycle" style="display:none" data-show="{{shown}}" title="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard)>{{#glyph}}<i class="{{glyph}}"></i>{{/glyph}}{{^glyph}}{{label}}{{/glyph}}</button>"#
-    slots { "label"; "onclick"; "shown" }
-    wrapAsCell = false
+    template = #"<button class="fh-select-cycle" title="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard)>{{#glyph}}<i class="{{glyph}}"></i>{{/glyph}}{{^glyph}}{{label}}{{/glyph}}</button>"#
+    slots { "label"; "onclick" }
   }
   hidden label: String
   hidden icon: String? = null
-  hidden shown: String
   hidden tapAction: tapMod.SetVar
   slots {
     ["label"] = label
-    ["shown"] = shown
     when (icon != null) {
       ["glyph"] = "mdi " + icons.mdiClass(icon!!)
     }

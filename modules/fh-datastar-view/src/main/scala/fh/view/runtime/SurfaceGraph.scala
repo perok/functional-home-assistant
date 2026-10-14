@@ -52,6 +52,18 @@ private[runtime] final class SurfaceGraph(
   def bakeGroup(gid: NodeId): List[String] =
     bakeGroups.getOrElse(gid, Nil)
 
+  /** The member of a variable-selected group that `value` selects. */
+  def memberAt(gid: NodeId, value: String): Option[Int] =
+    Some(
+      bakeGroup(gid).indexWhere(
+        surfaces.get(_).flatMap(_.selectedAt).contains(value)
+      )
+    ).filter(_ >= 0)
+
+  /** What selects each member of a variable-selected group, in its order. */
+  def memberValues(gid: NodeId): List[String] =
+    bakeGroup(gid).flatMap(surfaces.get(_).flatMap(_.selectedAt))
+
   /** A popup open from the first paint; a bake group's member is chosen. */
   private def defaultOpenPopup(s: Surface): Boolean = s.activation match {
     case Activation.User(d) => d
@@ -65,12 +77,12 @@ private[runtime] final class SurfaceGraph(
   /** The node variable selecting `gid`'s member, for a tab bar's panel. */
   def varSelecting(gid: NodeId): Option[String] =
     bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
-      case Activation.Var(name) => name
+      case Activation.Var(name, _) => name
     }
 
   /** A viewer's selections: `requested` narrowed by [[openPopup]], and each
-    * variable-selected group's member from `env`. An index outside its group is
-    * dropped, so the group shows its first member; every value passed
+    * variable-selected group's member from `env`. A value no member is selected
+    * at is dropped, so the group shows its first member; every value passed
     * `refusals` or `validate`, so that is a guard, which [[selectionAnomalies]]
     * reports.
     */
@@ -90,13 +102,10 @@ private[runtime] final class SurfaceGraph(
       varSelecting(gid)
         .flatMap(name => env.get(gid).flatMap(_.get(name)))
         .map { raw =>
-          val n = bakeGroup(gid).size
-          gid -> raw.toIntOption
-            .filter(i => i >= 0 && i < n)
-            .toRight(
-              s"selection '$raw' for bake group $gid is not a member index " +
-                s"(0..${n - 1}); using 0"
-            )
+          gid -> memberAt(gid, raw).toRight(
+            s"selection '$raw' for bake group $gid is not " +
+              s"${Surface.membersText(memberValues(gid))}; using the first"
+          )
         }
     }.toMap
 

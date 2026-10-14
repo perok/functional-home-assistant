@@ -1072,12 +1072,16 @@ class Server(
       }
       env = renderer.vars.env(proposed)
       after = renderer.surfaces.selections(selections.popup, env)
-      // `refusals` made the value a member index of every group it selects.
+      // `refusals` made the value a member's of every group it selects.
       swapped <- groups
         .filter(shown)
         .flatMap { gid =>
-          val sid = renderer.surfaces.bakeGroup(gid)(value.toInt)
-          renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
+          renderer.surfaces
+            .memberAt(gid, value)
+            .map(renderer.surfaces.bakeGroup(gid))
+            .flatMap(sid =>
+              renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
+            )
         }
         .foldLeftM(Session.Step(s.copy(vars = proposed), List.empty, ())) {
           case (done, (sid, surf)) =>

@@ -1167,7 +1167,10 @@ class PklBuildSuite extends munit.FunSuite {
       "selectButtons" -> Nil,
       "selectDropdown" -> List("chosen"),
       "selectCycle" -> Nil,
-      "selectCycleButton" -> List("label", "onclick", "shown"),
+      "selectVarDropdown" -> Nil,
+      "selectVarCycle" -> Nil,
+      "selectChoice" -> List("label"),
+      "selectCycleButton" -> List("label", "onclick"),
       "selectEntityOption" -> List("label"),
       "colourWheel" -> List("hue", "sat", "paint")
     )
@@ -1187,12 +1190,11 @@ class PklBuildSuite extends munit.FunSuite {
         Some(slots),
         clue = name
       )
-      // The wrapAsCell opt-outs: `tab` (the `.fh-tabs > a` selector) and a
-      // cycle's button, which shows alone. Every other card omits the key,
-      // which defaults to true.
+      // `tab` is the one wrapAsCell opt-out (the `.fh-tabs > a` selector); every
+      // other card omits the key, which defaults to true.
       assertEquals(
         card.get[Option[Boolean]]("wrapAsCell").toOption.flatten,
-        Option.when(Set("tab", "selectCycleButton")(name))(false),
+        Option.when(name == "tab")(false),
         clue = name
       )
     }
