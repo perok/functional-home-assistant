@@ -265,7 +265,7 @@ lazy val `fh-codegen-plugin` = project
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
       "io.circe" %% "circe-core" % "0.14.17",
-      "io.circe" %% "circe-parser" % "0.14.16"
+      "io.circe" %% "circe-parser" % "0.14.17"
     )
   )
 
