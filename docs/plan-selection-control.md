@@ -128,22 +128,28 @@ script runs. The fix is a bake group selected by value, a runtime change.
 
 ## B — the colour wheel
 
-- **Setting:** the colour mode gets `colour: "slider" | "popup" | "both"`,
-  default `"slider"`, which is today.
-  - `"popup"` swaps the hue track for a pill button opening a popup with the
-    wheel.
-  - `"both"` keeps the track and adds the button.
-- **Status:** done on its own branch, stacked on A (`components/wheel.pkl`,
-  `EntitySlider.colour(…)`), as a CSS `conic-gradient` with a radial white
-  fade, no library. The pointer handlers are Datastar expressions over a
-  small `fhWheel` card script.
+- **Shape:** the wheel is a view tap, `c.view.colourWheel(l.colour)`, opening
+  it in a popup. On a slider it is one of the buttons; dropping the hue track
+  is `.modes(…)` without `"colour"`. It takes the capability group, so a light
+  without colour is an editor error.
+- **A slider's buttons** (decided with the maintainer): `.buttons(List(…))` of
+  taps and pills, in the author's order, `c.modeSwitch` placing the mode
+  switch. A tap carries its own look (icon, accessible label, what lights it),
+  so a bare tap is a pill; `c.pill(tap)` with `.label`/`.icon`/`.noIcon`
+  overrides it, round when an icon or an emoji is all it shows. `c.tap` is
+  what acts on HA, `c.view` what only changes the screen. An `ns` lambda bound
+  to the entity was rejected: it is ADR 0013's entity-first builder, with no
+  editor check for a capability. Naming of `c.view`, `c.pill` and
+  `c.modeSwitch` is open.
+- **Status:** the wheel done on its own branch, stacked on A
+  (`components/wheel.pkl`), as a CSS `conic-gradient` with a radial white
+  fade, no library; the pointer handlers are Datastar expressions over a small
+  `fhWheel` card script. The buttons on a branch stacked on it.
 - **The wheel** sets hue and saturation, so pastels become reachable, which
   the full-saturation track cannot do.
   - The pointer maps to `[h, s]`, posted as `hs_color` through the JSON-body
     route (#554) on release, as the slider does.
   - Brightness stays on the slider.
-  - Drawn with Orbit if its arcs fit, else a CSS `conic-gradient` with a
-    radial white fade.
 
 ## C — the radial menu
 

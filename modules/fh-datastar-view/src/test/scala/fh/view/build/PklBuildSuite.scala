@@ -1990,7 +1990,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.entitySlider(light).withSubSliders(List(a, cover).map((m) -> c.entitySlider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.call("homeassistant/toggle", light) }
+        |node = (c.entitySlider(light).withSubSliders(List(a, cover).map((m) -> c.entitySlider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; buttons = List(c.pill(c.tap.call("homeassistant/toggle", light)).icon("mdi:power")) }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
@@ -2003,18 +2003,18 @@ class PklBuildSuite extends munit.FunSuite {
       rowOf(group).slots("icon").literal,
       Some("mdi-lightbulb-group")
     )
-    // `tapAction` is shorthand for the head's `actions` region (#151): the
-    // press gets a node, and so a busy signal, of its own.
+    // `buttons` fill the head's `actions` region (#151): the press gets a
+    // node, and so a busy signal, of its own.
     val actions = actionsOf(group)
-    // The shared icon button: a glyph, no label and the `lit` tint are not
-    // about sliders.
-    assertEquals(actions.map(_.card), List("button"))
+    // The shared pill: a glyph, no label and the `lit` tint are not about
+    // sliders.
+    assertEquals(actions.map(_.card), List("pill"))
     assertEquals(
       actions.head.slots("service").literal,
       Some("homeassistant/toggle")
     )
     assertEquals(actions.head.slots("targetId").literal, Some("light.lys"))
-    assertEquals(actions.head.slots("glyph").literal, Some("mdi mdi-power"))
+    assertEquals(actions.head.slots("glyph").literal, Some("mdi-power"))
     assertEquals(actions.head.slots("round").literal, Some("1"))
 
     // `allChildren` would include the head.

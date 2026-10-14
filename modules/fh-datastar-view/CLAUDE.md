@@ -304,11 +304,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   a slider with `members` — the SAME card, holding member rows that are ORDINARY nodes: the head and
   the members are two REGIONS of it, so a master state change never repaints a row. The head is
   itself structure (#151): its label and second line are a `sliderText` leaf (the only bytes on the
-  row that move — everything else is a signal or a literal), and its buttons are a `sliderAction`
+  row that move — everything else is a signal or a literal), and its buttons are a pill
   each, in an `actions` region, so two of them can be in flight without disabling one another.
-  `.actions(…)` is the list; `.tapAction(…)` is the one-button shorthand and stays first. Every slider
+  `.buttons(…)` is the list, of taps (each a pill in its own look) and pills; on a slider with
+  modes they sit on the pill, `c.modeSwitch` placing the mode switch among them. Every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
-  `icon`/`secondary`/`tapAction` are optional pieces a plain row simply doesn't carry
+  `icon`/`secondary`/`buttons` are optional pieces a plain row simply doesn't carry
   (`c.entitySlider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
   `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
@@ -341,7 +342,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
   them: a head per mode in a bake group selected by the node variable `mode` the slider declares
   (`base/slider.pkl`'s `SliderModes`), with a pill over the track's end, as any slider's buttons, holding the mode button, which
-  steps to the next, and the actions. A group's rows have their own; on `.syncRows()` they follow the
+  steps to the next, and the slider's buttons. A group's rows have their own; on `.syncRows()` they follow the
   head's `mode` instead, greyed where they lack one. A slider a candidate set renders per member
   keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `.single()` / `.modes(List(…))` narrow it — a filter over what the light has, ADR 0013),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it

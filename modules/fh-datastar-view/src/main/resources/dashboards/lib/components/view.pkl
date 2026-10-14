@@ -14,6 +14,7 @@ import "../core/tap.pkl" as core
 import "../core/node.pkl" as nodes
 import "../hass.pkl"
 import "moreinfo.pkl" as moreinfo
+import "wheel.pkl" as wheelMod
 
 /// Open `e`'s more-info popup: its card, its domain's controls, and every
 /// attribute it reports.
@@ -28,6 +29,12 @@ function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surface
 
 /// Open a popup holding `body`.
 function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
+
+/// A colour wheel for the light, in a popup: hue and saturation, where a
+/// slider's hue track has full saturation only.
+/// `c.entitySlider(l).buttons(List(c.view.colourWheel(l.colour)))`.
+function colourWheel(colour: hass.Colour): core.OpenSurface =
+  (core.openPopupInline(wheelMod.colourWheel(colour.owner))) { icon = "mdi:palette-swatch"; label = "Colour" }
 
 /// Close the open popup.
 function closePopup(): core.Click = (core.closePopup()) { icon = "mdi:close"; label = "Close" }

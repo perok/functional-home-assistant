@@ -159,6 +159,21 @@ class ModeButton extends nodes.Node {
   }
 }
 
+/// Where a slider's mode switch sits among its [[Slider.buttons]]:
+/// `.buttons(List(c.tap.toggle(l), c.modeSwitch))`. Without one, first.
+class ModeSwitch {}
+
+const modeSwitch: ModeSwitch = new {}
+
+/// One of a slider's [[Slider.buttons]]: a tap, shown as a pill in its look; a
+/// pill; or where the mode switch goes.
+typealias SliderButton = tapMod.TapAction|buttonMod.Pill|ModeSwitch
+
+const local function pillsOf(bs: List<SliderButton>): Listing<nodes.LayoutNode> =
+  bs.filter((b) -> !(b is ModeSwitch))
+    .map((b) -> if (b is buttonMod.Pill) b else buttonMod.pill(b as tapMod.TapAction))
+    .toListing()
+
 // One panel per mode, baked into the node: the shown one is in the first HTML,
 // so nothing waits on a script to pick it.
 const local function modePanels(prefix: String, contents: List<nodes.LayoutNode>): Mapping<String, surfaceMod.SurfaceDef> =
@@ -174,20 +189,29 @@ const local function modePanels(prefix: String, contents: List<nodes.LayoutNode>
     }
   }
 
-/// The buttons at the track's end: the shown mode's [[ModeButton]], a panel
-/// chosen by [[modeVar]] as the head is, then the slider's actions.
+/// The buttons at the track's end: the slider's pills, with the shown mode's
+/// [[ModeButton]] among them, a panel chosen by [[modeVar]] as the head is.
 class SliderPill extends nodes.Node {
   card = "sliderPill"
   cellClasses { "fh-slider-pill-cell" }
   cardDef = new nodes.CardDef {
     regions = new Mapping {
+      ["before"] = new nodes.Region {}
       [nodes.defaultRegion] = new nodes.Region {}
       ["panel"] = new nodes.Region { fill = "baked" }
     }
-    template = #"<div class="fh-slider-pill"><div id="{{hostId}}" class="fh-slider-pill-mode">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-slider-pill">{{#before}}{{{html}}}{{/before}}<div id="{{hostId}}" class="fh-slider-pill-mode">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
   }
-  hidden buttons: List<ModeButton>
-  inlineSurfaces = modePanels("p", buttons)
+  hidden modeButtons: List<ModeButton>
+  /// The slider's buttons, split where its [[modeSwitch]] goes.
+  hidden buttons: List<SliderButton>
+  inlineSurfaces = modePanels("p", modeButtons)
+  children =
+    let (at = buttons.findIndexOrNull((b) -> b is ModeSwitch) ?? -1)
+      new Mapping {
+        ["before"] = if (at < 0) new Listing {} else pillsOf(buttons.take(at))
+        [nodes.defaultRegion] = if (at < 0) pillsOf(buttons) else pillsOf(buttons.drop(at + 1))
+      }
 }
 
 /// A slider's head as one of several, chosen by [[modeVar]], with the pill
@@ -217,7 +241,7 @@ class SliderModes extends nodes.Node {
 ///   (c.entitySlider(dump.entities.light_lys)) {
 ///     icon = "mdi:lightbulb-group"
 ///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
-///     tapAction = c.tap.toggle(dump.entities.light_lys)
+///     buttons = List(c.tap.toggle(dump.entities.light_lys))
 ///     members { c.entitySlider(a).readout("percent") c.entitySlider(b).readout("percent") }
 ///   }
 ///
@@ -264,10 +288,10 @@ open class Slider extends nodes.Node {
   /// Whether the commit's busy look shows. The guard and the input freeze stay
   /// either way; each head action also honours its own tap's `busyVisual`.
   hidden busyVisual: Boolean = true
-  /// The buttons at the right of the head, after [[leadingActions]] (#151).
-  hidden actions: Listing<buttonMod.Button> = new {}
-  /// Buttons a subclass puts first, so an author's [[actions]] add to them.
-  hidden leadingActions: Listing<buttonMod.Button> = new {}
+  /// The pills at the right of the head, in this order (#151): a tap is a pill
+  /// in its look. On a slider with [[modes]] they are on the pill, the mode
+  /// switch first unless [[modeSwitch]] places it.
+  hidden buttons: List<SliderButton> = List()
   /// Not `children`: this card has two regions, and these fill one.
   hidden members: Listing<nodes.LayoutNode> = new {}
   /// The entity a reading that names none reads — see `Button.subject`.
@@ -356,9 +380,6 @@ open class Slider extends nodes.Node {
   /// Whether this node declares [[modeVar]]; false on a group's row, which
   /// reads its head's.
   hidden declaresMode: Boolean = modes.length > 1
-  /// The actions after the pill's mode button: on a slider with modes, the
-  /// head's actions are these.
-  hidden pillActions: Listing<nodes.LayoutNode> = new {}
   /// Dimmed and disabled: a group's row standing in for a mode it lacks.
   hidden greyed: Boolean = false
   /// What fills the member region; a subclass may adapt [[members]].
@@ -394,18 +415,18 @@ open class Slider extends nodes.Node {
       }
       children = new Mapping {
         ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }
-        ["actions"] = new Listing { ...leadingActions ...actions }
+        ["actions"] = pillsOf(buttons)
       }
     }
   children = new Mapping {
     ["head"] = new Listing {
       when (modes.length > 1) {
-        let (ms = modes) let (rest = pillActions)
+        let (ms = modes) let (bs = buttons)
           new SliderModes {
             modes = ms
             children {
               when (ms.every((m) -> m.button != null)) {
-                new SliderPill { buttons = ms.map((m) -> m.button!!); children = rest }
+                new SliderPill { modeButtons = ms.map((m) -> m.button!!); buttons = bs }
               }
             }
           }
@@ -416,8 +437,9 @@ open class Slider extends nodes.Node {
     ["children"] = memberRows
   }
 
-  function actions(xs: List<buttonMod.Button>): Slider =
-    let (self = this) (self) { actions = xs.toListing() }
+  /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour)))`.
+  function buttons(xs: List<SliderButton>): Slider =
+    let (self = this) (self) { buttons = xs }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function disabled(d: nodes.BooleanInput): Slider = let (self = this) (self) { disabled = d }
   // BeerCSS's slider markup, `fh-slider` being its `.slider.max`: the wrapper

@@ -1016,11 +1016,9 @@ facts {
     ha.cardDef == byHand.cardDef
     ha.slots == byHand.slots
     ha.children == byHand.children
-    // The power-button shorthand is a leading action, ahead of the author's.
-    local t = c.tap.toggle(kitchen)
-    local info = c.sliderAction(kitchen, c.view.moreInfo(kitchen))
-    ha.tapAction(t).actions(List(info)).children
-      == (byHand) { leadingActions { c.sliderAction(kitchen, t) } }.actions(List(info)).children
+    // Its buttons are the base's too: each tap a pill in its own look.
+    local bs = List(c.tap.toggle(kitchen), c.view.moreInfo(kitchen))
+    ha.buttons(bs).children == byHand.buttons(bs).children
   }
 
   ["a button's cell is the same whichever order its builders run in"] {
@@ -1142,8 +1140,8 @@ facts {
     local head = c.entitySlider(kitchen).children["head"][0]
     head.cell.classWhen.containsKey("fh-active")
     head.slots["onoff"] == "1"
-    // One meaning of on: the slider's power button reads HA's rule, as the tile.
-    c.sliderAction(kitchen, c.tap.toggle(kitchen)).cell.classWhen["fh-active"].transform
+    // One meaning of on: a toggle's pill reads HA's rule, as the tile.
+    c.pill(c.tap.toggle(kitchen)).cell.classWhen["fh-active"].transform
       == c.entityCard(kitchen).cell.classWhen["fh-active"].transform
   }
 
@@ -1172,29 +1170,25 @@ facts {
     // busy-guarded element per node, and the busy signal is named after the
     // node — so two buttons sharing the head's id could only ever arm one of
     // them, and pressing either would disable both.
-    local row = (c.entitySlider(kitchen))
-      .tapAction(c.tap.toggle(kitchen))
-      .actions(List(
-        c.sliderAction(kitchen, c.view.moreInfo(kitchen))
-          .icon("mdi:information").active(false)
-      ))
+    local row = c.entitySlider(kitchen).buttons(List(
+      c.tap.toggle(kitchen),
+      c.pill(c.view.moreInfo(kitchen)).icon("mdi:information")
+    ))
     local acts = row.children["head"][0].children["actions"]
     acts.length == 2
-    // `tapAction` stays FIRST — it is the shorthand for the button this card
-    // has always had, and adding a second must not move it.
-    acts[0].slots["glyph"] == "mdi mdi-power"
-    acts[1].slots["glyph"] == "mdi mdi-information"
-    // They are ordinary `button`s — the shared round icon form, not a card of
-    // this module's own. What the slider adds is only WHERE they sit.
-    acts.toList().every((a) -> a.card == "button")
+    // In the order given.
+    acts[0].slots["glyph"] == "mdi-power"
+    acts[1].slots["glyph"] == "mdi-information"
+    // They are ordinary pills, not a card of this module's own. What the
+    // slider adds is only WHERE they sit.
+    acts.toList().every((a) -> a.card == "pill")
     acts.toList().every((a) -> a.slots["round"] == "1")
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
-    c.cards["button"].template.contains(#"data-indicator="_{{id}}__busy""#)
-    // `active(false)` drops the class signal rather than binding a constant: a
-    // button that does not mean "this entity is on" should not light up.
+    c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
+    // A toggle's pill is lit by its entity; a view tap's binds no class signal.
     acts[0].cell.classWhen.containsKey("fh-active")
-    acts[1].cell == null
+    !(acts[1].cell?.classWhen?.containsKey("fh-active") ?? false)
     // A popup action carries its OWN surfaces, so the popup hangs off the
     // button that opens it rather than off the slider.
     acts[1].inlineSurfaces != null

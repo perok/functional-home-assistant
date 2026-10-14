@@ -160,13 +160,13 @@ function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// An entity for its domain's default axis, or a capability group for that
 /// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
+/// Where a slider's mode switch sits among its buttons:
+/// `c.entitySlider(l).buttons(List(c.tap.toggle(l), c.modeSwitch))`.
+hidden modeSwitch: sliderBaseMod.ModeSwitch = sliderBaseMod.modeSwitch
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
 /// bar where it also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
   progressMod.progress(remaining)
-/// A round [[entityButton]] for a slider's head, tinted while its entity is on.
-function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
-  sliderMod.sliderAction(e, t)
 /// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
 /// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =

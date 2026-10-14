@@ -132,7 +132,7 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
+         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).buttons(List(c.pill(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey})).icon("mdi:power")))
          |  }
          |}
          |""".stripMargin
@@ -303,7 +303,7 @@ object SmokeDashboard {
          |local head = dump.entities.${colourLamp.dumpKey}
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).syncRows().withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).syncRows().withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
          |    ))
@@ -331,7 +331,7 @@ object SmokeDashboard {
          |local head = dump.entities.${groupDimmer.dumpKey}
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).secondary("Kitchen").withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).secondary("Kitchen").withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null)
          |    ))
