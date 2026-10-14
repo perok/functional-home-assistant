@@ -231,8 +231,8 @@ the host renders it as **bakeAs**; **bakeIndex** is which member of the group is
 exposed so a card can show the selection without JavaScript.
 
 **Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
-chooses is the group's activation: a node variable for a tab bar (`Activation.Var`, ADR 0033), a
-condition for an `If` branch.
+chooses is the group's activation: a node variable for a tab bar or a `c.select` (`Activation.Var`,
+ADR 0033), each member selected at one of its values, a condition for an `If` branch.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

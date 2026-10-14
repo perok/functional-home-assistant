@@ -1085,9 +1085,10 @@ variable write that swaps the panel this viewer is shown (`swapHost`) before it 
 path that bakes takes a bar's member from the session's variables: `SurfaceGraph.selections`
 pairs them with the request's popup at each entry (the page, an action, a minted session, a
 connect after adopting the carried values, a renderer swap), narrowing the popup to one this
-dashboard hosts and dropping an index outside its group. A pull reads `session.open` instead
+dashboard hosts and dropping a value no member of its group is selected at. A pull reads `session.open` instead
 (`SurfaceGraph.selectionsIn`), which the write keeps in step. `Selections` is what all of them
-hand the renderer: the popup's surface id and each chosen bake group's member index.
+hand the renderer: the popup's surface id and each chosen bake group's member index, which
+`SurfaceGraph.memberAt` finds from the variable's value.
 
 The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
 `tab` node per window. A button names the declaring node in the route it posts to and the signal

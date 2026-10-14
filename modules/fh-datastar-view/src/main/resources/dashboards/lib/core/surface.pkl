@@ -31,12 +31,14 @@ class UserActivation {
   defaultOpen: Boolean = false
 }
 
-/// The member whose `bakeIndex` is the node variable `name`, as seen from the
-/// node it bakes into: a tab bar's panel. Per viewer, like [[UserActivation]],
-/// but declared, so a choice is a variable write (ADR 0033).
+/// The member the node variable `name` selects at `value`, as seen from the
+/// node it bakes into; with no `value`, at its `bakeIndex` (a tab bar's panel).
+/// Per viewer, like [[UserActivation]], but declared, so a choice is a
+/// variable write (ADR 0033).
 class VarActivation {
   kind: "var" = "var"
   name: String
+  value: String? = null
 }
 
 /// Shown while `condition` holds over live state — the same for every viewer.
