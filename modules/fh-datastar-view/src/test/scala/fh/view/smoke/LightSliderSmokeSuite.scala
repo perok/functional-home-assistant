@@ -61,7 +61,7 @@ class LightSliderSmokeSuite extends SmokeSuite {
     ) { (page, _) =>
       IO.blocking {
         val summary = page.locator(".fh-select-summary")
-        val face = summary.locator("i")
+        val face = summary.locator("i[title]")
         assertThat(face).hasAttribute("title", "Brightness")
         summary.click()
         page
