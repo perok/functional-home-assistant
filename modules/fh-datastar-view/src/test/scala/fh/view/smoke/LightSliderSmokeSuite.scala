@@ -67,8 +67,8 @@ class LightSliderSmokeSuite extends SmokeSuite {
             |    t.getBoundingClientRect().width
             |}""".stripMargin
         )
-        .asInstanceOf[Number]
-        .doubleValue
+        .toString
+        .toDouble
     withPage(scene) { (page, _) =>
       for {
         before <- IO.blocking {
