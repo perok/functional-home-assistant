@@ -233,7 +233,7 @@ facts {
   // about it, live. Its body is per-entity, hence inline rather than registered.
 
   ["more-info is an inline popup, so every entity's body is its own surface"] {
-    local t = c.tap.moreInfo(kitchen)
+    local t = c.view.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
     // A transform, not a constant: the route carries `dashboard_slug`, which
     // only a transform can read.
@@ -243,13 +243,13 @@ facts {
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
-    local body = c.tap.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
       == List("tile", "fhcol", "entityInfo", "button")
   }
 
   ["a numeric sensor's popup carries a chart of where the reading has been"] {
-    local body = c.tap.moreInfo(power).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(power).inlineSurfaces["self"].content.children[0]
     // The chart arrives under a window chooser, not beside the card: the
     // chooser is what DECLARES the window, so the nesting is what puts the
     // chart in scope of it. Composed here so no dashboard ever writes it.
@@ -349,7 +349,7 @@ facts {
     //
     // The property the default flip will rest on: there is no entity for which
     // this popup is empty.
-    local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
       == List("tile", "entityInfo", "button")
   }
@@ -445,7 +445,7 @@ facts {
     // Silent when broken, and fatal: `defaultTap` on a non-actionable entity
     // is `moreInfo(e)`, whose body builds this very card — an infinite regress
     // that laziness does not stop, because `slots` forces the tap.
-    local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().first.inlineSurfaces == null
   }
 
@@ -495,7 +495,7 @@ facts {
     tapMod.openPopup("p").busy
     tapMod.openPopupInline(c.title("x")).busy
     new varMod.Variable { name = "tab" }.choose("0").busy
-    c.tap.moreInfo(outside).busy
+    c.view.moreInfo(outside).busy
     !tapMod.navigate("home").busy
     !tapMod.closePopup().busy
     // The tab card takes its guard from its tap, like every other card.
@@ -568,7 +568,7 @@ facts {
     module
       .catch(() ->
         c.entityButton(latchLock)
-          .tapAction(c.tap.navigate("/other"))
+          .tapAction(c.view.navigate("/other"))
           .disabled(c.stateIn(latchLock, List("opening")))
           .slots["label"])
       .contains("renders as a link")
@@ -822,7 +822,7 @@ facts {
     // An attribute is asked for by name, never inferred from a bare String —
     // which is what it meant on an entity card before the base cards took it.
     c.entityCard(kitchen).secondary("device_class").slots["secondary"] == "device_class"
-    c.button("x", c.tap.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
+    c.button("x", c.view.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
     c.entitySlider(kitchen).secondary("device_class").textSlots["secondary"] == "device_class"
 
     local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Slot
@@ -831,9 +831,9 @@ facts {
   }
 
   ["expression values ride the wire as `values`, and only when there are some"] {
-    c.button("x", c.tap.closePopup()).values == null
+    c.button("x", c.view.closePopup()).values == null
     local lights = List(kitchen)
-    local b = (c.button("x", c.tap.closePopup())) {
+    local b = (c.button("x", c.view.closePopup())) {
       expressionValues {
         ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
         ["lights_total"] = lights.length
@@ -850,10 +850,10 @@ facts {
 
   ["the expressionValues builder is the amend, as a chain step"] {
     local lights = List(kitchen)
-    local amended = (c.button("x", c.tap.closePopup()).secondary(c.expr("string(n)"))) {
+    local amended = (c.button("x", c.view.closePopup()).secondary(c.expr("string(n)"))) {
       expressionValues { ["n"] = q.from(lights).count() }
     }
-    local chained = c.button("x", c.tap.closePopup())
+    local chained = c.button("x", c.view.closePopup())
       .secondary(c.expr("string(n)"))
       .expressionValues(new Mapping { ["n"] = q.from(lights).count() })
     new JsonRenderer {}.renderValue(chained) == new JsonRenderer {}.renderValue(amended)
@@ -876,7 +876,7 @@ facts {
   }
 
   ["a button takes a second line, and one without it is untouched"] {
-    local plain = c.button("Stue", c.tap.closePopup())
+    local plain = c.button("Stue", c.view.closePopup())
     !plain.slots.containsKey("secondary")
 
     local literal = plain.secondary("Turns off 4 lights")
@@ -889,7 +889,7 @@ facts {
     live.slots["entity_id"] == kitchen.entity_id
 
     // A glyph with a second line is not a bare icon, so it stays rectangular.
-    local glyphed = c.iconButton("mdi:power", c.tap.closePopup()).secondary("Off")
+    local glyphed = c.iconButton("mdi:power", c.view.closePopup()).secondary("Off")
     !glyphed.slots.containsKey("round")
 
     // Both arms place it, under the same section that opens the column.
@@ -902,12 +902,12 @@ facts {
     // What the slider's head action needed over `c.pill` was a glyph, no label
     // and the `active` tint. None of the three is about sliders, so all three are
     // the shared cards' — one icon button in the library, not a private copy.
-    local labelled = c.button("Close", c.tap.closePopup())
+    local labelled = c.button("Close", c.view.closePopup())
     !labelled.slots.containsKey("glyph")
     !labelled.slots.containsKey("round")
     labelled.slots["label"] == "Close"
 
-    local glyphOnly = c.iconButton("mdi:power", c.tap.closePopup())
+    local glyphOnly = c.iconButton("mdi:power", c.view.closePopup())
     glyphOnly.slots["glyph"] == "mdi mdi-power"
     // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
     // as a label that failed to render.
@@ -915,13 +915,13 @@ facts {
     glyphOnly.slots["label"] == ""
 
     // Both together stay rectangular — that is an ordinary button with an icon.
-    local both = (c.button("Power", c.tap.closePopup())).icon("mdi:power")
+    local both = (c.button("Power", c.view.closePopup())).icon("mdi:power")
     both.slots["glyph"] == "mdi mdi-power"
     !both.slots.containsKey("round")
 
     // A pill takes the glyph too; it has no round variant because a chip is
     // already pill-shaped.
-    local chip = (c.pill("Up", c.tap.navigate("under"))).icon("mdi:arrow-up")
+    local chip = (c.pill("Up", c.view.navigate("under"))).icon("mdi:arrow-up")
     chip.slots["glyph"] == "mdi-arrow-up"
     !chip.slots.containsKey("round")
 
@@ -995,7 +995,7 @@ facts {
     ha.children == byHand.children
     // The power-button shorthand is a leading action, ahead of the author's.
     local t = c.tap.toggle(kitchen)
-    local info = c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
+    local info = c.sliderAction(kitchen, c.view.moreInfo(kitchen))
     ha.tapAction(t).actions(List(info)).children
       == (byHand) { leadingActions { c.sliderAction(kitchen, t) } }.actions(List(info)).children
   }
@@ -1030,9 +1030,9 @@ facts {
     // Every card that can render a navigate as a link places the mark, read
     // once from the slug the renderer serves.
     local links = List(
-      c.button("Home", c.tap.navigate("home")),
-      c.pill("Home", c.tap.navigate("home")),
-      c.entityButton(kitchen).tapAction(c.tap.navigate("home"))
+      c.button("Home", c.view.navigate("home")),
+      c.pill("Home", c.view.navigate("home")),
+      c.entityButton(kitchen).tapAction(c.view.navigate("home"))
     )
     links.every((n) ->
       let (cur = n.slots["current"] as slotMod.Slot)
@@ -1044,7 +1044,7 @@ facts {
     // A service tap is no link, so it has nothing to mark.
     !c.button("x", c.tap.toggle(kitchen)).slots.containsKey("current")
     // A slug is a key the author wrote, so a quote in it stays in the string.
-    (c.button("x", c.tap.navigate("it's")).slots["current"] as slotMod.Slot).transform
+    (c.button("x", c.view.navigate("it's")).slots["current"] as slotMod.Slot).transform
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
     cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
@@ -1069,8 +1069,8 @@ facts {
     List("small", "medium", "large").every((sz) ->
       t.contains(" fh-size-\(sz){{/") && beerMod.theme.classes.containsKey("fh-size-\(sz)"))
     // Large by default, and one size at a time.
-    c.button("x", c.tap.closePopup()).slots["sizeLarge"] == "1"
-    local small = c.button("x", c.tap.closePopup()).size("small")
+    c.button("x", c.view.closePopup()).slots["sizeLarge"] == "1"
+    local small = c.button("x", c.view.closePopup()).size("small")
     small.slots["sizeSmall"] == "1"
     !small.slots.containsKey("sizeLarge")
     // The base heights are fallbacks; under BeerCSS the height is its own.
@@ -1152,7 +1152,7 @@ facts {
     local row = (c.entitySlider(kitchen))
       .tapAction(c.tap.toggle(kitchen))
       .actions(List(
-        c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
+        c.sliderAction(kitchen, c.view.moreInfo(kitchen))
           .icon("mdi:information").active(false)
       ))
     local acts = row.children["head"][0].children["actions"]
@@ -1526,7 +1526,7 @@ facts {
     // More-info is exactly what you want to open on an unavailable entity: it
     // is where the reason is. A navigate does not care either.
     !c.entityCard(outside).slots.containsKey("tapDisabled")
-    !c.button("Go", c.tap.navigate("other")).slots.containsKey("tapDisabled")
+    !c.button("Go", c.view.navigate("other")).slots.containsKey("tapDisabled")
   }
 
   ["a typed lock still taps by state, like any other lock"] {

@@ -24,7 +24,7 @@ class MinifierSuite extends munit.CatsEffectSuite {
         |card = (c.column) {
         |  children {
         |    c.entitySlider(dump.lights.all.first)
-        |    c.button("Open", c.tap.openPopupInline(c.title("x")))
+        |    c.button("Open", c.view.openPopupInline(c.title("x")))
         |  }
         |}
         |""".stripMargin

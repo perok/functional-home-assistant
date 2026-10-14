@@ -1,0 +1,32 @@
+/// What a click shows — `c.view`. Unlike `c.tap`, nothing here reaches Home
+/// Assistant: a view tap changes only this screen, so its button is never lit
+/// by an entity and nothing at HA can refuse it.
+///
+///     c.entityCard(l).tapAction(c.view.moreInfo(l))
+///     c.button("Detail…", c.view.openPopup("detail"))
+///     c.pill(c.view.navigate("under")).label("Underetasje")
+///
+/// A dashboard-tier module because [[moreInfo]] is a component; the tap kit a
+/// component author builds on is `core/tap.pkl`.
+module components.view
+
+import "../core/tap.pkl" as core
+import "../core/node.pkl" as nodes
+import "../hass.pkl"
+import "moreinfo.pkl" as moreinfo
+
+/// Open `e`'s more-info popup: its card, its domain's controls, and every
+/// attribute it reports.
+function moreInfo(e: hass.Entity): core.OpenSurface = moreinfo.moreInfo(e)
+
+/// Go to dashboard `slug`.
+function navigate(slug: String): core.Click = core.navigate(slug)
+
+/// Open the surface registered under `surfaceId`.
+function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surfaceId)
+
+/// Open a popup holding `body`.
+function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
+
+/// Close the open popup.
+function closePopup(): core.Click = core.closePopup()

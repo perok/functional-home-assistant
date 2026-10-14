@@ -58,8 +58,8 @@ tied to a domain; a device component would follow the same pattern).
 
 The verbs are HA's `tap_action` variants, each taking its target, with no
 `Tap` suffix because the namespace already says it: `c.tap.toggle(e)`,
-`c.tap.default(e)`, `c.tap.moreInfo(e)`, `c.tap.call(service, target)` (with
-`.with(key, value)` for one value), `c.tap.navigate(slug)` and the popup verbs.
+`c.tap.default(e)`, `c.view.moreInfo(e)`, `c.tap.call(service, target)` (with
+`.with(key, value)` for one value), `c.view.navigate(slug)` and the popup verbs.
 `c.tap(e)` is `c.tap.default(e)` under the shorter name: a facade method beside
 the namespace, which Pkl keeps apart. A domain gets a typed namespace where a
 typed verb is wanted — `c.tap.lights.off(scope)` over a light, an area or a

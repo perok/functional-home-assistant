@@ -231,9 +231,9 @@ class Pill extends nodes.ActiveNode {
   function active(a: nodes.BooleanInput): Pill = let (self = this) (self) { active = a }
 }
 
-/// `c.button("Close", c.tap.closePopup())`.
+/// `c.button("Close", c.view.closePopup())`.
 function button(l: String, a: tapMod.TapAction): Button = new Button { label = l; tapAction = a }
-/// `c.pill("Underetasje", c.tap.navigate("under"))`.
+/// `c.pill("Underetasje", c.view.navigate("under"))`.
 function pill(l: String, a: tapMod.TapAction): Pill = new Pill { label = l; tapAction = a }
 
 /// A round icon button, `c.iconButton("mdi:power", c.tap.toggle(l))`. One that

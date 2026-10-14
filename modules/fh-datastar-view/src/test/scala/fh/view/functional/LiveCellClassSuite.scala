@@ -151,7 +151,7 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
 
   test("a button with only its own disabled binds that alone") {
     val body =
-      """    (c.button("Close", c.tap.closePopup())) {
+      """    (c.button("Close", c.view.closePopup())) {
         |      disabled = kitchenOn
         |    }""".stripMargin
     withServer(body)(_.page()).map { html =>

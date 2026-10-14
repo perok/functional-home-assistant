@@ -1,18 +1,17 @@
-/// What a click does — `c.tap`. Every verb names what it acts on, after HA's
-/// `tap_action` variants, so a tap means the same on any card:
+/// What a click does in Home Assistant — `c.tap`. Every verb names what it acts
+/// on, after HA's `tap_action` variants, so a tap means the same on any card:
 ///
 ///     c.button("Kjøkken", c.tap.toggle(dump.entities.kjokken))
-///     c.entityCard(l).tapAction(c.tap.moreInfo(l))
 ///     c.button("Stue av", c.tap.lights.off(dump.areas.stue))
 ///     c.pill("Kveld", c.tap.activate(dump.entities.kveld))
 ///     c.button("Stue", c.tap(dump.entities.stue))
 ///
-/// A dashboard-tier module because [[moreInfo]] is a component; the tap kit a
-/// component author builds on is `core/tap.pkl`.
+/// What only changes the screen — more-info, popups, navigation — is `c.view`.
+/// A dashboard-tier module because [[default]] can be more-info, a component;
+/// the tap kit a component author builds on is `core/tap.pkl`.
 module components.tap
 
 import "../core/tap.pkl" as core
-import "../core/node.pkl" as nodes
 import "../hass.pkl"
 import "../hass/lock.pkl" as hassLock
 import "moreinfo.pkl" as moreinfo
@@ -31,10 +30,6 @@ function default(e: hass.Entity): core.TapAction = moreinfo.defaultTap(e)
 /// scene in.
 function activate(x: hass.Activatable): core.Call = core.byDomain(x)!!
 
-/// Open `e`'s more-info popup: its card, its domain's controls, and every
-/// attribute it reports.
-function moreInfo(e: hass.Entity): core.OpenSurface = moreinfo.moreInfo(e)
-
 /// `service` on `target`, for any service with no typed verb here. Carry one
 /// value with `.with(key, value)`:
 /// `c.tap.call("light/turn_on", l).with("effect", "colorloop")`.
@@ -43,18 +38,6 @@ function moreInfo(e: hass.Entity): core.OpenSurface = moreinfo.moreInfo(e)
 /// a light added to the room later is included (issue #389).
 function call(service: String, target: core.Target): core.Call =
   core.call(service, target)
-
-/// Go to dashboard `slug`.
-function navigate(slug: String): core.Click = core.navigate(slug)
-
-/// Open the surface registered under `surfaceId`.
-function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surfaceId)
-
-/// Open a popup holding `body`.
-function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
-
-/// Close the open popup.
-function closePopup(): core.Click = core.closePopup()
 
 /// `c.tap.lights.off(dump.areas.stue)` — on a light, a room or a floor.
 class Lights {

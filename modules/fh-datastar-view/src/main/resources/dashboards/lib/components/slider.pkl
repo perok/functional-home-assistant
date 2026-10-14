@@ -101,7 +101,7 @@ typealias Readout = "state"|"percent"|"none"
 ///
 ///     c.entitySlider(l).actions(List(
 ///       c.sliderAction(l, c.tap.toggle(l)),
-///       c.sliderAction(l, c.tap.moreInfo(l)).icon("mdi:information").active(false)
+///       c.sliderAction(l, c.view.moreInfo(l)).icon("mdi:information").active(false)
 ///     ))
 const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   (control.entityButton(e)) { icon = "mdi:power"; label = ""; tapAction = t; active = slotMod.activeOf(e) ?? false }
