@@ -188,7 +188,8 @@ class ComponentVisualSuite extends SmokeSuite {
       (page, _) =>
         IO.blocking {
           page.locator(".fh-radial-face").click()
-          assertThat(page.locator(".fh-radial-ring")).isVisible()
+          // The ring is a 0×0 origin; its options are what shows.
+          assertThat(page.locator(".fh-radial-ring > *").first()).isVisible()
           page.mouse().move(0, 0)
           settle(page)
           VisualSnapshot.check("select-radial-open", page.screenshot())

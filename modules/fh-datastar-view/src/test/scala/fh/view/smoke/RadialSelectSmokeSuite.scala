@@ -37,6 +37,10 @@ class RadialSelectSmokeSuite extends SmokeSuite {
   private def face(page: Page) = page.locator(".fh-radial-face")
   private def ring(page: Page) = page.locator(".fh-radial-ring")
 
+  // The ring itself is a 0×0 origin, which Playwright never counts as
+  // visible; its options are what shows.
+  private def options(page: Page) = page.locator(".fh-radial-ring > *")
+
   private def choosing(page: Page, value: String)(act: => Unit): Unit = {
     val _ = page.waitForResponse(
       (r: com.microsoft.playwright.Response) =>
@@ -55,7 +59,7 @@ class RadialSelectSmokeSuite extends SmokeSuite {
         page.mouse().move(cx, cy)
         page.mouse().down()
         page.waitForTimeout(400)
-        assertThat(ring(page)).isVisible()
+        assertThat(options(page).first()).isVisible()
         page
           .mouse()
           .move(
@@ -66,7 +70,7 @@ class RadialSelectSmokeSuite extends SmokeSuite {
         assertThat(ring(page)).hasAttribute("data-pick", "1")
         choosing(page, "7d")(page.mouse().up())
         assertThat(face(page)).hasText("7d")
-        assertThat(ring(page)).isHidden()
+        assertThat(options(page).first()).isHidden()
       }
     }
   }
@@ -75,7 +79,7 @@ class RadialSelectSmokeSuite extends SmokeSuite {
     withPageOn(served, Some(600 -> 600)) { (page, _) =>
       IO.blocking {
         face(page).click()
-        assertThat(ring(page)).isVisible()
+        assertThat(options(page).first()).isVisible()
         choosing(page, "30d")(
           ring(page)
             .getByText(
@@ -86,7 +90,7 @@ class RadialSelectSmokeSuite extends SmokeSuite {
             .click()
         )
         assertThat(face(page)).hasText("30d")
-        assertThat(ring(page)).isHidden()
+        assertThat(options(page).first()).isHidden()
       }
     }
   }
