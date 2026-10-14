@@ -187,12 +187,13 @@ open class Button extends nodes.ActiveNode {
 class Pill extends nodes.ActiveNode {
   card = "pill"
   cardDef = new nodes.CardDef {
-    // BeerCSS's `.chip` under the default theme, already border-box, so no
-    // round variant. Its glyph keeps the spinner's colour (`aria-busy`, which
+    // BeerCSS's `.chip` under the default theme, already border-box. A round
+    // one is `fh-circle`, the class an icon button and the slider's mode
+    // button carry, so the three are one size. Its glyph keeps the spinner's colour (`aria-busy`, which
     // any theme's spinner carries). It wears the
     // button's surface, so a run of pills and a button read as one family.
     template = """
-      {{#href}}<a class="fh-chip{{#round}} fh-chip-round{{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}"{{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip{{#round}} fh-chip-round{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="fh-chip{{#round}} fh-circle{{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}"{{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip{{#round}} fh-circle{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
     css = """
@@ -202,7 +203,6 @@ class Pill extends nodes.ActiveNode {
       .fh-cell>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
       .fh-cell.fh-active>.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
       .fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
-      .fh-cell>.fh-chip.fh-chip-round{aspect-ratio:1;padding:0;justify-content:center}
       """
   }
   cellClasses { "fh-hug" }
