@@ -41,6 +41,7 @@ import "components/moreinfo.pkl" as moreinfo
 import "components/progress.pkl" as progressMod
 import "components/tap.pkl" as tapVerbs
 import "components/select.pkl" as selectMod
+import "components/wheel.pkl" as wheelMod
 import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
 
@@ -227,7 +228,8 @@ const modules: List<Module> = List(
   surfaceMod,
   moreinfo,
   historyMod,
-  selectMod
+  selectMod,
+  wheelMod
 )
 
 /// Every concrete card class in [[modules]], by card name. A class that

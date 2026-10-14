@@ -1168,7 +1168,8 @@ class PklBuildSuite extends munit.FunSuite {
       "selectDropdown" -> List("chosen"),
       "selectCycle" -> Nil,
       "selectCycleButton" -> List("label", "onclick", "shown"),
-      "selectEntityOption" -> List("label")
+      "selectEntityOption" -> List("label"),
+      "colourWheel" -> List("hue", "sat", "paint")
     )
     assertEquals(
       cards.keys.map(_.toSet),
