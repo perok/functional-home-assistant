@@ -17,7 +17,8 @@ import "moreinfo.pkl" as moreinfo
 
 /// Open `e`'s more-info popup: its card, its domain's controls, and every
 /// attribute it reports.
-function moreInfo(e: hass.Entity): core.OpenSurface = moreinfo.moreInfo(e)
+function moreInfo(e: hass.Entity): core.OpenSurface =
+  (moreinfo.moreInfo(e)) { icon = "mdi:information-outline"; label = "Details" }
 
 /// Go to dashboard `slug`.
 function navigate(slug: String): core.Click = core.navigate(slug)
@@ -29,4 +30,4 @@ function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surface
 function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
 
 /// Close the open popup.
-function closePopup(): core.Click = core.closePopup()
+function closePopup(): core.Click = (core.closePopup()) { icon = "mdi:close"; label = "Close" }

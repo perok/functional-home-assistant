@@ -154,10 +154,9 @@ function button(l: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.bu
 /// A button about an entity — its name, its icon and its domain's tap:
 /// `c.entityButton(l).active(c.isOn(l))`.
 function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
-/// `c.pill("Underetasje", c.view.navigate("under"))`.
-function pill(l: String, a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(l, a)
-/// `c.iconButton("mdi:power", c.tap.toggle(l))`.
-function iconButton(i: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.iconButton(i, a)
+/// A small button in its tap's look: `c.pill(c.tap.toggle(l))`, or
+/// `c.pill(c.view.navigate("under")).label("⬇️ Under")`.
+function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// An entity for its domain's default axis, or a capability group for that
 /// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)

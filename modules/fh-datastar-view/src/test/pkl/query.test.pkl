@@ -82,7 +82,7 @@ facts {
     // is settled at build time and neither clause carries a guard.
     local s = q.from(stue)
       .caseOf(q.candidate((e) -> (e as hass.LightEntity).supportsFlash), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("off-duty", c.view.navigate("/")))
+      .`else`((e) -> c.pill(c.view.navigate("/")).label("off-duty"))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].`when` == null
@@ -96,7 +96,7 @@ facts {
     // fallback. Order is author order, which IS match order.
     local s = q.from(stue)
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("off", c.view.navigate("/")))
+      .`else`((e) -> c.pill(c.view.navigate("/")).label("off"))
       .build()
     memberOf.apply(s, "light.taklys").length == 2
     memberOf.apply(s, "light.taklys")[0].`when`.property == "state"
@@ -368,7 +368,7 @@ facts {
     local s = q.from(allEnts)
       .cases(new Mapping {
         [q.eq(q.prop("domain"), "light")] = (e) -> c.entityCard(e)
-        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.view.navigate("/"))
+        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill(c.view.navigate("/")).label("s")
       })
       .build()
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
@@ -400,7 +400,7 @@ facts {
     // reaches the wire.
     local s = q.from(stue)
       .caseOf(q.candidate((_e) -> true), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("never", c.view.navigate("/")))
+      .`else`((e) -> c.pill(c.view.navigate("/")).label("never"))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
@@ -674,7 +674,7 @@ facts {
     local a: hass.SceneEntity = new { entity_id = "scene.a" }
     local b: hass.SceneEntity = new { entity_id = "scene.b" }
     local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
-    local p = c.pill("A", c.tap.activate(a)).active(latest.eq(a))
+    local p = c.pill(c.tap.activate(a)).label("A").active(latest.eq(a))
     p.derivedValues["__active"] == latest.eq(a)
     p.liveClasses.containsKey("fh-active")
   }

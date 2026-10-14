@@ -83,7 +83,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         |card = (c.column) {
         |  children {
         |    c.button("Home", c.view.navigate("home"))
-        |    c.pill("Kitchen", c.view.navigate("kitchen"))
+        |    c.pill(c.view.navigate("kitchen")).label("Kitchen")
         |  }
         |}
         |""".stripMargin

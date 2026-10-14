@@ -1719,8 +1719,8 @@ class PklBuildSuite extends munit.FunSuite {
         |// one), so it survives a span and composes with it rather than being
         |// replaced. A Pill defaults to it, the same self-defaulted-cell move.
         |hugged = c.entityCard(x).hug()
-        |pill = c.pill("Underetasje", c.view.navigate("under"))
-        |pillSized = c.pill("Underetasje", c.view.navigate("under")).columns(6)
+        |pill = c.pill(c.view.navigate("under")).label("Underetasje")
+        |pillSized = c.pill(c.view.navigate("under")).label("Underetasje").columns(6)
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")

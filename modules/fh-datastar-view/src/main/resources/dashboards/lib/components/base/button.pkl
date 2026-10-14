@@ -91,7 +91,7 @@ open class Button extends nodes.ActiveNode {
   /// A smaller, dimmer second line: a literal, an expression or any reading.
   hidden secondary: slotMod.Secondary? = null
   /// A glyph before the label, as an MDI name (`mdi:power`). With `label = ""`
-  /// the button is icon-only and round — see [[iconButton]].
+  /// the button is icon-only and round; a small one is a [[Pill]].
   hidden icon: String? = null
   /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`; [[icon]]
   /// by default. An entity button reads its entity's.
@@ -175,10 +175,15 @@ open class Button extends nodes.ActiveNode {
   function disabled(r: nodes.BooleanInput): Button = let (self = this) (self) { disabled = r }
 }
 
-/// A compact chip sized to its label, for a run of small choices (floors,
-/// scenes) where full-width buttons would read as unrelated slabs. Its cell
-/// defaults to `fh-hug`, so pills pack and wrap as one group; `columns(n)`
-/// still composes on top. Lit while [[active]] holds, as a button is.
+/// A small button sized to what it shows: a label (an emoji is text), an MDI
+/// icon, or both. Round when an icon or a label of up to two characters is all
+/// it shows. Its look defaults to its tap's, and a toggle's is lit while its
+/// entity is on. Its cell defaults to `fh-hug`, so pills pack and wrap as
+/// one group; `columns(n)` still composes on top.
+///
+///     c.pill(c.tap.toggle(l))                       // the tap's power icon, round
+///     c.pill(c.tap.activate(kveld))                 // the scene's name
+///     c.pill(c.view.navigate("under")).label("⬇️ Under")
 class Pill extends nodes.ActiveNode {
   card = "pill"
   cardDef = new nodes.CardDef {
@@ -187,7 +192,7 @@ class Pill extends nodes.ActiveNode {
     // any theme's spinner carries). It wears the
     // button's surface, so a run of pills and a button read as one family.
     template = """
-      {{#href}}<a class="fh-chip\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="fh-chip{{#round}} fh-chip-round{{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}"{{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip{{#round}} fh-chip-round{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
     css = """
@@ -197,19 +202,35 @@ class Pill extends nodes.ActiveNode {
       .fh-cell>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
       .fh-cell.fh-active>.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
       .fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
+      .fh-cell>.fh-chip.fh-chip-round{aspect-ratio:1;padding:0;justify-content:center}
       """
   }
   cellClasses { "fh-hug" }
-  hidden label: (String|slotMod.Expr)? = null
-  /// See [[Button.icon]].
-  hidden icon: String? = null
   /// See [[Button.tapAction]].
   hidden tapAction: tapMod.TapAction = throw(noAction("c.pill"))
+  /// See [[Button.icon]]; the tap's by default.
+  hidden icon: String? = tapAction.icon
+  /// The text shown: the author's, else the tap's when there is no icon.
+  hidden label: (String|slotMod.Expr)? = if (icon == null) tapAction.label else null
+  // The accessible name of a pill showing no text.
+  local name: String? = if (label == null) tapAction.label else null
+  local round: Boolean =
+    if (label == null) true else icon == null && label is String && (label as String).length <= 2
+  active = tapAction.lit ?? false
   inlineSurfaces = tapAction.inlineSurfaces
   slots {
-    ["label"] = slotMod.labelSlot(null, label)
+    ["label"] =
+      if (label == null && icon == null)
+        throw("c.pill: this tap has no look of its own; give the pill .label(…) or .icon(…)")
+      else slotMod.labelSlot(null, label)
     when (icon != null) {
       ["glyph"] = icons.mdiClass(icon!!)
+    }
+    when (round) {
+      ["round"] = "1"
+    }
+    when (name != null) {
+      ["name"] = name!!
     }
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
@@ -225,18 +246,15 @@ class Pill extends nodes.ActiveNode {
   }
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
   function icon(i: String): Pill = let (self = this) (self) { icon = i }
+  /// Text only, without the tap's icon: `c.pill(c.tap.toggle(k)).label("Kveld").noIcon()`.
+  function noIcon(): Pill = let (self = this) (self) { icon = null }
   function tapAction(a: tapMod.TapAction): Pill = let (self = this) (self) { tapAction = a }
-  /// `c.pill("Kveld", c.tap.activate(s)).active(latest.eq(s))`, where
+  /// `c.pill(c.tap.activate(s)).active(latest.eq(s))`, where
   /// `latest = q.from(scenes).orderBy(q.desc(q.stateProp)).first()`.
   function active(a: nodes.BooleanInput): Pill = let (self = this) (self) { active = a }
 }
 
 /// `c.button("Close", c.view.closePopup())`.
 function button(l: String, a: tapMod.TapAction): Button = new Button { label = l; tapAction = a }
-/// `c.pill("Underetasje", c.view.navigate("under"))`.
-function pill(l: String, a: tapMod.TapAction): Pill = new Pill { label = l; tapAction = a }
-
-/// A round icon button, `c.iconButton("mdi:power", c.tap.toggle(l))`. One that
-/// lights while its entity is on is `c.sliderAction(l, tap)`.
-const function iconButton(i: String, a: tapMod.TapAction): Button =
-  new Button { icon = i; label = ""; tapAction = a }
+/// `c.pill(c.tap.toggle(l))`, `c.pill(c.view.navigate("under")).label("Under")`.
+const function pill(a: tapMod.TapAction): Pill = new Pill { tapAction = a }

@@ -16,7 +16,7 @@ import "slider.pkl" as sliderMod
 function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
   children {
     for (name in fx.list) {
-      buttonMod.pill(name, tapMod.call("light/turn_on", fx.owner).with("effect", name))
+      buttonMod.pill(tapMod.call("light/turn_on", fx.owner).with("effect", name)).label(name)
     }
   }
 }

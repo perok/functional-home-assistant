@@ -515,8 +515,8 @@ facts {
     )
     local cards = (t: tapMod.TapAction) -> List(
       c.button("b", t),
-      c.pill("p", t),
-      c.iconButton("mdi:power", t),
+      c.pill(t).label("p"),
+      c.button("", t).icon("mdi:power"),
       new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
       new tileMod.Tile { tapAction = t }
     )
@@ -530,8 +530,8 @@ facts {
   ["every pressable card refuses a service tap on a dead entity, and only a service tap"] {
     local cards = (t: tapMod.TapAction) -> List(
       c.button("b", t),
-      c.pill("p", t),
-      c.iconButton("mdi:power", t),
+      c.pill(t).label("p"),
+      c.button("", t).icon("mdi:power"),
       new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
       new tileMod.Tile { tapAction = t }
     )
@@ -889,13 +889,37 @@ facts {
     live.slots["entity_id"] == kitchen.entity_id
 
     // A glyph with a second line is not a bare icon, so it stays rectangular.
-    local glyphed = c.iconButton("mdi:power", c.view.closePopup()).secondary("Off")
+    local glyphed = c.button("", c.view.closePopup()).icon("mdi:power").secondary("Off")
     !glyphed.slots.containsKey("round")
 
     // Both arms place it, under the same section that opens the column.
     local t = c.cards["button"].template
     t.split("{{#secondary__has}}<span class=\"fh-lines\">").length == 3
     t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span></span>")
+  }
+
+  ["a pill wears its tap's look: round alone, named for a screen reader"] {
+    // The tap's icon and no text: round, and the label is its accessible name.
+    local power = c.pill(c.tap.toggle(kitchen))
+    power.slots["glyph"] == "mdi-power"
+    power.slots["label"] == ""
+    power.slots["round"] == "1"
+    power.slots["name"] == "Toggle"
+    // A toggle's pill is lit while its entity is on; other calls' are not.
+    power.cell.classWhen["fh-active"].entityId == kitchen.entity_id
+    c.pill(c.tap.call("light/turn_on", kitchen).with("effect", "x")).label("x").active == false
+    // A tap with no icon shows its label; an author's label is always shown.
+    local evening: hass.SceneEntity = new { entity_id = "scene.kveld"; friendly_name = "Kveld" }
+    c.pill(c.tap.activate(evening)).slots["label"] == "Kveld"
+    local both = c.pill(c.tap.toggle(kitchen)).label("Kjøkken")
+    both.slots["label"] == "Kjøkken" && both.slots["glyph"] == "mdi-power"
+    !both.slots.containsKey("round") && !both.slots.containsKey("name")
+    // An emoji is text, and short text is round too.
+    c.pill(c.view.navigate("under")).label("🔥").slots["round"] == "1"
+    !c.pill(c.view.navigate("under")).label("Under").slots.containsKey("round")
+    c.pill(c.tap.toggle(kitchen)).label("Kveld").noIcon().slots.containsKey("glyph") == false
+    // A tap with no look of its own needs one from the author.
+    module.catch(() -> c.pill(c.view.navigate("under")).slots["label"]).contains("give the pill .label(…) or .icon(…)")
   }
 
   ["a button or a pill can be a glyph, a label, or both"] {
@@ -907,7 +931,7 @@ facts {
     !labelled.slots.containsKey("round")
     labelled.slots["label"] == "Close"
 
-    local glyphOnly = c.iconButton("mdi:power", c.view.closePopup())
+    local glyphOnly = c.button("", c.view.closePopup()).icon("mdi:power")
     glyphOnly.slots["glyph"] == "mdi mdi-power"
     // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
     // as a label that failed to render.
@@ -919,9 +943,8 @@ facts {
     both.slots["glyph"] == "mdi mdi-power"
     !both.slots.containsKey("round")
 
-    // A pill takes the glyph too; it has no round variant because a chip is
-    // already pill-shaped.
-    local chip = (c.pill("Up", c.view.navigate("under"))).icon("mdi:arrow-up")
+    // A pill takes the glyph too; with a label beside it, it is not round.
+    local chip = (c.pill(c.view.navigate("under")).label("Up")).icon("mdi:arrow-up")
     chip.slots["glyph"] == "mdi-arrow-up"
     !chip.slots.containsKey("round")
 
@@ -1031,7 +1054,7 @@ facts {
     // once from the slug the renderer serves.
     local links = List(
       c.button("Home", c.view.navigate("home")),
-      c.pill("Home", c.view.navigate("home")),
+      c.pill(c.view.navigate("home")).label("Home"),
       c.entityButton(kitchen).tapAction(c.view.navigate("home"))
     )
     links.every((n) ->
@@ -1614,8 +1637,8 @@ facts {
     local senders = List(
       confirm,
       c.button("Open", press),
-      c.pill("Open", press),
-      c.iconButton("mdi:door-open", press),
+      c.pill(press).label("Open"),
+      c.button("", press).icon("mdi:door-open"),
       c.entityButton(latchLock).tapAction(press),
       c.entityCard(latchLock).tapAction(press),
       c.toggle(latchLock).tapAction(press)

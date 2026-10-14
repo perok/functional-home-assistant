@@ -362,9 +362,9 @@ object SmokeDashboard {
          |  children {
          |    (c.row) {
          |      children {
-         |        c.pill("Kveld", c.tap.toggle(k))
-         |        c.pill("Morgen", c.tap.toggle(k))
-         |        c.pill("Film", c.tap.toggle(k))
+         |        c.pill(c.tap.call("light/toggle", k)).label("Kveld")
+         |        c.pill(c.tap.call("light/toggle", k)).label("Morgen")
+         |        c.pill(c.tap.call("light/toggle", k)).label("Film")
          |      }
          |    }
          |  }

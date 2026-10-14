@@ -29,7 +29,7 @@ class LatestSceneSuite extends munit.CatsEffectSuite {
       |card = (c.row) {
       |  children {
       |    for (s in dump.scenes.all) {
-      |      c.pill(s.entity_id, c.tap.activate(s)).active(latest.eq(s))
+      |      c.pill(c.tap.activate(s)).label(s.entity_id).active(latest.eq(s))
       |    }
       |  }
       |}
