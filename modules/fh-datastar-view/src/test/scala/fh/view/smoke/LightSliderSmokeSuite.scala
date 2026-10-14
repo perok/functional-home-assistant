@@ -53,6 +53,46 @@ class LightSliderSmokeSuite extends SmokeSuite {
     }
   }
 
+  // Reported on a real light: back on brightness after a round of the modes,
+  // the track showed no fill until the next brightness change.
+  test("stepped round twice, the brightness track still shows its fill") {
+    // brightness 150 of 1..255
+    val expected = 149.0 / 254
+    def filled(page: Page): Double =
+      page
+        .evaluate(
+          """() => {
+            |  const t = document.querySelector('.fh-slider-modes-panel .fh-slider')
+            |  return t.querySelector('span:not([class])').getBoundingClientRect().width /
+            |    t.getBoundingClientRect().width
+            |}""".stripMargin
+        )
+        .toString
+        .toDouble
+    withPage(scene) { (page, _) =>
+      for {
+        before <- IO.blocking {
+          assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
+          filled(page)
+        }
+        _ <- IO.blocking {
+          List("6500", "360", "255", "6500", "360", "255").foreach { max =>
+            modeButton(page).click()
+            assertThat(page.locator(s"input[type=range][max='$max']"))
+              .hasCount(1)
+          }
+        }
+        // On a timeout, the last reading, so the failure names it.
+        after <- eventually(IO.blocking(filled(page)))(f =>
+          math.abs(f - expected) < 0.03
+        ).handleErrorWith(_ => IO.blocking(filled(page)))
+      } yield {
+        assert(math.abs(before - expected) < 0.03, clue = before)
+        assert(math.abs(after - expected) < 0.03, clue = after)
+      }
+    }
+  }
+
   test(
     "the first mode puts no param on the URL; another does, until it steps round"
   ) {
