@@ -3,7 +3,7 @@
 /// chosen, and where the options come from:
 ///
 ///     c.select(shade).options(List("pale", "deep")).style("dropdown")  // a node variable
-///     c.select(dump.entities.robot_mode)                               // a select entity's options
+///     c.select(dump.entities.robot_mode)                               // a select's or input_select's options
 ///     c.select(lamp.effects!!).style("cycle")                          // a light's effects
 ///
 /// A node variable is only chosen, never declared: whatever holds its readers
@@ -24,7 +24,11 @@ import "base/surface.pkl" as surfaces
 typealias SelectStyle = "buttons"|"dropdown"|"cycle"
 
 /// What a select chooses for.
-typealias Target = varMod.Variable|hass.SelectEntity|hass.Effects
+/// An entity whose state is one of its `options`: an integration's select or a
+/// helper's.
+typealias OptionsEntity = hass.SelectEntity|hass.InputSelectEntity
+
+typealias Target = varMod.Variable|OptionsEntity|hass.Effects
 
 /// One option. A node variable's value travels in a route segment, so there it
 /// must be a [[varMod.Value]]; an entity's travels in a JSON body.
@@ -47,11 +51,11 @@ const local function quoted(s: String): String =
 const local function targetName(t: Target): String =
   if (t is varMod.Variable) t.name
   else if (t is hass.Effects) t.owner.entity_id + " effects"
-  else (t as hass.SelectEntity).entity_id
+  else (t as OptionsEntity).entity_id
 
 /// What the target itself offers: an entity's own list, none for a variable.
 const local function offered(t: Target): List<String> =
-  if (t is hass.SelectEntity) t.options.toList()
+  if (t is OptionsEntity) t.options.toList()
   else if (t is hass.Effects) t.list.toList()
   else List()
 
@@ -60,14 +64,15 @@ const local function labelMap(cs: List<Choice>): String =
   "{" + cs.map((ch) -> "\(quoted(ch.value)): \(quoted(ch.label))").join(", ") + "}"
 
 /// Whether `v` is the entity's current value, as CEL over its state.
-const local function entityChosen(t: hass.SelectEntity|hass.Effects, v: String): slotMod.Expr =
+const local function entityChosen(t: OptionsEntity|hass.Effects, v: String): slotMod.Expr =
   if (t is hass.Effects)
     slotMod.exprOf(t.owner, "attr[?'effect'].orValue('') == \(quoted(v))")
-  else slotMod.exprOf(t as hass.SelectEntity, "state == \(quoted(v))")
+  else slotMod.exprOf(t as OptionsEntity, "state == \(quoted(v))")
 
-const local function entityCall(t: hass.SelectEntity|hass.Effects, v: String): tapMod.Call =
+// `select/select_option` or `input_select/select_option`: one shape, two domains.
+const local function entityCall(t: OptionsEntity|hass.Effects, v: String): tapMod.Call =
   if (t is hass.Effects) tapMod.call("light/turn_on", t.owner).with("effect", v)
-  else tapMod.call("select/select_option", t as hass.SelectEntity).with("option", v)
+  else let (e = t as OptionsEntity) tapMod.call("\(e.domain)/select_option", e).with("option", v)
 
 // Each option is a node, so the card is structure: a patch of the select never
 // re-sends them.
@@ -179,7 +184,7 @@ class SelectDropdown extends Select {
       else
         new Mapping {
           ["chosen"] = new slotMod.Slot {
-            entityId = if (t is hass.Effects) t.owner.entity_id else (t as hass.SelectEntity).entity_id
+            entityId = if (t is hass.Effects) t.owner.entity_id else (t as OptionsEntity).entity_id
             transform =
               if (t is hass.Effects) "\(labels)[?attr[?'effect'].orValue('')].orValue('')"
               else "\(labels)[?state].orValue(state)"

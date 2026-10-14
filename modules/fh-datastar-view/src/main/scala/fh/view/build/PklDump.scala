@@ -400,6 +400,7 @@ object PklDump {
       case Some("switch")        => "hass.SwitchEntity"
       case Some("number")        => "hass.NumberEntity"
       case Some("select")        => "hass.SelectEntity"
+      case Some("input_select")  => "hass.InputSelectEntity"
       case Some("scene")         => "hass.SceneEntity"
       case Some("script")        => "hass.ScriptEntity"
       case Some("button")        => "hass.ButtonEntity"
@@ -440,7 +441,8 @@ object PklDump {
       "options"
     ),
     "binary_sensor" -> Set("device_class"),
-    "select" -> Set("options")
+    "select" -> Set("options"),
+    "input_select" -> Set("options")
   )
 
   private def entityClass(key: String): String = tick(s"E_$key")
@@ -482,7 +484,7 @@ object PklDump {
             .flatMap(pklTyped)
             .map { case (_, rendered) => s"  options = $rendered" }
             .toList
-      case Some("select") =>
+      case Some("select") | Some("input_select") =>
         attrs("options")
           .flatMap(pklTyped)
           .map { case (_, rendered) => s"  options = $rendered" }

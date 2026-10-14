@@ -79,6 +79,17 @@ facts {
     shown.signal == slotMod.asText
   }
 
+  ["over a helper's input_select: its options, through its own domain's service"] {
+    local helper: hass.InputSelectEntity = new {
+      entity_id = "input_select.house_mode"
+      options { "home"; "away" }
+    }
+    local opts = c.select(helper).children.toList()
+    opts.map((o) -> o.slots["label"]) == List("home", "away")
+    (opts[1] as selectMod.EntityOption).tapAction.service == "input_select/select_option"
+    ((opts[0] as selectMod.EntityOption).active as slotMod.Expr).transform == "state == 'home'"
+  }
+
   ["over a light's effects: turn_on with the effect, lit by its attribute"] {
     local cyc = c.select(lamp.effects!!).style("cycle").children.toList()
     local tap = (cyc[0] as selectMod.EntityOption).tapAction

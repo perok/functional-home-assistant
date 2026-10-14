@@ -109,7 +109,8 @@ script runs. The fix is a bake group selected by value, a runtime change.
   - Tests: Pkl facts (`select.test.pkl`), the real build and a write
     (`SelectSuite`), a browser smoke test (`SelectSmokeSuite`).
 - In the library's card index (`components.pkl`'s `modules`).
-- `input_select` has no entity class yet; it follows `select` once it does.
+- `input_select` (done, its own PR on A): `hass.InputSelectEntity` with the
+  dump's `options`, chosen through `input_select/select_option`.
 
 ### Tests
 
