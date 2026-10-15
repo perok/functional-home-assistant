@@ -330,7 +330,7 @@ object SmokeDashboard {
          |local head = dump.entities.${colourLamp.dumpKey}
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).syncRows().withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head), c.its.mainControl)).syncRows().withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
          |    ))
