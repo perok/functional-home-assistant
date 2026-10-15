@@ -176,9 +176,12 @@ class ComponentVisualSuite extends SmokeSuite {
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
         page.mouse().move(0, 0)
         settle(page)
+        // The hue track's edge by the pill differs by ~1px between CI runs, up
+        // to 0.12%; a real change to this shot has been 1.3% and more.
         VisualSnapshot.check(
           "light-slider-colour",
-          lightSliderCell(page).screenshot()
+          lightSliderCell(page).screenshot(),
+          maxDiffRatio = 0.003
         )
       }
     }
