@@ -208,9 +208,26 @@ class ComponentVisualSuite extends SmokeSuite {
         page.mouse().move(0, 0)
         settle(page)
         // The list hangs below the cell, so the page.
-        VisualSnapshot.check("light-slider-dropdown-open", page.screenshot())
+        VisualSnapshot.check(
+          "light-slider-dropdown-open",
+          steadyShot(page, page.screenshot(), 20)
+        )
       }
     }
+  }
+
+  /** A page shot once two in a row agree. One shot of the open list caught it
+    * still restyling: 2% off its own baseline, in its colours and by 2px.
+    */
+  @annotation.tailrec
+  private def steadyShot(
+      page: Page,
+      prev: Array[Byte],
+      left: Int
+  ): Array[Byte] = {
+    val next = page.screenshot()
+    if (java.util.Arrays.equals(prev, next) || left == 0) next
+    else steadyShot(page, next, left - 1)
   }
 
   private val lightSliderGroupScene =
