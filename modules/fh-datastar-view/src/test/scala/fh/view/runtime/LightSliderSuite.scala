@@ -57,7 +57,7 @@ class LightSliderSuite extends CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
-  private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/(\d)""".r
+  private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/([A-Za-z]+)""".r
 
   test(
     "first paint is the brightness slider, its button stepping to the next"
@@ -71,7 +71,7 @@ class LightSliderSuite extends CatsEffectSuite {
         }
         assertEquals(
           modeRoute.findAllMatchIn(html).map(_.group(2)).toList,
-          List("1")
+          List("colourTemp")
         )
         assert(html.contains("{'brightness': Number("), clue = html)
         // A panel not shown is not rendered.
@@ -90,7 +90,7 @@ class LightSliderSuite extends CatsEffectSuite {
           .fold(fail(s"no mode button on the page: ${doc.html}"))(_.group(1))
         session <- ts.sessions.get(doc.conn)
         result <- ts.postResult(
-          s"sse/var/${ts.slug}/$declarer/mode/2",
+          s"sse/var/${ts.slug}/$declarer/mode/colour",
           body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
         )
         sent <- session
@@ -102,7 +102,10 @@ class LightSliderSuite extends CatsEffectSuite {
         assert(sent.contains(",100] } } }"), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
-        assert(sent.contains(s"\"_var_${declarer}__mode\":\"2\""), clue = sent)
+        assert(
+          sent.contains(s"\"_var_${declarer}__mode\":\"colour\""),
+          clue = sent
+        )
       }
     }
   }
@@ -151,7 +154,7 @@ class LightSliderSuite extends CatsEffectSuite {
           declarers = modeRoute.findAllMatchIn(doc.html).map(_.group(1)).toSet
           session <- ts.sessions.get(doc.conn)
           result <- ts.postResult(
-            s"sse/var/${ts.slug}/${declarers.head}/mode/2",
+            s"sse/var/${ts.slug}/${declarers.head}/mode/colour",
             body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
           )
           sent <- session

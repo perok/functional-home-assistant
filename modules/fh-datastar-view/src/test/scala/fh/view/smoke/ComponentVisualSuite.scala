@@ -168,7 +168,8 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(lightSliderScene, viewport) { (page, _) =>
       IO.blocking {
         // Brightness, then colour temperature, then colour.
-        val mode = page.locator(".fh-slider-pill button.fh-mode:visible")
+        val mode =
+          page.locator(".fh-slider-pill .fh-select-cycles button:visible")
         mode.click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
         mode.click()
@@ -235,7 +236,7 @@ class ComponentVisualSuite extends SmokeSuite {
   test("a light group's slider looks right on colour, its dimmer row greyed") {
     withPage(lightSliderGroupScene, viewport) { (page, _) =>
       IO.blocking {
-        val mode = page.locator(".fh-slider-pill button.fh-mode")
+        val mode = page.locator(".fh-slider-pill .fh-select-cycles button")
         mode.click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(2)
         mode.click()

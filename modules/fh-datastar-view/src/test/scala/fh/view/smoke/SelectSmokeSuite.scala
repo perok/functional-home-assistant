@@ -41,7 +41,7 @@ class SelectSmokeSuite extends SmokeSuite {
   private def summary(page: Page) = page.locator(".fh-select-summary")
 
   private def visibleCycle(page: Page) =
-    page.locator(".fh-select-cycle:visible")
+    page.locator(".fh-select-cycles button:visible")
 
   private def choosing[A](page: Page, value: String)(act: => A): Unit = {
     val _ = page.waitForResponse(

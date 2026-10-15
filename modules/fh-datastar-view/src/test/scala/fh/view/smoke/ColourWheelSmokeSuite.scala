@@ -35,7 +35,7 @@ class ColourWheelSmokeSuite extends SmokeSuite {
        |card = (c.column) {
        |  local l = dump.entities.${lamp.dumpKey}
        |  children {
-       |    c.entitySlider(l).modes(List("brightness")).buttons(List(c.view.colourWheel(l.colour)))
+       |    c.entitySlider(l).buttons(List(c.view.colourWheel(l.colour)))
        |  }
        |}
        |""".stripMargin

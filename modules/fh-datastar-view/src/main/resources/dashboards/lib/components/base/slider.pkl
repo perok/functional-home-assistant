@@ -127,43 +127,19 @@ class SliderText extends nodes.Node {
   }
 }
 
-/// The node variable a slider with modes declares: the index of the head it
+/// The node variable a slider with modes declares: the value of the head it
 /// shows. A group's rows read the head's, so they switch with it.
 const modeVar: varMod.Variable = new { name = "mode" }
 
-/// One head a [[SliderModes]] can show, and the pill's button while it shows.
+/// One head a [[SliderModes]] can show, while [[modeVar]] is at [[value]].
 class ModeHead {
+  value: varMod.Value
   head: SliderHead
-  /// Null on a group's row, which has no pill.
-  button: ModeButton? = null
 }
 
-/// The pill's mode button while one mode shows: its icon, choosing the next,
-/// so a tap steps through them. Built by the slider.
-class ModeButton extends nodes.Node {
-  card = "modeButton"
-  cardDef = new nodes.CardDef {
-    template = #"<button class="fh-circle fh-mode" title="{{label}}" aria-label="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard)><i class="{{glyph}}"></i></button>"#
-    slots { "label"; "glyph"; "onclick" }
-  }
-  hidden label: String
-  /// An MDI name, `mdi:palette`.
-  hidden icon: String
-  hidden tapAction: tapMod.SetVar
-  slots {
-    ["label"] = label
-    ["glyph"] = "mdi " + icons.mdiClass(icon)
-    for (k, v in tapMod.tapSlots(tapAction)) {
-      [k] = v
-    }
-  }
-}
-
-/// Where a slider's mode switch sits among its [[Slider.buttons]]:
-/// `.buttons(List(c.tap.toggle(l), c.modeSwitch))`. Without one, first.
-class ModeSwitch {}
-
-const modeSwitch: ModeSwitch = new {}
+/// Where a slider's mode switch sits among its [[Slider.buttons]]. A subclass
+/// says what it offers; the slider builds the switch ([[Slider.modeSwitchNode]]).
+open class ModeSwitch {}
 
 /// One of a slider's [[Slider.buttons]]: a tap, shown as a pill in its look; a
 /// pill; or where the mode switch goes. A null is no button, so a capability
@@ -177,22 +153,21 @@ const local function pillsOf(bs: List<SliderButton?>): Listing<nodes.LayoutNode>
 
 // One panel per mode, baked into the node: the shown one is in the first HTML,
 // so nothing waits on a script to pick it.
-const local function modePanels(prefix: String, contents: List<nodes.LayoutNode>): Mapping<String, surfaceMod.SurfaceDef> =
+const local function modePanels(ms: List<ModeHead>): Mapping<String, surfaceMod.SurfaceDef> =
   new Mapping {
-    for (i, c in contents) {
-      ["\(prefix)\(i)"] = new surfaceMod.SurfaceDef {
-        content = c
+    for (i, m in ms) {
+      ["m\(i)"] = new surfaceMod.SurfaceDef {
+        content = m.head
         bakeInto = nodes.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
-        activation = modeVar.selects
+        activation = modeVar.selecting(m.value)
       }
     }
   }
 
 /// The buttons at the track's end: the slider's pills, with the mode switch
-/// among them. The switch is the shown mode's [[ModeButton]], a panel chosen by
-/// [[modeVar]] as the head is, unless the slider gives its own ([[Slider.modeSwitchNode]]).
+/// where its [[ModeSwitch]] stands among them.
 class SliderPill extends nodes.Node {
   card = "sliderPill"
   cellClasses { "fh-slider-pill-cell" }
@@ -201,22 +176,17 @@ class SliderPill extends nodes.Node {
       ["before"] = new nodes.Region {}
       ["switch"] = new nodes.Region {}
       [nodes.defaultRegion] = new nodes.Region {}
-      ["panel"] = new nodes.Region { fill = "baked" }
     }
-    // With a switch of its own there are no mode panels, so no host: its id
-    // would be the cell's.
-    template = #"<div class="fh-slider-pill">{{#before}}{{{html}}}{{/before}}{{#switch}}{{{html}}}{{/switch}}{{^switch}}<div id="{{hostId}}" class="fh-slider-pill-mode">{{#panel}}{{{html}}}{{/panel}}</div>{{/switch}}{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-slider-pill">{{#before}}{{{html}}}{{/before}}{{#switch}}{{{html}}}{{/switch}}{{#children}}{{{html}}}{{/children}}</div>"#
   }
-  hidden modeButtons: List<ModeButton>
-  hidden switchNode: nodes.LayoutNode? = null
-  /// The slider's buttons, split where its [[modeSwitch]] goes.
+  hidden switchNode: nodes.LayoutNode
+  /// The slider's buttons, split where its [[ModeSwitch]] goes.
   hidden buttons: List<SliderButton?>
-  inlineSurfaces = if (switchNode == null) modePanels("p", modeButtons) else new Mapping {}
   children =
     let (at = buttons.findIndexOrNull((b) -> b is ModeSwitch) ?? -1) let (sw = switchNode)
       new Mapping {
         ["before"] = if (at < 0) new Listing {} else pillsOf(buttons.take(at))
-        ["switch"] = if (sw == null) new Listing {} else new Listing { sw }
+        ["switch"] = new Listing { sw }
         [nodes.defaultRegion] = if (at < 0) pillsOf(buttons) else pillsOf(buttons.drop(at + 1))
       }
 }
@@ -235,7 +205,7 @@ class SliderModes extends nodes.Node {
     template = #"<div class="fh-slider-modes"><div id="{{hostId}}" class="fh-slider-modes-panel">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
   }
   hidden modes: List<ModeHead>
-  inlineSurfaces = modePanels("m", modes.map((m) -> m.head))
+  inlineSurfaces = modePanels(modes)
 }
 
 /// The slider. `position`, `fill` and `reading` are three readings rather than
@@ -297,10 +267,11 @@ open class Slider extends nodes.Node {
   hidden busyVisual: Boolean = true
   /// The pills at the right of the head, in this order (#151): a tap is a pill
   /// in its look. On a slider with [[modes]] they are on the pill, the mode
-  /// switch first unless [[modeSwitch]] places it.
+  /// switch where its [[ModeSwitch]] stands.
   hidden buttons: List<SliderButton?> = List()
-  /// On a slider with [[modes]], what switches them in place of the cycling
-  /// [[ModeButton]]: a node writing [[modeVar]], such as a `c.select` of it.
+  /// On a slider with [[modes]], what switches them: a node writing
+  /// [[modeVar]], such as a `c.select` of it. Without one the heads carry the
+  /// buttons and there is no pill, as on a group's row.
   hidden modeSwitchNode: nodes.LayoutNode? = null
   /// Not `children`: this card has two regions, and these fill one.
   hidden members: Listing<nodes.LayoutNode> = new {}
@@ -394,7 +365,7 @@ open class Slider extends nodes.Node {
   hidden greyed: Boolean = false
   /// What fills the member region; a subclass may adapt [[members]].
   hidden memberRows: Listing<nodes.LayoutNode> = members
-  vars = if (declaresMode) modeVar.declare("0") else null
+  vars = if (declaresMode) modeVar.declare(modes[0].value) else null
   slots {
     when (!members.isEmpty) {
       ["group"] = "fh-slider-group"
@@ -435,8 +406,8 @@ open class Slider extends nodes.Node {
           new SliderModes {
             modes = ms
             children {
-              when (ms.every((m) -> m.button != null)) {
-                new SliderPill { modeButtons = ms.map((m) -> m.button!!); buttons = bs; switchNode = sw }
+              when (sw != null) {
+                new SliderPill { buttons = bs; switchNode = sw!! }
               }
             }
           }
@@ -615,7 +586,7 @@ const local sliderCss: String = """
      any slider's buttons do: the track is the card's, a group's rows included.
      Static, or BeerCSS's `*{position:relative}` makes a wrapper the track's
      box. */
-  .fh-slider-modes-cell,.fh-slider-pill-cell,.fh-slider-pill-mode,.fh-slider-pill .fh-cell{display:contents}
+  .fh-slider-modes-cell,.fh-slider-pill-cell,.fh-slider-pill .fh-cell{display:contents}
   .fh-slider-modes{display:flex;flex-wrap:nowrap;align-items:center;position:static}
   .fh-slider-modes-panel{position:static;flex:1 1 auto;min-inline-size:0;align-self:stretch}
   .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3;--fh-cell-flex:0 0 auto;--fh-cell-width:auto}

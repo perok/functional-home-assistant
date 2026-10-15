@@ -188,8 +188,8 @@ class Pill extends nodes.ActiveNode {
   card = "pill"
   cardDef = new nodes.CardDef {
     // BeerCSS's `.chip` under the default theme, already border-box. A round
-    // one is `fh-circle`, the class an icon button and the slider's mode
-    // button carry, so the three are one size. Its glyph keeps the spinner's colour (`aria-busy`, which
+    // one is `fh-circle`, the class an icon button carries, so the two are one
+    // size. Its glyph keeps the spinner's colour (`aria-busy`, which
     // any theme's spinner carries). It wears the
     // button's surface, so a run of pills and a button read as one family.
     template = """

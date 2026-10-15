@@ -7,6 +7,7 @@ import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+import "../../main/resources/dashboards/lib/components/base/button.pkl" as buttonMod
 
 local shade = c.variable("shade")
 
@@ -73,12 +74,14 @@ facts {
     local bs = members(cyc)
     bs.map((m) -> m.second) == List("a", "b", "c")
     route(bs[0].first).contains("/shade/b") && route(bs[1].first).contains("/shade/c") && route(bs[2].first).contains("/shade/a")
-    // An icon replaces the label on the face.
+    // Each face is a pill in its option's look: an icon replaces the label,
+    // which still names it, and the pill is round.
     local iconic = members(c.select(shade)
-      .options(List(new selectMod.Choice { value = "a"; icon = "mdi:palette" }, "b"))
+      .options(List(new selectMod.Choice { value = "a"; label = "Aa"; icon = "mdi:palette" }, "b"))
       .style("cycle"))
-    (iconic[0].first as selectMod.CycleButton).slots["glyph"] == "mdi mdi-palette"
-    !(iconic[1].first as selectMod.CycleButton).slots.containsKey("glyph")
+    local face = iconic[0].first as buttonMod.Pill
+    face.slots["glyph"] == "mdi-palette" && face.slots["name"] == "Aa" && face.slots["round"] == "1"
+    !(iconic[1].first as buttonMod.Pill).slots.containsKey("glyph")
   }
 
   ["over a select entity: its own options, each a call lit by the state"] {
@@ -96,10 +99,11 @@ facts {
 
   ["over a light's effects: turn_on with the effect, lit by its attribute"] {
     local cyc = c.select(lamp.effects!!).style("cycle").children.toList()
-    local tap = (cyc[0] as selectMod.EntityOption).tapAction
+    // A cycle's faces are pills, lit by the server so only the chosen shows.
+    local tap = (cyc[0] as buttonMod.Pill).tapAction as tapMod.Call
     tap.service == "light/turn_on"
     tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
-    ((cyc[1] as selectMod.EntityOption).active as slotMod.Expr).transform.contains("attr[?'effect']")
+    ((cyc[1] as buttonMod.Pill).active as slotMod.Expr).transform.contains("attr[?'effect']")
   }
 
   [".options picks, orders and relabels an entity's, and refuses one it lacks"] {

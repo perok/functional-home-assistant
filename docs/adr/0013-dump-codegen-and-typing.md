@@ -389,15 +389,20 @@ mechanism can do.
 
 **A light given as itself switches between its capabilities.** `c.entitySlider(l)`
 offers brightness, then colour temperature, then colour, as far as `l` has them,
-with a button that steps to the next. `.single()` keeps the first alone, and
-`.modes(List("colour", "colourTemp"))` picks and orders them. Naming modes by
-string looks like the selector "Shapes considered" rejects, and is not: it is a
-FILTER over what the light has, so a mode the light lacks is skipped rather
-than failing (which is what lets one `map` over mixed lights work), the literal
-union still catches a misspelling in the editor, and a light with none of them
-keeps its plain row (a plug has no modes at all). The checked way to ask for exactly one axis is still the
-group: `c.entitySlider(l.colourTemp)`. The derived default can never name a
-capability the light lacks, so it needs no checking at all.
+through its mode switch: `c.modeSwitch`, one of its buttons and its default
+list, a `c.select` of the slider's `mode` variable (a pill stepping round unless
+`.style(…)` says otherwise). The switch carries the modes, because a head it
+cannot reach is never shown: `c.modeSwitch.modes(List("colour", "colourTemp"))`
+picks and orders them, and a slider whose buttons hold no switch is its plain
+row. Naming modes by string looks like the selector "Shapes considered" rejects,
+and is not: it is a FILTER over what the light has, so a mode the light lacks is
+skipped rather than failing (which is what lets one `map` over mixed lights
+work), the literal union still catches a misspelling in the editor, one left is
+that axis with no switch, and none the plain row (a plug has no modes at all).
+The checked way to ask for exactly one axis is still the group:
+`c.entitySlider(l.colourTemp)`, or `l.colourTemp ?? l` over mixed lights. The
+derived default can never name a capability the light lacks, so it needs no
+checking at all.
 
 **Colour has two places.** The hue track is a mode; the wheel
 (`components/wheel.pkl`) is a view tap, `c.view.colourWheel(l.colour)`, which

@@ -61,7 +61,7 @@ class SelectSuite extends CatsEffectSuite {
         // The theme expands `fh-tabs`, so only the select's own class is fixed.
         assert(html.contains("""fh-select">"""), html)
         assert(html.contains("""<details class="fh-select-menu""""), html)
-        assert(html.contains("""class="fh-select-cycle""""), html)
+        assert(html.contains("""class="fh-select-cycles""""), html)
         assert(
           html.contains(s"$$${key.pendingSignal} || $$${key.committedSignal}"),
           html
@@ -120,7 +120,8 @@ class SelectSuite extends CatsEffectSuite {
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList,
-      """class="fh-select-cycle" title="([^"]*)"""".r
+      // The cycle's face is a pill; nothing else here is one.
+      """<button class="fh-chip[^"]*".*?><span class="fh-text"><span class="fh-text-run">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList

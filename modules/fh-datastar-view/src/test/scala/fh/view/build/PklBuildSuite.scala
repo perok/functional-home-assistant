@@ -1155,7 +1155,6 @@ class PklBuildSuite extends munit.FunSuite {
       "sliderText" -> List("label"),
       "sliderModes" -> Nil,
       "sliderPill" -> Nil,
-      "modeButton" -> List("label", "glyph", "onclick"),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil,
@@ -1170,7 +1169,6 @@ class PklBuildSuite extends munit.FunSuite {
       "selectVarDropdown" -> Nil,
       "selectVarCycle" -> Nil,
       "selectChoice" -> List("label"),
-      "selectCycleButton" -> List("label", "onclick"),
       "selectEntityOption" -> List("label"),
       "colourWheel" -> List("hue", "sat", "paint")
     )

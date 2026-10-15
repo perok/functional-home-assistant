@@ -8,7 +8,7 @@ import org.http4s.Status
 
 import scala.concurrent.duration.*
 
-/** `c.entitySlider(l).modeStyle("dropdown")`: the slider's `mode` chosen from a
+/** `c.modeSwitch.style("dropdown")`: the slider's `mode` chosen from a
   * `c.select` on its pill, the label and the head both the server's.
   */
 class SliderModeSelectSuite extends CatsEffectSuite {
@@ -39,11 +39,11 @@ class SliderModeSelectSuite extends CatsEffectSuite {
        |import "@fh-home/dump.pkl" as dump
        |
        |card = (c.column) {
-       |  children { c.entitySlider(dump.entities.${lamp.dumpKey}).modeStyle("dropdown") }
+       |  children { c.entitySlider(dump.entities.${lamp.dumpKey}).buttons(List(c.modeSwitch.style("dropdown"))) }
        |}
        |""".stripMargin
 
-  private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/(\d)""".r
+  private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/([A-Za-z]+)""".r
 
   private val label =
     // A mode's icon is the face; its label is the icon's title.
@@ -62,7 +62,7 @@ class SliderModeSelectSuite extends CatsEffectSuite {
         declarer = modeRoute
           .findFirstMatchIn(plain)
           .fold(fail(s"no mode choice on the page: $plain"))(_.group(1))
-        linked <- ts.page(s"?v.$declarer.mode=1")
+        linked <- ts.page(s"?v.$declarer.mode=colourTemp")
       } yield {
         assertEquals(
           label.findAllMatchIn(plain).map(_.group(1)).toList,
@@ -70,11 +70,11 @@ class SliderModeSelectSuite extends CatsEffectSuite {
         )
         assertEquals(
           modeRoute.findAllMatchIn(plain).map(_.group(2)).toList,
-          List("0", "1", "2"),
+          List("brightness", "colourTemp", "colour"),
           plain
         )
-        // No cycling button beside the select.
-        assert(!plain.contains("fh-mode"), plain)
+        // No cycle beside the dropdown.
+        assert(!plain.contains("fh-select-cycles"), plain)
         assertEquals(
           label.findAllMatchIn(linked).map(_.group(1)).toList,
           List("Colour temperature"),
@@ -94,7 +94,7 @@ class SliderModeSelectSuite extends CatsEffectSuite {
           .fold(fail(s"no mode choice on the page: ${doc.html}"))(_.group(1))
         session <- ts.sessions.get(doc.conn)
         result <- ts.postResult(
-          s"sse/var/${ts.slug}/$declarer/mode/2",
+          s"sse/var/${ts.slug}/$declarer/mode/colour",
           body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
         )
         sent <- session
@@ -104,7 +104,10 @@ class SliderModeSelectSuite extends CatsEffectSuite {
         assertEquals(result._1, Status.NoContent, clue = result._2)
         assert(sent.contains("max=\"360\""), clue = sent)
         assert(sent.contains("title=\"Colour\"></i></div>"), clue = sent)
-        assert(sent.contains(s"\"_var_${declarer}__mode\":\"2\""), clue = sent)
+        assert(
+          sent.contains(s"\"_var_${declarer}__mode\":\"colour\""),
+          clue = sent
+        )
       }
     }
   }

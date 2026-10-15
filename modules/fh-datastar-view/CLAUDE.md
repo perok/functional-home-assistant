@@ -308,7 +308,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   each, in an `actions` region, so two of them can be in flight without disabling one another.
   `.buttons(…)` is the list, of taps (each a pill in its own look) and pills, a null being no
   button (`l.colour.ifNonNull((col) -> c.view.colourWheel(col))` for a light that may lack colour); on a slider with
-  modes they sit on the pill, `c.modeSwitch` placing the mode switch among them. Every slider
+  modes they sit on the pill, with the mode switch where `c.modeSwitch` stands. Every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
   `icon`/`secondary`/`buttons` are optional pieces a plain row simply doesn't carry
   (`c.entitySlider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
@@ -342,10 +342,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   from static analysis; ADR 0013 "Shapes considered" has the four attempts. The light ITSELF,
   `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
   them: a head per mode in a bake group selected by the node variable `mode` the slider declares
-  (`base/slider.pkl`'s `SliderModes`), with a pill over the track's end, as any slider's buttons, holding the mode button, which
-  steps to the next, and the slider's buttons. A group's rows have their own; on `.syncRows()` they follow the
+  (`base/slider.pkl`'s `SliderModes`, each head chosen by its mode's name), with a pill over the track's end, as any slider's buttons, holding the
+  slider's buttons and its mode switch: `c.modeSwitch`, the default list, a `c.select` of `mode` (a pill
+  stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; on `.syncRows()` they follow the
   head's `mode` instead, greyed where they lack one. A slider a candidate set renders per member
-  keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `.single()` / `.modes(List(…))` narrow it — a filter over what the light has, ADR 0013 — and `.modeStyle("dropdown"|"buttons")` switches them with a `c.select` of `mode` in place of the cycling button),
+  keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `c.modeSwitch.modes(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
   by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving

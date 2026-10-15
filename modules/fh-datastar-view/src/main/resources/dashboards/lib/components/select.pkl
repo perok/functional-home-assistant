@@ -25,6 +25,7 @@ import "../core/surface.pkl" as surfaceMod
 import "../core/tap.pkl" as tapMod
 import "../core/variable.pkl" as varMod
 import "../hass.pkl"
+import "base/button.pkl" as buttonMod
 import "base/surface.pkl" as surfaces
 
 typealias SelectStyle = "buttons"|"dropdown"|"cycle"
@@ -124,22 +125,23 @@ abstract class Select extends nodes.Node {
       else new SelectCycle { target = t; choices = cs }
 
   /// One option's node: choosing `pick` on a press, lit while `ch` is chosen.
+  /// A cycle's face is a pill in the option's look, as a slider's buttons are.
   function optionNode(ch: Choice, pick: Choice): nodes.LayoutNode =
     let (t = target) let (cyc = cycling)
       if (t is varMod.Variable)
         let (lit = "\(t.below.chosen) === \(quoted(ch.value))")
           if (cyc)
-            new CycleButton {
-              label = ch.label
-              icon = ch.icon
-              tapAction = t.choose(pick.value)
-            }
+            // A view switch answers too fast for a spinner to mean anything.
+            buttonMod.pill((t.choose(pick.value)) { icon = ch.icon; label = ch.label; busyVisual = false })
           else
             new surfaces.TabButton {
               label = ch.label
               active = lit
               tapAction = t.choose(pick.value)
             }
+      else if (cyc)
+        buttonMod.pill((entityCall(t, pick.value)) { icon = ch.icon; label = ch.label })
+          .active(entityChosen(t, ch.value))
       else
         new EntityOption {
           label = ch.label
@@ -190,11 +192,13 @@ const local menuCss: String = """
   .fh-select-list :is(a.fh-chosen,.fh-active>a){font-weight:600;background:var(--fh-surface-alt)}
   """
 
+// Over an entity the shown face is the lit option, so it keeps an unlit
+// pill's look: lit would read as "on".
 const local cycleCss: String = """
   .fh-select-cycles{display:inline-flex}
   .fh-select-lit>.fh-cell:not(.fh-active){display:none}
-  .fh-select-cycles :is(.fh-select-cycle,.fh-select-opt){display:inline-flex;align-items:center;
-  min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-select-lit>.fh-cell.fh-active>.fh-chip{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-select-lit>.fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
   """
 
 /// The chosen option, opening a list of all of them. A `<details>`, so it
@@ -265,9 +269,9 @@ class VarSelectCycle extends Select {
   inlineSurfaces = panelsOf(target as varMod.Variable, optionNodes, choices)
 }
 
-/// The label a [[VarSelectDropdown]] shows for one option.
-/// An icon replaces the label, as on a cycle's face, so a dropdown fits a
-/// slider's pill; the list still names every option.
+/// The label a [[VarSelectDropdown]] shows for one option. An icon replaces
+/// the label, as on a cycle's face, so a dropdown fits a slider's pill; the
+/// list still names every option.
 class ChoiceLabel extends nodes.Node {
   card = "selectChoice"
   cardDef = new nodes.CardDef {
@@ -280,28 +284,6 @@ class ChoiceLabel extends nodes.Node {
     ["label"] = label
     when (icon != null) {
       ["glyph"] = "mdi " + icons.mdiClass(icon!!)
-    }
-  }
-}
-
-/// The button a [[VarSelectCycle]] shows for one option; a press chooses the
-/// next.
-class CycleButton extends nodes.Node {
-  card = "selectCycleButton"
-  cardDef = new nodes.CardDef {
-    template = #"<button class="fh-select-cycle" title="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard)>{{#glyph}}<i class="{{glyph}}"></i>{{/glyph}}{{^glyph}}{{label}}{{/glyph}}</button>"#
-    slots { "label"; "onclick" }
-  }
-  hidden label: String
-  hidden icon: String? = null
-  hidden tapAction: tapMod.SetVar
-  slots {
-    ["label"] = label
-    when (icon != null) {
-      ["glyph"] = "mdi " + icons.mdiClass(icon!!)
-    }
-    for (k, v in tapMod.tapSlots(tapAction)) {
-      [k] = v
     }
   }
 }

@@ -16,7 +16,7 @@ class LightSliderSmokeSuite extends SmokeSuite {
 
   /** Only the shown mode's button is visible. */
   private def modeButton(page: Page) =
-    page.locator(".fh-slider-pill button.fh-mode:visible")
+    page.locator(".fh-slider-pill .fh-select-cycles button:visible")
 
   test("the pill sits over the track's end, with one mode button showing") {
     withPage(scene, Some(900 -> 700)) { (page, _) =>
