@@ -394,8 +394,8 @@ with a button that steps to the next. `.single()` keeps the first alone, and
 string looks like the selector "Shapes considered" rejects, and is not: it is a
 FILTER over what the light has, so a mode the light lacks is skipped rather
 than failing (which is what lets one `map` over mixed lights work), the literal
-union still catches a misspelling in the editor, and none left is a build error
-naming the light. The checked way to ask for exactly one axis is still the
+union still catches a misspelling in the editor, and a light with none of them
+keeps its plain row (a plug has no modes at all). The checked way to ask for exactly one axis is still the
 group: `c.entitySlider(l.colourTemp)`. The derived default can never name a
 capability the light lacks, so it needs no checking at all.
 

@@ -245,9 +245,7 @@ class EntitySlider extends sliderBase.Slider {
     if (modeChoice == null) availableModes
     else
       let (picked = modeChoice!!.filter((m) -> availableModes.contains(m)))
-        if (picked.isEmpty)
-          throw("c.entitySlider(\(entity.entity_id)).modes(\(modeChoice!!)): the light has none of them; it has \(availableModes)")
-        else picked
+        if (picked.isEmpty) availableModes.take(1) else picked
   /// Rendered once per member of a candidate set, a slider cannot declare
   /// [[sliderBase.modeVar]] (ADR 0033), so it keeps its first mode.
   hidden offeredModes: List<SliderMode> =
@@ -333,7 +331,8 @@ class EntitySlider extends sliderBase.Slider {
   /// One axis, the light's first: brightness on a dimmer. No mode switch.
   function single(): EntitySlider = let (self = this) (self) { singleMode = true }
   /// These modes, in this order, where the light has them; one left is that
-  /// axis alone. A light with none of them is a build error naming it.
+  /// axis alone. A light with none of them keeps its plain row, so one list
+  /// serves mixed lights; a plug has no modes at all.
   ///
   ///   c.entitySlider(l).modes(List("colour", "colourTemp"))
   function modes(ms: List<SliderMode>): EntitySlider = let (self = this) (self) { modeChoice = ms }
