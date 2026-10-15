@@ -137,20 +137,15 @@ class ControlHead {
   head: SliderHead
 }
 
-/// A button the card holding it fills in from its subject entity (`c.its`), so
-/// it names no target. This card knows no entity: a subclass that has one resolves them
-/// into [[Slider.shownButtons]].
-open class SubjectButton {}
-
 /// One of a slider's [[Slider.buttons]]: a tap, shown as a pill in its look;
-/// a node, such as a pill or a `c.select`; or a [[SubjectButton]]. A null is
+/// a node, such as a pill or a `c.select`; or a [[nodes.SubjectButton]]. A null is
 /// no button.
-typealias SliderButton = tapMod.TapAction|nodes.LayoutNode|SubjectButton
+typealias SliderButton = tapMod.TapAction|nodes.LayoutNode|nodes.SubjectButton
 
 const local function pillsOf(bs: List<SliderButton?>): Listing<nodes.LayoutNode> =
   bs.filterNonNull()
     .map((b) ->
-      if (b is SubjectButton) throw("A c.its button is about the slider's own entity, and this slider has none.")
+      if (b is nodes.SubjectButton) throw("A c.its button is about the slider's own entity, and this slider has none.")
       else if (b is tapMod.TapAction) buttonMod.pill(b)
       else b as nodes.LayoutNode)
     .toListing()
@@ -261,8 +256,8 @@ open class Slider extends nodes.Node {
   /// in its look. On a slider that declares [[controlVar]] they are on the
   /// pill, the switch between its [[controls]] among them.
   hidden buttons: List<SliderButton?> = List()
-  /// [[buttons]] as shown, its [[SubjectButton]]s filled in by a subclass that
-  /// knows an entity.
+  /// [[buttons]] as shown, its [[nodes.SubjectButton]]s filled in by a
+  /// subclass that knows an entity.
   hidden shownButtons: List<SliderButton?> = buttons
   /// Not `children`: this card has two regions, and these fill one.
   hidden members: Listing<nodes.LayoutNode> = new {}
@@ -409,7 +404,7 @@ open class Slider extends nodes.Node {
     ["children"] = memberRows
   }
 
-  /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour)))`.
+  /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour!!)))`.
   function buttons(xs: List<SliderButton?>): Slider =
     let (self = this) (self) { buttons = xs }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }

@@ -89,4 +89,58 @@ class ColourWheelSmokeSuite extends SmokeSuite {
       }
     }
   }
+
+  test("a refused colour puts the knob back where the light is") {
+    withPageOn(served) { (page, ts) =>
+      val held =
+        new java.util.concurrent.LinkedTransferQueue[
+          com.microsoft.playwright.Route
+        ]
+      val refusal =
+        new com.microsoft.playwright.Route.FulfillOptions()
+          .setStatus(404)
+          .setBody("no")
+      def hue = IO.blocking(
+        page
+          .locator(".fh-wheel")
+          .evaluate("e => e.style.getPropertyValue('--fh-h').trim()")
+          .toString
+      )
+      for {
+        _ <- ts.awaitLive()
+        box <- IO.blocking {
+          page.locator("i.mdi-palette-swatch").click()
+          val wheel = page.locator(".fh-wheel")
+          assertThat(wheel).isVisible()
+          wheel.boundingBox()
+        }
+        before <- hue
+        _ <- IO.blocking(
+          page.route("**/sse/call/**", route => { val _ = held.add(route) })
+        )
+        _ <- IO.blocking {
+          // From the top to the right of centre: hue 90.
+          page.mouse().move(box.x + box.width / 2, box.y + box.height * 0.1)
+          page.mouse().down()
+          page
+            .mouse()
+            .move(
+              box.x + box.width * 0.75,
+              box.y + box.height / 2,
+              new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5)
+            )
+          page.mouse().up()
+        }
+        // Otherwise the assertion below passes vacuously.
+        moved <- hue
+        _ <- IO(assert(moved != before, clue = s"$before -> $moved"))
+        // Inside a Playwright call, the only place its route callback runs.
+        _ <- eventually(IO.blocking { page.waitForTimeout(50); held.peek() })(
+          _ != null
+        )
+        _ <- IO.blocking(held.poll().fulfill(refusal))
+        back <- eventually(hue)(_ == before)
+      } yield assertEquals(back, before)
+    }
+  }
 }

@@ -56,6 +56,12 @@ class Cell {
 
 /// Every layout-tree node. `kind` is the wire discriminator.
 ///
+/// A button the card holding it fills in from its subject entity (`c.its`), so
+/// it names no target. A card takes them in its buttons and resolves them before
+/// its base card sees them; a base card knows no entity, and refuses one left
+/// unresolved. ADR 0015.
+open class SubjectButton {}
+
 /// The builders follow HA's `grid_options`: inside a [[Grid]], `columns(n)` is
 /// a width in 12ths (default 4). They return [[LayoutNode]], so chain them
 /// AFTER card-specific ones:

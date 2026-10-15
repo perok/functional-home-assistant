@@ -478,15 +478,8 @@ object PklDump {
           str(attrs, "unit_of_measurement")
             .map(v => s"  unit_of_measurement = ${pklString(v)}")
             .toList ++
-          attrs("options")
-            .flatMap(pklTyped)
-            .map { case (_, rendered) => s"  options = $rendered" }
-            .toList
-      case Some("select") =>
-        attrs("options")
-          .flatMap(pklTyped)
-          .map { case (_, rendered) => s"  options = $rendered" }
-          .toList
+          options(attrs)
+      case Some("select")        => options(attrs)
       case Some("binary_sensor") =>
         vocabField(
           attrs,
@@ -496,6 +489,13 @@ object PklDump {
       case _ => Nil
     }
   }
+
+  /** An entity's `options`: a sensor's enum, a select's choices. */
+  private def options(attrs: JsonObject): List[String] =
+    attrs("options")
+      .flatMap(pklTyped)
+      .map { case (_, rendered) => s"  options = $rendered" }
+      .toList
 
   /** A field typed by a vendored union takes only the values that union names
     * (ADR 0013): HA adding one is not a breaking change, but assigning it here

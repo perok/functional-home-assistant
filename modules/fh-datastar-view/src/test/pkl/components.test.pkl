@@ -1471,7 +1471,7 @@ facts {
     s.vars == new Mapping { ["control"] = "brightness" }
     // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
-    local steps = (s.switchNode as selectMod.VarSelectCycle).optionNodes
+    local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
       .map((n) -> (n.slots["onclick"] as slotMod.Slot).transform as String)
     steps.length == 3
     steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
@@ -1529,14 +1529,14 @@ facts {
     // By default each row is its own: a colour row has a pill of its own.
     local apart = c.entitySlider(lamp).withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
     local apartRows = apart.memberRows.toList().map((r) -> r as c.EntitySlider)
-    apartRows[0].declaresControl && apartRows[0].switchNode != null
+    apartRows[0].declaresControl && apartRows[0].shownButtons.filterNonNull().any((b) -> b is selectMod.Select)
     !apartRows[1].declaresControl
     // `.syncRows()`: the head's switch switches them all.
     local g = c.entitySlider(lamp).syncRows().withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
     g.declaresControl
     local rows = g.memberRows.toList().map((r) -> r as c.EntitySlider)
     // The rows read the head's variable rather than declaring their own.
-    rows.every((r) -> !r.declaresControl && r.switchNode == null && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
+    rows.every((r) -> !r.declaresControl && r.shownButtons.filterNonNull().isEmpty && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
     rows[0].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
     // The dimmer stands in with its brightness, dimmed and disabled.
     rows[1].controls.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)

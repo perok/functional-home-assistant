@@ -114,15 +114,28 @@ abstract class Select extends nodes.Node {
           throw("c.select(\(targetName(self.target))) offers no \(stray.map((ch) -> ch.value).join(", ")): it has \(have.join(", ")).")
         else (self) { choices = cs }
 
-  /// The same choice in another style.
+  /// The same choice in another style. A style is a class of its own (one card
+  /// each), so this builds a new node: it carries what was set on this one,
+  /// `.columns(6)` before it included, and the card computes the rest.
   function style(s: SelectStyle): Select =
-    let (t = target) let (cs = choices)
-      if (s == "buttons") new SelectButtons { target = t; choices = cs }
-      else if (s == "dropdown")
-        if (t is varMod.Variable) new VarSelectDropdown { target = t; choices = cs }
-        else new SelectDropdown { target = t; choices = cs }
-      else if (t is varMod.Variable) new VarSelectCycle { target = t; choices = cs }
-      else new SelectCycle { target = t; choices = cs }
+    let (self = this) let (t = target) let (cs = choices)
+    let (fresh =
+        if (s == "buttons") new SelectButtons { target = t; choices = cs }
+        else if (s == "dropdown")
+          if (t is varMod.Variable) new VarSelectDropdown { target = t; choices = cs }
+          else new SelectDropdown { target = t; choices = cs }
+        else if (t is varMod.Variable) new VarSelectCycle { target = t; choices = cs }
+        else new SelectCycle { target = t; choices = cs })
+      (fresh) {
+        cellClasses = self.cellClasses
+        stateClasses = self.stateClasses
+        liveClasses = self.liveClasses
+        liveProperties = self.liveProperties
+        id = self.id
+        vars = self.vars
+        perMember = self.perMember
+        expressionValues = self.expressionValues
+      }
 
   /// One option's node: choosing `pick` on a press, lit while `ch` is chosen.
   /// A cycle's face is a pill in the option's look, as a slider's buttons are.
@@ -141,7 +154,7 @@ abstract class Select extends nodes.Node {
             }
       else if (cyc)
         buttonMod.pill((entityCall(t, pick.value)) { icon = ch.icon; label = ch.label })
-          .active(entityChosen(t, ch.value))
+          .classWhen("fh-chosen", entityChosen(t, ch.value))
       else
         new EntityOption {
           label = ch.label
@@ -196,13 +209,11 @@ const local menuCss: String = """
   .fh-select-list :is(a.fh-chosen,.fh-active>a){font-weight:600;background:var(--fh-surface-alt)}
   """
 
-// Over an entity the shown face is the lit option, so it keeps an unlit
-// pill's look: lit would read as "on".
+// Over an entity every face is sent and the server marks the chosen one: its
+// own class, not a lit pill's `fh-active`, which would read as "on".
 const local cycleCss: String = """
   .fh-select-cycles{display:inline-flex}
-  .fh-select-lit>.fh-cell:not(.fh-active){display:none}
-  .fh-select-lit>.fh-cell.fh-active>.fh-chip{background:var(--fh-surface-alt);color:var(--fh-text)}
-  .fh-select-lit>.fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
+  .fh-select-marked>.fh-cell:not(.fh-chosen){display:none}
   """
 
 /// The chosen option, opening a list of all of them. A `<details>`, so it
@@ -247,13 +258,13 @@ class VarSelectDropdown extends Select {
 }
 
 /// One button showing the chosen option; a press chooses the next, round. Over
-/// an entity every option is rendered and the server lights the chosen one;
+/// an entity every option is rendered and the server marks the chosen one;
 /// [[VarSelectCycle]] is a variable's.
 class SelectCycle extends Select {
   card = "selectCycle"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = #"<div class="fh-select-cycles fh-select-lit">{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-select-cycles fh-select-marked">{{#children}}{{{html}}}{{/children}}</div>"#
     css = cycleCss
   }
   cycling = true

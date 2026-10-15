@@ -112,7 +112,7 @@ and a refused click; a slider's range is disabled and its commit refuses.
   cards for one look. `EntitySlider` sets it for a light that cannot dim.
 - `buttons` is a list of taps and nodes, each tap a pill in its own look
   (`core/tap.pkl`'s `icon`/`label`/`lit`), so the base needs no HA to show
-  one. A `SubjectButton` is one the slider fills in from its subject entity
+  one. A `nodes.SubjectButton` is one the slider fills in from its subject entity
   (`c.its`, below): `EntitySlider` resolves them into `shownButtons`, so the base never
   names an entity, and refuses one left unresolved.
 - What makes a slider "about this entity" stays HA: `SlideAxis`, `sliderSpec`,
@@ -170,19 +170,24 @@ c.entitySlider(light).buttons(List(c.its.toggle, c.its.mainControl, c.its.colour
 - **Only meaningful on a card about an entity.** An item is neither a tap nor a node, so a
   `c.button` or a card refuses it by type.
 
-`components/its.pkl` holds the items. Each is an `ItsButton`, a `SubjectButton`
-with `resolve(e)`: the building block on `e`, or null where `e` cannot do it.
-An item that only one card can build, such as `mainControl` (the slider alone
-knows the controls it shows), returns null and that card recognises it by class.
+`components/its.pkl` holds the items. Each is an `ItsButton` (a
+`core/node.pkl` `SubjectButton`) with `resolve(h)`: the building block on what
+the card hands it, or null where that cannot do it. The `Holder` is the card's
+subject entity and whatever else a card knows that an item may need: a light's
+slider adds the main controls it shows, so `mainControl` builds its own
+`c.select` from them, and shows nothing on a card that hands none. The one
+asymmetry left is the slider READING `mainControl`'s options, since they also
+decide which heads it has.
 
 **Adding an item:** a class in `its.pkl` whose `resolve` returns an existing
-building block, and a `const` value for it. Nothing in a card changes unless the
-item, like `mainControl`, needs the card's own state.
+building block from the `Holder`, and a `const` value for it. An item needing
+something no card hands yet adds a field to `Holder`, defaulted to empty, and
+the card that knows it fills it.
 
 **Adding a card that takes them:** give its base card a `buttons` list typed
-to accept `SubjectButton`, and in its HA subclass map each `ItsButton` through
-`resolve(entity)` before the base sees it, as `EntitySlider.shownButtons` does.
-The items come for free.
+to accept `nodes.SubjectButton`, and in its HA subclass map each `ItsButton`
+through `resolve(new Holder { entity = … })` before the base sees it, as
+`EntitySlider.shownButtons` does. The items come for free.
 
 ## What the editor forced
 

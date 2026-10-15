@@ -110,8 +110,9 @@ and `c.select`'s own cycle button both became `c.pill`.
   `c.select(target).options(…).style(…)` over a node variable, a `select`
   entity (the dump now carries its `options`) and a light's `effects`, in all
   three styles.
-  - Over an entity, each option is an `ActiveNode` lit by the server, so the
-    first HTML is right in every style, the cycle included.
+  - Over an entity, the server decides the chosen option in every style, so
+    the first HTML is right: lit in the buttons and the list, and in the cycle
+    marked `fh-chosen`, since its face is a pill whose lit look reads as "on".
   - The server refuses a choice of a variable that nothing on the page
     reads. A cycle or dropdown is a reader of its own; buttons need one (a
     chart's `.over(v.ref)`, a bake group).

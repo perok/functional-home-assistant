@@ -23,27 +23,48 @@ import "view.pkl" as viewVerbs
 /// a light accepts, which these are derived from, not the same thing.
 typealias MainControl = "brightness"|"colourTemp"|"colour"
 
+const local controlIcons: Mapping<MainControl, String> = new {
+  ["brightness"] = "mdi:brightness-6"
+  ["colourTemp"] = "mdi:thermometer"
+  ["colour"] = "mdi:palette"
+}
+
+const local controlLabels: Mapping<MainControl, String> = new {
+  ["brightness"] = "Brightness"
+  ["colourTemp"] = "Colour temperature"
+  ["colour"] = "Colour"
+}
+
+/// What the card holding a button knows, for it to resolve against: its subject
+/// entity and, on a light's slider, the main controls it shows. A card fills
+/// what it has; an item that needs what it lacks shows nothing.
+class Holder {
+  entity: hass.Entity
+  mainControls: List<MainControl> = List()
+}
+
 /// One of this module's buttons, filled in by the card holding it.
-abstract class ItsButton extends sliderBase.SubjectButton {
-  /// What it is on `e`, or null where `e` cannot do it.
-  abstract function resolve(e: hass.Entity): (tapMod.TapAction|nodes.LayoutNode)?
+abstract class ItsButton extends nodes.SubjectButton {
+  /// What it is on `h`, or null where `h` cannot do it.
+  abstract function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)?
 }
 
 /// Its entity's toggle, a power pill lit while it is on.
 class ToggleButton extends ItsButton {
-  function resolve(e: hass.Entity): (tapMod.TapAction|nodes.LayoutNode)? = tapVerbs.toggle(e)
+  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? = tapVerbs.toggle(h.entity)
 }
 
 /// Its light's colour wheel, in a popup; nothing on a light without colour.
 class ColourWheelButton extends ItsButton {
-  function resolve(e: hass.Entity): (tapMod.TapAction|nodes.LayoutNode)? =
-    if (e is hass.LightEntity && e.colour != null) viewVerbs.colourWheel(e.colour!!) else null
+  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
+    let (e = h.entity)
+      if (e is hass.LightEntity && e.colour != null) viewVerbs.colourWheel(e.colour!!) else null
 }
 
 /// The switch between its light slider's main controls: a `c.select` of the
-/// slider's control variable, which the slider builds over the controls it
-/// shows, since a head the switch cannot reach is never shown. Fewer than two on
-/// the light, and it shows nothing.
+/// slider's control variable over the controls it shows. Its [[options]] are
+/// also which heads the slider has, since a head the switch cannot reach is never
+/// shown, so the slider reads them. Fewer than two, and it shows nothing.
 class MainControlSwitch extends ItsButton {
   /// Null offers every control the light has.
   hidden only: List<MainControl>? = null
@@ -53,8 +74,13 @@ class MainControlSwitch extends ItsButton {
   function options(cs: List<MainControl>): MainControlSwitch = let (self = this) (self) { only = cs }
   /// `"cycle"`, the default: one pill stepping round. Or `"dropdown"`, `"buttons"`.
   function style(s: selectMod.SelectStyle): MainControlSwitch = let (self = this) (self) { styleChoice = s }
-  /// The slider builds it: only it knows the controls it shows.
-  function resolve(e: hass.Entity): (tapMod.TapAction|nodes.LayoutNode)? = null
+  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
+    let (cs = h.mainControls)
+      if (cs.length < 2) null
+      else
+        selectMod.select(sliderBase.controlVar)
+          .options(cs.map((m) -> new selectMod.Choice { value = m; label = controlLabels[m]; icon = controlIcons[m] }))
+          .style(styleChoice)
 }
 
 const toggle: ToggleButton = new {}

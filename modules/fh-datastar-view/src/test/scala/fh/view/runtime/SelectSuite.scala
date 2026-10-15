@@ -232,10 +232,16 @@ class SelectSuite extends CatsEffectSuite {
             .isDefined,
           html
         )
-        // Only `turbo`'s cells are lit: one in the list, one in the cycle.
+        // Only `turbo`'s cells: lit in the list, marked in the cycle, whose
+        // face is a pill that a lit look would read as "on".
         assertEquals(
           """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
-          2,
+          1,
+          clue = html
+        )
+        assertEquals(
+          """class="[^"]*fh-cell[^"]*fh-chosen""".r.findAllMatchIn(html).size,
+          1,
           clue = html
         )
       }

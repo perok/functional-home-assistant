@@ -71,18 +71,6 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
 /// nullability error the editor shows (ADR 0013, "Shapes considered").
 typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
 
-const local controlIcons: Mapping<itsMod.MainControl, String> = new {
-  ["brightness"] = "mdi:brightness-6"
-  ["colourTemp"] = "mdi:thermometer"
-  ["colour"] = "mdi:palette"
-}
-
-const local controlLabels: Mapping<itsMod.MainControl, String> = new {
-  ["brightness"] = "Brightness"
-  ["colourTemp"] = "Colour temperature"
-  ["colour"] = "Colour"
-}
-
 /// The named readouts: the two that need the card's axis config, and none.
 /// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
 typealias Readout = "state"|"percent"|"none"
@@ -289,20 +277,14 @@ class EntitySlider extends sliderBase.Slider {
       offeredControls.map((m) -> new sliderBase.ControlHead { value = m; head = controlHead(m, false, false) })
     else List()
   declaresControl = !following && controls.length > 1
-  /// A `c.select` of [[sliderBase.controlVar]] over the controls shown.
-  hidden switchNode: selectMod.Select? =
-    if (!declaresControl) null
-    else
-      let (ms = offeredControls)
-        selectMod.select(sliderBase.controlVar)
-          .options(ms.map((m) -> new selectMod.Choice { value = m; label = controlLabels[m]; icon = controlIcons[m] }))
-          .style(switchSpec!!.styleChoice)
+  /// What this slider hands its `c.its` buttons: a row reading its head's
+  /// controls has no switch of its own, so it hands none.
+  hidden holder: itsMod.Holder =
+    let (e = entity) let (cs = if (declaresControl) offeredControls else List())
+      new itsMod.Holder { entity = e; mainControls = cs }
   shownButtons =
-    let (sw = switchNode) let (e = entity)
-      buttons.map((b) ->
-        if (b is itsMod.MainControlSwitch) sw
-        else if (b is itsMod.ItsButton) b.resolve(e)
-        else b)
+    let (h = holder)
+      buttons.map((b) -> if (b is itsMod.ItsButton) b.resolve(h) else b)
   /// One control left by the switch that is not brightness: the slider is that axis.
   headNode =
     if (!following && offeredControls.length == 1 && offeredControls[0] != "brightness")
