@@ -306,7 +306,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   itself structure (#151): its label and second line are a `sliderText` leaf (the only bytes on the
   row that move — everything else is a signal or a literal), and its buttons are a pill
   each, in an `actions` region, so two of them can be in flight without disabling one another.
-  `.buttons(…)` is the list, of taps (each a pill in its own look) and pills; on a slider with
+  `.buttons(…)` is the list, of taps (each a pill in its own look) and pills, a null being no
+  button (`l.colour.ifNonNull((col) -> c.view.colourWheel(col))` for a light that may lack colour); on a slider with
   modes they sit on the pill, `c.modeSwitch` placing the mode switch among them. Every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
   `icon`/`secondary`/`buttons` are optional pieces a plain row simply doesn't carry

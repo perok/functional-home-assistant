@@ -65,4 +65,22 @@ facts {
     // The wheel instead of the hue track is the modes without "colour".
     c.entitySlider(lamp).modes(List("brightness", "colourTemp")).offeredModes == List("brightness", "colourTemp")
   }
+
+  ["a null among the buttons is no button: one list serves lights with and without colour"] {
+    local warm: hass.LightEntity = new {
+      entity_id = "light.warm"
+      colourModes { "color_temp" }
+      colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
+    }
+    local function glyphs(l: hass.LightEntity) =
+      let (pill = c.entitySlider(l)
+          .buttons(List(c.tap.toggle(l), l.colour.ifNonNull((col) -> c.view.colourWheel(col)), c.modeSwitch))
+          .children["head"][0].children.toList()[0])
+        pill.children["before"].toList().map((b) -> b.slots["glyph"])
+    glyphs(lamp) == List("mdi-power", "mdi-palette-swatch")
+    glyphs(warm) == List("mdi-power")
+    // A plain slider's head drops it too.
+    c.entitySlider(warm.colourTemp!!).buttons(List(null, c.tap.toggle(warm)))
+      .children["head"][0].children["actions"].length == 1
+  }
 }

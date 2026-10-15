@@ -136,7 +136,11 @@ script runs. The fix is a bake group selected by value, a runtime change.
   taps and pills, in the author's order, `c.modeSwitch` placing the mode
   switch. A tap carries its own look (icon, accessible label, what lights it),
   so a bare tap is a pill; `c.pill(tap)` with `.label`/`.icon`/`.noIcon`
-  overrides it, round when an icon or an emoji is all it shows. `c.tap` is
+  overrides it, round when an icon or an emoji is all it shows. A null in the
+  list is no button, so one list serves lights with and without a capability:
+  `l.colour.ifNonNull((col) -> c.view.colourWheel(col))`. pkl-lsp types `col`
+  as `NonNull`, and narrows no `!= null` either, so neither form is checked in
+  the editor; the evaluator checks both. `c.tap` is
   what acts on HA, `c.view` what only changes the screen. An `ns` lambda bound
   to the entity was rejected: it is ADR 0013's entity-first builder, with no
   editor check for a capability. Naming of `c.view`, `c.pill` and

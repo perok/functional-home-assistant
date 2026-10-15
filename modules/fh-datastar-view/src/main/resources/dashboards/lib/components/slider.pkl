@@ -336,7 +336,7 @@ class EntitySlider extends sliderBase.Slider {
   /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour)))`; a light
   /// with modes has them on its pill, [[sliderBase.modeSwitch]] placing the
   /// mode switch among them.
-  function buttons(xs: List<sliderBase.SliderButton>): EntitySlider =
+  function buttons(xs: List<sliderBase.SliderButton?>): EntitySlider =
     let (self = this) (self) { buttons = xs }
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
