@@ -166,11 +166,12 @@ class ModeSwitch {}
 const modeSwitch: ModeSwitch = new {}
 
 /// One of a slider's [[Slider.buttons]]: a tap, shown as a pill in its look; a
-/// pill; or where the mode switch goes.
+/// pill; or where the mode switch goes. A null is no button, so a capability
+/// the entity may lack stays inline: `l.colour.ifNonNull((col) -> c.view.colourWheel(col))`.
 typealias SliderButton = tapMod.TapAction|buttonMod.Pill|ModeSwitch
 
-const local function pillsOf(bs: List<SliderButton>): Listing<nodes.LayoutNode> =
-  bs.filter((b) -> !(b is ModeSwitch))
+const local function pillsOf(bs: List<SliderButton?>): Listing<nodes.LayoutNode> =
+  bs.filterNonNull().filter((b) -> !(b is ModeSwitch))
     .map((b) -> if (b is buttonMod.Pill) b else buttonMod.pill(b as tapMod.TapAction))
     .toListing()
 
@@ -209,7 +210,7 @@ class SliderPill extends nodes.Node {
   hidden modeButtons: List<ModeButton>
   hidden switchNode: nodes.LayoutNode? = null
   /// The slider's buttons, split where its [[modeSwitch]] goes.
-  hidden buttons: List<SliderButton>
+  hidden buttons: List<SliderButton?>
   inlineSurfaces = if (switchNode == null) modePanels("p", modeButtons) else new Mapping {}
   children =
     let (at = buttons.findIndexOrNull((b) -> b is ModeSwitch) ?? -1) let (sw = switchNode)
@@ -297,7 +298,7 @@ open class Slider extends nodes.Node {
   /// The pills at the right of the head, in this order (#151): a tap is a pill
   /// in its look. On a slider with [[modes]] they are on the pill, the mode
   /// switch first unless [[modeSwitch]] places it.
-  hidden buttons: List<SliderButton> = List()
+  hidden buttons: List<SliderButton?> = List()
   /// On a slider with [[modes]], what switches them in place of the cycling
   /// [[ModeButton]]: a node writing [[modeVar]], such as a `c.select` of it.
   hidden modeSwitchNode: nodes.LayoutNode? = null
@@ -447,7 +448,7 @@ open class Slider extends nodes.Node {
   }
 
   /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour)))`.
-  function buttons(xs: List<SliderButton>): Slider =
+  function buttons(xs: List<SliderButton?>): Slider =
     let (self = this) (self) { buttons = xs }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function disabled(d: nodes.BooleanInput): Slider = let (self = this) (self) { disabled = d }
