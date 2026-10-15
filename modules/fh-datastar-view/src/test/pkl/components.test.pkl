@@ -1463,46 +1463,46 @@ facts {
       colour = new hass.Colour { owner = lamp }
     }
     local s = c.entitySlider(lamp)
-    s.offeredModes == List("brightness", "colourTemp", "colour")
-    s.declaresMode
-    s.modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
-    // Each head is chosen by its mode's name, the first declared.
-    s.modes.map((m) -> m.value) == List("brightness", "colourTemp", "colour")
-    s.vars == new Mapping { ["mode"] = "brightness" }
-    // The switch is a cycling select of `mode`: each face chooses the next, so a
+    s.offeredControls == List("brightness", "colourTemp", "colour")
+    s.declaresControl
+    s.controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // Each head is chosen by its main control's name, the first declared.
+    s.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour")
+    s.vars == new Mapping { ["control"] = "brightness" }
+    // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
-    local steps = (s.modeSwitchNode as selectMod.VarSelectCycle).optionNodes
+    local steps = (s.switchNode as selectMod.VarSelectCycle).optionNodes
       .map((n) -> (n.slots["onclick"] as slotMod.Slot).transform as String)
     steps.length == 3
-    steps[0].contains("/mode/colourTemp") && steps[1].contains("/mode/colour?") && steps[2].contains("/mode/brightness")
+    steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
     // A dimmer, or a capability axis, is one head and no pill.
-    !c.entitySlider(dimmer).declaresMode
-    !c.entitySlider(lamp.colourTemp!!).declaresMode
+    !c.entitySlider(dimmer).declaresControl
+    !c.entitySlider(lamp.colourTemp!!).declaresControl
     // No switch among the buttons: the plain row.
     local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))
-    !plain.declaresMode
+    !plain.declaresControl
     plain.headNode.slots["dataKey"] == "brightness"
-    // The switch's modes: these, in this order, where the light has them.
-    local picked = c.entitySlider(lamp).buttons(List(c.modeSwitch.modes(List("colour", "colourTemp"))))
-    picked.modes.map((m) -> m.value) == List("colour", "colourTemp")
+    // The switch's options: these, in this order, where the light has them.
+    local picked = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour", "colourTemp"))))
+    picked.controls.map((m) -> m.value) == List("colour", "colourTemp")
     // One left is that axis, with no switch.
-    local hueOnly = c.entitySlider(lamp).buttons(List(c.modeSwitch.modes(List("colour"))))
-    !hueOnly.declaresMode
+    local hueOnly = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour"))))
+    !hueOnly.declaresControl
     hueOnly.headNode.slots["dataKey"] == "hs_color"
     // One switch picks one head.
-    module.catch(() -> c.entitySlider(lamp).buttons(List(c.modeSwitch, c.modeSwitch)).declaresMode)
-      .contains("c.entitySlider(light.lamp) has 2 mode switches")
-    // Rendered once per member of a set, where it cannot declare `mode`, it
+    module.catch(() -> c.entitySlider(lamp).buttons(List(c.its.mainControl, c.its.mainControl)).declaresControl)
+      .contains("c.entitySlider(light.lamp) has 2 main control switches")
+    // Rendered once per member of a set, where it cannot declare `control`, it
     // keeps its first.
     local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
-    !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresMode
+    !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresControl
     // A light with none of them keeps its plain row: one list serves mixed lights.
-    local narrowed = c.entitySlider(dimmer).buttons(List(c.modeSwitch.modes(List("colour"))))
-    !narrowed.declaresMode
+    local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
+    !narrowed.declaresControl
     narrowed.headNode.slots["dataKey"] == "brightness"
-    // A plug has no modes at all, and is still the toggle row.
+    // A plug has no main controls at all, and is still the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
-    c.entitySlider(plug).buttons(List(c.modeSwitch.modes(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
+    c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {
@@ -1519,7 +1519,7 @@ facts {
     head.slots["hueTrack"] == "1"
   }
 
-  ["a group's rows have their own modes, or switch with the head on syncRows"] {
+  ["a group's rows have their own main controls, or switch with the head on syncRows"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"
       colourModes { "color_temp"; "hs" }
@@ -1529,18 +1529,18 @@ facts {
     // By default each row is its own: a colour row has a pill of its own.
     local apart = c.entitySlider(lamp).withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
     local apartRows = apart.memberRows.toList().map((r) -> r as c.EntitySlider)
-    apartRows[0].declaresMode && apartRows[0].modeSwitchNode != null
-    !apartRows[1].declaresMode
+    apartRows[0].declaresControl && apartRows[0].switchNode != null
+    !apartRows[1].declaresControl
     // `.syncRows()`: the head's switch switches them all.
     local g = c.entitySlider(lamp).syncRows().withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
-    g.declaresMode
+    g.declaresControl
     local rows = g.memberRows.toList().map((r) -> r as c.EntitySlider)
     // The rows read the head's variable rather than declaring their own.
-    rows.every((r) -> !r.declaresMode && r.modeSwitchNode == null && r.modes.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
-    rows[0].modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    rows.every((r) -> !r.declaresControl && r.switchNode == null && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
+    rows[0].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
     // The dimmer stands in with its brightness, dimmed and disabled.
-    rows[1].modes.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)
-    rows[1].modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "brightness", "brightness")
+    rows[1].controls.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)
+    rows[1].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "brightness", "brightness")
   }
 
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {

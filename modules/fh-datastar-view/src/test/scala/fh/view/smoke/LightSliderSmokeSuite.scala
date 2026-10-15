@@ -7,24 +7,24 @@ import fh.view.testkit.{Scene, SmokeDashboard}
 import io.circe.Json
 
 /** `c.entitySlider(l)` on a colour light in a browser (#547): the pill at the
-  * track's end, and a tap on its mode button stepping to the next head.
+  * track's end, and a tap on its control button stepping to the next head.
   */
 class LightSliderSmokeSuite extends SmokeSuite {
 
   private val scene =
     Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
 
-  /** Only the shown mode's button is visible. */
-  private def modeButton(page: Page) =
+  /** Only the shown control's button is visible. */
+  private def controlButton(page: Page) =
     page.locator(".fh-slider-pill .fh-select-cycles button:visible")
 
-  test("the pill sits over the track's end, with one mode button showing") {
+  test("the pill sits over the track's end, with one control button showing") {
     withPage(scene, Some(900 -> 700)) { (page, _) =>
       IO.blocking {
-        assertThat(modeButton(page)).hasCount(1)
-        assertThat(modeButton(page)).hasAttribute("aria-label", "Brightness")
+        assertThat(controlButton(page)).hasCount(1)
+        assertThat(controlButton(page)).hasAttribute("aria-label", "Brightness")
         val track =
-          page.locator(".fh-slider-modes-panel .fh-slider").boundingBox()
+          page.locator(".fh-slider-controls-panel .fh-slider").boundingBox()
         val pill = page.locator(".fh-slider-pill").boundingBox()
         // Over the track's right end, as any slider's buttons are.
         assert(
@@ -36,18 +36,18 @@ class LightSliderSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("each tap on the mode button steps to the next head, and round") {
+  test("each tap on the control button steps to the next head, and round") {
     withPage(scene) { (page, _) =>
       IO.blocking {
         assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
-        modeButton(page).click()
+        controlButton(page).click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
         assertThat(page.locator("input[type=range][max='255']")).hasCount(0)
-        assertThat(modeButton(page))
+        assertThat(controlButton(page))
           .hasAttribute("aria-label", "Colour temperature")
-        modeButton(page).click()
+        controlButton(page).click()
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
-        modeButton(page).click()
+        controlButton(page).click()
         assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
       }
     }
@@ -80,18 +80,18 @@ class LightSliderSmokeSuite extends SmokeSuite {
   test(
     "the first mode puts no param on the URL; another does, until it steps round"
   ) {
-    val param = """.*[?&]v\.[^=&]+\.mode=.*"""
+    val param = """.*[?&]v\.[^=&]+\.control=.*"""
     def href(page: Page) =
       IO.blocking(page.evaluate("() => location.href").toString)
     withPage(scene) { (page, _) =>
       for {
-        _ <- IO.blocking(assertThat(modeButton(page)).hasCount(1))
+        _ <- IO.blocking(assertThat(controlButton(page)).hasCount(1))
         loaded <- href(page)
         _ = assert(!loaded.matches(param), clue = loaded)
-        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(controlButton(page).click())
         _ <- eventually(href(page))(_.matches(param))
-        _ <- IO.blocking(modeButton(page).click())
-        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(controlButton(page).click())
+        _ <- IO.blocking(controlButton(page).click())
         _ <- IO.blocking(
           assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
         )
@@ -104,11 +104,11 @@ class LightSliderSmokeSuite extends SmokeSuite {
     withPage(scene) { (page, ts) =>
       val hue = page.locator("input[type=range][max='360']")
       for {
-        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(controlButton(page).click())
         _ <- IO.blocking(
           assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
         )
-        _ <- IO.blocking(modeButton(page).click())
+        _ <- IO.blocking(controlButton(page).click())
         _ <- IO.blocking(assertThat(hue).hasCount(1))
         // End jumps the thumb to `max` and releases.
         _ <- IO.blocking(hue.focus())

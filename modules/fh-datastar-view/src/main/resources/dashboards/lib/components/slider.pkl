@@ -8,6 +8,7 @@ import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "base/slider.pkl" as sliderBase
+import "its.pkl" as itsMod
 import "select.pkl" as selectMod
 import "../hass.pkl"
 
@@ -70,17 +71,13 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
 /// nullability error the editor shows (ADR 0013, "Shapes considered").
 typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
 
-/// What a light's slider can switch to, in the order [[EntitySlider]] offers
-/// them. On/off is not one: it is the pill's power button.
-typealias SliderMode = "brightness"|"colourTemp"|"colour"
-
-const local modeIcons: Mapping<SliderMode, String> = new {
+const local controlIcons: Mapping<itsMod.MainControl, String> = new {
   ["brightness"] = "mdi:brightness-6"
   ["colourTemp"] = "mdi:thermometer"
   ["colour"] = "mdi:palette"
 }
 
-const local modeLabels: Mapping<SliderMode, String> = new {
+const local controlLabels: Mapping<itsMod.MainControl, String> = new {
   ["brightness"] = "Brightness"
   ["colourTemp"] = "Colour temperature"
   ["colour"] = "Colour"
@@ -224,45 +221,45 @@ class EntitySlider extends sliderBase.Slider {
   commit = commitTap
   press = if (toggleOnly) toggleTap else null
 
-  /// The mode switch alone: [[modeSwitch]]'s place among the buttons is the
+  /// The main control switch alone: its place among the buttons is the
   /// author's, and without one there is none.
-  buttons = List(modeSwitch)
+  buttons = List(itsMod.mainControl)
 
-  /// What a light given as itself can switch to: brightness, then each
-  /// capability it has. A capability axis (`l.colourTemp`) is one axis.
-  hidden availableModes: List<SliderMode> =
+  /// The main controls a light given as itself has, in the order they are
+  /// offered: brightness, then each capability. A capability axis
+  /// (`l.colourTemp`) is one axis.
+  hidden availableControls: List<itsMod.MainControl> =
     if (on is hass.LightEntity && on.supportsBrightness)
       List("brightness")
         + (if (on.colourTemp != null) List("colourTemp") else List())
         + (if (on.colour != null) List("colour") else List())
     else List()
-  /// The mode switch among [[buttons]], if any.
-  hidden switchSpec: LightModeSwitch? =
-    let (ss = buttons.filter((b) -> b is sliderBase.ModeSwitch))
+  /// The main control switch among [[buttons]], if any.
+  hidden switchSpec: itsMod.MainControlSwitch? =
+    let (ss = buttons.filter((b) -> b is itsMod.MainControlSwitch))
       if (ss.length > 1)
-        throw("c.entitySlider(\(entity.entity_id)) has \(ss.length) mode switches among its buttons; one switch picks one head.")
+        throw("c.entitySlider(\(entity.entity_id)) has \(ss.length) main control switches among its buttons; one switch picks one head.")
       else if (ss.isEmpty) null
-      else if (ss[0] is LightModeSwitch) ss[0] as LightModeSwitch
-      else new LightModeSwitch {}
-  /// Whether the head's mode switch switches its rows too; otherwise each row
-  /// with modes has its own pill ([[syncRows]]).
+      else ss[0] as itsMod.MainControlSwitch
+  /// Whether the head's switch switches its rows too; otherwise each row with
+  /// main controls has its own pill ([[syncRows]]).
   hidden rowsFollow: Boolean = false
-  /// Set on a group's row by a head with [[rowsFollow]]: the head's modes,
+  /// Set on a group's row by a head with [[rowsFollow]]: the head's controls,
   /// which the row shows in step, greyed where it lacks one.
-  hidden followModes: List<SliderMode>? = null
-  /// The switch's modes where the light has them; none without a switch.
-  hidden pickedModes: List<SliderMode> =
+  hidden followControls: List<itsMod.MainControl>? = null
+  /// The switch's controls where the light has them; none without a switch.
+  hidden pickedControls: List<itsMod.MainControl> =
     if (switchSpec == null) List()
-    else if (switchSpec.only == null) availableModes
-    else switchSpec.only!!.filter((m) -> availableModes.contains(m))
+    else if (switchSpec.only == null) availableControls
+    else switchSpec.only!!.filter((m) -> availableControls.contains(m))
   /// Rendered once per member of a candidate set, a slider cannot declare
-  /// [[sliderBase.modeVar]] (ADR 0033), so it keeps its first mode.
-  hidden offeredModes: List<SliderMode> =
-    if (perMember) pickedModes.take(1) else pickedModes
-  /// This slider's own head as the given mode's axis — its default one for
-  /// brightness — dimmed and disabled for a mode a group's row lacks. On a
+  /// [[sliderBase.controlVar]] (ADR 0033), so it keeps its first control.
+  hidden offeredControls: List<itsMod.MainControl> =
+    if (perMember) pickedControls.take(1) else pickedControls
+  /// This slider's own head as the given control's axis — its default one for
+  /// brightness — dimmed and disabled for a control a group's row lacks. On a
   /// slider with a pill, the buttons are the pill's.
-  function modeHead(m: SliderMode, dim: Boolean, keepButtons: Boolean): sliderBase.SliderHead =
+  function controlHead(m: itsMod.MainControl, dim: Boolean, keepButtons: Boolean): sliderBase.SliderHead =
     let (self = this)
     let (axis =
         if (m == "colourTemp") (on as hass.LightEntity).colourTemp!!
@@ -270,44 +267,51 @@ class EntitySlider extends sliderBase.Slider {
         else self.on)
       (self) {
         on = axis
-        followModes = null
+        followControls = null
         members = new {}
         readout = self.readout
         greyed = dim
         disabled = if (dim) true else self.disabled
         // Without its switch, so the head is one axis.
-        buttons = if (keepButtons) self.buttons.filter((b) -> !(b is sliderBase.ModeSwitch)) else List()
+        buttons = if (keepButtons) self.buttons.filter((b) -> !(b is itsMod.MainControlSwitch)) else List()
       }.headNode
-  hidden following: Boolean = followModes != null && followModes!!.length > 1
-  modes =
+  hidden following: Boolean = followControls != null && followControls!!.length > 1
+  controls =
     if (following)
-      followModes!!.map((m) ->
-        new sliderBase.ModeHead {
+      followControls!!.map((m) ->
+        new sliderBase.ControlHead {
           value = m
           head =
-            if (m == "brightness" || availableModes.contains(m)) modeHead(m, false, true)
-            else modeHead("brightness", true, true)
+            if (m == "brightness" || availableControls.contains(m)) controlHead(m, false, true)
+            else controlHead("brightness", true, true)
         })
-    else if (offeredModes.length > 1)
-      offeredModes.map((m) -> new sliderBase.ModeHead { value = m; head = modeHead(m, false, false) })
+    else if (offeredControls.length > 1)
+      offeredControls.map((m) -> new sliderBase.ControlHead { value = m; head = controlHead(m, false, false) })
     else List()
-  declaresMode = !following && modes.length > 1
-  modeSwitchNode =
-    if (!declaresMode) null
+  declaresControl = !following && controls.length > 1
+  /// A `c.select` of [[sliderBase.controlVar]] over the controls shown.
+  hidden switchNode: selectMod.Select? =
+    if (!declaresControl) null
     else
-      let (ms = offeredModes)
-        selectMod.select(sliderBase.modeVar)
-          .options(ms.map((m) -> new selectMod.Choice { value = m; label = modeLabels[m]; icon = modeIcons[m] }))
+      let (ms = offeredControls)
+        selectMod.select(sliderBase.controlVar)
+          .options(ms.map((m) -> new selectMod.Choice { value = m; label = controlLabels[m]; icon = controlIcons[m] }))
           .style(switchSpec!!.styleChoice)
-  /// One mode left by the switch that is not brightness: the slider is that axis.
+  shownButtons =
+    let (sw = switchNode) let (e = entity)
+      buttons.map((b) ->
+        if (b is itsMod.MainControlSwitch) sw
+        else if (b is itsMod.ItsButton) b.resolve(e)
+        else b)
+  /// One control left by the switch that is not brightness: the slider is that axis.
   headNode =
-    if (!following && offeredModes.length == 1 && offeredModes[0] != "brightness")
-      modeHead(offeredModes[0], false, true)
+    if (!following && offeredControls.length == 1 && offeredControls[0] != "brightness")
+      controlHead(offeredControls[0], false, true)
     else super.headNode
   memberRows =
-    if (declaresMode && rowsFollow)
-      let (ms = offeredModes)
-        members.toList().map((n) -> if (n is EntitySlider) (n) { followModes = ms } else n).toListing()
+    if (declaresControl && rowsFollow)
+      let (ms = offeredControls)
+        members.toList().map((n) -> if (n is EntitySlider) (n) { followControls = ms } else n).toListing()
     else members
 
   function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
@@ -317,8 +321,8 @@ class EntitySlider extends sliderBase.Slider {
   function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
   function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
-  /// The head's mode switch switches the rows too: one press, the whole group
-  /// on colour. A row lacking the mode shows its brightness, greyed.
+  /// The head's switch switches the rows too: one press, the whole group on
+  /// colour. A row lacking the control shows its brightness, greyed.
   function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
   /// The member rows, each composed by the caller:
   ///
@@ -331,35 +335,15 @@ class EntitySlider extends sliderBase.Slider {
     let (self = this) (self) { members = sliders.toListing() }
   /// `.icon(null)` renders no badge.
   function icon(i: String?): EntitySlider = let (self = this) (self) { icon = i }
-  /// `.buttons(List(c.tap.toggle(l), c.modeSwitch, c.view.colourWheel(l.colour!!)))`:
-  /// on a light with modes they are on its pill. Without a [[modeSwitch]] the
-  /// slider has no modes, only its plain row.
+  /// `.buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel))`: on
+  /// a light with main controls they are on its pill. Without
+  /// `c.its.mainControl` the slider has one, its plain row.
   function buttons(xs: List<sliderBase.SliderButton?>): EntitySlider =
     let (self = this) (self) { buttons = xs }
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
 
-/// A light slider's mode switch, where it stands among the slider's buttons: a
-/// `c.select` of [[sliderBase.modeVar]] over the modes it offers. Fewer than two
-/// of them on the light, and it shows nothing.
-///
-///     c.modeSwitch                                            // every mode, cycling
-///     c.modeSwitch.modes(List("brightness", "colourTemp")).style("dropdown")
-class LightModeSwitch extends sliderBase.ModeSwitch {
-  /// Null offers every mode the light has.
-  hidden only: List<SliderMode>? = null
-  hidden styleChoice: selectMod.SelectStyle = "cycle"
-  /// These modes, in this order, where the light has them; one left is that
-  /// axis alone, and none the slider's plain row, so one list serves mixed
-  /// lights (a plug has no modes at all).
-  function modes(ms: List<SliderMode>): LightModeSwitch = let (self = this) (self) { only = ms }
-  /// `"cycle"`, the default: one pill stepping round. Or `"dropdown"`, `"buttons"`.
-  function style(s: selectMod.SelectStyle): LightModeSwitch = let (self = this) (self) { styleChoice = s }
-}
-
-const modeSwitch: LightModeSwitch = new {}
-
-/// `c.entitySlider(l)` is brightness, switching to each other mode the light
+/// `c.entitySlider(l)` is brightness, switching to each other main control the light
 /// has; `c.entitySlider(l.colourTemp)` is colour temperature alone,
 /// `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }

@@ -43,7 +43,7 @@ so any string HA offers is fine.
 
 A select never declares the variable it chooses. The node that holds the
 readers declares it, with `vars = v.declare(…)`, as the slider already does
-for `mode`. That is one way to declare a variable, not two, and the build's
+for `control`. That is one way to declare a variable, not two, and the build's
 existing "no declarer" error covers a select with nothing above it. The
 window chooser stays a small convenience built from the two.
 
@@ -64,7 +64,8 @@ templates per instance.
 - **cycle** — one pill showing the chosen option, in its look (an icon
   replaces the label); a tap chooses the next. Over a variable one pill per
   option is baked, the shown one picked by the value: the shape that made the
-  slider's reload flicker go away (#550). The slider's mode switch is this.
+  slider's reload flicker go away (#550). The slider's main control switch is
+  this.
 - **dropdown** — a `<details>`/`<summary>` showing the chosen option, opening
   a BeerCSS `menu` of the others.
   - `<details>` opens and closes with no script and works on iPadOS 15; the
@@ -81,7 +82,7 @@ markup:
 |---|---|---|
 | tab bar | `tab` | a row of buttons over a baked panel |
 | `WindowChooser` (`components/history.pkl`) | `window` | a row of buttons over charts |
-| the slider's mode button (`components/base/slider.pkl`) | `mode` | one button stepping round (moved: the mode switch) |
+| the slider's mode button (`components/base/slider.pkl`) | `control` | one button stepping round (moved: `c.its.mainControl`) |
 
 The tab bar and the window chooser move only if their markup survives
 unchanged (their visual baselines say); otherwise each gets an issue.
@@ -93,15 +94,15 @@ which is what tabs choose by. Over a variable,
 shows the viewer's option, as the slider pill does. The buttons style is lit by
 the client, as a tab bar is.
 
-The slider's mode switch is a `c.select` of `mode` in every style (done, on its
-own PR stacked on #573), built from `c.modeSwitch`, a value among the slider's
-buttons and their default list: `c.modeSwitch.modes(List(…)).style(…)`. The
-switch carries the modes, since a head it cannot reach is never shown; fewer
-than two on the light and it shows nothing (one left is that axis), and buttons
-with no switch are the plain row. Its heads are chosen by mode name
-(`?v.<id>.mode=colourTemp`), not index. `.modes`, `.single` and `.modeStyle`
-left the slider, and the baked `ModeButton` and `c.select`'s own cycle button
-both became `c.pill`.
+The slider's switch between its main controls (HA's name; "modes" before) is a
+`c.select` of `control` in every style (done, #577, stacked on #573), built from
+`c.its.mainControl`, a value among the slider's buttons and their default list:
+`c.its.mainControl.options(List(…)).style(…)`. The switch carries the controls,
+since a head it cannot reach is never shown; fewer than two on the light and it
+shows nothing (one left is that axis), and buttons with no switch are the plain
+row. Its heads are chosen by name (`?v.<id>.control=colourTemp`), not index.
+`.modes`, `.single` and `.modeStyle` left the slider, and the baked `ModeButton`
+and `c.select`'s own cycle button both became `c.pill`.
 
 ### Status
 
@@ -138,11 +139,14 @@ both became `c.pill`.
 
 - **Shape:** the wheel is a view tap, `c.view.colourWheel(l.colour)`, opening
   it in a popup. On a slider it is one of the buttons; dropping the hue track
-  is `c.modeSwitch.modes(…)` without `"colour"`. It takes the capability group, so a light
-  without colour is an editor error.
+  is a `c.its.mainControl.options(…)` without `"colour"`. It takes the
+  capability group, so a light without colour is an editor error;
+  `c.its.colourWheel` is the same button for the slider's own light, shown only
+  where it has colour.
 - **A slider's buttons** (decided with the maintainer): `.buttons(List(…))` of
-  taps and pills, in the author's order, `c.modeSwitch` being the mode
-  switch. A tap carries its own look (icon, accessible label, what lights it),
+  taps and nodes, in the author's order. `c.its.*` (ADR 0015) are the ones
+  that mean the slider's own entity and name none: `toggle`, `mainControl`,
+  `colourWheel`, each nothing where the entity cannot do it. A tap carries its own look (icon, accessible label, what lights it),
   so a bare tap is a pill; `c.pill(tap)` with `.label`/`.icon`/`.noIcon`
   overrides it, round when an icon or an emoji is all it shows. A null in the
   list is no button, so one list serves lights with and without a capability:
@@ -151,8 +155,7 @@ both became `c.pill`.
   the editor; the evaluator checks both. `c.tap` is
   what acts on HA, `c.view` what only changes the screen. An `ns` lambda bound
   to the entity was rejected: it is ADR 0013's entity-first builder, with no
-  editor check for a capability. Naming of `c.view` and `c.pill` is open;
-  `c.modeSwitch` keeps its name (it is no tap, so not `c.view`).
+  editor check for a capability. Naming of `c.view` and `c.pill` is open.
 - **Status:** the wheel done on its own branch, stacked on A
   (`components/wheel.pkl`), as a CSS `conic-gradient` with a radial white
   fade, no library; the pointer handlers are Datastar expressions over a small

@@ -308,7 +308,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   each, in an `actions` region, so two of them can be in flight without disabling one another.
   `.buttons(…)` is the list, of taps (each a pill in its own look) and pills, a null being no
   button (`l.colour.ifNonNull((col) -> c.view.colourWheel(col))` for a light that may lack colour); on a slider with
-  modes they sit on the pill, with the mode switch where `c.modeSwitch` stands. Every slider
+  main controls they sit on the pill; `c.its.*` are the ones about the slider's own entity (ADR 0015). Every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
   `icon`/`secondary`/`buttons` are optional pieces a plain row simply doesn't carry
   (`c.entitySlider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
@@ -327,7 +327,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   label that fits sits still and nothing measures anything. A tab bar is deliberately outside it — it
   scrolls sideways, so a tab is reached rather than shortened,
   expr/exprOf,
-  the `c.tap` namespace (`components/tap.pkl`: what a click does IN HA, verbs that each NAME their target — `toggle(e)`/`default(e)`/`activate(x)` (a scene, script, button or helper button — `hass.Activatable`)/`call(service, target)` with `.with(key, value)`, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it; `c.tap(e)` is the facade METHOD beside it, the same as `default(e)`) and the `c.view` namespace beside it (`components/view.pkl`: what only changes the screen — `moreInfo(e)`/`navigate`/the popup ones), **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`components/tap.pkl`: what a click does IN HA, verbs that each NAME their target — `toggle(e)`/`default(e)`/`activate(x)` (a scene, script, button or helper button — `hass.Activatable`)/`call(service, target)` with `.with(key, value)`, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it; `c.tap(e)` is the facade METHOD beside it, the same as `default(e)`) and the `c.view` namespace beside it (`components/view.pkl`: what only changes the screen — `moreInfo(e)`/`navigate`/the popup ones), and `c.its` (`components/its.pkl`: buttons that name no target and mean the holding card's subject entity — `toggle`/`mainControl`/`colourWheel`; ADR 0015 has the pattern and how a new card or item joins it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not — and more-info for a `lock` too, whose Lock/Unlock buttons are what act
   (`hass/actions.pkl`'s `cardOpensMoreInfo`, `c.lock.controls`) — and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
@@ -341,12 +341,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts. The light ITSELF,
   `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
-  them: a head per mode in a bake group selected by the node variable `mode` the slider declares
-  (`base/slider.pkl`'s `SliderModes`, each head chosen by its mode's name), with a pill over the track's end, as any slider's buttons, holding the
-  slider's buttons and its mode switch: `c.modeSwitch`, the default list, a `c.select` of `mode` (a pill
+  them, its MAIN CONTROLS (HA's name): a head per control in a bake group selected by the node variable
+  `control` the slider declares (`base/slider.pkl`'s `SliderControls`, each head chosen by the control's name), with a pill over the track's end, as any slider's buttons, holding the
+  slider's buttons and its switch: `c.its.mainControl`, the default list, a `c.select` of `control` (a pill
   stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; on `.syncRows()` they follow the
-  head's `mode` instead, greyed where they lack one. A slider a candidate set renders per member
-  keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `c.modeSwitch.modes(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
+  head's `control` instead, greyed where they lack one. A slider a candidate set renders per member
+  keeps its first control (`Node.perMember`): it cannot declare `control` there. `c.its.mainControl.options(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
   by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving

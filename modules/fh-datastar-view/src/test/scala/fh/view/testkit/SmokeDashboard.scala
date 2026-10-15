@@ -288,7 +288,7 @@ object SmokeDashboard {
          |card = (c.grid) {
          |  children {
          |    c.entitySlider(l)
-         |      .buttons(List(c.tap.toggle(l), c.modeSwitch.style("dropdown"), c.view.colourWheel(l.colour)))
+         |      .buttons(List(c.tap.toggle(l), c.its.mainControl.style("dropdown"), c.view.colourWheel(l.colour)))
          |  }
          |}
          |""".stripMargin,

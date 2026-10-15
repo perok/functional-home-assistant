@@ -35,6 +35,7 @@ import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
 import "components/base/surface.pkl" as surfaces
 import "components/history.pkl" as historyMod
+import "components/its.pkl" as itsMod
 import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
@@ -57,6 +58,11 @@ hidden tap: tapVerbs = tapVerbs
 /// What a click shows, touching nothing in Home Assistant: `c.view.moreInfo(l)`,
 /// `c.view.openPopup("detail")`, `c.view.navigate("under")`.
 hidden view: viewVerbs = viewVerbs
+
+/// What the card's OWN entity offers, for its buttons: `c.its.toggle`,
+/// `c.its.mainControl`, `c.its.colourWheel`. Each names no target and shows
+/// nothing where the entity cannot do it (ADR 0015).
+hidden its: itsMod = itsMod
 
 /// What a tap on `e` means, from its domain: a scene activates, a light
 /// toggles, a lock or a sensor opens more-info (`c.tap.default`).
@@ -160,9 +166,6 @@ function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// An entity for its domain's default axis, or a capability group for that
 /// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
-/// A light slider's mode switch, where it stands among its buttons:
-/// `c.entitySlider(l).buttons(List(c.tap.toggle(l), c.modeSwitch.style("dropdown")))`.
-hidden modeSwitch: sliderMod.LightModeSwitch = sliderMod.modeSwitch
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
 /// bar where it also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =

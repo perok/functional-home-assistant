@@ -389,27 +389,31 @@ mechanism can do.
 
 **A light given as itself switches between its capabilities.** `c.entitySlider(l)`
 offers brightness, then colour temperature, then colour, as far as `l` has them,
-through its mode switch: `c.modeSwitch`, one of its buttons and its default
-list, a `c.select` of the slider's `mode` variable (a pill stepping round unless
-`.style(…)` says otherwise). The switch carries the modes, because a head it
-cannot reach is never shown: `c.modeSwitch.modes(List("colour", "colourTemp"))`
-picks and orders them, and a slider whose buttons hold no switch is its plain
-row. Naming modes by string looks like the selector "Shapes considered" rejects,
-and is not: it is a FILTER over what the light has, so a mode the light lacks is
-skipped rather than failing (which is what lets one `map` over mixed lights
-work), the literal union still catches a misspelling in the editor, one left is
-that axis with no switch, and none the plain row (a plug has no modes at all).
+its MAIN CONTROLS, HA's own name for them (`more-info-light.ts`; its colour
+MODES are the formats a light accepts, which these are derived from). They are
+switched by `c.its.mainControl` (ADR 0015), one of its buttons and its default
+list, a `c.select` of the slider's `control` variable (a pill stepping round
+unless `.style(…)` says otherwise). The switch carries the controls, because a
+head it cannot reach is never shown:
+`c.its.mainControl.options(List("colour", "colourTemp"))` picks and orders them,
+and a slider whose buttons hold no switch is its plain row. Naming them by
+string looks like the selector "Shapes considered" rejects, and is not: it is a
+FILTER over what the light has, so a control the light lacks is skipped rather
+than failing (which is what lets one `map` over mixed lights work), the literal
+union still catches a misspelling in the editor, one left is that axis with no
+switch, and none the plain row (a plug has no main controls at all).
 The checked way to ask for exactly one axis is still the group:
 `c.entitySlider(l.colourTemp)`, or `l.colourTemp ?? l` over mixed lights. The
 derived default can never name a capability the light lacks, so it needs no
 checking at all.
 
-**Colour has two places.** The hue track is a mode; the wheel
+**Colour has two places.** The hue track is a main control; the wheel
 (`components/wheel.pkl`) is a view tap, `c.view.colourWheel(l.colour)`, which
 opens it in a popup: hue and saturation, so a pastel, which the full-saturation
 track cannot set. It takes the capability group, so a light without colour is
 an editor error, as `c.entitySlider(l.colour)` is. A slider gets it as one of
-its buttons, and `.modes(…)` without `"colour"` drops the track.
+its buttons (`c.its.colourWheel`, or the building block), and a switch whose
+options leave out `"colour"` drops the track.
 
 ##### Shapes considered
 

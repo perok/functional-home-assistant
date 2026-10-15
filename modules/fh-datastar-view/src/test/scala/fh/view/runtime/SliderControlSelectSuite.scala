@@ -8,10 +8,10 @@ import org.http4s.Status
 
 import scala.concurrent.duration.*
 
-/** `c.modeSwitch.style("dropdown")`: the slider's `mode` chosen from a
-  * `c.select` on its pill, the label and the head both the server's.
+/** `c.its.mainControl.style("dropdown")`: the slider's main control chosen from
+  * a `c.select` on its pill, the label and the head both the server's.
   */
-class SliderModeSelectSuite extends CatsEffectSuite {
+class SliderControlSelectSuite extends CatsEffectSuite {
 
   private def n(i: Int) = Json.fromInt(i)
 
@@ -39,14 +39,15 @@ class SliderModeSelectSuite extends CatsEffectSuite {
        |import "@fh-home/dump.pkl" as dump
        |
        |card = (c.column) {
-       |  children { c.entitySlider(dump.entities.${lamp.dumpKey}).buttons(List(c.modeSwitch.style("dropdown"))) }
+       |  children { c.entitySlider(dump.entities.${lamp.dumpKey}).buttons(List(c.its.mainControl.style("dropdown"))) }
        |}
        |""".stripMargin
 
-  private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/([A-Za-z]+)""".r
+  private val controlRoute =
+    """sse/var/[^/]+/([A-Za-z0-9_]+)/control/([A-Za-z]+)""".r
 
   private val label =
-    // A mode's icon is the face; its label is the icon's title.
+    // A control's icon is the face; its label is the icon's title.
     """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><i class="[^"]*" title="([^"]*)">""".r
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
@@ -55,21 +56,23 @@ class SliderModeSelectSuite extends CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
-  test("the first HTML names the shown mode, and the list offers every one") {
+  test(
+    "the first HTML names the shown control, and the list offers every one"
+  ) {
     served { ts =>
       for {
         plain <- ts.page()
-        declarer = modeRoute
+        declarer = controlRoute
           .findFirstMatchIn(plain)
-          .fold(fail(s"no mode choice on the page: $plain"))(_.group(1))
-        linked <- ts.page(s"?v.$declarer.mode=colourTemp")
+          .fold(fail(s"no control choice on the page: $plain"))(_.group(1))
+        linked <- ts.page(s"?v.$declarer.control=colourTemp")
       } yield {
         assertEquals(
           label.findAllMatchIn(plain).map(_.group(1)).toList,
           List("Brightness")
         )
         assertEquals(
-          modeRoute.findAllMatchIn(plain).map(_.group(2)).toList,
+          controlRoute.findAllMatchIn(plain).map(_.group(2)).toList,
           List("brightness", "colourTemp", "colour"),
           plain
         )
@@ -85,16 +88,16 @@ class SliderModeSelectSuite extends CatsEffectSuite {
     }
   }
 
-  test("a choice swaps in that mode's head and label") {
+  test("a choice swaps in that control's head and label") {
     served { ts =>
       for {
         doc <- ts.load()
-        declarer = modeRoute
+        declarer = controlRoute
           .findFirstMatchIn(doc.html)
-          .fold(fail(s"no mode choice on the page: ${doc.html}"))(_.group(1))
+          .fold(fail(s"no control choice on the page: ${doc.html}"))(_.group(1))
         session <- ts.sessions.get(doc.conn)
         result <- ts.postResult(
-          s"sse/var/${ts.slug}/$declarer/mode/colour",
+          s"sse/var/${ts.slug}/$declarer/control/colour",
           body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
         )
         sent <- session
@@ -105,7 +108,7 @@ class SliderModeSelectSuite extends CatsEffectSuite {
         assert(sent.contains("max=\"360\""), clue = sent)
         assert(sent.contains("title=\"Colour\"></i></div>"), clue = sent)
         assert(
-          sent.contains(s"\"_var_${declarer}__mode\":\"colour\""),
+          sent.contains(s"\"_var_${declarer}__control\":\"colour\""),
           clue = sent
         )
       }
