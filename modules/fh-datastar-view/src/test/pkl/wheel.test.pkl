@@ -36,6 +36,8 @@ facts {
     t.contains("data-effect=\"$_sse > 0 && (")
     t.contains("data-on:pointercancel=")
     t.contains("data-init=")
+    // What sets that error: the guard's mechanism, on the element that posts.
+    t.contains(tapMod.guardMechanism) && w.slots["busy"] == "1"
     w.slots["service"] == "light/turn_on"
     w.slots["dataKey"] == "hs_color"
     w.cardDef.template.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")

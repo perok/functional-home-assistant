@@ -50,7 +50,7 @@ class ColourWheel extends nodes.Node {
   cardDef = new nodes.CardDef {
     // Two elements carry the patch handlers: one element holds one
     // `data-on-signal-patch` (the slider splits its two the same way).
-    template = #"<div class="fh-wheel" style="--fh-h:{{hue}};--fh-s:{{sat}}" \#(slotMod.signalBind("hue")) \#(slotMod.signalBind("sat")) \#(slotMod.signalBind("paint")) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '{{hue}}', _{{id}}__s: '{{sat}}', _{{id}}__p: '{{paint}}' }" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-on-signal-patch-filter="{include:/^(\#(slotMod.signalRef("hue"))|\#(slotMod.signalRef("sat"))|\#(slotMod.signalRef("paint")))$/}" data-on-signal-patch="\#(adopt)" data-effect="$_sse > 0 && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"><span class="fh-wheel-knob" style="background:{{paint}}" data-style:background="\#(shownP)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span></div>"#
+    template = #"<div class="fh-wheel" style="--fh-h:{{hue}};--fh-s:{{sat}}" \#(slotMod.signalBind("hue")) \#(slotMod.signalBind("sat")) \#(slotMod.signalBind("paint")) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '{{hue}}', _{{id}}__s: '{{sat}}', _{{id}}__p: '{{paint}}' }" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-on-signal-patch-filter="{include:/^(\#(slotMod.signalRef("hue"))|\#(slotMod.signalRef("sat"))|\#(slotMod.signalRef("paint")))$/}" data-on-signal-patch="\#(adopt)" data-effect="$_sse > 0 && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)><span class="fh-wheel-knob" style="background:{{paint}}" data-style:background="\#(shownP)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span></div>"#
     slots { "hue"; "sat"; "paint" }
     css = """
       .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;
@@ -87,6 +87,11 @@ class ColourWheel extends nodes.Node {
       bypassUnavailable = false
     }
     for (k, v in tapMod.tapRoute(setColour)) {
+      [k] = v
+    }
+    // The guard's mechanism, without which a refused release sets no error and
+    // the knob stays where it was let go.
+    for (k, v in tapMod.guardSlots(setColour)) {
       [k] = v
     }
   }
