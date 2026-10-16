@@ -191,7 +191,9 @@ because that is where an author looks one up by name; a smaller scope is filtere
 `hass.Entity.volatileAttrs` is `name -> type name` for the live attributes an
 entity can report. It closes a silent failure in the query surface: a typo'd
 attribute (`q.prop("brightnes")`) used to resolve to a live read that never
-matched, so the card simply never updated.
+matched, so the card simply never updated. It also decides a name both ways: a
+name listed here is read live even where the schema has a member of that name
+(ADR 0003).
 
 **Names and types only — never a value, not even null.** A value slot is
 precisely the thing that later gets helpfully filled with the live reading,

@@ -160,13 +160,22 @@ const local function checkLive(items: List<hass.Entity>, name: String): String =
         `q.attr("\(name)")`, which means "a live attribute, unchecked".
         """)
 
-/// ALL candidates have it => a registry fact; NONE => a live attribute; SOME
+/// A registry fact the build can read: a property holding a scalar, or null.
+/// A capability group or a helper (`l.colourTemp`, `l.colourModes`) is the
+/// schema's, and never a fact a query reads.
+const local function carries(e: hass.Entity, name: String): Boolean =
+  e.hasProperty(name) && let (v = e.getPropertyOrNull(name)) (v == null || v is Scalar)
+
+/// A name the schema says a candidate reports live is live, whatever the schema
+/// calls its own members. Otherwise
+/// ALL candidates carry it => a registry fact; NONE => a live attribute; SOME
 /// => a build error unless `optional`.
 const local function resolveProp(items: List<hass.Entity>, p: PropName): String =
   if (p.name == "state") "state"
   else if (p is LiveAttr) "attr:" + p.name
+  else if (items.any((e) -> e.volatileAttrs.containsKey(p.name))) "attr:" + p.name
   else
-    let (have = items.filter((e) -> e.hasProperty(p.name)).length)
+    let (have = items.filter((e) -> carries(e, p.name)).length)
       if (items.isEmpty || have == 0) checkLive(items, p.name)
       else if (have == items.length) "reg:" + p.name
       else if (p.optional) "reg:" + p.name
