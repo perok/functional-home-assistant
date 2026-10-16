@@ -115,7 +115,8 @@ abstract class Select extends nodes.Node {
         else (self) { choices = cs }
 
   /// The same choice in another style. A style is a class of its own (one card
-  /// each), so this builds a new node: it carries what was set on this one,
+  /// each, since a card name has one template: `nodes.cardsIn`), so this builds
+  /// a new node: it carries what was set on this one,
   /// `.columns(6)` before it included, and the card computes the rest.
   function style(s: SelectStyle): Select =
     let (self = this) let (t = target) let (cs = choices)
