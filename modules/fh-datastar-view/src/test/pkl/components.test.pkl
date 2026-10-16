@@ -26,6 +26,7 @@ import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/hass/active.pkl" as activeTables
 import "../../main/resources/dashboards/lib/hass/actions.pkl" as hassActions
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+import "../../main/resources/dashboards/lib/hass/light.pkl" as hassLight
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -1503,6 +1504,57 @@ facts {
     // A plug has no main controls at all, and is still the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
     c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
+  }
+
+  ["a light's axes are its main controls, each a slider of its own"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    // Each names a distinct control, so a head is found by its name.
+    lamp.axes.map((a) -> a.name) == List("brightness", "colourTemp", "colour")
+    lamp.axes.every((a) -> a.owner == lamp)
+    // Every one is a single row, configured by the axis alone.
+    lamp.axes.map((a) -> c.entitySlider(a)).every((s) -> !s.declaresControl)
+    lamp.axes.map((a) -> c.entitySlider(a).headNode.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // A light that cannot dim has none, and stays the toggle row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    plug.brightness == null && plug.axes.isEmpty
+    c.entitySlider(plug).toggleOnly
+    // A domain row is an axis too: a cover posts its position.
+    local blind: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+    c.entitySlider(blind).headSlots["service"] == "cover/set_cover_position"
+    c.entitySlider(blind).headSlots["dataKey"] == "position"
+    // Which one a light is on, as data for the card to read.
+    lamp.colour!!.inUseWhen!!.values == hassLight.COLOUR_MODES
+    lamp.brightness!!.inUseWhen == null
+  }
+
+  ["a light's slider opens on the mode the light is in, or where opensOn says"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local startOf = (s: c.EntitySlider) -> s.starts?.getOrNull("control")
+    // By default the mode axes, in the light's order, else the first control.
+    local byMode = startOf.apply(c.entitySlider(lamp))!!
+    byMode.entityId == "light.lamp"
+    byMode.transform == "(attr[?'color_mode'].orValue('') in ['color_temp'] ? 'colourTemp' : (attr[?'color_mode'].orValue('') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] ? 'colour' : 'brightness'))"
+    // The order given; brightness is always in use, so nothing after it is tried.
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour, lamp.colourTemp)))!!.transform.startsWith("(attr[?'color_mode'].orValue('') in ['hs'")
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.brightness, lamp.colour))) == null
+    // An axis the switch does not offer is not tried.
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour)).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))) == null
+    // Nothing declared, nothing to start: a dimmer, an axis alone, a plain row.
+    startOf.apply(c.entitySlider(dimmer)) == null
+    startOf.apply(c.entitySlider(lamp.colour!!)) == null
+    startOf.apply(c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))) == null
+    // The declared value stays the first control: what a refused start keeps.
+    c.entitySlider(lamp).vars == new Mapping { ["control"] = "brightness" }
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {

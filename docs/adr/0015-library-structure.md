@@ -179,6 +179,11 @@ slider adds the main controls it shows, so `mainControl` builds its own
 asymmetry left is the slider READING `mainControl`'s options, since they also
 decide which heads it has.
 
+**The control names are each domain's.** `its.MainControl` is a union of typealiases a domain's
+`hass/` file declares (`hassLight.Control`, re-exported as `hass.LightControl`), each name an
+`Axis` fixes for itself, so `.options(List("colour"))` is checked in the editor. A domain with
+main controls adds its alias to the union; the labels and icons stay in `its.pkl`, being looks.
+
 **Adding an item:** a class in `its.pkl` whose `resolve` returns an existing
 building block from the `Holder`, and a `const` value for it. An item needing
 something no card hands yet adds a field to `Holder`, defaulted to empty, and

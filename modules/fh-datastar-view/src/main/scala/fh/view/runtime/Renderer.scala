@@ -233,6 +233,21 @@ class Renderer(
     )
   }
 
+  /** Where a session opening on `states` starts each variable that has a start:
+    * its expression over the declarer's subject, where every reader takes the
+    * result. Otherwise the declared value stands, as for a stale link.
+    */
+  def startsFor(states: Map[String, EntityState]): Map[VarKey, String] =
+    vars.starts.toList.flatMap { (key, start) =>
+      states
+        .get(start.entityId)
+        .map(transforms.run(start.transform, _, dashboard.slug))
+        .filter(v =>
+          VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
+        )
+        .map(key -> _)
+    }.toMap
+
   /** One line per refused choice. Every reader must still parse and read only
     * an entity this dashboard shows — the read-side twin of an action's bound
     * (ADR 0023), without which a variable fed to `entity` charts any sensor.
@@ -1030,7 +1045,10 @@ class Renderer(
             c.vars.toList.sortBy(_._1).foreach { (name, declared) =>
               val _ = buf
                 .append(' ')
-                .append(VarKey(id, name).urlMirrorAttr(declared))
+                .append(
+                  VarKey(id, name)
+                    .urlMirrorAttr(declared, c.starts.contains(name))
+                )
             }
             val _ = buf.append('>')
           }

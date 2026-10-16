@@ -132,6 +132,39 @@ class LightSliderSmokeSuite extends SmokeSuite {
     }
   }
 
+  test(
+    "a lamp on a colour opens on the hue; a choice survives a refresh, the start does not need one"
+  ) {
+    val onColour = SmokeDashboard.colourLamp.copy(attributes =
+      SmokeDashboard.colourLamp.attributes + ("color_mode" -> Json.fromString(
+        "hs"
+      ))
+    )
+    val param = """.*[?&]v\.[^=&]+\.control=.*"""
+    def href(page: Page) =
+      IO.blocking(page.evaluate("() => location.href").toString)
+    def showing(page: Page, max: Int) = IO.blocking(
+      assertThat(page.locator(s"input[type=range][max='$max']")).hasCount(1)
+    )
+    withPage(Scene.of(SmokeDashboard.lightSlider).entity(onColour)) {
+      (page, _) =>
+        for {
+          _ <- showing(page, 360)
+          // A start is not a choice: nothing on the URL.
+          opened <- href(page)
+          _ = assert(!opened.matches(param), clue = opened)
+          // After the hue comes brightness, round the cycle.
+          _ <- IO.blocking(controlButton(page).click())
+          _ <- showing(page, 255)
+          chosen <- eventually(href(page))(_.matches(param))
+          _ <- IO.blocking(page.reload())
+          _ <- showing(page, 255)
+          _ <- IO.blocking(page.navigate(chosen.takeWhile(_ != '?')))
+          _ <- showing(page, 360)
+        } yield ()
+    }
+  }
+
   test("a hue release posts hs_color at full saturation") {
     withPage(scene) { (page, ts) =>
       val hue = page.locator("input[type=range][max='360']")

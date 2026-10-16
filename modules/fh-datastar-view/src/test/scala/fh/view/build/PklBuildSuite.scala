@@ -1109,8 +1109,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("components.pkl derives the card registry from the card classes") {
     // `cards` comes from pkl:reflect over the module's Node subclasses, so the
-    // key set must be exactly the card classes: no strays such as Tab, Case or
-    // SliderSpec.
+    // key set must be exactly the card classes: no strays such as Tab or Case.
     val tmp = os.temp.dir()
     copyLib(tmp)
     os.write(
@@ -1954,7 +1953,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("a slider in a QUERY bakes its config, with no $lookup($domain)") {
     // A candidate is a known entity, so `action`/`key`/`min`/`max` are
-    // literals, not runtime `$lookup`s over the sliderSpec table.
+    // literals, not runtime `$lookup`s over the `domainAxes` table.
     val set = probeSet(
       """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.entitySlider(e)).build()"""
     )

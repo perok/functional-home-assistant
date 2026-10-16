@@ -187,9 +187,15 @@ q.from(hass.lights(dump.areas.stue.all))
 it touches only registry facts, and the fold happens in the Pkl combinators, so
 the author never names the seam: a registry term selects candidates and
 disappears, a live term becomes a per-member guard. `q.prop(name)` resolves
-against the candidates — a registry fact if all of them carry it, a live
-attribute if none do, a build error if only some (unless wrapped in
-`q.optional`, which reads missing as null). `q.attr(name)` overrides that
+against the candidates. A name any of them reports live (ADR 0013's
+`volatileAttrs`) is a live attribute, whatever the schema calls its own
+members. Otherwise it is a registry fact if all of them carry it, a live
+attribute if none do, and a build error if only some (unless wrapped in
+`q.optional`, which reads missing as null). Carrying it means a property holding
+a scalar or null. A capability group or a helper (`l.colourTemp`,
+`l.colourModes`) is the schema's, so it never reads as a fact. Without both rules, the schema's names were silently
+reserved against HA's: a helper named like an attribute turned a live read into
+a build-time read of an object. `q.attr(name)` overrides that
 resolution in the one direction it can be wrong: a name that IS a registry fact
 but should be read live anyway, because the author wants the value as it is now
 rather than as the registry recorded it.

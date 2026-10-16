@@ -180,6 +180,10 @@ abstract class Node extends LayoutNode {
   /// subtree is where they apply, a tab panel or `If` branch included; a popup
   /// does not see the page's.
   vars: Mapping<String, String>? = null
+  /// Where a session starts a variable [[vars]] declares, when not at its
+  /// value, read once as the page opens ([[varMod.Variable.start]]). A result
+  /// no reader takes keeps the value.
+  starts: Mapping<String, varMod.Start>? = null
   /// Set by a candidate set on the node it renders once per member, where a
   /// declaration is a build error: a card that would declare one does without.
   hidden perMember: Boolean = false
