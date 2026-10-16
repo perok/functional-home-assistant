@@ -23,6 +23,12 @@ local lamp: hass.LightEntity = new {
 
 local function route(n: Any): String = (n.slots["onclick"] as slotMod.Slot).transform as String
 
+// A baked select's members in order: what each shows, and the value showing it.
+local function members(s: selectMod.Select): List<Pair<Any, String?>> =
+  s.inlineSurfaces.toMap().values.toList()
+    .sortBy((m) -> m.bakeIndex!!)
+    .map((m) -> Pair(m.content, m.activation.value))
+
 facts {
   ["over a variable: buttons by default, one per option, each choosing its own"] {
     local s = c.select(shade).options(List("pale", "deep"))
@@ -35,35 +41,44 @@ facts {
     (opts[1].slots["active"] as String).contains("__pending")
   }
 
-  ["a style is the same choice in another card"] {
+  ["a style is the same choice in another card, a variable's baked"] {
     local base = c.select(shade).options(List("pale", "deep"))
-    base.style("dropdown").card == "selectDropdown"
-    base.style("cycle").card == "selectCycle"
+    base.style("dropdown").card == "selectVarDropdown"
+    base.style("cycle").card == "selectVarCycle"
     base.style("dropdown").style("buttons").card == "selectButtons"
     base.style("cycle").choices == base.choices
+    c.select(mode).style("dropdown").card == "selectDropdown"
+    c.select(mode).style("cycle").card == "selectCycle"
   }
 
-  ["a variable's dropdown names the chosen label on the client, escaped"] {
+  ["a variable's dropdown label is one member per option, selected at its value"] {
     local d = c.select(shade)
       .options(List(new selectMod.Choice { value = "pale"; label = "it's pale" }, "deep"))
       .style("dropdown")
-    local shown = d.slots["chosenText"] as String
-    shown.contains(#"'pale': 'it\'s pale'"#)
-    shown.contains("'deep': 'deep'")
+    members(d).map((m) -> m.second) == List("pale", "deep")
+    members(d).map((m) -> (m.first as selectMod.ChoiceLabel).label) == List("it's pale", "deep")
+    // The list still holds every option.
+    d.children.toList().length == 2
+    // An icon takes the label's place on the face.
+    local iconic = members(c.select(shade)
+      .options(List(new selectMod.Choice { value = "a"; label = "A"; icon = "mdi:palette" }, "b"))
+      .style("dropdown"))
+    (iconic[0].first as selectMod.ChoiceLabel).slots["glyph"] == "mdi mdi-palette"
+    !(iconic[1].first as selectMod.ChoiceLabel).slots.containsKey("glyph")
   }
 
-  ["a variable's cycle shows the chosen option, and a press chooses the next, round"] {
+  ["a variable's cycle bakes one button per option, each choosing the next, round"] {
     local cyc = c.select(shade).options(List("a", "b", "c")).style("cycle")
-    local bs = cyc.children.toList()
-    bs.length == 3
-    route(bs[0]).contains("/shade/b") && route(bs[1]).contains("/shade/c") && route(bs[2]).contains("/shade/a")
-    (bs[2].slots["shown"] as String).endsWith("=== 'c'")
+    cyc.children.isEmpty
+    local bs = members(cyc)
+    bs.map((m) -> m.second) == List("a", "b", "c")
+    route(bs[0].first).contains("/shade/b") && route(bs[1].first).contains("/shade/c") && route(bs[2].first).contains("/shade/a")
     // An icon replaces the label on the face.
-    local iconic = c.select(shade)
+    local iconic = members(c.select(shade)
       .options(List(new selectMod.Choice { value = "a"; icon = "mdi:palette" }, "b"))
-      .style("cycle").children.toList()
-    iconic[0].slots["glyph"] == "mdi mdi-palette"
-    !iconic[1].slots.containsKey("glyph")
+      .style("cycle"))
+    (iconic[0].first as selectMod.CycleButton).slots["glyph"] == "mdi mdi-palette"
+    !(iconic[1].first as selectMod.CycleButton).slots.containsKey("glyph")
   }
 
   ["over a select entity: its own options, each a call lit by the state"] {

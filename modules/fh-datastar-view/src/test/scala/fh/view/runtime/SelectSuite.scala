@@ -97,6 +97,95 @@ class SelectSuite extends CatsEffectSuite {
       .timeout(60.seconds)
   }
 
+  private def bakedEntry(declared: String) =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |
+       |local shade = c.variable("shade")
+       |
+       |card = (c.column) {
+       |  vars = shade.declare("$declared")
+       |  children {
+       |    c.select(shade).options(List("24h", "7d", "30d")).style("dropdown")
+       |    c.select(shade).options(List("24h", "7d", "30d")).style("cycle")
+       |  }
+       |}
+       |""".stripMargin
+
+  /** What the dropdown's summary and the cycle's face show. */
+  private def shown(html: String): (List[String], List[String]) =
+    (
+      """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><span>([^<]*)</span>""".r
+        .findAllMatchIn(html)
+        .map(_.group(1))
+        .toList,
+      """class="fh-select-cycle" title="([^"]*)"""".r
+        .findAllMatchIn(html)
+        .map(_.group(1))
+        .toList
+    )
+
+  test(
+    "over a variable, the first HTML shows the viewer's option, from the declaration or the URL"
+  ) {
+    TestServer
+      .fromWorkspace("select-baked", bakedEntry("7d"), Nil)
+      .use(ts => (ts.page(), ts.page("?v.c.shade=30d")).tupled)
+      .timeout(60.seconds)
+      .map { case (declared, linked) =>
+        assertEquals(shown(declared), (List("7d"), List("7d")), declared)
+        assertEquals(shown(linked), (List("30d"), List("30d")), linked)
+      }
+  }
+
+  test("a baked select is a reader: a choice swaps in the next option") {
+    TestServer
+      .fromWorkspace("select-baked", bakedEntry("24h"), Nil)
+      .use { ts =>
+        for {
+          conn <- ts.load().map(_.conn)
+          session <- ts.sessions.get(conn)
+          result <- ts.postResult(
+            s"sse/var/${ts.slug}/c/shade/7d?group=var_c__shade",
+            body = s"""{"${Server.ConnSignal}":"$conn"}"""
+          )
+          refused <- ts.postResult(
+            s"sse/var/${ts.slug}/c/shade/1y?group=var_c__shade",
+            body = s"""{"${Server.ConnSignal}":"$conn"}"""
+          )
+          queued <- session.fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
+        } yield {
+          assertEquals(result._1, Status.NoContent, clue = result)
+          val sent = queued.flatMap(_.data).mkString("\n")
+          // Each panel's swap: the label, then the cycle's face.
+          assert(sent.contains("><span>7d</span></div>"), clue = sent)
+          assertEquals(shown(sent)._2, List("7d"), sent)
+          // The cycle's 7d chooses the next, round.
+          assert(sent.contains("/c/shade/30d?group="), clue = sent)
+          assert(
+            refused._2.contains("one of its members' values (24h, 7d, 30d)"),
+            clue = refused
+          )
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("a declared value no option has is a build error naming the options") {
+    val errors =
+      fh.view.testkit.PklFixture
+        .buildDashboard("select-baked", bakedEntry("1y"))
+        .validate()
+    assert(
+      errors.exists(e =>
+        e.contains("declared '1y'") &&
+          e.contains("not one of its members' values (24h, 7d, 30d)")
+      ),
+      clue = errors
+    )
+  }
+
   private val robot = FixtureEntity(
     "select.robot_mode",
     "turbo",

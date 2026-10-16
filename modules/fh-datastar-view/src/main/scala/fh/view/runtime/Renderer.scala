@@ -245,9 +245,8 @@ class Renderer(
         .flatMap(readsAt(_, env))
         .flatMap(r => refusal(r.query)) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
-          val n = surfaces.bakeGroup(gid).size
-          Option.unless(value.toIntOption.exists(i => i >= 0 && i < n))(
-            s"$gid has members 0..${n - 1}"
+          Option.unless(surfaces.memberAt(gid, value).isDefined)(
+            s"$gid takes ${Surface.membersText(surfaces.memberValues(gid))}"
           )
         }).distinct
       Option.when(why.nonEmpty)(

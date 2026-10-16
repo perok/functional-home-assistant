@@ -1486,8 +1486,13 @@ facts {
     // keeps its first.
     local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
     !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresMode
-    // A light with none of them names itself.
-    module.catch(() -> c.entitySlider(dimmer).modes(List("colour")).offeredModes).contains("light.dimmer")
+    // A light with none of them keeps its plain row: one list serves mixed lights.
+    local narrowed = c.entitySlider(dimmer).modes(List("colour"))
+    !narrowed.declaresMode
+    narrowed.headNode.slots["dataKey"] == "brightness"
+    // A plug has no modes at all, and is still the toggle row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    c.entitySlider(plug).modes(List("brightness", "colourTemp")).headSlots["toggle"] == "1"
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {

@@ -86,14 +86,18 @@ markup:
 The tab bar and the window chooser move only if their markup survives
 unchanged (their visual baselines say); otherwise each gets an issue.
 
-The slider pill does NOT move yet, a question for the maintainer. Its buttons
-are baked, one panel per mode selected by `mode`, which is what keeps the
-right button in the first HTML. A bake group is selected by a member INDEX
-(`Activation.Var`, `Renderer.refusals`), while a select's values are names
-(`7d`), so `c.select`'s cycle shows its buttons with `data-show` instead: all
-hidden in the first HTML, the chosen one shown once Datastar reads the
-committed value. Moving the pill onto it brings back a blank pill until the
-script runs. The fix is a bake group selected by value, a runtime change.
+A bake group is selected by VALUE (done, its own PR stacked on A): each
+member names the value of its variable that shows it, defaulting to its index,
+which is what tabs and the slider's modes choose by. Over a variable,
+`c.select`'s cycle and its dropdown's label are bake groups, so the first HTML
+shows the viewer's option, as the slider pill does. The buttons style is lit by
+the client, as a tab bar is.
+
+The slider's modes can be switched by a `c.select` of `mode` (done,
+`.modeStyle("dropdown" | "buttons")`), placed on the pill as the mode switch.
+`"cycle"`, the default, is still the baked `ModeButton`: moving it onto
+`c.select`'s cycle too changes its markup and the `light-slider-*` baselines,
+so it waits on the maintainer.
 
 ### Status
 
@@ -104,8 +108,8 @@ script runs. The fix is a bake group selected by value, a runtime change.
   - Over an entity, each option is an `ActiveNode` lit by the server, so the
     first HTML is right in every style, the cycle included.
   - The server refuses a choice of a variable that nothing on the page
-    reads, so a variable select needs a reader (a chart's `.over(v.ref)`, a
-    bake group).
+    reads. A cycle or dropdown is a reader of its own; buttons need one (a
+    chart's `.over(v.ref)`, a bake group).
   - Tests: Pkl facts (`select.test.pkl`), the real build and a write
     (`SelectSuite`), a browser smoke test (`SelectSmokeSuite`).
 - In the library's card index (`components.pkl`'s `modules`).

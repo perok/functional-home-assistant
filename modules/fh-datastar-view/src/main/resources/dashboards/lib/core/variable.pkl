@@ -60,9 +60,13 @@ class Variable {
   /// id.
   fixed own: Spelling = let (n = name) new Spelling { variable = n; declarerId = "{{id}}" }
 
-  /// The activation of a bake group whose member this variable chooses: a tab
-  /// bar's panel.
+  /// The activation of a bake group whose member this variable chooses by
+  /// index: a tab bar's panel.
   fixed selects: surfaceMod.VarActivation = let (n = name) new { name = n }
+
+  /// The activation of the bake member this variable shows at `at`.
+  function selecting(at: Value): surfaceMod.VarActivation =
+    let (n = name) new { name = n; value = at }
 
   /// Its entry in the declaring node's `vars`: the value before anyone chooses.
   function declare(value: String): Mapping<String, String> =

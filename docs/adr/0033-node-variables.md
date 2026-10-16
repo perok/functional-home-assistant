@@ -143,13 +143,15 @@ each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` tak
 name, so the pair cannot drift.
 
 **A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
-panel's surfaces are `Activation.Var("tab")`: the member whose `bakeIndex` is the variable as seen
-from the bar. Its buttons are `choose(i)` on that variable, so a tab press is a variable write whose
-reader is the bake group (`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is
-shown and commits after it, and a value that is not a member index of every panel it selects is
-refused like an unparseable window. A tab panel cannot be opened directly; the open route refuses
+panel's surfaces are `Activation.Var("tab")`: the member selected at the variable's value as seen
+from the bar, which with no `value` of its own is its `bakeIndex`. Its buttons are `choose(i)` on
+that variable, so a tab press is a variable write whose reader is the bake group
+(`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is shown and commits after it,
+and a value no member of every panel it selects is selected at is refused like an unparseable
+window. A `c.select` over a variable names its members' values instead (`Variable.selecting`), so
+its cycle and its dropdown's label are right in the first HTML for a value like `7d`. A tab panel cannot be opened directly; the open route refuses
 it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member index, and refuses a `User`-activated member with
+the bar and its declared value to be a member's, distinct values per group, and refuses a `User`-activated member with
 a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
 and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
 being different declarers. Every path that bakes takes a bar's member from the session's

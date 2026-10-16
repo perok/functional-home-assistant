@@ -7,6 +7,7 @@ import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/wheel.pkl" as wheelMod
+import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 
 local lamp: hass.LightEntity = new {
   entity_id = "light.lamp"
@@ -64,6 +65,20 @@ facts {
     first.children["before"].isEmpty && first.children["children"].length == 1
     // The wheel instead of the hue track is the modes without "colour".
     c.entitySlider(lamp).modes(List("brightness", "colourTemp")).offeredModes == List("brightness", "colourTemp")
+  }
+
+  ["a slider's modes can be a select of its mode variable, in place of the cycle"] {
+    local pillOf = (sl: Any) -> sl.children["head"][0].children.toList()[0]
+    local pill = pillOf.apply(c.entitySlider(lamp).modeStyle("dropdown"))
+    local sw = pill.children["switch"].toList()[0] as selectMod.VarSelectDropdown
+    sw.choices.map((ch) -> ch.value) == List("0", "1", "2")
+    sw.choices.map((ch) -> ch.label) == List("Brightness", "Colour temperature", "Colour")
+    // No cycling button panels beside it.
+    pill.inlineSurfaces.isEmpty
+    pillOf.apply(c.entitySlider(lamp).modeStyle("buttons")).children["switch"].toList()[0] is selectMod.SelectButtons
+    // The cycle is the button it always was.
+    local cyc = pillOf.apply(c.entitySlider(lamp))
+    cyc.children["switch"].isEmpty && cyc.inlineSurfaces.length == 3
   }
 
   ["a null among the buttons is no button: one list serves lights with and without colour"] {

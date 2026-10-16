@@ -489,9 +489,11 @@ object Predicate:
   *
   *   - `User`: a popup, opened by a tap, optionally from first paint. The
   *     selection is per connection (ADR 0005). Never a baked member.
-  *   - `Var`: the member whose `bakeIndex` is the node variable `name`, as seen
-  *     from the `bakeInto` node — a tab bar's panel (ADR 0033). Per viewer, and
-  *     declared, so the server knows what selects it.
+  *   - `Var`: the member whose `value` is the node variable `name`, as seen
+  *     from the `bakeInto` node (ADR 0033). With no `value` it is its
+  *     `bakeIndex`, which a tab bar's panel and a slider's modes choose by;
+  *     `c.select` names its options. Per viewer, and declared, so the server
+  *     knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
@@ -501,7 +503,7 @@ object Predicate:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case Var(name: String)
+  case Var(name: String, value: Option[String] = None)
   case State(condition: Predicate)
 
 sealed trait LayoutNode derives ConfiguredDecoder {
@@ -828,6 +830,22 @@ case class Surface(
   def hostId: DomId = (bakeInto, bakeAs) match
     case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
     case _                      => Dashboard.PopupHostId
+
+  /** The value of its variable that selects this member ([[Activation.Var]]).
+    */
+  def selectedAt: Option[String] = activation match
+    case Activation.Var(_, value) => value.orElse(bakeIndex.map(_.toString))
+    case _                        => None
+
+object Surface:
+
+  /** What a variable-selected group's members are selected at, for a message:
+    * an index group as the range an author thinks of.
+    */
+  def membersText(values: List[String]): String =
+    if (values == values.indices.map(_.toString).toList)
+      s"a member index (0..${values.size - 1})"
+    else s"one of its members' values (${values.mkString(", ")})"
 
 /** The build phase's artifact.
   *
@@ -1657,7 +1675,9 @@ case class Dashboard(
             case (_, _, _: Activation.Var)   => "var"
             case (_, _, _: Activation.State) => "state"
           }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n)) => n }
+          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
+            n
+          }
           // A baked member has a host, and what fills a host is a choice the
           // server knows: a viewer's variable or a condition (ADR 0033).
           val unchosen = members.collect { case (_, sid, _: Activation.User) =>
@@ -1676,9 +1696,20 @@ case class Dashboard(
                 members.map(_._2).sorted.mkString(", ")
             )
             .toList ++ names.distinct.match {
-            case List(name) => varSelectionErrors(gid, name, members.size)
-            case Nil        => Nil
-            case many       =>
+            case List(name) =>
+              varSelectionErrors(
+                gid,
+                name,
+                // In [[SurfaceGraph.bakeGroup]]'s order.
+                members
+                  .map(_._2)
+                  .sorted
+                  .flatMap(surfaces.get)
+                  .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
+                  .flatMap(_.selectedAt)
+              )
+            case Nil  => Nil
+            case many =>
               List(
                 s"bake group '$gid' is selected by more than one variable: " +
                   many.sorted.mkString(", ")
@@ -1809,22 +1840,26 @@ case class Dashboard(
   private def varSelectionErrors(
       gid: NodeId,
       name: String,
-      size: Int
+      values: List[String]
   ): List[String] =
-    varScopes.get(gid).flatMap(_.get(name)) match {
+    Option
+      .when(values.distinct.size != values.size)(
+        s"bake group '$gid' has two members selected at one value of '$name': " +
+          values.mkString(", ")
+      )
+      .toList ++ (varScopes.get(gid).flatMap(_.get(name)) match {
       case None =>
         List(
           s"bake group '$gid' is selected by the variable '$name', which no " +
             "node at or above it declares"
         )
-      case Some(in)
-          if !in.declared.toIntOption.exists(i => i >= 0 && i < size) =>
+      case Some(in) if !values.contains(in.declared) =>
         List(
           s"bake group '$gid' is selected by '$name', declared '${in.declared}' " +
-            s"on ${in.declarer}, which is not a member index (0..${size - 1})"
+            s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
         )
       case Some(_) => Nil
-    }
+    })
 
   /** The declared values a surface's content starts with ([[varScopes]]). */
   def scopeOf(s: Surface): Map[String, String] =
