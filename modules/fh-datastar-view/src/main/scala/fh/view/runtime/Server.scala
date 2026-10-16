@@ -684,7 +684,7 @@ class Server(
           OptionT.liftF(live.log.get),
           OptionT.liftF(stateStore.current)
         ).flatMapN { (renderer, log, store) =>
-          val env = renderer.vars.env(s.vars)
+          val env = renderer.vars.env(s.values)
           Patches
             .resume(
               renderer,
@@ -757,7 +757,7 @@ class Server(
       if (cursor.exists(_.headHash != renderer.headHash))
         OptionT.pure[IO](Session.Step(s, List(Server.reloadPatch), ()))
       else {
-        val env = renderer.vars.env(s.vars)
+        val env = renderer.vars.env(s.values)
         val head =
           if (cursor.exists(_.styleHash != renderer.styleHash))
             Server.headPatches(renderer, slug)
@@ -811,7 +811,7 @@ class Server(
                   // With the selections: a stream that died between a swap's
                   // patch and its signal left them disagreeing.
                   Server
-                    .openingSignals(renderer, s.open, s.vars, log.id, claim),
+                    .openingSignals(renderer, s.open, s.values, log.id, claim),
                 ()
               )
             }
@@ -836,7 +836,7 @@ class Server(
     served
       .fold(IO.pure(s -> Selections.none)) { r =>
         adoptCarriedVars(s, r, req).flatMap { adopted =>
-          val env = r.vars.env(adopted.vars)
+          val env = r.vars.env(adopted.values)
           val selections = r.surfaces.selections(requested, env)
           val open = r.surfaces.selectedSurfaces(selections)
           warnAnomalies(r, env) *> session
@@ -890,7 +890,7 @@ class Server(
   )(s: SessionState): IO[Session.Step[Unit]] = {
     // What is selected NOW, not what this stream connected with: popups since
     // have moved `open`, and tab presses the session's variables.
-    val env = r.vars.env(s.vars)
+    val env = r.vars.env(s.values)
     val popup = prev.surfaces.selectionsIn(s.open).popup
     val ui = r.surfaces.selections(popup, env)
     val open = r.surfaces.selectedSurfaces(ui)
@@ -974,7 +974,7 @@ class Server(
       states = store.entities
       // Only the arriving surface's queries, so an unopened popup costs
       // nothing.
-      env = renderer.vars.env(s.vars)
+      env = renderer.vars.env(s.values)
       fragments <- resolveQueries(renderer, newSurface, states, selections, env)
     } yield {
       val (holds, filled) = Patches.hostFill(
@@ -1070,14 +1070,18 @@ class Server(
         case refused =>
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
       }
-      env = renderer.vars.env(proposed)
+      env = renderer.vars.env(s.starts ++ proposed)
       after = renderer.surfaces.selections(selections.popup, env)
-      // `refusals` made the value a member index of every group it selects.
+      // `refusals` made the value a member's of every group it selects.
       swapped <- groups
         .filter(shown)
         .flatMap { gid =>
-          val sid = renderer.surfaces.bakeGroup(gid)(value.toInt)
-          renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
+          renderer.surfaces
+            .memberAt(gid, value)
+            .map(renderer.surfaces.bakeGroup(gid))
+            .flatMap(sid =>
+              renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
+            )
         }
         .foldLeftM(Session.Step(s.copy(vars = proposed), List.empty, ())) {
           case (done, (sid, surf)) =>
@@ -1216,7 +1220,7 @@ class Server(
                         f(
                           session,
                           renderer,
-                          selectionsOf(renderer, requested, s.vars)
+                          selectionsOf(renderer, requested, s.values)
                         )(s)
                       ) *> NoContent()
                   }
@@ -1497,8 +1501,9 @@ class Server(
     (
       live.renderer.get,
       live.log.get,
-      IO.randomUUID.map(_.toString)
-    ).flatMapN { (state, log, conn) =>
+      IO.randomUUID.map(_.toString),
+      stateStore.current
+    ).flatMapN { (state, log, conn, store) =>
       state match
         case Server.RendererState.Failed(message) =>
           errorPage(slug, message, req)
@@ -1510,8 +1515,12 @@ class Server(
             .view
             .filterKeys(renderer.vars.declarations.contains)
             .toMap
+          // From this read, not the walk's: a start is decided once, and a
+          // state a few milliseconds older starts it just as well.
+          val starts = renderer.startsFor(store.entities)
           renderer.refusals(choices) match {
-            case Nil     => renderPage(slug, renderer, log, conn, req, choices)
+            case Nil =>
+              renderPage(slug, renderer, log, conn, req, choices, starts)
             case refused =>
               FHError.logged(FHError.badCondition(refused.mkString("; ")))
           }
@@ -1527,9 +1536,10 @@ class Server(
       log: FragmentLog,
       conn: String,
       req: Request[IO],
-      choices: Map[VarKey, String]
+      choices: Map[VarKey, String],
+      starts: Map[VarKey, String]
   ): IO[Response[IO]] = {
-    val env = renderer.vars.env(choices)
+    val env = renderer.vars.env(starts ++ choices)
     val selections = renderer.surfaces.selections(Server.popupOf(req), env)
     val editMode = req.uri.query.params.get("edit").contains("1")
     val open = renderer.surfaces.selectedSurfaces(selections)
@@ -1542,7 +1552,8 @@ class Server(
           slug,
           supervisor,
           logger,
-          SessionState.initial.copy(open = open, vars = choices)
+          SessionState.initial
+            .copy(open = open, vars = choices, starts = starts)
         )
         .flatTap(_.haDown.set(Some(!live)))
       // REGISTERED BEFORE THE SNAPSHOT IS READ — see [[recordFrame]].
@@ -1628,7 +1639,10 @@ class Server(
               restore,
               editMode,
               haDown = !live,
-              committed = renderer.vars.committed(choices)
+              committed = renderer.vars.committed(starts ++ choices),
+              starts = renderer.vars.starts.keys.toList.map { key =>
+                key -> starts.getOrElse(key, renderer.vars.declarations(key))
+              }.toMap
             )
             // Flush, not close: `readOutputStream` owns the stream.
             w.flush()
@@ -1720,7 +1734,9 @@ class Server(
       // Seeded ahead of the body: a control seeding its own highlight could
       // only name the declared value, and would mirror it into the URL over
       // the viewer's choice until connect.
-      committed: Map[VarKey, String]
+      committed: Map[VarKey, String],
+      // Each started variable's start, which its URL mirror leaves off.
+      starts: Map[VarKey, String]
   ): Unit = {
     // Inline card and theme scripts are emitted verbatim (authored source, not user
     // input); as classic scripts they run before the deferred modules.
@@ -1793,6 +1809,11 @@ class Server(
       .sortBy(_._1.committedSignal)
       .map { (key, v) =>
         s", ${key.committedSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}', ${key.pendingSignal}: ''"
+      }
+      .mkString + starts.toList
+      .sortBy(_._1.startSignal)
+      .map { (key, v) =>
+        s", ${key.startSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
       }
       .mkString
     // Every ask's clear in one effect: pending signals are client-only, so the

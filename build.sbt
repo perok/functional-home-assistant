@@ -216,8 +216,8 @@ lazy val `ha-api` = project // todo add api layer here as well
       "org.typelevel" %% "cats-effect" % "3.7.1"
     ),
     libraryDependencies ++= Seq(
-      "io.circe" %% "circe-core" % "0.14.16",
-      "io.circe" %% "circe-parser" % "0.14.16",
+      "io.circe" %% "circe-core" % "0.14.17",
+      "io.circe" %% "circe-parser" % "0.14.17",
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
       // Logging. No backend here — this is a library; `fh-datastar-view`
@@ -241,7 +241,7 @@ lazy val `fh-domain` = project
     commonSettings,
     libraryDependencies ++= Seq(
       "org.typelevel" %% "shapeless3-deriving" % "3.6.0",
-      "io.circe" %% "circe-core" % "0.14.16",
+      "io.circe" %% "circe-core" % "0.14.17",
       "org.http4s" %% "http4s-core" % http4sVersion
     )
   )
@@ -264,8 +264,8 @@ lazy val `fh-codegen-plugin` = project
       // "org.scalameta" %% "scalameta" % "4.12.7", https://github.com/scalameta/scalameta/issues/4145
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
-      "io.circe" %% "circe-core" % "0.14.16",
-      "io.circe" %% "circe-parser" % "0.14.16"
+      "io.circe" %% "circe-core" % "0.14.17",
+      "io.circe" %% "circe-parser" % "0.14.17"
     )
   )
 
@@ -496,8 +496,8 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-dsl" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
       "org.http4s" %% "http4s-circe" % http4sVersion,
-      "io.circe" %% "circe-core" % "0.14.16",
-      "io.circe" %% "circe-parser" % "0.14.16",
+      "io.circe" %% "circe-core" % "0.14.17",
+      "io.circe" %% "circe-parser" % "0.14.17",
       // filesystem paths/IO for the build phase
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)

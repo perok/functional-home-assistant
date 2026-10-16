@@ -110,8 +110,11 @@ and a refused click; a slider's range is disabled and its commit refuses.
 - `press` is the toggle-only variant on the SAME card: set, the track is one
   button and there is no input. A second card would make a group's rows two
   cards for one look. `EntitySlider` sets it for a light that cannot dim.
-- `leadingActions` is how the HA `tapAction` shorthand stays first without an
-  author's `actions` replacing it.
+- `buttons` is a list of taps and nodes, each tap a pill in its own look
+  (`core/tap.pkl`'s `icon`/`label`/`lit`), so the base needs no HA to show
+  one. A `nodes.SubjectButton` is one the slider fills in from its subject entity
+  (`c.its`, below): `EntitySlider` resolves them into `shownButtons`, so the base never
+  names an entity, and refuses one left unresolved.
 - What makes a slider "about this entity" stays HA: `SlideAxis`, `sliderSpec`,
   the RGB and kelvin fills, the `"state"`/`"percent"` readout names and the
   `valueExpr`/`percentExpr` splice surface.
@@ -133,11 +136,63 @@ having gone looking for the library.
 
 ### Grouped where grouping reads better
 
-`c.tap.*` (what a click does), `c.light.*` (a domain's controls), `c.recipes.*`.
+`c.tap.*` (what a click does in HA), `c.view.*` (what a click only shows),
+`c.its.*` (below), `c.light.*` (a domain's controls), `c.recipes.*`.
 The everyday cards stay flat — `c.entityCard`, `c.entitySlider`, `c.button` — because
 those are the names an author wants first, and a namespace in front of them buys
 nothing. `c.light` is the shape the next modelled domain follows (`c.cover.*`),
 which is what makes the grouping worth having rather than decorative.
+
+### `c.its`: what the card's own entity offers
+
+A component about an entity that holds a list of buttons takes them in two
+forms. A BUILDING BLOCK names its target — `c.tap.toggle(l)`,
+`c.view.colourWheel(l.colour)` — and works anywhere, on any target. A `c.its`
+item names none and means "this card's own entity", its subject entity: the
+card holding it fills it in.
+
+```pkl
+c.entitySlider(light).buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel))
+```
+
+- **Named for the relation, not the component.** `c.<component><Property>.thing`
+  (`c.entitySliderButton.toggle`) was the first proposal; it would give every
+  component that grows a buttons list its own copy of the same items to learn
+  and document. One namespace serves every one.
+- **One the entity cannot do shows nothing.** The wheel is only on a light with
+  colour, the main control switch only with two or more, so one list serves a
+  loop over mixed lights with no `ifNonNull`. The cost is ADR 0013's editor
+  check on a single named light: `c.its.colourWheel` on a light without colour
+  is no wheel, where `c.view.colourWheel(l.colour)` is an editor error. That is
+  why the building blocks stay.
+- **Not the entity-first builder ADR 0013 rejects.** Nothing is bound to an
+  entity in the author's scope; the card resolves a value it was handed.
+- **Only meaningful on a card about an entity.** An item is neither a tap nor a node, so a
+  `c.button` or a card refuses it by type.
+
+`components/its.pkl` holds the items. Each is an `ItsButton` (a
+`core/node.pkl` `SubjectButton`) with `resolve(h)`: the building block on what
+the card hands it, or null where that cannot do it. The `Holder` is the card's
+subject entity and whatever else a card knows that an item may need: a light's
+slider adds the main controls it shows, so `mainControl` builds its own
+`c.select` from them, and shows nothing on a card that hands none. The one
+asymmetry left is the slider READING `mainControl`'s options, since they also
+decide which heads it has.
+
+**The control names are each domain's.** `its.MainControl` is a union of typealiases a domain's
+`hass/` file declares (`hassLight.Control`, re-exported as `hass.LightControl`), each name an
+`Axis` fixes for itself, so `.options(List("colour"))` is checked in the editor. A domain with
+main controls adds its alias to the union; the labels and icons stay in `its.pkl`, being looks.
+
+**Adding an item:** a class in `its.pkl` whose `resolve` returns an existing
+building block from the `Holder`, and a `const` value for it. An item needing
+something no card hands yet adds a field to `Holder`, defaulted to empty, and
+the card that knows it fills it.
+
+**Adding a card that takes them:** give its base card a `buttons` list typed
+to accept `nodes.SubjectButton`, and in its HA subclass map each `ItsButton`
+through `resolve(new Holder { entity = … })` before the base sees it, as
+`EntitySlider.shownButtons` does. The items come for free.
 
 ## What the editor forced
 

@@ -1,0 +1,88 @@
+/// What a component's OWN entity offers, for a component that holds an entity
+/// and a list of buttons: `c.its.toggle`, `c.its.mainControl`,
+/// `c.its.colourWheel`. Each names no target: the card holding it fills it in
+/// from its subject entity, and one the entity cannot do shows nothing, so one list
+/// serves mixed entities. The building blocks behind them name their target and
+/// stay the way to reach any other one: `c.tap.toggle(e)`,
+/// `c.view.colourWheel(l.colour)`. ADR 0015 has the pattern and how a new host
+/// or a new item joins it.
+///
+///     c.entitySlider(light).buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel))
+module components.its
+
+import "../core/node.pkl" as nodes
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+import "base/slider.pkl" as sliderBase
+import "select.pkl" as selectMod
+import "tap.pkl" as tapVerbs
+import "view.pkl" as viewVerbs
+
+/// What a slider shows, one at a time: each domain's names, declared in its
+/// `hass/` file. A light's are HA's main controls; its colour MODES are the
+/// formats a light accepts, which these are derived from, not the same thing.
+typealias MainControl = hass.LightControl
+
+const local controlIcons: Mapping<MainControl, String> = new {
+  ["brightness"] = "mdi:brightness-6"
+  ["colourTemp"] = "mdi:thermometer"
+  ["colour"] = "mdi:palette"
+}
+
+const local controlLabels: Mapping<MainControl, String> = new {
+  ["brightness"] = "Brightness"
+  ["colourTemp"] = "Colour temperature"
+  ["colour"] = "Colour"
+}
+
+/// What the card holding a button knows, for it to resolve against: its subject
+/// entity and, on a light's slider, the main controls it shows. A card fills
+/// what it has; an item that needs what it lacks shows nothing.
+class Holder {
+  entity: hass.Entity
+  mainControls: List<MainControl> = List()
+}
+
+/// One of this module's buttons, filled in by the card holding it.
+abstract class ItsButton extends nodes.SubjectButton {
+  /// What it is on `h`, or null where `h` cannot do it.
+  abstract function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)?
+}
+
+/// Its entity's toggle, a power pill lit while it is on.
+class ToggleButton extends ItsButton {
+  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? = tapVerbs.toggle(h.entity)
+}
+
+/// Its light's colour wheel, in a popup; nothing on a light without colour.
+class ColourWheelButton extends ItsButton {
+  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
+    let (e = h.entity)
+      if (e is hass.LightEntity && e.colour != null) viewVerbs.colourWheel(e.colour!!) else null
+}
+
+/// The switch between its light slider's main controls: a `c.select` of the
+/// slider's control variable over the controls it shows. Its [[options]] are
+/// also which heads the slider has, since a head the switch cannot reach is never
+/// shown, so the slider reads them. Fewer than two, and it shows nothing.
+class MainControlSwitch extends ItsButton {
+  /// Null offers every control the light has.
+  hidden only: List<MainControl>? = null
+  hidden styleChoice: selectMod.SelectStyle = "cycle"
+  /// These, in this order, where the light has them: one left is that control
+  /// alone, and none the slider's plain row (a plug has no main controls).
+  function options(cs: List<MainControl>): MainControlSwitch = let (self = this) (self) { only = cs }
+  /// `"cycle"`, the default: one pill stepping round. Or `"dropdown"`, `"buttons"`.
+  function style(s: selectMod.SelectStyle): MainControlSwitch = let (self = this) (self) { styleChoice = s }
+  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
+    let (cs = h.mainControls)
+      if (cs.length < 2) null
+      else
+        selectMod.select(sliderBase.controlVar)
+          .options(cs.map((m) -> new selectMod.Choice { value = m; label = controlLabels[m]; icon = controlIcons[m] }))
+          .style(styleChoice)
+}
+
+const toggle: ToggleButton = new {}
+const mainControl: MainControlSwitch = new {}
+const colourWheel: ColourWheelButton = new {}

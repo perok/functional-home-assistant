@@ -48,6 +48,8 @@ abstract class Entity {
 
 typealias ColorMode = hassLight.ColorMode
 
+typealias LightControl = hassLight.Control
+
 typealias LockState = hassLock.LockState
 
 typealias SensorDeviceClass = hassSensor.SensorDeviceClass
@@ -75,12 +77,62 @@ class User {
   is_owner: Boolean
 }
 
+/// When an [[Axis]] is the one its entity is on: a live attribute holding one of
+/// these values.
+class AttrIn {
+  attr: String
+  values: List<String>
+}
+
+/// One value of an entity that a slider can drive: where it is read, how it is
+/// written, its range, and, where the entity has several, when it is the one in
+/// use. A capability group that is one extends this, so a card takes the group
+/// and reads the rest off it, and a new axis is a class here, not a branch in
+/// the card.
+open class Axis {
+  owner: Entity
+  /// Its main-control name, which is also its value in the slider's `control`
+  /// variable.
+  name: String
+  attr: String
+  service: String
+  key: String
+  min: Int
+  max: Int
+  /// The attribute is a list and the value this element of it: the hue at
+  /// `hs_color[0]`.
+  element: Int? = null
+  /// Sent after the value, in one list: `[h, 100]` is a hue at full saturation.
+  sentWith: List<Int> = List()
+  /// When the entity is on this axis now. Null is always.
+  inUseWhen: AttrIn? = null
+}
+
+/// Present only on lights that dim; derived from the colour modes, since the
+/// range is HA's own.
+class Brightness extends Axis {
+  owner: LightEntity
+  name: "brightness" = "brightness"
+  attr = "brightness"
+  service = "light/turn_on"
+  key = "brightness"
+  min = 1
+  max = 255
+}
+
 /// Present only on lights supporting `color_temp`. `PklDump` omits the group
 /// rather than emit half of it.
-class ColourTemp {
+class ColourTemp extends Axis {
   owner: LightEntity
   min_kelvin: Int
   max_kelvin: Int
+  name: "colourTemp" = "colourTemp"
+  attr = "color_temp_kelvin"
+  service = "light/turn_on"
+  key = "color_temp_kelvin"
+  min = min_kelvin
+  max = max_kelvin
+  inUseWhen = new { attr = "color_mode"; values = List("color_temp") }
 }
 
 class Effects {
@@ -89,10 +141,19 @@ class Effects {
 }
 
 /// Present only on lights with a colour mode (`hass_light.COLOUR_MODES`). No
-/// values: the hue range is HA's own, 0–360, so the group is the predicate and
-/// the owner alone (`c.entitySlider(l.colour)`).
-class Colour {
+/// dump values: the hue range is HA's own, 0–360, so the group is the predicate
+/// and the owner alone (`c.entitySlider(l.colour)`).
+class Colour extends Axis {
   owner: LightEntity
+  name: "colour" = "colour"
+  attr = "hs_color"
+  service = "light/turn_on"
+  key = "hs_color"
+  min = 0
+  max = 360
+  element = 0
+  sentWith = List(100)
+  inUseWhen = new { attr = "color_mode"; values = hassLight.COLOUR_MODES }
 }
 
 /// developers.home-assistant.io/docs/core/entity/light
@@ -105,9 +166,13 @@ open class LightEntity extends Entity {
   /// not name: `hassLight.supports(l.supported_features, hassLight.FLASH)`.
   hidden supported_features: Int = 0
 
+  hidden brightness: Brightness? =
+    let (self = this) if (supportsBrightness) new Brightness { owner = self } else null
   hidden colourTemp: ColourTemp? = null
   hidden colour: Colour? = null
   hidden effects: Effects? = null
+  /// What a slider can drive on this light, in HA's order.
+  hidden axes: List<Axis> = List(brightness, colourTemp, colour).filterNonNull() as List<Axis>
 
   // Derived here, beside the vendored constants they read, not by the generator.
   hidden supportsColour: Boolean =

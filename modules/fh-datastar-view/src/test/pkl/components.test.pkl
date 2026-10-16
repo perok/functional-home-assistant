@@ -25,6 +25,8 @@ import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/hass/active.pkl" as activeTables
 import "../../main/resources/dashboards/lib/hass/actions.pkl" as hassActions
+import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+import "../../main/resources/dashboards/lib/hass/light.pkl" as hassLight
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -233,7 +235,7 @@ facts {
   // about it, live. Its body is per-entity, hence inline rather than registered.
 
   ["more-info is an inline popup, so every entity's body is its own surface"] {
-    local t = c.tap.moreInfo(kitchen)
+    local t = c.view.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
     // A transform, not a constant: the route carries `dashboard_slug`, which
     // only a transform can read.
@@ -243,13 +245,13 @@ facts {
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
-    local body = c.tap.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
       == List("tile", "fhcol", "entityInfo", "button")
   }
 
   ["a numeric sensor's popup carries a chart of where the reading has been"] {
-    local body = c.tap.moreInfo(power).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(power).inlineSurfaces["self"].content.children[0]
     // The chart arrives under a window chooser, not beside the card: the
     // chooser is what DECLARES the window, so the nesting is what puts the
     // chart in scope of it. Composed here so no dashboard ever writes it.
@@ -349,7 +351,7 @@ facts {
     //
     // The property the default flip will rest on: there is no entity for which
     // this popup is empty.
-    local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
       == List("tile", "entityInfo", "button")
   }
@@ -445,7 +447,7 @@ facts {
     // Silent when broken, and fatal: `defaultTap` on a non-actionable entity
     // is `moreInfo(e)`, whose body builds this very card — an infinite regress
     // that laziness does not stop, because `slots` forces the tap.
-    local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().first.inlineSurfaces == null
   }
 
@@ -495,7 +497,7 @@ facts {
     tapMod.openPopup("p").busy
     tapMod.openPopupInline(c.title("x")).busy
     new varMod.Variable { name = "tab" }.choose("0").busy
-    c.tap.moreInfo(outside).busy
+    c.view.moreInfo(outside).busy
     !tapMod.navigate("home").busy
     !tapMod.closePopup().busy
     // The tab card takes its guard from its tap, like every other card.
@@ -515,8 +517,8 @@ facts {
     )
     local cards = (t: tapMod.TapAction) -> List(
       c.button("b", t),
-      c.pill("p", t),
-      c.iconButton("mdi:power", t),
+      c.pill(t).label("p"),
+      c.button("", t).icon("mdi:power"),
       new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
       new tileMod.Tile { tapAction = t }
     )
@@ -530,8 +532,8 @@ facts {
   ["every pressable card refuses a service tap on a dead entity, and only a service tap"] {
     local cards = (t: tapMod.TapAction) -> List(
       c.button("b", t),
-      c.pill("p", t),
-      c.iconButton("mdi:power", t),
+      c.pill(t).label("p"),
+      c.button("", t).icon("mdi:power"),
       new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
       new tileMod.Tile { tapAction = t }
     )
@@ -568,7 +570,7 @@ facts {
     module
       .catch(() ->
         c.entityButton(latchLock)
-          .tapAction(c.tap.navigate("/other"))
+          .tapAction(c.view.navigate("/other"))
           .disabled(c.stateIn(latchLock, List("opening")))
           .slots["label"])
       .contains("renders as a link")
@@ -822,7 +824,7 @@ facts {
     // An attribute is asked for by name, never inferred from a bare String —
     // which is what it meant on an entity card before the base cards took it.
     c.entityCard(kitchen).secondary("device_class").slots["secondary"] == "device_class"
-    c.button("x", c.tap.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
+    c.button("x", c.view.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
     c.entitySlider(kitchen).secondary("device_class").textSlots["secondary"] == "device_class"
 
     local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Slot
@@ -831,9 +833,9 @@ facts {
   }
 
   ["expression values ride the wire as `values`, and only when there are some"] {
-    c.button("x", c.tap.closePopup()).values == null
+    c.button("x", c.view.closePopup()).values == null
     local lights = List(kitchen)
-    local b = (c.button("x", c.tap.closePopup())) {
+    local b = (c.button("x", c.view.closePopup())) {
       expressionValues {
         ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
         ["lights_total"] = lights.length
@@ -850,10 +852,10 @@ facts {
 
   ["the expressionValues builder is the amend, as a chain step"] {
     local lights = List(kitchen)
-    local amended = (c.button("x", c.tap.closePopup()).secondary(c.expr("string(n)"))) {
+    local amended = (c.button("x", c.view.closePopup()).secondary(c.expr("string(n)"))) {
       expressionValues { ["n"] = q.from(lights).count() }
     }
-    local chained = c.button("x", c.tap.closePopup())
+    local chained = c.button("x", c.view.closePopup())
       .secondary(c.expr("string(n)"))
       .expressionValues(new Mapping { ["n"] = q.from(lights).count() })
     new JsonRenderer {}.renderValue(chained) == new JsonRenderer {}.renderValue(amended)
@@ -876,7 +878,7 @@ facts {
   }
 
   ["a button takes a second line, and one without it is untouched"] {
-    local plain = c.button("Stue", c.tap.closePopup())
+    local plain = c.button("Stue", c.view.closePopup())
     !plain.slots.containsKey("secondary")
 
     local literal = plain.secondary("Turns off 4 lights")
@@ -889,7 +891,7 @@ facts {
     live.slots["entity_id"] == kitchen.entity_id
 
     // A glyph with a second line is not a bare icon, so it stays rectangular.
-    local glyphed = c.iconButton("mdi:power", c.tap.closePopup()).secondary("Off")
+    local glyphed = c.button("", c.view.closePopup()).icon("mdi:power").secondary("Off")
     !glyphed.slots.containsKey("round")
 
     // Both arms place it, under the same section that opens the column.
@@ -898,16 +900,40 @@ facts {
     t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span></span>")
   }
 
+  ["a pill wears its tap's look: round alone, named for a screen reader"] {
+    // The tap's icon and no text: round, and the label is its accessible name.
+    local power = c.pill(c.tap.toggle(kitchen))
+    power.slots["glyph"] == "mdi-power"
+    power.slots["label"] == ""
+    power.slots["round"] == "1"
+    power.slots["name"] == "Toggle"
+    // A toggle's pill is lit while its entity is on; other calls' are not.
+    power.cell.classWhen["fh-active"].entityId == kitchen.entity_id
+    c.pill(c.tap.call("light/turn_on", kitchen).with("effect", "x")).label("x").active == false
+    // A tap with no icon shows its label; an author's label is always shown.
+    local evening: hass.SceneEntity = new { entity_id = "scene.kveld"; friendly_name = "Kveld" }
+    c.pill(c.tap.activate(evening)).slots["label"] == "Kveld"
+    local both = c.pill(c.tap.toggle(kitchen)).label("Kjøkken")
+    both.slots["label"] == "Kjøkken" && both.slots["glyph"] == "mdi-power"
+    !both.slots.containsKey("round") && !both.slots.containsKey("name")
+    // An emoji is text, and short text is round too.
+    c.pill(c.view.navigate("under")).label("🔥").slots["round"] == "1"
+    !c.pill(c.view.navigate("under")).label("Under").slots.containsKey("round")
+    c.pill(c.tap.toggle(kitchen)).label("Kveld").noIcon().slots.containsKey("glyph") == false
+    // A tap with no look of its own needs one from the author.
+    module.catch(() -> c.pill(c.view.navigate("under")).slots["label"]).contains("give the pill .label(…) or .icon(…)")
+  }
+
   ["a button or a pill can be a glyph, a label, or both"] {
     // What the slider's head action needed over `c.pill` was a glyph, no label
     // and the `active` tint. None of the three is about sliders, so all three are
     // the shared cards' — one icon button in the library, not a private copy.
-    local labelled = c.button("Close", c.tap.closePopup())
+    local labelled = c.button("Close", c.view.closePopup())
     !labelled.slots.containsKey("glyph")
     !labelled.slots.containsKey("round")
     labelled.slots["label"] == "Close"
 
-    local glyphOnly = c.iconButton("mdi:power", c.tap.closePopup())
+    local glyphOnly = c.button("", c.view.closePopup()).icon("mdi:power")
     glyphOnly.slots["glyph"] == "mdi mdi-power"
     // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
     // as a label that failed to render.
@@ -915,13 +941,12 @@ facts {
     glyphOnly.slots["label"] == ""
 
     // Both together stay rectangular — that is an ordinary button with an icon.
-    local both = (c.button("Power", c.tap.closePopup())).icon("mdi:power")
+    local both = (c.button("Power", c.view.closePopup())).icon("mdi:power")
     both.slots["glyph"] == "mdi mdi-power"
     !both.slots.containsKey("round")
 
-    // A pill takes the glyph too; it has no round variant because a chip is
-    // already pill-shaped.
-    local chip = (c.pill("Up", c.tap.navigate("under"))).icon("mdi:arrow-up")
+    // A pill takes the glyph too; with a label beside it, it is not round.
+    local chip = (c.pill(c.view.navigate("under")).label("Up")).icon("mdi:arrow-up")
     chip.slots["glyph"] == "mdi-arrow-up"
     !chip.slots.containsKey("round")
 
@@ -993,11 +1018,9 @@ facts {
     ha.cardDef == byHand.cardDef
     ha.slots == byHand.slots
     ha.children == byHand.children
-    // The power-button shorthand is a leading action, ahead of the author's.
-    local t = c.tap.toggle(kitchen)
-    local info = c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
-    ha.tapAction(t).actions(List(info)).children
-      == (byHand) { leadingActions { c.sliderAction(kitchen, t) } }.actions(List(info)).children
+    // Its buttons are the base's too: each tap a pill in its own look.
+    local bs = List(c.tap.toggle(kitchen), c.view.moreInfo(kitchen))
+    ha.buttons(bs).children == byHand.buttons(bs).children
   }
 
   ["a button's cell is the same whichever order its builders run in"] {
@@ -1030,9 +1053,9 @@ facts {
     // Every card that can render a navigate as a link places the mark, read
     // once from the slug the renderer serves.
     local links = List(
-      c.button("Home", c.tap.navigate("home")),
-      c.pill("Home", c.tap.navigate("home")),
-      c.entityButton(kitchen).tapAction(c.tap.navigate("home"))
+      c.button("Home", c.view.navigate("home")),
+      c.pill(c.view.navigate("home")).label("Home"),
+      c.entityButton(kitchen).tapAction(c.view.navigate("home"))
     )
     links.every((n) ->
       let (cur = n.slots["current"] as slotMod.Slot)
@@ -1044,7 +1067,7 @@ facts {
     // A service tap is no link, so it has nothing to mark.
     !c.button("x", c.tap.toggle(kitchen)).slots.containsKey("current")
     // A slug is a key the author wrote, so a quote in it stays in the string.
-    (c.button("x", c.tap.navigate("it's")).slots["current"] as slotMod.Slot).transform
+    (c.button("x", c.view.navigate("it's")).slots["current"] as slotMod.Slot).transform
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
     cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
@@ -1069,8 +1092,8 @@ facts {
     List("small", "medium", "large").every((sz) ->
       t.contains(" fh-size-\(sz){{/") && beerMod.theme.classes.containsKey("fh-size-\(sz)"))
     // Large by default, and one size at a time.
-    c.button("x", c.tap.closePopup()).slots["sizeLarge"] == "1"
-    local small = c.button("x", c.tap.closePopup()).size("small")
+    c.button("x", c.view.closePopup()).slots["sizeLarge"] == "1"
+    local small = c.button("x", c.view.closePopup()).size("small")
     small.slots["sizeSmall"] == "1"
     !small.slots.containsKey("sizeLarge")
     // The base heights are fallbacks; under BeerCSS the height is its own.
@@ -1119,8 +1142,8 @@ facts {
     local head = c.entitySlider(kitchen).children["head"][0]
     head.cell.classWhen.containsKey("fh-active")
     head.slots["onoff"] == "1"
-    // One meaning of on: the slider's power button reads HA's rule, as the tile.
-    c.sliderAction(kitchen, c.tap.toggle(kitchen)).cell.classWhen["fh-active"].transform
+    // One meaning of on: a toggle's pill reads HA's rule, as the tile.
+    c.pill(c.tap.toggle(kitchen)).cell.classWhen["fh-active"].transform
       == c.entityCard(kitchen).cell.classWhen["fh-active"].transform
   }
 
@@ -1149,29 +1172,25 @@ facts {
     // busy-guarded element per node, and the busy signal is named after the
     // node — so two buttons sharing the head's id could only ever arm one of
     // them, and pressing either would disable both.
-    local row = (c.entitySlider(kitchen))
-      .tapAction(c.tap.toggle(kitchen))
-      .actions(List(
-        c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
-          .icon("mdi:information").active(false)
-      ))
+    local row = c.entitySlider(kitchen).buttons(List(
+      c.tap.toggle(kitchen),
+      c.pill(c.view.moreInfo(kitchen)).icon("mdi:information")
+    ))
     local acts = row.children["head"][0].children["actions"]
     acts.length == 2
-    // `tapAction` stays FIRST — it is the shorthand for the button this card
-    // has always had, and adding a second must not move it.
-    acts[0].slots["glyph"] == "mdi mdi-power"
-    acts[1].slots["glyph"] == "mdi mdi-information"
-    // They are ordinary `button`s — the shared round icon form, not a card of
-    // this module's own. What the slider adds is only WHERE they sit.
-    acts.toList().every((a) -> a.card == "button")
+    // In the order given.
+    acts[0].slots["glyph"] == "mdi-power"
+    acts[1].slots["glyph"] == "mdi-information"
+    // They are ordinary pills, not a card of this module's own. What the
+    // slider adds is only WHERE they sit.
+    acts.toList().every((a) -> a.card == "pill")
     acts.toList().every((a) -> a.slots["round"] == "1")
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
-    c.cards["button"].template.contains(#"data-indicator="_{{id}}__busy""#)
-    // `active(false)` drops the class signal rather than binding a constant: a
-    // button that does not mean "this entity is on" should not light up.
+    c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
+    // A toggle's pill is lit by its entity; a view tap's binds no class signal.
     acts[0].cell.classWhen.containsKey("fh-active")
-    acts[1].cell == null
+    !(acts[1].cell?.classWhen?.containsKey("fh-active") ?? false)
     // A popup action carries its OWN surfaces, so the popup hangs off the
     // button that opens it rather than off the slider.
     acts[1].inlineSurfaces != null
@@ -1445,32 +1464,97 @@ facts {
       colour = new hass.Colour { owner = lamp }
     }
     local s = c.entitySlider(lamp)
-    s.offeredModes == List("brightness", "colourTemp", "colour")
-    s.declaresMode
-    s.modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
-    // One button per mode, each choosing the next, so a tap steps round.
-    local steps = s.modes.map((m) -> (m.button!!.slots["onclick"] as slotMod.Slot).transform as String)
+    s.offeredControls == List("brightness", "colourTemp", "colour")
+    s.declaresControl
+    s.controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // Each head is chosen by its main control's name, the first declared.
+    s.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour")
+    s.vars == new Mapping { ["control"] = "brightness" }
+    // The switch is a cycling select of `control`: each face chooses the next, so a
+    // tap steps round.
+    local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
+      .map((n) -> (n.slots["onclick"] as slotMod.Slot).transform as String)
     steps.length == 3
-    steps[0].contains("/mode/1") && steps[1].contains("/mode/2") && steps[2].contains("/mode/0")
+    steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
     // A dimmer, or a capability axis, is one head and no pill.
-    !c.entitySlider(dimmer).declaresMode
-    !c.entitySlider(lamp.colourTemp!!).declaresMode
-    // `.single()`: the first mode alone.
-    local single = c.entitySlider(lamp).single()
-    !single.declaresMode
-    single.headNode.slots["dataKey"] == "brightness"
-    // `.modes(…)`: these, in this order, where the light has them.
-    c.entitySlider(lamp).modes(List("colour", "colourTemp")).modes.map((m) -> m.button!!.label) == List("Colour", "Colour temperature")
+    !c.entitySlider(dimmer).declaresControl
+    !c.entitySlider(lamp.colourTemp!!).declaresControl
+    // No switch among the buttons: the plain row.
+    local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))
+    !plain.declaresControl
+    plain.headNode.slots["dataKey"] == "brightness"
+    // The switch's options: these, in this order, where the light has them.
+    local picked = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour", "colourTemp"))))
+    picked.controls.map((m) -> m.value) == List("colour", "colourTemp")
     // One left is that axis, with no switch.
-    local hueOnly = c.entitySlider(lamp).modes(List("colour"))
-    !hueOnly.declaresMode
+    local hueOnly = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour"))))
+    !hueOnly.declaresControl
     hueOnly.headNode.slots["dataKey"] == "hs_color"
-    // Rendered once per member of a set, where it cannot declare `mode`, it
+    // One switch picks one head.
+    module.catch(() -> c.entitySlider(lamp).buttons(List(c.its.mainControl, c.its.mainControl)).declaresControl)
+      .contains("c.entitySlider(light.lamp) has 2 main control switches")
+    // Rendered once per member of a set, where it cannot declare `control`, it
     // keeps its first.
     local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
-    !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresMode
-    // A light with none of them names itself.
-    module.catch(() -> c.entitySlider(dimmer).modes(List("colour")).offeredModes).contains("light.dimmer")
+    !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresControl
+    // A light with none of them keeps its plain row: one list serves mixed lights.
+    local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
+    !narrowed.declaresControl
+    narrowed.headNode.slots["dataKey"] == "brightness"
+    // A plug has no main controls at all, and is still the toggle row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
+  }
+
+  ["a light's axes are its main controls, each a slider of its own"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    // Each names a distinct control, so a head is found by its name.
+    lamp.axes.map((a) -> a.name) == List("brightness", "colourTemp", "colour")
+    lamp.axes.every((a) -> a.owner == lamp)
+    // Every one is a single row, configured by the axis alone.
+    lamp.axes.map((a) -> c.entitySlider(a)).every((s) -> !s.declaresControl)
+    lamp.axes.map((a) -> c.entitySlider(a).headNode.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // A light that cannot dim has none, and stays the toggle row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    plug.brightness == null && plug.axes.isEmpty
+    c.entitySlider(plug).toggleOnly
+    // A domain row is an axis too: a cover posts its position.
+    local blind: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+    c.entitySlider(blind).headSlots["service"] == "cover/set_cover_position"
+    c.entitySlider(blind).headSlots["dataKey"] == "position"
+    // Which one a light is on, as data for the card to read.
+    lamp.colour!!.inUseWhen!!.values == hassLight.COLOUR_MODES
+    lamp.brightness!!.inUseWhen == null
+  }
+
+  ["a light's slider opens on the mode the light is in, or where opensOn says"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local startOf = (s: c.EntitySlider) -> s.starts?.getOrNull("control")
+    // By default the mode axes, in the light's order, else the first control.
+    local byMode = startOf.apply(c.entitySlider(lamp))!!
+    byMode.entityId == "light.lamp"
+    byMode.transform == "(attr[?'color_mode'].orValue('') in ['color_temp'] ? 'colourTemp' : (attr[?'color_mode'].orValue('') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] ? 'colour' : 'brightness'))"
+    // The order given; brightness is always in use, so nothing after it is tried.
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour, lamp.colourTemp)))!!.transform.startsWith("(attr[?'color_mode'].orValue('') in ['hs'")
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.brightness, lamp.colour))) == null
+    // An axis the switch does not offer is not tried.
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour)).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))) == null
+    // Nothing declared, nothing to start: a dimmer, an axis alone, a plain row.
+    startOf.apply(c.entitySlider(dimmer)) == null
+    startOf.apply(c.entitySlider(lamp.colour!!)) == null
+    startOf.apply(c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))) == null
+    // The declared value stays the first control: what a refused start keeps.
+    c.entitySlider(lamp).vars == new Mapping { ["control"] = "brightness" }
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {
@@ -1487,7 +1571,26 @@ facts {
     head.slots["hueTrack"] == "1"
   }
 
-  ["a group's rows have their own modes, or switch with the head on syncRows"] {
+  ["a colour temperature track is painted warm to cold, only on that axis"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    // In a colour mode HA reports no kelvin, so the fill is empty and the band
+    // is what says this track sets a temperature.
+    local head = c.entitySlider(lamp.colourTemp!!).headNode
+    head.slots["kelvinTrack"] == "1"
+    // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
+    // on the server and on a rollback alike.
+    (head.slots["fillColor"] as slotMod.Slot).default == "transparent"
+    head.cardDef.template.contains("{{#kelvinTrack}}, $\(slotMod.signalRef("fillColor")) = ($\(slotMod.signalRef("value")) >= {{min}}")
+    c.entitySlider(lamp).controls.map((m) -> m.head.slots.containsKey("kelvinTrack"))
+      == List(false, true, false)
+  }
+
+  ["a group's rows have their own main controls, or switch with the head on syncRows"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"
       colourModes { "color_temp"; "hs" }
@@ -1497,18 +1600,18 @@ facts {
     // By default each row is its own: a colour row has a pill of its own.
     local apart = c.entitySlider(lamp).withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
     local apartRows = apart.memberRows.toList().map((r) -> r as c.EntitySlider)
-    apartRows[0].declaresMode && apartRows[0].modes.every((m) -> m.button != null)
-    !apartRows[1].declaresMode
-    // `.syncRows()`: the head's button switches them all.
+    apartRows[0].declaresControl && apartRows[0].shownButtons.filterNonNull().any((b) -> b is selectMod.Select)
+    !apartRows[1].declaresControl
+    // `.syncRows()`: the head's switch switches them all.
     local g = c.entitySlider(lamp).syncRows().withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
-    g.declaresMode
+    g.declaresControl
     local rows = g.memberRows.toList().map((r) -> r as c.EntitySlider)
     // The rows read the head's variable rather than declaring their own.
-    rows.every((r) -> !r.declaresMode && r.modes.length == 3 && r.modes.every((m) -> m.button == null))
-    rows[0].modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    rows.every((r) -> !r.declaresControl && r.shownButtons.filterNonNull().isEmpty && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
+    rows[0].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
     // The dimmer stands in with its brightness, dimmed and disabled.
-    rows[1].modes.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)
-    rows[1].modes.map((m) -> m.head.slots["dataKey"]) == List("brightness", "brightness", "brightness")
+    rows[1].controls.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)
+    rows[1].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "brightness", "brightness")
   }
 
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
@@ -1526,7 +1629,7 @@ facts {
     // More-info is exactly what you want to open on an unavailable entity: it
     // is where the reason is. A navigate does not care either.
     !c.entityCard(outside).slots.containsKey("tapDisabled")
-    !c.button("Go", c.tap.navigate("other")).slots.containsKey("tapDisabled")
+    !c.button("Go", c.view.navigate("other")).slots.containsKey("tapDisabled")
   }
 
   ["a typed lock still taps by state, like any other lock"] {
@@ -1614,8 +1717,8 @@ facts {
     local senders = List(
       confirm,
       c.button("Open", press),
-      c.pill("Open", press),
-      c.iconButton("mdi:door-open", press),
+      c.pill(press).label("Open"),
+      c.button("", press).icon("mdi:door-open"),
       c.entityButton(latchLock).tapAction(press),
       c.entityCard(latchLock).tapAction(press),
       c.toggle(latchLock).tapAction(press)

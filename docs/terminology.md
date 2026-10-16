@@ -37,6 +37,20 @@ would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 slots on the same node read it unless they name an entity of their own. A base component has none
 unless the HA layer gives it one (`subject`).
 
+**Its button** — a button that names no target: the card holding it fills it in from its
+**subject entity**, and shows nothing where that entity cannot do it. Written through `c.its`
+(`c.its.toggle`), against a **building block** that names its target (`c.tap.toggle(l)`).
+ADR 0015.
+
+**Axis** — one value of an entity a slider can drive (`hass.Axis`): where it is read and written,
+its range, and when the entity is on it (`inUseWhen`). A light's are its `brightness`, `colourTemp`
+and `colour` groups (`l.axes`); each is also a main control, named by it. ADR 0013.
+
+**Main control** — what a light's slider shows, one at a time: brightness, colour temperature or the
+hue. HA's own name (`more-info-light.ts`), switched by `c.its.mainControl` through the node variable
+`control`. Not HA's colour MODES, the formats a light accepts (`hs`, `color_temp`), which the main
+controls are derived from.
+
 **Reading** — a slot used as an INPUT: a live read (`entityId` + transform) with no binding yet,
 which the card it is handed to binds where it belongs. It reads one entity's state, or the node's
 own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
@@ -88,6 +102,9 @@ Three words go with it, and they are not interchangeable:
   variable is writable, so a literal parameter has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
+- **Start** — where a session begins a variable when not at its declared value: an expression
+  over one entity's state (`Component.starts`), read ONCE as the page opens. Not a choice (no URL
+  param) and not a flip (it never follows the entity). A slider's `opensOn` is one.
 
 A declaration is a NAME and the value the variable holds before anybody chooses — that is the
 whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold
@@ -231,8 +248,8 @@ the host renders it as **bakeAs**; **bakeIndex** is which member of the group is
 exposed so a card can show the selection without JavaScript.
 
 **Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
-chooses is the group's activation: a node variable for a tab bar (`Activation.Var`, ADR 0033), a
-condition for an `If` branch.
+chooses is the group's activation: a node variable for a tab bar or a `c.select` (`Activation.Var`,
+ADR 0033), each member selected at one of its values, a condition for an `If` branch.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

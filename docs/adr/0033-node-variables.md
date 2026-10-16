@@ -8,10 +8,11 @@ Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it 
 Two users: a chart's window — `c.windowChooser` declares `window`, and every
 `c.historyChart(s).chosen()` beneath it reads it, so pressing `7d` redraws them all — and a tab
 bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
-A slider with modes — `c.entitySlider(l)` on a light that has colour temperature or colour —
-declares `mode` the same way: its head is a bake group, one head per mode, and so is the pill's
-button. A group's rows with modes declare their own, which shadows the head's. On `.syncRows()`
-they declare none and are bake groups selected by the head's `mode`, so one press switches them
+A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
+declares `control` the same way, valued by the control's name: its head is a bake group, one head
+per control, and the pill's switch is a `c.select` of it. A group's rows with main controls declare
+their own, which shadows the head's. On `.syncRows()`
+they declare none and are bake groups selected by the head's `control`, so one press switches them
 all; that is the ancestor lookup doing what it is for, not a mechanism of its own.
 
 ## Context
@@ -29,7 +30,8 @@ not be enumerated there. A declared reference can.
 
 ### The rules, in one place
 
-1. A node declares variables: a name and the value it holds before anyone chooses.
+1. A node declares variables: a name and the value it holds before anyone chooses. A declaration
+   may also START elsewhere: an expression over one entity's state, read once as a session opens.
 2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
 3. A node that declares nothing is transparent.
 4. A nested declaration of the same name shadows the outer one, for its own subtree only.
@@ -51,6 +53,23 @@ opened from many places, so inheriting from its opener would be dynamic scoping.
 before anyone chooses. In Pkl, `vars = new Mapping { ["window"] = "24h" }` — assigned, because a null-defaulted
 `Mapping?` cannot be amended (ADR 0034). Nothing else: no type, no list of
 allowed values (below).
+
+**Start.** `LayoutNode.Component.starts: Map[String, Start]`: per declared name, CEL over one
+entity's state (`Start(entityId, transform)`), compiled at validate. The page route evaluates it
+as it mints the session, and a result every reader takes (`Renderer.refusals`) becomes
+`SessionState.starts`, under the viewer's choices and over the declared value. A light's slider
+starts its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
+that have an `inUseWhen`: brightness is always in use, so a list leading with it always opens on
+brightness, which is how `.opensOn(List(l.brightness))` keeps the old behaviour). It names its
+entity rather than reading the declarer's subject, because a slider's declaring node has none (its
+head does). A result no reader takes (the light unavailable, no mode yet) is dropped, and the
+declared value stands, as for a stale link. It is read **once**: an open page never
+follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
+ZHA group reports a false `xy` 59 ms after a temperature command,
+`docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
+groups, a path only a write has. A start is not a choice: no `v.` param, so a refresh starts
+afresh, and the mirror compares to the session's `__start` signal rather than the declared value
+in the shared node bytes. Its entity is watched (ADR 0030), since it decides what the page shows.
 
 **Reference.** A query parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
 string is a literal and `{"var": "window"}` a reference, the rule `SlotSource`'s decoder already
@@ -143,13 +162,15 @@ each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` tak
 name, so the pair cannot drift.
 
 **A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
-panel's surfaces are `Activation.Var("tab")`: the member whose `bakeIndex` is the variable as seen
-from the bar. Its buttons are `choose(i)` on that variable, so a tab press is a variable write whose
-reader is the bake group (`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is
-shown and commits after it, and a value that is not a member index of every panel it selects is
-refused like an unparseable window. A tab panel cannot be opened directly; the open route refuses
+panel's surfaces are `Activation.Var("tab")`: the member selected at the variable's value as seen
+from the bar, which with no `value` of its own is its `bakeIndex`. Its buttons are `choose(i)` on
+that variable, so a tab press is a variable write whose reader is the bake group
+(`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is shown and commits after it,
+and a value no member of every panel it selects is selected at is refused like an unparseable
+window. A `c.select` over a variable names its members' values instead (`Variable.selecting`), so
+its cycle and its dropdown's label are right in the first HTML for a value like `7d`. A tab panel cannot be opened directly; the open route refuses
 it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member index, and refuses a `User`-activated member with
+the bar and its declared value to be a member's, distinct values per group, and refuses a `User`-activated member with
 a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
 and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
 being different declarers. Every path that bakes takes a bar's member from the session's
@@ -203,8 +224,18 @@ could not be enumerated before the walk — the property this exists to keep.
 **Ordering the walk.** #209 predicted a declared edge would need topological ordering. It does not:
 a value is ambient session state, in hand before the walk, never computed by it.
 
+**A start beside `vars`, not inside it.** A declaration could have been a bare string or
+`{value, start}`, the rule `SlotSource` uses. A field of its own, as `values` is, left every reader
+of `vars` (scopes, validation, the mirror's declared value, the snapshots) unchanged.
+
 ## Consequences
 
+- **"Opens" means when the document loaded.** A wall tablet that never reloads keeps the head it
+  opened on however the light changes. A reconnect keeps it too: the SSE GET carries the committed
+  value, and a session this process forgot adopts it as a choice, start or not.
+- **Two places a start does nothing.** A slider a candidate set renders per member declares no
+  `control` (`Node.perMember`), so it keeps its first control. With `.syncRows()` the rows follow
+  the head, which starts from the group entity's state, not each bulb's.
 - **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
   already produce different `SlotRead`s, which the render key and both caches

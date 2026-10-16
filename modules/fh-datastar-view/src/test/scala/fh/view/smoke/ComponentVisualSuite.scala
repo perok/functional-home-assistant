@@ -168,19 +168,70 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(lightSliderScene, viewport) { (page, _) =>
       IO.blocking {
         // Brightness, then colour temperature, then colour.
-        val mode = page.locator(".fh-slider-pill button.fh-mode:visible")
+        val mode =
+          page.locator(".fh-slider-pill .fh-select-cycles button:visible")
         mode.click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
         mode.click()
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
         page.mouse().move(0, 0)
         settle(page)
+        // The hue track's edge by the pill differs by ~1px between CI runs, up
+        // to 0.12%; a real change to this shot has been 1.3% and more.
         VisualSnapshot.check(
           "light-slider-colour",
+          lightSliderCell(page).screenshot(),
+          maxDiffRatio = 0.003
+        )
+      }
+    }
+  }
+
+  private val lightSliderDropdownScene =
+    Scene
+      .of(SmokeDashboard.lightSliderDropdown)
+      .entity(SmokeDashboard.colourLamp)
+
+  test("a light slider's mode dropdown looks right, closed") {
+    withPage(lightSliderDropdownScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        VisualSnapshot.check(
+          "light-slider-dropdown",
           lightSliderCell(page).screenshot()
         )
       }
     }
+  }
+
+  test("a light slider's mode dropdown looks right, open") {
+    withPage(lightSliderDropdownScene, viewport) { (page, _) =>
+      IO.blocking {
+        page.locator(".fh-select-summary").click()
+        assertThat(page.locator(".fh-select-list")).isVisible()
+        page.mouse().move(0, 0)
+        settle(page)
+        // The list hangs below the cell, so the page.
+        VisualSnapshot.check(
+          "light-slider-dropdown-open",
+          steadyShot(page, page.screenshot(), 20)
+        )
+      }
+    }
+  }
+
+  /** A page shot once two in a row agree. One shot of the open list caught it
+    * still restyling: 2% off its own baseline, in its colours and by 2px.
+    */
+  @annotation.tailrec
+  private def steadyShot(
+      page: Page,
+      prev: Array[Byte],
+      left: Int
+  ): Array[Byte] = {
+    val next = page.screenshot()
+    if (java.util.Arrays.equals(prev, next) || left == 0) next
+    else steadyShot(page, next, left - 1)
   }
 
   private val lightSliderGroupScene =
@@ -205,7 +256,7 @@ class ComponentVisualSuite extends SmokeSuite {
   test("a light group's slider looks right on colour, its dimmer row greyed") {
     withPage(lightSliderGroupScene, viewport) { (page, _) =>
       IO.blocking {
-        val mode = page.locator(".fh-slider-pill button.fh-mode")
+        val mode = page.locator(".fh-slider-pill .fh-select-cycles button")
         mode.click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(2)
         mode.click()

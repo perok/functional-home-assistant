@@ -1,0 +1,26 @@
+/// Rows and columns: how their children sit. Outside `lib/` for the reason
+/// `components.test.pkl` gives.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
+
+facts {
+  ["a row is start-packed and one line until told otherwise"] {
+    !c.row.slots.containsKey("class")
+    c.row.justify("center").slots["class"] == "fh-justify-center"
+    c.row.wrap().slots["class"] == "fh-wrap"
+    c.row.cssClass("mine").justify("end").wrap().slots["class"] == "mine fh-justify-end fh-wrap"
+  }
+
+  ["a column justifies along its own direction"] {
+    !c.column.slots.containsKey("class")
+    c.column.justify("center").slots["class"] == "fh-justify-center"
+  }
+
+  ["each class the builders emit has a rule"] {
+    for (cls in List("fh-justify-center", "fh-justify-end", "fh-wrap")) {
+      cssMod.layoutCss.contains(".\(cls){") || cssMod.layoutCss.contains(".\(cls).") || cssMod.layoutCss.contains(".fh-row.\(cls){")
+    }
+  }
+}

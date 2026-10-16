@@ -24,7 +24,7 @@ surfaces {
     body {
       c.title("Power detail")
       c.entityCard(dump.entities.sensor_ams_1a4e_q)
-      c.button("Close", c.tap.closePopup())
+      c.button("Close", c.view.closePopup())
     }
   }
 }
@@ -62,7 +62,7 @@ card = (c.grid) {
           .value(c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#))
           .tapAction(c.tap.call("homeassistant/toggle", dump.entities.sensor_ams_1a4e_u1))
 
-        // Domain-checked: only entities with a sliderSpec row (lights) compile.
+        // Domain-checked: only entities with a `domainAxes` row compile.
         // A slider wants room — span the full grid width.
         (c.entitySlider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)).fullWidth()
       }
@@ -115,12 +115,12 @@ card = (c.grid) {
     c.title("Popups").fullWidth()
     (c.row) {
       children {
-        c.button("Power detail…", c.tap.openPopup("detail"))
-        c.button("Quick info…", c.tap.openPopupInline(new c.Column {
+        c.button("Power detail…", c.view.openPopup("detail"))
+        c.button("Quick info…", c.view.openPopupInline(new c.Column {
           children {
             c.title("Quick info")
             c.entityCard(dump.entities.sensor_ams_1a4e_u1)
-            c.button("Close", c.tap.closePopup())
+            c.button("Close", c.view.closePopup())
           }
         }))
       }

@@ -489,9 +489,11 @@ object Predicate:
   *
   *   - `User`: a popup, opened by a tap, optionally from first paint. The
   *     selection is per connection (ADR 0005). Never a baked member.
-  *   - `Var`: the member whose `bakeIndex` is the node variable `name`, as seen
-  *     from the `bakeInto` node — a tab bar's panel (ADR 0033). Per viewer, and
-  *     declared, so the server knows what selects it.
+  *   - `Var`: the member whose `value` is the node variable `name`, as seen
+  *     from the `bakeInto` node (ADR 0033). With no `value` it is its
+  *     `bakeIndex`, which a tab bar's panel chooses by; a slider's main
+  *     controls and a `c.select`'s options are named. Per viewer, and declared,
+  *     so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
@@ -501,7 +503,7 @@ object Predicate:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case Var(name: String)
+  case Var(name: String, value: Option[String] = None)
   case State(condition: Predicate)
 
 sealed trait LayoutNode derives ConfiguredDecoder {
@@ -583,7 +585,11 @@ object LayoutNode:
       vars: Map[String, String] = Map.empty,
       // Expression values, this node's alone: never resolved up the
       // ancestors, and attached to the slots that read them ([[foldNode]]).
-      values: Map[String, ExprValue] = Map.empty
+      values: Map[String, ExprValue] = Map.empty,
+      // Where a declared variable starts for a new session, evaluated once as
+      // the session opens and never followed, so a head does not move under
+      // the viewer's finger.
+      starts: Map[String, Dashboard.Start] = Map.empty
   ) extends LayoutNode:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -829,6 +835,22 @@ case class Surface(
     case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
     case _                      => Dashboard.PopupHostId
 
+  /** The value of its variable that selects this member ([[Activation.Var]]).
+    */
+  def selectedAt: Option[String] = activation match
+    case Activation.Var(_, value) => value.orElse(bakeIndex.map(_.toString))
+    case _                        => None
+
+object Surface:
+
+  /** What a variable-selected group's members are selected at, for a message:
+    * an index group as the range an author thinks of.
+    */
+  def membersText(values: List[String]): String =
+    if (values == values.indices.map(_.toString).toList)
+      s"a member index (0..${values.size - 1})"
+    else s"one of its members' values (${values.mkString(", ")})"
+
 /** The build phase's artifact.
   *
   *   - `slug`: the site's `dashboards` key, applied by `DashboardBuild.decode`
@@ -928,7 +950,10 @@ case class Dashboard(
     */
   lazy val watchedEntities: Set[String] = {
     def deciders(n: LayoutNode): List[String] = n match {
-      case c: LayoutNode.Component => c.allChildren.flatMap(deciders)
+      case c: LayoutNode.Component =>
+        c.starts.values.toList.map(_.entityId) ++ c.allChildren.flatMap(
+          deciders
+        )
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
@@ -1154,6 +1179,22 @@ case class Dashboard(
             "produce a bool — compare it (`on > 0`), or use a condition"
       }
 
+    def startErrors(nodeId: String, c: LayoutNode.Component): List[String] =
+      c.starts.toList.sortBy(_._1).flatMap { (name, start) =>
+        Option
+          .when(!c.vars.contains(name))(
+            s"$nodeId: a start for '$name', which this node does not declare"
+          )
+          .orElse(
+            Transform
+              .parse(Transform.CelKey(start.transform))
+              .left
+              .toOption
+              .map(e => s"$nodeId: the start for '$name' does not compile: $e")
+          )
+          .toList
+      }
+
     def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
       vars.keys.toList.sorted.flatMap { name =>
         Option
@@ -1321,7 +1362,7 @@ case class Dashboard(
         inSet: Boolean
     ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _) =>
+        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
           val wrapErrors =
             if (!noWrap(card)) Nil
             else
@@ -1359,7 +1400,8 @@ case class Dashboard(
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots, here) ++
-            varErrors(nodeId, vars) ++ valueErrors(nodeId, c) ++
+            varErrors(nodeId, vars) ++ startErrors(nodeId, c) ++
+            valueErrors(nodeId, c) ++
             typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
@@ -1657,7 +1699,9 @@ case class Dashboard(
             case (_, _, _: Activation.Var)   => "var"
             case (_, _, _: Activation.State) => "state"
           }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n)) => n }
+          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
+            n
+          }
           // A baked member has a host, and what fills a host is a choice the
           // server knows: a viewer's variable or a condition (ADR 0033).
           val unchosen = members.collect { case (_, sid, _: Activation.User) =>
@@ -1676,9 +1720,20 @@ case class Dashboard(
                 members.map(_._2).sorted.mkString(", ")
             )
             .toList ++ names.distinct.match {
-            case List(name) => varSelectionErrors(gid, name, members.size)
-            case Nil        => Nil
-            case many       =>
+            case List(name) =>
+              varSelectionErrors(
+                gid,
+                name,
+                // In [[SurfaceGraph.bakeGroup]]'s order.
+                members
+                  .map(_._2)
+                  .sorted
+                  .flatMap(surfaces.get)
+                  .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
+                  .flatMap(_.selectedAt)
+              )
+            case Nil  => Nil
+            case many =>
               List(
                 s"bake group '$gid' is selected by more than one variable: " +
                   many.sorted.mkString(", ")
@@ -1765,8 +1820,13 @@ case class Dashboard(
       node match
         case c: LayoutNode.Component =>
           // A nested declaration replacing the entry is shadowing.
-          val here =
-            scope ++ c.vars.map((n, v) => n -> Dashboard.InScope(id, v))
+          val here = scope ++ c.vars.map { (n, v) =>
+            n -> Dashboard.InScope(
+              id,
+              v,
+              c.starts.get(n)
+            )
+          }
           (id -> here) :: LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
               walk(ch, prefix, LayoutNode.childId(prefix, id, step, ch), here)
@@ -1809,22 +1869,26 @@ case class Dashboard(
   private def varSelectionErrors(
       gid: NodeId,
       name: String,
-      size: Int
+      values: List[String]
   ): List[String] =
-    varScopes.get(gid).flatMap(_.get(name)) match {
+    Option
+      .when(values.distinct.size != values.size)(
+        s"bake group '$gid' has two members selected at one value of '$name': " +
+          values.mkString(", ")
+      )
+      .toList ++ (varScopes.get(gid).flatMap(_.get(name)) match {
       case None =>
         List(
           s"bake group '$gid' is selected by the variable '$name', which no " +
             "node at or above it declares"
         )
-      case Some(in)
-          if !in.declared.toIntOption.exists(i => i >= 0 && i < size) =>
+      case Some(in) if !values.contains(in.declared) =>
         List(
           s"bake group '$gid' is selected by '$name', declared '${in.declared}' " +
-            s"on ${in.declarer}, which is not a member index (0..${size - 1})"
+            s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
         )
       case Some(_) => Nil
-    }
+    })
 
   /** The declared values a surface's content starts with ([[varScopes]]). */
   def scopeOf(s: Surface): Map[String, String] =
@@ -1876,12 +1940,22 @@ case class Dashboard(
     * for both [[validated]] and `Transforms.from`.
     */
   def celKeys: List[Transform.CelKey] =
-    (slotSources(card) ++ surfaces.values.flatMap(s =>
+    ((slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList
       .filter(_.literal.isEmpty)
-      .flatMap(_.celKey)
-      .distinct
+      .flatMap(_.celKey) ++
+      (startExprs(card) ++ surfaces.values.flatMap(s => startExprs(s.content)))
+        .map(Transform.CelKey(_))).distinct
+
+  private def startExprs(n: LayoutNode): List[String] = n match
+    case c: LayoutNode.Component =>
+      c.starts.values.toList.map(_.transform) ++
+        c.allChildren.flatMap(startExprs)
+    case s: LayoutNode.SetNode =>
+      s.members.values.toList
+        .flatMap(_.clauses)
+        .flatMap(cl => startExprs(cl.node))
 
   /** [[validate]] plus the compiled transforms and parsed queries, so the
     * renderer never recompiles or defends against a bad expression.
@@ -1904,8 +1978,18 @@ case class Dashboard(
 
 object Dashboard:
 
-  /** A node variable as seen from a node: who declared it, and its value. */
-  final case class InScope(declarer: NodeId, declared: String)
+  /** A node variable as seen from a node: who declared it, its value, and where
+    * a session starts it, if anywhere else.
+    */
+  final case class InScope(
+      declarer: NodeId,
+      declared: String,
+      start: Option[Start] = None
+  )
+
+  /** Where a session starts a node variable: CEL over one entity's state. */
+  final case class Start(entityId: String, transform: String)
+      derives ConfiguredDecoder
 
   /** The slot naming a card's subject, which every other slot inherits. Not
     * HA's `entity_id` field or the CEL `entity_id` binding, which share only

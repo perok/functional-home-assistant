@@ -27,7 +27,7 @@ card = (c.column) {
 
     (c.row) {
       children {
-        c.button("« Home", c.tap.navigate("home"))
+        c.button("« Home", c.view.navigate("home"))
       }
     }
     (c.tabs) {
