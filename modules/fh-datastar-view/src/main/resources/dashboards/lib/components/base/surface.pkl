@@ -37,16 +37,10 @@ class TabButton extends nodes.Node {
 /// A tab bar over one panel. It declares the node variable `tab`, the open
 /// tab's index; each tab's cards become an inline surface baked into the panel
 /// host and selected by it, and each button writes it (ADR 0033). The server
-/// commits `_var_<id>__tab` once the panel is in, the panel mirrors it into the
-/// URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
+/// commits `_var_<id>__tab` once the panel is in, the bar's cell mirrors it into
+/// the URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
 class Tabs extends nodes.Node {
   card = "tabs"
-  // The pending signal is seeded `__ifmissing` on the BAR, not the panel:
-  // `__ifmissing` declines for a signal something already read, and the bar's
-  // buttons read it. A parent's seed reaches its children's readers, a later
-  // sibling's does not (`DatastarMorphContractSuite`). The committed one is the
-  // page shell's, seeded for every declaration.
-  //
   // The bar is structure: it holds the buttons and carries no live value; a
   // selection arrives as a signal frame. A live header goes beside the buttons
   // as a node of its own.
@@ -56,7 +50,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="fh-tabs" data-signals__ifmissing="{ \(tabVar.own.pendingSeed) }" \(tabVar.own.pendingClear)>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="fh-tab-panel" \(tabVar.own.urlMirror("0"))>{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="fh-tabs">{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="fh-tab-panel">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.

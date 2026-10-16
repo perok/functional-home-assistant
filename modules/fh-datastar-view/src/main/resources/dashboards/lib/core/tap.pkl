@@ -414,23 +414,9 @@ const local function openSurfaceOnclick(surfaceId: String): slotMod.Slot =
   )
 
 /// What this client has ASKED a selection group to show; the committed signal
-/// is what the server says it shows (ADR 0025). Cleared by
-/// [[pendingClearAgainst]].
+/// is what the server says it shows (ADR 0025). A variable's is seeded and
+/// cleared by the page shell (`VarKey.pendingClear`).
 const function pendingSignal(groupId: String): String = "_\(groupId)__pending"
-
-/// The pending signal's seed entry, for splicing into a host's existing
-/// `data-signals__ifmissing` object (a second attribute of that name is
-/// dropped).
-const function pendingSeedEntry(groupId: String): String =
-  "\(pendingSignal(groupId)): ''"
-
-/// Empties the pending signal once the committed value agrees. Comparing to
-/// the committed value, rather than clearing in the frame, is what keeps tap
-/// A's response from clearing tap B's pending. The page-wide ends (a dead
-/// stream, a non-200) are `Server.PendingSweep`'s.
-const function pendingClearAgainst(groupId: String, committed: String): String =
-  let (sig = pendingSignal(groupId))
-    #"data-effect="$\#(sig) !== '' && $\#(committed) == $\#(sig) && ($\#(sig) = '')""#
 
 /// The pending value while one is outstanding, else the committed one.
 const function pendingOrCommittedOf(groupId: String, committed: String): String =

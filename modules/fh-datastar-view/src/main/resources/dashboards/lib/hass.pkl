@@ -239,6 +239,9 @@ open class NumberEntity extends Entity {
 
 open class SelectEntity extends Entity {
   domain: "select" = "select"
+
+  /// What it can be set to, in the integration's order.
+  hidden options: Listing<String> = new Listing {}
 }
 
 /// developers.home-assistant.io/docs/core/entity/scene

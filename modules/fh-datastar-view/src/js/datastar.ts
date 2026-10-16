@@ -13,7 +13,7 @@
 import { attribute, effect } from "./vendor/datastar/datastar.js"
 
 /**
- * `data-fh-url="['<param>', $signal, '<declared>']"`: mirror one piece of view
+ * `data-fh-url="['<param>', $signal, '<declared>']"` (or `data-fh-url:<name>`): mirror one piece of view
  * state into the page URL without navigating, for as long as the element is in
  * the document (ADR 0005). An empty value drops the param, and so does the
  * optional declared one — a node variable's own, which no param already means —
@@ -44,7 +44,9 @@ import { attribute, effect } from "./vendor/datastar/datastar.js"
  */
 attribute({
   name: "fh-url",
-  requirement: { key: "denied", value: "must" },
+  // A key only keeps attribute names unique: a node declaring two variables
+  // mirrors each from its own `data-fh-url:<name>`.
+  requirement: { key: "allowed", value: "must" },
   returnsValue: true,
   apply({ rx, mods }) {
     let held: string | null = null

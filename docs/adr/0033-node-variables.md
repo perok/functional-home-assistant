@@ -129,6 +129,12 @@ and agreement ends the ask. The committed values are seeded by the document's sh
 opening frame again, both total over declarations at this viewer's values, so a stale control is
 corrected and a control never shows the declared value over a linked choice.
 
+**A declaration needs nothing from its card's template.** The shell seeds every pending ask beside
+its committed value and clears them all in one effect, since both are the page's for its whole
+life. The renderer puts the URL mirror on the declarer's `.fh-cell`, one keyed
+`data-fh-url:<name>` per variable, so a param lives as long as what it chooses for (ADR 0005).
+Any node can declare, and a control choosing from below it needs no host.
+
 **The control is a node per value.** `c.windowChooser` declares `window` and builds its bar from
 one `Listing<Window>`, each value a `tab` node whose tap is `Variable.choose`: a guarded `Click`
 naming the declarer by token in its route and its pending signal. Its name and value are typed as

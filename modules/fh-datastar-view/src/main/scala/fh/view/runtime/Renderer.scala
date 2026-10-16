@@ -1026,6 +1026,13 @@ class Renderer(
             if (!form.isPatch)
               Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
             cellBindingsInto(buf, resolved)
+            // On the declarer, so a param lives as long as what it chooses
+            // for, not as long as a control choosing it (ADR 0005).
+            c.vars.toList.sortBy(_._1).foreach { (name, declared) =>
+              val _ = buf
+                .append(' ')
+                .append(VarKey(id, name).urlMirrorAttr(declared))
+            }
             val _ = buf.append('>')
           }
 

@@ -472,8 +472,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The committed tab is the page shell's signal, so a re-revealed bar carries
-    * no seed of it that could reset the highlight to another tab than the one
+  /** The tab's signals are the page shell's, so a re-revealed bar carries no
+    * seed of them that could reset the highlight to another tab than the one
     * shown. Invisible to a content check, so asserted on the wire.
     */
   test("a re-revealed bar cannot reset THIS client's committed tab") {
@@ -482,13 +482,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         assert(live.contains("Light is on"), clue = live)
         assert(!live.contains(s"_var_${tabsHost}__tab:"), clue = live)
         assert(!live.contains(s"ui_$tabsHost"), clue = live)
-        // Only the pending ask is seeded there, and only if missing.
-        assert(
-          live.contains(
-            s"""data-signals__ifmissing="{ _var_${tabsHost}__tab__pending: '' }""""
-          ),
-          clue = live
-        )
+        // Nor of the pending ask, which the page shell seeds once.
+        assert(!live.contains(s"_var_${tabsHost}__tab__pending:"), clue = live)
       }
     }
   }
@@ -846,7 +841,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .use { ts =>
         for {
           day <- ts.page()
-          declarer = """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window'""".r
+          declarer = """data-fh-url:window="\['v\.([A-Za-z0-9_]+)\.window'""".r
             .findFirstMatchIn(day)
             .map(_.group(1))
             .getOrElse(fail("no chooser on the page", clues(day)))
@@ -894,7 +889,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // Off the bar's markup: the seed also names the chooser in the
           // more-info popup.
           val ids =
-            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window, '[^']*'\]"""".r
+            """data-fh-url:window="\['v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window, '[^']*'\]"""".r
               .findAllMatchIn(html)
               .map(_.group(1))
               .toSet
@@ -945,7 +940,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         ts.page().map { html =>
           assert(!html.contains("@@"), clue = html)
           val chooser =
-            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window'""".r
+            """data-fh-url:window="\['v\.([A-Za-z0-9_]+)\.window'""".r
               .findFirstMatchIn(html)
               .fold(fail("no chooser on the page", clues(html)))(_.group(1))
           val buttons = """<a [^>]*sse/var/[^>]*>""".r.findAllIn(html).toList
