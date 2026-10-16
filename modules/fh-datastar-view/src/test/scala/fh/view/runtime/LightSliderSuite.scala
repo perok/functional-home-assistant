@@ -9,8 +9,8 @@ import org.http4s.Status
 import scala.concurrent.duration.*
 
 /** `c.entitySlider(l)` on a colour light end to end (#547): one head at a time,
-  * a mode button per capability, a press that is a node-variable write swapping
-  * the panel, and a hue drag that reaches HA as `hs_color = [h, 100]`.
+  * a main control per capability, a press that is a node-variable write
+  * swapping the panel, and a hue drag that reaches HA as `hs_color = [h, 100]`.
   */
 class LightSliderSuite extends CatsEffectSuite {
 
@@ -57,21 +57,22 @@ class LightSliderSuite extends CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
-  private val modeRoute = """sse/var/[^/]+/([A-Za-z0-9_]+)/mode/(\d)""".r
+  private val controlRoute =
+    """sse/var/[^/]+/([A-Za-z0-9_]+)/control/([A-Za-z]+)""".r
 
   test(
     "first paint is the brightness slider, its button stepping to the next"
   ) {
     served(lamp) { ts =>
       ts.page().map { html =>
-        // Only the shown mode's button is in the page: no script picks it.
+        // Only the shown control's button is in the page: no script picks it.
         assert(html.contains("""aria-label="Brightness""""), clue = html)
         List("Colour temperature", "Colour").foreach { l =>
           assert(!html.contains(s"""aria-label="$l""""), clue = l)
         }
         assertEquals(
-          modeRoute.findAllMatchIn(html).map(_.group(2)).toList,
-          List("1")
+          controlRoute.findAllMatchIn(html).map(_.group(2)).toList,
+          List("colourTemp")
         )
         assert(html.contains("{'brightness': Number("), clue = html)
         // A panel not shown is not rendered.
@@ -81,16 +82,18 @@ class LightSliderSuite extends CatsEffectSuite {
     }
   }
 
-  test("pressing the colour mode swaps in the hue slider at the light's hue") {
+  test(
+    "pressing the colour control swaps in the hue slider at the light's hue"
+  ) {
     served(lamp) { ts =>
       for {
         doc <- ts.load()
-        declarer = modeRoute
+        declarer = controlRoute
           .findFirstMatchIn(doc.html)
-          .fold(fail(s"no mode button on the page: ${doc.html}"))(_.group(1))
+          .fold(fail(s"no control button on the page: ${doc.html}"))(_.group(1))
         session <- ts.sessions.get(doc.conn)
         result <- ts.postResult(
-          s"sse/var/${ts.slug}/$declarer/mode/2",
+          s"sse/var/${ts.slug}/$declarer/control/colour",
           body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
         )
         sent <- session
@@ -102,12 +105,15 @@ class LightSliderSuite extends CatsEffectSuite {
         assert(sent.contains(",100] } } }"), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
-        assert(sent.contains(s"\"_var_${declarer}__mode\":\"2\""), clue = sent)
+        assert(
+          sent.contains(s"\"_var_${declarer}__control\":\"colour\""),
+          clue = sent
+        )
       }
     }
   }
 
-  test("a hue commit reaches HA as an hs_color list, from any mode") {
+  test("a hue commit reaches HA as an hs_color list, from any control") {
     // Declared by the dashboard although its panel is not open: a panel's taps
     // are the dashboard's whether or not this viewer has it showing.
     served(lamp) { ts =>
@@ -148,10 +154,13 @@ class LightSliderSuite extends CatsEffectSuite {
       .use { ts =>
         for {
           doc <- ts.load()
-          declarers = modeRoute.findAllMatchIn(doc.html).map(_.group(1)).toSet
+          declarers = controlRoute
+            .findAllMatchIn(doc.html)
+            .map(_.group(1))
+            .toSet
           session <- ts.sessions.get(doc.conn)
           result <- ts.postResult(
-            s"sse/var/${ts.slug}/${declarers.head}/mode/2",
+            s"sse/var/${ts.slug}/${declarers.head}/control/colour",
             body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
           )
           sent <- session
@@ -179,7 +188,7 @@ class LightSliderSuite extends CatsEffectSuite {
     served(dimmer) { ts =>
       ts.page().map { html =>
         assert(html.contains("{'brightness': Number("), clue = html)
-        assertEquals(modeRoute.findAllMatchIn(html).size, 0, clue = html)
+        assertEquals(controlRoute.findAllMatchIn(html).size, 0, clue = html)
       }
     }
   }

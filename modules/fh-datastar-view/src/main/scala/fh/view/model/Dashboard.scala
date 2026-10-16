@@ -491,9 +491,9 @@ object Predicate:
   *     selection is per connection (ADR 0005). Never a baked member.
   *   - `Var`: the member whose `value` is the node variable `name`, as seen
   *     from the `bakeInto` node (ADR 0033). With no `value` it is its
-  *     `bakeIndex`, which a tab bar's panel and a slider's modes choose by;
-  *     `c.select` names its options. Per viewer, and declared, so the server
-  *     knows what selects it.
+  *     `bakeIndex`, which a tab bar's panel chooses by; a slider's main
+  *     controls and a `c.select`'s options are named. Per viewer, and declared,
+  *     so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.

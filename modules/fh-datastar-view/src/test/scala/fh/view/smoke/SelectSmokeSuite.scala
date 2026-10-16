@@ -1,7 +1,7 @@
 package fh.view.smoke
 
 import cats.effect.IO
-import com.microsoft.playwright.Page
+import com.microsoft.playwright.{Locator, Page}
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.runtime.TestServer
 import fh.view.testkit.HouseFixture
@@ -41,7 +41,7 @@ class SelectSmokeSuite extends SmokeSuite {
   private def summary(page: Page) = page.locator(".fh-select-summary")
 
   private def visibleCycle(page: Page) =
-    page.locator(".fh-select-cycle:visible")
+    page.locator(".fh-select-cycles button:visible")
 
   private def choosing[A](page: Page, value: String)(act: => A): Unit = {
     val _ = page.waitForResponse(
@@ -74,7 +74,9 @@ class SelectSmokeSuite extends SmokeSuite {
               ".fh-select-list a",
               new Page.LocatorOptions().setHasText(Pattern.compile("^7d$"))
             )
-            .click()
+            // Under the response wait's 30s, so a click that cannot land fails
+            // with Playwright's reason (what intercepts it), not the test's timeout.
+            .click(new Locator.ClickOptions().setTimeout(10000))
         )
         assertThat(page.locator(".fh-select-menu"))
           .not()

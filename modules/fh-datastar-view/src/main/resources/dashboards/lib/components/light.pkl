@@ -28,7 +28,7 @@ function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
 function controls(l: hass.LightEntity): layout.Column = new layout.Column {
   children {
     when (l.supportsBrightness) {
-      sliderMod.entitySlider(l).single()
+      sliderMod.entitySlider(l).buttons(List())
     } else {
       (entityMod.entityCard(l)) |> entityMod.tappable
     }

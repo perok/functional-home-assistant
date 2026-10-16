@@ -287,8 +287,8 @@ object SmokeDashboard {
          |
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(l).modeStyle("dropdown")
-         |      .buttons(List(c.tap.toggle(l), c.modeSwitch, c.view.colourWheel(l.colour)))
+         |    c.entitySlider(l)
+         |      .buttons(List(c.tap.toggle(l), c.its.mainControl.style("dropdown"), c.view.colourWheel(l.colour)))
          |  }
          |}
          |""".stripMargin,
@@ -330,7 +330,7 @@ object SmokeDashboard {
          |local head = dump.entities.${colourLamp.dumpKey}
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).syncRows().withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head), c.its.mainControl)).syncRows().withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
          |    ))

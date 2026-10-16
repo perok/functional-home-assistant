@@ -168,16 +168,20 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(lightSliderScene, viewport) { (page, _) =>
       IO.blocking {
         // Brightness, then colour temperature, then colour.
-        val mode = page.locator(".fh-slider-pill button.fh-mode:visible")
+        val mode =
+          page.locator(".fh-slider-pill .fh-select-cycles button:visible")
         mode.click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
         mode.click()
         assertThat(page.locator("input[type=range][max='360']")).hasCount(1)
         page.mouse().move(0, 0)
         settle(page)
+        // The hue track's edge by the pill differs by ~1px between CI runs, up
+        // to 0.12%; a real change to this shot has been 1.3% and more.
         VisualSnapshot.check(
           "light-slider-colour",
-          lightSliderCell(page).screenshot()
+          lightSliderCell(page).screenshot(),
+          maxDiffRatio = 0.003
         )
       }
     }
@@ -252,7 +256,7 @@ class ComponentVisualSuite extends SmokeSuite {
   test("a light group's slider looks right on colour, its dimmer row greyed") {
     withPage(lightSliderGroupScene, viewport) { (page, _) =>
       IO.blocking {
-        val mode = page.locator(".fh-slider-pill button.fh-mode")
+        val mode = page.locator(".fh-slider-pill .fh-select-cycles button")
         mode.click()
         assertThat(page.locator("input[type=range][max='6500']")).hasCount(2)
         mode.click()

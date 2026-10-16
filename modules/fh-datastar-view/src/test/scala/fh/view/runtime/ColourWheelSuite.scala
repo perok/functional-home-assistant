@@ -41,7 +41,7 @@ class ColourWheelSuite extends CatsEffectSuite {
        |card = (c.column) {
        |  local l = dump.entities.${lamp.dumpKey}
        |  children {
-       |    c.entitySlider(l).modes(List("brightness", "colourTemp")).buttons(List(c.view.colourWheel(l.colour)))
+       |    c.entitySlider(l).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")), c.view.colourWheel(l.colour)))
        |  }
        |}
        |""".stripMargin

@@ -8,10 +8,11 @@ Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it 
 Two users: a chart's window — `c.windowChooser` declares `window`, and every
 `c.historyChart(s).chosen()` beneath it reads it, so pressing `7d` redraws them all — and a tab
 bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
-A slider with modes — `c.entitySlider(l)` on a light that has colour temperature or colour —
-declares `mode` the same way: its head is a bake group, one head per mode, and so is the pill's
-button. A group's rows with modes declare their own, which shadows the head's. On `.syncRows()`
-they declare none and are bake groups selected by the head's `mode`, so one press switches them
+A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
+declares `control` the same way, valued by the control's name: its head is a bake group, one head
+per control, and the pill's switch is a `c.select` of it. A group's rows with main controls declare
+their own, which shadows the head's. On `.syncRows()`
+they declare none and are bake groups selected by the head's `control`, so one press switches them
 all; that is the ancestor lookup doing what it is for, not a mechanism of its own.
 
 ## Context

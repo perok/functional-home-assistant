@@ -15,16 +15,28 @@ const local wheelScript: String = """
   window.fhWheel=function(e,el){var r=el.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2;return [Math.round((Math.atan2(x,-y)*180/Math.PI+360)%360),Math.round(Math.min(1,Math.hypot(x,y)/(r.width/2))*100)]}
   """
 
-// `hs` is the drag's own pick, client-only; the three slots are the server's
-// reading, which the drag writes ahead of the commit, as a slider's fill.
+// What the wheel SHOWS is the client's (`h`, `s`, `p`): a drag moves those, and
+// the server's slots only ever adopt into them, so a refused or lost commit puts
+// the knob back where the light is, as the slider's thumb does (ADR 0025).
 const local hs: String = "$_{{id}}__hs"
 const local drag: String = "$_{{id}}__drag"
+const local shownH: String = "$_{{id}}__h"
+const local shownS: String = "$_{{id}}__s"
+const local shownP: String = "$_{{id}}__p"
+
+const local function server(slot: String): String = "$" + slotMod.signalRef(slot)
+
+/// The light's own colour onto the knob: on a server write, on a refusal, while
+/// the stream is down, and when the popup mounts it, since a closed popup's copy
+/// saw none of those.
+const local adopt: String =
+  "\(shownH) = \(server("hue")), \(shownS) = \(server("sat")), \(shownP) = \(server("paint"))"
 
 const local move: String =
   "\(hs) = fhWheel(evt, el), " +
-    "$\(slotMod.signalRef("hue")) = \(hs)[0] + 'deg', " +
-    "$\(slotMod.signalRef("sat")) = \(hs)[1] / 100, " +
-    "$\(slotMod.signalRef("paint")) = 'hsl(' + \(hs)[0] + ',' + \(hs)[1] + '%,50%)'"
+    "\(shownH) = \(hs)[0] + 'deg', " +
+    "\(shownS) = \(hs)[1] / 100, " +
+    "\(shownP) = 'hsl(' + \(hs)[0] + ',' + \(hs)[1] + '%,50%)'"
 
 const local commit: String =
   "@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', " +
@@ -36,7 +48,9 @@ const local function hsRead(body: String, otherwise: String): String =
 class ColourWheel extends nodes.Node {
   card = "colourWheel"
   cardDef = new nodes.CardDef {
-    template = #"<div class="fh-wheel" style="--fh-h:{{hue}};--fh-s:{{sat}}" \#(slotMod.signalBind("hue")) \#(slotMod.signalBind("sat")) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [] }" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))"><span class="fh-wheel-knob" style="background:{{paint}}" \#(slotMod.signalBind("paint"))></span></div>"#
+    // Two elements carry the patch handlers: one element holds one
+    // `data-on-signal-patch` (the slider splits its two the same way).
+    template = #"<div class="fh-wheel" style="--fh-h:{{hue}};--fh-s:{{sat}}" \#(slotMod.signalBind("hue")) \#(slotMod.signalBind("sat")) \#(slotMod.signalBind("paint")) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '{{hue}}', _{{id}}__s: '{{sat}}', _{{id}}__p: '{{paint}}' }" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-on-signal-patch-filter="{include:/^(\#(slotMod.signalRef("hue"))|\#(slotMod.signalRef("sat"))|\#(slotMod.signalRef("paint")))$/}" data-on-signal-patch="\#(adopt)" data-effect="$_sse > 0 && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)><span class="fh-wheel-knob" style="background:{{paint}}" data-style:background="\#(shownP)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span></div>"#
     slots { "hue"; "sat"; "paint" }
     css = """
       .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;
@@ -55,24 +69,29 @@ class ColourWheel extends nodes.Node {
       entityId = light.entity_id
       transform = hsRead("str(double(hs[0])) + 'deg'", "0deg")
       default = "0deg"
-      signal = slotMod.asStyle("--fh-h")
+      signal = slotMod.asHandler
       bypassUnavailable = false
     }
     ["sat"] = new slotMod.Slot {
       entityId = light.entity_id
       transform = hsRead("str(double(hs[1]) / 100.0)", "0")
       default = "0"
-      signal = slotMod.asStyle("--fh-s")
+      signal = slotMod.asHandler
       bypassUnavailable = false
     }
     ["paint"] = new slotMod.Slot {
       entityId = light.entity_id
       transform = hsRead("'hsl(' + str(math.round(double(hs[0]))) + ',' + str(math.round(double(hs[1]))) + '%,50%)'", "#fff")
       default = "#fff"
-      signal = slotMod.asStyle("background")
+      signal = slotMod.asHandler
       bypassUnavailable = false
     }
     for (k, v in tapMod.tapRoute(setColour)) {
+      [k] = v
+    }
+    // The guard's mechanism, without which a refused release sets no error and
+    // the knob stays where it was let go.
+    for (k, v in tapMod.guardSlots(setColour)) {
       [k] = v
     }
   }

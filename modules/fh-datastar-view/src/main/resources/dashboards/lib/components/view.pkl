@@ -32,7 +32,8 @@ function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPo
 
 /// A colour wheel for the light, in a popup: hue and saturation, where a
 /// slider's hue track has full saturation only.
-/// `c.entitySlider(l).buttons(List(c.view.colourWheel(l.colour)))`.
+/// `c.button("Colour", c.view.colourWheel(l.colour!!))`; on a light's own slider,
+/// `c.its.colourWheel`.
 function colourWheel(colour: hass.Colour): core.OpenSurface =
   (core.openPopupInline(wheelMod.colourWheel(colour.owner))) { icon = "mdi:palette-swatch"; label = "Colour" }
 

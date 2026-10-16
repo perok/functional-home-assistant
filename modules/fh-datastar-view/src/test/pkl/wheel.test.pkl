@@ -26,7 +26,18 @@ facts {
   ["the wheel reads hs_color and sets it, through the JSON body"] {
     local w = wheelMod.colourWheel(lamp)
     (w.slots["hue"] as slotMod.Slot).transform.contains("attr[?'hs_color']")
-    (w.slots["hue"] as slotMod.Slot).signal == slotMod.asStyle("--fh-h")
+    // The server's reading paints nothing itself: the knob shows the client's
+    // copy, which the drag moves and a refusal, a dead stream, a cancelled
+    // pointer and a mount put back to the light's.
+    (w.slots["hue"] as slotMod.Slot).signal == slotMod.asHandler
+    local t = w.cardDef.template
+    t.contains(#"data-style:--fh-h="$_{{id}}__h""#)
+    t.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")
+    t.contains("data-effect=\"$_sse > 0 && (")
+    t.contains("data-on:pointercancel=")
+    t.contains("data-init=")
+    // What sets that error: the guard's mechanism, on the element that posts.
+    t.contains(tapMod.guardMechanism) && w.slots["busy"] == "1"
     w.slots["service"] == "light/turn_on"
     w.slots["dataKey"] == "hs_color"
     w.cardDef.template.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
@@ -52,50 +63,54 @@ facts {
     module.catch(() -> c.view.colourWheel(warm.colour)).contains("Colour")
   }
 
-  ["on a slider with modes the buttons are the pill's, the mode switch where marked"] {
+  ["on a slider with main controls the buttons are the pill's, the switch among them"] {
     local s = c.entitySlider(lamp)
-      .buttons(List(c.tap.toggle(lamp), c.modeSwitch, c.view.colourWheel(lamp.colour!!)))
-    local pill = s.children["head"][0].children.toList()[0]
-    pill.children["before"].toList().map((b) -> b.slots["glyph"]) == List("mdi-power")
-    pill.children["children"].toList().map((b) -> b.slots["glyph"]) == List("mdi-palette-swatch")
+      .buttons(List(c.tap.toggle(lamp), c.its.mainControl, c.view.colourWheel(lamp.colour!!)))
+    local bs = s.children["head"][0].children.toList()[0].children["children"].toList()
+    bs[0].slots["glyph"] == "mdi-power"
+    bs[1] is selectMod.VarSelectCycle
+    bs[2].slots["glyph"] == "mdi-palette-swatch"
     // The heads carry none: they are the pill's.
-    s.modes.every((m) -> m.head.children["actions"].isEmpty)
-    // Unmarked, the mode switch is first.
-    local first = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp))).children["head"][0].children.toList()[0]
-    first.children["before"].isEmpty && first.children["children"].length == 1
-    // The wheel instead of the hue track is the modes without "colour".
-    c.entitySlider(lamp).modes(List("brightness", "colourTemp")).offeredModes == List("brightness", "colourTemp")
+    s.controls.every((m) -> m.head.children["actions"].isEmpty)
+    // Without a switch there is one main control: the buttons are the plain head's.
+    local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp))).children["head"][0]
+    plain.card == "sliderHead" && plain.children["actions"].length == 1
+    // The wheel instead of the hue track is a switch without "colour".
+    c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))
+      .offeredControls == List("brightness", "colourTemp")
   }
 
-  ["a slider's modes can be a select of its mode variable, in place of the cycle"] {
-    local pillOf = (sl: Any) -> sl.children["head"][0].children.toList()[0]
-    local pill = pillOf.apply(c.entitySlider(lamp).modeStyle("dropdown"))
-    local sw = pill.children["switch"].toList()[0] as selectMod.VarSelectDropdown
-    sw.choices.map((ch) -> ch.value) == List("0", "1", "2")
+  ["the main control switch is a select of the slider's control variable, in its style"] {
+    local switchOf = (sl: Any) -> sl.children["head"][0].children.toList()[0].children["children"].toList()[0]
+    local sw = switchOf.apply(c.entitySlider(lamp).buttons(List(c.its.mainControl.style("dropdown")))) as selectMod.VarSelectDropdown
+    sw.choices.map((ch) -> ch.value) == List("brightness", "colourTemp", "colour")
     sw.choices.map((ch) -> ch.label) == List("Brightness", "Colour temperature", "Colour")
-    // No cycling button panels beside it.
-    pill.inlineSurfaces.isEmpty
-    pillOf.apply(c.entitySlider(lamp).modeStyle("buttons")).children["switch"].toList()[0] is selectMod.SelectButtons
-    // The cycle is the button it always was.
-    local cyc = pillOf.apply(c.entitySlider(lamp))
-    cyc.children["switch"].isEmpty && cyc.inlineSurfaces.length == 3
+    switchOf.apply(c.entitySlider(lamp).buttons(List(c.its.mainControl.style("buttons")))) is selectMod.SelectButtons
+    // The default list, cycling: a pill per control, the shown one baked.
+    local cyc = switchOf.apply(c.entitySlider(lamp)) as selectMod.VarSelectCycle
+    cyc.inlineSurfaces.length == 3
+    cyc.optionNodes.every((n) -> n is c.Pill)
   }
 
-  ["a null among the buttons is no button: one list serves lights with and without colour"] {
+  ["c.its buttons are the slider's own entity's, and nothing where it cannot"] {
     local warm: hass.LightEntity = new {
       entity_id = "light.warm"
       colourModes { "color_temp" }
       colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
     }
-    local function glyphs(l: hass.LightEntity) =
-      let (pill = c.entitySlider(l)
-          .buttons(List(c.tap.toggle(l), l.colour.ifNonNull((col) -> c.view.colourWheel(col)), c.modeSwitch))
-          .children["head"][0].children.toList()[0])
-        pill.children["before"].toList().map((b) -> b.slots["glyph"])
-    glyphs(lamp) == List("mdi-power", "mdi-palette-swatch")
-    glyphs(warm) == List("mdi-power")
-    // A plain slider's head drops it too.
-    c.entitySlider(warm.colourTemp!!).buttons(List(null, c.tap.toggle(warm)))
-      .children["head"][0].children["actions"].length == 1
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    local function glyphsOn(l: hass.LightEntity) =
+      c.entitySlider(l).buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel)).shownButtons
+        .filterNonNull().map((b) -> if (b is selectMod.Select) "switch" else c.pill(b as tapMod.TapAction).slots["glyph"])
+    glyphsOn(lamp) == List("mdi-power", "switch", "mdi-palette-swatch")
+    glyphsOn(warm) == List("mdi-power", "switch")
+    glyphsOn(plug) == List("mdi-power")
+    // The toggle is the slider's own entity's.
+    (c.entitySlider(warm).buttons(List(c.its.toggle)).shownButtons[0] as tapMod.Call).target == warm
+    // A null is no button either, for a building block that names its target.
+    local function viaNull(l: hass.LightEntity) =
+      c.entitySlider(l).buttons(List(c.tap.toggle(l), l.colour.ifNonNull((col) -> c.view.colourWheel(col))))
+        .children["head"][0].children["actions"].length
+    viaNull(lamp) == 2 && viaNull(warm) == 1
   }
 }
