@@ -1528,7 +1528,12 @@ facts {
     }
     // In a colour mode HA reports no kelvin, so the fill is empty and the band
     // is what says this track sets a temperature.
-    c.entitySlider(lamp.colourTemp!!).headNode.slots["kelvinTrack"] == "1"
+    local head = c.entitySlider(lamp.colourTemp!!).headNode
+    head.slots["kelvinTrack"] == "1"
+    // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
+    // on the server and on a rollback alike.
+    (head.slots["fillColor"] as slotMod.Slot).default == "transparent"
+    head.cardDef.template.contains("{{#kelvinTrack}}, $\(slotMod.signalRef("fillColor")) = ($\(slotMod.signalRef("value")) >= {{min}}")
     c.entitySlider(lamp).controls.map((m) -> m.head.slots.containsKey("kelvinTrack"))
       == List(false, true, false)
   }

@@ -100,6 +100,38 @@ class LightSliderSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a colour temperature marker hides while the light reports no kelvin") {
+    // A light in a colour mode: HA sends `color_temp_kelvin: null`.
+    val inColour = SmokeDashboard.colourLamp.copy(attributes =
+      SmokeDashboard.colourLamp.attributes - "color_temp_kelvin"
+    )
+    val marker =
+      (page: Page) => page.locator(".fh-track-kelvin > span:not([class])")
+    def toKelvin(page: Page) = {
+      controlButton(page).click()
+      assertThat(page.locator("input[type=range][max='6500']")).hasCount(1)
+    }
+    withPage(scene) { (page, _) =>
+      IO.blocking {
+        toKelvin(page)
+        assertThat(marker(page)).isVisible()
+      }
+    } *> withPage(Scene.of(SmokeDashboard.lightSlider).entity(inColour)) {
+      (page, _) =>
+        IO.blocking {
+          toKelvin(page)
+          assertThat(marker(page)).isHidden()
+          // A drag shows it again, in the ramp's colour.
+          val k = page.locator("input[type=range][max='6500']")
+          k.focus()
+          k.press("End")
+          assertThat(marker(page)).isVisible()
+          assertThat(marker(page))
+            .hasCSS("background-color", "rgb(201, 226, 255)")
+        }
+    }
+  }
+
   test("a hue release posts hs_color at full saturation") {
     withPage(scene) { (page, ts) =>
       val hue = page.locator("input[type=range][max='360']")

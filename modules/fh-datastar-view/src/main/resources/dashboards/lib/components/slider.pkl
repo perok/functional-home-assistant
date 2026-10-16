@@ -191,7 +191,9 @@ class EntitySlider extends sliderBase.Slider {
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
   // reads as text: `--fh-default-color` is the paint for an assumed colour.
   fillDefault =
-    if (toggleOnly) "var(--fh-default-color)" else if (hue) "#fff" else "currentcolor"
+    if (toggleOnly) "var(--fh-default-color)" else if (hue) "#fff"
+    else if (on is hass.ColourTemp && reportsKelvin) "transparent"
+    else "currentcolor"
   hueTrack = hue
   kelvinTrack = on is hass.ColourTemp && reportsKelvin
   reading =
