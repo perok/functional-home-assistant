@@ -59,7 +59,11 @@ entity's state (`Start(entityId, transform)`), compiled at validate. The page ro
 as it mints the session, and a result every reader takes (`Renderer.refusals`) becomes
 `SessionState.starts`, under the viewer's choices and over the declared value. A light's slider
 starts its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
-that have an `inUseWhen`). It is read **once**: an open page never
+that have an `inUseWhen`: brightness is always in use, so a list leading with it always opens on
+brightness, which is how `.opensOn(List(l.brightness))` keeps the old behaviour). It names its
+entity rather than reading the declarer's subject, because a slider's declaring node has none (its
+head does). A result no reader takes (the light unavailable, no mode yet) is dropped, and the
+declared value stands, as for a stale link. It is read **once**: an open page never
 follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
 ZHA group reports a false `xy` 59 ms after a temperature command,
 `docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
@@ -220,8 +224,18 @@ could not be enumerated before the walk — the property this exists to keep.
 **Ordering the walk.** #209 predicted a declared edge would need topological ordering. It does not:
 a value is ambient session state, in hand before the walk, never computed by it.
 
+**A start beside `vars`, not inside it.** A declaration could have been a bare string or
+`{value, start}`, the rule `SlotSource` uses. A field of its own, as `values` is, left every reader
+of `vars` (scopes, validation, the mirror's declared value, the snapshots) unchanged.
+
 ## Consequences
 
+- **"Opens" means when the document loaded.** A wall tablet that never reloads keeps the head it
+  opened on however the light changes. A reconnect keeps it too: the SSE GET carries the committed
+  value, and a session this process forgot adopts it as a choice, start or not.
+- **Two places a start does nothing.** A slider a candidate set renders per member declares no
+  `control` (`Node.perMember`), so it keeps its first control. With `.syncRows()` the rows follow
+  the head, which starts from the group entity's state, not each bulb's.
 - **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
   already produce different `SlotRead`s, which the render key and both caches

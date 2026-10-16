@@ -281,8 +281,9 @@ GET /d/:slug
     reloads exactly when the slug does — a fix, or a re-broken edit whose
     changed error message the page must show. Non-HTML consumers see
     a failed slug as absent, exactly like an unknown one
+  evaluate each variable's start from the store (once; never followed), under the
+    `v.` choices: the render and its selections read both
   render the WHOLE page from the current snapshot
-  evaluate each variable's start from the store (once; never followed)
   mint conn; create Session{slug, open surfaces, vars, starts, holds, position} and its owner
   holds = the digest of every node this render painted   // what THIS client's DOM has
           + every seeded signal, structure's included (no digest: it has no bytes

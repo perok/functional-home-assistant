@@ -314,7 +314,12 @@ open class LightEntity extends Entity {
 `element` for one inside a list), how it is written (`service`, `key`, `sentWith`), its range, its
 main-control `name`, and `inUseWhen`: when the entity is on it now, as DATA (an attribute among
 values, `color_mode` in `COLOUR_MODES`), since `hass.pkl` holds HA's facts and no CEL. The card
-reads all of it off the axis, so a new axis is a class here and not a branch in the card. A
+reads all of it off the axis, so a new axis is a class here and not a branch in the card: a cover's
+tilt would be a `CoverEntity` with a tilt axis, and its position the cover's `domainAxes` row
+(an `Axis` too) until then. What stays the card's is the look: the hue's and the kelvin track's
+paint are type tests on `Colour` and `ColourTemp` in `components/slider.pkl`. `.opensOn(…)` takes
+axis objects for the same reason the slider does, so `l.colour` on a light without colour is a
+nullability error before eval. A
 group's name may be HA's own (`brightness`): `q.prop` reads a name the entity reports live as the
 live attribute (ADR 0003), and the dump drops a carried attribute the schema models, as it drops
 `supported_color_modes`.
