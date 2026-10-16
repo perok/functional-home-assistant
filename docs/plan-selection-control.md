@@ -43,7 +43,7 @@ so any string HA offers is fine.
 
 A select never declares the variable it chooses. The node that holds the
 readers declares it, with `vars = v.declare(…)`, as the slider already does
-for `mode`. That is one way to declare a variable, not two, and the build's
+for `control`. That is one way to declare a variable, not two, and the build's
 existing "no declarer" error covers a select with nothing above it. The
 window chooser stays a small convenience built from the two.
 
@@ -61,10 +61,11 @@ registry reads each class's default `card`, so one class cannot switch
 templates per instance.
 
 - **buttons** (the default) — one button per option, the chosen one lit.
-- **cycle** — one button showing the chosen option; a tap chooses the next.
-  The slider pill is this today, one baked `ModeButton` per mode with the
-  panel picked by `mode`. That shape is kept, since it is what made the reload
-  flicker go away (#550).
+- **cycle** — one pill showing the chosen option, in its look (an icon
+  replaces the label); a tap chooses the next. Over a variable one pill per
+  option is baked, the shown one picked by the value: the shape that made the
+  slider's reload flicker go away (#550). The slider's main control switch is
+  this.
 - **dropdown** — a `<details>`/`<summary>` showing the chosen option, opening
   a BeerCSS `menu` of the others.
   - `<details>` opens and closes with no script and works on iPadOS 15; the
@@ -81,21 +82,27 @@ markup:
 |---|---|---|
 | tab bar | `tab` | a row of buttons over a baked panel |
 | `WindowChooser` (`components/history.pkl`) | `window` | a row of buttons over charts |
-| the slider's `ModeButton` (`components/base/slider.pkl`) | `mode` | one button stepping round |
+| the slider's mode button (`components/base/slider.pkl`) | `control` | one button stepping round (moved: `c.its.mainControl`) |
 
 The tab bar and the window chooser move only if their markup survives
 unchanged (their visual baselines say); otherwise each gets an issue.
 
 A bake group is selected by VALUE (done, its own PR stacked on A): each
 member names the value of its variable that shows it, defaulting to its index,
-which is what tabs and the slider's modes choose by. Over a variable,
+which is what tabs choose by. Over a variable,
 `c.select`'s cycle and its dropdown's label are bake groups, so the first HTML
 shows the viewer's option, as the slider pill does. The buttons style is lit by
 the client, as a tab bar is.
 
-The slider pill can now move onto `c.select`, which is what gives the slider a
-dropdown or buttons for its modes (`.modeStyle(…)`); waiting on the pill
-buttons design (B2).
+The slider's switch between its main controls (HA's name; "modes" before) is a
+`c.select` of `control` in every style (done, #577, stacked on #573), built from
+`c.its.mainControl`, a value among the slider's buttons and their default list:
+`c.its.mainControl.options(List(…)).style(…)`. The switch carries the controls,
+since a head it cannot reach is never shown; fewer than two on the light and it
+shows nothing (one left is that axis), and buttons with no switch are the plain
+row. Its heads are chosen by name (`?v.<id>.control=colourTemp`), not index.
+`.modes`, `.single` and `.modeStyle` left the slider, and the baked `ModeButton`
+and `c.select`'s own cycle button both became `c.pill`.
 
 ### Status
 
@@ -103,8 +110,9 @@ buttons design (B2).
   `c.select(target).options(…).style(…)` over a node variable, a `select`
   entity (the dump now carries its `options`) and a light's `effects`, in all
   three styles.
-  - Over an entity, each option is an `ActiveNode` lit by the server, so the
-    first HTML is right in every style, the cycle included.
+  - Over an entity, the server decides the chosen option in every style, so
+    the first HTML is right: lit in the buttons and the list, and in the cycle
+    marked `fh-chosen`, since its face is a pill whose lit look reads as "on".
   - The server refuses a choice of a variable that nothing on the page
     reads. A cycle or dropdown is a reader of its own; buttons need one (a
     chart's `.over(v.ref)`, a bake group).
@@ -130,18 +138,34 @@ buttons design (B2).
 
 ## B — the colour wheel
 
-- **Setting:** the colour mode gets `colour: "slider" | "popup" | "both"`,
-  default `"slider"`, which is today.
-  - `"popup"` swaps the hue track for a pill button opening a popup with the
-    wheel.
-  - `"both"` keeps the track and adds the button.
+- **Shape:** the wheel is a view tap, `c.view.colourWheel(l.colour)`, opening
+  it in a popup. On a slider it is one of the buttons; dropping the hue track
+  is a `c.its.mainControl.options(…)` without `"colour"`. It takes the
+  capability group, so a light without colour is an editor error;
+  `c.its.colourWheel` is the same button for the slider's own light, shown only
+  where it has colour.
+- **A slider's buttons** (decided with the maintainer): `.buttons(List(…))` of
+  taps and nodes, in the author's order. `c.its.*` (ADR 0015) are the ones
+  that mean the slider's own entity and name none: `toggle`, `mainControl`,
+  `colourWheel`, each nothing where the entity cannot do it. A tap carries its own look (icon, accessible label, what lights it),
+  so a bare tap is a pill; `c.pill(tap)` with `.label`/`.icon`/`.noIcon`
+  overrides it, round when an icon or an emoji is all it shows. A null in the
+  list is no button, so one list serves lights with and without a capability:
+  `l.colour.ifNonNull((col) -> c.view.colourWheel(col))`. pkl-lsp types `col`
+  as `NonNull`, and narrows no `!= null` either, so neither form is checked in
+  the editor; the evaluator checks both. `c.tap` is
+  what acts on HA, `c.view` what only changes the screen. An `ns` lambda bound
+  to the entity was rejected: it is ADR 0013's entity-first builder, with no
+  editor check for a capability. Naming of `c.view` and `c.pill` is open.
+- **Status:** the wheel done on its own branch, stacked on A
+  (`components/wheel.pkl`), as a CSS `conic-gradient` with a radial white
+  fade, no library; the pointer handlers are Datastar expressions over a small
+  `fhWheel` card script. The buttons on a branch stacked on it.
 - **The wheel** sets hue and saturation, so pastels become reachable, which
   the full-saturation track cannot do.
   - The pointer maps to `[h, s]`, posted as `hs_color` through the JSON-body
     route (#554) on release, as the slider does.
   - Brightness stays on the slider.
-  - Drawn with Orbit if its arcs fit, else a CSS `conic-gradient` with a
-    radial white fade.
 
 ## C — the radial menu
 
@@ -163,17 +187,8 @@ around the finger, drag to one and release to choose it.
   or without a library.
 - **Decided:** C as our own ring, with no dependency. Orbit stays the
   candidate for what it is built for, the arcs: a thermostat dial, gauges.
-- **Status (its own PR on A3):** `.style("radial")`, a `selectRadial` card
-  (entity, live face) and a `selectVarRadial` (variable, face baked by value).
-  - The ring is CSS: each option's `--fh-i` from `:nth-child`, `--fh-n` from
-    the count, so the server sends no angles; up to 12 options, more is a
-    build error pointing at the dropdown.
-  - A hold of 250 ms opens it; a drag picks by the pointer's angle outside the
-    face; the release clicks the picked option's own button, so it is that
-    option's tap, guard and busy look. A quick tap opens the ring for tapping,
-    and a second tap closes it.
-  - `touch-action:none` on the face only, so a scroll that starts elsewhere
-    still scrolls. Not yet tried on a phone.
+- **Still to try in a browser:** how a hold coexists with a tap (the cycle)
+  and with a page scroll (`touch-action`, a hold threshold).
 
 ## Open questions
 

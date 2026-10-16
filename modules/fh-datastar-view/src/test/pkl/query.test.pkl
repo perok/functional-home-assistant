@@ -12,6 +12,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "pkl:reflect"
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 
 // A stand-in dump. Two rooms, one light that is dimmable and one that is not,
@@ -82,7 +83,7 @@ facts {
     // is settled at build time and neither clause carries a guard.
     local s = q.from(stue)
       .caseOf(q.candidate((e) -> (e as hass.LightEntity).supportsFlash), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("off-duty", c.tap.navigate("/")))
+      .`else`((e) -> c.pill(c.view.navigate("/")).label("off-duty"))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].`when` == null
@@ -96,7 +97,7 @@ facts {
     // fallback. Order is author order, which IS match order.
     local s = q.from(stue)
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("off", c.tap.navigate("/")))
+      .`else`((e) -> c.pill(c.view.navigate("/")).label("off"))
       .build()
     memberOf.apply(s, "light.taklys").length == 2
     memberOf.apply(s, "light.taklys")[0].`when`.property == "state"
@@ -186,6 +187,22 @@ facts {
       .render((e) -> c.entityCard(e))
       .build()
     ids.apply(s) == List("light.taklys", "light.kjokken")
+  }
+
+  ["a schema member that holds no scalar is never read as a registry fact"] {
+    // `l.brightness` is the axis; the brightness a query names is HA's, live.
+    // Every such member, so a helper added later cannot shadow an attribute.
+    local members = (reflect.Class(hass.Entity).properties.keys + reflect.Class(hass.LightEntity).properties.keys)
+      .filter((n) -> let (v = kjokken.getPropertyOrNull(n)) v != null && !(v is q.Scalar))
+    List("brightness", "axes", "colourModes", "volatileAttrs").every((n) -> members.contains(n))
+    local orderedBy = (n) -> q.from(List(kjokken)).orderBy(q.desc(q.prop(n))).render((e) -> c.entityCard(e)).build().orderBy.toList()
+    // Live where HA reports the name, else refused as one nothing reports;
+    // never folded at build time.
+    members.filter((n) -> kjokken.volatileAttrs.containsKey(n))
+      .every((n) -> orderedBy.apply(n).first.by.property == "attr:\(n)")
+    members.filter((n) -> !kjokken.volatileAttrs.containsKey(n))
+      .every((n) -> module.catch(() -> orderedBy.apply(n)).contains("No candidate can report a live attribute called '\(n)'"))
+    orderedBy.apply("brightness").first.by.property == "attr:brightness"
   }
 
   ["a LIVE ordering key is emitted for the runtime to compare"] {
@@ -368,7 +385,7 @@ facts {
     local s = q.from(allEnts)
       .cases(new Mapping {
         [q.eq(q.prop("domain"), "light")] = (e) -> c.entityCard(e)
-        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.tap.navigate("/"))
+        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill(c.view.navigate("/")).label("s")
       })
       .build()
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
@@ -400,7 +417,7 @@ facts {
     // reaches the wire.
     local s = q.from(stue)
       .caseOf(q.candidate((_e) -> true), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("never", c.tap.navigate("/")))
+      .`else`((e) -> c.pill(c.view.navigate("/")).label("never"))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
@@ -674,7 +691,7 @@ facts {
     local a: hass.SceneEntity = new { entity_id = "scene.a" }
     local b: hass.SceneEntity = new { entity_id = "scene.b" }
     local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
-    local p = c.pill("A", c.tap.activate(a)).active(latest.eq(a))
+    local p = c.pill(c.tap.activate(a)).label("A").active(latest.eq(a))
     p.derivedValues["__active"] == latest.eq(a)
     p.liveClasses.containsKey("fh-active")
   }

@@ -1,0 +1,116 @@
+/// The colour wheel, `c.view.colourWheel(l.colour)`, and a slider's buttons. Outside `lib/` for the
+/// reason `components.test.pkl` gives.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/components/wheel.pkl" as wheelMod
+import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+
+local lamp: hass.LightEntity = new {
+  entity_id = "light.lamp"
+  colourModes { "color_temp"; "hs" }
+  colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+  colour = new hass.Colour { owner = lamp }
+}
+
+local function wheelIn(t: Any): wheelMod.ColourWheel? =
+  if (t is tapMod.OpenSurface)
+    let (popup = t.inlineSurfaces["self"].content)
+      popup.children.toList().first as wheelMod.ColourWheel
+  else null
+
+facts {
+  ["the wheel reads hs_color and sets it, through the JSON body"] {
+    local w = wheelMod.colourWheel(lamp)
+    (w.slots["hue"] as slotMod.Slot).transform.contains("attr[?'hs_color']")
+    // The server's reading paints nothing itself: the knob shows the client's
+    // copy, which the drag moves and a refusal, a dead stream, a cancelled
+    // pointer and a mount put back to the light's.
+    (w.slots["hue"] as slotMod.Slot).signal == slotMod.asHandler
+    local t = w.cardDef.template
+    t.contains(#"data-style:--fh-h="$_{{id}}__h""#)
+    t.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")
+    t.contains("data-effect=\"$_sse > 0 && (")
+    t.contains("data-on:pointercancel=")
+    t.contains("data-init=")
+    // What sets that error: the guard's mechanism, on the element that posts.
+    t.contains(tapMod.guardMechanism) && w.slots["busy"] == "1"
+    w.slots["service"] == "light/turn_on"
+    w.slots["dataKey"] == "hs_color"
+    w.cardDef.template.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
+    // A light with no colour mode has no wheel.
+    module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
+      .contains("colour != null")
+  }
+
+  ["the wheel is a view tap on the light's colour group, a pill in its look"] {
+    local t = c.view.colourWheel(lamp.colour!!)
+    wheelIn(t)?.light?.entity_id == "light.lamp"
+    t.icon == "mdi:palette-swatch"
+    local p = c.pill(t)
+    p.slots["round"] == "1" && p.slots["name"] == "Colour"
+    // A view tap: never lit by the light.
+    p.active == false
+    // A light without colour has no group to pass.
+    local warm: hass.LightEntity = new {
+      entity_id = "light.warm"
+      colourModes { "color_temp" }
+      colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
+    }
+    module.catch(() -> c.view.colourWheel(warm.colour)).contains("Colour")
+  }
+
+  ["on a slider with main controls the buttons are the pill's, the switch among them"] {
+    local s = c.entitySlider(lamp)
+      .buttons(List(c.tap.toggle(lamp), c.its.mainControl, c.view.colourWheel(lamp.colour!!)))
+    local bs = s.children["head"][0].children.toList()[0].children["children"].toList()
+    bs[0].slots["glyph"] == "mdi-power"
+    bs[1] is selectMod.VarSelectCycle
+    bs[2].slots["glyph"] == "mdi-palette-swatch"
+    // The heads carry none: they are the pill's.
+    s.controls.every((m) -> m.head.children["actions"].isEmpty)
+    // Without a switch there is one main control: the buttons are the plain head's.
+    local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp))).children["head"][0]
+    plain.card == "sliderHead" && plain.children["actions"].length == 1
+    // The wheel instead of the hue track is a switch without "colour".
+    c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))
+      .offeredControls == List("brightness", "colourTemp")
+  }
+
+  ["the main control switch is a select of the slider's control variable, in its style"] {
+    local switchOf = (sl: Any) -> sl.children["head"][0].children.toList()[0].children["children"].toList()[0]
+    local sw = switchOf.apply(c.entitySlider(lamp).buttons(List(c.its.mainControl.style("dropdown")))) as selectMod.VarSelectDropdown
+    sw.choices.map((ch) -> ch.value) == List("brightness", "colourTemp", "colour")
+    sw.choices.map((ch) -> ch.label) == List("Brightness", "Colour temperature", "Colour")
+    switchOf.apply(c.entitySlider(lamp).buttons(List(c.its.mainControl.style("buttons")))) is selectMod.SelectButtons
+    // The default list, cycling: a pill per control, the shown one baked.
+    local cyc = switchOf.apply(c.entitySlider(lamp)) as selectMod.VarSelectCycle
+    cyc.inlineSurfaces.length == 3
+    cyc.optionNodes.every((n) -> n is c.Pill)
+  }
+
+  ["c.its buttons are the slider's own entity's, and nothing where it cannot"] {
+    local warm: hass.LightEntity = new {
+      entity_id = "light.warm"
+      colourModes { "color_temp" }
+      colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
+    }
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    local function glyphsOn(l: hass.LightEntity) =
+      c.entitySlider(l).buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel)).shownButtons
+        .filterNonNull().map((b) -> if (b is selectMod.Select) "switch" else c.pill(b as tapMod.TapAction).slots["glyph"])
+    glyphsOn(lamp) == List("mdi-power", "switch", "mdi-palette-swatch")
+    glyphsOn(warm) == List("mdi-power", "switch")
+    glyphsOn(plug) == List("mdi-power")
+    // The toggle is the slider's own entity's.
+    (c.entitySlider(warm).buttons(List(c.its.toggle)).shownButtons[0] as tapMod.Call).target == warm
+    // A null is no button either, for a building block that names its target.
+    local function viaNull(l: hass.LightEntity) =
+      c.entitySlider(l).buttons(List(c.tap.toggle(l), l.colour.ifNonNull((col) -> c.view.colourWheel(col))))
+        .children["head"][0].children["actions"].length
+    viaNull(lamp) == 2 && viaNull(warm) == 1
+  }
+}

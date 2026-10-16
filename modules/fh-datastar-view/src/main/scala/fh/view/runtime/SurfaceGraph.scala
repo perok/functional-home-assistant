@@ -54,11 +54,11 @@ private[runtime] final class SurfaceGraph(
 
   /** The member of a variable-selected group that `value` selects. */
   def memberAt(gid: NodeId, value: String): Option[Int] =
-    Some(
-      bakeGroup(gid).indexWhere(
-        surfaces.get(_).flatMap(_.selectedAt).contains(value)
-      )
-    ).filter(_ >= 0)
+    bakeGroup(gid).zipWithIndex.collectFirst {
+      case (sid, i)
+          if surfaces.get(sid).flatMap(_.selectedAt).contains(value) =>
+        i
+    }
 
   /** What selects each member of a variable-selected group, in its order. */
   def memberValues(gid: NodeId): List[String] =

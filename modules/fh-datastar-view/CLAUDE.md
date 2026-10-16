@@ -304,11 +304,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   a slider with `members` — the SAME card, holding member rows that are ORDINARY nodes: the head and
   the members are two REGIONS of it, so a master state change never repaints a row. The head is
   itself structure (#151): its label and second line are a `sliderText` leaf (the only bytes on the
-  row that move — everything else is a signal or a literal), and its buttons are a `sliderAction`
+  row that move — everything else is a signal or a literal), and its buttons are a pill
   each, in an `actions` region, so two of them can be in flight without disabling one another.
-  `.actions(…)` is the list; `.tapAction(…)` is the one-button shorthand and stays first. Every slider
+  `.buttons(…)` is the list, of taps (each a pill in its own look) and pills, a null being no
+  button (`l.colour.ifNonNull((col) -> c.view.colourWheel(col))` for a light that may lack colour); on a slider with
+  main controls they sit on the pill; `c.its.*` are the ones about the slider's own entity (ADR 0015). Every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
-  `icon`/`secondary`/`tapAction` are optional pieces a plain row simply doesn't carry
+  `icon`/`secondary`/`buttons` are optional pieces a plain row simply doesn't carry
   (`c.entitySlider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
   `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
@@ -325,7 +327,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   label that fits sits still and nothing measures anything. A tab bar is deliberately outside it — it
   scrolls sideways, so a tab is reached rather than shortened,
   expr/exprOf,
-  the `c.tap` namespace (`components/tap.pkl`: verbs that each NAME their target — `toggle(e)`/`default(e)`/`moreInfo(e)`/`activate(x)` (a scene, script, button or helper button — `hass.Activatable`)/`call(service, target)` with `.with(key, value)`/`navigate`/the popup ones, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it; `c.tap(e)` is the facade METHOD beside it, the same as `default(e)`), **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`components/tap.pkl`: what a click does IN HA, verbs that each NAME their target — `toggle(e)`/`default(e)`/`activate(x)` (a scene, script, button or helper button — `hass.Activatable`)/`call(service, target)` with `.with(key, value)`, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it; `c.tap(e)` is the facade METHOD beside it, the same as `default(e)`) and the `c.view` namespace beside it (`components/view.pkl`: what only changes the screen — `moreInfo(e)`/`navigate`/the popup ones), and `c.its` (`components/its.pkl`: buttons that name no target and mean the holding card's subject entity — `toggle`/`mainControl`/`colourWheel`; ADR 0015 has the pattern and how a new card or item joins it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not — and more-info for a `lock` too, whose Lock/Unlock buttons are what act
   (`hass/actions.pkl`'s `cardOpensMoreInfo`, `c.lock.controls`) — and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
@@ -339,11 +341,16 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts. The light ITSELF,
   `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
-  them: a head per mode in a bake group selected by the node variable `mode` the slider declares
-  (`base/slider.pkl`'s `SliderModes`), with a pill over the track's end, as any slider's buttons, holding the mode button, which
-  steps to the next, and the actions. A group's rows have their own; on `.syncRows()` they follow the
-  head's `mode` instead, greyed where they lack one. A slider a candidate set renders per member
-  keeps its first mode (`Node.perMember`): it cannot declare `mode` there. `.single()` / `.modes(List(…))` narrow it — a filter over what the light has, ADR 0013),
+  them, its MAIN CONTROLS (HA's name): a head per control in a bake group selected by the node variable
+  `control` the slider declares (`base/slider.pkl`'s `SliderControls`, each head chosen by the control's name), with a pill over the track's end, as any slider's buttons, holding the
+  slider's buttons and its switch: `c.its.mainControl`, the default list, a `c.select` of `control` (a pill
+  stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; on `.syncRows()` they follow the
+  head's `control` instead, greyed where they lack one. A slider a candidate set renders per member
+  keeps its first control (`Node.perMember`): it cannot declare `control` there. It OPENS on the
+  head for the mode the light is in, a start read once as the page opens (ADR 0033) and never
+  followed; `.opensOn(List(l.colour, l.colourTemp))` gives the order, `.opensOn(List(l.brightness))`
+  always brightness. Each control is a `hass.Axis` (`l.brightness`, `l.colourTemp`, `l.colour`;
+  `l.axes`), which carries what the slider drives, so the card holds no light branches (ADR 0013). `c.its.mainControl.options(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
   by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving
@@ -363,7 +370,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cssProperty("--x",
   reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
-  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.tap.moreInfo(e)` tap:
+  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now

@@ -149,7 +149,7 @@ connection the server has forgotten can be re-established rather than dropped
 (ADR 0024). Which means these are transforms, not constant strings — only a
 transform reads `$dashboardSlug`.
 
-This is why reuse "just works": `c.button(eo, action=c.tap.openPopup('x'))` needs
+This is why reuse "just works": `c.button(eo, action=c.view.openPopup('x'))` needs
 no new template.
 
 **Going somewhere is the exception, and it is not an expression at all.** A `TapAction`
@@ -163,7 +163,7 @@ styles buttons as `:is(button,.button)`, so the anchor form is visually
 identical.) The `TapAction` also carries the equivalent `onclick`
 (`window.location.assign(new URL('d/<slug>', document.baseURI))`) for cards whose
 root element cannot be an anchor — `tile`'s `<article>` — so one authored
-`c.tap.navigate('x')` renders correctly wherever it is dropped.
+`c.view.navigate('x')` renders correctly wherever it is dropped.
 
 A link to the dashboard already open carries `fh-current-dashboard` and
 `aria-current="page"`, and stays a link. A module does not know its own slug,

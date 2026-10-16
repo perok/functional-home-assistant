@@ -39,7 +39,7 @@ object SmokeDashboard {
        |    body {
        |      c.title("Kitchen Detail")
        |      c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
-       |      c.button("Close", c.tap.closePopup())
+       |      c.button("Close", c.view.closePopup())
        |    }
        |  }
        |}
@@ -48,7 +48,7 @@ object SmokeDashboard {
        |  children {
        |    c.title("Smoke House")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
-       |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.openPopup("detail"))
+       |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.view.openPopup("detail"))
        |    c.button("Toggle Kitchen", c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
        |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.lock.controls(dump.entities.${HouseFixture.frontLock.dumpKey})
@@ -132,7 +132,7 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
+         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).buttons(List(c.pill(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey})).icon("mdi:power")))
          |  }
          |}
          |""".stripMargin
@@ -268,6 +268,33 @@ object SmokeDashboard {
       HouseFixture.dumpWith(colourLamp)
     )
 
+  /** [[lightSlider]] switching its modes from a dropdown on the pill, between a
+    * power pill and the colour wheel's.
+    */
+  val lightSliderDropdown: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-dropdown",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider Dropdown"
+         |
+         |$fontPinnedTheme
+         |
+         |local l = dump.entities.${colourLamp.dumpKey}
+         |
+         |card = (c.grid) {
+         |  children {
+         |    c.entitySlider(l)
+         |      .buttons(List(c.tap.toggle(l), c.its.mainControl.style("dropdown"), c.view.colourWheel(l.colour)))
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp)
+    )
+
   /** `c.select(v).style("radial")` with room above for its ring. */
   val selectRadial: Dashboard =
     PklFixture.buildDashboard(
@@ -330,7 +357,7 @@ object SmokeDashboard {
          |local head = dump.entities.${colourLamp.dumpKey}
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).syncRows().withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head), c.its.mainControl)).syncRows().withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
          |    ))
@@ -358,7 +385,7 @@ object SmokeDashboard {
          |local head = dump.entities.${groupDimmer.dumpKey}
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).secondary("Kitchen").withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).secondary("Kitchen").withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null)
          |    ))
@@ -389,9 +416,9 @@ object SmokeDashboard {
          |  children {
          |    (c.row) {
          |      children {
-         |        c.pill("Kveld", c.tap.toggle(k))
-         |        c.pill("Morgen", c.tap.toggle(k))
-         |        c.pill("Film", c.tap.toggle(k))
+         |        c.pill(c.tap.call("light/toggle", k)).label("Kveld")
+         |        c.pill(c.tap.call("light/toggle", k)).label("Morgen")
+         |        c.pill(c.tap.call("light/toggle", k)).label("Film")
          |      }
          |    }
          |  }

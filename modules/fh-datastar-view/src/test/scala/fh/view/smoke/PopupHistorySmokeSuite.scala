@@ -24,13 +24,13 @@ class PopupHistorySmokeSuite extends SmokeSuite {
       |  ["first"] {
       |    body {
       |      c.title("First popup")
-      |      c.button("Open second", c.tap.openPopup("second"))
+      |      c.button("Open second", c.view.openPopup("second"))
       |    }
       |  }
       |  ["second"] {
       |    body {
       |      c.title("Second popup")
-      |      c.button("Close", c.tap.closePopup())
+      |      c.button("Close", c.view.closePopup())
       |    }
       |  }
       |}
@@ -38,7 +38,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
       |card = (c.column) {
       |  children {
       |    c.title("Popup history")
-      |    c.button("Open first", c.tap.openPopup("first"))
+      |    c.button("Open first", c.view.openPopup("first"))
       |  }
       |}
       |""".stripMargin

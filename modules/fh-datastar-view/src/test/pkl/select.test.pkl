@@ -7,6 +7,9 @@ import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+import "../../main/resources/dashboards/lib/components/base/button.pkl" as buttonMod
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "pkl:reflect"
 
 local shade = c.variable("shade")
 
@@ -30,6 +33,19 @@ local function members(s: selectMod.Select): List<Pair<Any, String?>> =
     .map((m) -> Pair(m.content, m.activation.value))
 
 facts {
+  ["style keeps what was set on the select before it; every node field is carried or the card's"] {
+    local before = c.select(shade).options(List("a", "b")).columns(6).cssProperty("--x", new slotMod.Slot { entityId = "sensor.x"; transform = "state" }) as selectMod.Select
+    local after = before.style("dropdown")
+    after.cellClasses.toList() == List("fh-cols-6")
+    after.liveProperties == before.liveProperties && !after.liveProperties.isEmpty
+    after.card == "selectVarDropdown"
+    // A field Node gains must be named here: carried by `style`, or computed by
+    // the card. Otherwise it is dropped by `.style(…)` without a word.
+    local carried = Set("cellClasses", "stateClasses", "liveClasses", "liveProperties", "id", "vars", "starts", "perMember", "expressionValues")
+    local cards = Set("kind", "cell", "card", "cardDef", "slots", "children", "regions", "values", "inlineSurfaces", "derivedValues")
+    reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
+  }
+
   ["over a variable: buttons by default, one per option, each choosing its own"] {
     local s = c.select(shade).options(List("pale", "deep"))
     s is selectMod.SelectButtons
@@ -73,12 +89,14 @@ facts {
     local bs = members(cyc)
     bs.map((m) -> m.second) == List("a", "b", "c")
     route(bs[0].first).contains("/shade/b") && route(bs[1].first).contains("/shade/c") && route(bs[2].first).contains("/shade/a")
-    // An icon replaces the label on the face.
+    // Each face is a pill in its option's look: an icon replaces the label,
+    // which still names it, and the pill is round.
     local iconic = members(c.select(shade)
-      .options(List(new selectMod.Choice { value = "a"; icon = "mdi:palette" }, "b"))
+      .options(List(new selectMod.Choice { value = "a"; label = "Aa"; icon = "mdi:palette" }, "b"))
       .style("cycle"))
-    (iconic[0].first as selectMod.CycleButton).slots["glyph"] == "mdi mdi-palette"
-    !(iconic[1].first as selectMod.CycleButton).slots.containsKey("glyph")
+    local face = iconic[0].first as buttonMod.Pill
+    face.slots["glyph"] == "mdi-palette" && face.slots["name"] == "Aa" && face.slots["round"] == "1"
+    !(iconic[1].first as buttonMod.Pill).slots.containsKey("glyph")
   }
 
   ["over a select entity: its own options, each a call lit by the state"] {
@@ -113,10 +131,13 @@ facts {
 
   ["over a light's effects: turn_on with the effect, lit by its attribute"] {
     local cyc = c.select(lamp.effects!!).style("cycle").children.toList()
-    local tap = (cyc[0] as selectMod.EntityOption).tapAction
+    // A cycle's faces are pills, marked by the server so only the chosen shows;
+    // not lit, which would read as "on".
+    local tap = (cyc[0] as buttonMod.Pill).tapAction as tapMod.Call
     tap.service == "light/turn_on"
     tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
-    ((cyc[1] as selectMod.EntityOption).active as slotMod.Expr).transform.contains("attr[?'effect']")
+    ((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].transform as String).contains("attr[?'effect']")
+    (cyc[1] as buttonMod.Pill).active == false
   }
 
   [".options picks, orders and relabels an entity's, and refuses one it lacks"] {

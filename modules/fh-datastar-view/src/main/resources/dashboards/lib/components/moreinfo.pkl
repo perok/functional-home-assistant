@@ -75,7 +75,7 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
   }
 }
 
-/// `c.entityCard(e).tapAction(c.tap.moreInfo(e))`, or `c.entityCard(e) |>
+/// `c.entityCard(e).tapAction(c.view.moreInfo(e))`, or `c.entityCard(e) |>
 /// c.informative`. An inline popup: the body is this entity's alone.
 function moreInfo(e: hass.Entity): tapMod.OpenSurface = tapMod.openPopupInline(moreInfoBody(e))
 

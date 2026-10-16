@@ -29,6 +29,13 @@ const local dragPos: String = posFrom("evt.target.value")
 const local function hueMarker(hue: String): String =
   "$\(slotMod.signalRef("fillColor")) = 'hsl(' + Math.round(\(hue)) + ',100%,50%)'"
 
+/// A kelvin track's marker, in the colour `sliderFillColourRamp` gives the
+/// server's `fillColor`. Below the range is no kelvin at all (a light in a
+/// colour mode reads `0`): `transparent`, the track's paint for none.
+const local function kelvinMarker(k: String): String =
+  let (t = "(\(posFrom(k)) / 100)")
+    "$\(slotMod.signalRef("fillColor")) = (\(k) >= {{min}} ? 'rgb(' + Math.round(255 - 54 * \(t)) + ',' + Math.round(166 + 60 * \(t)) + ',' + Math.round(87 + 168 * \(t)) + ')' : 'transparent')"
+
 /// What the control SHOWS: the finger during a gesture, the server's last word
 /// at rest. A second signal beside the value slot, because
 /// `data-on-signal-patch` fires on local writes too, so one signal cannot tell
@@ -49,7 +56,8 @@ const local rollbackToCommitted: String =
       "$\(slotMod.signalRef("fill")) = (100 - \(posFrom(committed))) + '%'" +
       "{{#dragPercent}}, $\(slotMod.signalRef("state")) = " +
       "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}" +
-      "{{#hueTrack}}, \(hueMarker(committed)){{/hueTrack}}"
+      "{{#hueTrack}}, \(hueMarker(committed)){{/hueTrack}}" +
+      "{{#kelvinTrack}}, \(kelvinMarker(committed)){{/kelvinTrack}}"
 
 /// The two ways an ask ends with no commit coming (ADR 0025): the stream is
 /// down, or the server refused (ADR 0024).
@@ -87,7 +95,7 @@ class SliderHead extends nodes.ActiveNode {
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="fh-slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
+        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#kelvinTrack}} fh-track-kelvin{{/kelvinTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
@@ -95,7 +103,7 @@ class SliderHead extends nodes.ActiveNode {
             \(adoptCommitted)
             \(restoreOnDeadStream)
             \(tapMod.busyAttrsChange)
-            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}{{#hueTrack}}; \(hueMarker("evt.target.value")){{/hueTrack}}"
+            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}{{#hueTrack}}; \(hueMarker("evt.target.value")){{/hueTrack}}{{#kelvinTrack}}; \(kelvinMarker("evt.target.value")){{/kelvinTrack}}"
             data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', \(tapMod.withData("{{dataKey}}", "{{#valueRest}}[{{/valueRest}}Number($\(slideSig)){{#valueRest}}{{valueRest}}]{{/valueRest}}")))" />{{/toggle}}
           <span style="--fh-fill: {{fill}};background:{{fillColor}}" \(slotMod.signalBind("fill")) \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="fh-slider-toggle" aria-label="{{label}}"
@@ -127,84 +135,72 @@ class SliderText extends nodes.Node {
   }
 }
 
-/// The node variable a slider with modes declares: the index of the head it
-/// shows. A group's rows read the head's, so they switch with it.
-const modeVar: varMod.Variable = new { name = "mode" }
+/// The node variable a slider with main controls declares: the value of the
+/// head it shows. A group's rows read the head's, so they switch with it.
+const controlVar: varMod.Variable = new { name = "control" }
 
-/// One head a [[SliderModes]] can show, and the pill's button while it shows.
-class ModeHead {
+/// One head a [[SliderControls]] can show, while [[controlVar]] is at [[value]].
+class ControlHead {
+  value: varMod.Value
   head: SliderHead
-  /// Null on a group's row, which has no pill.
-  button: ModeButton? = null
 }
 
-/// The pill's mode button while one mode shows: its icon, choosing the next,
-/// so a tap steps through them. Built by the slider.
-class ModeButton extends nodes.Node {
-  card = "modeButton"
-  cardDef = new nodes.CardDef {
-    template = #"<button class="fh-circle fh-mode" title="{{label}}" aria-label="{{label}}" data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard)><i class="{{glyph}}"></i></button>"#
-    slots { "label"; "glyph"; "onclick" }
-  }
-  hidden label: String
-  /// An MDI name, `mdi:palette`.
-  hidden icon: String
-  hidden tapAction: tapMod.SetVar
-  slots {
-    ["label"] = label
-    ["glyph"] = "mdi " + icons.mdiClass(icon)
-    for (k, v in tapMod.tapSlots(tapAction)) {
-      [k] = v
-    }
-  }
-}
+/// One of a slider's [[Slider.buttons]]: a tap, shown as a pill in its look;
+/// a node, such as a pill or a `c.select`; or a [[nodes.SubjectButton]]. A null is
+/// no button.
+typealias SliderButton = tapMod.TapAction|nodes.LayoutNode|nodes.SubjectButton
 
-// One panel per mode, baked into the node: the shown one is in the first HTML,
+const local function pillsOf(bs: List<SliderButton?>): Listing<nodes.LayoutNode> =
+  bs.filterNonNull()
+    .map((b) ->
+      if (b is nodes.SubjectButton) throw("A c.its button is about the slider's own entity, and this slider has none.")
+      else if (b is tapMod.TapAction) buttonMod.pill(b)
+      else b as nodes.LayoutNode)
+    .toListing()
+
+// One panel per main control, baked into the node: the shown one is in the first HTML,
 // so nothing waits on a script to pick it.
-const local function modePanels(prefix: String, contents: List<nodes.LayoutNode>): Mapping<String, surfaceMod.SurfaceDef> =
+const local function controlPanels(ms: List<ControlHead>): Mapping<String, surfaceMod.SurfaceDef> =
   new Mapping {
-    for (i, c in contents) {
-      ["\(prefix)\(i)"] = new surfaceMod.SurfaceDef {
-        content = c
+    for (i, m in ms) {
+      ["m\(i)"] = new surfaceMod.SurfaceDef {
+        content = m.head
         bakeInto = nodes.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
-        activation = modeVar.selects
+        activation = controlVar.selecting(m.value)
       }
     }
   }
 
-/// The buttons at the track's end: the shown mode's [[ModeButton]], a panel
-/// chosen by [[modeVar]] as the head is, then the slider's actions.
+/// The buttons at the track's end, the switch between the main controls among
+/// them: one pill over every head, so it stays put while they swap.
 class SliderPill extends nodes.Node {
   card = "sliderPill"
   cellClasses { "fh-slider-pill-cell" }
   cardDef = new nodes.CardDef {
-    regions = new Mapping {
-      [nodes.defaultRegion] = new nodes.Region {}
-      ["panel"] = new nodes.Region { fill = "baked" }
-    }
-    template = #"<div class="fh-slider-pill"><div id="{{hostId}}" class="fh-slider-pill-mode">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
+    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+    template = #"<div class="fh-slider-pill">{{#children}}{{{html}}}{{/children}}</div>"#
   }
-  hidden buttons: List<ModeButton>
-  inlineSurfaces = modePanels("p", buttons)
+  hidden buttons: List<SliderButton?>
+  children = new Mapping { [nodes.defaultRegion] = pillsOf(buttons) }
 }
 
-/// A slider's head as one of several, chosen by [[modeVar]], with the pill
+/// A slider's head as one of several, chosen by [[controlVar]], with the pill
 /// beside it. The tabs machinery (ADR 0033): a head not shown is neither
 /// rendered nor kept live. A group's row has the heads and no pill.
-class SliderModes extends nodes.Node {
-  card = "sliderModes"
-  cellClasses { "fh-slider-modes-cell" }
+class SliderControls extends nodes.Node {
+  card = "sliderControls"
+  cellClasses { "fh-slider-controls-cell" }
   cardDef = new nodes.CardDef {
     regions = new Mapping {
       [nodes.defaultRegion] = new nodes.Region {}
       ["panel"] = new nodes.Region { fill = "baked" }
     }
-    template = #"<div class="fh-slider-modes"><div id="{{hostId}}" class="fh-slider-modes-panel">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-slider-controls"><div id="{{hostId}}" class="fh-slider-controls-panel">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
   }
-  hidden modes: List<ModeHead>
-  inlineSurfaces = modePanels("m", modes.map((m) -> m.head))
+  hidden controls: List<ControlHead>
+  inlineSurfaces = controlPanels(controls)
 }
 
 /// The slider. `position`, `fill` and `reading` are three readings rather than
@@ -217,7 +213,7 @@ class SliderModes extends nodes.Node {
 ///   (c.entitySlider(dump.entities.light_lys)) {
 ///     icon = "mdi:lightbulb-group"
 ///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
-///     tapAction = c.tap.toggle(dump.entities.light_lys)
+///     buttons = List(c.tap.toggle(dump.entities.light_lys))
 ///     members { c.entitySlider(a).readout("percent") c.entitySlider(b).readout("percent") }
 ///   }
 ///
@@ -259,15 +255,21 @@ open class Slider extends nodes.Node {
   /// the position, in [[fillDefault]]: on a hue, a fill from the left edge
   /// says nothing.
   hidden hueTrack: Boolean = false
+  /// Paints the track warm to cold with a marker, as [[hueTrack]]; a light in a
+  /// colour mode reports no kelvin, and shows the band with no marker.
+  hidden kelvinTrack: Boolean = false
   /// Set, the track is one button posting this, with no range input.
   hidden press: tapMod.TapAction? = null
   /// Whether the commit's busy look shows. The guard and the input freeze stay
   /// either way; each head action also honours its own tap's `busyVisual`.
   hidden busyVisual: Boolean = true
-  /// The buttons at the right of the head, after [[leadingActions]] (#151).
-  hidden actions: Listing<buttonMod.Button> = new {}
-  /// Buttons a subclass puts first, so an author's [[actions]] add to them.
-  hidden leadingActions: Listing<buttonMod.Button> = new {}
+  /// The pills at the right of the head, in this order (#151): a tap is a pill
+  /// in its look. On a slider that declares [[controlVar]] they are on the
+  /// pill, the switch between its [[controls]] among them.
+  hidden buttons: List<SliderButton?> = List()
+  /// [[buttons]] as shown, its [[nodes.SubjectButton]]s filled in by a
+  /// subclass that knows an entity.
+  hidden shownButtons: List<SliderButton?> = buttons
   /// Not `children`: this card has two regions, and these fill one.
   hidden members: Listing<nodes.LayoutNode> = new {}
   /// The entity a reading that names none reads — see `Button.subject`.
@@ -332,6 +334,9 @@ open class Slider extends nodes.Node {
     when (hueTrack) {
       ["hueTrack"] = "1"
     }
+    when (kelvinTrack) {
+      ["kelvinTrack"] = "1"
+    }
     when (greyed) {
       ["greyed"] = "1"
     }
@@ -352,18 +357,15 @@ open class Slider extends nodes.Node {
   }
   /// The heads it switches between, the first shown before anyone chooses. One
   /// or none is the plain [[headNode]].
-  hidden modes: List<ModeHead> = List()
-  /// Whether this node declares [[modeVar]]; false on a group's row, which
-  /// reads its head's.
-  hidden declaresMode: Boolean = modes.length > 1
-  /// The actions after the pill's mode button: on a slider with modes, the
-  /// head's actions are these.
-  hidden pillActions: Listing<nodes.LayoutNode> = new {}
-  /// Dimmed and disabled: a group's row standing in for a mode it lacks.
+  hidden controls: List<ControlHead> = List()
+  /// Whether this node declares [[controlVar]]; false on a group's row, which
+  /// reads its head's and has no pill.
+  hidden declaresControl: Boolean = controls.length > 1
+  /// Dimmed and disabled: a group's row standing in for a control it lacks.
   hidden greyed: Boolean = false
   /// What fills the member region; a subclass may adapt [[members]].
   hidden memberRows: Listing<nodes.LayoutNode> = members
-  vars = if (declaresMode) modeVar.declare("0") else null
+  vars = if (declaresControl) controlVar.declare(controls[0].value) else null
   slots {
     when (!members.isEmpty) {
       ["group"] = "fh-slider-group"
@@ -382,7 +384,7 @@ open class Slider extends nodes.Node {
         ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
       if (own.isEmpty && derivedValues.isEmpty) null
       else new Mapping { ...own; ...derivedValues }
-  /// This slider's own row; a slider with [[modes]] shows one of theirs.
+  /// This slider's own row; a slider with [[controls]] shows one of theirs.
   hidden headNode: SliderHead =
     let (headActive = active) (new SliderHead {}) {
       active = headActive
@@ -394,18 +396,18 @@ open class Slider extends nodes.Node {
       }
       children = new Mapping {
         ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }
-        ["actions"] = new Listing { ...leadingActions ...actions }
+        ["actions"] = pillsOf(shownButtons)
       }
     }
   children = new Mapping {
     ["head"] = new Listing {
-      when (modes.length > 1) {
-        let (ms = modes) let (rest = pillActions)
-          new SliderModes {
-            modes = ms
+      when (controls.length > 1) {
+        let (cs = controls) let (bs = shownButtons) let (pill = declaresControl)
+          new SliderControls {
+            controls = cs
             children {
-              when (ms.every((m) -> m.button != null)) {
-                new SliderPill { buttons = ms.map((m) -> m.button!!); children = rest }
+              when (pill) {
+                new SliderPill { buttons = bs }
               }
             }
           }
@@ -416,8 +418,9 @@ open class Slider extends nodes.Node {
     ["children"] = memberRows
   }
 
-  function actions(xs: List<buttonMod.Button>): Slider =
-    let (self = this) (self) { actions = xs.toListing() }
+  /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour!!)))`.
+  function buttons(xs: List<SliderButton?>): Slider =
+    let (self = this) (self) { buttons = xs }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function disabled(d: nodes.BooleanInput): Slider = let (self = this) (self) { disabled = d }
   // BeerCSS's slider markup, `fh-slider` being its `.slider.max`: the wrapper
@@ -579,20 +582,20 @@ const local sliderCss: String = """
   /* A slider holding sliders: the master's fill is the whole card's
      background, behind the rows, so the group reads as one control. */
   .fh-slider-group{overflow:hidden}
-  /* Modes: the shown head beside the pill, which sits over the track's end as
+  /* Main controls: the shown head beside the pill, which sits over the track's end as
      any slider's buttons do: the track is the card's, a group's rows included.
      Static, or BeerCSS's `*{position:relative}` makes a wrapper the track's
      box. */
-  .fh-slider-modes-cell,.fh-slider-pill-cell,.fh-slider-pill-mode,.fh-slider-pill .fh-cell{display:contents}
-  .fh-slider-modes{display:flex;flex-wrap:nowrap;align-items:center;position:static}
-  .fh-slider-modes-panel{position:static;flex:1 1 auto;min-inline-size:0;align-self:stretch}
+  .fh-slider-controls-cell,.fh-slider-pill-cell,.fh-slider-pill .fh-cell{display:contents}
+  .fh-slider-controls{display:flex;flex-wrap:nowrap;align-items:center;position:static}
+  .fh-slider-controls-panel{position:static;flex:1 1 auto;min-inline-size:0;align-self:stretch}
   .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3;--fh-cell-flex:0 0 auto;--fh-cell-width:auto}
   .fh-slider-pill .fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
   /* A row's head and track share the panel's one grid cell, as they share the
-     row's without modes, so the label stays centred; its pill, if it has one,
+     row's without controls, so the label stays centred; its pill, if it has one,
      sits at the row's end, in line with the head's buttons above. */
-  .fh-slider-members .fh-slider-modes{align-items:stretch}
-  .fh-slider-members .fh-slider-modes-panel{display:grid}
+  .fh-slider-members .fh-slider-controls{align-items:stretch}
+  .fh-slider-members .fh-slider-controls-panel{display:grid}
   .fh-slider-members .fh-slider-pill{padding-inline:.25rem}
   .fh-slider-greyed{opacity:.45}
   /* Through `.fh-slider-body`, so these miss the members' own heads. Rows are
@@ -635,9 +638,16 @@ const local sliderCss: String = """
   .fh-slider-body>.fh-slider.fh-track-hue{--fh-track-veil:color-mix(in srgb,var(--fh-surface) 35%,transparent);
   background:linear-gradient(var(--fh-track-veil),var(--fh-track-veil)),
   linear-gradient(to right,#f00,#ff0 16.67%,#0f0 33.33%,#0ff 50%,#00f 66.67%,#f0f 83.33%,#f00)}
+  /* The ends of `sliderFillColourRamp`, so the fill matches the band it covers. */
+  .fh-slider-body>.fh-slider.fh-track-kelvin{--fh-track-veil:color-mix(in srgb,var(--fh-surface) 35%,transparent);
+  background:linear-gradient(var(--fh-track-veil),var(--fh-track-veil)),
+  linear-gradient(to right,rgb(255,166,87),rgb(201,226,255))}
   /* The marker is a knob in the hue it marks, ringed so it reads on any band.
      `.fh-slider-card` outranks a group master's span rule. */
-  .fh-slider-card .fh-slider-body>.fh-slider.fh-track-hue>span:not([class]){inset:.375rem var(--fh-fill) .375rem auto;
+  .fh-slider-card .fh-slider-body>.fh-slider:is(.fh-track-hue,.fh-track-kelvin)>span:not([class]){inset:.375rem var(--fh-fill) .375rem auto;
   block-size:auto;inline-size:.875rem;transform:translateX(50%);border-radius:.4375rem;opacity:1;pointer-events:none;
   box-shadow:0 0 0 .1875rem #fff,0 0 0 .25rem rgba(0,0,0,.35),0 .125rem .375rem .25rem rgba(0,0,0,.25)}
+  /* No kelvin, no marker. By the inline paint, because a light in a colour mode
+     is the one fact this span is told, and style queries need Safari 18. */
+  .fh-slider-body>.fh-slider.fh-track-kelvin>span[style*="transparent"]{visibility:hidden}
   """

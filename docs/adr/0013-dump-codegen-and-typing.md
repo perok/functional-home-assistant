@@ -191,7 +191,9 @@ because that is where an author looks one up by name; a smaller scope is filtere
 `hass.Entity.volatileAttrs` is `name -> type name` for the live attributes an
 entity can report. It closes a silent failure in the query surface: a typo'd
 attribute (`q.prop("brightnes")`) used to resolve to a live read that never
-matched, so the card simply never updated.
+matched, so the card simply never updated. It also decides a name both ways: a
+name listed here is read live even where the schema has a member of that name
+(ADR 0003).
 
 **Names and types only — never a value, not even null.** A value slot is
 precisely the thing that later gets helpfully filled with the live reading,
@@ -294,17 +296,33 @@ onto the domain class as **groups** — one nullable object per concept, not
 several independent nullable fields:
 
 ```pkl
-class ColourTemp { min_kelvin: Int; max_kelvin: Int }
-class Colour {}   // no values: the hue range is HA's 0–360, so the group is the predicate
+class ColourTemp extends Axis { min_kelvin: Int; max_kelvin: Int; … }
+class Colour extends Axis { … }   // no dump values: the hue range is HA's 0–360
 
 open class LightEntity extends Entity {
   hidden colourModes: Listing<ColorMode> = new Listing {}
   hidden supported_features: Int = 0
+  hidden brightness: Brightness? = …  // derived from the modes: the range is HA's 1–255
   hidden colourTemp: ColourTemp? = null
   hidden colour: Colour? = null
   hidden effects: Effects? = null
+  hidden axes: List<Axis> = …         // the non-null ones, in HA's order
 }
 ```
+
+**A group a slider can drive is an `Axis`**: it carries where its value is read (`attr`, and
+`element` for one inside a list), how it is written (`service`, `key`, `sentWith`), its range, its
+main-control `name`, and `inUseWhen`: when the entity is on it now, as DATA (an attribute among
+values, `color_mode` in `COLOUR_MODES`), since `hass.pkl` holds HA's facts and no CEL. The card
+reads all of it off the axis, so a new axis is a class here and not a branch in the card: a cover's
+tilt would be a `CoverEntity` with a tilt axis, and its position the cover's `domainAxes` row
+(an `Axis` too) until then. What stays the card's is the look: the hue's and the kelvin track's
+paint are type tests on `Colour` and `ColourTemp` in `components/slider.pkl`. `.opensOn(…)` takes
+axis objects for the same reason the slider does, so `l.colour` on a light without colour is a
+nullability error before eval. A
+group's name may be HA's own (`brightness`): `q.prop` reads a name the entity reports live as the
+live attribute (ADR 0003), and the dump drops a carried attribute the schema models, as it drops
+`supported_color_modes`.
 
 Flat nullable fields were rejected earlier; grouping removes the reason:
 
@@ -360,13 +378,15 @@ takes **the group alone** and still knows its subject:
 ```pkl
 c.entitySlider(l)               // the domain's default axis — on a light, brightness, plus a
                                 // mode for each capability below that it has
+c.entitySlider(l.brightness)    // brightness alone
 c.entitySlider(l.colourTemp)    // colour temperature, bounds from the light itself
 c.entitySlider(l.colour)        // the hue, posted as hs_color = [h, 100]
 c.light.effectPills(l.effects)
 ```
 
-`EntitySlider` accepts `SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour` and pattern-matches
-with `is` to derive its entity, key, bounds and tracked attribute. Three
+`EntitySlider` accepts `SlideAxis = hass.Entity|hass.Axis` and reads its entity, key, bounds and
+tracked attribute off the axis; an entity given as itself gets its domain's row
+(`domainAxes`), an `Axis` too. Three
 properties fall out, and each was a defect in an earlier shape:
 
 - **The entity is named once.** There is no second parameter, so
@@ -389,15 +409,31 @@ mechanism can do.
 
 **A light given as itself switches between its capabilities.** `c.entitySlider(l)`
 offers brightness, then colour temperature, then colour, as far as `l` has them,
-with a button that steps to the next. `.single()` keeps the first alone, and
-`.modes(List("colour", "colourTemp"))` picks and orders them. Naming modes by
+its MAIN CONTROLS, HA's own name for them (`more-info-light.ts`; its colour
+MODES are the formats a light accepts, which these are derived from). They are
+switched by `c.its.mainControl` (ADR 0015), one of its buttons and its default
+list, a `c.select` of the slider's `control` variable (a pill stepping round
+unless `.style(…)` says otherwise). The switch carries the controls, because a
+head it cannot reach is never shown:
+`c.its.mainControl.options(List("colour", "colourTemp"))` picks and orders them,
+and a slider whose buttons hold no switch is its plain row. Naming them by
 string looks like the selector "Shapes considered" rejects, and is not: it is a
-FILTER over what the light has, so a mode the light lacks is skipped rather
+FILTER over what the light has, so a control the light lacks is skipped rather
 than failing (which is what lets one `map` over mixed lights work), the literal
-union still catches a misspelling in the editor, and none left is a build error
-naming the light. The checked way to ask for exactly one axis is still the
-group: `c.entitySlider(l.colourTemp)`. The derived default can never name a
-capability the light lacks, so it needs no checking at all.
+union still catches a misspelling in the editor, one left is that axis with no
+switch, and none the plain row (a plug has no main controls at all).
+The checked way to ask for exactly one axis is still the group:
+`c.entitySlider(l.colourTemp)`, or `l.colourTemp ?? l` over mixed lights. The
+derived default can never name a capability the light lacks, so it needs no
+checking at all.
+
+**Colour has two places.** The hue track is a main control; the wheel
+(`components/wheel.pkl`) is a view tap, `c.view.colourWheel(l.colour)`, which
+opens it in a popup: hue and saturation, so a pastel, which the full-saturation
+track cannot set. It takes the capability group, so a light without colour is
+an editor error, as `c.entitySlider(l.colour)` is. A slider gets it as one of
+its buttons (`c.its.colourWheel`, or the building block), and a switch whose
+options leave out `"colour"` drops the track.
 
 ##### Shapes considered
 

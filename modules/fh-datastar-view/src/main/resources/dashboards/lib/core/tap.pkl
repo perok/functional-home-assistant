@@ -44,6 +44,13 @@ abstract class TapAction {
   /// re-click guard, for a control whose action answers too fast for a flicker
   /// to mean anything.
   busyVisual: Boolean = true
+  /// How a pill shows this tap unless told otherwise, set by the verb: an MDI
+  /// name, and a label that names an icon-only pill to a screen reader.
+  hidden icon: String? = null
+  hidden label: String? = null
+  /// What lights a pill sending this: a toggle's entity being on. None for an
+  /// effect or a popup, whose pill is not lit by state.
+  hidden lit: slotMod.Slot? = null
 }
 
 class Call extends TapAction {

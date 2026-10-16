@@ -1,0 +1,101 @@
+/// A colour wheel for a light: hue round the rim, saturation out from the
+/// white centre, which a slider's hue track (full saturation) cannot reach.
+/// A drag moves the knob; the release sets `hs_color`. Brightness stays on the
+/// slider. Opened in a popup by the view tap `c.view.colourWheel(l.colour)`.
+module components.wheel
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+
+/// The pointer as `[hue, saturation]`, HA's `hs_color`: 0° at the top and
+/// clockwise, as `conic-gradient` draws it, and 0 % at the centre.
+const local wheelScript: String = """
+  window.fhWheel=function(e,el){var r=el.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2;return [Math.round((Math.atan2(x,-y)*180/Math.PI+360)%360),Math.round(Math.min(1,Math.hypot(x,y)/(r.width/2))*100)]}
+  """
+
+// What the wheel SHOWS is the client's (`h`, `s`, `p`): a drag moves those, and
+// the server's slots only ever adopt into them, so a refused or lost commit puts
+// the knob back where the light is, as the slider's thumb does (ADR 0025).
+const local hs: String = "$_{{id}}__hs"
+const local drag: String = "$_{{id}}__drag"
+const local shownH: String = "$_{{id}}__h"
+const local shownS: String = "$_{{id}}__s"
+const local shownP: String = "$_{{id}}__p"
+
+const local function server(slot: String): String = "$" + slotMod.signalRef(slot)
+
+/// The light's own colour onto the knob: on a server write, on a refusal, while
+/// the stream is down, and when the popup mounts it, since a closed popup's copy
+/// saw none of those.
+const local adopt: String =
+  "\(shownH) = \(server("hue")), \(shownS) = \(server("sat")), \(shownP) = \(server("paint"))"
+
+const local move: String =
+  "\(hs) = fhWheel(evt, el), " +
+    "\(shownH) = \(hs)[0] + 'deg', " +
+    "\(shownS) = \(hs)[1] / 100, " +
+    "\(shownP) = 'hsl(' + \(hs)[0] + ',' + \(hs)[1] + '%,50%)'"
+
+const local commit: String =
+  "@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', " +
+    tapMod.withData("{{dataKey}}", hs) + ")"
+
+const local function hsRead(body: String, otherwise: String): String =
+  "attr[?'hs_color'].optMap(hs, \(body)).orValue('\(otherwise)')"
+
+class ColourWheel extends nodes.Node {
+  card = "colourWheel"
+  cardDef = new nodes.CardDef {
+    // Two elements carry the patch handlers: one element holds one
+    // `data-on-signal-patch` (the slider splits its two the same way).
+    template = #"<div class="fh-wheel" style="--fh-h:{{hue}};--fh-s:{{sat}}" \#(slotMod.signalBind("hue")) \#(slotMod.signalBind("sat")) \#(slotMod.signalBind("paint")) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '{{hue}}', _{{id}}__s: '{{sat}}', _{{id}}__p: '{{paint}}' }" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-on-signal-patch-filter="{include:/^(\#(slotMod.signalRef("hue"))|\#(slotMod.signalRef("sat"))|\#(slotMod.signalRef("paint")))$/}" data-on-signal-patch="\#(adopt)" data-effect="$_sse > 0 && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)><span class="fh-wheel-knob" style="background:{{paint}}" data-style:background="\#(shownP)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span></div>"#
+    slots { "hue"; "sat"; "paint" }
+    css = """
+      .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;
+      border-radius:50%;touch-action:none;cursor:crosshair;
+      background:radial-gradient(closest-side,#fff,rgba(255,255,255,0)),conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+      .fh-wheel-knob{position:absolute;left:50%;top:50%;inline-size:1.75rem;aspect-ratio:1;border-radius:50%;pointer-events:none;
+      transform:translate(-50%,-50%) rotate(var(--fh-h)) translateY(calc(var(--fh-s) * -1 * var(--fh-wheel-r))) rotate(calc(-1 * var(--fh-h)));
+      box-shadow:0 0 0 .1875rem #fff,0 0 0 .25rem rgba(0,0,0,.35),0 .125rem .375rem .25rem rgba(0,0,0,.25)}
+      """
+    script = wheelScript
+  }
+  hidden light: hass.LightEntity(colour != null)
+  hidden setColour: tapMod.Call = (tapMod.call("light/turn_on", light)) { dataKey = "hs_color" }
+  slots {
+    ["hue"] = new slotMod.Slot {
+      entityId = light.entity_id
+      transform = hsRead("str(double(hs[0])) + 'deg'", "0deg")
+      default = "0deg"
+      signal = slotMod.asHandler
+      bypassUnavailable = false
+    }
+    ["sat"] = new slotMod.Slot {
+      entityId = light.entity_id
+      transform = hsRead("str(double(hs[1]) / 100.0)", "0")
+      default = "0"
+      signal = slotMod.asHandler
+      bypassUnavailable = false
+    }
+    ["paint"] = new slotMod.Slot {
+      entityId = light.entity_id
+      transform = hsRead("'hsl(' + str(math.round(double(hs[0]))) + ',' + str(math.round(double(hs[1]))) + '%,50%)'", "#fff")
+      default = "#fff"
+      signal = slotMod.asHandler
+      bypassUnavailable = false
+    }
+    for (k, v in tapMod.tapRoute(setColour)) {
+      [k] = v
+    }
+    // The guard's mechanism, without which a refused release sets no error and
+    // the knob stays where it was let go.
+    for (k, v in tapMod.guardSlots(setColour)) {
+      [k] = v
+    }
+  }
+}
+
+/// `l`'s colour wheel; `l` must have a colour mode.
+function colourWheel(l: hass.LightEntity): ColourWheel = new ColourWheel { light = l }

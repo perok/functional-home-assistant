@@ -18,6 +18,12 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 
   def pendingSignal: String = s"${committedSignal}__pending"
 
+  /** Where this session started it, which the URL mirror leaves off the URL as
+    * it does the declared value: a start is not a choice, so a refresh starts
+    * it afresh.
+    */
+  def startSignal: String = s"${committedSignal}__start"
+
   /** The URL mirror, which survives a refresh. */
   def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
 
@@ -30,15 +36,24 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 
   /** The declarer's `data-fh-url`, keyed by the name because a node may declare
     * several and an element holds one attribute per name. No param at
-    * `declared` (ADR 0005).
+    * `declared` (ADR 0005), or for a variable with a start, at the session's
+    * start: a signal, since the node's bytes are shared by every session.
     */
-  def urlMirrorAttr(declared: String): String =
-    s"""data-fh-url:$name="['$urlParam', $$$committedSignal, '${Server
-        .escapeHtml(Server.escapeJsString(declared))}']""""
+  def urlMirrorAttr(declared: String, started: Boolean): String = {
+    val unchanged =
+      if (started) s"$$$startSignal"
+      else s"'${Server.escapeHtml(Server.escapeJsString(declared))}'"
+    s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
+  }
 
 object VarKey:
 
   val ParamPrefix: String = "v."
+
+  /** `core/variable.pkl`'s `Value`: what a viewer can choose, and so the most a
+    * start may be.
+    */
+  val ValueToken: scala.util.matching.Regex = "[A-Za-z0-9_.:-]+".r
   val SignalPrefix: String = "_var_"
 
   /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations.
@@ -90,6 +105,12 @@ private[runtime] final class VarGraph(
   val declarations: Map[VarKey, String] =
     scopes.values.flatten.map { case (name, in) =>
       VarKey(in.declarer, name) -> in.declared
+    }.toMap
+
+  /** The declarations a session may start elsewhere ([[Dashboard.Start]]). */
+  val starts: Map[VarKey, Dashboard.Start] =
+    scopes.values.flatten.flatMap { case (name, in) =>
+      in.start.map(VarKey(in.declarer, name) -> _)
     }.toMap
 
   /** Total over declarations, so a control never shows the declared value over

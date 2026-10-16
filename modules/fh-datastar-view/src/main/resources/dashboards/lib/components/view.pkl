@@ -1,0 +1,41 @@
+/// What a click shows — `c.view`. Unlike `c.tap`, nothing here reaches Home
+/// Assistant: a view tap changes only this screen, so its button is never lit
+/// by an entity and nothing at HA can refuse it.
+///
+///     c.entityCard(l).tapAction(c.view.moreInfo(l))
+///     c.button("Detail…", c.view.openPopup("detail"))
+///     c.pill(c.view.navigate("under")).label("Underetasje")
+///
+/// A dashboard-tier module because [[moreInfo]] is a component; the tap kit a
+/// component author builds on is `core/tap.pkl`.
+module components.view
+
+import "../core/tap.pkl" as core
+import "../core/node.pkl" as nodes
+import "../hass.pkl"
+import "moreinfo.pkl" as moreinfo
+import "wheel.pkl" as wheelMod
+
+/// Open `e`'s more-info popup: its card, its domain's controls, and every
+/// attribute it reports.
+function moreInfo(e: hass.Entity): core.OpenSurface =
+  (moreinfo.moreInfo(e)) { icon = "mdi:information-outline"; label = "Details" }
+
+/// Go to dashboard `slug`.
+function navigate(slug: String): core.Click = core.navigate(slug)
+
+/// Open the surface registered under `surfaceId`.
+function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surfaceId)
+
+/// Open a popup holding `body`.
+function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
+
+/// A colour wheel for the light, in a popup: hue and saturation, where a
+/// slider's hue track has full saturation only.
+/// `c.button("Colour", c.view.colourWheel(l.colour!!))`; on a light's own slider,
+/// `c.its.colourWheel`.
+function colourWheel(colour: hass.Colour): core.OpenSurface =
+  (core.openPopupInline(wheelMod.colourWheel(colour.owner))) { icon = "mdi:palette-swatch"; label = "Colour" }
+
+/// Close the open popup.
+function closePopup(): core.Click = (core.closePopup()) { icon = "mdi:close"; label = "Close" }
