@@ -80,7 +80,7 @@ c.entitySlider(l).opensOn(List(l.brightness))  // always brightness, as before t
   (temperature and colour). So a light opens on the head for the mode it is in, and on
   brightness while it is off or reports no mode. Not `opensOn(l.axes)`: brightness is always in
   use, so listing it first means "always brightness". Every light slider with main controls
-  changes its first paint and its wire bytes, and the snapshots move with it.
+  gains a start, so a light on a colour or a temperature opens there.
 
 ### Main-control names typed per domain
 
@@ -176,17 +176,17 @@ The shell seeds it beside the committed value, so no per-viewer byte enters a ca
   in the given order. `c.entitySlider(l.brightness)` has no switch. A cover's slider still
   posts `position`.
 - **Wire snapshots.** The axis refactor leaves them byte-identical: that is the check that it
-  changed no output. The default `opensOn` then moves every light slider with main controls,
-  and nothing else.
+  changed no output. The default `opensOn` adds `starts` to every light slider with main
+  controls, and nothing else.
 - **Scala.** A declaration with a start resolves to it for a fresh session. A `v.` param wins
   over it. A start outside the group's values falls back to declared. A start puts no param on
   the URL.
 - **Smoke.** A colour lamp in `xy` opens on the colour head. Cycling to brightness and refreshing
   keeps brightness. With no param, a refresh opens on colour again.
-- **Existing tests I expect to edit, to ask about first:** the `PklBuildSuite` snapshots, and
-  `components.test.pkl`'s `s.vars == new Mapping { ["control"] = "brightness" }`, both of which
-  the default moves. The smoke fixture's colour lamp reports no `color_mode`, so it still opens
-  on brightness and the browser tests stand.
+- **Existing tests:** none move. `vars` keeps its declared value (the start is its own field), the
+  wire snapshots' fixture has no light slider with main controls, and the smoke fixture's colour
+  lamp reports no `color_mode`, so it still opens on brightness. `select.test.pkl`'s list of Node
+  fields names `starts`, as that fact asks of a new field.
 
 ## Order of commits
 

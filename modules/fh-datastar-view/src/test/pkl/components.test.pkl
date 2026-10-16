@@ -1532,6 +1532,31 @@ facts {
     lamp.brightness!!.inUseWhen == null
   }
 
+  ["a light's slider opens on the mode the light is in, or where opensOn says"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local startOf = (s: c.EntitySlider) -> s.starts?.getOrNull("control")
+    // By default the mode axes, in the light's order, else the first control.
+    local byMode = startOf.apply(c.entitySlider(lamp))!!
+    byMode.entityId == "light.lamp"
+    byMode.transform == "(attr[?'color_mode'].orValue('') in ['color_temp'] ? 'colourTemp' : (attr[?'color_mode'].orValue('') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] ? 'colour' : 'brightness'))"
+    // The order given; brightness is always in use, so nothing after it is tried.
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour, lamp.colourTemp)))!!.transform.startsWith("(attr[?'color_mode'].orValue('') in ['hs'")
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.brightness, lamp.colour))) == null
+    // An axis the switch does not offer is not tried.
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour)).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))) == null
+    // Nothing declared, nothing to start: a dimmer, an axis alone, a plain row.
+    startOf.apply(c.entitySlider(dimmer)) == null
+    startOf.apply(c.entitySlider(lamp.colour!!)) == null
+    startOf.apply(c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))) == null
+    // The declared value stays the first control: what a refused start keeps.
+    c.entitySlider(lamp).vars == new Mapping { ["control"] = "brightness" }
+  }
+
   ["a hue slider's marker is painted in the hue it marks"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"

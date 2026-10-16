@@ -296,17 +296,28 @@ onto the domain class as **groups** — one nullable object per concept, not
 several independent nullable fields:
 
 ```pkl
-class ColourTemp { min_kelvin: Int; max_kelvin: Int }
-class Colour {}   // no values: the hue range is HA's 0–360, so the group is the predicate
+class ColourTemp extends Axis { min_kelvin: Int; max_kelvin: Int; … }
+class Colour extends Axis { … }   // no dump values: the hue range is HA's 0–360
 
 open class LightEntity extends Entity {
   hidden colourModes: Listing<ColorMode> = new Listing {}
   hidden supported_features: Int = 0
+  hidden brightness: Brightness? = …  // derived from the modes: the range is HA's 1–255
   hidden colourTemp: ColourTemp? = null
   hidden colour: Colour? = null
   hidden effects: Effects? = null
+  hidden axes: List<Axis> = …         // the non-null ones, in HA's order
 }
 ```
+
+**A group a slider can drive is an `Axis`**: it carries where its value is read (`attr`, and
+`element` for one inside a list), how it is written (`service`, `key`, `sentWith`), its range, its
+main-control `name`, and `inUseWhen`: when the entity is on it now, as DATA (an attribute among
+values, `color_mode` in `COLOUR_MODES`), since `hass.pkl` holds HA's facts and no CEL. The card
+reads all of it off the axis, so a new axis is a class here and not a branch in the card. A
+group's name may be HA's own (`brightness`): `q.prop` reads a name the entity reports live as the
+live attribute (ADR 0003), and the dump drops a carried attribute the schema models, as it drops
+`supported_color_modes`.
 
 Flat nullable fields were rejected earlier; grouping removes the reason:
 
@@ -362,13 +373,15 @@ takes **the group alone** and still knows its subject:
 ```pkl
 c.entitySlider(l)               // the domain's default axis — on a light, brightness, plus a
                                 // mode for each capability below that it has
+c.entitySlider(l.brightness)    // brightness alone
 c.entitySlider(l.colourTemp)    // colour temperature, bounds from the light itself
 c.entitySlider(l.colour)        // the hue, posted as hs_color = [h, 100]
 c.light.effectPills(l.effects)
 ```
 
-`EntitySlider` accepts `SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour` and pattern-matches
-with `is` to derive its entity, key, bounds and tracked attribute. Three
+`EntitySlider` accepts `SlideAxis = hass.Entity|hass.Axis` and reads its entity, key, bounds and
+tracked attribute off the axis; an entity given as itself gets its domain's row
+(`domainAxes`), an `Axis` too. Three
 properties fall out, and each was a defect in an earlier shape:
 
 - **The entity is named once.** There is no second parameter, so

@@ -57,7 +57,9 @@ allowed values (below).
 **Start.** `LayoutNode.Component.starts: Map[String, Start]`: per declared name, CEL over one
 entity's state (`Start(entityId, transform)`), compiled at validate. The page route evaluates it
 as it mints the session, and a result every reader takes (`Renderer.refusals`) becomes
-`SessionState.starts`, under the viewer's choices and over the declared value. It is read **once**: an open page never
+`SessionState.starts`, under the viewer's choices and over the declared value. A light's slider
+starts its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
+that have an `inUseWhen`). It is read **once**: an open page never
 follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
 ZHA group reports a false `xy` 59 ms after a temperature command,
 `docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake

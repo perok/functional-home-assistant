@@ -230,9 +230,9 @@ class EntitySlider extends sliderBase.Slider {
   /// [[sliderBase.controlVar]] (ADR 0033), so it keeps its first control.
   hidden offeredControls: List<itsMod.MainControl> =
     if (perMember) pickedControls.take(1) else pickedControls
-  /// This slider's own head as the given control's axis — its default one for
-  /// brightness — dimmed and disabled for a control a group's row lacks. On a
-  /// slider with a pill, the buttons are the pill's.
+  /// This slider's own head as the given control's axis, dimmed and disabled
+  /// for a control a group's row lacks. On a slider with a pill, the buttons
+  /// are the pill's.
   function controlHead(m: itsMod.MainControl, dim: Boolean, keepButtons: Boolean): sliderBase.SliderHead =
     let (self = this)
     let (a = (on as hass.LightEntity).axes.find((x) -> x.name == m))
@@ -260,6 +260,27 @@ class EntitySlider extends sliderBase.Slider {
       offeredControls.map((m) -> new sliderBase.ControlHead { value = m; head = controlHead(m, false, false) })
     else List()
   declaresControl = !following && controls.length > 1
+  /// What the slider opens on, tried in order as the page opens: the first axis
+  /// the light is on then wins, else its first control. Null is the light's
+  /// mode axes, so it opens on the mode the light is in; brightness is always
+  /// in use, so listing it first always opens on it.
+  hidden opensOnAxes: List<hass.Axis>? = null
+  /// The tries that can win, up to the first that always does.
+  hidden openingTries: List<hass.Axis> =
+    let (tries = (opensOnAxes ?? (if (entity is hass.LightEntity) entity.axes.filter((a) -> a.inUseWhen != null) else List()))
+        .filter((a) -> offeredControls.contains(a.name)))
+      let (always = tries.findIndexOrNull((a) -> a.inUseWhen == null))
+        if (always == null) tries else tries.take(always + 1)
+  /// The start as CEL, the tries nested: `a ? 'colour' : (b ? … : 'brightness')`.
+  hidden openingExpr: String? =
+    if (!declaresControl || openingTries.every((a) -> a.inUseWhen == null)) null
+    else
+      openingTries.reverse().fold("'\(controls[0].value)'", (rest, a) ->
+        if (a.inUseWhen == null) "'\(a.name)'"
+        else
+          let (w = a.inUseWhen!!)
+            "(attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
+  starts = if (openingExpr == null) null else sliderBase.controlVar.start(entity, openingExpr!!)
   /// What this slider hands its `c.its` buttons: a row reading its head's
   /// controls has no switch of its own, so it hands none.
   hidden holder: itsMod.Holder =
@@ -289,6 +310,13 @@ class EntitySlider extends sliderBase.Slider {
   /// The head's switch switches the rows too: one press, the whole group on
   /// colour. A row lacking the control shows its brightness, greyed.
   function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
+  /// The order to try as the page opens: the first axis the light is on then,
+  /// else the first control. Read once; an open page does not follow the
+  /// light. `.opensOn(List(l.brightness))` always opens on brightness.
+  ///
+  ///   c.entitySlider(l).opensOn(List(l.colour, l.colourTemp))
+  function opensOn(xs: List<hass.Axis?>): EntitySlider =
+    let (self = this) let (axs = xs.filterNonNull() as List<hass.Axis>) (self) { opensOnAxes = axs }
   /// The member rows, each composed by the caller:
   ///
   ///   c.entitySlider(l).withSubSliders(
@@ -308,8 +336,9 @@ class EntitySlider extends sliderBase.Slider {
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
 
-/// `c.entitySlider(l)` is brightness, switching to each other main control the light
-/// has; `c.entitySlider(l.colourTemp)` is colour temperature alone,
+/// `c.entitySlider(l)` switches between the main controls the light has, opening
+/// on the one for its mode ([[EntitySlider.opensOn]]); `c.entitySlider(l.brightness)`
+/// is brightness alone, `c.entitySlider(l.colourTemp)` colour temperature,
 /// `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
 /// The constructor as a value, for a query's render positions.
