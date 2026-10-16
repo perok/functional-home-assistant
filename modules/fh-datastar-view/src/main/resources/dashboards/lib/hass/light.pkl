@@ -14,6 +14,10 @@ module hass_light
 typealias ColorMode =
   "unknown"|"onoff"|"brightness"|"color_temp"|"hs"|"xy"|"rgb"|"rgbw"|"rgbww"|"white"
 
+/// What a light's slider can show, one at a time: HA's main controls
+/// (`more-info-light.ts`), each an `Axis` in `hass.pkl` naming itself.
+typealias Control = "brightness"|"colourTemp"|"colour"
+
 /// The modes that show an actual colour.
 const COLOUR_MODES: List<ColorMode> = List("hs", "xy", "rgb", "rgbw", "rgbww")
 

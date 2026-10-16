@@ -12,20 +12,14 @@ import "its.pkl" as itsMod
 import "select.pkl" as selectMod
 import "../hass.pkl"
 
-/// A domain's slider config: the service, the key the value rides on, the
-/// range, and the attribute holding the live position. A new domain is a row.
-class SliderSpec {
-  action: String
-  key: String
-  min: Int
-  max: Int
-  value: String
-}
-
-const sliderSpec: Mapping<String, SliderSpec> = new {
-  ["light"] = new { action = "light/turn_on"; key = "brightness"; min = 1; max = 255; value = "brightness" }
-  ["cover"] = new { action = "cover/set_cover_position"; key = "position"; min = 0; max = 100; value = "current_position" }
-  ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
+/// What a slider on an entity given as itself drives, per domain, with the
+/// owner left for the slider to fill. A new domain is a row; a light's is its
+/// [[hass.Brightness]], which an `onoff` light lacks as a group but still
+/// commits through.
+const domainAxes: Mapping<String, hass.Axis> = new {
+  ["light"] = new hass.Brightness {}
+  ["cover"] = new hass.Axis { name = "position"; attr = "current_position"; service = "cover/set_cover_position"; key = "position"; min = 0; max = 100 }
+  ["fan"] = new hass.Axis { name = "percentage"; attr = "percentage"; service = "fan/set_percentage"; key = "percentage"; min = 0; max = 100 }
 }
 
 // The fill colour paints what the slider drives: a kelvin axis gets a warm→cool
@@ -59,50 +53,43 @@ const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
       + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')
   """.trim()
 
-// The author's override, else the spec's value as a string (a slot is never a
-// number). `ovr` because `override` is reserved.
-const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSpec) -> Any): String =
-  if (ovr != null) ovr else "\(get.apply(spec))"
-
 /// What an [[EntitySlider]] drives: an entity (its domain's default axis) or
-/// one of its capability groups (`l.colourTemp`, `l.colour` for the hue), which
-/// carries its owner. A value rather than a selector, so
+/// one of its axes (`l.brightness`, `l.colourTemp`, `l.colour` for the hue),
+/// which carries its owner. A value rather than a selector, so
 /// `c.entitySlider(l.colourTemp)` on a light with no kelvin range is a
 /// nullability error the editor shows (ADR 0013, "Shapes considered").
-typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
+typealias SlideAxis = hass.Entity|hass.Axis
 
 /// The named readouts: the two that need the card's axis config, and none.
 /// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
 typealias Readout = "state"|"percent"|"none"
 
-/// A slider on an entity whose domain has a [[sliderSpec]] row; any other is a
+/// A slider on an entity whose domain has a [[domainAxes]] row; any other is a
 /// build error at the dashboard line. The card is [[sliderBase.Slider]].
 class EntitySlider extends sliderBase.Slider {
   /// What this slider drives. `on` and `entity` default to each other, so
   /// either one is enough.
   hidden on: SlideAxis = entity
-  hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
-    if (on is hass.ColourTemp) on.owner else if (on is hass.Colour) on.owner else on
-  /// The hue lives at `hs_color[0]`, which no simple shape reaches, so this
-  /// axis reads through CEL.
+  hidden entity: hass.Entity(domainAxes.containsKey(domain)) =
+    if (on is hass.Axis) on.owner else on
+  hidden axis: hass.Axis =
+    if (on is hass.Axis) on else let (e = entity) (domainAxes[e.domain]!!) { owner = e }
+  /// The hue's track and marker, a look of this card's.
   hidden hue: Boolean = on is hass.Colour
+  /// A list element no simple shape reaches, so such an axis reads through CEL.
+  hidden element: Int? = axis.element
   hidden label: (String|slotMod.Expr)? = null
-  // Overrides of the domain default. Each defaults to what the axis says, so a
-  // capability axis configures the whole slider and an author's amend still
-  // wins.
-  hidden action: String? = if (on is hass.ColourTemp || hue) "light/turn_on" else null
-  hidden key: String? =
-    if (on is hass.ColourTemp) "color_temp_kelvin" else if (hue) "hs_color" else null
-  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else if (hue) 0 else null
-  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else if (hue) 360 else null
+  // What the axis says, which an author's amend overrides.
+  hidden action: String = axis.service
+  hidden key: String = axis.key
+  hidden min: Int = axis.min
+  hidden max: Int = axis.max
   // The attribute holding the live position, so a second axis of the same
   // entity tracks the value it writes.
-  hidden valueAttr: String? =
-    if (on is hass.ColourTemp) "color_temp_kelvin" else if (hue) "hs_color" else null
-  /// Full saturation, as Mushroom's hue slider: a pastel is a colour wheel's
-  /// job, and white is the kelvin axis'.
-  valueRest = if (hue) ",100" else null
-  hidden spec: SliderSpec = sliderSpec[entity.domain]!!
+  hidden valueAttr: String = axis.attr
+  /// The hue's full saturation, as Mushroom's hue slider: a pastel is a colour
+  /// wheel's job, and white is the kelvin axis'.
+  valueRest = if (axis.sentWith.isEmpty) null else axis.sentWith.map((n) -> ",\(n)").join("")
   hidden reportsRgb: Boolean =
     if (entity is hass.LightEntity) entity.reportsRgbColour else false
   hidden reportsKelvin: Boolean =
@@ -111,7 +98,7 @@ class EntitySlider extends sliderBase.Slider {
     else false
   hidden fillColorExpr: String =
     if (hue) "\(valueExpr).optMap(h, 'hsl(' + str(math.round(h)) + ',100%,50%)').orValue('')"
-    else if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
+    else if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min, max)
     else sliderFillColourRgb
   /// Whether the fill colour can change. Where it cannot — most lights — the
   /// base paints a constant, with no signal and no CEL behind it. A hue's is
@@ -121,16 +108,17 @@ class EntitySlider extends sliderBase.Slider {
   /// The guarded position read, an optional (empty while a light is off): splice
   /// it as `\(valueExpr).optMap(v, …).orValue(…)`.
   hidden valueExpr: String =
-    if (hue) "attr[?'hs_color'].optMap(hs, double(hs[0]))"
-    else if (valueAttr != null) "attr[?'\(valueAttr!!)']"
-    else "attr[?'\(spec.value)']"
-  hidden valueAttrName: String = valueAttr ?? spec.value
-  rangeMin = min ?? spec.min
-  rangeMax = max ?? spec.max
+    // The binding is named for the attribute (`hs`), as the hue's always was.
+    if (element != null)
+      let (b = valueAttr.split("_").first)
+        "attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
+    else "attr[?'\(valueAttr)']"
+  rangeMin = min
+  rangeMax = max
   /// The range as CEL double literals, since `/` on two ints divides as
   /// integers.
-  hidden minExpr: String = if (min != null) "\(min!!).0" else "\(spec.min).0"
-  hidden maxExpr: String = if (max != null) "\(max!!).0" else "\(spec.max).0"
+  hidden minExpr: String = "\(min).0"
+  hidden maxExpr: String = "\(max).0"
   /// A light whose only colour mode is `onoff` has no brightness to set, so the
   /// row becomes a toggle — same pill, filled all-or-nothing, tapped rather than
   /// dragged — and a group's rows still match. HA's positive `onoff`, not "no
@@ -143,9 +131,7 @@ class EntitySlider extends sliderBase.Slider {
   // A key and no value: the drag supplies it. Refuses only while unavailable —
   // an `opening` cover takes a new position.
   hidden commitTap: tapMod.Call =
-    (tapMod.call(sliderConfig(action, spec, (s) -> s.action), entity)) {
-      dataKey = sliderConfig(key, spec, (s) -> s.key)
-    }
+    let (k = key) (tapMod.call(action, entity)) { dataKey = k }
   /// The badge, defaulting to the entity's own icon ([[iconFor]]). An MDI name
   /// overrides it; `null` renders none.
   hidden icon: String? = icons.iconFor(entity)
@@ -172,8 +158,8 @@ class EntitySlider extends sliderBase.Slider {
   // An unavailable entity reads "0", not "unavailable".
   position = new slotMod.Slot {
     transform =
-      if (hue) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
-      else simpleMod.attr(valueAttrName)
+      if (element != null) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
+      else simpleMod.attr(valueAttr)
     default = "0"
     bypassUnavailable = false
   }
@@ -183,7 +169,7 @@ class EntitySlider extends sliderBase.Slider {
     transform =
       if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
       else if (hue) "\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')"
-      else simpleMod.fill(valueAttrName, rangeMin, rangeMax)
+      else simpleMod.fill(valueAttr, rangeMin, rangeMax)
     default = "100%"
     bypassUnavailable = false
   }
@@ -203,7 +189,7 @@ class EntitySlider extends sliderBase.Slider {
     else if (shownReadout == "percent")
       new slotMod.Slot {
         transform =
-          if (hue) percentExpr else simpleMod.percent(valueAttrName, rangeMin, rangeMax)
+          if (element != null) percentExpr else simpleMod.percent(valueAttr, rangeMin, rangeMax)
         default = "0 %"
         bypassUnavailable = false
       }
@@ -220,10 +206,7 @@ class EntitySlider extends sliderBase.Slider {
   /// offered: brightness, then each capability. A capability axis
   /// (`l.colourTemp`) is one axis.
   hidden availableControls: List<itsMod.MainControl> =
-    if (on is hass.LightEntity && on.supportsBrightness)
-      List("brightness")
-        + (if (on.colourTemp != null) List("colourTemp") else List())
-        + (if (on.colour != null) List("colour") else List())
+    if (on is hass.LightEntity && on.brightness != null) on.axes.map((a) -> a.name) as List<itsMod.MainControl>
     else List()
   /// The main control switch among [[buttons]], if any.
   hidden switchSpec: itsMod.MainControlSwitch? =
@@ -252,12 +235,9 @@ class EntitySlider extends sliderBase.Slider {
   /// slider with a pill, the buttons are the pill's.
   function controlHead(m: itsMod.MainControl, dim: Boolean, keepButtons: Boolean): sliderBase.SliderHead =
     let (self = this)
-    let (axis =
-        if (m == "colourTemp") (on as hass.LightEntity).colourTemp!!
-        else if (m == "colour") (on as hass.LightEntity).colour!!
-        else self.on)
+    let (a = (on as hass.LightEntity).axes.find((x) -> x.name == m))
       (self) {
-        on = axis
+        on = a
         followControls = null
         members = new {}
         readout = self.readout

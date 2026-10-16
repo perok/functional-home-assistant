@@ -37,7 +37,12 @@ class AttrIn { attr: String; values: List<String> }
 - `ColourTemp`, `Colour` and a new `Brightness` extend it, each filling the fixed fields
   from the vendored constants. `ColourTemp.inUseWhen` is `color_mode` in `["color_temp"]`, and
   `Colour.inUseWhen` is `color_mode` in `hassLight.COLOUR_MODES`. `Brightness.inUseWhen` is null.
-- `LightEntity.brightness: Brightness?` is null unless `supportsBrightness`, like the other groups.
+- `LightEntity.brightness: Brightness?` is null unless `supportsBrightness`, like the other
+  groups. It shares HA's name, which took two changes:
+  - `q.prop` used to read any property of a name as a registry fact, so this one hid HA's live
+    `brightness`. A name in `volatileAttrs` is now live, and only a scalar is a fact (ADR 0003).
+  - The dump writes a carried attribute as a property of its own name. It now drops
+    `brightness` on lights, as it already drops `supported_color_modes`.
 - `LightEntity.axes: List<Axis>` lists the non-null ones in HA's order: brightness, temperature,
   colour.
 - The hue's two quirks stay hue-specific, not generic: it is read at `hs_color[0]`, and its value
@@ -59,6 +64,7 @@ c.entitySlider(l)                              // as today: brightness, then eac
 c.entitySlider(l.colourTemp)                   // as today: one axis
 c.entitySlider(l.brightness)                   // new: brightness alone, no switch
 c.entitySlider(l).opensOn(List(l.colour, l.colourTemp))
+c.entitySlider(l).opensOn(List(l.brightness))  // always brightness, as before this
 ```
 
 - `SlideAxis` becomes `hass.Entity|hass.Axis`. `action`, `key`, `min`, `max` and `valueAttr`
@@ -70,10 +76,11 @@ c.entitySlider(l).opensOn(List(l.colour, l.colourTemp))
   colour is a nullability error before eval. A null is dropped, as `.buttons` drops one.
   The first axis whose `inUseWhen` holds when the page opens wins. With none, the slider opens on
   the first control, as today. An axis the switch does not offer is ignored.
-- **Default: no `opensOn`, so it opens on brightness.** Each light slider changes only where an
-  author writes it. My recommendation for a later default is `opensOn(l.axes)` (the mode the
-  light is in), but that changes every existing light slider's first paint and its snapshots,
-  so it is your call, not this PR's.
+- **Default: the axes the light's mode picks between**, its axes that have an `inUseWhen`
+  (temperature and colour). So a light opens on the head for the mode it is in, and on
+  brightness while it is off or reports no mode. Not `opensOn(l.axes)`: brightness is always in
+  use, so listing it first means "always brightness". Every light slider with main controls
+  changes its first paint and its wire bytes, and the snapshots move with it.
 
 ### Main-control names typed per domain
 
@@ -102,6 +109,11 @@ build.
 
 **When it is evaluated: once, as the session opens. It does not follow later changes.**
 
+- *What it does not follow:* the light changing mode while the page stays open, whether from an
+  automation, the HA app, a scene, or ZHA's false `xy` report. The slider keeps the head it
+  opened on until the viewer switches or the page reloads. A reconnect carries the committed
+  value, so it keeps the head too. On a wall tablet that never reloads, "opens" means when the
+  tablet last loaded the page.
 - *Why not follow state (a flip, ADR 0007):*
   - **The name.** The setting is what the slider OPENS on.
   - **The head would move under the viewer's finger.** A ZHA group reports `xy` 59 ms after a
@@ -149,7 +161,8 @@ The shell seeds it beside the committed value, so no per-viewer byte enters a ca
 | `fh/view/model/Dashboard.scala` | `vars` values: bare string or `{value, startsAt}`; compiled at validate |
 | `fh/view/runtime/VarGraph.scala`, `Server.scala`, `Sessions.scala` | `starts` on the session; env order choice → start → declared |
 | `fh/view/runtime/Renderer.scala`, shell seed | mirror compares to the `__start` signal |
-| `PklDump.scala` | nothing, expected: `brightness` is derived in `hass.pkl` from `supportsBrightness` (fixed 1–255, no dump values), and `colourTemp`/`colour` keep their generated shape |
+| `PklDump.scala` | drops a carried `brightness` on lights (`SchemaModelled`); the group itself is derived in `hass.pkl` from `supportsBrightness`, fixed 1–255 |
+| `lib/query.pkl` | done first, its own commit: a live name wins over a schema member, and a registry fact holds a scalar |
 | `WireShapeSuite` | the new declaration shape |
 | ADR 0033 | rule 1 gains a starting value; why it is evaluated once, not followed |
 | ADR 0013 | `Axis` among the capability groups, `inUseWhen` as data |
@@ -162,21 +175,24 @@ The shell seeds it beside the committed value, so no per-viewer byte enters a ca
 - **Pkl facts.** Every axis on a light names a distinct control. `opensOn` builds one expression
   in the given order. `c.entitySlider(l.brightness)` has no switch. A cover's slider still
   posts `position`.
-- **Wire snapshots.** These move only where a fixture uses `l.brightness` or `opensOn`; the rest
-  stay byte-identical. That is how we check the axis refactor changed no output.
+- **Wire snapshots.** The axis refactor leaves them byte-identical: that is the check that it
+  changed no output. The default `opensOn` then moves every light slider with main controls,
+  and nothing else.
 - **Scala.** A declaration with a start resolves to it for a fresh session. A `v.` param wins
   over it. A start outside the group's values falls back to declared. A start puts no param on
   the URL.
 - **Smoke.** A colour lamp in `xy` opens on the colour head. Cycling to brightness and refreshing
   keeps brightness. With no param, a refresh opens on colour again.
-- **Existing tests I expect to edit, to ask about first:** the `PklBuildSuite` snapshots if a
-  demo fixture adopts `opensOn`, and the `components.test.pkl` facts that read `availableControls`
-  by name.
+- **Existing tests I expect to edit, to ask about first:** the `PklBuildSuite` snapshots, and
+  `components.test.pkl`'s `s.vars == new Mapping { ["control"] = "brightness" }`, both of which
+  the default moves. The smoke fixture's colour lamp reports no `color_mode`, so it still opens
+  on brightness and the browser tests stand.
 
 ## Order of commits
 
 1. This plan.
-2. `hass.Axis` and the slider reading it. No behaviour change, and the snapshots stay identical.
-3. `l.brightness`, the `Control` union.
+2. `q.prop` resolution (ADR 0003), so `l.brightness` can share HA's name.
+3. `hass.Axis`, `l.brightness`, the `Control` union, and the slider reading them. No behaviour
+   change, and the snapshots stay identical.
 4. Runtime starting value: wire, session, mirror.
-5. `opensOn`, smoke test, docs and ADRs; delete this plan.
+5. `opensOn` and its default, smoke test, docs and ADRs; delete this plan.

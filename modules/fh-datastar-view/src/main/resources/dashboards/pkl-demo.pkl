@@ -62,7 +62,7 @@ card = (c.grid) {
           .value(c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#))
           .tapAction(c.tap.call("homeassistant/toggle", dump.entities.sensor_ams_1a4e_u1))
 
-        // Domain-checked: only entities with a sliderSpec row (lights) compile.
+        // Domain-checked: only entities with a `domainAxes` row compile.
         // A slider wants room — span the full grid width.
         (c.entitySlider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)).fullWidth()
       }

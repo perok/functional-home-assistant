@@ -26,6 +26,7 @@ import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/hass/active.pkl" as activeTables
 import "../../main/resources/dashboards/lib/hass/actions.pkl" as hassActions
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
+import "../../main/resources/dashboards/lib/hass/light.pkl" as hassLight
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -1503,6 +1504,32 @@ facts {
     // A plug has no main controls at all, and is still the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
     c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
+  }
+
+  ["a light's axes are its main controls, each a slider of its own"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    // Each names a distinct control, so a head is found by its name.
+    lamp.axes.map((a) -> a.name) == List("brightness", "colourTemp", "colour")
+    lamp.axes.every((a) -> a.owner == lamp)
+    // Every one is a single row, configured by the axis alone.
+    lamp.axes.map((a) -> c.entitySlider(a)).every((s) -> !s.declaresControl)
+    lamp.axes.map((a) -> c.entitySlider(a).headNode.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    // A light that cannot dim has none, and stays the toggle row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    plug.brightness == null && plug.axes.isEmpty
+    c.entitySlider(plug).toggleOnly
+    // A domain row is an axis too: a cover posts its position.
+    local blind: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+    c.entitySlider(blind).headSlots["service"] == "cover/set_cover_position"
+    c.entitySlider(blind).headSlots["dataKey"] == "position"
+    // Which one a light is on, as data for the card to read.
+    lamp.colour!!.inUseWhen!!.values == hassLight.COLOUR_MODES
+    lamp.brightness!!.inUseWhen == null
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {

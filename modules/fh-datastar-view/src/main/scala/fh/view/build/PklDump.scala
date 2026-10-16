@@ -428,7 +428,10 @@ object PklDump {
       "supported_features",
       "min_color_temp_kelvin",
       "max_color_temp_kelvin",
-      "effect_list"
+      "effect_list",
+      // Live, so only a widened dump carries it; `brightness` is the schema's
+      // axis.
+      "brightness"
     ),
     // Not `code_format`: no card asks for a code, so it stays per-entity.
     "lock" -> Set("supported_features"),
