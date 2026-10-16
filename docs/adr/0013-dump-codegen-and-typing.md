@@ -399,6 +399,12 @@ naming the light. The checked way to ask for exactly one axis is still the
 group: `c.entitySlider(l.colourTemp)`. The derived default can never name a
 capability the light lacks, so it needs no checking at all.
 
+**Colour has two places.** `.colour("popup")` trades the hue track for a wheel
+button on the pill, opening `components/wheel.pkl`'s wheel in a popup: hue and
+saturation, so a pastel, which the full-saturation track cannot set.
+`.colour("both")` keeps the track beside the button; `"slider"`, the default,
+is the track alone. A light without a colour mode offers no wheel.
+
 ##### Shapes considered
 
 The API above is the fourth attempt; the earlier three are recorded because each

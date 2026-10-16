@@ -133,6 +133,10 @@ script runs. The fix is a bake group selected by value, a runtime change.
   - `"popup"` swaps the hue track for a pill button opening a popup with the
     wheel.
   - `"both"` keeps the track and adds the button.
+- **Status:** done on its own branch, stacked on A (`components/wheel.pkl`,
+  `EntitySlider.colour(…)`), as a CSS `conic-gradient` with a radial white
+  fade, no library. The pointer handlers are Datastar expressions over a
+  small `fhWheel` card script.
 - **The wheel** sets hue and saturation, so pastels become reachable, which
   the full-saturation track cannot do.
   - The pointer maps to `[h, s]`, posted as `hs_color` through the JSON-body

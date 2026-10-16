@@ -9,6 +9,7 @@ import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "control.pkl" as control
 import "base/slider.pkl" as sliderBase
+import "wheel.pkl" as wheelMod
 import "../hass.pkl"
 
 /// A domain's slider config: the service, the key the value rides on, the
@@ -73,6 +74,10 @@ typealias SlideAxis = hass.Entity|hass.ColourTemp|hass.Colour
 /// What a light's slider can switch to, in the order [[EntitySlider]] offers
 /// them. On/off is not one: it is the pill's power button.
 typealias SliderMode = "brightness"|"colourTemp"|"colour"
+
+/// Where a light's colour is set: the hue track among the modes, a wheel in a
+/// popup off a pill button (hue and saturation), or both.
+typealias ColourAt = "slider"|"popup"|"both"
 
 const local modeIcons: Mapping<SliderMode, String> = new {
   ["brightness"] = "mdi:brightness-6"
@@ -240,7 +245,19 @@ class EntitySlider extends sliderBase.Slider {
     when (tapAction != null) {
       (sliderAction(entity, tapAction!!))
     }
+    when (wheelOffered) {
+      (control.entityButton(entity)) {
+        icon = "mdi:palette-swatch"
+        label = ""
+        active = false
+        tapAction = tapMod.openPopupInline(wheelMod.colourWheel(entity as hass.LightEntity))
+      }
+    }
   }
+  /// [[colour]]'s choice.
+  hidden colourAt: ColourAt = "slider"
+  hidden wheelOffered: Boolean =
+    colourAt != "slider" && entity is hass.LightEntity && (entity as hass.LightEntity).colour != null
 
   /// What a light given as itself can switch to: brightness, then each
   /// capability it has. A capability axis (`l.colourTemp`) is one axis.
@@ -248,7 +265,7 @@ class EntitySlider extends sliderBase.Slider {
     if (on is hass.LightEntity && on.supportsBrightness)
       List("brightness")
         + (if (on.colourTemp != null) List("colourTemp") else List())
-        + (if (on.colour != null) List("colour") else List())
+        + (if (on.colour != null && colourAt != "popup") List("colour") else List())
     else List()
   /// [[modes]]'s choice; null offers every one the light has.
   hidden modeChoice: List<SliderMode>? = null
@@ -290,6 +307,7 @@ class EntitySlider extends sliderBase.Slider {
         disabled = if (dim) true else self.disabled
         tapAction = if (keepActions) self.tapAction else null
         actions = if (keepActions) self.actions else new {}
+        colourAt = if (keepActions) self.colourAt else "slider"
       }.headNode
   hidden following: Boolean = followModes != null && followModes!!.length > 1
   modes =
@@ -336,6 +354,9 @@ class EntitySlider extends sliderBase.Slider {
   /// The head's mode button switches the rows too: one press, the whole group
   /// on colour. A row lacking the mode shows its brightness, greyed.
   function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
+  /// Where the colour is set: `"popup"` trades the hue track for a wheel
+  /// button on the pill, `"both"` keeps the track beside it.
+  function colour(at: ColourAt): EntitySlider = let (self = this) (self) { colourAt = at }
   /// One axis, the light's first: brightness on a dimmer. No mode switch.
   function single(): EntitySlider = let (self = this) (self) { singleMode = true }
   /// These modes, in this order, where the light has them; one left is that
