@@ -87,7 +87,7 @@ class SliderHead extends nodes.ActiveNode {
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="fh-slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
+        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#kelvinTrack}} fh-track-kelvin{{/kelvinTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
@@ -247,6 +247,9 @@ open class Slider extends nodes.Node {
   /// the position, in [[fillDefault]]: on a hue, a fill from the left edge
   /// says nothing.
   hidden hueTrack: Boolean = false
+  /// Paints the track warm to cold, so a light in a colour mode, which reports
+  /// no kelvin and so has no fill, still shows what the track sets.
+  hidden kelvinTrack: Boolean = false
   /// Set, the track is one button posting this, with no range input.
   hidden press: tapMod.TapAction? = null
   /// Whether the commit's busy look shows. The guard and the input freeze stay
@@ -322,6 +325,9 @@ open class Slider extends nodes.Node {
     }
     when (hueTrack) {
       ["hueTrack"] = "1"
+    }
+    when (kelvinTrack) {
+      ["kelvinTrack"] = "1"
     }
     when (greyed) {
       ["greyed"] = "1"
@@ -624,6 +630,10 @@ const local sliderCss: String = """
   .fh-slider-body>.fh-slider.fh-track-hue{--fh-track-veil:color-mix(in srgb,var(--fh-surface) 35%,transparent);
   background:linear-gradient(var(--fh-track-veil),var(--fh-track-veil)),
   linear-gradient(to right,#f00,#ff0 16.67%,#0f0 33.33%,#0ff 50%,#00f 66.67%,#f0f 83.33%,#f00)}
+  /* The ends of `sliderFillColourRamp`, so the fill matches the band it covers. */
+  .fh-slider-body>.fh-slider.fh-track-kelvin{--fh-track-veil:color-mix(in srgb,var(--fh-surface) 35%,transparent);
+  background:linear-gradient(var(--fh-track-veil),var(--fh-track-veil)),
+  linear-gradient(to right,rgb(255,166,87),rgb(201,226,255))}
   /* The marker is a knob in the hue it marks, ringed so it reads on any band.
      `.fh-slider-card` outranks a group master's span rule. */
   .fh-slider-card .fh-slider-body>.fh-slider.fh-track-hue>span:not([class]){inset:.375rem var(--fh-fill) .375rem auto;

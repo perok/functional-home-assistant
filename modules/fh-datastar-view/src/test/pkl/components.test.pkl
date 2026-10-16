@@ -1519,6 +1519,20 @@ facts {
     head.slots["hueTrack"] == "1"
   }
 
+  ["a colour temperature track is painted warm to cold, only on that axis"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    // In a colour mode HA reports no kelvin, so the fill is empty and the band
+    // is what says this track sets a temperature.
+    c.entitySlider(lamp.colourTemp!!).headNode.slots["kelvinTrack"] == "1"
+    c.entitySlider(lamp).controls.map((m) -> m.head.slots.containsKey("kelvinTrack"))
+      == List(false, true, false)
+  }
+
   ["a group's rows have their own main controls, or switch with the head on syncRows"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"

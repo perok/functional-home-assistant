@@ -193,6 +193,7 @@ class EntitySlider extends sliderBase.Slider {
   fillDefault =
     if (toggleOnly) "var(--fh-default-color)" else if (hue) "#fff" else "currentcolor"
   hueTrack = hue
+  kelvinTrack = on is hass.ColourTemp && reportsKelvin
   reading =
     if (shownReadout == "none") null
     else if (shownReadout is slotMod.Expr)
