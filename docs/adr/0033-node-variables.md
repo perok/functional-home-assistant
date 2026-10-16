@@ -30,7 +30,8 @@ not be enumerated there. A declared reference can.
 
 ### The rules, in one place
 
-1. A node declares variables: a name and the value it holds before anyone chooses.
+1. A node declares variables: a name and the value it holds before anyone chooses. A declaration
+   may also START elsewhere: an expression over one entity's state, read once as a session opens.
 2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
 3. A node that declares nothing is transparent.
 4. A nested declaration of the same name shadows the outer one, for its own subtree only.
@@ -52,6 +53,17 @@ opened from many places, so inheriting from its opener would be dynamic scoping.
 before anyone chooses. In Pkl, `vars = new Mapping { ["window"] = "24h" }` — assigned, because a null-defaulted
 `Mapping?` cannot be amended (ADR 0034). Nothing else: no type, no list of
 allowed values (below).
+
+**Start.** `LayoutNode.Component.starts: Map[String, Start]`: per declared name, CEL over one
+entity's state (`Start(entityId, transform)`), compiled at validate. The page route evaluates it
+as it mints the session, and a result every reader takes (`Renderer.refusals`) becomes
+`SessionState.starts`, under the viewer's choices and over the declared value. It is read **once**: an open page never
+follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
+ZHA group reports a false `xy` 59 ms after a temperature command,
+`docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
+groups, a path only a write has. A start is not a choice: no `v.` param, so a refresh starts
+afresh, and the mirror compares to the session's `__start` signal rather than the declared value
+in the shared node bytes. Its entity is watched (ADR 0030), since it decides what the page shows.
 
 **Reference.** A query parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
 string is a literal and `{"var": "window"}` a reference, the rule `SlotSource`'s decoder already

@@ -98,6 +98,9 @@ Three words go with it, and they are not interchangeable:
   variable is writable, so a literal parameter has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
+- **Start** — where a session begins a variable when not at its declared value: an expression
+  over one entity's state (`Component.starts`), read ONCE as the page opens. Not a choice (no URL
+  param) and not a flip (it never follows the entity).
 
 A declaration is a NAME and the value the variable holds before anybody chooses — that is the
 whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold

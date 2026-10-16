@@ -101,11 +101,13 @@ typealias MainControl = hassLight.Control     // later: hassLight.Control|hassCo
 This is the one runtime change. `opensOn` needs the `control` variable to start somewhere other
 than its declared value, chosen per viewer from the light's state.
 
-**Wire.** A declaration is a bare string, as today, or `{"value": "brightness", "startsAt":
-{"transform": "<CEL>"}}`. This is the bare-string-or-object rule `SlotSource` already uses, so no
-existing dashboard's bytes move. The CEL reads the declarer's subject entity with a slot
-transform's bindings (`state`, `attr`). It is compiled at validate, so a bad expression fails the
-build.
+**Wire.** A field beside `vars`, as `values` is: `starts: {"control": {"entityId": "light.x",
+"transform": "<CEL>"}}`, so nothing that reads `vars` changes. The CEL reads that entity with a
+slot transform's bindings (`state`, `attr`). It names its entity because a slider's declaring node
+has no subject of its own (the head below it does). It is compiled at validate, so a bad expression
+or a start for an undeclared name fails the build, and the entity joins
+`Dashboard.watchedEntities` (ADR 0030), since it decides what the page shows. Pkl:
+`controlVar.start(l, cel)`.
 
 **When it is evaluated: once, as the session opens. It does not follow later changes.**
 
@@ -121,10 +123,8 @@ build.
     the viewer off the temperature head mid-use.
   - **It would need a path that does not exist.** Today only a write moves a variable's panels.
     Following would need state changes to reselect bake groups for every unchosen declaration.
-- *Evaluated where:* where the session is created. Today that is where `v.` URL params are
-  adopted (`Server`, around `SessionState.initial.copy(…, vars = choices)`). It reads from the
-  `StateStore`. The subject is already subscribed (ADR 0030), and ADR 0023 is not touched,
-  since the read is of the node's own subject.
+- *Evaluated where:* the page route, as it mints the session (`Renderer.startsFor`), from one
+  read of the `StateStore`. ADR 0023 is not touched: the author names the entity, not a viewer.
 - *Held as:* a third layer below the viewer's choices, `Session.starts: Map[VarKey, String]`.
   `VarGraph.env` and `committed` resolve choice, then start, then declared. A start is not a
   choice, so it puts no `v.` param on the URL.
@@ -158,7 +158,7 @@ The shell seeds it beside the committed value, so no per-viewer byte enters a ca
 | `lib/components/slider.pkl` | reads the axis; light branches and `sliderSpec`'s light row gone; `opensOn` |
 | `lib/components/its.pkl` | `MainControl = hassLight.Control` |
 | `lib/core/variable.pkl` | `declare(value)` gains a starting expression |
-| `fh/view/model/Dashboard.scala` | `vars` values: bare string or `{value, startsAt}`; compiled at validate |
+| `fh/view/model/Dashboard.scala` | `Component.starts`, `Start`; validated, compiled, watched |
 | `fh/view/runtime/VarGraph.scala`, `Server.scala`, `Sessions.scala` | `starts` on the session; env order choice → start → declared |
 | `fh/view/runtime/Renderer.scala`, shell seed | mirror compares to the `__start` signal |
 | `PklDump.scala` | drops a carried `brightness` on lights (`SchemaModelled`); the group itself is derived in `hass.pkl` from `supportsBrightness`, fixed 1–255 |

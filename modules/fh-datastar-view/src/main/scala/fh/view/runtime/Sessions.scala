@@ -35,6 +35,9 @@ enum Tenure derives CanEqual {
   *     rendered, so a closed popup costs nothing.
   *   - `vars`: the viewer's node-variable choices, here because a pull has no
   *     request to read them off (issue #209).
+  *   - `starts`: where the document started a variable that has a start,
+  *     decided once from the state it was rendered on. Not a choice: no `v.`
+  *     param, and a reconnect does not carry it.
   *   - `holds`: per node, what this DOM was last sent.
   *   - `position`: how far this session has been served; its pull resumes from
   *     here.
@@ -53,8 +56,15 @@ final case class SessionState(
     vars: Map[VarKey, String],
     holds: Map[NodeId, Held],
     position: Long,
-    told: Long
-)
+    told: Long,
+    starts: Map[VarKey, String] = Map.empty
+) {
+
+  /** What this viewer is shown: a choice, else the start; [[VarGraph]] fills
+    * the declared value under both.
+    */
+  def values: Map[VarKey, String] = starts ++ vars
+}
 
 object SessionState {
   // -1: 0 is a real version a client could hold.

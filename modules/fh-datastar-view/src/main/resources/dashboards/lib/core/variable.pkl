@@ -23,6 +23,7 @@ module core.variable
 
 import "tap.pkl" as tapMod
 import "surface.pkl" as surfaceMod
+import "../hass.pkl"
 
 /// A plain token: it is spelled into signal names and the URL.
 typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
@@ -72,6 +73,11 @@ class Variable {
   function declare(value: String): Mapping<String, String> =
     let (n = name) new Mapping { [n] = value }
 
+  /// Its entry in the declaring node's `starts`: CEL over `e`'s state, read
+  /// once as a page opens. It does not follow the entity afterwards.
+  function start(e: hass.Entity, cel: String): Mapping<String, Start> =
+    let (n = name) new Mapping { [n] = new Start { entityId = e.entity_id; transform = cel } }
+
   /// Choose `value`, from a node below the declarer. It sets only the pending
   /// ask; the server commits once the readers have re-rendered (ADR 0025).
   function choose(value: Value): tapMod.SetVar =
@@ -83,6 +89,13 @@ class Variable {
             "?group=\(s.group)'" + #")""#
         )
       }
+}
+
+/// Where a session starts a variable: CEL over one entity's state, which the
+/// dashboard then watches.
+class Start {
+  entityId: String
+  transform: String
 }
 
 /// One variable's signals and URL param, from wherever its declarer's id is
