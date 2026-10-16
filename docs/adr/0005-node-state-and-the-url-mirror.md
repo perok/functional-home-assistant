@@ -120,7 +120,7 @@ and PUSHES each popup the server opens; the browser's history is the stack, and
 the server keeps showing one.
 
 - **Closing is going back.** The ✕, Escape, a tap on the backdrop and
-  `c.tap.closePopup` are all `history.back()`, to the popup before or to the
+  `c.view.closePopup` are all `history.back()`, to the popup before or to the
   dashboard. The backdrop also keeps a tap beside the popup from reaching the
   page under it, which the non-modal dialog alone did not.
 - **One `popstate` listener** (`Server.page`) asks the server to show what the

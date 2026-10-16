@@ -270,7 +270,7 @@ class ControlSmokeSuite extends SmokeSuite {
   test(
     "a busy-guarded element's icon becomes a spinner while its call is in flight"
   ) {
-    // `c.iconButton` is an `i.mdi` glyph plus the busy pieces, so while held it
+    // An icon pill is an `i.mdi` glyph plus the busy pieces, so while held it
     // takes `.shape.loading-indicator`; a labelled button dims instead. The
     // class is bound to `tap.pkl`'s delayed signal, so its presence is the
     // decision.

@@ -988,7 +988,7 @@ class PklBuildSuite extends munit.FunSuite {
         |theme = new th.Theme {}
         |card = (c.column) {
         |  children {
-        |    c.button("Open", c.tap.openPopupInline(c.title("x")))
+        |    c.button("Open", c.view.openPopupInline(c.title("x")))
         |    c.entitySlider(dump.lights.all.first)
         |  }
         |}
@@ -1231,7 +1231,7 @@ class PklBuildSuite extends munit.FunSuite {
        |    body {
        |      c.title("Detail")
        |      c.entityCard(dump.entities.sensor_outside_temp)
-       |      c.button("Close", c.tap.closePopup())
+       |      c.button("Close", c.view.closePopup())
        |    }
        |  }
        |}
@@ -1247,11 +1247,11 @@ class PklBuildSuite extends munit.FunSuite {
        |      .where(q.eq(q.stateProp, "on"))
        |      .render((e) -> c.entityCard(e))
        |      .build()
-       |    c.button("Detail…", c.tap.openPopup("detail"))
-       |    c.button("Inline…", c.tap.openPopupInline(new c.Column {
+       |    c.button("Detail…", c.view.openPopup("detail"))
+       |    c.button("Inline…", c.view.openPopupInline(new c.Column {
        |      children {
        |        c.title("Inline")
-       |        c.button("Close", c.tap.closePopup())
+       |        c.button("Close", c.view.closePopup())
        |      }
        |    }))
        |  }
@@ -1669,8 +1669,8 @@ class PklBuildSuite extends munit.FunSuite {
         |cardAmend = (c.entityCard(x)) { tapAction = c.tap.call("homeassistant/toggle", x); label = "Office" }
         |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.call("homeassistant/toggle", x); label = "Office" }
         |
-        |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
-        |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.tap.closePopup() }
+        |btnBuilder = c.button("Close", c.view.closePopup()).label("Dismiss")
+        |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.view.closePopup() }
         |
         |sliderBuilder = c.entitySlider(x).label("Lamp").min(10).max(200)
         |sliderAmend = new c.EntitySlider { entity = x; label = "Lamp"; min = 10; max = 200 }
@@ -1719,8 +1719,8 @@ class PklBuildSuite extends munit.FunSuite {
         |// one), so it survives a span and composes with it rather than being
         |// replaced. A Pill defaults to it, the same self-defaulted-cell move.
         |hugged = c.entityCard(x).hug()
-        |pill = c.pill("Underetasje", c.tap.navigate("under"))
-        |pillSized = c.pill("Underetasje", c.tap.navigate("under")).columns(6)
+        |pill = c.pill(c.view.navigate("under")).label("Underetasje")
+        |pillSized = c.pill(c.view.navigate("under")).label("Underetasje").columns(6)
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1900,7 +1900,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("a navigating button is an anchor: `href`, and no onclick at all") {
     val nav =
-      probeComponent("""node = c.button("Home", c.tap.navigate("other"))""")
+      probeComponent("""node = c.button("Home", c.view.navigate("other"))""")
     // Relative, so it resolves against `<base href>` (ingress-safe).
     assertEquals(nav.slots("href").literal, Some("d/other"))
     assert(!nav.slots.contains("onclick"), clue = nav.slots)
@@ -1990,7 +1990,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.entitySlider(light).withSubSliders(List(a, cover).map((m) -> c.entitySlider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.call("homeassistant/toggle", light) }
+        |node = (c.entitySlider(light).withSubSliders(List(a, cover).map((m) -> c.entitySlider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; buttons = List(c.pill(c.tap.call("homeassistant/toggle", light)).icon("mdi:power")) }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
@@ -2003,18 +2003,18 @@ class PklBuildSuite extends munit.FunSuite {
       rowOf(group).slots("icon").literal,
       Some("mdi-lightbulb-group")
     )
-    // `tapAction` is shorthand for the head's `actions` region (#151): the
-    // press gets a node, and so a busy signal, of its own.
+    // `buttons` fill the head's `actions` region (#151): the press gets a
+    // node, and so a busy signal, of its own.
     val actions = actionsOf(group)
-    // The shared icon button: a glyph, no label and the `lit` tint are not
-    // about sliders.
-    assertEquals(actions.map(_.card), List("button"))
+    // The shared pill: a glyph, no label and the `lit` tint are not about
+    // sliders.
+    assertEquals(actions.map(_.card), List("pill"))
     assertEquals(
       actions.head.slots("service").literal,
       Some("homeassistant/toggle")
     )
     assertEquals(actions.head.slots("targetId").literal, Some("light.lys"))
-    assertEquals(actions.head.slots("glyph").literal, Some("mdi mdi-power"))
+    assertEquals(actions.head.slots("glyph").literal, Some("mdi-power"))
     assertEquals(actions.head.slots("round").literal, Some("1"))
 
     // `allChildren` would include the head.

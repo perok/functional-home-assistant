@@ -145,7 +145,7 @@ is a live document and parts of it (a drag, a live value) are JS by nature.
 It is a direction to hold while designing:
 
 - Prefer a real `<a href>` over a click handler where the tap goes somewhere —
-  `c.tap.navigate` already does this, and gets middle-click, open-in-new-tab and
+  `c.view.navigate` already does this, and gets middle-click, open-in-new-tab and
   the status bar for free.
 - Prefer state the URL can carry over state only a signal knows. The tab and
   popup selections are already mirrored (ADR 0005), which is why a reload lands

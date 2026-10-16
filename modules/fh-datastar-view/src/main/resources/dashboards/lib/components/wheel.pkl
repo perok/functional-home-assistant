@@ -1,7 +1,7 @@
 /// A colour wheel for a light: hue round the rim, saturation out from the
 /// white centre, which a slider's hue track (full saturation) cannot reach.
 /// A drag moves the knob; the release sets `hs_color`. Brightness stays on the
-/// slider. Opened in a popup by `c.entitySlider(l).colour("popup")`.
+/// slider. Opened in a popup by the view tap `c.view.colourWheel(l.colour)`.
 module components.wheel
 
 import "../core/node.pkl" as nodes

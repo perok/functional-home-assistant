@@ -425,7 +425,7 @@ class EntitySet {
   /// `limit` or a rendering, so a fixed row can mark the scene activated last:
   ///
   ///     local latest = q.from(scenes).orderBy(q.desc(q.stateProp)).first()
-  ///     for (s in scenes) { c.pill(s.friendly_name, c.tap.activate(s)).active(latest.eq(s)) }
+  ///     for (s in scenes) { c.pill(c.tap.activate(s)).active(latest.eq(s)) }
   ///
   /// A scene never activated (`unknown`) cannot lead while one has been: no
   /// value sorts last in either direction.

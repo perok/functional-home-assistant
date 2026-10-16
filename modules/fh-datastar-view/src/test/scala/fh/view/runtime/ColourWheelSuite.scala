@@ -8,9 +8,9 @@ import org.http4s.Status
 
 import scala.concurrent.duration.*
 
-/** `c.entitySlider(l).colour("popup")` end to end: the pill's wheel button
-  * opens a popup with the wheel, which starts at the light's `hs_color` and
-  * sets one the hue track never could, a pastel.
+/** `c.view.colourWheel(l.colour)` on a slider end to end: the pill's wheel
+  * button opens a popup with the wheel, which starts at the light's `hs_color`
+  * and sets one the hue track never could, a pastel.
   */
 class ColourWheelSuite extends CatsEffectSuite {
 
@@ -39,7 +39,10 @@ class ColourWheelSuite extends CatsEffectSuite {
        |import "@fh-home/dump.pkl" as dump
        |
        |card = (c.column) {
-       |  children { c.entitySlider(dump.entities.${lamp.dumpKey}).colour("popup") }
+       |  local l = dump.entities.${lamp.dumpKey}
+       |  children {
+       |    c.entitySlider(l).modes(List("brightness", "colourTemp")).buttons(List(c.view.colourWheel(l.colour)))
+       |  }
        |}
        |""".stripMargin
 

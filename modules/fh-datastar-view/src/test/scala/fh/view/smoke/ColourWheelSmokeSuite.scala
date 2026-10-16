@@ -33,7 +33,10 @@ class ColourWheelSmokeSuite extends SmokeSuite {
        |access = c.access.public
        |
        |card = (c.column) {
-       |  children { c.entitySlider(dump.entities.${lamp.dumpKey}).colour("popup") }
+       |  local l = dump.entities.${lamp.dumpKey}
+       |  children {
+       |    c.entitySlider(l).modes(List("brightness")).buttons(List(c.view.colourWheel(l.colour)))
+       |  }
        |}
        |""".stripMargin
 

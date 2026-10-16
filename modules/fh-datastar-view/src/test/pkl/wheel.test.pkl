@@ -1,4 +1,4 @@
-/// The colour wheel and `c.entitySlider(l).colour(…)`. Outside `lib/` for the
+/// The colour wheel, `c.view.colourWheel(l.colour)`, and a slider's buttons. Outside `lib/` for the
 /// reason `components.test.pkl` gives.
 amends "pkl:test"
 
@@ -34,26 +34,53 @@ facts {
       .contains("colour != null")
   }
 
-  ["colour on the slider by default; popup trades the hue track for a wheel button"] {
-    c.entitySlider(lamp).offeredModes == List("brightness", "colourTemp", "colour")
-    c.entitySlider(lamp).leadingActions.isEmpty
-    local popped = c.entitySlider(lamp).colour("popup")
-    popped.offeredModes == List("brightness", "colourTemp")
-    popped.leadingActions.toList().length == 1
-    wheelIn(popped.leadingActions.toList()[0].tapAction)?.light?.entity_id == "light.lamp"
-    // On the pill, beside the mode button.
-    popped.pillActions.toList().length == 1
-    local both = c.entitySlider(lamp).colour("both")
-    both.offeredModes == List("brightness", "colourTemp", "colour")
-    both.leadingActions.toList().length == 1
-  }
-
-  ["a light without colour offers no wheel, whatever it is asked"] {
+  ["the wheel is a view tap on the light's colour group, a pill in its look"] {
+    local t = c.view.colourWheel(lamp.colour!!)
+    wheelIn(t)?.light?.entity_id == "light.lamp"
+    t.icon == "mdi:palette-swatch"
+    local p = c.pill(t)
+    p.slots["round"] == "1" && p.slots["name"] == "Colour"
+    // A view tap: never lit by the light.
+    p.active == false
+    // A light without colour has no group to pass.
     local warm: hass.LightEntity = new {
       entity_id = "light.warm"
       colourModes { "color_temp" }
       colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
     }
-    c.entitySlider(warm).colour("popup").leadingActions.isEmpty
+    module.catch(() -> c.view.colourWheel(warm.colour)).contains("Colour")
+  }
+
+  ["on a slider with modes the buttons are the pill's, the mode switch where marked"] {
+    local s = c.entitySlider(lamp)
+      .buttons(List(c.tap.toggle(lamp), c.modeSwitch, c.view.colourWheel(lamp.colour!!)))
+    local pill = s.children["head"][0].children.toList()[0]
+    pill.children["before"].toList().map((b) -> b.slots["glyph"]) == List("mdi-power")
+    pill.children["children"].toList().map((b) -> b.slots["glyph"]) == List("mdi-palette-swatch")
+    // The heads carry none: they are the pill's.
+    s.modes.every((m) -> m.head.children["actions"].isEmpty)
+    // Unmarked, the mode switch is first.
+    local first = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp))).children["head"][0].children.toList()[0]
+    first.children["before"].isEmpty && first.children["children"].length == 1
+    // The wheel instead of the hue track is the modes without "colour".
+    c.entitySlider(lamp).modes(List("brightness", "colourTemp")).offeredModes == List("brightness", "colourTemp")
+  }
+
+  ["a null among the buttons is no button: one list serves lights with and without colour"] {
+    local warm: hass.LightEntity = new {
+      entity_id = "light.warm"
+      colourModes { "color_temp" }
+      colourTemp = new hass.ColourTemp { owner = warm; min_kelvin = 2200; max_kelvin = 4000 }
+    }
+    local function glyphs(l: hass.LightEntity) =
+      let (pill = c.entitySlider(l)
+          .buttons(List(c.tap.toggle(l), l.colour.ifNonNull((col) -> c.view.colourWheel(col)), c.modeSwitch))
+          .children["head"][0].children.toList()[0])
+        pill.children["before"].toList().map((b) -> b.slots["glyph"])
+    glyphs(lamp) == List("mdi-power", "mdi-palette-swatch")
+    glyphs(warm) == List("mdi-power")
+    // A plain slider's head drops it too.
+    c.entitySlider(warm.colourTemp!!).buttons(List(null, c.tap.toggle(warm)))
+      .children["head"][0].children["actions"].length == 1
   }
 }

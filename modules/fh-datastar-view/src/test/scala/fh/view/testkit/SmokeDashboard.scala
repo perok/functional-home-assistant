@@ -39,7 +39,7 @@ object SmokeDashboard {
        |    body {
        |      c.title("Kitchen Detail")
        |      c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
-       |      c.button("Close", c.tap.closePopup())
+       |      c.button("Close", c.view.closePopup())
        |    }
        |  }
        |}
@@ -48,7 +48,7 @@ object SmokeDashboard {
        |  children {
        |    c.title("Smoke House")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
-       |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.openPopup("detail"))
+       |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.view.openPopup("detail"))
        |    c.button("Toggle Kitchen", c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
        |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.lock.controls(dump.entities.${HouseFixture.frontLock.dumpKey})
@@ -132,7 +132,7 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
+         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).buttons(List(c.pill(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey})).icon("mdi:power")))
          |  }
          |}
          |""".stripMargin
@@ -303,7 +303,7 @@ object SmokeDashboard {
          |local head = dump.entities.${colourLamp.dumpKey}
          |card = (c.grid) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).syncRows().withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).syncRows().withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${groupDimmer.dumpKey}).readout("percent").icon(null)
          |    ))
@@ -331,7 +331,7 @@ object SmokeDashboard {
          |local head = dump.entities.${groupDimmer.dumpKey}
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(head).tapAction(c.tap.toggle(head)).secondary("Kitchen").withSubSliders(List(
+         |    c.entitySlider(head).buttons(List(c.tap.toggle(head))).secondary("Kitchen").withSubSliders(List(
          |      c.entitySlider(dump.entities.${colourLamp.dumpKey}).readout("percent").icon(null),
          |      c.entitySlider(dump.entities.${colourLamp2.dumpKey}).readout("percent").icon(null)
          |    ))
@@ -362,9 +362,9 @@ object SmokeDashboard {
          |  children {
          |    (c.row) {
          |      children {
-         |        c.pill("Kveld", c.tap.toggle(k))
-         |        c.pill("Morgen", c.tap.toggle(k))
-         |        c.pill("Film", c.tap.toggle(k))
+         |        c.pill(c.tap.call("light/toggle", k)).label("Kveld")
+         |        c.pill(c.tap.call("light/toggle", k)).label("Morgen")
+         |        c.pill(c.tap.call("light/toggle", k)).label("Film")
          |      }
          |    }
          |  }

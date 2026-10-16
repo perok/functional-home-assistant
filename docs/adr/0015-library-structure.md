@@ -110,8 +110,9 @@ and a refused click; a slider's range is disabled and its commit refuses.
 - `press` is the toggle-only variant on the SAME card: set, the track is one
   button and there is no input. A second card would make a group's rows two
   cards for one look. `EntitySlider` sets it for a light that cannot dim.
-- `leadingActions` is how the HA `tapAction` shorthand stays first without an
-  author's `actions` replacing it.
+- `buttons` is a list of taps and pills, each tap a pill in its own look
+  (`core/tap.pkl`'s `icon`/`label`/`lit`), so the base needs no HA to show
+  one; `ModeSwitch` marks where a slider with modes puts its mode switch.
 - What makes a slider "about this entity" stays HA: `SlideAxis`, `sliderSpec`,
   the RGB and kelvin fills, the `"state"`/`"percent"` readout names and the
   `valueExpr`/`percentExpr` splice surface.

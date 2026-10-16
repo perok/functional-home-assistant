@@ -40,6 +40,7 @@ import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
 import "components/progress.pkl" as progressMod
 import "components/tap.pkl" as tapVerbs
+import "components/view.pkl" as viewVerbs
 import "components/select.pkl" as selectMod
 import "components/wheel.pkl" as wheelMod
 import "core/variable.pkl" as varMod
@@ -47,11 +48,15 @@ import "recipes.pkl" as recipesMod
 
 // ---- namespaces ----
 
-/// What a click does, each verb naming what it acts on: `c.tap.toggle(l)`,
-/// `c.tap.moreInfo(l)`, `c.tap.lights.off(dump.areas.stue)`,
-/// `c.tap.activate(scene)`, `c.tap.navigate("under")`. `c.tap(e)` is the
-/// method beside it: what a tap on `e`'s own card does.
+/// What a click does in Home Assistant, each verb naming what it acts on:
+/// `c.tap.toggle(l)`, `c.tap.lights.off(dump.areas.stue)`,
+/// `c.tap.activate(scene)`. `c.tap(e)` is the method beside it: what a tap on
+/// `e`'s own card does.
 hidden tap: tapVerbs = tapVerbs
+
+/// What a click shows, touching nothing in Home Assistant: `c.view.moreInfo(l)`,
+/// `c.view.openPopup("detail")`, `c.view.navigate("under")`.
+hidden view: viewVerbs = viewVerbs
 
 /// What a tap on `e` means, from its domain: a scene activates, a light
 /// toggles, a lock or a sensor opens more-info (`c.tap.default`).
@@ -118,7 +123,7 @@ hidden row: layoutMod.Row = layoutMod.row
 hidden column: layoutMod.Column = layoutMod.column
 /// The 12-column grid, the default top-level container.
 hidden grid: layoutMod.Grid = layoutMod.grid
-/// The popup dialog; rarely written by hand (see `c.tap.openPopupInline`).
+/// The popup dialog; rarely written by hand (see `c.view.openPopupInline`).
 hidden popup: surfaceMod.Popup = surfaceMod.popup
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
 hidden tabs: surfaces.Tabs = surfaces.tabs
@@ -144,25 +149,24 @@ function entityCard(e: hass.Entity): entityMod.EntityCard = entityMod.entityCard
 function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e)
 /// On/off control, styled as a switch.
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
-/// `c.button("Close", c.tap.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
+/// `c.button("Close", c.view.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
 function button(l: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.button(l, a)
 /// A button about an entity — its name, its icon and its domain's tap:
 /// `c.entityButton(l).active(c.isOn(l))`.
 function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
-/// `c.pill("Underetasje", c.tap.navigate("under"))`.
-function pill(l: String, a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(l, a)
-/// `c.iconButton("mdi:power", c.tap.toggle(l))`.
-function iconButton(i: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.iconButton(i, a)
+/// A small button in its tap's look: `c.pill(c.tap.toggle(l))`, or
+/// `c.pill(c.view.navigate("under")).label("⬇️ Under")`.
+function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// An entity for its domain's default axis, or a capability group for that
 /// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
+/// Where a slider's mode switch sits among its buttons:
+/// `c.entitySlider(l).buttons(List(c.tap.toggle(l), c.modeSwitch))`.
+hidden modeSwitch: sliderBaseMod.ModeSwitch = sliderBaseMod.modeSwitch
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
 /// bar where it also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
   progressMod.progress(remaining)
-/// A round [[entityButton]] for a slider's head, tinted while its entity is on.
-function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
-  sliderMod.sliderAction(e, t)
 /// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
 /// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
@@ -196,7 +200,7 @@ function attr(attrName: String): slotMod.Slot = slotMod.attr(attrName)
 function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
 /// Whether `e` is `on`, live: `c.entityButton(l).active(c.isOn(l))`.
 function isOn(e: hass.Entity): slotMod.Slot = slotMod.stateIn(e, List("on"))
-/// What `c.tap.moreInfo(e)`'s popup holds.
+/// What `c.view.moreInfo(e)`'s popup holds.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 
 // ---- constructors as values, for a query's render positions ----
