@@ -185,8 +185,11 @@ it off until the condition next changes.
 
 **M6: the clock and the sun.**
 - Time and the sun's position become inputs.
-- Time windows become computed values, such as #584's "night".
-- The engine wakes on the clock, not only on changes from HA.
+- Time windows become computed values on fh's device, such as #584's "night"
+  (`binary_sensor.fh_night`).
+- The engine wakes on the clock, not only on changes from HA. Dashboards need no clock of their
+  own: they read "night" like any entity, and its state change re-renders them. HA's own
+  automations can use it too. There is no `q.clock`.
 
 Done when Adaptive Lighting's behaviour for one room is an fh rule.
 
