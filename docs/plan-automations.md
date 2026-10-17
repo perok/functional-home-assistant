@@ -186,9 +186,21 @@ Done when M6–M8's behaviours are packages a workspace imports.
 
 ## Open questions (recommendation first)
 
-1. **The MQTT client.** `net.sigusr::fs2-mqtt` 1.0.1 is native to fs2 and cats-effect, but its
-   last release was January 2024 and it speaks only MQTT 3.1.1. HiveMQ's Java client is maintained
-   and speaks MQTT 5. Spike fs2-mqtt in M2, and fall back to HiveMQ behind the same interface.
+1. **The MQTT client.** All three wrap into the same fs2 interface, and our traffic (a few
+   messages a minute) makes their speed irrelevant. What separates them is maintenance and what
+   they add to the jar and the Pi's memory.
+   - `net.sigusr::fs2-mqtt` 1.0.1 runs on our own fs2 sockets and IO runtime, so it needs no wrapper
+     and adds no threads. Its last release was January 2024, and it speaks only MQTT 3.1.1, which is
+     a frozen protocol and enough for HA's discovery.
+   - `com.hivemq:hivemq-mqtt-client` 1.4.1 (October 2026) is maintained and speaks MQTT 5. Its
+     async API returns `CompletableFuture`s and reactive-streams publishers, which convert to fs2
+     directly. It brings Netty, RxJava and JCTools, with their own threads.
+   - Eclipse Paho (`org.eclipse.paho.client.mqttv3` / `mqttv5.client` 1.2.5) is small and has no
+     dependencies, and its async client is callback-based. Its last release was July 2020, with
+     about 400 open issues, and reconnecting is where those bugs are.
+
+   Spike fs2-mqtt in M2, and fall back to HiveMQ behind the same interface. Paho is last, for its
+   maintenance.
 2. **SQLite access.** Use `com.armanbilge::porcupine` (0.0.2, July 2026), a Skunk-style library on
    cats-effect 3.7 and fs2 3.13. On the JVM it delegates to `sqlite-jdbc`; pin that driver
    ourselves to a current version (`3.53.4.0`), since porcupine brings in `3.46.1.3`. It is at 0.0.x,
