@@ -29,12 +29,12 @@ plain content elsewhere. The library already splits layout two ways, and these f
 
 - **`.grow()`**: the cell takes the space its row or column leaves (`flex: 1 1 auto`). In a
   column under `fillScreen()` it is the body between a header and a footer; in a wrapped row it
-  fills the rest of the line. `.grow()` with `.hug()` on one node is a build error in either
-  order, since they ask for opposite things.
-- **`c.spacer`**: an empty node that grows. Space that pushes its siblings apart, with no wrapper
-  around them.
+  fills the rest of the line. Hug and grow are one family of cell classes, like `fh-cols-*`: the
+  author's last word wins, so `.grow()` on a pill overrides the pill's default hug.
+- **`c.spacer`**: an empty column that grows. Space that pushes its siblings apart, with no
+  wrapper around them and no card of its own.
 - **`.stick("top" | "bottom")`**: the cell stays on screen while the page scrolls
-  (`position: sticky`). Left off, a footer scrolls away and only sits at the bottom when the page
+  (`position: sticky`); the two edges are one family too. Left off, a footer scrolls away and only sits at the bottom when the page
   is short. The two combine.
   - It sticks within its parent box. A direct child of the page's main column is always on
     screen; deeper down, it sticks only while its parent is.
@@ -52,16 +52,19 @@ plain content elsewhere. The library already splits layout two ways, and these f
 
 A container states its children's layout as inherited custom properties (`--fh-cell-flex`,
 `--fh-cell-width`, `--fh-cell-align-self`, `core/css.pkl`), so a container that does not set one
-passes its PARENT's value on to its own cells. Two do not:
+passes its PARENT's value on to its own cells. Three do not:
 
 - **A column sets only the width.** Inside a row its cells inherit `flex: 1 1 0`. Harmless while
   a column has no height of its own; under `fillScreen()` every child would split the height
   evenly, header and footer included.
 - **A grid does not set `align-self`.** Inside a row its cells inherit `flex-start`, so cards on
   one line do not stretch to the same height as they do in a grid at the root.
+- **The slider's pill does not set `align-self`** either. It gets `stretch`, what it inherits in a
+  grid today, so the slider screenshots should not move.
 
-The rule becomes: every container sets all three. A column at the root sets the values its cells
-already default to, so nothing moves there; only a column or grid nested in a row changes.
+The rule becomes: every rule that sets one sets all three. A column at the root sets the values
+its cells already default to, so nothing moves there; only a column or grid nested in a row
+changes.
 
 ## Not in this change
 
@@ -75,13 +78,17 @@ already default to, so nothing moves there; only a column or grid nested in a ro
 
 - Pkl facts (`layout.test.pkl`):
   - each builder's classes, and a CSS rule for each;
-  - `.grow()` with `.hug()` is a build error in both orders;
-  - **the property behind the fix**: every container sets every custom property a cell reads.
-    The properties come from the cell rule itself and the containers from the layout module's
-    classes, so a new property or a new container cannot be forgotten.
-- Smoke, in a browser (CI only, since the sandbox has no working Chromium):
+  - hug and grow, and the two edges, replace each other in either order;
+  - **the property behind the fix**: every CSS rule that sets a cell property sets every one a
+    cell reads. The properties come from the cell rule itself and the rules from `layoutCss` and
+    every card in the library index (`c.cards`), so a new property, container or card cannot be
+    forgotten. A refinement on a box that sets them all (`.fh-row.fh-wrap`) is exempt.
+- Smoke, in a browser (`LayoutFillSmokeSuite`; CI only, since the sandbox has no working
+  Chromium):
   - a short page puts the footer at the bottom of the screen;
-  - on a long page, scrolling keeps the header at the top and the footer at the bottom.
+  - on a long page, scrolling keeps the header at the top and the footer at the bottom;
+  - a spacer pushes a wrapped row's last cell to its end.
+- The fixture builds and validates without a browser (`SmokeFixtureSuite`).
 
 ## Docs in the same change
 

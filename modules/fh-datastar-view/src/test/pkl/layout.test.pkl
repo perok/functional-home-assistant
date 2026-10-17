@@ -4,6 +4,7 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 
 // `selector { body }`, innermost, so a rule inside `@media` is its own.
 local function rules(css: String): List<Pair<String, String>> =
@@ -22,6 +23,8 @@ local function declared(body: String): Set<String> =
   body.split(";").map((d) -> d.trim()).filter((d) -> d.startsWith("--fh-cell-"))
     .map((d) -> d.takeWhile((ch) -> ch != ":")).toSet()
 
+local function classes(n: nodes.LayoutNode): List<String> = n.cell?.classes?.toList() ?? List()
+
 facts {
   ["a row is start-packed and one line until told otherwise"] {
     !c.row.slots.containsKey("class")
@@ -36,9 +39,28 @@ facts {
   }
 
   ["each class the builders emit has a rule"] {
-    for (cls in List("fh-justify-center", "fh-justify-end", "fh-wrap")) {
+    for (cls in List("fh-justify-center", "fh-justify-end", "fh-wrap", "fh-grow", "fh-stick-top", "fh-stick-bottom", "fh-fill-screen")) {
       cssMod.layoutCss.contains(".\(cls){") || cssMod.layoutCss.contains(".\(cls).") || cssMod.layoutCss.contains(".fh-row.\(cls){")
     }
+  }
+
+  ["one child grows, or hugs; the author's last word wins, over a card's default too"] {
+    classes(c.title("x").grow()) == List("fh-grow")
+    classes(c.title("x").hug().grow()) == List("fh-grow")
+    classes(c.title("x").grow().hug()) == List("fh-hug")
+    classes(c.title("x").columns(3).grow()) == List("fh-cols-3", "fh-grow")
+    classes(c.spacer) == List("fh-grow")
+    classes(c.spacer.hug()) == List("fh-hug")
+  }
+
+  ["a child sticks at one edge"] {
+    classes(c.title("x").stick("top")) == List("fh-stick-top")
+    classes(c.title("x").stick("top").stick("bottom")) == List("fh-stick-bottom")
+  }
+
+  ["a column fills the screen when told"] {
+    c.column.fillScreen().slots["class"] == "fh-fill-screen"
+    c.column.justify("end").fillScreen().slots["class"] == "fh-justify-end fh-fill-screen"
   }
 
   // A container passes its cells' layout down by inheritance, so one that sets

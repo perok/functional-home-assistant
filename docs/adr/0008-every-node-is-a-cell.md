@@ -88,7 +88,16 @@ know.
    (`LayoutNode.hug()`) shrinks a cell to its content, so a run of them packs at
    the container's own gap. Filling is the default because it is what a card
    wants; hugging is what makes a row of pills read as a row of pills instead of
-   short labels rattling around in equal boxes. `--fh-gap` is the spacing knob;
+   short labels rattling around in equal boxes. Its opposite, `.fh-grow`
+   (`grow()`), takes the space the container leaves, which is how a body sits
+   between a header and a footer, or `c.spacer` pushes a row's last cells to its
+   end; one cell is one or the other, the last builder winning. `.fh-stick-top`
+   and `-bottom` (`stick(edge)`) keep a cell on screen while its box is, and a
+   column's `fillScreen()` makes it at least the screen's height, which is what
+   lets a footer sit at the bottom of a short page. A container hands these to
+   its cells as inherited custom properties, so every container sets all of
+   them (`--fh-cell-flex`, `-width`, `-align-self`): one that sets only some
+   passes its parent's value on for the rest. `--fh-gap` is the spacing knob;
    `core/css.pkl` carries all of this as `layoutCss`, which `entry.pkl` puts on
    the dashboard itself and the renderer emits ahead of any theme (ADR 0020) —
    so a theme inherits the layout system rather than having to interpolate it,
@@ -98,7 +107,8 @@ know.
 6. **Authoring follows HA naming.** Layout builders live on the Pkl
    `LayoutNode` base, so components and dynamic groups share them: `columns(n)`
    (HA `grid_options.columns`), `fullWidth()` (HA `columns: full`), `hug()`
-   (shrink to content), and the `cellClass("…")` escape hatch. They append to the node's `cell.classes`
+   (shrink to content), `grow()` (take what is left), `stick(edge)`, and the
+   `cellClass("…")` escape hatch. They append to the node's `cell.classes`
    (never amending the null default) and return the base `LayoutNode` type —
    chain them AFTER card-specific builders (`c.entityCard(e).tapAction(…).columns(3)`).
    `caseOf` copies a render fn's `cell` onto the emitted `Case`. The `Grid`

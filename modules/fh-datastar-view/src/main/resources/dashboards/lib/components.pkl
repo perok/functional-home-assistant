@@ -99,6 +99,8 @@ typealias Cell = nodes.Cell
 typealias Row = layoutMod.Row
 typealias Column = layoutMod.Column
 typealias Grid = layoutMod.Grid
+/// `"top"` or `"bottom"`: where `.stick(…)` keeps a card.
+typealias Edge = nodes.Edge
 typealias SurfaceDef = surfaceMod.SurfaceDef
 typealias PopupSurface = surfaceMod.PopupSurface
 typealias Popup = surfaceMod.Popup
@@ -129,6 +131,8 @@ hidden row: layoutMod.Row = layoutMod.row
 hidden column: layoutMod.Column = layoutMod.column
 /// The 12-column grid, the default top-level container.
 hidden grid: layoutMod.Grid = layoutMod.grid
+/// Space that takes what its row or column leaves: `(c.row) { children { a; c.spacer; b } }`.
+hidden spacer: nodes.LayoutNode = layoutMod.spacer
 /// The popup dialog; rarely written by hand (see `c.view.openPopupInline`).
 hidden popup: surfaceMod.Popup = surfaceMod.popup
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.

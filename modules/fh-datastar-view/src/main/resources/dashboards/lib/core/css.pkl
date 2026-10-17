@@ -22,6 +22,7 @@ const local paletteVars: String = """
   --fh-text:var(--primary-text-color);
   --fh-text-dim:var(--secondary-text-color);
   --fh-surface:var(--card-background-color);
+  --fh-page:var(--primary-background-color);
   --fh-raise:0 .0625rem .1875rem rgb(0 0 0 / .2);
   --fh-surface-alt:var(--secondary-background-color);
   --fh-surface-sunken:var(--secondary-background-color);
@@ -42,6 +43,11 @@ const local paletteVars: String = """
 ///     to 12 fit one row exactly.
 ///   - `.fh-row`: children share the width. `.fh-col`: children fill it.
 ///   - `.fh-hug`: the cell shrinks to its content instead of filling its share.
+///     `.fh-grow`: the cell takes the space its box leaves.
+///   - `.fh-stick-top`/`-bottom`: the cell stays on screen while its box is,
+///     on the page's own background.
+///   - `.fh-fill-screen` on a column: at least the screen's height, less the
+///     theme's frame around the dashboard (`--fh-chrome-block`).
 ///   - `.fh-wrap` on a row: cells keep their own width and wrap, where the
 ///     default `1 1 0` with `min-width:0` shrinks them all onto one line.
 ///   - `.fh-justify-center`/`-end`: along the box's own direction.
@@ -67,7 +73,12 @@ const layoutCss: String = """
   .fh-justify-center{justify-content:center}
   .fh-justify-end{justify-content:flex-end}
   .fh-cell.fh-hug{flex:0 0 auto}
+  .fh-cell.fh-grow{flex:1 1 auto}
+  .fh-cell.fh-stick-top,.fh-cell.fh-stick-bottom{position:sticky;z-index:5;background:var(--fh-page)}
+  .fh-cell.fh-stick-top{top:0}
+  .fh-cell.fh-stick-bottom{bottom:0}
   .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%;--fh-cell-flex:0 1 auto;--fh-cell-align-self:stretch}
+  .fh-col.fh-fill-screen{min-block-size:calc(100vh - var(--fh-chrome-block,1rem));min-block-size:calc(100dvh - var(--fh-chrome-block,1rem))}
   .fh-cell:has(>.fh-ifhost:empty){display:none}
   @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
   """

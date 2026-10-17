@@ -491,4 +491,30 @@ object SmokeDashboard {
          |""".stripMargin,
       HouseFixture.dumpWith(longNameLight)
     )
+
+  /** A page frame: a header row (a title, a spacer, an end label) and a footer
+    * stuck to the screen's edges, around a body of `rows` labels that grows, in
+    * a column filling the screen.
+    */
+  def layoutFill(rows: Int): Dashboard =
+    PklFixture.buildDashboard(
+      s"smoke-layout-fill-$rows",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |
+         |title = "Smoke Layout Fill"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.row) { children { c.title("Head"); c.spacer; c.label("End") } }.wrap().stick("top")
+         |    (c.column) { children { for (i in IntSeq(1, $rows)) { c.label("Row " + i.toString()) } } }.grow()
+         |    (c.row) { children { c.label("Foot") } }.stick("bottom")
+         |  }
+         |}.fillScreen()
+         |""".stripMargin,
+      HouseFixture.transformedDump
+    )
 }

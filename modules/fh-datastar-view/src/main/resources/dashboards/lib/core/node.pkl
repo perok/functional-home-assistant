@@ -92,6 +92,12 @@ abstract class LayoutNode {
   function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
   /// Shrink to the content instead of filling the cell's share.
   function hug(): LayoutNode = addCellClass("fh-hug")
+  /// Take the space the surrounding row or column leaves: the body between a
+  /// header and a footer, or the rest of a wrapped row's line.
+  function grow(): LayoutNode = addCellClass("fh-grow")
+  /// Stay on screen while the page scrolls, at that edge, for as long as the
+  /// surrounding box is: a footer in the page's main column always is.
+  function stick(edge: Edge): LayoutNode = addCellClass("fh-stick-\(edge)")
   /// Wrap, clip or scroll a label too long for its box (`core/text.pkl`), for
   /// this node and everything under it. The dashboard default is `entry.pkl`'s
   /// `textOverflow`.
@@ -128,14 +134,15 @@ abstract class LayoutNode {
         new slotMod.Slot { entityId = reading.entityId; transform = reading.transform }
       else reading as slotMod.Slot)
       (self) { liveProperties { [name] = (s) { signal = slotMod.asStyle(name) } } }
-  // One class per family (`fh-cols-*`, `fh-text-*`): two spans would be decided
-  // by stylesheet order, not by the author's last word. This is also what lets a
-  // card default its span and still be overridden.
+  // One class per family (`fh-cols-*`, `fh-text-*`, hug or grow, one edge): two
+  // would be decided by stylesheet order, not by the author's last word. This is
+  // also what lets a card default its span, or a pill its hug, and still be
+  // overridden.
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
-    let (family = List("fh-cols-", "fh-text-").findOrNull((p) -> cls.startsWith(p)))
+    let (family = cellClassFamilies.findOrNull((f) -> f.any((p) -> cls.startsWith(p))))
     let (had = self.cellClasses.toList())
-    let (kept = if (family != null) had.filter((c) -> !c.startsWith(family)) else had)
+    let (kept = if (family != null) had.filter((c) -> !family.any((p) -> c.startsWith(p))) else had)
       (self) {
         cellClasses = new Listing<String> {
           for (c in kept) { c }
@@ -143,6 +150,12 @@ abstract class LayoutNode {
         }
       }
 }
+
+/// Where a stuck cell stays: [[LayoutNode.stick]].
+typealias Edge = "top"|"bottom"
+
+const local cellClassFamilies: List<List<String>> =
+  List(List("fh-cols-"), List("fh-text-"), List("fh-hug", "fh-grow"), List("fh-stick-"))
 
 abstract class Node extends LayoutNode {
   kind: "component" = "component"
