@@ -279,8 +279,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (the real flex/grid item and Datastar morph target; `CardDef.wrapAsCell = false` is the rare
   opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
-  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`textOverflow(…)`/`cellClass`
-  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders; `centered(false)` is the `Grid`'s own). Candidate sets flow
+  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)`/`textOverflow(…)`/`cellClass`
+  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders; `centered(false)` is the `Grid`'s own,
+  `fillScreen()` a `Column`'s; `c.spacer` is an empty column that grows). Every container sets all three inherited
+  `--fh-cell-*` properties, or its cells take the parent container's (`layout.test.pkl` checks every rule). Candidate sets flow
   their members the same way (`.fh-group`).
 - Candidate sets: a `LayoutNode.SetNode` carries a STATIC candidate list (decided at build time
   from the dump) plus per-candidate guarded renderings; the runtime decides only PRESENCE (the

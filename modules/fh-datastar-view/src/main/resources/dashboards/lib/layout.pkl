@@ -1,6 +1,7 @@
 /// The containers — grid, row, column: the boxes cards are composed into.
-/// [[Grid]] is the default top-level container; per-cell sizing is the
-/// `columns(n)`/`fullWidth()`/`hug()` builders on `core/node.pkl`'s nodes.
+/// [[Grid]] is the default top-level container; how one child sits is the
+/// `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)` builders on
+/// `core/node.pkl`'s nodes.
 module layout
 
 import "core/node.pkl" as nodes
@@ -57,15 +58,25 @@ class Column extends Box {
   card = "fhcol"
   cardDef = boxDef("fh-col")
   hidden justify: Justify = "start"
+  hidden fillsScreen: Boolean = false
   ownClasses {
     when (justify != "start") { "fh-justify-\(justify)" }
+    when (fillsScreen) { "fh-fill-screen" }
   }
   function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
   /// Where the cards sit in a column taller than they are.
   function justify(j: Justify): Column = let (self = this) (self) { justify = j }
+  /// At least as tall as the screen, for a dashboard's root column: a
+  /// `.grow()` body keeps a footer at the bottom of a short page.
+  function fillScreen(): Column = let (self = this) (self) { fillsScreen = true }
 }
 /// `(c.column) { children { ... } }`.
 hidden column: Column = new Column {}
+
+/// Nothing, taking the space its row or column leaves, so it pushes its
+/// siblings apart: `(c.row) { children { title; c.spacer; settings } }`. An
+/// empty column, so space is no card of its own.
+hidden spacer: nodes.LayoutNode = column.grow()
 
 /// The 12-column grid (HA's "sections"): each cell spans `columns(n)` of 12,
 /// default 4; `fullWidth()` spans the row. A partial row is centred unless

@@ -114,7 +114,8 @@ the author actually rendered. Where a closed set of values is the point, it live
 emits the declaration and its control from one list.
 
 **Cell** — the wrapper element the renderer puts around every node, carrying the layout classes
-(`fh-cols-3`, `fh-hug`). Layout is the backend's job, not each card's. ADR 0008.
+(`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`). Layout is the backend's job, not each card's.
+ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,
 a tab panel, an `if`/`else` branch. Registered separately from the main tree and addressed by id.
