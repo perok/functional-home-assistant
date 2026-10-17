@@ -1,6 +1,7 @@
 package fh.view.functional
 
 import api.homeassistant.ServiceTarget
+import cats.data.NonEmptyList
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{Access, Dashboard}
@@ -74,7 +75,9 @@ class CallSetSuite extends FunctionalSuite {
           sent,
           Vector(
             Some(
-              ServiceTarget.Entities(List(kitchen.entityId, living.entityId))
+              ServiceTarget.Entities(
+                NonEmptyList.of(kitchen.entityId, living.entityId)
+              )
             )
           )
         )
@@ -91,7 +94,7 @@ class CallSetSuite extends FunctionalSuite {
         sent <- targets(ts)
       } yield assertEquals(
         sent,
-        Vector(Some(ServiceTarget.Entities(List(kitchen.entityId))))
+        Vector(Some(ServiceTarget.Entities(NonEmptyList.one(kitchen.entityId))))
       )
     }
   }

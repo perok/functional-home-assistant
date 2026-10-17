@@ -310,7 +310,7 @@ class Server(
             stateStore.snapshot.map(states =>
               NonEmptyList
                 .fromList(Conditions.presentOf(tally, states))
-                .map(ids => ServiceTarget.Entities(ids.toList))
+                .map(ServiceTarget.Entities(_))
             )
           // `validate` refuses a set route without its tally.
           case None =>
