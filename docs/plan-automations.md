@@ -28,8 +28,9 @@ React is the model:
    - HA has no API that creates a device on its own. The alternatives were rejected:
      - HA's mobile-app registration takes sensors only, and HA cannot send it a command.
      - A Python custom integration is one more thing to ship and keep in step with HA.
-     - HA's storage helpers (`input_boolean/create`, …) cannot belong to a device, go through an
-       undocumented API, and re-apply `initial` at every HA restart.
+   - HA's storage helpers are not rejected. Declared values HA can store itself may live there
+     instead of on the device, owned through the instance id in their entity id (Q6, explored in
+     M3).
 3. **An instance's identity:**
    - Running as an HA app (formerly add-on), the instance is the app.
    - A dev server generates an id once and keeps it in the workspace's `.fh/`.
@@ -49,7 +50,7 @@ React is the model:
    - Declaring it again within X days cancels the delete and keeps the value.
    - Pending deletes show as a sensor on the device and in the log.
 8. **The engine's storage is SQLite**: under `/data` in the app and `.fh/` in dev. It holds
-   overrides, orphan dates and the declared values.
+   overrides, orphan dates and the declared values that live on the device.
 9. **The Scala codegen modules are ignored for now**: `home`, `home-codegen`, `fh-codegen-plugin`
    and `fh-api`. This work neither moves nor deletes them.
 10. **Modules split by job** (M1).
@@ -158,7 +159,8 @@ Done when the app and a dev server appear as two devices, and stopping either on
 entities unavailable.
 
 **M3: declared values.**
-- First kinds: toggle, choice, number and text.
+- Starts with a spike on HA's storage helpers (Q6), which decides where each kind lives.
+- First kinds: toggle, choice, number, text and, if helpers win, schedule.
 - Declared at the top level and per dashboard (decision 5), with typed handles in Pkl:
   `q.entity(v.guests).stateIs("on")`, `c.select(v.mode)`. Options are known at build.
 - Entities on fh's device stay out of the dump. Under `watch_registry` that also stops a loop:
@@ -186,7 +188,8 @@ it off until the condition next changes.
 **M6: the clock and the sun.**
 - Time and the sun's position become inputs.
 - Time windows become computed values on fh's device, such as #584's "night"
-  (`binary_sensor.fh_night`).
+  (`binary_sensor.fh_night`). A fixed weekly window can instead be an HA schedule helper (Q6),
+  which keeps working while fh is down.
 - The engine wakes on the clock, not only on changes from HA. Dashboards need no clock of their
   own: they read "night" like any entity, and its state change re-renders them. HA's own
   automations can use it too. There is no `q.clock`.
@@ -246,8 +249,29 @@ Done when M6–M8's behaviours are packages a workspace imports.
    a prefix the build knows (`switch.fh_dev_guests`). Dashboards on a dev server show the dev
    device's toggles.
 5. **The name that replaces `@fh-dashboard/`.** `@fh/`.
-6. **Where a declared value's truth lives.** In fh's store, published retained over MQTT so HA
-   shows it after its own restart. The store wins when the two disagree.
+6. **Where a declared value lives: an HA storage helper, or fh's device.** Split by job:
+   - **HA storage helpers for values HA can hold itself:** toggle, choice, number, text, datetime,
+     counter, timer and schedule.
+     - They keep working while fh is down. HA stores and backs them up, and its UI, voice and
+       automations change them through HA's own services.
+     - fh's existing taps and `c.select` already drive them (#574 is `c.select` over
+       `input_select`), so a dashboard needs no new path.
+     - Ownership is the instance id in the entity id (`input_boolean.fh_<instance>_guests`), plus
+       a label per instance for HA's UI. The id is pinned by creating with that slug as the name
+       and then setting the real name.
+     - Costs: these are the WebSocket commands HA's own frontend uses, not a documented API.
+       They can't be attached to fh's device. A starting value is a service call after the create,
+       not `initial`, which HA re-applies at every restart.
+   - **fh's device for what only fh can provide:** computed values (a window by the sun), the
+     engine's status, override switches, and virtual entities. Its values live in fh's store,
+     published retained over MQTT so HA shows them after its own restart, and the store wins when
+     the two disagree.
+
+   That is two mechanisms, but each has one job, and the split follows "can HA hold this
+   without fh". The M3 spike checks:
+   - that a create survives an HA restart (collections save after a 10-second delay);
+   - `schedule/create`'s config (weekday blocks that can't cross midnight);
+   - whether `options.collection.hash` in the registry detects an edit made in HA's UI.
 7. **The app's identity.** Confirm in M2 what the Supervisor exposes (the slug, the container's
    hostname), and that it is stable across updates.
 8. **Rights.**
@@ -297,10 +321,15 @@ its own. The words go into `docs/terminology.md` when they land.
 - The entity and device registries record `created_at`, `modified_at` and `labels`.
 - This HA has `mqtt` set up. It runs `adaptive_lighting`, `relative_light_group`, and ZHA with Hue
   RWL021/RWL022 dimmers.
-- Storage helpers, for the record of why decision 2 rejected them:
+- Storage helpers, where Q6's spike starts from:
   - `input_boolean/create` derives the id from the name and appends `_2` on a collision.
+  - Creating with the wanted slug as the name, then `update` with the real name, keeps the id.
+    The registry's `unique_id` equals the helper's own id.
+  - A registry rename (`new_entity_id`) also works, and survives later updates.
   - `update` replaces the whole config.
   - A label is a second call, so create and label together are not atomic.
+  - After an update, the registry entry carries `options.collection.hash`.
+  - Deleting a helper removes its registry entry too.
 
 ## ADRs and docs this touches
 
