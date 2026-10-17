@@ -297,7 +297,11 @@ class VarSelectCycle extends Select {
 // Press and hold the face, and the options ring it; drag to one and release to
 // choose it. A quick tap opens the ring for tapping instead. The ring is placed
 // by CSS from each option's position, so the server sends nothing per angle;
-// the script only reads the pointer. A choice clicks the option's own button,
+// the script reads the pointer, and on opening shifts the whole ring inward
+// until every option is on screen (`--fh-ring-dx`/`-dy`). Shifted, an option
+// can sit over the face, so a drag is read from the ring's centre, not the
+// face's, and picks only once the pointer has moved: a hold that never moves
+// leaves the ring open for tapping. A choice clicks the option's own button,
 // so it is that option's tap, guard and busy look. Our own ring, not Orbit:
 // its satellites need CSS sin()/cos() (no iPadOS 15) and its arcs container
 // style queries, while a ring of known options is a plain transform each. Orbit
@@ -306,8 +310,11 @@ class VarSelectCycle extends Select {
 const local ringMax: Int = 12
 
 const local ringScript: String = """
-  window.fhRing=function(e,el,n){var r=el.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2;if(Math.hypot(x,y)<r.width/2+8)return -1;return Math.round(((Math.atan2(x,-y)*180/Math.PI+360)%360)/(360/n))%n};
-  window.fhRingChoose=function(el,i){var c=el.parentElement.querySelector('.fh-radial-ring').children[i];if(c)(c.matches('a,button')?c:c.querySelector('a,button')).click()}
+  window.fhRingOf=function(el){return el.parentElement.querySelector('.fh-radial-ring')};
+  window.fhRingStart=function(e,el){el._fhAt=[e.clientX,e.clientY]};
+  window.fhRingFit=function(face){requestAnimationFrame(function(){var g=fhRingOf(face),m=8,l=1/0,t=1/0,r=-1/0,b=-1/0;g.style.setProperty('--fh-ring-dx','0px');g.style.setProperty('--fh-ring-dy','0px');for(var i=0;i<g.children.length;i++){var q=g.children[i].getBoundingClientRect();l=Math.min(l,q.left);t=Math.min(t,q.top);r=Math.max(r,q.right);b=Math.max(b,q.bottom)}var w=document.documentElement.clientWidth,h=window.innerHeight;g.style.setProperty('--fh-ring-dx',(l<m?m-l:r>w-m?w-m-r:0)+'px');g.style.setProperty('--fh-ring-dy',(t<m?m-t:b>h-m?h-m-b:0)+'px')})};
+  window.fhRing=function(e,el,n){var a=el._fhAt;if(a&&Math.hypot(e.clientX-a[0],e.clientY-a[1])<8)return -1;var g=fhRingOf(el),o=g.getBoundingClientRect(),f=g.children[0].getBoundingClientRect(),x=e.clientX-o.left,y=e.clientY-o.top;if(Math.hypot(x,y)<Math.hypot(f.left+f.width/2-o.left,f.top+f.height/2-o.top)/2)return -1;return Math.round(((Math.atan2(x,-y)*180/Math.PI+360)%360)/(360/n))%n};
+  window.fhRingChoose=function(el,i){var c=fhRingOf(el).children[i];if(c)(c.matches('a,button')?c:c.querySelector('a,button')).click()}
   """
 
 // A ring's signals are this node's own and client-only.
@@ -316,9 +323,9 @@ const local function ringSig(name: String): String = "$_{{id}}__" + name
 const local function radialTemplate(face: String): String =
   #"<div class="fh-radial" data-signals__ifmissing="{ _{{id}}__ring: false, _{{id}}__pick: -1, _{{id}}__was: false, _{{id}}__hold: 0 }" data-class:fh-open="\#(ringSig("ring"))" data-on:click__outside="\#(ringSig("ring")) = false">"# +
     #"<button type="button" class="fh-radial-face" "# +
-    #"data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(ringSig("was")) = \#(ringSig("ring")); \#(ringSig("pick")) = -1; \#(ringSig("hold")) = setTimeout(() => \#(ringSig("ring")) = true, 250)" "# +
+    #"data-on:pointerdown="el.setPointerCapture(evt.pointerId); fhRingStart(evt, el); \#(ringSig("was")) = \#(ringSig("ring")); \#(ringSig("pick")) = -1; \#(ringSig("hold")) = setTimeout(() => (\#(ringSig("ring")) = true, fhRingFit(el)), 250)" "# +
     #"data-on:pointermove="\#(ringSig("ring")) && (\#(ringSig("pick")) = fhRing(evt, el, {{count}}))" "# +
-    #"data-on:pointerup="clearTimeout(\#(ringSig("hold"))); \#(ringSig("pick")) >= 0 ? (fhRingChoose(el, \#(ringSig("pick"))), \#(ringSig("ring")) = false, \#(ringSig("pick")) = -1) : (\#(ringSig("ring")) = !\#(ringSig("was")))" "# +
+    #"data-on:pointerup="clearTimeout(\#(ringSig("hold"))); \#(ringSig("pick")) >= 0 ? (fhRingChoose(el, \#(ringSig("pick"))), \#(ringSig("ring")) = false, \#(ringSig("pick")) = -1) : (\#(ringSig("ring")) = !\#(ringSig("was")), \#(ringSig("ring")) && fhRingFit(el))" "# +
     #"data-on:pointercancel="clearTimeout(\#(ringSig("hold"))); \#(ringSig("ring")) = false; \#(ringSig("pick")) = -1">"# +
     face +
     #"</button><div class="fh-radial-ring" style="--fh-n:{{count}}" data-attr:data-pick="\#(ringSig("pick"))" data-on:click="\#(ringSig("ring")) = false">{{#children}}{{{html}}}{{/children}}</div></div>"#
@@ -328,7 +335,8 @@ const local ringCss: String = """
   .fh-radial-face{display:inline-flex;align-items:center;gap:.25rem;touch-action:none;user-select:none;
   min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
   .fh-radial-face .fh-cell{display:contents}
-  .fh-radial-ring{--fh-ring-r:5rem;position:absolute;left:50%;top:50%;inline-size:0;block-size:0;z-index:20;display:none}
+  .fh-radial-ring{--fh-ring-r:5rem;position:absolute;left:50%;top:50%;inline-size:0;block-size:0;z-index:20;display:none;
+  transform:translate(var(--fh-ring-dx,0px),var(--fh-ring-dy,0px))}
   .fh-radial.fh-open .fh-radial-ring{display:block}
   .fh-radial-ring>*{position:absolute;left:0;top:0;white-space:nowrap;
   transform:translate(-50%,-50%) rotate(calc(var(--fh-i) * 360deg / var(--fh-n))) translateY(calc(-1 * var(--fh-ring-r))) rotate(calc(var(--fh-i) * -360deg / var(--fh-n)));

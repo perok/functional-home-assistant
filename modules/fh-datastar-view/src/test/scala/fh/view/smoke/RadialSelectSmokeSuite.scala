@@ -55,22 +55,45 @@ class RadialSelectSmokeSuite extends SmokeSuite {
         assertThat(face(page)).hasText("24h")
         val box = face(page).boundingBox()
         val (cx, cy) = (box.x + box.width / 2, box.y + box.height / 2)
-        // Four options from the top, clockwise: 7d is to the right.
         page.mouse().move(cx, cy)
         page.mouse().down()
         page.waitForTimeout(400)
         assertThat(options(page).first()).isVisible()
+        // Four options from the top, clockwise: 7d is the second. Wherever
+        // the ring had to move to fit, the drag goes to where 7d is.
+        val target = options(page).nth(1).boundingBox()
         page
           .mouse()
           .move(
-            cx + 80,
-            cy,
+            target.x + target.width / 2,
+            target.y + target.height / 2,
             new com.microsoft.playwright.Mouse.MoveOptions().setSteps(5)
           )
         assertThat(ring(page)).hasAttribute("data-pick", "1")
         choosing(page, "7d")(page.mouse().up())
         assertThat(face(page)).hasText("7d")
         assertThat(options(page).first()).isHidden()
+      }
+    }
+  }
+
+  test("a ring by the screen's edge moves inward until every option shows") {
+    // The face sits at the page's left edge, so a ring centred on it would put
+    // its left options off the screen.
+    withPageOn(served, Some(600 -> 600)) { (page, _) =>
+      IO.blocking {
+        face(page).click()
+        assertThat(options(page).first()).isVisible()
+        page.waitForTimeout(100)
+        val all = options(page)
+        (0 until all.count()).foreach { i =>
+          val b = all.nth(i).boundingBox()
+          assert(
+            b.x >= 0 && b.y >= 0 && b.x + b.width <= 600 &&
+              b.y + b.height <= 600,
+            clue = s"option $i at $b"
+          )
+        }
       }
     }
   }
