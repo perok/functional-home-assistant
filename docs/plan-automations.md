@@ -53,6 +53,9 @@ React is the model:
 9. **The Scala codegen modules are ignored for now**: `home`, `home-codegen`, `fh-codegen-plugin`
    and `fh-api`. This work neither moves nor deletes them.
 10. **Modules split by job** (M1).
+11. **Competing rules are settled by priority**, as BACnet's priority array settles them (see
+    Model and Prior art). A package's "follow the sun" and your own "movie mode" can therefore
+    both target the living room, and the higher priority wins while its condition is true.
 
 ## Commands back from HA
 
@@ -86,14 +89,21 @@ was picked.
 - **The reconciler** compares desired with actual states and makes the calls that close the gap.
   At start it recomputes every rule and applies the result, which is what surviving a restart
   means.
-- **One owner per target.** Two rules setting the same attribute of the same entity is a build
-  error, not a fight at runtime. Priorities instead are Q3.
-- **Overrides.**
+- **Priorities.** Every target has a priority array: one slot per priority level.
+  - While its condition is true, a rule writes its desired value into its slot. When the
+    condition goes false, it relinquishes the slot (empties it).
+  - The target's desired value is the one in the highest-priority slot that isn't empty.
+  - When every slot is empty, fh leaves the target alone (BACnet's "relinquish default"; Q3).
+  - Two rules at the same priority on the same target is a build error. In BACnet the last write
+    wins there, which is exactly the fight this design avoids.
+  - The arrays are kept in the store, so they survive a restart.
+- **Overrides are a priority level** (BACnet's "manual operator").
   - Every call fh makes returns HA's `context`. A change with a context fh did not make came from
     a person or from something else.
-  - That target is then overridden: stored, and shown as a switch on the device.
-  - The rule leaves the target alone until the override clears: when the rule's desired value next
-    changes, after a timeout, or when someone flips the switch.
+  - Such a change writes the value it set into the manual slot. Rules above that level still win
+    (a smoke alarm turning lights on); rules below it wait.
+  - The manual slot is relinquished when the rule it beat next changes its desired value, after a
+    timeout, or when someone flips the override switch on the device.
   - Adaptive Lighting's "manual control" works this way.
 
 ## Reference behaviours
@@ -152,7 +162,7 @@ it deletes it only after X days.
 - Rules over HA states and declared values.
 - Reconcile on every change and at start.
 - Tracking of fh's own writes through `context`.
-- One owner per target.
+- Priorities, with overrides as the manual level arriving in M5.
 - A dry run unless started with the flag (decision 4).
 - The SQLite store.
 - The reconcile model's ADR.
@@ -160,7 +170,7 @@ it deletes it only after X days.
 Done when "while guests and evening, the hall light is on" turns the light back on after fh
 restarts in the middle of the evening.
 
-**M5: overrides,** as described in the Model. Done when turning the hall light off by hand keeps
+**M5: overrides,** the manual priority level described in the Model. Done when turning the hall light off by hand keeps
 it off until the condition next changes.
 
 **M6: the clock and the sun.**
@@ -211,7 +221,14 @@ Done when M6–M8's behaviours are packages a workspace imports.
      includes `java.sql`.
    - The fat jar is built once for both arches, so it keeps the Linux x86_64 and aarch64 natives.
      An assembly rule can drop the others (Windows, Mac, FreeBSD, Android, musl) to save size.
-3. **One owner per target, or priorities?** One owner.
+3. **What one priority array covers, and what an empty one means.**
+   - Per attribute: a "follow the sun" package then owns `color_temp` at a low priority while
+     movie mode owns `brightness` above it. That is what Kubernetes' field ownership does.
+     Attributes are coupled, though: a brightness implies "on", and "off" drops every other
+     attribute. Recommendation: one array for on/off plus one per attribute, with "off" winning
+     only from a slot at least as high as the attribute slots it clears.
+   - Empty: fh does nothing, rather than applying a default value. A rule that wants a fallback
+     declares it at the lowest priority.
 4. **Dev instances.** They get their own copies of the declared values, with entity ids carrying
    a prefix the build knows (`switch.fh_dev_guests`). Dashboards on a dev server show the dev
    device's toggles.
@@ -225,6 +242,42 @@ Done when M6–M8's behaviours are packages a workspace imports.
    - The engine's calls go out under the machine token (ADR 0023), since no person is behind them.
    - Check that the app's Supervisor token can read the device registry.
 9. **Tracking.** #584 is the roadmap epic. Each milestone gets its own issue when it starts.
+
+## Prior art, and the words to borrow
+
+These problems are old. Each source below has names worth reusing, so this project doesn't coin
+its own. The words go into `docs/terminology.md` when they land.
+
+- **BACnet** (ASHRAE 135), building automation. Writable points have a 16-level **priority
+  array**; a writer **relinquishes** its slot; when all are empty the point falls back to its
+  **relinquish default**. Level 8 is **manual operator** and level 1 is manual life safety. Some
+  objects also have a **minimum on/off time**, an anti-flapping guard worth keeping for heating
+  and fans. This is the closest match: our priorities, overrides and empty-array case are all in
+  it. In this repo the word "relinquish" is already a session method (`Session.relinquish`), so the
+  terminology entry has to keep the two apart.
+- **Kubernetes controllers.** **Desired state** versus **observed state**, a **reconcile loop**,
+  **drift**, **level-triggered** (act on what is, not on what changed, which is why a restart
+  just works), and in server-side apply, **field managers** owning individual fields. That last
+  one is the per-attribute question in Q3.
+- **React.** **Reconciliation**, and **controlled versus uncontrolled** components, which is the
+  override question in another form.
+- **Production rule systems** (OPS5, CLIPS, Drools). The rules whose conditions are true at once
+  form the **conflict set**, and **conflict resolution** picks among them, Drools mainly by
+  **salience** (priority). Same problem, but they pick which rule fires, not which value a target
+  gets.
+- **Subsumption architecture** (Brooks, 1986), robotics. Behaviours in layers, where a higher
+  layer **suppresses** a lower one's output. It's the same arbitration as a priority array, and
+  where "behaviour" as a word for a reusable rule set (M9) comes from.
+- **Feature interaction** (telephony, from the 1990s). Features correct on their own that
+  misbehave together, such as call forwarding and call screening. It's the name for what M9
+  packages will do to each other.
+- **Smart-home rule conflicts.** HomeGuard (Chi et al.) calls it **cross-app interference** and
+  detects it when an app is installed, which is our build error. The 2023 survey by Huang et al.
+  gives a taxonomy of **direct** conflicts (two rules on one device) and **indirect** ones (via
+  the environment: a heater rule against a window rule). Priorities settle direct conflicts only.
+- **CSS cascade layers.** The authoring side of the same idea: `@layer` order beats specificity,
+  so a package's styles sit in a lower layer than the page's. M9's packages could declare their
+  priority band the same way.
 
 ## Facts from the spike (live HA 2026.10.1, 2026-10-17)
 
@@ -245,6 +298,6 @@ Done when M6–M8's behaviours are packages a workspace imports.
 - ADR 0023 (access): who an engine call is attributed to (M4).
 - ADR 0030 (subscribe to what we read): rules subscribe the same way (M4).
 - `docs/architecture-rendering-pipeline.md`: section 7 (M1), and a sibling doc for the engine.
-- `docs/terminology.md`: rule, reconcile, override, declared value and instance device, each when
-  it lands.
+- `docs/terminology.md`: rule, reconcile, desired state, priority array, relinquish, override,
+  declared value and instance device, each when it lands.
 - The CLAUDE.md files: modules and build commands (M1).
