@@ -120,6 +120,14 @@ bookmark, and the right answer is the page without it. A tap is a request a
 person made a moment ago, so leaving it unanswered is the failure this ADR
 exists to remove.
 
+A call over a set that finds no candidate present at the press (ADR 0023) is not
+a refusal but a success: 204, with no call to HA. Nothing to act on is already
+the state the press asked for (an "all off" with everything off), and a refusal
+would paint the control as failed for doing what it says. Not built: a success
+answer ("Turned off 3 lights"). The toast is this ADR's error channel, so one
+would need a neutral look and a signal of its own; meanwhile the label says what
+a press will do (ADR 0034) and the state change shows what it did.
+
 ### Why the slug rides in a transform
 
 The tap's URL is built by a JSONata transform (`$dashboardSlug`), a card

@@ -222,6 +222,14 @@ able to reach. This is the same "make the illegal state unrepresentable" move as
 literal rather than a lookup — the right answer for a domain this library does
 not know but the author does. `c.tap.toggle(e)` falls back to it by itself.
 
+A call over a query set (ADR 0023) checks each candidate's domain against the
+service at build: `light/turn_off` over a set holding a switch is a build error,
+since HA would reject the press. A `homeassistant/*` service dispatches on each
+entity's own domain and takes any. A set with no candidates at all is a build
+error too: the call could never act. A set has no single state, so
+`Call.disabledWhile` does not apply to one; `.disabled(set.none())` greys the
+card while there is nothing to do.
+
 ## Consequences
 
 - **The wire got smaller, not bigger.** The worry was that a more-info popup per

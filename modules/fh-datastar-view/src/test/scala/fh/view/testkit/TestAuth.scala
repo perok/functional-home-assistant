@@ -4,7 +4,7 @@ import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.auth.{AuthGate, AuthSessions, SessionStore}
-import fh.view.model.{Access, Permission}
+import fh.view.model.Access
 import org.http4s.implicits.*
 
 /** The auth fixture every harness request rides on (issue #89). The gate is on
@@ -63,7 +63,7 @@ object TestAuth {
     new AuthGate(
       AuthSessions.create(SessionStore.ephemeral).unsafeRunSync(),
       _ => IO.raiseError(new Exception("no HA in the harness")),
-      _ => IO.pure(Permission(Access.Public, _ => true))
+      _ => IO.pure(Access.Public)
     ) {
       // These suites cannot attach a cookie.
       override def of(req: org.http4s.Request[IO]): IO[Option[HaUser]] =

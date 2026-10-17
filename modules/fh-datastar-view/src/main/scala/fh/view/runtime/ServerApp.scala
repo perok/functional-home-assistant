@@ -396,7 +396,7 @@ object ServerApp extends IOApp {
       gate = new AuthGate(
         authSessions,
         bearerUsers,
-        site.permissionFor,
+        slug => site.permissionFor(slug).map(_.access),
         ingressUsers,
         edges.trustedProxy
       )

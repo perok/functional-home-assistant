@@ -4,6 +4,7 @@
 module core.tap
 
 import "node.pkl" as nodes
+import "predicate.pkl" as pred
 import "slot.pkl" as slotMod
 import "simple.pkl" as simpleMod
 import "surface.pkl" as surfaceMod
@@ -11,8 +12,9 @@ import "../hass.pkl"
 import "../hass/actions.pkl" as hassActions
 
 /// HA expands an area or a floor when the call runs, so a light added to the
-/// room later is included.
-typealias Target = hass.Entity|hass.Area|hass.Floor
+/// room later is included. A tally (`q.from(…).where(…).count()`) the server
+/// expands at the press, to the candidates present then.
+typealias Target = hass.Entity|hass.Area|hass.Floor|pred.Tally
 
 typealias CallScalar = String|Number|Boolean
 typealias CallValue = CallScalar|List<CallScalar>
@@ -323,7 +325,8 @@ const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {
 }
 
 /// What [[serviceClick]] builds the URL from, and what the server reads back as
-/// the call this node declares (`Dashboard.calls`, ADR 0023).
+/// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
+/// carries its tally as `targetSet`, the JSON the press filters by.
 const local function routeSlots(
   action: slotMod.Slot|String,
   target: Target,
@@ -335,11 +338,16 @@ const local function routeSlots(
         (action as slotMod.Slot) { entityId = target.entity_id }
       else action
     ["targetKind"] =
-      if (target is hass.Entity) "entity" else if (target is hass.Area) "area" else "floor"
+      if (target is hass.Entity) "entity" else if (target is hass.Area) "area"
+      else if (target is hass.Floor) "floor" else "set"
     ["targetId"] =
       if (target is hass.Entity) target.entity_id
       else if (target is hass.Area) target.area_id
-      else (target as hass.Floor).floor_id
+      else if (target is hass.Floor) target.floor_id
+      else setId(target as pred.Tally)
+    when (target is pred.Tally) {
+      ["targetSet"] = jsonRenderer.renderValue(target)
+    }
     when (key != null) {
       ["dataKey"] = key!!
     }
@@ -368,6 +376,10 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
         ["tapDisabled"] = (tapDisabledSlot(states)) { entityId = reads }
       }
     }
+
+/// A set's route id: only a key into `Dashboard.calls`, so two taps over an
+/// equal set share one.
+const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).sha256.take(16)
 
 /// Every slot a tap contributes, for a card to fold in with one generator:
 ///
@@ -432,7 +444,21 @@ const function pendingOrCommittedOf(groupId: String, committed: String): String 
 /// `call("scene/turn_on", dump.entities.kveld)`. An area or floor target
 /// reaches entities the dashboard never names, so the server allows only the
 /// exact (service, target) pairs the dashboard declares (ADR 0023).
-const function call(action: String, on: Target): Call = new { service = action; target = on }
+///
+/// A set's candidates must be the service's domain, which HA would otherwise
+/// reject at the press; `homeassistant/*` dispatches on each entity's own.
+const function call(action: String, on: Target): Call =
+  if (on is pred.Tally) setCall(action, on) else new { service = action; target = on }
+
+const local function setCall(action: String, on: pred.Tally): Call =
+  let (domain = action.split("/").first)
+  let (ids = on.candidates.toList())
+  let (stray = if (domain == "homeassistant") List() else ids.filter((id) -> !id.startsWith("\(domain).")))
+    if (ids.isEmpty)
+      throw("call(\"\(action)\", …): the set has no candidates, so the call would act on nothing.")
+    else if (!stray.isEmpty)
+      throw("call(\"\(action)\", …): \(stray.join(", ")) \(if (stray.length == 1) "is" else "are") not \(domain); only a homeassistant/* service takes any domain.")
+    else new Call { service = action; target = on }
 
 /// `e`'s domain's own service where `hass/actions.pkl` names one, else HA's
 /// `homeassistant/toggle`.

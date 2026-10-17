@@ -15,6 +15,7 @@ import "../core/tap.pkl" as core
 import "../core/slot.pkl" as slotMod
 import "../hass.pkl"
 import "../hass/lock.pkl" as hassLock
+import "../query.pkl" as q
 import "moreinfo.pkl" as moreinfo
 
 /// Toggle `e`: its domain's own service where `hass/actions.pkl` names one, HA's
@@ -38,20 +39,31 @@ function activate(x: hass.Activatable): core.Call =
 /// `c.tap.call("light/turn_on", l).with("effect", "colorloop")`.
 ///
 /// An area or floor reaches every entity HA puts there when the call runs, so
-/// a light added to the room later is included (issue #389).
-function call(service: String, target: core.Target): core.Call =
-  core.call(service, target)
+/// a light added to the room later is included (issue #389). A set reaches the
+/// members present at the press, in one call; its `.count()` in a label reads
+/// the same members:
+///
+///     local lit = q.from(hass.lights(dump.areas.stue.all)).where(q.eq(q.stateProp, "on"))
+///     c.button("Stue av", c.tap.call("light/turn_off", lit))
+///       .secondary(c.expr(#"string(lit) + ' on'"#))
+///       .expressionValues(new Mapping { ["lit"] = lit.count() })
+function call(service: String, target: core.Target|q.EntitySet): core.Call =
+  core.call(service, lowered(target))
 
-/// `c.tap.lights.off(dump.areas.stue)` — on a light, a room or a floor.
+const local function lowered(t: core.Target|q.EntitySet): core.Target =
+  if (t is q.EntitySet) t.count() else t
+
+/// `c.tap.lights.off(dump.areas.stue)` — on a light, a room, a floor or a set
+/// of lights ([[call]]).
 class Lights {
-  function on(scope: hass.LightEntity|hass.Area|hass.Floor): core.Call =
-    (core.call("light/turn_on", scope)) { icon = "mdi:lightbulb-on"; label = "On" }
-  function off(scope: hass.LightEntity|hass.Area|hass.Floor): core.Call =
-    (core.call("light/turn_off", scope)) { icon = "mdi:lightbulb-off"; label = "Off" }
+  function on(scope: hass.LightEntity|hass.Area|hass.Floor|q.EntitySet): core.Call =
+    (core.call("light/turn_on", lowered(scope))) { icon = "mdi:lightbulb-on"; label = "On" }
+  function off(scope: hass.LightEntity|hass.Area|hass.Floor|q.EntitySet): core.Call =
+    (core.call("light/turn_off", lowered(scope))) { icon = "mdi:lightbulb-off"; label = "Off" }
   /// HA toggles each light on its own: in a half-lit room the lit ones go off
   /// and the others come on.
-  function toggle(scope: hass.LightEntity|hass.Area|hass.Floor): core.Call =
-    (core.call("light/toggle", scope)) { icon = "mdi:lightbulb"; label = "Toggle"; lit = if (scope is hass.LightEntity) slotMod.activeOf(scope) else null }
+  function toggle(scope: hass.LightEntity|hass.Area|hass.Floor|q.EntitySet): core.Call =
+    (core.call("light/toggle", lowered(scope))) { icon = "mdi:lightbulb"; label = "Toggle"; lit = if (scope is hass.LightEntity) slotMod.activeOf(scope) else null }
 }
 
 hidden lights: Lights = new {}

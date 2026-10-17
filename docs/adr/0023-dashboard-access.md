@@ -235,7 +235,7 @@ two come apart badly — the call route forwards whatever service and target are
 in its URL, so admission to the most permissive dashboard in the house would be
 admission to every service on every entity in it. `Public` makes that sharp: no
 login, and the front door lock one URL edit away from the street. So
-`POST /sse/call/:slug/<domain>/<service>/<entity|area|floor>/<id>` carries its
+`POST /sse/call/:slug/<domain>/<service>/<entity|area|floor|set>/<id>` carries its
 dashboard, and `Server` refuses any call that dashboard's taps do not declare:
 the allowlist is `Dashboard.calls`, the exact (service, target, value key)
 combinations read off `tap.pkl`'s route slots. A service the target's state
@@ -260,6 +260,19 @@ dashboard never names, one added to the room after the build included — the
 point of the feature, and bounded only by the exact combination. So a "lights
 off in the living room" button cannot be edited into `lock/unlock` on the same
 room, but it does turn off every light HA puts there.
+
+A call over a query set (#583) is the opposite trade. Its route names the set by
+an id, never an entity: `Dashboard.calls` maps the call to the set's tally (its
+candidates, fixed at build, and each one's live guard), and the server picks the
+candidates present at the press from its own store and sends one call listing
+them. So the browser cannot add an entity, and the call never reaches one the
+build did not name, including a light added to the room later. The id is the
+first 16 hex characters of the sha256 of the tally's JSON, only a key, so two
+taps over an equal set share one. The tally rides in the route itself, as the
+`targetSet` slot holding its JSON, so every card that spreads `tapMod.tapRoute`
+carries it with nothing more to spread. `validate` refuses a set route whose
+`targetSet` is missing or unreadable, and one id naming two different tallies. A press that finds no candidate present
+succeeds without a call (ADR 0024).
 
 Not built yet: an allow or deny list per user or dashboard, set in the same
 place a future per-user or per-dashboard list of allowed entities would live, so
