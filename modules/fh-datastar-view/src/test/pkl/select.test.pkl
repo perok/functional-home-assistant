@@ -112,6 +112,23 @@ facts {
     shown.signal == slotMod.asText
   }
 
+  ["radial: a ring of every option round a face showing the chosen one"] {
+    local v = c.select(shade).options(List("a", "b", "c")).style("radial")
+    v.card == "selectVarRadial"
+    v.slots["count"] == "3"
+    // Each option is an ordinary option node, choosing its own value.
+    route(v.children.toList()[2]).contains("/shade/c")
+    // The face is baked by the variable's value, as the dropdown's label.
+    members(v).map((m) -> m.second) == List("a", "b", "c")
+    local e = c.select(mode).style("radial")
+    e.card == "selectRadial"
+    (e.slots["chosen"] as slotMod.Slot).entityId == "select.robot_mode"
+    // The ring is placed by CSS from position, for up to twelve.
+    c.cards["selectRadial"].css.contains(".fh-radial-ring>:nth-child(12){--fh-i:11}")
+    module.catch(() -> c.select(shade).options(IntSeq(1, 13).map((i) -> "o\(i)").toList()).style("radial").slots["count"])
+      .contains("rings up to 12 options; this has 13")
+  }
+
   ["over a light's effects: turn_on with the effect, lit by its attribute"] {
     local cyc = c.select(lamp.effects!!).style("cycle").children.toList()
     // A cycle's faces are pills, marked by the server so only the chosen shows;

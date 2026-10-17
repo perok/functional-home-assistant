@@ -173,6 +173,36 @@ class SelectSuite extends CatsEffectSuite {
       .timeout(60.seconds)
   }
 
+  test(
+    "a radial select's face shows the viewer's option; its ring holds them all"
+  ) {
+    val radial =
+      bakedEntry("7d").replace(""".style("cycle")""", """.style("radial")""")
+    TestServer
+      .fromWorkspace("select-radial", radial, Nil)
+      .use(_.page())
+      .timeout(60.seconds)
+      .map { html =>
+        assert(
+          // Not `[^>]*`: the face's handlers hold `=>` and `>=`.
+          """class="fh-radial-face".*?"><span id="[^"]+"><div[^>]*><span>7d</span>""".r
+            .findFirstIn(html)
+            .isDefined,
+          html
+        )
+        assert(html.contains("style=\"--fh-n:3\""), html)
+        assertEquals(
+          "/c/shade/(24h|7d|30d)\\?group=".r
+            .findAllMatchIn(
+              html.substring(html.indexOf("class=\"fh-radial-ring\""))
+            )
+            .map(_.group(1))
+            .toList,
+          List("24h", "7d", "30d")
+        )
+      }
+  }
+
   test("a declared value no option has is a build error naming the options") {
     val errors =
       fh.view.testkit.PklFixture

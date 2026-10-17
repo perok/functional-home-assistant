@@ -1169,6 +1169,8 @@ class PklBuildSuite extends munit.FunSuite {
       "selectVarCycle" -> Nil,
       "selectChoice" -> List("label"),
       "selectEntityOption" -> List("label"),
+      "selectRadial" -> List("chosen", "count"),
+      "selectVarRadial" -> List("count"),
       "colourWheel" -> List("hue", "sat", "paint")
     )
     assertEquals(
