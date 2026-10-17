@@ -45,9 +45,12 @@ const local paletteVars: String = """
 ///   - `.fh-hug`: the cell shrinks to its content instead of filling its share.
 ///     `.fh-grow`: the cell takes the space its box leaves.
 ///   - `.fh-stick-top`/`-bottom`: the cell stays on screen while its box is,
-///     on the page's own background.
+///     on the page's own background. A dropdown in a bottom one still opens
+///     downward, off the screen.
 ///   - `.fh-fill-screen` on a column: at least the screen's height, less the
-///     theme's frame around the dashboard (`--fh-chrome-block`).
+///     theme's frame around the dashboard (`--fh-chrome-block`, default `1rem`:
+///     BeerCSS's `main` padding, the plain theme's body margin; a theme with an
+///     app bar sets it).
 ///   - `.fh-wrap` on a row: cells keep their own width and wrap, where the
 ///     default `1 1 0` with `min-width:0` shrinks them all onto one line.
 ///   - `.fh-justify-center`/`-end`: along the box's own direction.
