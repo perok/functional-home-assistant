@@ -12,6 +12,7 @@ import fh.view.model.{
   ExprValue,
   LayoutNode,
   NodeId,
+  Predicate,
   Reads,
   SlotAsk,
   SlotQuery,
@@ -413,6 +414,8 @@ class Renderer(
     dashboard.referencedEntities.contains(entityId)
 
   def declares(call: TapCall): Boolean = dashboard.calls.contains(call)
+
+  def callSet(id: String): Option[Predicate.Tally] = dashboard.callSets.get(id)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities

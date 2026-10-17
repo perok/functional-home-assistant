@@ -943,6 +943,26 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
+  /** Every query set a tap acts on, by its route id: what a press filters to
+    * the candidates present then (`Server.tapCall`).
+    */
+  lazy val callSets: Map[String, Predicate.Tally] =
+    setRoutes.collect { case Dashboard.SetRoute(id, _, Some(t)) =>
+      id -> t
+    }.toMap
+
+  private lazy val setRoutes: List[Dashboard.SetRoute] = {
+    def walk(n: LayoutNode): List[Dashboard.SetRoute] = n match {
+      case c: LayoutNode.Component =>
+        Dashboard.setRoute(c).toList ++ c.allChildren.flatMap(walk)
+      case set: LayoutNode.SetNode =>
+        set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => walk(cl.node))
+    }
+    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap(s => walk(s._2.content))
+  }
+
   /** What the live subscription asks HA for: [[referencedEntities]] plus what
     * only decides — clause guards and state conditions, whose entity may be
     * rendered nowhere. With the narrower set a dashboard paints right and then
@@ -963,12 +983,15 @@ case class Dashboard(
           )
     }
 
-    referencedEntities ++ deciders(card) ++ surfaces.values.toList.flatMap(s =>
-      deciders(s.content) ++ (s.activation match {
-        case Activation.State(c) => Predicate.referencedEntities(c)
-        case _: Activation.User | _: Activation.Var => Nil
-      })
-    )
+    // A set call's guards are read at the press, and an entity only a guard
+    // names would otherwise be missing from the store, failing its guard.
+    referencedEntities ++ callSets.values.flatMap(_.referencedEntities) ++
+      deciders(card) ++ surfaces.values.toList.flatMap(s =>
+        deciders(s.content) ++ (s.activation match {
+          case Activation.State(c) => Predicate.referencedEntities(c)
+          case _: Activation.User | _: Activation.Var => Nil
+        })
+      )
   }
 
   /** Human-readable errors, empty when valid. `locateTransform` maps a
@@ -1133,32 +1156,36 @@ case class Dashboard(
     // is the attachment's absence.
     def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
       val read = c.slots.values.flatMap(_.values.keySet).toSet
-      c.values.keys.toList.sorted.flatMap { name =>
-        if (!Dashboard.ExpressionValueName.matches(name))
-          List(
-            s"$nodeId: expression value '$name' is not a name an expression " +
-              "can read — letters, digits and '_', not starting with a digit"
-          )
-        else if (Cel.fixedNames.contains(name))
-          List(
-            s"$nodeId: expression value '$name' would hide the '$name' every " +
-              "expression already reads — rename it"
-          )
-        else if (!read.contains(name))
-          List(
-            s"$nodeId: expression value '$name' is read by no expression on " +
-              "this node — names are the node's own and are not inherited"
-          )
-        else
-          c.values(name) match
-            // A value is shared by content across nodes, so it has no subject.
-            case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
-              List(
-                s"$nodeId: expression value '$name' compares an entity it " +
-                  "does not name — name it with q.entity(e)"
-              )
-            case _ => Nil
-      } ++ c.slots.toList.sortBy(_._1).collect {
+      // The call's set is read by the route, not by an expression.
+      c.values.keys.toList
+        .filterNot(_ == Dashboard.CallSetValue)
+        .sorted
+        .flatMap { name =>
+          if (!Dashboard.ExpressionValueName.matches(name))
+            List(
+              s"$nodeId: expression value '$name' is not a name an expression " +
+                "can read — letters, digits and '_', not starting with a digit"
+            )
+          else if (Cel.fixedNames.contains(name))
+            List(
+              s"$nodeId: expression value '$name' would hide the '$name' every " +
+                "expression already reads — rename it"
+            )
+          else if (!read.contains(name))
+            List(
+              s"$nodeId: expression value '$name' is read by no expression on " +
+                "this node — names are the node's own and are not inherited"
+            )
+          else
+            c.values(name) match
+              // A value is shared by content across nodes, so it has no subject.
+              case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
+                List(
+                  s"$nodeId: expression value '$name' compares an entity it " +
+                    "does not name — name it with q.entity(e)"
+                )
+              case _ => Nil
+        } ++ c.slots.toList.sortBy(_._1).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
             if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
@@ -1753,7 +1780,24 @@ case class Dashboard(
           case _ => Nil
       }
 
+    // Without its tally a press would have nothing to filter.
+    val callSetErrors: List[String] =
+      setRoutes.collect { case Dashboard.SetRoute(id, card, None) =>
+        s"card '$card' places a call over the set '$id' without its " +
+          s"'${Dashboard.CallSetValue}' value — spread tapMod.tapValues " +
+          "into its derivedValues beside tapMod.tapRoute"
+      }.distinct ++ setRoutes
+        .collect { case Dashboard.SetRoute(id, _, Some(t)) => id -> t }
+        .groupMap(_._1)(_._2)
+        .toList
+        .sortBy(_._1)
+        .collect {
+          case (id, ts) if ts.distinct.size > 1 =>
+            s"two different sets share the call id '$id'"
+        }
+
     authoredIdErrors ++
+      callSetErrors ++
       structureLiveSlotErrors ++
       undeclaredHoleErrors ++
       regionHoleErrors ++
@@ -2053,6 +2097,32 @@ object Dashboard:
   val TargetKindSlot: String = "targetKind"
   val TargetIdSlot: String = "targetId"
   val DataKeySlot: String = "dataKey"
+
+  /** The derived value a set call's tally rides in (`tap.pkl`'s `tapValues`).
+    */
+  val CallSetValue: String = "__call"
+
+  /** A node's call over a query set: its route id, and the tally `None` where
+    * the card placed the route without it.
+    */
+  final case class SetRoute(
+      id: String,
+      card: String,
+      tally: Option[Predicate.Tally]
+  )
+
+  def setRoute(c: LayoutNode.Component): Option[SetRoute] =
+    def lit(name: String) = c.slots.get(name).flatMap(_.literal)
+    lit(TargetKindSlot)
+      .filter(_ == "set")
+      .flatMap(_ => lit(TargetIdSlot))
+      .map(id =>
+        SetRoute(
+          id,
+          c.card,
+          c.values.get(CallSetValue).collect { case ExprValue.Count(t) => t }
+        )
+      )
 
   private[model] def rawHole(name: String): scala.util.matching.Regex =
     ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(

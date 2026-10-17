@@ -80,8 +80,9 @@ case than the bug it replaces, which is why it needs no retry of its own.
 **3. A tap that cannot be served says so — as page state, not as a status.**
 204 was indistinguishable from success. Every refusal now answers **200 carrying
 `datastar-patch-signals`**: HA rejecting the service call, this dashboard not
-naming the entity, a surface id this build no longer has, a `conn` held by
-another slug. One function answers all of them (`Server.actionRefused`), so
+naming the entity, a call over a set none of whose candidates is present at the
+press (sent, it would have acted on nothing), a surface id this build no longer
+has, a `conn` held by another slug. One function answers all of them (`Server.actionRefused`), so
 "an action reports its refusal" is a rule rather than a habit each route
 follows.
 

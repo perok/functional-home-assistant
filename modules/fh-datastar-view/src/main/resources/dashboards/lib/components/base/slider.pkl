@@ -393,6 +393,7 @@ open class Slider extends nodes.Node {
       // On the head, the node whose slot reads it: values are local.
       derivedValues {
         when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
+        for (k, v in tapMod.tapValues(press ?? commit)) { [k] = v }
       }
       children = new Mapping {
         ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }

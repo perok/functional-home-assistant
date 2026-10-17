@@ -80,6 +80,9 @@ open class Switch extends nodes.ActiveNode {
       [k] = v
     }
   }
+  derivedValues {
+    for (k, v in tapMod.tapValues(tapAction)) { [k] = v }
+  }
   function label(l: String|slotMod.Expr): Switch = let (self = this) (self) { label = l }
   function tapAction(a: tapMod.TapAction): Switch = let (self = this) (self) { tapAction = a }
   function active(a: nodes.BooleanInput): Switch = let (self = this) (self) { active = a }

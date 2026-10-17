@@ -138,7 +138,7 @@ derived from the owning node, and the `@@NODE_ID@@` token resolves only to a nod
 second tap can name it. Sharing means registering it and using `openPopup("detail")`.
 
 **Tap / tap action** — what a click does, as a value rather than a string: a service call on a
-**target** (an entity, an area or a floor), a navigation, opening or closing a popup. A tap names its
+**target** (an entity, an area, a floor or a query set), a navigation, opening or closing a popup. A tap names its
 own target and never borrows the card's subject entity, so one card may show an entity and act on
 another. ADR 0016, 0023, 0024.
 

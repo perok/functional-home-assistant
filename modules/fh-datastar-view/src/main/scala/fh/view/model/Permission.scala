@@ -4,12 +4,14 @@ import api.homeassistant.ServiceTarget
 import api.homeassistant.ws.domain.HaUser
 
 /** May you see this dashboard, and may a tap from it make this call (issue #89,
-  * ADR 0023), as one value so [[mayCall]] cannot skip [[mayView]]. `calls` is a
-  * predicate so `Dashboard.calls` is not copied per request.
+  * ADR 0023), as one value so [[mayCall]] cannot skip [[mayView]]. `calls` and
+  * `sets` are functions so `Dashboard.calls`/`callSets` are not copied per
+  * request.
   */
 final case class Permission(
     access: Access,
-    calls: TapCall => Boolean
+    calls: TapCall => Boolean,
+    sets: String => Option[Predicate.Tally] = _ => None
 ) {
 
   def mayView(user: Option[HaUser]): Boolean = access.permits(user)
@@ -34,17 +36,24 @@ object Permission {
   */
 final case class TapCall(
     service: String,
-    target: ServiceTarget,
+    target: ServiceTarget | CallSet,
     dataKey: Option[String]
 ) derives CanEqual
+
+/** A query set a call acts on, by its route id (`Dashboard.callSets`): which of
+  * its candidates is decided at the press, never by the request.
+  */
+final case class CallSet(id: String) derives CanEqual
 
 object TapCall {
 
   /** The target kinds `tap.pkl` emits, as the route spells them. */
-  def targetOf(kind: String, id: String): Option[ServiceTarget] = kind match {
-    case "entity" => Some(ServiceTarget.Entity(id))
-    case "area"   => Some(ServiceTarget.Area(id))
-    case "floor"  => Some(ServiceTarget.Floor(id))
-    case _        => None
-  }
+  def targetOf(kind: String, id: String): Option[ServiceTarget | CallSet] =
+    kind match {
+      case "entity" => Some(ServiceTarget.Entity(id))
+      case "area"   => Some(ServiceTarget.Area(id))
+      case "floor"  => Some(ServiceTarget.Floor(id))
+      case "set"    => Some(CallSet(id))
+      case _        => None
+    }
 }

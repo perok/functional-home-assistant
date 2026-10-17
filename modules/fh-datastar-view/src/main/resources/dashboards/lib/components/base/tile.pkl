@@ -70,6 +70,7 @@ open class Tile extends nodes.ActiveNode {
   hidden disabled: nodes.BooleanInput? = null
   derivedValues {
     when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
+    for (k, v in tapMod.tapValues(tapAction)) { [k] = v }
   }
   slots {
     when (subject != null) {

@@ -22,6 +22,7 @@ import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
+  CallSet,
   ChromeColors,
   Dashboard,
   DomId,
@@ -271,13 +272,21 @@ class Server(
             .map(TapCall(s"$domain/$service", _, data.map(_._1)))
             .filter(permission.mayCall(user, _)) match {
             case Some(call) =>
-              callService(
-                domain,
-                service,
-                call.target,
-                data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
-                req
-              )
+              targetAtPress(call, permission).flatMap {
+                case Some(target) =>
+                  callService(
+                    domain,
+                    service,
+                    target,
+                    data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
+                    req
+                  )
+                case None =>
+                  actionRefused(
+                    req,
+                    s"$domain/$service: nothing in this set matches right now"
+                  )
+              }
             case None =>
               actionRefused(
                 req,
@@ -286,6 +295,31 @@ class Server(
           }
       }
     )
+
+  /** A set's candidates present in the store now, the same rule a label's count
+    * of it reads (`Conditions.present`); `None` when none is. Only ever a
+    * subset of the candidates fixed at build, so a press reaches nothing the
+    * dashboard does not name.
+    */
+  private def targetAtPress(
+      call: TapCall,
+      permission: Permission
+  ): IO[Option[ServiceTarget]] =
+    call.target match {
+      case t: ServiceTarget => IO.pure(Some(t))
+      case CallSet(id)      =>
+        permission.sets(id) match {
+          case Some(tally) =>
+            stateStore.snapshot.map(states =>
+              NonEmptyList
+                .fromList(Conditions.presentOf(tally, states))
+                .map(ids => ServiceTarget.Entities(ids.toList))
+            )
+          // `validate` refuses a set route without its tally.
+          case None =>
+            IO.raiseError(FHError.internal(s"call set '$id' has no tally"))
+        }
+    }
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
     * routes without it sees the same response.
@@ -1975,7 +2009,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.declares)
+                Permission(r.access, r.declares, r.callSet)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }

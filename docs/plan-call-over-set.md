@@ -38,11 +38,13 @@ c.button("All off", c.tap.call("light/turn_off", allOff))
   share it.
 - The tally itself rides on the node as the derived value `__call` (a node holds
   one tap's route, so one name is enough). `tapMod.tapValues(t)` returns it, and
-  each card that spreads `tapRoute`/`tapSlots` spreads `tapValues` into
-  `derivedValues` (wheel, slider, tile, button ×2, onoff, select, surface). A card
-  that forgets fails `validate` (below), so the omission can't ship silently.
-- `components/tap.pkl`: `call(service, on: core.Target|q.EntitySet)`. An
-  `EntitySet` is lowered with `.count()`.
+  each card that takes an author's tap spreads it into `derivedValues`: button,
+  pill, tile, switch and the slider head. The wheel, a select's options and a
+  tab build their own taps on an entity or a variable, never a set. A card that
+  forgets fails `validate` (below), so the omission can't ship silently.
+- `components/tap.pkl`: `call(service, on: core.Target|q.EntitySet)`, and
+  `c.tap.lights.on|off|toggle` take a set too. An `EntitySet` is lowered with
+  `.count()`.
 - **Build errors:**
   - No candidates: the call acts on nothing.
   - A candidate whose domain isn't the service's, except for a `homeassistant/*`
@@ -54,8 +56,8 @@ c.button("All off", c.tap.call("light/turn_off", allOff))
 
 - `ha-api` `ServiceTarget` gains `Entities(ids: List[String])`. This is HA's own
   `entity_id: [...]`. `key`/`id` move from the enum's constructor onto `json`.
-- `TapCall.target` becomes `CallTarget`, which is either `Fixed(ServiceTarget)`
-  or `Set(id)`.
+- `TapCall.target` becomes `ServiceTarget | CallSet`, where `CallSet(id)` names
+  the set by its route id.
 - `Dashboard`:
   - `callSets: Map[String, Predicate.Tally]` is read off each set-targeted node's
     `targetId` slot and its `__call` value.
@@ -65,10 +67,13 @@ c.button("All off", c.tap.call("light/turn_off", allOff))
 - `watchedEntities` adds each call set's candidates and the entities its guards
   read (ADR 0030). A guard-only entity such as the sun is otherwise not in the
   store, and its guard is false.
+- `Permission` carries `sets: String => Option[Tally]` beside `calls`, read off
+  the renderer as `calls` is.
 - **`Server.tapCall`, for `kind == "set"`:**
-  1. Admit `(service, Set(id), dataKey)` as today.
+  1. Admit `(service, CallSet(id), dataKey)` as today.
   2. Look up the tally.
-  3. Filter its candidates with `Conditions` against the store's current states.
+  3. Filter its candidates with `Conditions.presentOf`, the rule
+     `Conditions.present` counts by, against the store's current states.
   4. If none are present, refuse through `actionRefused` and make no HA call.
      The message says that nothing matched.
   5. Otherwise make one `callService` with `ServiceTarget.Entities(present)`.
@@ -84,8 +89,8 @@ c.button("All off", c.tap.call("light/turn_off", allOff))
 - **ADR 0024:** a press on an empty set is refused.
 - **ADR 0030:** guard entities are subscribed.
 - **ADR 0034:** an example with the label and the call over one set.
-- **The architecture doc:** a fourth call target kind, resolved at the press.
-- **`terminology.md`:** only if a term moves.
+- **The architecture doc:** unchanged; it doesn't cover the call route.
+- **`terminology.md`:** a tap's target can be a query set.
 - **The module's `CLAUDE.md`:** the route line (`kind` is
   `entity`/`area`/`floor`/`set`).
 
@@ -106,8 +111,9 @@ c.button("All off", c.tap.call("light/turn_off", allOff))
   - An empty set refuses, with no recorded call.
   - An undeclared set id is refused.
   - The label and the press agree after a state change.
-- **Live HA:** build a set-call dashboard against the real dump and check its
-  label's count in the browser. No press: a press would switch real lights.
+- **Live HA:** a set-call dashboard against the real dump (local, gitignored)
+  rendered "turns off 2 of 7" and a `/set/<id>` route naming no entity. No
+  press: a press would switch real lights.
 
 ## Open
 

@@ -222,6 +222,13 @@ would show the leader alone, and ordering the whole row by it would move a pill
 under the finger that pressed it. It folds to a constant when the ordering is
 registry-only and the first candidate's presence is settled.
 
+**A set can be what a call acts on** (#583): `c.tap.lights.off(lit)`, or
+`c.tap.call(service, set)`. The call carries the set's tally, the same value
+`count()` gives a label, and the server sends the candidates present at the
+press. A label counting the set and the press therefore agree on the rule; only
+the moment differs. ADR 0023 has why the route names the set and not its
+members.
+
 ## What this replaced
 
 `LayoutNode.Dynamic`, `DynamicCase`, the full-map membership scan, `hass.SELF` /
