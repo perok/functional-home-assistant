@@ -373,11 +373,11 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
       }
     }
 
-/// A set's route id: only a key into `Dashboard.callSets`, so two taps over an
+/// A set's route id: only a key into `Dashboard.calls`, so two taps over an
 /// equal set share one.
 const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).sha256.take(16)
 
-/// The set a call acts on, as the node's `__call` value, which `Dashboard.callSets`
+/// The set a call acts on, as the node's `__call` value, which `Dashboard.calls`
 /// reads beside the route. A card spreads it into `derivedValues` wherever it
 /// spreads [[tapRoute]]; `validate` refuses a set route without it.
 const function tapValues(t: TapAction?): Mapping<String, pred.Tally> =

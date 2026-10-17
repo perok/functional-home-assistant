@@ -552,7 +552,7 @@ class PklBuildSuite extends munit.FunSuite {
       c.downField("node").as[LayoutNode].fold(e => fail(e.toString), identity)
     val dashboard = Dashboard(cards = Map.empty, card = node)
     assertEquals(
-      dashboard.calls,
+      dashboard.calls.keySet,
       Set(
         TapCall("light/turn_off", ServiceTarget.Area("kitchen_1"), None),
         TapCall("switch/turn_off", ServiceTarget.Floor("g"), None),

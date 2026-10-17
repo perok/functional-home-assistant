@@ -185,7 +185,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
   `HomeAssistantApi.callService`). `POST /sse/call/:slug/:domain/:service/:kind/:id` calls a
   service on a target — `kind` is `entity`, `area`, `floor` or `set`; HA expands an area or a floor,
-  and the server a set, to the candidates present at the press (`Dashboard.callSets`). A value
+  and the server a set, to the candidates present at the press (`Dashboard.calls`). A value
   rides in the body as `{"data": {<key>: <value>}}` (`Server.callData`; one key at most), sent with
   the bundle's `@post(url, {payload: …})`, which replaces the signals — `tapMod.withData` spells it,
   and `Call.with` takes a string, number, boolean or list and splices it as a JSON literal. The

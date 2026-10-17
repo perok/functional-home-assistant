@@ -1,5 +1,6 @@
 package fh.view.model
 
+import api.homeassistant.ServiceTarget
 import fh.view.query.{Queries, QueryRequest}
 import fh.view.runtime.Cel
 import io.circe.{Decoder, DecodingFailure, Json}
@@ -908,12 +909,19 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
-  /** Every call a tap of this dashboard declares, as the build spelled it: the
-    * allowlist for the call route (ADR 0023). Read off `tap.pkl`'s route slots.
-    * A service the target's state picks declares every arm of its match, since
-    * which one is posted is the click's to decide.
+  /** Every call a tap of this dashboard declares, as the build spelled it, and
+    * what it reaches: the allowlist for the call route (ADR 0023). Read off
+    * `tap.pkl`'s route slots. A service the target's state picks declares every
+    * arm of its match, since which one is posted is the click's to decide. A
+    * call over a set reaches its tally, which the press narrows; one whose card
+    * dropped the tally is left out, and `validate` says why.
     */
-  lazy val calls: Set[TapCall] = {
+  lazy val calls: Map[TapCall, CallReach] =
+    declaredCalls.collect { case Dashboard.Declared(call, _, Some(reach)) =>
+      call -> reach
+    }.toMap
+
+  private lazy val declaredCalls: List[Dashboard.Declared] = {
     def services(s: SlotSource): List[String] =
       s.literal.toList ++ (s.transform match {
         case Transform.Simple.Match(cases, otherwise) =>
@@ -921,45 +929,40 @@ case class Dashboard(
         case _ => Nil
       })
 
-    def of(slots: Map[String, SlotSource]): List[TapCall] = {
-      def lit(name: String) = slots.get(name).flatMap(_.literal)
+    def reachOf(
+        target: ServiceTarget | CallSet,
+        c: LayoutNode.Component
+    ): Option[CallReach] = target match {
+      case t: ServiceTarget => Some(t)
+      case _: CallSet       =>
+        c.values.get(Dashboard.CallSetValue).collect {
+          case ExprValue.Count(t) => t
+        }
+    }
+
+    def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
+      def lit(name: String) = c.slots.get(name).flatMap(_.literal)
       for {
         kind <- lit(Dashboard.TargetKindSlot).toList
         id <- lit(Dashboard.TargetIdSlot).toList
         target <- TapCall.targetOf(kind, id).toList
-        service <- slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
-      } yield TapCall(service, target, lit(Dashboard.DataKeySlot))
+        service <- c.slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
+      } yield Dashboard.Declared(
+        TapCall(service, target, lit(Dashboard.DataKeySlot)),
+        c.card,
+        reachOf(target, c)
+      )
     }
 
-    def walk(n: LayoutNode): List[TapCall] = n match {
+    def walk(n: LayoutNode): List[Dashboard.Declared] = n match {
       case c: LayoutNode.Component =>
-        of(c.slots) ++ c.allChildren.flatMap(walk)
+        of(c) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }
 
-    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
-  }
-
-  /** Every query set a tap acts on, by its route id: what a press filters to
-    * the candidates present then (`Server.tapCall`).
-    */
-  lazy val callSets: Map[String, Predicate.Tally] =
-    setRoutes.collect { case Dashboard.SetRoute(id, _, Some(t)) =>
-      id -> t
-    }.toMap
-
-  private lazy val setRoutes: List[Dashboard.SetRoute] = {
-    def walk(n: LayoutNode): List[Dashboard.SetRoute] = n match {
-      case c: LayoutNode.Component =>
-        Dashboard.setRoute(c).toList ++ c.allChildren.flatMap(walk)
-      case set: LayoutNode.SetNode =>
-        set.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => walk(cl.node))
-    }
     walk(card) ++ surfaces.toList.sortBy(_._1).flatMap(s => walk(s._2.content))
   }
 
@@ -985,7 +988,10 @@ case class Dashboard(
 
     // A set call's guards are read at the press, and an entity only a guard
     // names would otherwise be missing from the store, failing its guard.
-    referencedEntities ++ callSets.values.flatMap(_.referencedEntities) ++
+    referencedEntities ++ calls.values.flatMap {
+      case t: Predicate.Tally => t.referencedEntities
+      case _: ServiceTarget   => Nil
+    } ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>
         deciders(s.content) ++ (s.activation match {
           case Activation.State(c) => Predicate.referencedEntities(c)
@@ -1782,12 +1788,20 @@ case class Dashboard(
 
     // Without its tally a press would have nothing to filter.
     val callSetErrors: List[String] =
-      setRoutes.collect { case Dashboard.SetRoute(id, card, None) =>
-        s"card '$card' places a call over the set '$id' without its " +
-          s"'${Dashboard.CallSetValue}' value — spread tapMod.tapValues " +
-          "into its derivedValues beside tapMod.tapRoute"
-      }.distinct ++ setRoutes
-        .collect { case Dashboard.SetRoute(id, _, Some(t)) => id -> t }
+      declaredCalls.collect {
+        case Dashboard.Declared(TapCall(_, CallSet(id), _), card, None) =>
+          s"card '$card' places a call over the set '$id' without its " +
+            s"'${Dashboard.CallSetValue}' value — spread tapMod.tapValues " +
+            "into its derivedValues beside tapMod.tapRoute"
+      }.distinct ++ declaredCalls
+        .collect {
+          case Dashboard.Declared(
+                TapCall(_, CallSet(id), _),
+                _,
+                Some(t: Predicate.Tally)
+              ) =>
+            id -> t
+        }
         .groupMap(_._1)(_._2)
         .toList
         .sortBy(_._1)
@@ -2102,27 +2116,14 @@ object Dashboard:
     */
   val CallSetValue: String = "__call"
 
-  /** A node's call over a query set: its route id, and the tally `None` where
-    * the card placed the route without it.
+  /** A call a node's tap declares; `reach` is `None` where a set call's card
+    * placed the route without its tally.
     */
-  final case class SetRoute(
-      id: String,
+  private final case class Declared(
+      call: TapCall,
       card: String,
-      tally: Option[Predicate.Tally]
+      reach: Option[CallReach]
   )
-
-  def setRoute(c: LayoutNode.Component): Option[SetRoute] =
-    def lit(name: String) = c.slots.get(name).flatMap(_.literal)
-    lit(TargetKindSlot)
-      .filter(_ == "set")
-      .flatMap(_ => lit(TargetIdSlot))
-      .map(id =>
-        SetRoute(
-          id,
-          c.card,
-          c.values.get(CallSetValue).collect { case ExprValue.Count(t) => t }
-        )
-      )
 
   private[model] def rawHole(name: String): scala.util.matching.Regex =
     ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(

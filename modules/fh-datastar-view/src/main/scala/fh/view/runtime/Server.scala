@@ -22,12 +22,13 @@ import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
-  CallSet,
+  CallReach,
   ChromeColors,
   Dashboard,
   DomId,
   NodeId,
   Permission,
+  Predicate,
   SignalId,
   SlotRead,
   TapCall,
@@ -270,9 +271,9 @@ class Server(
           TapCall
             .targetOf(kind, id)
             .map(TapCall(s"$domain/$service", _, data.map(_._1)))
-            .filter(permission.mayCall(user, _)) match {
-            case Some(call) =>
-              targetAtPress(call, permission).flatMap {
+            .flatMap(permission.reachOf(user, _)) match {
+            case Some(reach) =>
+              targetAtPress(reach).flatMap {
                 case Some(target) =>
                   callService(
                     domain,
@@ -298,24 +299,15 @@ class Server(
     * subset of the candidates fixed at build, so a press reaches nothing the
     * dashboard does not name.
     */
-  private def targetAtPress(
-      call: TapCall,
-      permission: Permission
-  ): IO[Option[ServiceTarget]] =
-    call.target match {
-      case t: ServiceTarget => IO.pure(Some(t))
-      case CallSet(id)      =>
-        permission.sets(id) match {
-          case Some(tally) =>
-            stateStore.snapshot.map(states =>
-              NonEmptyList
-                .fromList(Conditions.presentOf(tally, states))
-                .map(ServiceTarget.Entities(_))
-            )
-          // `validate` refuses a set route without its tally.
-          case None =>
-            IO.raiseError(FHError.internal(s"call set '$id' has no tally"))
-        }
+  private def targetAtPress(reach: CallReach): IO[Option[ServiceTarget]] =
+    reach match {
+      case t: ServiceTarget   => IO.pure(Some(t))
+      case t: Predicate.Tally =>
+        stateStore.snapshot.map(states =>
+          NonEmptyList
+            .fromList(Conditions.presentOf(t, states))
+            .map(ServiceTarget.Entities(_))
+        )
     }
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
@@ -2006,7 +1998,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.declares, r.callSet)
+                Permission(r.access, r.reachOf)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }

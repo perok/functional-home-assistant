@@ -262,7 +262,7 @@ off in the living room" button cannot be edited into `lock/unlock` on the same
 room, but it does turn off every light HA puts there.
 
 A call over a query set (#583) is the opposite trade. Its route names the set by
-an id, never an entity: `Dashboard.callSets` maps the id to the set's tally (its
+an id, never an entity: `Dashboard.calls` maps the call to the set's tally (its
 candidates, fixed at build, and each one's live guard), and the server picks the
 candidates present at the press from its own store and sends one call listing
 them. So the browser cannot add an entity, and the call never reaches one the

@@ -3,16 +3,14 @@ package fh.view.model
 import api.homeassistant.ServiceTarget
 import api.homeassistant.ws.domain.HaUser
 
-/** May you see this dashboard, and may a tap from it make this call (issue #89,
-  * ADR 0023), as one value so [[mayCall]] cannot skip [[mayView]]. `calls` and
-  * `sets` are functions so `Dashboard.calls`/`callSets` are not copied per
-  * request. Only the call route needs one; a route that only asks who may see a
-  * slug reads its [[Access]].
+/** May you see this dashboard, and what may a tap from it reach (issue #89, ADR
+  * 0023), as one value so [[reachOf]] cannot skip [[mayView]]. `calls` is a
+  * function so `Dashboard.calls` is not copied per request. Only the call route
+  * needs one; a route that only asks who may see a slug reads its [[Access]].
   */
 final case class Permission(
     access: Access,
-    calls: TapCall => Boolean,
-    sets: String => Option[Predicate.Tally]
+    calls: TapCall => Option[CallReach]
 ) {
 
   def mayView(user: Option[HaUser]): Boolean = access.permits(user)
@@ -22,14 +20,14 @@ final case class Permission(
     * and an area call reaches entities the dashboard never names. Static is
     * sound: a candidate list does not grow while it runs (ADR 0003).
     */
-  def mayCall(user: Option[HaUser], call: TapCall): Boolean =
-    mayView(user) && calls(call)
+  def reachOf(user: Option[HaUser], call: TapCall): Option[CallReach] =
+    if (mayView(user)) calls(call) else None
 }
 
 object Permission {
 
   /** A missing or failed dashboard: restrictive, and allowing no call. */
-  val none: Permission = Permission(Access.default, _ => false, _ => None)
+  val none: Permission = Permission(Access.default, _ => None)
 }
 
 /** A service call a tap declares. `service` is `"<domain>/<service>"`, as a tap
@@ -41,10 +39,15 @@ final case class TapCall(
     dataKey: Option[String]
 ) derives CanEqual
 
-/** A query set a call acts on, by its route id (`Dashboard.callSets`): which of
-  * its candidates is decided at the press, never by the request.
+/** A query set a call acts on, by its route id: which of its candidates is
+  * decided at the press, never by the request.
   */
 final case class CallSet(id: String) derives CanEqual
+
+/** What a declared call acts on: its fixed target, or a set the press narrows
+  * to the candidates present then.
+  */
+type CallReach = ServiceTarget | Predicate.Tally
 
 object TapCall {
 
