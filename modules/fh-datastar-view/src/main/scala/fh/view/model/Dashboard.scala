@@ -929,19 +929,16 @@ case class Dashboard(
         case _ => Nil
       })
 
-    def reachOf(
-        target: ServiceTarget | CallSet,
-        c: LayoutNode.Component
-    ): Option[CallReach] = target match {
-      case t: ServiceTarget => Some(t)
-      case _: CallSet       =>
-        c.values.get(Dashboard.CallSetValue).collect {
-          case ExprValue.Count(t) => t
-        }
-    }
-
     def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
       def lit(name: String) = c.slots.get(name).flatMap(_.literal)
+      def reachOf(target: ServiceTarget | CallSet): Option[CallReach] =
+        target match {
+          case t: ServiceTarget => Some(t)
+          case _: CallSet       =>
+            lit(Dashboard.TargetSetSlot).flatMap(
+              io.circe.parser.decode[Predicate.Tally](_).toOption
+            )
+        }
       for {
         kind <- lit(Dashboard.TargetKindSlot).toList
         id <- lit(Dashboard.TargetIdSlot).toList
@@ -950,7 +947,7 @@ case class Dashboard(
       } yield Dashboard.Declared(
         TapCall(service, target, lit(Dashboard.DataKeySlot)),
         c.card,
-        reachOf(target, c)
+        reachOf(target)
       )
     }
 
@@ -1162,36 +1159,32 @@ case class Dashboard(
     // is the attachment's absence.
     def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
       val read = c.slots.values.flatMap(_.values.keySet).toSet
-      // The call's set is read by the route, not by an expression.
-      c.values.keys.toList
-        .filterNot(_ == Dashboard.CallSetValue)
-        .sorted
-        .flatMap { name =>
-          if (!Dashboard.ExpressionValueName.matches(name))
-            List(
-              s"$nodeId: expression value '$name' is not a name an expression " +
-                "can read — letters, digits and '_', not starting with a digit"
-            )
-          else if (Cel.fixedNames.contains(name))
-            List(
-              s"$nodeId: expression value '$name' would hide the '$name' every " +
-                "expression already reads — rename it"
-            )
-          else if (!read.contains(name))
-            List(
-              s"$nodeId: expression value '$name' is read by no expression on " +
-                "this node — names are the node's own and are not inherited"
-            )
-          else
-            c.values(name) match
-              // A value is shared by content across nodes, so it has no subject.
-              case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
-                List(
-                  s"$nodeId: expression value '$name' compares an entity it " +
-                    "does not name — name it with q.entity(e)"
-                )
-              case _ => Nil
-        } ++ c.slots.toList.sortBy(_._1).collect {
+      c.values.keys.toList.sorted.flatMap { name =>
+        if (!Dashboard.ExpressionValueName.matches(name))
+          List(
+            s"$nodeId: expression value '$name' is not a name an expression " +
+              "can read — letters, digits and '_', not starting with a digit"
+          )
+        else if (Cel.fixedNames.contains(name))
+          List(
+            s"$nodeId: expression value '$name' would hide the '$name' every " +
+              "expression already reads — rename it"
+          )
+        else if (!read.contains(name))
+          List(
+            s"$nodeId: expression value '$name' is read by no expression on " +
+              "this node — names are the node's own and are not inherited"
+          )
+        else
+          c.values(name) match
+            // A value is shared by content across nodes, so it has no subject.
+            case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
+              List(
+                s"$nodeId: expression value '$name' compares an entity it " +
+                  "does not name — name it with q.entity(e)"
+              )
+            case _ => Nil
+      } ++ c.slots.toList.sortBy(_._1).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
             if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
@@ -1786,13 +1779,14 @@ case class Dashboard(
           case _ => Nil
       }
 
-    // Without its tally a press would have nothing to filter.
+    // Without its tally a press would have nothing to filter. `tapRoute` always
+    // writes one, so this is a node built some other way.
     val callSetErrors: List[String] =
       declaredCalls.collect {
         case Dashboard.Declared(TapCall(_, CallSet(id), _), card, None) =>
-          s"card '$card' places a call over the set '$id' without its " +
-            s"'${Dashboard.CallSetValue}' value — spread tapMod.tapValues " +
-            "into its derivedValues beside tapMod.tapRoute"
+          s"card '$card' places a call over the set '$id' without a " +
+            s"readable '${Dashboard.TargetSetSlot}' slot — build its route " +
+            "with tapMod.tapRoute"
       }.distinct ++ declaredCalls
         .collect {
           case Dashboard.Declared(
@@ -2111,10 +2105,7 @@ object Dashboard:
   val TargetKindSlot: String = "targetKind"
   val TargetIdSlot: String = "targetId"
   val DataKeySlot: String = "dataKey"
-
-  /** The derived value a set call's tally rides in (`tap.pkl`'s `tapValues`).
-    */
-  val CallSetValue: String = "__call"
+  val TargetSetSlot: String = "targetSet"
 
   /** A call a node's tap declares; `reach` is `None` where a set call's card
     * placed the route without its tally.

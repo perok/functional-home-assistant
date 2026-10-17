@@ -325,7 +325,8 @@ const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {
 }
 
 /// What [[serviceClick]] builds the URL from, and what the server reads back as
-/// the call this node declares (`Dashboard.calls`, ADR 0023).
+/// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
+/// carries its tally as `targetSet`, the JSON the press filters by.
 const local function routeSlots(
   action: slotMod.Slot|String,
   target: Target,
@@ -344,6 +345,9 @@ const local function routeSlots(
       else if (target is hass.Area) target.area_id
       else if (target is hass.Floor) target.floor_id
       else setId(target as pred.Tally)
+    when (target is pred.Tally) {
+      ["targetSet"] = jsonRenderer.renderValue(target)
+    }
     when (key != null) {
       ["dataKey"] = key!!
     }
@@ -376,16 +380,6 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
 /// A set's route id: only a key into `Dashboard.calls`, so two taps over an
 /// equal set share one.
 const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).sha256.take(16)
-
-/// The set a call acts on, as the node's `__call` value, which `Dashboard.calls`
-/// reads beside the route. A card spreads it into `derivedValues` wherever it
-/// spreads [[tapRoute]]; `validate` refuses a set route without it.
-const function tapValues(t: TapAction?): Mapping<String, pred.Tally> =
-  new {
-    when (t is Call && t.target is pred.Tally) {
-      ["__call"] = t.target
-    }
-  }
 
 /// Every slot a tap contributes, for a card to fold in with one generator:
 ///

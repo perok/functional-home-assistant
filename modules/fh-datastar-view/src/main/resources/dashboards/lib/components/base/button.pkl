@@ -108,7 +108,6 @@ open class Button extends nodes.ActiveNode {
   hidden disabled: nodes.BooleanInput? = null
   derivedValues {
     when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
-    for (k, v in tapMod.tapValues(tapAction)) { [k] = v }
   }
   /// The entity a reading that names none reads. The HA layer sets it.
   hidden subject: String? = null
@@ -244,9 +243,6 @@ class Pill extends nodes.ActiveNode {
         [k] = v
       }
     }
-  }
-  derivedValues {
-    for (k, v in tapMod.tapValues(tapAction)) { [k] = v }
   }
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
   function icon(i: String): Pill = let (self = this) (self) { icon = i }

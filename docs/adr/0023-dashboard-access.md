@@ -268,10 +268,10 @@ candidates present at the press from its own store and sends one call listing
 them. So the browser cannot add an entity, and the call never reaches one the
 build did not name, including a light added to the room later. The id is the
 first 16 hex characters of the sha256 of the tally's JSON, only a key, so two
-taps over an equal set share one. The tally rides on the node as the derived
-value `__call` (`tapMod.tapValues`, which every card that takes an author's tap
-spreads beside `tapRoute`), and `validate` refuses a set route without it, and
-one id naming two different tallies. A press that finds no candidate present
+taps over an equal set share one. The tally rides in the route itself, as the
+`targetSet` slot holding its JSON, so every card that spreads `tapMod.tapRoute`
+carries it with nothing more to spread. `validate` refuses a set route whose
+`targetSet` is missing or unreadable, and one id naming two different tallies. A press that finds no candidate present
 succeeds without a call (ADR 0024).
 
 Not built yet: an allow or deny list per user or dashboard, set in the same

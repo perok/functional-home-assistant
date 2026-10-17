@@ -1,8 +1,10 @@
-/// A call over a query set (#583): the route a tap places, and the tally its
-/// node carries for the press to filter.
+/// A call over a query set (#583): the route a tap places, carrying the tally
+/// the press filters.
 ///
 /// Outside `lib/` deliberately — see `components.test.pkl`.
 amends "pkl:test"
+
+import "pkl:json"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -22,19 +24,20 @@ local lit = q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on"))
 local litByDay = lit.where((e) ->
   if (e == lampe) q.not(q.entity(sun).stateIs("below_horizon")) else true)
 
-local function tallyOf(n: nodes.Node): pred.Tally = n.values!!["__call"] as pred.Tally
+local function setOf(n: nodes.Node): Mapping =
+  new json.Parser { useMapping = true }.parse(n.slots["targetSet"] as String) as Mapping
 
 facts {
   ["a set call routes by an id and carries the set it filters"] {
     let (b = c.button("Av", c.tap.call("light/turn_off", lit)))
       b.slots["targetKind"] == "set"
       && (b.slots["targetId"] as String).matches(Regex("[0-9a-f]{16}"))
-      && tallyOf(b).candidates.toList() == List("light.taklys", "light.lampe")
+      && (setOf(b)["candidates"] as Listing).toList() == List("light.taklys", "light.lampe")
   }
   ["a guard naming another entity rides in the tally"] {
-    let (t = tallyOf(c.button("Av", c.tap.call("light/turn_off", litByDay))))
-      (t.`when`["light.lampe"] as pred.PAnd).items.toList().any((p) ->
-        p is pred.PNot && (p.item as pred.Cmp).entity == "sun.sun")
+    let (g = (setOf(c.button("Av", c.tap.call("light/turn_off", litByDay)))["when"] as Mapping)["light.lampe"] as Mapping)
+      g["kind"] == "and" && (g["items"] as Listing).toList().any((p) ->
+        (p as Mapping)["kind"] == "not" && ((p as Mapping)["item"] as Mapping)["entity"] == "sun.sun")
   }
   ["equal sets share an id, different ones do not"] {
     let (idOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).slots["targetId"])
@@ -48,10 +51,10 @@ facts {
         c.pill(t),
         new tileMod.Tile { title = "Av"; tapAction = t },
         new switchMod.Switch { label = "Av"; tapAction = t; on = new { entityId = "light.lampe" } }
-      ).every((n) -> n.slots["targetKind"] == "set" && tallyOf(n) == t.target)
+      ).every((n) -> n.slots["targetKind"] == "set" && setOf(n) == setOf(c.button("Av", t)))
   }
   ["an entity call carries no set"] {
-    c.button("Av", c.tap.lights.off(taklys)).values == null
+    !c.button("Av", c.tap.lights.off(taklys)).slots.containsKey("targetSet")
   }
   ["a set of another domain is a build error, naming the strays"] {
     module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys, bryter))))

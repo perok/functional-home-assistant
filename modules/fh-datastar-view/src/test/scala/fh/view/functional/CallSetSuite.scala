@@ -158,6 +158,9 @@ class CallSetSuite extends FunctionalSuite {
       "targetId" -> lit("0123456789abcdef")
     )
     val errors = scene.card(bare).dashboard.validate()
-    assert(errors.exists(_.contains("without its '__call' value")), errors)
+    assert(
+      errors.exists(_.contains("without a readable 'targetSet' slot")),
+      errors
+    )
   }
 }
