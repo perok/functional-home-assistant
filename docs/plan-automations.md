@@ -98,13 +98,16 @@ was picked.
     wins there, which is exactly the fight this design avoids.
   - The arrays are kept in the store, so they survive a restart.
 - **Overrides are a priority level** (BACnet's "manual operator").
-  - Every call fh makes returns HA's `context`. A change with a context fh did not make came from
-    a person or from something else.
+  - Every call fh makes returns HA's `context`. A change whose context the engine did not make
+    came from a person or from something else. That includes a press on an fh dashboard (a call
+    over a set, #583, among them): it goes out from the same process, but it is a person's change.
   - Such a change writes the value it set into the manual slot. Rules above that level still win
     (a smoke alarm turning lights on); rules below it wait.
   - The manual slot is relinquished when the rule it beat next changes its desired value, after a
     timeout, or when someone flips the override switch on the device.
   - Adaptive Lighting's "manual control" works this way.
+  - A press on a target that a rule holds above the manual level is undone at once. The button
+    should say so beforehand rather than flicker; how is left for M5.
 
 ## Reference behaviours
 
@@ -131,6 +134,13 @@ fh can replace it.
   detail and leaves the name.
 - `fh-automation`: the engine, the device and the storage. Empty until M2.
 - `fh-app`: the running process. The wiring, HTTP, auth and the editor.
+- The condition interpreter becomes shared, since the engine needs it as it is:
+  - `Predicate` (with `Tally`, `Count` and `First`) moves out of `model/Dashboard.scala`.
+  - `Conditions` (with #583's `presentOf`) loses its `private[runtime]`.
+  - `MemberGraph.precedes` and `compareOn`, which a `First` orders by, come out of `MemberGraph`.
+  - `EntityState` and `StateStore.jsonToString` go to `fh-ha`.
+  - On the Pkl side, `predicate.pkl` and `query.pkl` (`q.EntitySet`) join the shared vocabulary.
+    `tap.pkl`'s call target and the `__call` value that carries a set stay with the dashboard.
 - `benchmarks` follows `fh-dashboard`.
 - Rename the `@fh-dashboard/` Pkl package once, here, since doing so breaks every workspace's
   imports (Q5).
