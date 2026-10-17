@@ -34,9 +34,10 @@ React is the model:
    - Running as an HA app (formerly add-on), the instance is the app.
    - A dev server generates an id once and keeps it in the workspace's `.fh/`.
    - The device identifier derives from it, so a dev server is a device of its own.
-4. **Which instance runs rules is chosen on its device in HA.** A new dev instance starts with
-   rules off, so starting a dev server never fights the app over the real lights. The control
-   itself is Q3.
+4. **Rules are a dry run unless the instance is started with a flag that says otherwise.**
+   - A dry run logs what the reconciler would call, and calls nothing.
+   - The flag is an app option in the app, and a command-line flag on a dev server.
+   - Two instances acting on the same lights is then a choice somebody made explicitly.
 5. **Declared values live at the top level and in dashboards, merged at the top.** The same key
    declared twice with different settings is a build error.
 6. **An entity that already has the id we would use, but is not on our device, is adopted, not
@@ -49,7 +50,8 @@ React is the model:
    - Pending deletes show as a sensor on the device and in the log.
 8. **The engine's storage is SQLite**: under `/data` in the app and `.fh/` in dev. It holds
    overrides, orphan dates and the declared values.
-9. **The Scala codegen is dropped**: `home`, `home-codegen`, `fh-codegen-plugin` and `fh-api`.
+9. **The Scala codegen modules are ignored for now**: `home`, `home-codegen`, `fh-codegen-plugin`
+   and `fh-api`. This work neither moves nor deletes them.
 10. **Modules split by job** (M1).
 
 ## Commands back from HA
@@ -60,7 +62,7 @@ status, is a sensor. A command back is needed where something other than fh chan
 - HA's UI and app, voice assistants (`google_assistant` is set up here), and HA's own automations
   switching a declared value such as "guests";
 - a virtual entity people operate like the real thing: a relative light group is a light;
-- the switch that turns an instance's rules on or off (decision 4), and the override switches (M5).
+- the override switches (M5).
 
 fh's own dashboards do not need the round trip, since a tap on a declared value can go straight
 to the engine. MQTT carries commands back for every entity kind above, which is part of why it
@@ -85,7 +87,7 @@ was picked.
   At start it recomputes every rule and applies the result, which is what surviving a restart
   means.
 - **One owner per target.** Two rules setting the same attribute of the same entity is a build
-  error, not a fight at runtime. Priorities instead are Q4.
+  error, not a fight at runtime. Priorities instead are Q3.
 - **Overrides.**
   - Every call fh makes returns HA's `context`. A change with a context fh did not make came from
     a person or from something else.
@@ -110,18 +112,18 @@ fh can replace it.
 **M0: a call over a set.** #583, PR #586. It is the condition shape that rules reuse.
 
 **M1: restructure, with no change in behaviour.**
-- `fh-ha`: the wire format and the live mirror of HA. That is today's `ha-api` and `fh-domain`,
-  plus `HaFeed`, `StateStore` and `ServiceCalls` from `fh-datastar-view`.
+- `fh-ha`: the live mirror of HA, which is `HaFeed`, `StateStore` and `ServiceCalls` from
+  `fh-datastar-view`. It sits on `ha-api` and `fh-domain` (the wire format), which keep their
+  names because the codegen modules depend on them (decision 9).
 - `fh-pkl`: building Pkl. The dump, the packages, the site, and the vocabulary both sides share
   (`hass`, `query`, predicates).
 - `fh-dashboard`: today's `fh-datastar-view` minus the parts above. Datastar is an implementation
   detail and leaves the name.
 - `fh-automation`: the engine, the device and the storage. Empty until M2.
 - `fh-app`: the running process. The wiring, HTTP, auth and the editor.
-- Delete `home`, `home-codegen`, `fh-codegen-plugin`, `fh-api` and the codegen sections of
-  CLAUDE.md. `benchmarks` follows `fh-dashboard`.
+- `benchmarks` follows `fh-dashboard`.
 - Rename the `@fh-dashboard/` Pkl package once, here, since doing so breaks every workspace's
-  imports (Q6).
+  imports (Q5).
 - Update the architecture doc's "where each box lives", and the CLAUDE.md files.
 
 Done when the suite passes, changed only by package names.
@@ -151,7 +153,7 @@ it deletes it only after X days.
 - Reconcile on every change and at start.
 - Tracking of fh's own writes through `context`.
 - One owner per target.
-- Rules run only where they are switched on (decision 4).
+- A dry run unless started with the flag (decision 4).
 - The SQLite store.
 - The reconcile model's ADR.
 
@@ -197,23 +199,20 @@ Done when M6–M8's behaviours are packages a workspace imports.
      includes `java.sql`.
    - The fat jar is built once for both arches, so it keeps the Linux x86_64 and aarch64 natives.
      An assembly rule can drop the others (Windows, Mac, FreeBSD, Android, musl) to save size.
-3. **How rules are switched per instance.** A "Run rules" switch on each device. HA's own "disable
-   device" would also take the device's values away, so a dev server's dashboards would lose
-   their toggles.
-4. **One owner per target, or priorities?** One owner.
-5. **Dev instances.** They get their own copies of the declared values, with entity ids carrying
+3. **One owner per target, or priorities?** One owner.
+4. **Dev instances.** They get their own copies of the declared values, with entity ids carrying
    a prefix the build knows (`switch.fh_dev_guests`). Dashboards on a dev server show the dev
    device's toggles.
-6. **The name that replaces `@fh-dashboard/`.** `@fh/`.
-7. **Where a declared value's truth lives.** In fh's store, published retained over MQTT so HA
+5. **The name that replaces `@fh-dashboard/`.** `@fh/`.
+6. **Where a declared value's truth lives.** In fh's store, published retained over MQTT so HA
    shows it after its own restart. The store wins when the two disagree.
-8. **The app's identity.** Confirm in M2 what the Supervisor exposes (the slug, the container's
+7. **The app's identity.** Confirm in M2 what the Supervisor exposes (the slug, the container's
    hostname), and that it is stable across updates.
-9. **Rights.**
+8. **Rights.**
    - The MQTT user decides what fh may publish.
    - The engine's calls go out under the machine token (ADR 0023), since no person is behind them.
    - Check that the app's Supervisor token can read the device registry.
-10. **Tracking.** #584 is the roadmap epic. Each milestone gets its own issue when it starts.
+9. **Tracking.** #584 is the roadmap epic. Each milestone gets its own issue when it starts.
 
 ## Facts from the spike (live HA 2026.10.1, 2026-10-17)
 
