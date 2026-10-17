@@ -3,7 +3,7 @@ package fh.view.auth
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{Access, Permission}
+import fh.view.model.Access
 import com.comcast.ip4s.Ipv4Address
 import fs2.Stream
 import org.http4s.headers.{Authorization, Location}
@@ -36,16 +36,16 @@ object Requirement:
   val Admin: Requirement = Requirement.FromAccess(Access.Admin)
 
 /** Each route declares its requirement where it is written (issue #89).
-  * `permissionFor` reads the live registry, so a reload that changes access
-  * applies on the next request; an unknown slug answers `Permission.none`, so
-  * probing for dashboards needs a login.
+  * `accessOf` reads the live registry, so a reload that changes access applies
+  * on the next request; an unknown slug answers `Access.default`, so probing
+  * for dashboards needs a login.
   *
   * Open only so `TestAuth.openGate` can override [[of]].
   */
 open class AuthGate(
     sessions: AuthSessions,
     identifyToken: String => IO[HaUser],
-    permissionFor: Option[String] => IO[Permission],
+    accessOf: Option[String] => IO[Access],
     // The default trusts nobody, so saying nothing about ingress grants none.
     ingressUsers: IngressUsers = _ => IO.pure(None),
     trustedProxy: Option[Ipv4Address] = None
@@ -89,7 +89,7 @@ open class AuthGate(
   private def accessFor(requirement: Requirement): IO[Access] =
     requirement match {
       case Requirement.FromAccess(access)  => IO.pure(access)
-      case Requirement.FromDashboard(slug) => permissionFor(slug).map(_.access)
+      case Requirement.FromDashboard(slug) => accessOf(slug)
     }
 
   /** 401 and 403 apart: only the first is worth a login page. */
@@ -110,10 +110,10 @@ open class AuthGate(
   def handleStream(req: Request[IO], slug: Option[String])(
       handler: Stream[IO, Boolean] => IO[Response[IO]]
   ): IO[Response[IO]] =
-    (permissionFor(slug), of(req)).flatMapN { (permission, user) =>
-      if (!permission.mayView(user))
-        IO.pure(AuthGate.saySo.tupled(denial(permission.access, user)))
-      else revocationOf(req, permission).flatMap(handler)
+    (accessOf(slug), of(req)).flatMapN { (access, user) =>
+      if (!access.permits(user))
+        IO.pure(AuthGate.saySo.tupled(denial(access, user)))
+      else revocationOf(req, access).flatMap(handler)
     }
 
   /** Only a cookie session can be revoked. Watching the store for an ingress or
@@ -126,13 +126,13 @@ open class AuthGate(
     */
   private def revocationOf(
       req: Request[IO],
-      permission: Permission
+      access: Access
   ): IO[Stream[IO, Boolean]] =
     ingressUser(req).flatMap {
       case Some(_) => IO.pure(Stream.never[IO])
       case None    =>
         sessionOf(req).map {
-          case Some(id) => sessions.watch(Some(id), permission.mayView)
+          case Some(id) => sessions.watch(Some(id), access.permits)
           case None     => Stream.never[IO]
         }
     }
