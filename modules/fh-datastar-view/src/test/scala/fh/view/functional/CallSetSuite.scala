@@ -73,7 +73,9 @@ class CallSetSuite extends FunctionalSuite {
         assertEquals(
           sent,
           Vector(
-            Some(ServiceTarget.Entities(List(kitchen.entityId, living.entityId)))
+            Some(
+              ServiceTarget.Entities(List(kitchen.entityId, living.entityId))
+            )
           )
         )
       }
@@ -139,7 +141,8 @@ class CallSetSuite extends FunctionalSuite {
   }
 
   test("an entity only a set's guard reads is subscribed") {
-    val unlabelled = build("""c.button("Av", c.tap.call("light/turn_off", lit))""")
+    val unlabelled =
+      build("""c.button("Av", c.tap.call("light/turn_off", lit))""")
     assert(!unlabelled.referencedEntities.contains(sun.entityId))
     assert(unlabelled.watchedEntities.contains(sun.entityId))
   }
