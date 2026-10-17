@@ -400,6 +400,7 @@ object PklDump {
       case Some("switch")        => "hass.SwitchEntity"
       case Some("number")        => "hass.NumberEntity"
       case Some("select")        => "hass.SelectEntity"
+      case Some("input_select")  => "hass.InputSelectEntity"
       case Some("scene")         => "hass.SceneEntity"
       case Some("script")        => "hass.ScriptEntity"
       case Some("button")        => "hass.ButtonEntity"
@@ -443,7 +444,8 @@ object PklDump {
       "options"
     ),
     "binary_sensor" -> Set("device_class"),
-    "select" -> Set("options")
+    "select" -> Set("options"),
+    "input_select" -> Set("options")
   )
 
   private def entityClass(key: String): String = tick(s"E_$key")
@@ -482,8 +484,8 @@ object PklDump {
             .map(v => s"  unit_of_measurement = ${pklString(v)}")
             .toList ++
           options(attrs)
-      case Some("select")        => options(attrs)
-      case Some("binary_sensor") =>
+      case Some("select") | Some("input_select") => options(attrs)
+      case Some("binary_sensor")                 =>
         vocabField(
           attrs,
           "device_class",

@@ -246,4 +246,54 @@ class SelectSuite extends CatsEffectSuite {
         )
       }
   }
+
+  private val houseMode = FixtureEntity(
+    "input_select.house_mode",
+    "home",
+    Map(
+      "options" -> Json.arr(Json.fromString("home"), Json.fromString("away"))
+    )
+  )
+
+  test("a helper's input_select is chosen through its own select_option") {
+    val helperEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) { children { c.select(dump.entities.${houseMode.dumpKey}) } }
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("select-helper", helperEntry, List(houseMode))
+      .use { ts =>
+        for {
+          html <- ts.page()
+          status <- ts.post(
+            s"sse/call/${ts.slug}/input_select/select_option/entity/input_select.house_mode",
+            body = """{"data":{"option":"away"}}"""
+          )
+          calls <- ts.fake.recordedCalls
+        } yield {
+          assertEquals(
+            "input_select/select_option' \\+ '/entity/input_select\\.house_mode".r
+              .findAllMatchIn(html)
+              .size,
+            2,
+            clue = html
+          )
+          assertEquals(status, Status.NoContent)
+          assertEquals(
+            calls.map(c =>
+              (
+                c.service,
+                c.serviceData.hcursor.downField("option").as[String].toOption
+              )
+            ),
+            Vector(("select_option", Some("away")))
+          )
+        }
+      }
+      .timeout(60.seconds)
+  }
 }
