@@ -187,9 +187,16 @@ Done when M6–M8's behaviours are packages a workspace imports.
 1. **The MQTT client.** `net.sigusr::fs2-mqtt` 1.0.1 is native to fs2 and cats-effect, but its
    last release was January 2024 and it speaks only MQTT 3.1.1. HiveMQ's Java client is maintained
    and speaks MQTT 5. Spike fs2-mqtt in M2, and fall back to HiveMQ behind the same interface.
-2. **SQLite access.** Use doobie (`1.0.0-RC12`) over `sqlite-jdbc` (`3.53.4.0`) with one writer
-   connection. Check that sqlite-jdbc's bundled native library loads on the app's Alpine (musl)
-   aarch64 image.
+2. **SQLite access.** Use `com.armanbilge::porcupine` (0.0.2, July 2026), a Skunk-style library on
+   cats-effect 3.7 and fs2 3.13. On the JVM it delegates to `sqlite-jdbc`; pin that driver
+   ourselves to a current version (`3.53.4.0`), since porcupine brings in `3.46.1.3`. It is at 0.0.x,
+   so doobie over the same driver is the fallback. Bundling:
+   - `sqlite-jdbc` carries SQLite's native library for every platform inside its jar, and extracts
+     the matching one at start. Nothing needs installing.
+   - The app's image is Debian (`hassio-addons/debian-base`, glibc), and its jlink already
+     includes `java.sql`.
+   - The fat jar is built once for both arches, so it keeps the Linux x86_64 and aarch64 natives.
+     An assembly rule can drop the others (Windows, Mac, FreeBSD, Android, musl) to save size.
 3. **How rules are switched per instance.** A "Run rules" switch on each device. HA's own "disable
    device" would also take the device's values away, so a dev server's dashboards would lose
    their toggles.
@@ -206,7 +213,7 @@ Done when M6–M8's behaviours are packages a workspace imports.
    - The MQTT user decides what fh may publish.
    - The engine's calls go out under the machine token (ADR 0023), since no person is behind them.
    - Check that the app's Supervisor token can read the device registry.
-10. **What outlives this plan.** Rewrite #584 as the roadmap issue, with one issue per milestone.
+10. **Tracking.** #584 is the roadmap epic. Each milestone gets its own issue when it starts.
 
 ## Facts from the spike (live HA 2026.10.1, 2026-10-17)
 
