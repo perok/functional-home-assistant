@@ -281,11 +281,8 @@ class Server(
                     data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
                     req
                   )
-                case None =>
-                  actionRefused(
-                    req,
-                    s"$domain/$service: nothing in this set matches right now"
-                  )
+                // Nothing to act on is already the state asked for.
+                case None => NoContent()
               }
             case None =>
               actionRefused(

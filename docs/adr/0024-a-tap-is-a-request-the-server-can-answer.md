@@ -80,9 +80,8 @@ case than the bug it replaces, which is why it needs no retry of its own.
 **3. A tap that cannot be served says so — as page state, not as a status.**
 204 was indistinguishable from success. Every refusal now answers **200 carrying
 `datastar-patch-signals`**: HA rejecting the service call, this dashboard not
-naming the entity, a call over a set none of whose candidates is present at the
-press (sent, it would have acted on nothing), a surface id this build no longer
-has, a `conn` held by another slug. One function answers all of them (`Server.actionRefused`), so
+naming the entity, a surface id this build no longer has, a `conn` held by
+another slug. One function answers all of them (`Server.actionRefused`), so
 "an action reports its refusal" is a rule rather than a habit each route
 follows.
 
@@ -120,6 +119,14 @@ id out of a URL (ADR 0005) because nobody asked for it just now — it is a stal
 bookmark, and the right answer is the page without it. A tap is a request a
 person made a moment ago, so leaving it unanswered is the failure this ADR
 exists to remove.
+
+A call over a set that finds no candidate present at the press (ADR 0023) is not
+a refusal but a success: 204, with no call to HA. Nothing to act on is already
+the state the press asked for (an "all off" with everything off), and a refusal
+would paint the control as failed for doing what it says. Not built: a success
+answer ("Turned off 3 lights"). The toast is this ADR's error channel, so one
+would need a neutral look and a signal of its own; meanwhile the label says what
+a press will do (ADR 0034) and the state change shows what it did.
 
 ### Why the slug rides in a transform
 

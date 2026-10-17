@@ -96,15 +96,14 @@ class CallSetSuite extends FunctionalSuite {
     }
   }
 
-  test("a press on an empty set is refused and calls nothing") {
+  test("a press on an empty set succeeds without calling HA") {
     withHouse(kitchen.copy(state = "off"), living, sun) { ts =>
       for {
         url <- pressUrl(ts)
-        answer <- ts.postResult(url, as = None)
+        status <- ts.post(url, as = None)
         sent <- targets(ts)
       } yield {
-        assertEquals(answer._1, Status.Ok)
-        assert(answer._2.contains("nothing in this set matches"), clue = answer)
+        assertEquals(status, Status.NoContent)
         assertEquals(sent, Vector.empty)
       }
     }
