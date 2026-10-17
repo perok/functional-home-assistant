@@ -51,11 +51,11 @@ const local paletteVars: String = """
 /// `display:contents` but stays in the DOM as a patch target, and inheritance
 /// crosses it where a `.fh-row>.fh-cell` selector would stop at it. The default
 /// spans sit in `:where()`, so an authored `.fh-cols-<n>` always wins. Being
-/// inherited, they also reach a NESTED container's cells, so a row and a grid
-/// reset `--fh-cell-width`: under a column, a row of pills (hugging, so `width`
-/// applies) was one pill per line.
+/// inherited, they also reach a NESTED container's cells, so every rule that
+/// sets one sets all three: one setting only the width hands a row's `1 1 0` on
+/// to its own cells (`layout.test.pkl`).
 const layoutCss: String = """
-  .fh-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem);--fh-cell-width:auto;--fh-cell-flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem))}
+  .fh-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem);--fh-cell-width:auto;--fh-cell-flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem));--fh-cell-align-self:stretch}
   .fh-grid.fh-start{justify-content:flex-start}
   .fh-group{display:contents}
   :where(.fh-cell){flex:var(--fh-cell-flex,0 1 auto);min-width:0;align-self:var(--fh-cell-align-self,stretch);width:var(--fh-cell-width,auto)}
@@ -67,7 +67,7 @@ const layoutCss: String = """
   .fh-justify-center{justify-content:center}
   .fh-justify-end{justify-content:flex-end}
   .fh-cell.fh-hug{flex:0 0 auto}
-  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%}
+  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%;--fh-cell-flex:0 1 auto;--fh-cell-align-self:stretch}
   .fh-cell:has(>.fh-ifhost:empty){display:none}
   @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
   """

@@ -5,6 +5,23 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 
+// `selector { body }`, innermost, so a rule inside `@media` is its own.
+local function rules(css: String): List<Pair<String, String>> =
+  Regex(#"([^{}]+)\{([^{}]*)\}"#).findMatchesIn(css)
+    .map((m) -> Pair(m.groups[1]!!.value.trim(), m.groups[2]!!.value))
+
+// What a cell reads from its container, taken from the cell rule itself.
+local cellProps: Set<String> =
+  let (cellRule = rules(cssMod.layoutCss).find((r) -> r.first == ":where(.fh-cell)").second)
+    Regex(#"var\((--fh-cell-[a-z-]+)"#).findMatchesIn(cellRule).map((m) -> m.groups[1]!!.value).toSet()
+
+// Every card's CSS in the library index, so a new card is in.
+local cardCss: List<String> = c.cards.toMap().values.map((d) -> d.css)
+
+local function declared(body: String): Set<String> =
+  body.split(";").map((d) -> d.trim()).filter((d) -> d.startsWith("--fh-cell-"))
+    .map((d) -> d.takeWhile((ch) -> ch != ":")).toSet()
+
 facts {
   ["a row is start-packed and one line until told otherwise"] {
     !c.row.slots.containsKey("class")
@@ -22,5 +39,19 @@ facts {
     for (cls in List("fh-justify-center", "fh-justify-end", "fh-wrap")) {
       cssMod.layoutCss.contains(".\(cls){") || cssMod.layoutCss.contains(".\(cls).") || cssMod.layoutCss.contains(".fh-row.\(cls){")
     }
+  }
+
+  // A container passes its cells' layout down by inheritance, so one that sets
+  // only part of it hands its PARENT's value for the rest to its own cells: a
+  // column in a row would split a filled screen evenly. A refinement
+  // (`.fh-row.fh-wrap`) changes one on a box that sets them all.
+  ["every rule that sets a cell's layout sets all of it"] {
+    cellProps == Set("--fh-cell-flex", "--fh-cell-align-self", "--fh-cell-width")
+    cardCss.filter((css) -> css.contains("--fh-cell-")).length >= 2
+    (List(cssMod.layoutCss) + cardCss).flatMap((css) -> rules(css))
+      .filter((r) -> !r.first.matches(Regex(#"\.[\w-]+(\.[\w-]+)+"#)) && !declared(r.second).isEmpty)
+      .filter((r) -> declared(r.second) != cellProps)
+      .map((r) -> r.first)
+      == List()
   }
 }

@@ -589,7 +589,7 @@ const local sliderCss: String = """
   .fh-slider-controls-cell,.fh-slider-pill-cell,.fh-slider-pill .fh-cell{display:contents}
   .fh-slider-controls{display:flex;flex-wrap:nowrap;align-items:center;position:static}
   .fh-slider-controls-panel{position:static;flex:1 1 auto;min-inline-size:0;align-self:stretch}
-  .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3;--fh-cell-flex:0 0 auto;--fh-cell-width:auto}
+  .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3;--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
   .fh-slider-pill .fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
   /* A row's head and track share the panel's one grid cell, as they share the
      row's without controls, so the label stays centred; its pill, if it has one,
