@@ -229,11 +229,7 @@ class WindowChooser extends nodes.Node {
     new Mapping {
       ["bar"] = new Listing {
         for (w in windows) {
-          new surfaces.TabButton {
-            label = w
-            active = "\(windowVar.below.chosen) === '\(w)'"
-            tapAction = windowVar.choose(w)
-          }
+          surfaces.tabButton(windowVar, w, w)
         }
       }
       when (!charts.isEmpty) {

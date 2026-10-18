@@ -34,6 +34,17 @@ class TabButton extends nodes.Node {
   }
 }
 
+/// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
+/// over a node variable — a [[Tabs]], `c.windowChooser`, `c.select(v)`.
+const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String): TabButton = new TabButton {
+  label = text
+  // Strict, as strings: loose `==` makes `'' == 0` true, so an unseeded
+  // selection would light a tab `0`. `Number('')` is 0 too, hence `String(…)`.
+  // A Value cannot hold a quote, so it needs no escaping.
+  active = "String(\(v.below.chosen)) === '\(choice)'"
+  tapAction = v.choose(choice)
+}
+
 /// A tab bar over one panel. It declares the node variable `tab`, the open
 /// tab's index; each tab's cards become an inline surface baked into the panel
 /// host and selected by it, and each button writes it (ADR 0033). The server
@@ -78,14 +89,7 @@ class Tabs extends nodes.Node {
   }
   children = new Listing {
     for (i, l in labels) {
-      new TabButton {
-        label = l
-        // Strict, as strings: loose `==` makes `'' == 0` true, so an unseeded
-        // selection would highlight tab 0. `Number('')` is 0 too, hence
-        // `String(…)`.
-        active = "String(\(tabVar.below.chosen)) === '\(i)'"
-        tapAction = tabVar.choose(i.toString())
-      }
+      tabButton(tabVar, i.toString(), l)
     }
   }
 }

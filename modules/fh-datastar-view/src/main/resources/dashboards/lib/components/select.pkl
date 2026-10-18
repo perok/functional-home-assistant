@@ -144,16 +144,10 @@ abstract class Select extends nodes.Node {
   function optionNode(ch: Choice, pick: Choice): nodes.LayoutNode =
     let (t = target) let (cyc = cycling)
       if (t is varMod.Variable)
-        let (lit = "\(t.below.chosen) === \(quoted(ch.value))")
-          if (cyc)
-            // A view switch answers too fast for a spinner to mean anything.
-            buttonMod.pill((t.choose(pick.value)) { icon = ch.icon; label = ch.label; busyVisual = false })
-          else
-            new surfaces.TabButton {
-              label = ch.label
-              active = lit
-              tapAction = t.choose(pick.value)
-            }
+        if (cyc)
+          // A view switch answers too fast for a spinner to mean anything.
+          buttonMod.pill((t.choose(pick.value)) { icon = ch.icon; label = ch.label; busyVisual = false })
+        else surfaces.tabButton(t, ch.value, ch.label)
       else if (cyc)
         buttonMod.pill((entityCall(t, pick.value)) { icon = ch.icon; label = ch.label })
           .classWhen("fh-chosen", entityChosen(t, ch.value))
