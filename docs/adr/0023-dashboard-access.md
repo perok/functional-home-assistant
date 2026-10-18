@@ -307,7 +307,7 @@ Mustache and never is one, because a transform's OUTPUT is inserted raw at
 
 Rejected in the other direction too: making the slider's URL a transform so one
 spelling would do. Its service and value key are deliberately baked LITERALS —
-a whole `$lookup($domain)` tier was removed to stop computing build-time facts
+a whole runtime domain-lookup tier was removed to stop computing build-time facts
 at runtime.
 
 **A dashboard is validated under the slug it will be served as.** The slug is

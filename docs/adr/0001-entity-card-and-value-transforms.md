@@ -1,8 +1,10 @@
-# ADR 0001 — Entity card + per-slot value transforms via JSONata
+# ADR 0001 — Entity card + per-slot value transforms
 
 - **Status:** Accepted
 - **Date:** 2026-06-22 (consolidated 2026-07-04)
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
+- **Engine:** the transform language is CEL, owned by ADR 0027; this ADR owns
+  the model a transform plugs into.
 
 ## Context
 
@@ -23,7 +25,7 @@ evaluates at build time and does pure composition — it never sees a live value
 The live value only exists at runtime, in the Scala renderer. So a transform
 must be authored as **data** the backend interprets per live value.
 
-## Why JSONata on the data path (rejected: template-engine helpers)
+## Why an expression on the data path (rejected: template-engine helpers)
 
 Putting transforms in the template engine (Handlebars helpers/subexpressions)
 was rejected: the template is **shared and instance-agnostic** while the
@@ -34,36 +36,29 @@ text at compile time, not from data — a per-instance transform arriving as dat
 still needs a separate interpreter. Switching engines buys nothing and costs a
 migration.
 
-For the transform language itself:
-
-| Option | Standard? | Fit for a scalar | Conditionals | Number formatting | Dep |
-|---|---|---|---|---|---|
-| Bespoke pipe DSL | no | exact | hand-add per case | exact | none |
-| **JSONata** | yes (spec) | good | built-in `? :` | `$round(x,n)` | `com.dashjoin:jsonata` |
-| jq | yes (ubiquitous) | ok | `if/then` | clunky (float noise) | `jackson-jq` |
-| Handlebars subexpr | syntax only | ok | needs helpers | register your own | engine swap |
-
-**Chosen: JSONata** — a documented spec with built-in conditionals, string ops
-and `$round`, precompiled once per expression. (Note: `$round` is
-round-half-to-even, banker's rounding.)
+The language is a standard expression language rather than a bespoke pipe
+DSL, so conditionals, string operations and rounding come with a spec instead
+of being added per case. Which language is ADR 0027's.
 
 ## The design
 
-**A slot's value IS a transform.** `SlotSource.transform` (default `"$state"`)
-is a JSONata expression evaluated against the producing entity's full context:
+**A slot's value IS a transform.** `SlotSource.transform` (default `"state"`)
+is evaluated against the producing entity:
 
-- `$state` — the raw state (String);
-- `$attr` — the attribute object (`$attr.brightness`; numbers stay numeric, so
-  arithmetic needs no `$number`);
-- `$domain` / `$entity_id` — the entity's identity.
+- `state` — the raw state (String);
+- `attr` — the attribute map (`attr[?'brightness']`; numbers stay numeric);
+- `domain` / `entity_id` — the entity's identity.
 
-There is **no bare `$`** and **no cross-entity lookup** — a transform is a pure
+A common shape can instead be a `Transform.Simple` op, which skips the
+expression engine entirely (ADR 0028).
+
+There is **no cross-entity lookup** — a transform is a pure
 function of one entity's state + identity (the safety boundary; a slot that
 needs *another* entity names it via `entityId`, see ADR 0004). Selecting a
-value is the transform: `"$state"` shows the state, `"$attr.brightness"` an
-attribute, `"$lookup(…, $domain)"` an identity-derived value. There is no
+value is the transform: `"state"` shows the state, `"attr[?'brightness']"` an
+attribute, an expression over `domain` an identity-derived value. There is no
 separate "computed" concept. A hardcoded value is a **literal** slot (a bare
-JSON string) — no entity, no JSONata, no compilation.
+JSON string) — no entity, no expression, no compilation.
 
 **`entity_id` is the magical slot.** A component is `(card, slots, regions)`;
 the card's subject entity is the slot *named* `entity_id` (normally a literal;
@@ -82,7 +77,7 @@ you want to click), labels (keep the friendly_name), a slider's numeric position
 (fall back to its `default`).
 
 **Failure modes are contained.** A genuinely broken transform on a real value
-renders the JSONata **error message on its card** — never a silent blank, never
+renders the evaluation **error message on its card** — never a silent blank, never
 a crashed render. A `null` result becomes `""` so the slot's `default` takes
 over. A transform that fails to *compile* is a hard build error
 (`Dashboard.validate`) — the dashboard does not load.
@@ -92,21 +87,18 @@ over. A transform that fails to *compile* is a hard build error
 overridable via `c.tap.call(...)`. The renderer never knows HA domains — that is
 the part of this decision that has not moved.
 
-What has moved is where the value comes from. It used to be an identity slot
-whose transform was a JSONata `$lookup` over `$domain`, falling back to
-`homeassistant/toggle`. It is now resolved **per entity at build time** from a
-vendored table that is also allowed to say *no action*, in which case the tap
-opens more-info instead. **ADR 0016** owns that; only four domains still resolve
-their service from live state.
+The service is resolved **per entity at build time** from a vendored table
+that is also allowed to say *no action*, in which case the tap opens more-info
+instead. **ADR 0016** owns that; only four domains still resolve their service
+from live state.
 
-**The slider resolves its whole config the same way.** One `sliderSpec` table
-(domain → action/key/min/max/position attribute) drives `action`/`key`/`min`/
-`max`/position. A *static* entity resolves its spec at build time and only a
-dynamic `$self` entity falls back to the runtime `$lookup(<map>, $domain)` tier
-(ADR 0006). Adding a
-domain (cover/fan/…) is a `sliderSpec` row — no builder or backend change.
-These identity-derived config slots are `reactive: false`, so they are resolved
-once per entity and memoized (ADR 0004), keeping the dynamic render path cheap.
+**The slider resolves its whole config the same way.** One `domainAxes` table
+(`components/slider.pkl`: domain → service, key, range, position attribute)
+drives the slider's `action`/`key`/`min`/`max`/position, as build-time
+literals — inside a candidate set too, since every candidate is a known
+entity. Adding a domain (cover/fan/…) is a row, with no builder or backend
+change. A slot that reads only identity is `reactive: false`, resolved once
+per entity and memoized (ADR 0004).
 
 ## Consequences
 
@@ -114,10 +106,6 @@ once per entity and memoized (ADR 0004), keeping the dynamic render path cheap.
   preserved (transforms are data; templates stay pure and shared).
 - Compiled once (`Transforms.from`), never parsed on the hot path; compile
   errors fail the build with node/slot/source-line context.
-- Dependency: `com.dashjoin:jsonata` (pure-JVM JSONata). Thread-safety was
-  verified against the bytecode, not assumed: evaluation state lives in a
-  per-call frame (`createFrame` + `Frame.bind`, never `assign`), so one
-  compiled instance is safely shared across fibers without locking.
 - Per-eval cost is higher than a hand-rolled AST — negligible for the rendered
-  cards per change; the hot membership scan deliberately does *not* use JSONata
-  (ADR 0004).
+  cards per change; the hot membership scan deliberately does *not* evaluate
+  expressions (ADR 0004).

@@ -98,8 +98,8 @@ version. A volatile attribute in the dump re-hashes the package on every change,
 turning a dimmed light into a full rebuild of every dashboard. That also rules
 out carrying a build-time snapshot of live values at all: it was measured at
 only +7% file size and rejected anyway, because size was never the constraint.
-Live values are read runtime-side as JSONata over the SSE stream (phase
-discipline).
+Live values are read runtime-side by CEL transforms over the SSE stream
+(phase discipline).
 
 The set was checked empirically rather than guessed: watching
 `subscribe_entities` delta frames for 180s, **23 of 24 candidates never appeared

@@ -67,16 +67,10 @@ weaker: it could not filter on area, could not bake a label, could not know a
 light's colour modes.
 
 The cost was visible on the wire. A `slider` in a clause carried four
-`reactive: false` JSONata transforms whose only job was to switch on `$domain`:
-
-```json
-"min": { "transform": "$lookup({\"light\":1,\"cover\":0,\"fan\":0}, $domain)",
-         "reactive": false }
-```
-
-A build-time fact, computed at runtime, per member, because the entity was
-unknown at build time. Over static candidates all four are literals, and the
-whole `$lookup($domain)` config tier is gone.
+`reactive: false` transforms (`action`, `key`, `min`, `max`) whose only job was
+to look its domain up in a table: a build-time fact, computed at runtime, per
+member, because the entity was unknown at build time. Over static candidates
+all four are literals.
 
 Three more things fell out of the same change:
 
@@ -234,8 +228,8 @@ members.
 `LayoutNode.Dynamic`, `DynamicCase`, the full-map membership scan, `hass.SELF` /
 `DynamicEntity` / `isDynamic`, the free predicate constructors
 (`domainIs`/`stateIs`/`entityIs`/`lowBattery`/…), the `caseOf` that applied a
-render lambda to a `$self` placeholder, and the slider's runtime
-`$lookup($domain)` config tier. All deleted; nothing decodes `kind: "dynamic"`.
+render lambda to a placeholder entity, and the slider's runtime
+domain-lookup config tier. All deleted; nothing decodes `kind: "dynamic"`.
 
 **Closed by the rewrite:** the open item this ADR carried — a removed entity
 leaving a ghost member, because membership was maintained from deltas and

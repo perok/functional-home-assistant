@@ -3,21 +3,21 @@
 - **Status:** Accepted
 - **Date:** 2026-08-14
 - **Scope:** `lib/hass/actions.pkl`, `lib/core/tap.pkl`, `lib/components/*.pkl`
-- **Refines:** ADR 0001, which made a service action a JSONata value rather than
-  a Scala domain table. That still holds — this one replaces *which* JSONata,
+- **Refines:** ADR 0001, which made a service action a slot value rather than
+  a Scala domain table. That still holds — this one replaces *which* value,
   and when there should be none.
 
 ## Context
 
 Every entity card carried the same default click: one `reactive: false` slot
-whose transform was a `$lookup` over `$domain`, with `homeassistant/toggle` as
+whose transform looked its domain up in a table, with `homeassistant/toggle` as
 the else-branch. The else-branch is the bug. "Anything I do not recognise is
 toggleable" is false for most of a house — measured on a live instance of 1069
 entities, **143 could actually be toggled**. The other 87% still rendered
 `class="… tappable"` with a pointer cursor over a call HA would reject. `lock`
 was in the dead set: HA locks have `lock`/`unlock`/`open` and no `toggle`.
 
-It was also the last `$lookup($domain)` transform of its kind. The icon and
+It was also the last domain-lookup transform of its kind. The icon and
 slider ones folded to literals once candidate sets became static (ADR 0003) and
 an entity's identity was therefore known at build time. Folding this one *as
 written* would only have baked a wrong answer faster, which is why it waited.
@@ -75,7 +75,7 @@ classes, `byDomain` and the rendering (ADR 0015).
 `hass/actions.pkl` follows the `hass/light.pkl` pattern: HA's own model,
 vendored, checked against a live `/api/services` (83 service domains) rather
 than written from memory. A domain that is **absent has no sensible tap**, and
-that absence is the half that could not be expressed before — a `$lookup` with a
+that absence is the half that could not be expressed before — a lookup with a
 fallback has no way to return "no action".
 
 Some absences are deliberate rather than unfinished, and the table says so:
@@ -100,12 +100,12 @@ repeats the first instead of undoing it.
 Adding a domain is a table row. Nothing in Scala knows an HA domain, which is
 the part of ADR 0001 that carries over unchanged.
 
-### 2. State-dependent actions stay JSONata (option (a))
+### 2. State-dependent actions stay a transform (option (a))
 
 A lock needs `lock/unlock` when locked and `lock/lock` when not, so its service
 is genuinely not a build-time literal. Three shapes were weighed:
 
-- **(a) a JSONata conditional** on the click slot — `$state = "locked" ? … : …`;
+- **(a) a conditional transform** on the click slot — `state == 'locked' ? … : …`;
 - **(b) a server-side intent route** (`POST /sse/toggle/<entity_id>`) resolving
   domain + state in Scala;
 - **(c) both**, literals where a real `toggle` exists and a route where it does not.
@@ -114,7 +114,7 @@ is genuinely not a build-time literal. Three shapes were weighed:
 `toggle` service and remain literals — so (b) would put domain knowledge in two
 places (Pkl decides *whether*, Scala decides *which*) to serve four rows:
 `lock`, `vacuum`, `lawn_mower`, `timer`. It is modelled as a `CallByState`
-class, not a hand-written JSONata string, so the table stays data.
+class, not a hand-written expression string, so the table stays data.
 
 It buys no extra wakeups: the card already tracks its entity for the state it
 displays. Revisit (b) if the state-dependent list grows past a two-way
@@ -235,8 +235,8 @@ card while there is nothing to do.
 - **The wire got smaller, not bigger.** The worry was that a more-info popup per
   non-actionable card would balloon the evaluated JSON. Measured on the demo
   dashboard against the live instance: 1,145,048 → 987,570 chars, **14% less**,
-  while `$lookup` transforms went 1069 → 0 and inline popups went 3 → 28. A
-  ~250-character JSONata string on every card cost more than the popups it was
+  while domain-lookup transforms went 1069 → 0 and inline popups went 3 → 28. A
+  ~250-character transform string on every card cost more than the popups it was
   hiding. The two hand-written house dashboards are byte-identical — they hold
   no entity cards.
 - **Every tap route is now a build-time literal except four domains.** That is

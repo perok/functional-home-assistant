@@ -137,8 +137,7 @@ facts {
   // ---- entity icons -----------------------------------------------------------
   // Resolved at BUILD time, in Home Assistant's own precedence: the entity's own
   // `icon` beats its device_class, which beats its domain. All three are
-  // registry facts, so the slot is a LITERAL — it used to be a
-  // `$lookup($domain)` JSONata transform on every card.
+  // registry facts, so the slot is a LITERAL, not a runtime lookup.
 
   ["an entity's OWN icon wins, as the MDI class"] {
     // Its own icon wins over the `running` device_class it also carries.
@@ -367,9 +366,9 @@ facts {
 
   // ---- the default tap (#106) ----
   // Every card is clickable by a default derived from its OWN entity. The
-  // build-time half is the point: what used to be one `$lookup($domain)`
-  // transform per card is now a literal, and — the part a lookup could not
-  // express — sometimes no action at all.
+  // build-time half is the point: the route is a literal, not a runtime
+  // lookup, and — the part a lookup could not express — sometimes no action at
+  // all.
 
   ["a domain with a real toggle gets a LITERAL route, not a runtime lookup"] {
     // A bare String — no transform, nothing for the runtime to decide, and so

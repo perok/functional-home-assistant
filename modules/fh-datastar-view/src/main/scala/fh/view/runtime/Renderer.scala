@@ -1955,7 +1955,7 @@ class Renderer(
     }
   }
 
-  /** Resolves before any state arrives, so a `$domain` action still works. */
+  /** Resolves before any state arrives, so a `domain` action still works. */
   private def resolveSlot(
       srcEntity: Option[String],
       source: SlotSource,

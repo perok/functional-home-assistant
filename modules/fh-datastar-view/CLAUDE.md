@@ -4,7 +4,7 @@ A simpler HA web frontend (port of the TS prototype in `../ha-frontend`): a two-
 where authors write Pkl and the server keeps the rendered HTML live with Datastar.
 
 Its ADRs are in [`docs/adr/`](../../docs/adr/README.md) — they record the design decisions
-(entity card + value transforms [JSONata → CEL, ADR 0027], surfaces/tabs, dynamic groups, the slot
+(entity card + value transforms [CEL, ADR 0027], surfaces/tabs, dynamic groups, the slot
 model) with their
 rationale. The repo-wide ADR routine is in the root `CLAUDE.md`.
 

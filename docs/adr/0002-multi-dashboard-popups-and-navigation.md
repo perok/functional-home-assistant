@@ -147,7 +147,7 @@ Every one of them names its dashboard: an action so the call can be bounded by
 what that dashboard references (ADR 0023), a surface tap for that AND so a
 connection the server has forgotten can be re-established rather than dropped
 (ADR 0024). Which means these are transforms, not constant strings — only a
-transform reads `$dashboardSlug`.
+transform reads `dashboard_slug`.
 
 This is why reuse "just works": `c.button(eo, action=c.view.openPopup('x'))` needs
 no new template.
