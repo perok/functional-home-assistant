@@ -3,6 +3,10 @@
 Pkl-authored, live-updating dashboards for Home Assistant, rendered
 server-side and patched over SSE ([Datastar](https://data-star.dev)).
 
+This page is for running the add-on and writing dashboards. To write a new
+kind of card, see
+[Writing your own components](https://github.com/perok/functional-home-assistant/blob/main/docs-pkl-components.md).
+
 ## How to use
 
 Install the add-on and start it. Open it from the **FH Dashboard** entry in
