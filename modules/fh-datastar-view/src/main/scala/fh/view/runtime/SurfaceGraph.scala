@@ -52,13 +52,15 @@ private[runtime] final class SurfaceGraph(
   def bakeGroup(gid: NodeId): List[String] =
     bakeGroups.getOrElse(gid, Nil)
 
-  /** The member of a variable-selected group that `value` selects. */
-  def memberAt(gid: NodeId, value: String): Option[Int] =
-    bakeGroup(gid).zipWithIndex.collectFirst {
-      case (sid, i)
-          if surfaces.get(sid).flatMap(_.selectedAt).contains(value) =>
-        i
-    }
+  /** The member of a variable-selected group that `value` selects, else its
+    * `otherwise` member.
+    */
+  def memberAt(gid: NodeId, value: String): Option[Int] = {
+    val members = bakeGroup(gid).map(surfaces.get)
+    def first(p: Surface => Boolean): Option[Int] =
+      Some(members.indexWhere(_.exists(p))).filter(_ >= 0)
+    first(_.selectedAt.contains(value)).orElse(first(_.isOtherwise))
+  }
 
   /** What selects each member of a variable-selected group, in its order. */
   def memberValues(gid: NodeId): List[String] =
@@ -77,7 +79,7 @@ private[runtime] final class SurfaceGraph(
   /** The node variable selecting `gid`'s member, for a tab bar's panel. */
   def varSelecting(gid: NodeId): Option[String] =
     bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
-      case Activation.Var(name, _) => name
+      case Activation.Var(name, _, _) => name
     }
 
   /** A viewer's selections: `requested` narrowed by [[openPopup]], and each

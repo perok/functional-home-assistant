@@ -58,7 +58,8 @@ readings. The card says WHERE a value lands, and the reading says WHAT it reads.
 component a reading that names its entity, since a base card has no subject to fall back on.
 
 **Condition** — the yes/no thing `c.iff` takes (`pred.Predicate`: `q.from(xs).where(…).any()`,
-`q.entity(e).stateIs("on")`). Not a reading: it may name many entities and carries no transform.
+`q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
+which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no transform.
 It can be an expression value (a CEL `bool`), and every boolean input (`active`, `disabled`,
 `classWhen`) takes one directly. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
@@ -249,8 +250,9 @@ the host renders it as **bakeAs**; **bakeIndex** is which member of the group is
 exposed so a card can show the selection without JavaScript.
 
 **Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
-chooses is the group's activation: a node variable for a tab bar or a `c.select` (`Activation.Var`,
-ADR 0033), each member selected at one of its values, a condition for an `If` branch.
+chooses is the group's activation: a node variable for a tab bar, a `c.select` or an If over a
+variable (`Activation.Var`, ADR 0033), each member selected at one of its values or, for an If's
+`else`, at every other value; a condition for an If over state.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

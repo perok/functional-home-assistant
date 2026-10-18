@@ -493,8 +493,9 @@ object Predicate:
   *   - `Var`: the member whose `value` is the node variable `name`, as seen
   *     from the `bakeInto` node (ADR 0033). With no `value` it is its
   *     `bakeIndex`, which a tab bar's panel chooses by; a slider's main
-  *     controls and a `c.select`'s options are named. Per viewer, and declared,
-  *     so the server knows what selects it.
+  *     controls and a `c.select`'s options are named. `otherwise` is the member
+  *     at every value no other member names: an If's else. Per viewer, and
+  *     declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
@@ -504,7 +505,11 @@ object Predicate:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case Var(name: String, value: Option[String] = None)
+  case Var(
+      name: String,
+      value: Option[String] = None,
+      otherwise: Boolean = false
+  )
   case State(condition: Predicate)
 
 sealed trait LayoutNode derives ConfiguredDecoder {
@@ -839,8 +844,14 @@ case class Surface(
   /** The value of its variable that selects this member ([[Activation.Var]]).
     */
   def selectedAt: Option[String] = activation match
-    case Activation.Var(_, value) => value.orElse(bakeIndex.map(_.toString))
-    case _                        => None
+    case Activation.Var(_, _, true)  => None
+    case Activation.Var(_, value, _) => value.orElse(bakeIndex.map(_.toString))
+    case _                           => None
+
+  /** Selected at every value no other member of its group names. */
+  def isOtherwise: Boolean = activation match
+    case Activation.Var(_, _, otherwise) => otherwise
+    case _                               => false
 
 object Surface:
 
@@ -1725,7 +1736,7 @@ case class Dashboard(
             case (_, _, _: Activation.Var)   => "var"
             case (_, _, _: Activation.State) => "state"
           }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
+          val names = members.collect { case (_, _, Activation.Var(n, _, _)) =>
             n
           }
           // A baked member has a host, and what fills a host is a choice the
@@ -1747,16 +1758,17 @@ case class Dashboard(
             )
             .toList ++ names.distinct.match {
             case List(name) =>
+              // In [[SurfaceGraph.bakeGroup]]'s order.
+              val inOrder = members
+                .map(_._2)
+                .sorted
+                .flatMap(surfaces.get)
+                .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
               varSelectionErrors(
                 gid,
                 name,
-                // In [[SurfaceGraph.bakeGroup]]'s order.
-                members
-                  .map(_._2)
-                  .sorted
-                  .flatMap(surfaces.get)
-                  .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
-                  .flatMap(_.selectedAt)
+                inOrder.flatMap(_.selectedAt),
+                inOrder.count(_.isOtherwise)
               )
             case Nil  => Nil
             case many =>
@@ -1921,12 +1933,18 @@ case class Dashboard(
   private def varSelectionErrors(
       gid: NodeId,
       name: String,
-      values: List[String]
+      values: List[String],
+      fallbacks: Int
   ): List[String] =
     Option
       .when(values.distinct.size != values.size)(
         s"bake group '$gid' has two members selected at one value of '$name': " +
           values.mkString(", ")
+      )
+      .toList ++ Option
+      .when(fallbacks > 1)(
+        s"bake group '$gid' has $fallbacks members selected at every other " +
+          s"value of '$name'; one can be"
       )
       .toList ++ (varScopes.get(gid).flatMap(_.get(name)) match {
       case None =>
@@ -1934,7 +1952,7 @@ case class Dashboard(
           s"bake group '$gid' is selected by the variable '$name', which no " +
             "node at or above it declares"
         )
-      case Some(in) if !values.contains(in.declared) =>
+      case Some(in) if fallbacks == 0 && !values.contains(in.declared) =>
         List(
           s"bake group '$gid' is selected by '$name', declared '${in.declared}' " +
             s"on ${in.declarer}, which is not ${Surface.membersText(values)}"

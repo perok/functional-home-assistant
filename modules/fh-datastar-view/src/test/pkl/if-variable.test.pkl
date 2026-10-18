@@ -1,0 +1,31 @@
+/// An If chosen by a node variable (#510): what it bakes.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
+import "../../main/resources/dashboards/lib/layout.pkl" as layout
+
+local window = c.variable("window")
+
+local function activation(i: Any, member: String): Any =
+  (i.inlineSurfaces as Mapping)[member].activation
+
+facts {
+  ["then is the member at the value, else the member at every other"] {
+    let (i = c.iff(window.valueIs("30d")).then(c.title("Month")).`else`(c.title("Other")))
+      let (t = activation(i, "then") as surfaceMod.VarActivation)
+        let (e = activation(i, "else") as surfaceMod.VarActivation)
+          t.name == "window" && t.value == "30d" && !t.otherwise
+          && e.name == "window" && e.value == null && e.otherwise
+  }
+  ["over a variable, an If with no else still has the fallback, empty"] {
+    let (i = c.iff(window.valueIs("7d")).then(c.title("Week")))
+      ((i.inlineSurfaces as Mapping)["else"].content as layout.Row).children.isEmpty
+      && (activation(i, "else") as surfaceMod.VarActivation).otherwise
+  }
+  ["over state, an If with no else has none, as before"] {
+    !(c.iff(true).then(c.title("x")).inlineSurfaces as Mapping).containsKey("else")
+  }
+}

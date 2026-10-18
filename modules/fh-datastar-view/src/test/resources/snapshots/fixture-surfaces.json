@@ -15,7 +15,8 @@
             "t0" : {
               "activation" : {
                 "kind" : "var",
-                "name" : "tab"
+                "name" : "tab",
+                "otherwise" : false
               },
               "bakeAs" : "panel",
               "bakeIndex" : 0,
@@ -239,7 +240,8 @@
             "t1" : {
               "activation" : {
                 "kind" : "var",
-                "name" : "tab"
+                "name" : "tab",
+                "otherwise" : false
               },
               "bakeAs" : "panel",
               "bakeIndex" : 1,
