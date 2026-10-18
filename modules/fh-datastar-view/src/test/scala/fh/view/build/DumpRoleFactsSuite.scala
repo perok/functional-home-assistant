@@ -2,9 +2,9 @@ package fh.view.build
 
 import fh.view.testkit.PklWorkspace
 
-/** The registry facts that say which part an entity plays on its device
-  * (#541): carried into the typed dump and readable from a dashboard, null
-  * where HA has none.
+/** The registry facts that say which part an entity plays on its device (#541):
+  * carried into the typed dump and readable from a dashboard, null where HA has
+  * none.
   */
 class DumpRoleFactsSuite extends munit.FunSuite {
 
