@@ -149,39 +149,39 @@ The `{{temperature}}` part is what a browser sees on first load. The
 
 ## Making a card clickable
 
-Set a tap on your node, and place two pieces in the template:
+Set a tap on your node, fold its slots in, and place the click in the template:
 
 ```pkl
+import "@fh-dashboard/core/tap.pkl" as tapMod
+
 hidden tapAction: tapMod.TapAction
 
 slots {
-  ["onclick"] = tapAction.onclick
-  when (tapAction.busy) {
-    ["busy"] = "1"
-  }
-  when (tapAction.busy && tapAction.busyVisual) {
-    ["busyVisual"] = "1"
+  for (k, v in tapMod.tapSlots(tapAction)) {
+    [k] = v
   }
 }
 ```
 
-`when` adds the entry only if the condition holds, which is how every shipped
-card does it. An absent slot and an empty one mean the same thing here, but
-`when` reads better.
-
-```pkl
-import "@fh-dashboard/core/tap.pkl" as tapMod
-```
-
 ```html
-<button data-on:click="\(tapMod.guardClick){{{onclick}}}"\(tapMod.guard)>
+<button data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard)>
   {{label}}
 </button>
 ```
 
 That is the whole thing. You do not write any signal names, and you do not need
-an `{{#busy}}` section around anything — the two pieces bring their own, so you
+an `{{#busy}}` section around anything — the pieces bring their own, so you
 place them whether or not this particular card guards its tap.
+
+**Do not build the click yourself.** The slots carry more than the click: the
+service and what it acts on, which the server checks every press against, and
+for a call over a set, the set itself. A card that leaves them out has a
+button the server refuses.
+
+`refusedAttr` disables the control while the tap would be refused (its entity is
+unavailable, say). It is for a `<button>` or other form control; on an element
+that cannot be disabled, use `\(tapMod.refusedNow(" fh-disabled"))` in its
+`class` instead, as the tile does.
 
 Between them they give you everything a working control needs:
 

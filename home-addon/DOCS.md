@@ -58,6 +58,33 @@ default File editor / Samba add-ons can reach them without extra config.
   `watch_registry` option; an on-demand refresh is always available from the
   `/edit` editor (or `POST /system/dump/refresh`).
 
+### What a button can act on
+
+A tap names its own target. `c.tap.call(service, target)` runs any HA service,
+and `c.tap.lights.on/off/toggle` are the light shortcuts. The target can be:
+
+- **an entity**: `c.tap.lights.off(dump.lights.taklys)`
+- **an area or a floor**: `c.tap.lights.off(dump.areas.stue)`. HA works out
+  what is in it when you press, so a light added to the room later is
+  included.
+- **a set** from `q.from(…).where(…)`. The press acts on the members the set
+  holds at that moment, in one call. A button that turns off only the lights
+  that are on:
+
+  ```pkl
+  local lit = q.from(hass.lights(dump.areas.stue.all)).where(q.eq(q.stateProp, "on"))
+  c.button("Stue av", c.tap.lights.off(lit))
+  ```
+
+  If the set is empty when you press, nothing is called and the press still
+  counts as done. Every possible member must be in the service's domain, so a
+  `light/*` service cannot take a switch; use a `homeassistant/*` service to
+  mix domains. A set that could never hold anything fails the build.
+
+The server only runs the calls a dashboard declares, and only for someone who
+can view that dashboard. A set can only ever reach the entities you listed
+when you built it.
+
 ### Re-seeding
 
 The starter is written only when there is no `site.pkl` at all. To get a
