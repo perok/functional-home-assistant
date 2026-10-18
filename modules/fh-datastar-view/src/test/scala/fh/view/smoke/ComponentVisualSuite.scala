@@ -234,6 +234,20 @@ class ComponentVisualSuite extends SmokeSuite {
     else steadyShot(page, next, left - 1)
   }
 
+  test("a radial select looks right, its ring open") {
+    withPage(Scene.of(SmokeDashboard.selectRadial), Some(480 -> 420)) {
+      (page, _) =>
+        IO.blocking {
+          page.locator(".fh-radial-face").click()
+          // The ring is a 0×0 origin; its options are what shows.
+          assertThat(page.locator(".fh-radial-ring > *").first()).isVisible()
+          page.mouse().move(0, 0)
+          settle(page)
+          VisualSnapshot.check("select-radial-open", page.screenshot())
+        }
+    }
+  }
+
   private val lightSliderGroupScene =
     Scene
       .of(SmokeDashboard.lightSliderGroup)
