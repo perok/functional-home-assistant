@@ -23,7 +23,7 @@
       on yet.
 - [x] ~~components api amke it clear what is static injected variables, what goes to templating backend rendering and what are values that the client side can script on. SHould JSONata be used to determine values that are injected?~~
       The transform language is CEL (`fh/view/runtime/Cel.scala`, ADR 0027), and
-      `docs-pkl-components.md` documents the static / backend-rendered / client-signal split.
+      `docs/writing-components.md` documents the static / backend-rendered / client-signal split.
 - [x] ~~lots of design stuff, like tabs, are added to themes.libsonnet, should some of that be injectable from the components themselves?~~
       The jsonnet track is deleted (#23). Themes are Pkl, ADR 0015 splits core from components,
       and ADR 0020 settles who owns the wrapper class.
@@ -93,7 +93,7 @@
 
 ---
 - [x] ~~TODO document the API surface~~
-      `docs-pkl-components.md`.
+      `docs/writing-components.md`.
 - [x] ~~jsonata https://docs.jsonata.org/programming~~
       The transform language is CEL (ADR 0027).
 

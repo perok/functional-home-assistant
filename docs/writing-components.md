@@ -1,6 +1,8 @@
 # Writing your own components
 
 This guide is for people who want to add a new kind of card to a dashboard.
+For writing the dashboards themselves, see
+[Writing dashboards](writing-dashboards.md).
 
 You do not need to change any Scala. A component is a Pkl class. You write the
 HTML, say which values it needs, and the server does the rest.
