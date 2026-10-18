@@ -31,6 +31,14 @@ What that costs today, besides #556:
 - A bake group inside a member renders empty (its host is the member's id), so neither a slider's
   main controls nor an `If` work inside a clause.
 
+**Nothing here is new machinery.** Bytes that differ per viewer already exist in the static tree:
+a bake group (a tab panel, an `If` branch, a slider's main controls) renders the viewer's member,
+and the rule that keeps that safe is the leaf/structure split. A node holding regions is
+structure, never a patch target and never cached, so per-viewer content never enters the per-slug
+log or `RenderCache`; only leaves are shared. A member today breaks that rule: it is a log key and
+a cache entry whatever its card, which is only safe because nothing inside it can vary per viewer.
+Step 1 makes members follow the rule the rest of the page already follows.
+
 ### The shape
 
 - **One render path.** A member's subtree is walked by the same code as the static tree, rooted at
@@ -52,11 +60,43 @@ What that costs today, besides #556:
 Deleted with it: `ResolvedMember`, `ResolvedChild`, `resolveMember`, `resolveChild`,
 `renderResolvedMember*`, `memberBodyInto`, `memberChildInto`, `memberSeedOf`, `memberSignalsOf`.
 
-### Gates
+### Cost: CPU and memory
 
+A member whose card is a leaf (a tile, a plain entity card) renders, keys and patches exactly as
+today. Everything below is about a member whose card is structure (a slider, a column of leaves).
+
+**CPU, a live tick: cheaper.** Today a tick re-renders the member's whole subtree and sends all of
+it; after, it re-renders the leaves that bind the entity and sends those. A brightness tick on a
+slider member renders its head, not its rows and pill.
+
+**CPU, a page open or a set fill: slightly dearer.** The walk is the same work per node as today,
+but every leaf inside a member gets its own digest for `holds` where today the member gets one.
+The bench's starting numbers put a digest at about 0.45 µs (`holdsSeed`: 200 SHA-256 in 90 µs),
+so a 200-member set of two-leaf columns adds about 200 digests, ~90 µs, on a `pageSetTiles` that
+costs well over a millisecond. Each leaf also seeds its own signals, so the member-wide seed cache
+(`memberSeeds`, which won 12.5% of `pageSet`) is replaced by the static tree's plan-time seeds,
+which do the same job per node.
+
+**Memory, the renderer: small and static.** Each `Member` instance (one per clause per candidate,
+already built with the graph) carries its subtree index: id → node and entity → leaves. That is
+one entry per node below a member: ~600 for 200 two-leaf tiles. Node plans are already one per
+authored position below a member (`resolveChild` keys them by member and path), so their count
+does not change.
+
+**Memory, a session: grows with leaves.** A session's `holds` keeps a digest per patch target it
+was sent. Today that is one per member; after, one per leaf inside a structure member: two per
+member for a two-leaf tile, so a 200-member set adds ~200 entries per open session. The per-slug
+`RenderCache` keys the same leaves, and each entry holds a leaf's bytes rather than a member's, so
+its total bytes stay about the same.
+
+**Gates, measured before and after on the same machine, alternating runs:**
+
+- `RenderBench.pageSet`, `pageSetPlain`, `pageSetTiles` (the structure-member case),
+  `resumeMembers`, and the `publish*Set` cells: a page open may cost up to the digest estimate
+  above, a tick must not cost more.
+- Allocation per op from the same runs (`-prof gc`), and the renderer's retained size with a
+  200-candidate set of sliders (a heap histogram, before and after).
 - The wire snapshots and visual baselines of sets: only ids and seeds may move, not the look.
-- `RenderBench.pageSet`, `pageSetPlain` and the resume cells, before and after; and the member
-  graph's size on a big set.
 - A test of the property: every element id a member's markup carries is one the renderer can
   render by id (as `SetNodeSuite` does for nested sets).
 
