@@ -16,7 +16,9 @@ import io.circe.Json
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** `entityId` is `""` for an area or floor call, which `group` carries. */
+/** `entityId` is `""` for any call but one on a single entity; `group` carries
+  * its target.
+  */
 case class ServiceCall(
     domain: String,
     service: String,

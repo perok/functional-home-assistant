@@ -1,79 +1,42 @@
 # FH Dashboard
 
-Pkl-authored, live-updating dashboards for Home Assistant, rendered
-server-side and patched over SSE ([Datastar](https://data-star.dev)).
+Dashboards for Home Assistant that you write as code. Each one is a
+[Pkl](https://pkl-lang.org) file: typed, checked before it is served, and
+with editor completion for your own entities. The add-on renders them on the
+server and keeps every open browser live as states change, so a wall tablet
+gets a fast page that only redraws what moved.
 
-## How to use
+- **Signed in through Home Assistant.** It opens from the sidebar, and a
+  button can only act on what the dashboard you are viewing declares.
+- **Edit and see it.** Change a file and every open browser repaints, no
+  restart.
+- **Knows your house.** Your devices, areas and floors are generated into
+  typed names, kept current as the registry changes.
 
-Install the add-on and start it. Open it from the **FH Dashboard** entry in
-the sidebar (ingress — authenticated by Home Assistant).
+## Getting started
 
-On first start the add-on seeds a starter dashboard into a folder in your
-Home Assistant config directory:
+Install the add-on and start it, then open **FH Dashboard** in the sidebar.
 
-```
-<ha config>/fh-dashboards/
-  site.pkl           # THE entrypoint: every dashboard you serve — edit me
-  lib/               # the shared Pkl card/theme library
-```
+On first start the add-on puts a starter workspace in
+`<ha config>/fh-dashboards/`, where the Samba, SSH and File editor add-ons
+can reach it. `site.pkl` there lists every dashboard you serve.
 
-Edit these files from the host (Samba, SSH, or the File editor add-on) — they
-sit under the main `homeassistant/` config share as `fh-dashboards/`, so the
-default File editor / Samba add-ons can reach them without extra config.
-
-### Editing dashboards
-
-- **`site.pkl` is the one entrypoint.** Every dashboard is a key in its
-  `dashboards` map, and the key is the route: `["kitchen"]` serves at
-  `/d/kitchen`. Any other `*.pkl` beside it is an ordinary module — it becomes
-  a dashboard only when a key points at it:
-
-  ```pkl
-  dashboards {
-    ["home"] { title = "Home"; card = ... }        // inline
-    ["kitchen"] = import("kitchen.pkl")            // its own file
-  }
-  ```
-
-  Being data, they can also be generated — a `for` over your floors gives you
-  a dashboard per floor.
-- **Every edit hot-reloads**, including ADDING or REMOVING a dashboard:
-  connected browsers repaint over the live SSE stream, no restart needed.
-- A dashboard that fails to build serves an error page naming the problem and
-  recovers the moment you fix it; the others keep serving. If `site.pkl`
-  itself will not evaluate, every dashboard shows that error — the file no
-  longer says what they are — and one fix restores them all.
-- `default = "<slug>"` in `site.pkl` picks what `/` serves; with none, the
-  dashboard keyed `dashboard`, else the first one.
-- `home/dump.pkl` is regenerated from your live entity registry on every
-  startup — don't edit it; import it (`import "@fh-home/dump.pkl" as dump`) for
-  typed references to your entities (`dump.entities.<name>`).
-- **The dump also refreshes while running**: when the HA registry changes (a
-  device/entity/area/floor is added, renamed or removed, or an integration is
-  set up), the add-on rebuilds the dump, checks that every dashboard that
-  builds today still builds against it, and only then swaps it in — the
-  replaced dump is kept beside it as `dump.pkl.backup.<date>`. If the new dump
-  *would* break a dashboard, the swap is skipped and a warning is logged; fix
-  the dashboard and refresh again. Turn the automatic part off with the
-  `watch_registry` option; an on-demand refresh is always available from the
-  `/edit` editor (or `POST /system/dump/refresh`).
+To write dashboards, read
+[Writing dashboards](https://github.com/perok/functional-home-assistant/blob/main/docs/writing-dashboards.md).
+To make your own kind of card,
+[Writing your own components](https://github.com/perok/functional-home-assistant/blob/main/docs/writing-components.md).
 
 ### Re-seeding
 
-The starter is written only when there is no `site.pkl` at all. To get a
-fresh copy of it or an updated `lib/` after an add-on upgrade, move your files
-elsewhere, empty the directory, and restart.
-
-What you get: `site.pkl` (the starter entrypoint), `lib/` (the authoring
-library that ships with the add-on — don't edit it, it is replaced on upgrade),
-your regenerated entity dump, and `PklProject`, which binds the
-`@fh-dashboard` and `@fh-home` names your dashboards import.
+The starter `site.pkl` is written only when there is none. To get a fresh
+copy, move yours elsewhere and restart. You never need to for an upgrade: the
+card library comes with the add-on, not in this folder.
 
 ## Options
 
 | Option | Description |
 |---|---|
-| `watch_registry` | Rebuild the entity dump automatically on HA registry changes (default `true`). The swap is validated first and the previous dump is kept as a dated backup. |
+| `watch_registry` | Rebuild the entity dump automatically on HA registry changes (default `true`). A new dump is swapped in only if every dashboard that builds today still builds. |
 | `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
 | `min_heap` | JVM starting heap as a `-Xms` value — `"64M"` by default. This is the end that decides the idle footprint; raise it with `max_heap` if the collector is visibly growing and shrinking. |
 | `memory_tracking` | Add the native-memory breakdown to `GET /system/diagnostics` (default `false`). Costs a few percent, and takes effect on restart — the JVM cannot start tracking while running. |

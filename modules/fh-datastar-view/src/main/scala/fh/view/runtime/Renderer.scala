@@ -4,6 +4,7 @@ import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
 import fh.view.query.{Queries, QuerySnapshot, QueryRequest}
 import fh.view.model.{
+  CallReach,
   Access,
   Cell,
   ChromeColors,
@@ -412,7 +413,7 @@ class Renderer(
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
-  def declares(call: TapCall): Boolean = dashboard.calls.contains(call)
+  def reachOf(call: TapCall): Option[CallReach] = dashboard.calls.get(call)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities

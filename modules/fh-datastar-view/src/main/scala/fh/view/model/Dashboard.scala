@@ -1,5 +1,6 @@
 package fh.view.model
 
+import api.homeassistant.ServiceTarget
 import fh.view.query.{Queries, QueryRequest}
 import fh.view.runtime.Cel
 import io.circe.{Decoder, DecodingFailure, Json}
@@ -908,12 +909,19 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
-  /** Every call a tap of this dashboard declares, as the build spelled it: the
-    * allowlist for the call route (ADR 0023). Read off `tap.pkl`'s route slots.
-    * A service the target's state picks declares every arm of its match, since
-    * which one is posted is the click's to decide.
+  /** Every call a tap of this dashboard declares, as the build spelled it, and
+    * what it reaches: the allowlist for the call route (ADR 0023). Read off
+    * `tap.pkl`'s route slots. A service the target's state picks declares every
+    * arm of its match, since which one is posted is the click's to decide. A
+    * call over a set reaches its tally, which the press narrows; one whose card
+    * dropped the tally is left out, and `validate` says why.
     */
-  lazy val calls: Set[TapCall] = {
+  lazy val calls: Map[TapCall, CallReach] =
+    declaredCalls.collect { case Dashboard.Declared(call, _, Some(reach)) =>
+      call -> reach
+    }.toMap
+
+  private lazy val declaredCalls: List[Dashboard.Declared] = {
     def services(s: SlotSource): List[String] =
       s.literal.toList ++ (s.transform match {
         case Transform.Simple.Match(cases, otherwise) =>
@@ -921,26 +929,38 @@ case class Dashboard(
         case _ => Nil
       })
 
-    def of(slots: Map[String, SlotSource]): List[TapCall] = {
-      def lit(name: String) = slots.get(name).flatMap(_.literal)
+    def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
+      def lit(name: String) = c.slots.get(name).flatMap(_.literal)
+      def reachOf(target: ServiceTarget | CallSet): Option[CallReach] =
+        target match {
+          case t: ServiceTarget => Some(t)
+          case _: CallSet       =>
+            lit(Dashboard.TargetSetSlot).flatMap(
+              io.circe.parser.decode[Predicate.Tally](_).toOption
+            )
+        }
       for {
         kind <- lit(Dashboard.TargetKindSlot).toList
         id <- lit(Dashboard.TargetIdSlot).toList
         target <- TapCall.targetOf(kind, id).toList
-        service <- slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
-      } yield TapCall(service, target, lit(Dashboard.DataKeySlot))
+        service <- c.slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
+      } yield Dashboard.Declared(
+        TapCall(service, target, lit(Dashboard.DataKeySlot)),
+        c.card,
+        reachOf(target)
+      )
     }
 
-    def walk(n: LayoutNode): List[TapCall] = n match {
+    def walk(n: LayoutNode): List[Dashboard.Declared] = n match {
       case c: LayoutNode.Component =>
-        of(c.slots) ++ c.allChildren.flatMap(walk)
+        of(c) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }
 
-    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap(s => walk(s._2.content))
   }
 
   /** What the live subscription asks HA for: [[referencedEntities]] plus what
@@ -963,12 +983,18 @@ case class Dashboard(
           )
     }
 
-    referencedEntities ++ deciders(card) ++ surfaces.values.toList.flatMap(s =>
-      deciders(s.content) ++ (s.activation match {
-        case Activation.State(c) => Predicate.referencedEntities(c)
-        case _: Activation.User | _: Activation.Var => Nil
-      })
-    )
+    // A set call's guards are read at the press, and an entity only a guard
+    // names would otherwise be missing from the store, failing its guard.
+    referencedEntities ++ calls.values.flatMap {
+      case t: Predicate.Tally => t.referencedEntities
+      case _: ServiceTarget   => Nil
+    } ++
+      deciders(card) ++ surfaces.values.toList.flatMap(s =>
+        deciders(s.content) ++ (s.activation match {
+          case Activation.State(c) => Predicate.referencedEntities(c)
+          case _: Activation.User | _: Activation.Var => Nil
+        })
+      )
   }
 
   /** Human-readable errors, empty when valid. `locateTransform` maps a
@@ -1753,7 +1779,33 @@ case class Dashboard(
           case _ => Nil
       }
 
+    // Without its tally a press would have nothing to filter. `tapRoute` always
+    // writes one, so this is a node built some other way.
+    val callSetErrors: List[String] =
+      declaredCalls.collect {
+        case Dashboard.Declared(TapCall(_, CallSet(id), _), card, None) =>
+          s"card '$card' places a call over the set '$id' without a " +
+            s"readable '${Dashboard.TargetSetSlot}' slot — build its route " +
+            "with tapMod.tapRoute"
+      }.distinct ++ declaredCalls
+        .collect {
+          case Dashboard.Declared(
+                TapCall(_, CallSet(id), _),
+                _,
+                Some(t: Predicate.Tally)
+              ) =>
+            id -> t
+        }
+        .groupMap(_._1)(_._2)
+        .toList
+        .sortBy(_._1)
+        .collect {
+          case (id, ts) if ts.distinct.size > 1 =>
+            s"two different sets share the call id '$id'"
+        }
+
     authoredIdErrors ++
+      callSetErrors ++
       structureLiveSlotErrors ++
       undeclaredHoleErrors ++
       regionHoleErrors ++
@@ -2053,6 +2105,16 @@ object Dashboard:
   val TargetKindSlot: String = "targetKind"
   val TargetIdSlot: String = "targetId"
   val DataKeySlot: String = "dataKey"
+  val TargetSetSlot: String = "targetSet"
+
+  /** A call a node's tap declares; `reach` is `None` where a set call's card
+    * placed the route without its tally.
+    */
+  private final case class Declared(
+      call: TapCall,
+      card: String,
+      reach: Option[CallReach]
+  )
 
   private[model] def rawHole(name: String): scala.util.matching.Regex =
     ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(

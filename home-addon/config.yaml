@@ -62,7 +62,7 @@ schema:
   # Rebuild the typed entity dump automatically when the HA registry changes
   # (device/entity/area/floor added, renamed or removed, integration loaded).
   # The swap is validated first: it never lands if it would break a dashboard
-  # that builds today, and the previous dump is kept as a dated backup.
+  # that builds today.
   watch_registry: bool?
   # JVM max heap, as a `-Xmx` value ("512M", "1G"). Deliberately absent from
   # `options:` above so the default lives in exactly one place — run.sh —

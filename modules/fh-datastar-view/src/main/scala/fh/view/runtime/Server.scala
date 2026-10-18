@@ -22,11 +22,13 @@ import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
+  CallReach,
   ChromeColors,
   Dashboard,
   DomId,
   NodeId,
   Permission,
+  Predicate,
   SignalId,
   SlotRead,
   TapCall,
@@ -269,15 +271,20 @@ class Server(
           TapCall
             .targetOf(kind, id)
             .map(TapCall(s"$domain/$service", _, data.map(_._1)))
-            .filter(permission.mayCall(user, _)) match {
-            case Some(call) =>
-              callService(
-                domain,
-                service,
-                call.target,
-                data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
-                req
-              )
+            .flatMap(permission.reachOf(user, _)) match {
+            case Some(reach) =>
+              targetAtPress(reach).flatMap {
+                case Some(target) =>
+                  callService(
+                    domain,
+                    service,
+                    target,
+                    data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
+                    req
+                  )
+                // Nothing to act on is already the state asked for.
+                case None => NoContent()
+              }
             case None =>
               actionRefused(
                 req,
@@ -286,6 +293,22 @@ class Server(
           }
       }
     )
+
+  /** A set's candidates present in the store now, the same rule a label's count
+    * of it reads (`Conditions.present`); `None` when none is. Only ever a
+    * subset of the candidates fixed at build, so a press reaches nothing the
+    * dashboard does not name.
+    */
+  private def targetAtPress(reach: CallReach): IO[Option[ServiceTarget]] =
+    reach match {
+      case t: ServiceTarget   => IO.pure(Some(t))
+      case t: Predicate.Tally =>
+        stateStore.snapshot.map(states =>
+          NonEmptyList
+            .fromList(Conditions.presentOf(t, states))
+            .map(ServiceTarget.Entities(_))
+        )
+    }
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
     * routes without it sees the same response.
@@ -1975,7 +1998,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.declares)
+                Permission(r.access, r.reachOf)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }

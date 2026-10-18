@@ -17,6 +17,9 @@ c.button(floor.floor_name, c.tap.lights.off(floor))
   .cssProperty("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
 ```
 
+Its tap can take the same set, `c.tap.lights.off(lit)`, so the press turns off exactly what the
+count shows (ADR 0003); `floor` reaches whatever HA puts on the floor instead.
+
 ## Context
 
 A slot reads ONE entity: its CEL sees that entity's `state`, `attr`, `entity_id`, `domain` and the

@@ -67,7 +67,7 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       render a row/col with children (e.g. a slider *and* a label per matched light).
       NOTE: `Renderer.renderCase` no longer exists; `Dashboard.scala`'s `noWrap` comment still
       names it and should be corrected along with this.
-- [x] Author-facing docs. **Done** — `docs-pkl-components.md` is the authoring guide. (Its
+- [x] Author-facing docs. **Done** — `docs/writing-components.md` is the authoring guide. (Its
       transform section is CEL, not JSONata, which this entry predates.)
 - [ ] CSS/class pass-through on components: a standard class API on every template, not just
       the `cssClass` slot the containers have. The `.fh-cell` half of this is settled — the

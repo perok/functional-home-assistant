@@ -4,7 +4,7 @@ import api.homeassistant.ws.domain.{HaAccount, HaUser}
 import cats.effect.IO
 import cats.syntax.all.*
 import com.comcast.ip4s.{ipv4, port, Ipv4Address, SocketAddress}
-import fh.view.model.{Access, Permission}
+import fh.view.model.Access
 import fs2.Stream
 import org.http4s.headers.Authorization
 import org.http4s.implicits.*
@@ -57,7 +57,7 @@ class IngressSuite extends munit.CatsEffectSuite {
       new AuthGate(
         sessions,
         identify,
-        _ => IO.pure(Permission(Access.Authenticated, _ => true)),
+        _ => IO.pure(Access.Authenticated),
         users,
         trusted
       ) -> sessions
@@ -109,7 +109,7 @@ class IngressSuite extends munit.CatsEffectSuite {
       new AuthGate(
         sessions,
         _ => IO.raiseError(new Exception("no HA here")),
-        _ => IO.pure(Permission(Access.Authenticated, _ => true)),
+        _ => IO.pure(Access.Authenticated),
         users,
         Some(Ingress.SupervisorIp)
       ).of(req(Ingress.SupervisorIp, Some("u1"))).map(assertEquals(_, None))

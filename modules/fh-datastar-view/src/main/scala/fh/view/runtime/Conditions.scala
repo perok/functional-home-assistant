@@ -61,6 +61,13 @@ private[runtime] object Conditions {
   def present(t: Predicate.Tally, states: Map[String, EntityState]): Int =
     t.candidates.count(isPresent(t, _, states))
 
+  /** What [[present]] counts: the ids a call over the set acts on. */
+  def presentOf(
+      t: Predicate.Tally,
+      states: Map[String, EntityState]
+  ): List[String] =
+    t.candidates.filter(isPresent(t, _, states))
+
   private def isPresent(
       t: Predicate.Tally,
       id: String,

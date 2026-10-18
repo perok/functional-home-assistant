@@ -1,0 +1,70 @@
+/// A call over a query set (#583): the route a tap places, carrying the tally
+/// the press filters.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "pkl:json"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/query.pkl" as q
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
+import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
+
+local taklys: hass.LightEntity = new { entity_id = "light.taklys"; colourModes { "brightness" } }
+local lampe: hass.LightEntity = new { entity_id = "light.lampe"; colourModes { "brightness" } }
+local bryter: hass.SwitchEntity = new { entity_id = "switch.bryter" }
+local sun: hass.GenericEntity = new { entity_id = "sun.sun"; domain = "sun" }
+
+local lit = q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on"))
+// The lamp stays on while the sun is down.
+local litByDay = lit.where((e) ->
+  if (e == lampe) q.not(q.entity(sun).stateIs("below_horizon")) else true)
+
+local function setOf(n: nodes.Node): Mapping =
+  new json.Parser { useMapping = true }.parse(n.slots["targetSet"] as String) as Mapping
+
+facts {
+  ["a set call routes by an id and carries the set it filters"] {
+    let (b = c.button("Av", c.tap.call("light/turn_off", lit)))
+      b.slots["targetKind"] == "set"
+      && (b.slots["targetId"] as String).matches(Regex("[0-9a-f]{16}"))
+      && (setOf(b)["candidates"] as Listing).toList() == List("light.taklys", "light.lampe")
+  }
+  ["a guard naming another entity rides in the tally"] {
+    let (g = (setOf(c.button("Av", c.tap.call("light/turn_off", litByDay)))["when"] as Mapping)["light.lampe"] as Mapping)
+      g["kind"] == "and" && (g["items"] as Listing).toList().any((p) ->
+        (p as Mapping)["kind"] == "not" && ((p as Mapping)["item"] as Mapping)["entity"] == "sun.sun")
+  }
+  ["equal sets share an id, different ones do not"] {
+    let (idOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).slots["targetId"])
+      idOf.apply(lit) == idOf.apply(q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on")))
+      && idOf.apply(lit) != idOf.apply(litByDay)
+  }
+  ["every card that places a tap carries its set"] {
+    let (t = c.tap.lights.off(lit))
+      List(
+        c.button("Av", t),
+        c.pill(t),
+        new tileMod.Tile { title = "Av"; tapAction = t },
+        new switchMod.Switch { label = "Av"; tapAction = t; on = new { entityId = "light.lampe" } }
+      ).every((n) -> n.slots["targetKind"] == "set" && setOf(n) == setOf(c.button("Av", t)))
+  }
+  ["an entity call carries no set"] {
+    !c.button("Av", c.tap.lights.off(taklys)).slots.containsKey("targetSet")
+  }
+  ["a set of another domain is a build error, naming the strays"] {
+    module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys, bryter))))
+      .contains("switch.bryter is not light")
+  }
+  ["homeassistant/* takes any domain"] {
+    c.tap.call("homeassistant/turn_off", q.from(List(taklys, bryter))).target is pred.Tally
+  }
+  ["a set the build emptied is a build error"] {
+    module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys)).where(false)))
+      .contains("no candidates")
+  }
+}

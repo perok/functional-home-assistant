@@ -37,6 +37,22 @@ defined rather than a near-synonym: the vocabulary is load-bearing (a "region" i
 design). When a change coins a term or moves what one means, update that file in the same commit —
 a definition that lags the code is worse than none, because it gets trusted.
 
+Three docs are for **users**, not contributors, and none is written for someone who reads the
+source:
+
+- [`home-addon/DOCS.md`](home-addon/DOCS.md) — the add-on itself: what it is, getting started,
+  options, running it. HA shows it on the add-on's Documentation tab, so it links the guides by
+  absolute GitHub URL, and it does not teach Pkl.
+- [`docs/writing-dashboards.md`](docs/writing-dashboards.md) — for someone writing dashboards in
+  `site.pkl`.
+- [`docs/writing-components.md`](docs/writing-components.md) — for a dashboard author writing
+  their own card in Pkl, without touching Scala.
+
+When a change alters what one of those readers can write or will see — a new kind of tap
+target, a renamed builder, an option — update the doc in the same commit, at that reader's
+level: what to write and what happens, not how the server does it. The Pkl doc comments are the
+reference; these are the guide, so they need only what a reader would otherwise miss.
+
 A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
 assume an API written there exists.
 
