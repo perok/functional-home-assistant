@@ -236,7 +236,7 @@ and so cannot depend on either tool's cleverness.
 - Shared helpers had to become public for the families to reach them —
   `labelSlot`/`valueSlot`/`secondarySlot` (`core/slot.pkl`), icon resolution
   (`core/icon.pkl`), `noSignals` (`core/tap.pkl`). That is a gain: a third-party
-  card can now look like a shipped one without copying JSONata.
+  card can now look like a shipped one without copying its expressions.
 
   The icon TABLES themselves are not in that tier, and the split is what the
   audience rule means in practice: `iconFor`/`stateIconFor` are what a component

@@ -6,7 +6,7 @@
   in ADR 0028; this ADR lands after the swap, per the repo routine)
 - **Scope:** `model/Transform.scala`, `runtime/Cel.scala`, `runtime/Transforms.scala`,
   `runtime/StateStore.scala` (null-attr rule), the Pkl library's transform strings,
-  `modules/benchmarks` (engine cells + divergence gate)
+  `modules/benchmarks` (engine cells)
 - **Owns:** the choice of transform ENGINE and its value semantics. ADR 0001
   owns the slot/transform model itself; ADR 0016 owns which taps stay live;
   ADR 0017 owns signal slots. Those are untouched: the change is strictly
@@ -20,20 +20,18 @@ against ~1.8 kB for cel-java's planner runtime on the same shapes — and JSONat
 brought a second value model to keep an intuition about: falsy `""`,
 null-on-missing-key, HALF_EVEN rounding, a 15-significant-digit `$string`.
 
-Phase 0 pinned the divergence map first: a golden divergence gate
-(`sbt 'benchmarks/Compile/runMain fh.view.runtime.CelSpike'`) sweeping both
+Phase 0 pinned the divergence map first: a golden divergence gate swept both
 engines over the benchmark fixture plus a hostile margin, asserting the SET of
 byte differences — so the swap's output delta was known before anything rode
-on it.
+on it. The gate and the JSONata reference it ran were deleted once the swap
+had settled; what they found is under Consequences.
 
 ## The decision
 
 **cel-java 0.14.0 is the transform engine** — compile once at build/validate
 (`Transform.parse`), eval-many per live value (`Transform.run`: planner
 runtime, one activation per eval, `str`/`num` as the only registered helpers).
-Dashjoin left the shipped runtime entirely; it survives only as a bench-local
-reference (`modules/benchmarks/.../Jsonata.scala`) behind the divergence gate
-and the `jsonata` bench cells.
+Dashjoin is gone from the build, benchmarks included.
 
 - **CEL-native semantics, no compatibility shims.** A raw `attr['k']` on an
   absent key throws — it is not a null check — so every read is guarded.
@@ -67,15 +65,14 @@ and the `jsonata` bench cells.
 
 ## Consequences
 
-- **The output delta is pinned, not assumed.** Re-measured on the shipped
-  bytes: 15 divergence rows in four classes — empty-string presence (2: JSONata
+- **The output delta was measured, not assumed.** On the shipped bytes: 15 divergence rows in four classes — empty-string presence (2: JSONata
   found `""` falsy, `in` finds it present), fill digit rendering (11:
   JSONata's ~15-significant-digit `$string` vs the shared numToString), error
   wording (1), and one half-away step on an exactly-representable `.5`
   unreachable on integer attributes. `percent` and `attrLines` agree
-  byte-for-byte across the whole sweep; `fillColor` now agrees everywhere too.
-  The gate fails loudly on any new divergence (an engine upgrade, a reference
-  edit, a wrong translation).
+  byte-for-byte across the whole sweep, and so does `fillColor`. With the
+  reference gone, `TransformSuite` and the wire snapshots are what pin the CEL
+  output from here.
 - **Wire bytes moved once, deliberately.** Transform strings, display-signal
   path segments (`transformSegment` hashes everything but `state`), the wire
   snapshots and the seeds all changed in the swap commit and stabilise there.
@@ -89,14 +86,13 @@ and the `jsonata` bench cells.
   | Cells | CPU/eval | Allocation/eval |
   |---|---|---|
   | `RenderBench.cel` (shipped engine) | **1.4 µs** | **~0.9 kB** |
-  | `RenderBench.jsonata` (retired) | 2.9 µs | ~6.3 kB |
+  | JSONata, same shapes (measured before removal) | 2.9 µs | ~6.3 kB |
   | `RenderBench.direct` (no engine) | 0.024 µs | ~45 B |
   | `celComplex` / `jsonataComplex` (ceiling) | 1.4 / 7.4 µs | ~1.6 / ~15.6 kB |
 
   So the swap bought **7x memory / 2.2x CPU** on the shipped shapes and
   **9.5x memory / 5.3x CPU** on the hostile ceiling. The JSONata gap is mostly
-  MEMORY — dashjoin burns 7x the allocations for 2.2x the time. The JSONata
-  engine no longer ships in the add-on jar.
+  MEMORY — dashjoin burns 7x the allocations for 2.2x the time.
 - **The per-eval activation is a resolver, not a map.** `Cel.run` hands the
   planner a `CelVariableResolver` that produces each binding on demand, so the
   five-entry `HashMap` build is gone and an expression that reads no attribute

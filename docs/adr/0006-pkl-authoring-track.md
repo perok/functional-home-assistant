@@ -212,10 +212,9 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   `PredicateOp` union type makes a misspelled op a build error), built by
   `lib/query.pkl` rather than by hand — there are no free constructors, so every
   term carries a binding (decision 8, ADR 0003).
-- Slider two-tier config: author override → build-time spec literal. One typed
-  `sliderSpec` table (incl. cover/fan rows) is the single source. There was a
-  third tier — a runtime `$lookup($domain)` — for a member whose domain was
-  unknown until it matched; a candidate is a known entity, so it is gone.
+- Slider two-tier config: author override → build-time literal. One typed
+  `domainAxes` table (`components/slider.pkl`, incl. cover/fan rows) is the
+  single source; a candidate is a known entity, so nothing resolves at runtime.
 
 **Deliberate API shape** (Pkl has no untyped union-dispatch):
 `openPopup(id: String)` and `openPopupInline(body: Node)` are two named

@@ -436,7 +436,7 @@ Two things this deliberately does NOT do, both measured rather than assumed
 
 - **It does not resolve the slots twice.** The forms differ in one step — a signal slot's value is
   withheld — so `resolveTemplate` runs once and `executeResolved` runs per form. Resolving per form
-  meant re-running every JSONata transform and re-deriving every signal name to arrive at the same
+  meant re-running every transform and re-deriving every signal name to arrive at the same
   map and blank two entries in it, and that duplication, not the `execute`, was most of what a
   signal slot cost a first paint.
 - **It does not re-derive the seed.** The `data-signals` values come off that same `Resolved`, so

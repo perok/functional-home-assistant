@@ -1951,9 +1951,9 @@ class PklBuildSuite extends munit.FunSuite {
     }
   }
 
-  test("a slider in a QUERY bakes its config, with no $lookup($domain)") {
-    // A candidate is a known entity, so `action`/`key`/`min`/`max` are
-    // literals, not runtime `$lookup`s over the `domainAxes` table.
+  test("a slider in a QUERY bakes its config as literals") {
+    // A candidate is a known entity, so `action`/`key`/`min`/`max` come from
+    // the `domainAxes` table at build time.
     val set = probeSet(
       """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.entitySlider(e)).build()"""
     )
@@ -1978,10 +1978,6 @@ class PklBuildSuite extends munit.FunSuite {
     }
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
-    assert(
-      !slots.values.exists(_.valueKey.contains("$lookup")),
-      clue = slots.view.mapValues(_.transform).toMap
-    )
   }
 
   test("a slider with children is the same card, holding ordinary nodes") {
