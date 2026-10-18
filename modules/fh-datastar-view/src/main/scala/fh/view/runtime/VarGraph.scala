@@ -81,9 +81,8 @@ object VarKey:
   * ([[Renderer.refusals]]), which needs the queries' parse.
   *
   * @param scopes
-  *   the model's ([[Dashboard.varScopes]]), every node with one.
-  * @param setOfMember
-  *   each set member's indexed set: a member reads the scope there.
+  *   the model's ([[Dashboard.varScopes]]), every node with one, each set
+  *   member included under its own id.
   * @param panelsSelected
   *   each variable-selected bake group, by the variable choosing its member.
   * @param asksAt
@@ -91,15 +90,9 @@ object VarKey:
   */
 private[runtime] final class VarGraph(
     scopes: Map[NodeId, Map[String, Dashboard.InScope]],
-    setOfMember: Map[NodeId, NodeId],
     panelsSelected: Map[NodeId, String],
     asksAt: NodeId => List[SlotAsk]
 ):
-
-  private val allScopes: Map[NodeId, Map[String, Dashboard.InScope]] =
-    scopes ++ setOfMember.flatMap((member, set) =>
-      scopes.get(set).map(member -> _)
-    )
 
   /** Every declaration, with the value it holds before anyone chooses. */
   val declarations: Map[VarKey, String] =
@@ -122,11 +115,11 @@ private[runtime] final class VarGraph(
   // Every node under one declarer chain sees the same scope, so a page has a
   // handful of distinct ones however many nodes it has.
   private val distinctScopes: Vector[Map[String, Dashboard.InScope]] =
-    allScopes.values.toVector.distinct
+    scopes.values.toVector.distinct
 
   private val scopeIndex: Map[NodeId, Int] = {
     val index = distinctScopes.zipWithIndex.toMap
-    allScopes.view.mapValues(index).toMap
+    scopes.view.mapValues(index).toMap
   }
 
   /** Resolves each distinct scope once: building a map per node cost two thirds
@@ -145,7 +138,7 @@ private[runtime] final class VarGraph(
 
   /** Exact: a write both checks every reader and re-renders them. */
   def readersOf(key: VarKey): List[NodeId] =
-    allScopes.toList.collect {
+    scopes.toList.collect {
       case (id, scope)
           if scope.get(key.name).exists(_.declarer == key.declarer) &&
             asksAt(id).exists(_.query.references.contains(key.name)) =>

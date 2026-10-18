@@ -740,8 +740,8 @@ The two halves are two files, and the seam between them is one sentence: **`Memb
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
 it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
 answers membership questions with no template, no mustache context and no document walk. The
-`render*` half deliberately stayed behind: `resolveMember`, `renderResolvedMember` and
-`renderSet` need `templates` and `identityCache`.
+painting stayed behind: a member is walked by the same `tracedInto` as the static tree, from the
+set's case and from `renderMemberTraced`.
 
 **`SurfaceGraph` is the same split, for the other decision.** Which branch of a bake group is
 active, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
@@ -801,10 +801,21 @@ is all it takes for a member to stop being special. `renderNodeById` renders it,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
 
+**A member's children are nodes too.** Below a member, the walk mints the ids the static tree
+would (`LayoutNode.childId` from the member's id; a nested set's is `innerSetId`, which names the
+clause), and every `Member` indexes its subtree under them (`Member.nodes`). So the card rule holds
+inside a set: a member that is a leaf is its own patch target, and one holding regions is
+structure, patched through its leaves, with baked regions of its own (a slider's main controls).
+Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause
+of a candidate mints the same ids below it; a render key names the clause for the same reason.
+A member holding nodes has no one element to send, so its arrival and a clause switch place it
+whole, rendered per viewer (`renderMemberTraced`), with its leaves' claims. A branch chosen by live
+state cannot sit inside a clause (`validate`): flips are found from the static tree.
+
 Three properties hold it up, and each fails silently if broken:
 
-- **A member is selected like any other node.** `Patches.plan` adds the members binding the
-  entity (`Membership.binding`) to `componentsFor`'s static nodes, so a member re-renders because something it binds moved — the group's query is asked
+- **A member is selected like any other node.** `Patches.plan` adds the nodes inside members that
+  bind the entity (`Membership.binding`) to `componentsFor`'s static nodes, so a member's node re-renders because something it binds moved — the group's query is asked
   about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
   did, silently), and `rootOf` must resolve a member through its group or a member inside a
   surface reaches clients who do not have it open. The one case the index cannot cover is a
@@ -1142,9 +1153,9 @@ with a chart in every position against exactly the decided set, and fails on any
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
 answered. An unselected tab is not; switching to it fetches its own (`setVar`, then `swapHost`). A pull asks for
-exactly what it renders: each target's own reads (a set member's include its whole subtree's, at
-this viewer's values, and the sets above it) and what each host
-it fills shows. A target is a leaf or a member, never structure, so a pull that moves only plain
+exactly what it renders: each target's own reads (a placed member's include its whole subtree's,
+at this viewer's values, and the sets above it) and what each host
+it fills shows. A target is a leaf, never structure, a set member's nodes included, so a pull that moves only plain
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 

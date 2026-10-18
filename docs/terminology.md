@@ -175,7 +175,8 @@ possible entities known at build time from the dump. ADR 0003.
 gets the first clause whose condition holds.
 
 **Member** — one materialised entity inside a candidate set, or one row inside a grouped slider.
-Members are addressable nodes in their own right.
+Members are addressable nodes in their own right, and so is every node below a member, under an id
+below the member's.
 
 **Presence / order** — the two things about a set's membership that can move: whether an entity is in
 it, and where it sits. Tracked separately because reordering re-sends nothing.

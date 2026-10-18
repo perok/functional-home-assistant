@@ -51,14 +51,22 @@ Step 1 makes members follow the rule the rest of the page already follows.
 - **Lookup by id goes through the member's current clause.** Every `Member` instance (one per
   clause per candidate, built with the graph) carries the index of its subtree: id → node, and
   entity → the leaves binding it. `renderNodeById` and `renderInputs` resolve a descendant
-  through the member that owns it; `Membership.binding` answers leaves, not member roots.
+  through the member that owns it; `Membership.binding` answers the nodes inside members that
+  bind the entity, not member roots.
 - **Signals are each node's own.** A child seeds its own signals on its own wrapper, as in the
   static tree; the member-wide seed goes.
-- **Unchanged:** arrival, departure, order and a clause switch still move the member as one
-  element; a nested set keeps `innerSetId`, whose clause index keeps two clauses' sets apart.
+- **A member holding nodes is placed whole, per viewer.** It has no one element to send, so its
+  arrival and a clause switch insert it rendered for this viewer (`renderMemberTraced`), claiming
+  its leaves; a leaf member still comes through the cache and morphs in place.
+- **A nested set keeps its clause in its id** (`LayoutNode.innerSetId`, now in the model), so the
+  runtime walk, `Dashboard.varScopes` and `validate` spell it once.
+- **Not in this step:** a branch chosen by live state inside a clause. Flips are found from the
+  static tree, so `validate` refuses it with a message that says so (today it fails as a dangling
+  bake).
 
 Deleted with it: `ResolvedMember`, `ResolvedChild`, `resolveMember`, `resolveChild`,
-`renderResolvedMember*`, `memberBodyInto`, `memberChildInto`, `memberSeedOf`, `memberSignalsOf`.
+`renderResolvedMember*`, `memberBodyInto`, `memberChildInto`, `memberSeedOf`, `memberSignalsOf`,
+`renderSet`, `setElement`, `executeInto`, and `VarGraph`'s `setOfMember` fallback.
 
 ### Cost: CPU and memory
 

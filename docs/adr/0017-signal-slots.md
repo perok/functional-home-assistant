@@ -147,12 +147,10 @@ The wrapper is the right home for the seed because it is renderer-owned and appe
 the renders that should carry it: the PATCH form is the card's own markup and is correctly
 seedless, while its document render includes the wrapper.
 
-**Whether a signal name descends into children is the difference between the two halves of the
-graph, not a detail.** In the static tree a child is a node of its own — its own id, wrapper, seed,
-patched on its own. A *member's* children are not: they render with `structuralVars(m.id)` and no
-ids at all, because the member is their patch target, so their slots live in its namespace.
-Descending in the static case would seed a child's signal on its parent's wrapper and leave the
-child's binding pointed at a signal nothing ever writes — silent, and permanent.
+**A signal name never descends into children.** Every child is a node of its own — its own id,
+wrapper, seed, patched on its own — a set member's children included, under ids below the member's
+(#556). Descending would seed a child's signal on its parent's wrapper and leave the child's
+binding pointed at a signal nothing ever writes — silent, and permanent.
 
 ### Six binding kinds, because a value does not always land in text
 

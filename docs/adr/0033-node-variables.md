@@ -89,14 +89,14 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
-- **A candidate set's members read the scope at the set.** The candidates and each member's id
-  (`LayoutNode.memberSegment`: set id plus entity id) are fixed at build time, and a member's
-  children render under the member's id, so a member is an ordinary reader: `VarGraph` gives each the
-  scope of the indexed set above it, a set's reads are resolved per viewer for
-  every clause (the snapshot is built before the walk picks one), and a write re-renders the
-  present members this viewer is shown. A member's render key carries its whole subtree's reads,
-  or a chart nested in a clause would keep its old window. A declaration inside a clause is
-  refused: it would be every member's own choice, which nothing needs.
+- **A candidate set's members read the scope at the set.** The candidates, each member's id
+  (`LayoutNode.memberSegment`: set id plus entity id) and every id below a member are fixed at
+  build time, so each is an ordinary reader: `Dashboard.varScopes` walks every member's clauses
+  from the set's scope, a set's reads are resolved per viewer for every clause (the snapshot is
+  built before the walk picks one), and a write re-renders the readers this viewer is shown and
+  swaps the panels it selects, a member's included. A set fill or a member's placement asks the
+  member's whole subtree's reads. A declaration inside a clause is refused: it would be every
+  member's own choice.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `Variable.declarer`

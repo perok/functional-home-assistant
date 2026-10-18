@@ -8,15 +8,35 @@ import fh.view.model.{LayoutNode, MemberId, NodeId, Predicate, SetId}
   */
 private[runtime] object Member {
 
-  /** The whole subtree's entities: a member renders its children under its own
-    * id.
-    */
+  /** The whole subtree's entities, the set membership index's edges. */
   def entitiesOf(node: LayoutNode): List[String] = node match {
     case c: LayoutNode.Component =>
       (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
     // Not into a nested set, whose members patch themselves; descending would
     // wake the whole tile on any bulb inside it.
     case _ => Nil
+  }
+
+  /** A member's components under the ids the render walk mints below its own
+    * (`LayoutNode.childId`), each with its parent. Not into a nested set, whose
+    * members are its own. No prefix: `validate` refuses an authored id in a
+    * clause.
+    */
+  def subtree(
+      id: NodeId,
+      node: LayoutNode.Component
+  ): List[(NodeId, LayoutNode.Component, Option[NodeId])] = {
+    def walk(
+        n: LayoutNode.Component,
+        at: NodeId,
+        parent: Option[NodeId]
+    ): List[(NodeId, LayoutNode.Component, Option[NodeId])] =
+      (at, n, parent) :: LayoutNode.steps(n.regions).flatMap {
+        case (step, c: LayoutNode.Component) =>
+          walk(c, LayoutNode.childId("", at, step, c), Some(at))
+        case _ => Nil
+      }
+    walk(node, id, None)
   }
 }
 
@@ -29,7 +49,18 @@ private[runtime] case class Member(
     node: LayoutNode.Component,
     // Part of a nested set's id, so two clauses holding sets cannot share one.
     clause: Int
-)
+) {
+
+  /** Its own node and every component below it, by id. */
+  lazy val nodes: Map[NodeId, LayoutNode.Component] =
+    Member.subtree(id, node).map((at, n, _) => at -> n).toMap
+
+  /** entity -> the nodes here binding it: what a tick on it re-renders. */
+  lazy val byEntity: Map[String, List[NodeId]] =
+    nodes.toList
+      .flatMap((at, n) => n.liveEntities.map(_ -> at))
+      .groupMap(_._1)(_._2)
+}
 
 /** `replaced`: members whose node was swapped because their clause moved. */
 private[runtime] case class MemberDelta(
@@ -69,13 +100,15 @@ private[runtime] final case class Membership(
     byEntity: Map[String, Vector[Member]]
 ) {
 
-  /** Members binding `entityId` under `root`: a member re-renders because
-    * something it binds moved, as a static node does.
+  /** The nodes inside members under `root` that bind `entityId`: each
+    * re-renders because something it binds moved, as a static node does.
     */
   def binding(entityId: String, root: String): Set[NodeId] =
     byEntity
       .getOrElse(entityId, Vector.empty)
-      .collect { case m if m.root == root => m.id }
+      .iterator
+      .filter(_.root == root)
+      .flatMap(_.byEntity.getOrElse(entityId, Nil))
       .toSet
 
   /** Skips on `eq`: [[MemberGraph.syncMembers]] hands back the same value when
@@ -259,9 +292,8 @@ private[runtime] final class MemberGraph(
     Member(s.gid, s.root, key, memberId(s.gid, key), node, clause)
   }
 
-  /** `<member>_<clause>_<child path>`, all static. Read by both [[sources]] and
-    * `Renderer.resolveChild`; two spellings would sync the graph and never
-    * patch the browser.
+  /** [[LayoutNode.innerSetId]], as a set: read by [[sources]] and the
+    * renderer's walk, so the graph and the browser cannot disagree.
     */
   def innerSetId(
       member: MemberId,
@@ -269,12 +301,7 @@ private[runtime] final class MemberGraph(
       path: List[LayoutNode.Step],
       set: LayoutNode.SetNode
   ): SetId =
-    SetId.of(
-      NodeId.derived(
-        s"${member}_${clauseIdx}_${LayoutNode.segments(path)}"
-      ),
-      set
-    )
+    SetId.of(LayoutNode.innerSetId(member, clauseIdx, path), set)
 
   /** Every set, nested ones ("a tile per room") included with the member they
     * hang off. Enumerable up front because candidates are static, which makes
@@ -327,11 +354,63 @@ private[runtime] final class MemberGraph(
     sourcesWithOwner.map(s => s.at -> s).toMap
 
   /** The parent edges the static index cannot see, for [[NodeAncestry]].
-    * Static: presence varies, the id space does not (ADR 0003).
+    * Static: presence varies, the id space does not (ADR 0003). Every clause of
+    * a candidate mints the same ids below it, so their edges agree.
     */
   def parentEdges: Map[NodeId, NodeId] =
     memberSlot.view.mapValues { case (s, _) => NodeId.derived(s.gid) }.toMap ++
-      sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _))
+      sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _)) ++
+      slots.flatMap((at, d) => d.parent.map(at -> _))
+
+  /** A node below a member, every clause's: its member and its parent. */
+  /** A member or a node below one, with what it is in each clause. */
+  private final case class Slot(
+      member: NodeId,
+      parent: Option[NodeId],
+      nodes: List[LayoutNode.Component]
+  )
+
+  /** Static, built once: every clause of every candidate mints the same ids
+    * below its member, so each id gathers what it is in each.
+    */
+  private lazy val slots: Map[NodeId, Slot] =
+    memberSlot.toList
+      .flatMap { case (mid, (s, entityId)) =>
+        s.src.s.members.get(entityId).toList.flatMap(_.clauses).flatMap { c =>
+          c.node match {
+            case comp: LayoutNode.Component =>
+              Member
+                .subtree(mid, comp)
+                .map((at, n, parent) => (at, mid, parent, n))
+            case _ => Nil
+          }
+        }
+      }
+      .groupBy(_._1)
+      .map((at, xs) => at -> Slot(xs.head._2, xs.head._3, xs.map(_._4)))
+
+  /** The member a node belongs to: itself for a member, its member for a node
+    * below one.
+    */
+  def memberOwning(id: NodeId): Option[NodeId] =
+    if (memberSlot.contains(id)) Some(id) else slots.get(id).map(_.member)
+
+  /** A member or a node below one, as its member's current clause has it. */
+  def nodeAt(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Option[(Member, LayoutNode.Component)] =
+    memberOwning(id)
+      .flatMap(memberAt(_, states))
+      .flatMap(m => m.nodes.get(id).map(m -> _))
+
+  /** Every id below a member, every clause's. */
+  def memberIdsBelow: Iterable[NodeId] =
+    slots.keys.filterNot(memberSlot.contains)
+
+  /** What `id` can be in each clause, presence aside: a node's static reads. */
+  def clauseNodesAt(id: NodeId): List[LayoutNode.Component] =
+    slots.get(id).fold(Nil)(_.nodes)
 
   // A nested set inherits its owner's, which the walk carries down.
   private val sourceRoot: Map[NodeId, String] =
@@ -503,7 +582,7 @@ private[runtime] final class MemberGraph(
   /** Present or not: a departed member's patch is scoped like a present one's.
     */
   def rootOfMember(id: NodeId): Option[String] =
-    memberSlot.get(id).map(_._1.root)
+    memberOwning(id).flatMap(memberSlot.get).map(_._1.root)
 
   /** Without this a nested set's fill or removal reads as main-page and reaches
     * clients without the surface open.

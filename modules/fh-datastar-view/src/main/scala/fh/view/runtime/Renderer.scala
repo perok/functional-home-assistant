@@ -12,6 +12,7 @@ import fh.view.model.{
   DomId,
   ExprValue,
   LayoutNode,
+  MemberId,
   NodeId,
   Reads,
   SlotAsk,
@@ -81,6 +82,18 @@ private[runtime] enum SlotForm derives CanEqual {
 
 /** Per render, never cached on the renderer ([[VarGraph.env]]). */
 type VarEnv = Map[NodeId, Map[String, String]]
+
+/** Where a render walk is below a set member: the member, its clause and the
+  * steps down from it, which a nested set's id spells
+  * ([[MemberGraph.innerSetId]]).
+  */
+private[runtime] final case class MemberPath(
+    member: MemberId,
+    clause: Int,
+    path: List[LayoutNode.Step]
+) {
+  def down(step: LayoutNode.Step): MemberPath = copy(path = path :+ step)
+}
 
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
   * discriminating costs a wasted render; too coarse serves stale bytes silently
@@ -218,21 +231,14 @@ class Renderer(
   /** Lazy: the member graph, the ancestry and the surface graph are built
     * below.
     */
-  private[runtime] lazy val vars: VarGraph = {
-    val indexedSets = allIndexed.collect {
-      case (id, (_: LayoutNode.SetNode, _)) => id
-    }.toSet
+  private[runtime] lazy val vars: VarGraph =
     new VarGraph(
       scopes = dashboard.varScopes.filter(_._2.nonEmpty),
-      setOfMember = members.memberIds.toList.flatMap { m =>
-        ancestry.ancestorsOf(m).find(indexedSets).map(m -> _)
-      }.toMap,
       panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
       asksAt = queriesForNode
     )
-  }
 
   /** Where a session opening on `states` starts each variable that has a start:
     * its expression over the declarer's subject, where every reader takes the
@@ -280,7 +286,7 @@ class Renderer(
           .map(e => s"$e is not on this dashboard")
     }
 
-  /** A target has its own rendering ([[hasOwnRendering]]), so its descendants
+  /** A target has its own rendering ([[ownRenderingOf]]), so its descendants
     * are not asked.
     */
   def readsForPull(
@@ -330,8 +336,9 @@ class Renderer(
       .mapValues(_.sorted)
       .toMap
 
-  /** Everything a member's subtree asks, under the member's id: its children
-    * have no ids ([[resolveMember]]).
+  /** Everything a member's subtree asks, under the member's id: what a fill or
+    * a placement renders, every clause's, since the snapshot is resolved before
+    * the walk decides which matches.
     */
   private lazy val memberAsks: Map[NodeId, List[SlotAsk]] =
     members.memberIds.toList.flatMap { m =>
@@ -350,6 +357,23 @@ class Renderer(
     allIndexed.view.mapValues { case (_, prefix) =>
       prefixToRoot(prefix)
     }.toMap
+
+  private val rootToPrefix: Map[String, String] = prefixToRoot.map(_.swap)
+
+  /** A node and its tree's id prefix: the static tree's, or a member's or a
+    * node below one, as the member's current clause has it.
+    */
+  private def nodeAt(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Option[(LayoutNode, String)] =
+    allIndexed
+      .get(id)
+      .orElse(
+        members
+          .nodeAt(id, states)
+          .map((m, n) => (n, rootToPrefix.getOrElse(m.root, "")))
+      )
 
   /** Presence and order in every candidate set. Exposed rather than exported,
     * so a call site says `renderer.members.…` and never reads as though the
@@ -385,26 +409,27 @@ class Renderer(
       id: NodeId,
       states: Map[String, EntityState]
   ): List[String] =
-    allIndexed.get(id) match {
+    nodeAt(id, states) match {
       case Some((c: LayoutNode.Component, _)) => c.liveEntities
-      case _ => members.memberAt(id, states).toList.flatMap(_.node.liveEntities)
-    }
-
-  /** Minus entities reached only through signal slots: those cannot change the
-    * bytes ([[renderInputs]]). Static nodes only; a member's key is its own.
-    */
-  private def entitiesAsBytesForNode(id: NodeId): List[String] =
-    allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _)) => c.liveEntitiesAsBytes
       case _                                  => Nil
     }
 
+  /** A member's are its whole subtree's ([[memberAsks]]); a node below one asks
+    * its own in whichever clause holds it.
+    */
   private def queriesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
         c.queries
-      case _ => memberAsks.getOrElse(id, Nil)
+      case _ => memberAsks.getOrElse(id, belowMemberAsks.getOrElse(id, Nil))
     }
+
+  // Built once: a tick asks for every target it pulls.
+  private lazy val belowMemberAsks: Map[NodeId, List[SlotAsk]] =
+    members.memberIdsBelow.flatMap { id =>
+      val asks = members.clauseNodesAt(id).flatMap(_.queries).distinct
+      Option.when(asks.nonEmpty)(id -> asks)
+    }.toMap
 
   /** The bound a variable write is held to (ADR 0023). The model's static walk,
     * not [[Index.byEntity]], which stops at a set: this must answer for
@@ -613,24 +638,47 @@ class Renderer(
       form: SlotForm = SlotForm.Patch,
       fragments: QuerySnapshot
   ): Option[String] =
-    members
-      .memberAt(id, states)
-      .map(renderMember(_, states, form, fragments))
-      .orElse(renderIndexed(id, states, selections, form, fragments))
-
-  private def renderIndexed(
-      id: NodeId,
-      states: Map[String, EntityState],
-      selections: Selections,
-      form: SlotForm,
-      fragments: QuerySnapshot
-  ): Option[String] =
-    allIndexed
-      .get(id)
-      .filter(_ => hasOwnRendering(id))
+    nodeAt(id, states)
+      .filter((node, _) => ownRenderingOf(node))
       .flatMap { case (node, prefix) =>
         render(node, id, prefix, states, selections, form, fragments)
       }
+
+  /** Whether a member is its own patch target in every clause: a leaf card. A
+    * member that can hold nodes is patched through them, and placed whole.
+    */
+  def memberIsTarget(id: NodeId): Boolean =
+    members.clauseNodesAt(id).forall(ownRenderingOf)
+
+  /** A member's whole element in document form, with what it claims for the
+    * record: what an arrival or a clause switch inserts. Per viewer, since a
+    * member holding regions can bake a viewer's selection.
+    */
+  def renderMemberTraced(
+      id: NodeId,
+      states: Map[String, EntityState],
+      selections: Selections,
+      fragments: QuerySnapshot
+  ): Option[Traced] =
+    members
+      .memberAt(id, states)
+      .map(memberTraced(_, states, selections, fragments))
+
+  private def memberTraced(
+      m: Member,
+      states: Map[String, EntityState],
+      selections: Selections,
+      fragments: QuerySnapshot
+  ): Traced =
+    traced(
+      m.node,
+      m.id,
+      rootToPrefix.getOrElse(m.root, ""),
+      states,
+      selections,
+      fragments,
+      MemberPath(m.id, m.clause, Nil)
+    )
 
   /** `s_<sid>__c`, what a state group's host holds; the same scheme the
     * build-phase hoist uses.
@@ -682,19 +730,9 @@ class Renderer(
   def surfaceNodeIds(surfaceId: String): Set[NodeId] =
     surfaceIndexes.get(surfaceId).fold(Set.empty)(_.indexed.keySet)
 
-  /** In DOM order, paired because a fill owes the record a digest per member.
+  /** A fill of either container: a set's members, in DOM order, or a state
+    * group's branch.
     */
-  def renderMembers(
-      groupId: SetId,
-      states: Map[String, EntityState],
-      fragments: QuerySnapshot
-  ): List[(NodeId, String)] =
-    members
-      .membersOf(groupId, states)
-      .toList
-      .map(m => m.id -> renderMember(m, states, SlotForm.Document, fragments))
-
-  /** A fill of either container: a set's members or a state group's branch. */
   private[runtime] def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
@@ -703,10 +741,13 @@ class Renderer(
   ): HostContent =
     members.setContainer(container) match {
       case Some(setId) =>
-        val parts = renderMembers(setId, states, fragments)
+        val traced = members
+          .membersOf(setId, states)
+          .toList
+          .map(m => m.id -> memberTraced(m, states, selections, fragments))
         HostContent(
-          parts,
-          parts.map { case (id, html) => id -> Held.of(html) }.toMap
+          traced.map((id, t) => id -> t.html),
+          traced.flatMap(_._2.claims).toMap
         )
       case None =>
         surfaces
@@ -733,12 +774,17 @@ class Renderer(
     * [[elementId]] for structural patches. `Dashboard.validate` enforces the
     * same rule when it rejects a live bytes slot on structure.
     */
+  private def ownRenderingOf(node: LayoutNode): Boolean = node match {
+    case c: LayoutNode.Component =>
+      !dashboard.cards.get(c.card).exists(_.isStructure)
+    case _: LayoutNode.SetNode => false
+  }
+
+  /** [[ownRenderingOf]] for a node of the static tree; a member's or one below
+    * it is decided by its current clause, so it goes through [[nodeAt]].
+    */
   private def hasOwnRendering(id: NodeId): Boolean =
-    allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _) =>
-        !dashboard.cards.get(c.card).exists(_.isStructure)
-      case (_: LayoutNode.SetNode, _) => false
-    }
+    allIndexed.get(id).exists((n, _) => ownRenderingOf(n))
 
   /** The node's `.fh-cell` root: the one crossing from node id to DOM id. */
   def elementId(id: NodeId): DomId = DomId.derived(id)
@@ -797,43 +843,44 @@ class Renderer(
     else Some(surfaces.resolveActive(id, selections))
 
   /** The render cache's key (ADR 0012): the content version of each entity that
-    * can move this node's bytes ([[entitiesAsBytesForNode]]) — not those read
-    * only through signal slots, whose values are absent from the patch form
-    * (ADR 0017). A version, not the value: `EntityState.hashCode` walks the
-    * attributes. A missing entity has no entry, a distinct key.
+    * can move this node's bytes — not those read only through signal slots,
+    * whose values are absent from the patch form (ADR 0017). A version, not the
+    * value: `EntityState.hashCode` walks the attributes. A missing entity has
+    * no entry, a distinct key.
     *
     * No selection (only structure reads one, and structure is never cached) and
     * no children (a descendant's tick would invalidate every ancestor). `None`
-    * means not cacheable: exactly [[hasOwnRendering]]'s `false`.
+    * means not cacheable: exactly [[ownRenderingOf]]'s `false`.
     */
   def renderInputs(
       id: NodeId,
       states: Map[String, EntityState],
       fragments: QuerySnapshot
   ): Option[RenderInputs] =
-    members
-      .memberAt(id, states)
-      .map(m =>
-        RenderInputs(
-          // The subject chose the member's case, so it keys the bytes even
-          // when no slot reads it.
-          versions(
-            m.node.subjectEntity.toList ++ m.node.liveEntitiesAsBytes,
-            states
-          ),
-          // The whole subtree, which renders under the member's id: a chart
-          // nested in a clause keys the member's bytes too.
-          fragments.versions(id, Renderer.subtreeAsks(m.node))
-        )
-      )
-      .orElse(
-        Option.when(hasOwnRendering(id))(
+    members.nodeAt(id, states) match {
+      case Some((m, c)) =>
+        Option.when(ownRenderingOf(c))(
           RenderInputs(
-            versions(entitiesAsBytesForNode(id), states),
-            fragments.versions(id, queriesForNode(id))
+            // The subject chose the clause, so it keys the bytes even when no
+            // slot reads it; the clause is named too, since every clause of a
+            // candidate mints the same ids below the member, and different key
+            // sets never compare ([[RenderInputs.isAtLeast]]).
+            versions(
+              m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
+              states
+            ) + (Renderer.clauseKey(m.clause) -> 0L),
+            fragments.versions(id, c.queries)
           )
         )
-      )
+      case None =>
+        allIndexed.get(id).collect {
+          case (c: LayoutNode.Component, _) if ownRenderingOf(c) =>
+            RenderInputs(
+              versions(c.liveEntitiesAsBytes, states),
+              fragments.versions(id, c.queries)
+            )
+        }
+    }
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
@@ -862,7 +909,7 @@ class Renderer(
               "pre-check cannot see a selection, so this must be fixed rather " +
               "than tolerated."
           )
-        val plan = planOf(id, id, c, states)
+        val plan = planOf(id, c, states)
         if (plan.subjectDynamic) None
         else {
           val b = Map.newBuilder[String, String]
@@ -937,12 +984,23 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: QuerySnapshot,
+      within: MemberPath | Null = null
   ): Traced = {
     val trace = new Trace
     val root = new Array[String](1)
     val html =
-      tracedHtml(node, id, idPrefix, states, selections, fragments, trace, root)
+      tracedHtml(
+        node,
+        id,
+        idPrefix,
+        states,
+        selections,
+        fragments,
+        trace,
+        root,
+        within
+      )
     Traced(
       html,
       trace.own.asScala.toMap,
@@ -963,11 +1021,12 @@ class Renderer(
       fragments: QuerySnapshot,
       trace: Trace,
       // [[Traced.rootOwn]]; `null` for a page, whose root is structure.
-      rootOwn: Array[String] | Null = null
+      rootOwn: Array[String] | Null,
+      within: MemberPath | Null
   ): String = {
     val out = Sink.buffer(
       Renderer.NodeBytesHint * (node match {
-        case c: LayoutNode.Component => planOf(id, id, c, states).nodeCount
+        case c: LayoutNode.Component => planOf(id, c, states).nodeCount
         case _                       => nodeCount(node)
       })
     )
@@ -981,7 +1040,8 @@ class Renderer(
       fragments,
       trace,
       rootOwn,
-      id
+      id,
+      within
     )
     out.result
   }
@@ -989,6 +1049,8 @@ class Renderer(
   /** A node's document bytes appended to `out`, and every own-rendering node's
     * patch digest into `trace`. An accumulator, not per-level maps merged
     * upward: those allocated per node per paint and re-copied every ancestor's.
+    * `within` is set below a set member: its nodes are ordinary, but a nested
+    * set's id carries the member's clause ([[MemberGraph.innerSetId]]).
     */
   private def tracedInto(
       out: Sink,
@@ -1000,14 +1062,15 @@ class Renderer(
       fragments: QuerySnapshot,
       trace: Trace,
       rootOwn: Array[String] | Null = null,
-      rootId: NodeId | Null = null
+      rootId: NodeId | Null = null,
+      within: MemberPath | Null = null
   ): Unit =
     node match {
       case c: LayoutNode.Component =>
         val (bakeIndex, bakeSel) = resolveBakeTraced(id, selections, states)
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
-        val plan = planOf(id, id, c, states)
+        val plan = planOf(id, c, states)
         val resolved = resolvePlanned(plan, states, bakeIndex, fragments)
         val tpl = plan.tpl
         // A second, patch-form render only where it can differ: own rendering
@@ -1028,8 +1091,23 @@ class Renderer(
         // same bytes.
         val inline = plan.inline
 
+        def withinOf(region: String, i: Int): MemberPath | Null =
+          if (within == null) null
+          else within.nn.down(LayoutNode.Step(region, i))
+
         def childId(region: String, i: Int, child: LayoutNode) =
-          LayoutNode.childId(idPrefix, id, LayoutNode.Step(region, i), child)
+          child match {
+            case set: LayoutNode.SetNode if within != null =>
+              val at = within.nn.down(LayoutNode.Step(region, i))
+              members.innerSetId(at.member, at.clause, at.path, set)
+            case _ =>
+              LayoutNode.childId(
+                idPrefix,
+                id,
+                LayoutNode.Step(region, i),
+                child
+              )
+          }
 
         def wrapper(buf: Sink, form: SlotForm): Unit =
           if (wrapped) {
@@ -1078,7 +1156,9 @@ class Renderer(
                       states,
                       selections,
                       fragments,
-                      trace
+                      trace,
+                      rootOwn = null,
+                      within = withinOf(region, i)
                     )
                   }
               }.toMap
@@ -1110,7 +1190,8 @@ class Renderer(
                         states,
                         selections,
                         fragments,
-                        trace
+                        trace,
+                        within = withinOf(region, i)
                       )
                     }
                   }
@@ -1175,78 +1256,31 @@ class Renderer(
           case None if resolved.signals.nonEmpty =>
             val _ = trace.seeded.put(id, resolved.signals)
           case None => ()
-      // The members are what a fill fingerprints; the root has no rendering.
+      // Each member is walked like any node, so the trace holds each patch
+      // target inside it; the root has no rendering.
       case s: LayoutNode.SetNode =>
         val setId = SetId.of(id, s)
-        // Membership evaluated once: `membersOf` re-tests every candidate's
-        // `when`.
-        val resolved =
-          members
-            .membersOf(setId, states)
-            .map(m => m -> resolveMember(m, states, fragments))
-        // Members write into the walk's buffer (issue #237); a member's patch
-        // form is rendered separately only when it has a signal slot.
         out
           .append(groupOpen)
           .append(Renderer.cellClasses(s.cell, themeClasses))
           .append("""" id="""")
           .append(setId)
           .append("\">")
-        resolved.foreach { case (m, rm) =>
-          val sigs = memberSignalsOf(rm)
-          val digest =
-            if (sigs.isEmpty)
-              out
-                .digesting(false)(
-                  renderResolvedMemberInto(_, m, rm, SlotForm.Document)
-                )
-                ._1
-            else {
-              renderResolvedMemberInto(out, m, rm, SlotForm.Document)
-              Digest.of(Sink.scratched { buf =>
-                renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
-                buf.result
-              })
-            }
-          trace.own.put(m.id, Painted(digest, sigs))
+        members.membersOf(setId, states).foreach { m =>
+          tracedInto(
+            out,
+            m.node,
+            m.id,
+            idPrefix,
+            states,
+            selections,
+            fragments,
+            trace,
+            within = MemberPath(m.id, m.clause, Nil)
+          )
         }
         val _ = out.append("</div>")
     }
-
-  private def renderSet(
-      id: SetId,
-      cell: Option[Cell],
-      states: Map[String, EntityState],
-      form: SlotForm,
-      fragments: QuerySnapshot
-  ): String =
-    setElement(
-      id,
-      cell,
-      members
-        .membersOf(id, states)
-        .map(renderMember(_, states, form, fragments))
-    )
-
-  private def setElement(
-      id: SetId,
-      cell: Option[Cell],
-      members: Seq[String]
-  ): String = {
-    // Appends, not an interpolated `mkString`, which copies twice (issue #237).
-    val out = Sink.buffer(
-      160 + members.foldLeft(0)(_ + _.length)
-    )
-    val _ = out
-      .append(groupOpen)
-      .append(Renderer.cellClasses(cell, themeClasses))
-      .append("""" id="""")
-      .append(id)
-      .append("\">")
-    members.foreach(out.append)
-    val _ = out.append("</div>")
-    out.result
-  }
 
   def renderMemberById(
       setId: SetId,
@@ -1257,201 +1291,7 @@ class Renderer(
     members
       .membersOf(setId, states)
       .find(_.key == MemberKey.Entity(entityId))
-      .map(renderMember(_, states, SlotForm.Document, fragments))
-
-  /** Always wrapped: the id'd cell is the member's patch target, so a
-    * `wrapAsCell = false` card cannot be a set clause.
-    */
-  private def renderMember(
-      m: Member,
-      states: Map[String, EntityState],
-      form: SlotForm,
-      fragments: QuerySnapshot
-  ): String = renderResolvedMember(m, resolveMember(m, states, fragments), form)
-
-  /** A member's tree resolved once — one patch unit — serving its document
-    * bytes, patch bytes and seed.
-    */
-  private case class ResolvedMember(
-      cardName: String,
-      tpl: Mustache,
-      resolved: Resolved,
-      regions: Map[String, List[ResolvedChild]]
-  )
-
-  /** A member's children are unaddressed; the member is their patch target. */
-  private enum ResolvedChild {
-    case Node(cell: Option[Cell], node: ResolvedMember)
-
-    /** Always document form: blanking its values would withhold ones no patch
-      * of this member restores.
-      */
-    case NestedSet(html: String)
-  }
-
-  private def resolveMember(
-      m: Member,
-      states: Map[String, EntityState],
-      fragments: QuerySnapshot
-  ): ResolvedMember = {
-    val plan = planOf(m.id, m.id, m.node, states)
-    ResolvedMember(
-      m.node.card,
-      plan.tpl,
-      // Children have no ids, so their signals are minted in the member's
-      // namespace and seeded on its wrapper.
-      resolvePlanned(plan, states, Map.empty, fragments),
-      Renderer.perRegion(m.node.regions)((child, step) =>
-        resolveChild(m, child, List(step), m.clause, states, fragments)
-      )
-    )
-  }
-
-  private def resolveChild(
-      m: Member,
-      node: LayoutNode,
-      path: List[LayoutNode.Step],
-      clauseIdx: Int,
-      states: Map[String, EntityState],
-      fragments: QuerySnapshot
-  ): ResolvedChild = node match {
-    case c: LayoutNode.Component =>
-      // Keyed by member id plus position: one plan per authored position.
-      val plan = planOf(s"${m.id}\u0000${path.mkString("/")}", m.id, c, states)
-      ResolvedChild.Node(
-        c.cell,
-        ResolvedMember(
-          c.card,
-          plan.tpl,
-          resolvePlanned(plan, states, Map.empty, fragments),
-          Renderer.perRegion(c.regions)((child, step) =>
-            resolveChild(m, child, path :+ step, clauseIdx, states, fragments)
-          )
-        )
-      )
-    case inner: LayoutNode.SetNode =>
-      ResolvedChild.NestedSet(
-        renderSet(
-          members.innerSetId(m.id, clauseIdx, path, inner),
-          inner.cell,
-          states,
-          SlotForm.Document,
-          fragments
-        )
-      )
-  }
-
-  private def renderResolvedMember(
-      m: Member,
-      rm: ResolvedMember,
-      form: SlotForm
-  ): String = {
-    Sink.scratched { out =>
-      renderResolvedMemberInto(out, m, rm, form)
-      out.result
-    }
-  }
-
-  private def renderResolvedMemberInto(
-      out: Sink,
-      m: Member,
-      rm: ResolvedMember,
-      form: SlotForm
-  ): Unit = {
-    // The seed covers the children too ([[memberSignalsOf]]).
-    cellOpenInto(out, m.node.cell, rm.resolved, form)
-    out
-      .append(""" id="""")
-      .append(m.id)
-      .append('"')
-    if (!form.isPatch) {
-      // The baked seed: building the attribute per paint was 12.5% of a
-      // candidate-set page open (`RenderBench.pageSet`).
-      val values = memberSignalsOf(rm)
-      Datastar.seedAttrInto(out, memberSeedOf(m, values), values)
-    }
-    cellBindingsInto(out, rm.resolved)
-    val _ = out.append('>')
-    memberBodyInto(out, rm, form)
-    val _ = out.append("</div>")
-  }
-
-  /** Inline regions as in [[tracedInto]]; the walk collects nothing, since the
-    * member is the whole subtree's patch target.
-    */
-  private def memberBodyInto(
-      out: Sink,
-      rm: ResolvedMember,
-      form: SlotForm
-  ): Unit = {
-    val inline = templates.inlineRegions.getOrElse(rm.cardName, Set.empty)
-    val walk: Map[String, java.io.Writer => Unit] =
-      inline.view.collect {
-        case region if rm.regions.contains(region) =>
-          region -> { (_: java.io.Writer) =>
-            rm.regions(region).foreach(memberChildInto(out, _, form))
-          }
-      }.toMap
-    val childrenHtml: Map[String, List[String]] =
-      rm.regions.view
-        .filterKeys(!walk.contains(_))
-        .mapValues(_.map { child =>
-          Sink.scratched { buf =>
-            memberChildInto(buf, child, form)
-            buf.result
-          }
-        })
-        .toMap
-    executeInto(out, rm.tpl, rm.resolved, childrenHtml, form, walk)
-  }
-
-  private def memberChildInto(
-      out: Sink,
-      child: ResolvedChild,
-      form: SlotForm
-  ): Unit = child match {
-    case ResolvedChild.NestedSet(html) => val _ = out.append(html)
-    case ResolvedChild.Node(cell, n)   =>
-      // The member's wrapper above holds the seed.
-      cellOpenInto(out, cell, n.resolved, form)
-      cellBindingsInto(out, n.resolved)
-      out.append('>')
-      memberBodyInto(out, n, form)
-      val _ = out.append("</div>")
-  }
-
-  /** Names are plan-time, only values are per paint. Rechecked by node
-    * identity, like [[nodePlans]]: a clause can hand a new node for the same
-    * member id. `Datastar.seedAttrInto` falls back if the values do not fit.
-    */
-  private val memberSeeds =
-    new java.util.concurrent.ConcurrentHashMap[
-      String,
-      (LayoutNode.Component, Datastar.SignalSeed)
-    ]()
-
-  private def memberSeedOf(
-      m: Member,
-      values: Map[SignalId, SlotValue]
-  ): Datastar.SignalSeed = {
-    val key: String = m.id
-    val cached = memberSeeds.get(key)
-    if (cached != null && (cached._1 eq m.node)) cached._2
-    else {
-      val seed = Datastar.seedFor(values.keys)
-      memberSeeds.put(key, (m.node, seed))
-      seed
-    }
-  }
-
-  /** Children included (they share the member's patch); a nested set's members
-    * own theirs.
-    */
-  private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, SlotValue] =
-    rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
-      case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)
-      case (acc, ResolvedChild.NestedSet(_)) => acc
-    }
+      .map(memberTraced(_, states, Selections.none, fragments).html)
 
   private def templateOf(cardName: String): Mustache =
     templates.components.getOrElse(
@@ -1634,20 +1474,16 @@ class Renderer(
   private val nodePlans =
     new java.util.concurrent.ConcurrentHashMap[String, NodePlan]()
 
-  /** `structuralId` is the member's for a member's child, which has no id of
-    * its own; hence a separate `key`.
-    */
   private def planOf(
-      key: String,
-      structuralId: NodeId,
+      id: NodeId,
       node: LayoutNode.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
-    val cached = nodePlans.get(key)
+    val cached = nodePlans.get(id)
     if (cached != null && (cached.node eq node)) cached
     else {
-      val p = buildPlan(structuralId, node, states)
-      nodePlans.put(key, p)
+      val p = buildPlan(id, node, states)
+      nodePlans.put(id, p)
       p
     }
   }
@@ -1750,7 +1586,7 @@ class Renderer(
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       subjectDynamic = subjectConst.isEmpty,
-      ownRendering = hasOwnRendering(id),
+      ownRendering = ownRenderingOf(c),
       declaresSignals = slots.values.exists(Renderer.isSignalSlot),
       wrapped = !noWrapCards(c.card),
       inline = templates.inlineRegions.getOrElse(c.card, Set.empty),
@@ -1869,44 +1705,18 @@ class Renderer(
     )
   }
 
-  /** Into the caller's buffer: wrapping a returned String copies the whole
-    * subtree once per nesting level (issue #237).
-    */
-  private def executeInto(
-      out: Sink,
-      tpl: Mustache,
-      r: Resolved,
-      childrenHtml: Map[String, List[String]],
-      form: SlotForm,
-      regionWalk: Map[String, java.io.Writer => Unit]
-  ): Unit =
-    Templates.run(
-      tpl,
-      out,
-      NodeContext(r, childrenHtml, form, regionWalk)
-    )
-
-  /** The signal values one patch unit carries (ADR 0017). A member includes its
-    * children, which have no ids; a static node does not — descending there
-    * would name a child's signal under its parent and leave the child's binding
-    * on a signal nothing writes.
+  /** The signal values one node carries (ADR 0017), never its children's:
+    * descending would name a child's signal under its parent and leave the
+    * child's binding on a signal nothing writes.
     */
   def signalsFor(
       id: NodeId,
       states: Map[String, EntityState]
   ): Map[SignalId, SlotValue] =
-    members
-      .memberAt(id, states)
-      // Signals only: a query slot has none.
-      .map(m => memberSignalsOf(resolveMember(m, states, QuerySnapshot.empty)))
-      .orElse(
-        // Not gated on `hasOwnRendering`: structure's signal slots would be
-        // seeded once and then never move.
-        allIndexed
-          .get(id)
-          .map(_._1)
-          .map(signalsOfSlots(id, _, states))
-      )
+    // Not gated on own rendering: structure's signal slots would be seeded
+    // once and then never move.
+    nodeAt(id, states)
+      .map((node, _) => signalsOfSlots(id, node, states))
       .getOrElse(Map.empty)
 
   /** Through the plan: re-deriving the names per tick was 9.4% of a signals
@@ -1918,7 +1728,7 @@ class Renderer(
       states: Map[String, EntityState]
   ): Map[SignalId, SlotValue] = node match {
     case c: LayoutNode.Component =>
-      val plan = planOf(id, id, c, states)
+      val plan = planOf(id, c, states)
       // A dynamic subject's plan holds no names, not because it has no
       // signals.
       if (plan.subjectDynamic) directSignalsOfSlots(id, c, states)
@@ -2026,6 +1836,17 @@ class Renderer(
 }
 
 object Renderer {
+
+  /** A render key's entry naming a member's clause ([[Renderer.renderInputs]]).
+    * NUL-led, so no entity id can collide with it.
+    */
+  def clauseKey(clause: Int): String =
+    if (clause < ClauseKeys.length) ClauseKeys(clause)
+    else s"\u0000clause $clause"
+
+  // Interned: a key is built on every render-cache lookup.
+  private val ClauseKeys: Vector[String] =
+    Vector.tabulate(16)(i => s"\u0000clause $i")
 
   /** A subtree's asks, stopping at a nested set, whose members ask their own.
     */
