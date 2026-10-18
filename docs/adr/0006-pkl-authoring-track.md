@@ -12,7 +12,7 @@ beyond top-level fields, and sharing a component library meant copying
 JDK) showed [Pkl](https://pkl-lang.org) offers what jsonnet structurally cannot:
 
 - **compile-time checking** — typed card classes, constrained types
-  (`hass.Entity(sliderSpec.containsKey(domain))` makes "slider on a sensor" a
+  (`hass.Entity(domainAxes.containsKey(domain))` makes "slider on a sensor" a
   build error whose carets point at both the contract and the offending
   dashboard line);
 - **editor support** — official LSP, VS Code and IntelliJ plugins with

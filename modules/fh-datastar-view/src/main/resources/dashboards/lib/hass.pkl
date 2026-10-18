@@ -135,9 +135,61 @@ class ColourTemp extends Axis {
   inUseWhen = new { attr = "color_mode"; values = List("color_temp") }
 }
 
-class Effects {
-  owner: LightEntity
+/// What an entity is set to, one value at a time: what it offers, where the
+/// current one is read, and how a choice is written. A capability group that is
+/// one extends this, so `c.select` takes the group and reads the rest off it,
+/// as a slider does an [[Axis]].
+open class Options {
+  owner: Entity
   list: Listing<String>
+  /// What it is called after the entity's id; null where the entity is the
+  /// choice itself.
+  name: String? = null
+  /// The attribute holding the current value; null is the state.
+  attr: String? = null
+  service: String
+  key: String
+}
+
+class Effects extends Options {
+  owner: LightEntity
+  name = "effects"
+  attr = "effect"
+  service = "light/turn_on"
+  key = "effect"
+}
+
+/// A `select` entity's options: the state is the chosen one.
+class SelectOptions extends Options {
+  owner: SelectEntity
+  service = "select/select_option"
+  key = "option"
+}
+
+/// A climate entity's `hvac_modes`: the state is the one it is in.
+class HvacModes extends Options {
+  owner: ClimateEntity
+  name = "HVAC modes"
+  service = "climate/set_hvac_mode"
+  key = "hvac_mode"
+}
+
+/// A climate entity's `preset_modes`, the one in use in `preset_mode`.
+class ClimatePresets extends Options {
+  owner: ClimateEntity
+  name = "presets"
+  attr = "preset_mode"
+  service = "climate/set_preset_mode"
+  key = "preset_mode"
+}
+
+/// A fan's `preset_modes`, the one in use in `preset_mode`.
+class FanPresets extends Options {
+  owner: FanEntity
+  name = "presets"
+  attr = "preset_mode"
+  service = "fan/set_preset_mode"
+  key = "preset_mode"
 }
 
 /// Present only on lights with a colour mode (`hass_light.COLOUR_MODES`). No
@@ -302,11 +354,29 @@ open class NumberEntity extends Entity {
   domain: "number" = "number"
 }
 
+/// developers.home-assistant.io/docs/core/entity/climate
+///
+/// Each group is null where the entity reports no list, so
+/// `c.select(heater.presets)` on a climate without presets is an editor error.
+open class ClimateEntity extends Entity {
+  domain: "climate" = "climate"
+  hidden hvacModes: HvacModes? = null
+  hidden presets: ClimatePresets? = null
+}
+
+/// developers.home-assistant.io/docs/core/entity/fan
+open class FanEntity extends Entity {
+  domain: "fan" = "fan"
+  hidden presets: FanPresets? = null
+}
+
 open class SelectEntity extends Entity {
   domain: "select" = "select"
 
   /// What it can be set to, in the integration's order.
   hidden options: Listing<String> = new Listing {}
+  /// The same, as the choice `c.select(s)` reads.
+  hidden choices: SelectOptions = let (self = this) new SelectOptions { owner = self; list = self.options }
 }
 
 /// developers.home-assistant.io/docs/core/entity/scene
@@ -420,6 +490,12 @@ function buttons(scope: List<Entity>): List<ButtonEntity> =
 function inputButtons(scope: List<Entity>): List<InputButtonEntity> =
   scope.filter((e) -> e is InputButtonEntity) as List<InputButtonEntity>
 
+function climates(scope: List<Entity>): List<ClimateEntity> =
+  scope.filter((e) -> e is ClimateEntity) as List<ClimateEntity>
+
+function fans(scope: List<Entity>): List<FanEntity> =
+  scope.filter((e) -> e is FanEntity) as List<FanEntity>
+
 /// The entities no selector claims. A number or select lands here despite its
 /// typed class: nothing has wanted every number in the house as a group yet.
 function generic(scope: List<Entity>): List<Entity> =
@@ -428,4 +504,5 @@ function generic(scope: List<Entity>): List<Entity> =
       && !(e is SensorEntity) && !(e is BinarySensorEntity)
       && !(e is SwitchEntity) && !(e is SceneEntity)
       && !(e is ScriptEntity) && !(e is ButtonEntity)
-      && !(e is InputButtonEntity))
+      && !(e is InputButtonEntity) && !(e is ClimateEntity)
+      && !(e is FanEntity))

@@ -115,7 +115,7 @@ and a refused click; a slider's range is disabled and its commit refuses.
   one. A `nodes.SubjectButton` is one the slider fills in from its subject entity
   (`c.its`, below): `EntitySlider` resolves them into `shownButtons`, so the base never
   names an entity, and refuses one left unresolved.
-- What makes a slider "about this entity" stays HA: `SlideAxis`, `sliderSpec`,
+- What makes a slider "about this entity" stays HA: `SlideAxis`, `domainAxes`,
   the RGB and kelvin fills, the `"state"`/`"percent"` readout names and the
   `valueExpr`/`percentExpr` splice surface.
 - `sliderHead` and `sliderText` do not DECLARE `entity_id`: a declared slot must

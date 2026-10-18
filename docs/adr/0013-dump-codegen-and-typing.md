@@ -386,8 +386,11 @@ c.light.effectPills(l.effects)
 
 `EntitySlider` accepts `SlideAxis = hass.Entity|hass.Axis` and reads its entity, key, bounds and
 tracked attribute off the axis; an entity given as itself gets its domain's row
-(`domainAxes`), an `Axis` too. Three
-properties fall out, and each was a defect in an earlier shape:
+(`domainAxes`), an `Axis` too. A choice works the same way: `hass.Options` carries
+the list, where the current value is read and the service a choice posts, so
+`c.select` takes the group (`l.effects`, `heater.hvacModes`, `vent.presets`) and holds
+no branch per domain. Three properties fall out, and each was a defect in an
+earlier shape:
 
 - **The entity is named once.** There is no second parameter, so
   `slider(a, b.colourTemp)` — two entities disagreeing — is unrepresentable
@@ -577,7 +580,8 @@ knows:
 
 - **Modelled** — a domain class with derived predicates and its HA constants
   vendored, plus capability GROUPS where the domain has co-occurring values to
-  group (only `light` does so far — `lock` and `sensor` carry flat fields).
+  group (`light`, `climate` and `fan` so far — `lock` and `sensor` carry flat
+  fields).
 - **Typed** — a domain class, so a value can be typed `List<XEntity>` and a card
   factory can demand the domain; capabilities still arrive on the per-entity
   class.
@@ -597,8 +601,10 @@ knows:
 | `number` | Typed | [number](https://developers.home-assistant.io/docs/core/entity/number) |
 | `select` | Typed | [select](https://developers.home-assistant.io/docs/core/entity/select) |
 | `scene`, `script`, `button`, `input_button` | Typed, with a selector and a house namespace each (`dump.scenes.all`, `dump.scenes.kveld`) — the domains a tap fires rather than switches, which is what `hass.Activatable` and `c.tap.activate` take. A scene's `members` are the entities it sets | [scene](https://developers.home-assistant.io/docs/core/entity/scene), [button](https://developers.home-assistant.io/docs/core/entity/button) |
-| `cover`, `fan` | Generic — but both have a `sliderSpec` row, so `c.entitySlider` works on them | [cover](https://developers.home-assistant.io/docs/core/entity/cover), [fan](https://developers.home-assistant.io/docs/core/entity/fan) |
-| `climate`, `media_player`, `vacuum`, `lawn_mower`, `water_heater`, `humidifier`, `alarm_control_panel`, `valve`, `remote`, `siren`, `camera`, `weather` | Generic — **bitmask domains**, the next candidates: each has an `*EntityFeature` IntFlag to vendor exactly as `light`'s was | [climate](https://developers.home-assistant.io/docs/core/entity/climate), [media_player](https://developers.home-assistant.io/docs/core/entity/media-player), [vacuum](https://developers.home-assistant.io/docs/core/entity/vacuum), [lawn_mower](https://developers.home-assistant.io/docs/core/entity/lawn-mower), [water_heater](https://developers.home-assistant.io/docs/core/entity/water-heater), [humidifier](https://developers.home-assistant.io/docs/core/entity/humidifier), [alarm_control_panel](https://developers.home-assistant.io/docs/core/entity/alarm-control-panel), [valve](https://developers.home-assistant.io/docs/core/entity/valve), [remote](https://developers.home-assistant.io/docs/core/entity/remote), [siren](https://developers.home-assistant.io/docs/core/entity/siren), [camera](https://developers.home-assistant.io/docs/core/entity/camera), [weather](https://developers.home-assistant.io/docs/core/entity/weather) |
+| `climate` | **Modelled** — `hvacModes` and `presets` groups (`hass.Options`), each present only where the entity reports the list. `ClimateEntityFeature` is not vendored yet | [climate](https://developers.home-assistant.io/docs/core/entity/climate) |
+| `fan` | **Modelled** — a `presets` group (`hass.Options`); a `domainAxes` row makes `c.entitySlider` drive its percentage | [fan](https://developers.home-assistant.io/docs/core/entity/fan) |
+| `cover` | Generic — but it has a `domainAxes` row, so `c.entitySlider` works on it | [cover](https://developers.home-assistant.io/docs/core/entity/cover) |
+| `media_player`, `vacuum`, `lawn_mower`, `water_heater`, `humidifier`, `alarm_control_panel`, `valve`, `remote`, `siren`, `camera`, `weather` | Generic — **bitmask domains**, the next candidates: each has an `*EntityFeature` IntFlag to vendor exactly as `light`'s was | [media_player](https://developers.home-assistant.io/docs/core/entity/media-player), [vacuum](https://developers.home-assistant.io/docs/core/entity/vacuum), [lawn_mower](https://developers.home-assistant.io/docs/core/entity/lawn-mower), [water_heater](https://developers.home-assistant.io/docs/core/entity/water-heater), [humidifier](https://developers.home-assistant.io/docs/core/entity/humidifier), [alarm_control_panel](https://developers.home-assistant.io/docs/core/entity/alarm-control-panel), [valve](https://developers.home-assistant.io/docs/core/entity/valve), [remote](https://developers.home-assistant.io/docs/core/entity/remote), [siren](https://developers.home-assistant.io/docs/core/entity/siren), [camera](https://developers.home-assistant.io/docs/core/entity/camera), [weather](https://developers.home-assistant.io/docs/core/entity/weather) |
 | `text`, `date`, `datetime`, `time`, `event`, `todo`, `calendar`, `update`, `image`, `notify`, `device_tracker`, `geo_location`, `air_quality` | Generic — no feature bitmask; `device_class` (already carried) is most of what they have | [text](https://developers.home-assistant.io/docs/core/entity/text), [date](https://developers.home-assistant.io/docs/core/entity/date), [datetime](https://developers.home-assistant.io/docs/core/entity/datetime), [time](https://developers.home-assistant.io/docs/core/entity/time), [event](https://developers.home-assistant.io/docs/core/entity/event), [todo](https://developers.home-assistant.io/docs/core/entity/todo), [calendar](https://developers.home-assistant.io/docs/core/entity/calendar), [update](https://developers.home-assistant.io/docs/core/entity/update), [image](https://developers.home-assistant.io/docs/core/entity/image), [notify](https://developers.home-assistant.io/docs/core/entity/notify), [device_tracker](https://developers.home-assistant.io/docs/core/entity/device-tracker), [geo_location](https://developers.home-assistant.io/docs/core/entity/geo-location), [air_quality](https://developers.home-assistant.io/docs/core/entity/air-quality) |
 | `conversation`, `stt`, `tts`, `wake_word`, `assist_satellite`, `ai_task`, `infrared`, `radio_frequency` | Generic — voice/AI plumbing, no dashboard use yet | [entity index](https://developers.home-assistant.io/docs/core/entity) |
 

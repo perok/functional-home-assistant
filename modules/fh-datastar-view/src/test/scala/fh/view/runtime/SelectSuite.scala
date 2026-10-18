@@ -246,4 +246,83 @@ class SelectSuite extends CatsEffectSuite {
         )
       }
   }
+
+  private val heater = FixtureEntity(
+    "climate.heater",
+    "heat",
+    Map(
+      "hvac_modes" -> Json.arr(
+        Json.fromString("heat"),
+        Json.fromString("auto"),
+        Json.fromString("off")
+      ),
+      "preset_modes" -> Json.arr(
+        Json.fromString("eco"),
+        Json.fromString("comfort")
+      ),
+      "preset_mode" -> Json.fromString("comfort")
+    )
+  )
+
+  private val vent = FixtureEntity(
+    "fan.vent",
+    "on",
+    Map(
+      "preset_modes" -> Json
+        .arr(Json.fromString("low"), Json.fromString("high")),
+      "preset_mode" -> Json.fromString("high")
+    )
+  )
+
+  private val optionsEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    c.select(dump.climates.heater.hvacModes)
+       |    c.select(dump.climates.heater.presets).style("cycle")
+       |    c.select(dump.fans.vent.presets).style("dropdown")
+       |  }
+       |}
+       |""".stripMargin
+
+  test(
+    "every kind of options posts its own service and lights where it reads"
+  ) {
+    TestServer
+      .fromWorkspace("select-options", optionsEntry, List(heater, vent))
+      .use(_.page())
+      .timeout(60.seconds)
+      .map { html =>
+        def calls(service: String, entity: String): Int =
+          s"$service' \\+ '/entity/${entity.replace(".", "\\.")}".r
+            .findAllMatchIn(html)
+            .size
+        assertEquals(calls("climate/set_hvac_mode", heater.entityId), 3, html)
+        assertEquals(calls("climate/set_preset_mode", heater.entityId), 2, html)
+        assertEquals(calls("fan/set_preset_mode", vent.entityId), 2, html)
+        // The HVAC mode is the state; a preset is `preset_mode`.
+        assert(
+          """<summary class="fh-select-summary"><span [^>]*>high</span>""".r
+            .findFirstIn(html)
+            .isDefined,
+          html
+        )
+        // `heat` in the buttons and `high` in the list are lit; `comfort` is
+        // the cycle's marked face.
+        assertEquals(
+          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          2,
+          clue = html
+        )
+        assertEquals(
+          """class="[^"]*fh-cell[^"]*fh-chosen""".r.findAllMatchIn(html).size,
+          1,
+          clue = html
+        )
+      }
+  }
 }

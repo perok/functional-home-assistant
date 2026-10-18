@@ -118,4 +118,48 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     assert(src.contains("device_class: String = \"tv\""), clue = src)
     assert(!src.contains("colourModes"), clue = src)
   }
+
+  private def entity(id: String, attrs: (String, Json)*): Json =
+    Json.obj(
+      "entity_id" -> Json.fromString(id),
+      "domain" -> Json.fromString(id.takeWhile(_ != '.')),
+      "members" -> Json.arr(),
+      "attributes" -> Json.obj(attrs*)
+    )
+
+  private def strings(xs: String*): Json =
+    Json.fromValues(xs.map(Json.fromString))
+
+  test("every list a choice reads becomes its Options group, and only that") {
+    // (entity, attribute, the group's property and type)
+    val groups = List(
+      ("climate.a", "hvac_modes", "hvacModes", "hass.HvacModes"),
+      ("climate.a", "preset_modes", "presets", "hass.ClimatePresets"),
+      ("fan.a", "preset_modes", "presets", "hass.FanPresets")
+    )
+    groups.foreach { case (id, attr, property, groupType) =>
+      val key = id.replace('.', '_')
+      val src = PklDump.render(dump(entity(id, attr -> strings("x", "y"))))
+      assert(
+        src.contains(
+          s"hidden $property: $groupType = new { owner = e_$key; list = new Listing { \"x\"; \"y\" } }"
+        ),
+        clue = src
+      )
+      assert(!src.contains(s"$attr:"), clue = src)
+    }
+  }
+
+  test("an EMPTY list is no choice, so no group") {
+    val src = PklDump.render(dump(entity("fan.a", "preset_modes" -> strings())))
+    assert(!src.contains("hass.FanPresets"), clue = src)
+  }
+
+  test("a list no group reads still lands on the entity") {
+    val src = PklDump.render(
+      dump(entity("climate.a", "fan_modes" -> strings("low", "high")))
+    )
+    assert(src.contains("fan_modes"), clue = src)
+    assert(!src.contains("hvacModes"), clue = src)
+  }
 }

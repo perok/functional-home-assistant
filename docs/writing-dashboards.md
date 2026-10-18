@@ -82,3 +82,22 @@ and `c.tap.lights.on/off/toggle` are the light shortcuts. The target can be:
 The server only runs the calls a dashboard declares, and only for someone who
 can view that dashboard. A set can only ever reach the entities you listed
 when you built it.
+
+## Choosing one of several values
+
+`c.select(…)` shows a set of values and sets the one you press. Point it at
+what has the values:
+
+```pkl
+c.select(dump.entities.robot_mode)               // a select entity
+c.select(dump.lights.stue.effects)               // a light's effects
+c.select(dump.climates.bad.hvacModes)            // a climate's HVAC modes
+c.select(dump.climates.bad.presets)              // its presets
+c.select(dump.fans.vifte.presets)                // a fan's presets
+```
+
+Only what the entity actually has can be chosen: a climate that reports no
+presets has no `presets`, so asking for them is an error in the editor, before
+anything runs. `.options(List("eco", "comfort"))` shows a subset, in your
+order, and `.style("dropdown")` or `.style("cycle")` changes the look from a
+row of buttons.

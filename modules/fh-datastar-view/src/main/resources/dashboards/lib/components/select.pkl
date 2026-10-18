@@ -5,6 +5,7 @@
 ///     c.select(shade).options(List("pale", "deep")).style("dropdown")  // a node variable
 ///     c.select(dump.entities.robot_mode)                               // a select entity's options
 ///     c.select(lamp.effects!!).style("cycle")                          // a light's effects
+///     c.select(heater.hvacModes)                                       // any other hass.Options
 ///
 /// A node variable is only chosen, never declared: whatever holds its readers
 /// declares it, and the build refuses a select with no declarer above it (ADR
@@ -30,8 +31,12 @@ import "base/surface.pkl" as surfaces
 
 typealias SelectStyle = "buttons"|"dropdown"|"cycle"
 
-/// What a select chooses for.
-typealias Target = varMod.Variable|hass.SelectEntity|hass.Effects
+/// What `c.select` takes: a `select` entity stands for its own options.
+typealias Target = varMod.Variable|hass.Options|hass.SelectEntity
+
+/// What a select chooses for, once `c.select` has resolved an entity to its
+/// options.
+typealias Over = varMod.Variable|hass.Options
 
 /// One option. A node variable's value travels in a route segment, so there it
 /// must be a [[varMod.Value]]; an entity's travels in a JSON body.
@@ -51,30 +56,28 @@ const function choiceOf(v: String|Choice): Choice =
 const local function quoted(s: String): String =
   "'" + s.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
 
-const local function targetName(t: Target): String =
-  if (t is varMod.Variable) t.name
-  else if (t is hass.Effects) t.owner.entity_id + " effects"
-  else (t as hass.SelectEntity).entity_id
+const local function targetName(t: Over): String =
+  if (t is hass.Options) t.owner.entity_id + (if (t.name != null) " " + t.name!! else "")
+  else t.name
 
 /// What the target itself offers: an entity's own list, none for a variable.
-const local function offered(t: Target): List<String> =
-  if (t is hass.SelectEntity) t.options.toList()
-  else if (t is hass.Effects) t.list.toList()
-  else List()
+const local function offered(t: Over): List<String> =
+  if (t is hass.Options) t.list.toList() else List()
 
 /// `{'v': 'label', …}`, a JS or CEL map literal.
 const local function labelMap(cs: List<Choice>): String =
   "{" + cs.map((ch) -> "\(quoted(ch.value)): \(quoted(ch.label))").join(", ") + "}"
 
-/// Whether `v` is the entity's current value, as CEL over its state.
-const local function entityChosen(t: hass.SelectEntity|hass.Effects, v: String): slotMod.Expr =
-  if (t is hass.Effects)
-    slotMod.exprOf(t.owner, "attr[?'effect'].orValue('') == \(quoted(v))")
-  else slotMod.exprOf(t as hass.SelectEntity, "state == \(quoted(v))")
+/// The entity's current value, as CEL.
+const local function currentOf(o: hass.Options): String =
+  if (o.attr != null) "attr[?\(quoted(o.attr!!))].orValue('')" else "state"
 
-const local function entityCall(t: hass.SelectEntity|hass.Effects, v: String): tapMod.Call =
-  if (t is hass.Effects) tapMod.call("light/turn_on", t.owner).with("effect", v)
-  else tapMod.call("select/select_option", t as hass.SelectEntity).with("option", v)
+/// Whether `v` is the entity's current value.
+const local function entityChosen(o: hass.Options, v: String): slotMod.Expr =
+  slotMod.exprOf(o.owner, "\(currentOf(o)) == \(quoted(v))")
+
+const local function entityCall(o: hass.Options, v: String): tapMod.Call =
+  tapMod.call(o.service, o.owner).with(o.key, v)
 
 // Each option is a node, so the card is structure: a patch of the select never
 // re-sends them.
@@ -100,7 +103,7 @@ const local function panelsOf(v: varMod.Variable, nodesFor: List<nodes.LayoutNod
   }
 
 abstract class Select extends nodes.Node {
-  hidden target: Target
+  hidden target: Over
   hidden choices: List<Choice> = offered(target).map((v) -> choiceOf(v))
   /// Whether a press chooses the NEXT option rather than its own.
   hidden cycling: Boolean = false
@@ -224,15 +227,14 @@ class SelectDropdown extends Select {
     slots { "chosen" }
     css = menuCss
   }
+  hidden target: hass.Options
   // A class-level property: a nested body cannot see `target`, which `Select`
-  // declares.
+  // declares. A value outside the options shows as itself.
   hidden chosen: slotMod.Slot =
-    let (t = target) let (labels = labelMap(choices))
+    let (o = target) let (labels = labelMap(choices)) let (current = currentOf(o))
       new slotMod.Slot {
-        entityId = if (t is hass.Effects) t.owner.entity_id else (t as hass.SelectEntity).entity_id
-        transform =
-          if (t is hass.Effects) "\(labels)[?attr[?'effect'].orValue('')].orValue('')"
-          else "\(labels)[?state].orValue(state)"
+        entityId = o.owner.entity_id
+        transform = "\(labels)[?\(current)].orValue(\(current))"
         signal = slotMod.asText
         bypassUnavailable = false
       }
@@ -242,6 +244,7 @@ class SelectDropdown extends Select {
 /// [[SelectDropdown]] over a node variable: its label is one member per option,
 /// baked by the variable's value.
 class VarSelectDropdown extends Select {
+  hidden target: varMod.Variable
   card = "selectVarDropdown"
   cardDef = new nodes.CardDef {
     regions = (optionsRegion) { ...panelRegion }
@@ -250,13 +253,14 @@ class VarSelectDropdown extends Select {
   }
   inlineSurfaces =
     let (cs = choices)
-      panelsOf(target as varMod.Variable, cs.map((ch) -> new ChoiceLabel { label = ch.label; icon = ch.icon }), cs)
+      panelsOf(target, cs.map((ch) -> new ChoiceLabel { label = ch.label; icon = ch.icon }), cs)
 }
 
 /// One button showing the chosen option; a press chooses the next, round. Over
 /// an entity every option is rendered and the server marks the chosen one;
 /// [[VarSelectCycle]] is a variable's.
 class SelectCycle extends Select {
+  hidden target: hass.Options
   card = "selectCycle"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
@@ -269,6 +273,7 @@ class SelectCycle extends Select {
 /// [[SelectCycle]] over a node variable: one member per option, baked by the
 /// variable's value, so only the chosen option's button is sent.
 class VarSelectCycle extends Select {
+  hidden target: varMod.Variable
   card = "selectVarCycle"
   cardDef = new nodes.CardDef {
     regions = panelRegion
@@ -277,7 +282,7 @@ class VarSelectCycle extends Select {
   }
   cycling = true
   children = new Listing {}
-  inlineSurfaces = panelsOf(target as varMod.Variable, optionNodes, choices)
+  inlineSurfaces = panelsOf(target, optionNodes, choices)
 }
 
 /// The label a [[VarSelectDropdown]] shows for one option. An icon replaces
@@ -325,4 +330,5 @@ class EntityOption extends nodes.ActiveNode {
 }
 
 /// `c.select(target)`: buttons until `.style(…)` says otherwise.
-function select(t: Target): Select = new SelectButtons { target = t }
+function select(t: Target): Select =
+  new SelectButtons { target = if (t is hass.SelectEntity) t.choices else t }
