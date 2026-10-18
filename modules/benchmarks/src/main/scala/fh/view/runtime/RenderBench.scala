@@ -1598,10 +1598,7 @@ object RenderBench {
   final val Distinct = 40
 
   // The transform shapes the shipped components use today, in the exact CEL
-  // bytes they ship (single-sourced from [[CelShapes]] — the renderer's probe
-  // dashboards must compile under the shipped engine, which no longer speaks
-  // in the mix. The JSONata counterparts these replaced live on [[Jsonata]] as
-  // the reference the divergence gate ([[CelSpike]]) runs.
+  // bytes they ship (single-sourced from [[CelShapes]]).
   final val TransformName = CelShapes.TransformName
   final val TransformUnit = CelShapes.TransformUnit
   final val TransformFill = CelShapes.TransformFill

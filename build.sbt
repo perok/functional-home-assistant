@@ -600,10 +600,6 @@ lazy val benchmarks = project
     commonSettings,
     publish / skip := true,
     libraryDependencies ++= Seq(
-      // The old transform engine, now dev-tooling only: the JSONata REFERENCE
-      // for the divergence gate + RenderBench's jsonata cells. The shipped
-      // runtime is `fh-datastar-view` (CEL), which no longer depends on it.
-      "com.dashjoin" % "jsonata" % "0.9.10",
       // CEL for the `engine-cel` comparison (RenderBench.cel / .celComplex).
       // Dev-tooling only: the shipped runtime is `fh-datastar-view`.
       // Bundles the extension libraries (strings/lists/math/

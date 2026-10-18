@@ -16,15 +16,15 @@ package fh.view.runtime
   *     ints is integer division.
   *   - '''`str(...)`, never native `string(...)`.''' `math.round` returns a
   *     double, which `string(...)` renders as `247.0`; the registered `str`
-  *     strips the `.0` and renders lists the way JSONata's `$string` did.
+  *     strips the `.0` and renders `[a, b]` lists.
   *   - '''Ternary arms must share a type.''' CEL has no `? x : null`, so the
   *     kelvin-absent arm of the fill colour is `''`.
   *   - '''Presence is `'k' in attr`.''' Raw `attr['k']` on an absent key is an
-  *     evaluation error (JSONata read it as null), so every attribute read is
-  *     gated — and an empty-string value is PRESENT to `in`, where JSONata
-  *     found it falsy (the surviving, deliberate divergences CelSpike pins).
-  *   - '''`cel.bind` for JSONata's `:=`''', `attr.transformList(k, v, ...)` for
-  *     `$each`, `.sort()`/`.join('\n')` for `$sort`/`$join`.
+  *     evaluation error, so every attribute read is gated — and an empty-string
+  *     value is PRESENT to `in`.
+  *   - '''`cel.bind` names a shared subexpression''', and
+  *     `attr.transformList(k, v, ...)`, `.sort()`, `.join('\n')` build the
+  *     attribute lines.
   */
 object CelShapes {
 
@@ -45,7 +45,7 @@ object CelShapes {
     """cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %' : '0 %')"""
 
   // The fill COLOUR (slider.pkl): rgb_color wins, else the kelvin ramp —
-  // `double(k)` for the Long kelvin, `''` where JSONata had null.
+  // `double(k)` for the Long kelvin, `''` as the absent arm.
   final val TransformFillColor =
     """cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, (rgb != null && size(rgb) == 3) ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : (k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : ((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), 'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) + ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')))"""
 
