@@ -194,7 +194,7 @@ function variable(name: String): varMod.Variable =
 /// `.style("cycle")`; `.options(…)` picks, orders and relabels them.
 function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
 /// A section shown while `p` holds over live state.
-function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
+function iff(p: pred.Predicate|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
 /// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// [[expr]] over another entity than the card's.

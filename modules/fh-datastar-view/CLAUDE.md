@@ -378,7 +378,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now
   only needed to FORCE more-info on a card whose domain does have an action),
-  candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
+  candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) ``, or `c.iff(v.valueIs(x))` for a per-viewer branch chosen by a node variable — state-activated
   surfaces on the tabs machinery, ADR 0007; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`

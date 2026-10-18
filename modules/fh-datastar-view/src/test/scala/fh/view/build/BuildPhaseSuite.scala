@@ -639,6 +639,44 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
+  test("a variable's fallback member takes any value, and there is one") {
+    def member(index: Int, activation: Activation): Surface =
+      Surface(
+        LayoutNode.Component("ok"),
+        bakeInto = Some("c"),
+        bakeAs = Some("branch"),
+        bakeIndex = Some(index),
+        activation = activation
+      )
+    val dash = Dashboard(
+      cards = Map(
+        "ok" -> CardDef(
+          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          regions = Map("branch" -> Region(Region.Baked))
+        )
+      ),
+      // Declared at a value only the fallback takes.
+      card = LayoutNode.Component("ok", vars = Map("window" -> "24h")),
+      surfaces = Map(
+        "then" -> member(0, Activation.Var("window", Some("30d"))),
+        "else" -> member(1, Activation.Var("window", otherwise = true))
+      )
+    )
+    assertEquals(dash.validate(), Nil)
+    val two = dash.copy(surfaces =
+      dash.surfaces + ("more" -> member(
+        2,
+        Activation.Var("window", otherwise = true)
+      ))
+    )
+    assert(
+      two
+        .validate()
+        .exists(_.contains("2 members selected at every other value")),
+      clue = two.validate()
+    )
+  }
+
   test("validate rejects a state condition that names no entity") {
     def dash(condition: Predicate) = Dashboard(
       // The bake target must declare the region its surfaces name.
