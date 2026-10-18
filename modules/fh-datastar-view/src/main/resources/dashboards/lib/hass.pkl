@@ -135,9 +135,35 @@ class ColourTemp extends Axis {
   inUseWhen = new { attr = "color_mode"; values = List("color_temp") }
 }
 
-class Effects {
-  owner: LightEntity
+/// What an entity is set to, one value at a time: what it offers, where the
+/// current one is read, and how a choice is written. A capability group that is
+/// one extends this, so `c.select` takes the group and reads the rest off it,
+/// as a slider does an [[Axis]].
+open class Options {
+  owner: Entity
   list: Listing<String>
+  /// What it is called after the entity's id; null where the entity is the
+  /// choice itself.
+  name: String? = null
+  /// The attribute holding the current value; null is the state.
+  attr: String? = null
+  service: String
+  key: String
+}
+
+class Effects extends Options {
+  owner: LightEntity
+  name = "effects"
+  attr = "effect"
+  service = "light/turn_on"
+  key = "effect"
+}
+
+/// A `select` entity's options: the state is the chosen one.
+class SelectOptions extends Options {
+  owner: SelectEntity
+  service = "select/select_option"
+  key = "option"
 }
 
 /// Present only on lights with a colour mode (`hass_light.COLOUR_MODES`). No
@@ -307,6 +333,8 @@ open class SelectEntity extends Entity {
 
   /// What it can be set to, in the integration's order.
   hidden options: Listing<String> = new Listing {}
+  /// The same, as the choice `c.select(s)` reads.
+  hidden choices: SelectOptions = let (self = this) new SelectOptions { owner = self; list = self.options }
 }
 
 /// developers.home-assistant.io/docs/core/entity/scene
