@@ -110,6 +110,14 @@ the only way to know, and a wrong entry is silent: the dashboards keep working,
 they just rebuild forever. (`color_mode` is the clearest exclusion — the
 template path baked it onto every light; it is a live value.)
 
+Beside the attributes, every entity carries three **registry** facts: `platform`,
+`translation_key` and `original_name`. They say which part an entity plays on its
+device, where `device_class` and names cannot (a printer's "remaining time" is its
+`translation_key`), which is what device-centric cards build on (#541). They change
+only when the registry does, so they cannot churn the content version. Each is null
+where the entity has no registry entry; `original_name` is English and moves if the
+integration renames the entity, so a card prefers `translation_key`.
+
 ### Stage 1c — house-wide namespaces, declared rather than emitted
 
 The dump carries `entities` plus one NAMESPACE per selector — `lights`, `locks`,
