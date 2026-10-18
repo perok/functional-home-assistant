@@ -31,6 +31,17 @@ abstract class Entity {
   /// `"config"` or `"diagnostic"` for the entities HA keeps off its main
   /// dashboard (about half of a typical instance); null for a primary entity.
   entity_category: String? = null
+  /// The integration providing it: `"hue"`, `"mill"`, `"bambu_lab"`. Null for
+  /// an entity with no registry entry.
+  platform: String? = null
+  /// The integration's own key for what this entity is, the same in every
+  /// language: `"remaining_time"`. What tells a device's entities apart where
+  /// `device_class` and names cannot (#541).
+  translation_key: String? = null
+  /// The integration's name for it before anyone renamed it. English, and it
+  /// moves if the integration renames the entity, so prefer
+  /// [[translation_key]] where the integration sets one.
+  original_name: String? = null
 
   /// The live attributes this entity can report, as `name -> type name`. Names
   /// only, never values, so the dump's content hash cannot move with state.

@@ -145,6 +145,15 @@ object RegistryDump {
           "entity_category" -> reg
             .flatMap(_.entity_category)
             .fold(Json.Null)(Json.fromString),
+          // Which part an entity plays on its device, as its integration says
+          // (#541). Static registry facts, so the content hash does not move.
+          "platform" -> reg.map(_.platform).fold(Json.Null)(Json.fromString),
+          "translation_key" -> reg
+            .flatMap(_.translation_key)
+            .fold(Json.Null)(Json.fromString),
+          "original_name" -> reg
+            .flatMap(_.original_name)
+            .fold(Json.Null)(Json.fromString),
           "device_id" -> device.fold(Json.Null)(Json.fromString),
           "area_id" -> areaId.fold(Json.Null)(Json.fromString),
           "floor_id" -> areaId
