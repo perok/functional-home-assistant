@@ -79,6 +79,16 @@ open class InputButtonNamespace {
     hass.inputButtons(hass.shown(allWithHidden))
 }
 
+open class ClimateNamespace {
+  hidden allWithHidden: List<hass.ClimateEntity> = List()
+  hidden all: List<hass.ClimateEntity> = hass.climates(hass.shown(allWithHidden))
+}
+
+open class FanNamespace {
+  hidden allWithHidden: List<hass.FanEntity> = List()
+  hidden all: List<hass.FanEntity> = hass.fans(hass.shown(allWithHidden))
+}
+
 /// Every entity no other namespace claims. No members by name: they span
 /// domains, so an object id is not unique here; `dump.entities` names them.
 open class GenericNamespace {
@@ -96,4 +106,6 @@ scenes: SceneNamespace = new {}
 scripts: ScriptNamespace = new {}
 buttons: ButtonNamespace = new {}
 inputButtons: InputButtonNamespace = new {}
+climates: ClimateNamespace = new {}
+fans: FanNamespace = new {}
 generic: GenericNamespace = new {}

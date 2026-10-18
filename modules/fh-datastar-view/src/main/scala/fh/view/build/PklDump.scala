@@ -376,6 +376,14 @@ object PklDump {
       "InputButtonNamespace",
       "input_button"
     ),
+    DomainNamespace(
+      "hass.ClimateEntity",
+      "climates",
+      "Climates",
+      "ClimateNamespace",
+      "climate"
+    ),
+    DomainNamespace("hass.FanEntity", "fans", "Fans", "FanNamespace", "fan"),
     Generic
   )
 
@@ -404,6 +412,8 @@ object PklDump {
       case Some("script")        => "hass.ScriptEntity"
       case Some("button")        => "hass.ButtonEntity"
       case Some("input_button")  => "hass.InputButtonEntity"
+      case Some("climate")       => "hass.ClimateEntity"
+      case Some("fan")           => "hass.FanEntity"
       case _                     => "hass.GenericEntity"
     }
 
@@ -443,7 +453,9 @@ object PklDump {
       "options"
     ),
     "binary_sensor" -> Set("device_class"),
-    "select" -> Set("options")
+    "select" -> Set("options"),
+    "climate" -> Set("hvac_modes", "preset_modes"),
+    "fan" -> Set("preset_modes")
   )
 
   private def entityClass(key: String): String = tick(s"E_$key")
@@ -552,9 +564,51 @@ object PklDump {
             s"  hidden effects: hass.Effects = new { $owner; list = $rendered }"
           }
         List(colourTemp, colour, effects).flatten
+      case Some("climate") =>
+        List(
+          optionsGroup(
+            attrs,
+            "hvac_modes",
+            "hvacModes",
+            "hass.HvacModes",
+            owner
+          ),
+          optionsGroup(
+            attrs,
+            "preset_modes",
+            "presets",
+            "hass.ClimatePresets",
+            owner
+          )
+        ).flatten
+      case Some("fan") =>
+        optionsGroup(
+          attrs,
+          "preset_modes",
+          "presets",
+          "hass.FanPresets",
+          owner
+        ).toList
       case _ => Nil
     }
   }
+
+  /** A list attribute as a `hass.Options` group; none where it is absent or
+    * empty, since a choice of nothing is no choice.
+    */
+  private def optionsGroup(
+      attrs: JsonObject,
+      attr: String,
+      property: String,
+      groupType: String,
+      owner: String
+  ): Option[String] =
+    attrs(attr)
+      .filter(_.asArray.exists(_.nonEmpty))
+      .flatMap(pklTyped)
+      .map { case (_, rendered) =>
+        s"  hidden $property: $groupType = new { $owner; list = $rendered }"
+      }
 
   /** Not fatal: one odd integration must not stop the house's dump. */
   def warnings(transformed: Json): List[String] = {

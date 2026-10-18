@@ -5,6 +5,7 @@
 ///     c.select(shade).options(List("pale", "deep")).style("dropdown")  // a node variable
 ///     c.select(dump.entities.robot_mode)                               // a select entity's options
 ///     c.select(lamp.effects!!).style("cycle")                          // a light's effects
+///     c.select(heater.hvacModes)                                       // any other hass.Options
 ///
 /// A node variable is only chosen, never declared: whatever holds its readers
 /// declares it, and the build refuses a select with no declarer above it (ADR

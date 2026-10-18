@@ -166,6 +166,32 @@ class SelectOptions extends Options {
   key = "option"
 }
 
+/// A climate entity's `hvac_modes`: the state is the one it is in.
+class HvacModes extends Options {
+  owner: ClimateEntity
+  name = "HVAC modes"
+  service = "climate/set_hvac_mode"
+  key = "hvac_mode"
+}
+
+/// A climate entity's `preset_modes`, the one in use in `preset_mode`.
+class ClimatePresets extends Options {
+  owner: ClimateEntity
+  name = "presets"
+  attr = "preset_mode"
+  service = "climate/set_preset_mode"
+  key = "preset_mode"
+}
+
+/// A fan's `preset_modes`, the one in use in `preset_mode`.
+class FanPresets extends Options {
+  owner: FanEntity
+  name = "presets"
+  attr = "preset_mode"
+  service = "fan/set_preset_mode"
+  key = "preset_mode"
+}
+
 /// Present only on lights with a colour mode (`hass_light.COLOUR_MODES`). No
 /// dump values: the hue range is HA's own, 0–360, so the group is the predicate
 /// and the owner alone (`c.entitySlider(l.colour)`).
@@ -328,6 +354,22 @@ open class NumberEntity extends Entity {
   domain: "number" = "number"
 }
 
+/// developers.home-assistant.io/docs/core/entity/climate
+///
+/// Each group is null where the entity reports no list, so
+/// `c.select(heater.presets)` on a climate without presets is an editor error.
+open class ClimateEntity extends Entity {
+  domain: "climate" = "climate"
+  hidden hvacModes: HvacModes? = null
+  hidden presets: ClimatePresets? = null
+}
+
+/// developers.home-assistant.io/docs/core/entity/fan
+open class FanEntity extends Entity {
+  domain: "fan" = "fan"
+  hidden presets: FanPresets? = null
+}
+
 open class SelectEntity extends Entity {
   domain: "select" = "select"
 
@@ -448,6 +490,12 @@ function buttons(scope: List<Entity>): List<ButtonEntity> =
 function inputButtons(scope: List<Entity>): List<InputButtonEntity> =
   scope.filter((e) -> e is InputButtonEntity) as List<InputButtonEntity>
 
+function climates(scope: List<Entity>): List<ClimateEntity> =
+  scope.filter((e) -> e is ClimateEntity) as List<ClimateEntity>
+
+function fans(scope: List<Entity>): List<FanEntity> =
+  scope.filter((e) -> e is FanEntity) as List<FanEntity>
+
 /// The entities no selector claims. A number or select lands here despite its
 /// typed class: nothing has wanted every number in the house as a group yet.
 function generic(scope: List<Entity>): List<Entity> =
@@ -456,4 +504,5 @@ function generic(scope: List<Entity>): List<Entity> =
       && !(e is SensorEntity) && !(e is BinarySensorEntity)
       && !(e is SwitchEntity) && !(e is SceneEntity)
       && !(e is ScriptEntity) && !(e is ButtonEntity)
-      && !(e is InputButtonEntity))
+      && !(e is InputButtonEntity) && !(e is ClimateEntity)
+      && !(e is FanEntity))

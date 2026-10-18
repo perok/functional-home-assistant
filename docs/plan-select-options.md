@@ -29,7 +29,9 @@ for sliders: `hass.Axis` carries what a slider drives, so the slider holds no pe
   door.
 - From there `select.pkl` reads fields only: `targetName`, `offered`, `entityChosen`,
   `entityCall` and the dropdown's label each become one expression, with no branch per kind.
-- **The wire does not move** for effects and selects. The snapshots prove the refactor.
+- **The wire does not move** for selects. For effects one thing does: a dropdown whose light
+  runs an effect outside the listed options names it, as a select's already did, rather than
+  showing nothing.
 
 ## Climate and fan (ADR 0013's recipe)
 
