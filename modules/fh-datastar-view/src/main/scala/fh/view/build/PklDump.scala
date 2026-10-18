@@ -427,6 +427,9 @@ object PklDump {
     "id_hidden",
     "device_id",
     "entity_category",
+    "platform",
+    "translation_key",
+    "original_name",
     "members",
     "volatileAttrs"
   )
@@ -699,6 +702,11 @@ object PklDump {
       str(eo, "entity_category").map(v =>
         s"  entity_category = ${pklString(v)}"
       ),
+      str(eo, "platform").map(v => s"  platform = ${pklString(v)}"),
+      str(eo, "translation_key").map(v =>
+        s"  translation_key = ${pklString(v)}"
+      ),
+      str(eo, "original_name").map(v => s"  original_name = ${pklString(v)}"),
       eo("id_hidden")
         .flatMap(_.asBoolean)
         .filter(identity)
