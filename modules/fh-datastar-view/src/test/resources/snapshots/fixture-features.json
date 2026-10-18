@@ -58,7 +58,7 @@
                                   "card" : "tab",
                                   "kind" : "component",
                                   "slots" : {
-                                    "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '1h'",
+                                    "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                     "busy" : "1",
                                     "busyVisual" : "1",
                                     "label" : "1h",
@@ -74,7 +74,7 @@
                                   "card" : "tab",
                                   "kind" : "component",
                                   "slots" : {
-                                    "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '24h'",
+                                    "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                     "busy" : "1",
                                     "busyVisual" : "1",
                                     "label" : "24h",
@@ -90,7 +90,7 @@
                                   "card" : "tab",
                                   "kind" : "component",
                                   "slots" : {
-                                    "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '7d'",
+                                    "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                     "busy" : "1",
                                     "busyVisual" : "1",
                                     "label" : "7d",
@@ -106,7 +106,7 @@
                                   "card" : "tab",
                                   "kind" : "component",
                                   "slots" : {
-                                    "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '30d'",
+                                    "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                     "busy" : "1",
                                     "busyVisual" : "1",
                                     "label" : "30d",
@@ -1050,7 +1050,7 @@
                                       "card" : "tab",
                                       "kind" : "component",
                                       "slots" : {
-                                        "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '1h'",
+                                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                         "busy" : "1",
                                         "busyVisual" : "1",
                                         "label" : "1h",
@@ -1066,7 +1066,7 @@
                                       "card" : "tab",
                                       "kind" : "component",
                                       "slots" : {
-                                        "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '24h'",
+                                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                         "busy" : "1",
                                         "busyVisual" : "1",
                                         "label" : "24h",
@@ -1082,7 +1082,7 @@
                                       "card" : "tab",
                                       "kind" : "component",
                                       "slots" : {
-                                        "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '7d'",
+                                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                         "busy" : "1",
                                         "busyVisual" : "1",
                                         "label" : "7d",
@@ -1098,7 +1098,7 @@
                                       "card" : "tab",
                                       "kind" : "component",
                                       "slots" : {
-                                        "active" : "($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window) === '30d'",
+                                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                         "busy" : "1",
                                         "busyVisual" : "1",
                                         "label" : "30d",
