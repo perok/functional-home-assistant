@@ -1161,6 +1161,7 @@ class PklBuildSuite extends munit.FunSuite {
       // The chart's entity rides in the query's params, so no `entity_id`.
       "historyChart" -> List("chart"),
       "historyWindows" -> Nil,
+      "controlChooser" -> Nil,
       "historyReadings" -> List("label", "readings", "unit", "entity_id"),
       "selectButtons" -> Nil,
       "selectDropdown" -> List("chosen"),
