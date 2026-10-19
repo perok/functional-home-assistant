@@ -67,6 +67,24 @@ class SetMemberVarsSuite extends CatsEffectSuite {
       |}
       |""".stripMargin
 
+  // Both clauses are sliders, so both own a group of heads at the same node.
+  private val twoSliders =
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-dashboard/query.pkl" as q
+      |import "@fh-home/dump.pkl" as dump
+      |
+      |card = (c.column) {
+      |  children {
+      |    q.from(List(dump.lights.a))
+      |      .caseOf(q.eq(q.stateProp, "on"), (l) -> c.entitySlider(l).label("Lit"))
+      |      .`else`((l) -> c.entitySlider(l).label("Dark"))
+      |      .build()
+      |  }
+      |}
+      |""".stripMargin
+
   private val ifInClause =
     """amends "@fh-dashboard/entry.pkl"
       |
@@ -224,6 +242,41 @@ class SetMemberVarsSuite extends CatsEffectSuite {
           assertEquals("Detail".r.findAllMatchIn(sent).size, 1, clue = sent)
           assert(sent.contains("c_0_light_a"), sent)
           assert(!sent.contains("c_0_light_b"), sent)
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("two slider clauses each show their own heads, and a write swaps one") {
+    TestServer
+      .fromWorkspace(
+        "set-member-vars",
+        twoSliders,
+        List(light("light.a", "off"))
+      )
+      .use { ts =>
+        for {
+          viewer <- ts.viewer()
+          wrote <- write(
+            ts,
+            viewer.document.conn,
+            keyOf("c_0_light_a"),
+            "colour"
+          )
+          swapped <- viewer.session.takeBacklog
+          lit <- viewer.step(a)
+        } yield {
+          val page = viewer.document.html
+          assert(page.contains("Dark") && !page.contains("Lit"), page)
+          assertEquals(wrote._1, org.http4s.Status.NoContent, clue = wrote)
+          // The dark clause's colour head, never the lit clause's.
+          val sent = swapped.flatMap(_.data).mkString("\n")
+          assert(sent.contains("hs_color"), sent)
+          assert(sent.contains("Dark") && !sent.contains("Lit"), sent)
+          // Switched on, the lit clause shows the choice made while dark.
+          val back = lit.flatMap(_.data).mkString("\n")
+          assert(back.contains("Lit") && !back.contains("Dark"), back)
+          assert(back.contains("hs_color"), back)
         }
       }
       .timeout(60.seconds)

@@ -548,7 +548,12 @@ private[runtime] final class MemberGraph(
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
     val arriving = s.memberOf(entityId, states)
-    if (existing.map(_.node) == arriving.map(_.node)) (group, replaced)
+    // The clause too: hoisting lifts a slider's heads out of its node, so two
+    // slider clauses can leave equal nodes over different surfaces.
+    if (
+      existing.map(m => (m.node, m.clause)) ==
+        arriving.map(m => (m.node, m.clause))
+    ) (group, replaced)
     else {
       val without = group.members.filterNot(_.key == key)
       (

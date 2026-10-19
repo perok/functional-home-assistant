@@ -807,9 +807,14 @@ clause), and every `Member` indexes its subtree under them (`Member.nodes`). So 
 inside a set: a member that is a leaf is its own patch target, and one holding regions is
 structure, patched through its leaves, with baked regions of its own (a slider's main controls).
 Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause
-of a candidate mints the same ids below it; a render key names the clause for the same reason.
-A member holding nodes has no one element to send, so its arrival and a clause switch place it
-whole, rendered per viewer (`renderMemberTraced`), with its leaves' claims. A branch chosen by live
+of a candidate mints the same ids below it; a render key names the clause for the same reason, and
+so does a bake group: a surface baked inside a clause is tagged with it (`Surface.clause`), its
+group is `<host>_k<clause>` (`Surface.group`, `SurfaceGraph.groupAt`), so two slider clauses keep
+their own heads, and a write swaps only the group of the member's current clause
+(`Renderer.groupShown`). A member holding nodes has no one element to send, so its arrival and a
+clause switch (a different node, or the same node in another clause) place it whole, rendered per
+viewer (`renderMemberTraced`), with its leaves' claims; a group first shown that way takes its
+selection from the session's variables (`SurfaceGraph.selectionsShown`). A branch chosen by live
 state cannot sit inside a clause (`validate`): flips are found from the static tree.
 
 Three properties hold it up, and each fails silently if broken:

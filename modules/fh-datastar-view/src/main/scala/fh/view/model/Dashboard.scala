@@ -848,14 +848,23 @@ case class Theme(
   *   - `bakeIndex`: the order a user selection indexes and a state selection
   *     walks first-match.
   *   - `activation`: absent means a plain popup.
+  *   - `clause`: set by the build on a baked surface inside a set member's
+  *     clause ([[group]]).
   */
 case class Surface(
     content: LayoutNode,
     bakeInto: Option[NodeId] = None,
     bakeAs: Option[String] = None,
     bakeIndex: Option[Int] = None,
-    activation: Activation = Activation.User(false)
+    activation: Activation = Activation.User(false),
+    clause: Option[Int] = None
 ) derives ConfiguredDecoder:
+
+  /** Its bake group. Not `bakeInto` alone: every clause of a member gives its
+    * nodes the same ids, so two clauses' sliders would pool their heads into
+    * one group (#556).
+    */
+  def group: Option[NodeId] = bakeInto.map(Surface.groupId(_, clause))
 
   /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
     * popup host.
@@ -877,6 +886,13 @@ case class Surface(
     case _                               => false
 
 object Surface:
+
+  /** `<host>_k<clause>`: no derived node id has a lone `k<n>` segment, since a
+    * step is an index or `<region>_<index>` ([[LayoutNode.segment]]) and an
+    * entity id carries a `.`.
+    */
+  def groupId(host: NodeId, clause: Option[Int]): NodeId =
+    clause.fold(host)(k => NodeId.derived(s"${host}_k$k"))
 
   /** What a variable-selected group's members are selected at, for a message:
     * an index group as the range an author thinks of.
@@ -1734,7 +1750,7 @@ case class Dashboard(
     // Selection is per session or server truth per group, never both.
     val activationErrors: List[String] =
       surfaces.toList
-        .flatMap { case (sid, s) => s.bakeInto.map((_, sid, s.activation)) }
+        .flatMap { case (sid, s) => s.group.map((_, sid, s.activation)) }
         .groupBy(_._1)
         .toList
         .sortBy(_._1)
@@ -1774,6 +1790,7 @@ case class Dashboard(
                 .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
               varSelectionErrors(
                 gid,
+                inOrder.flatMap(_.bakeInto).headOption.getOrElse(gid),
                 name,
                 inOrder.flatMap(_.selectedAt),
                 inOrder.count(_.isOtherwise)
@@ -1958,6 +1975,7 @@ case class Dashboard(
     */
   private def varSelectionErrors(
       gid: NodeId,
+      host: NodeId,
       name: String,
       values: List[String],
       fallbacks: Int
@@ -1972,7 +1990,7 @@ case class Dashboard(
         s"bake group '$gid' has $fallbacks members selected at every other " +
           s"value of '$name'; one can be"
       )
-      .toList ++ (varScopes.get(gid).flatMap(_.get(name)) match {
+      .toList ++ (varScopes.get(host).flatMap(_.get(name)) match {
       case None =>
         List(
           s"bake group '$gid' is selected by the variable '$name', which no " +

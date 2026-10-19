@@ -35,7 +35,7 @@ private[runtime] final class SurfaceGraph(
   private val bakeGroups: Map[NodeId, List[String]] =
     surfaces.toList
       .flatMap { case (sid, s) =>
-        s.bakeInto.map(gid => (gid, sid, s.bakeIndex))
+        s.group.map(gid => (gid, sid, s.bakeIndex))
       }
       .groupBy(_._1)
       .view
@@ -44,6 +44,27 @@ private[runtime] final class SurfaceGraph(
           .map(_._2)
       )
       .toMap
+
+  // A group id is its host's, except inside a set member's clause
+  // (`Surface.group`).
+  private val groupHosts: Map[NodeId, (NodeId, Option[Int])] =
+    surfaces.values.flatMap { s =>
+      s.group.zip(s.bakeInto).map((gid, host) => gid -> (host, s.clause))
+    }.toMap
+
+  /** The node a group bakes into. */
+  def hostOf(gid: NodeId): NodeId = groupHosts.get(gid).fold(gid)(_._1)
+
+  /** The group `host` owns in a member's `clause`; the host's own where the
+    * wire tags none (a dashboard built without the hoist).
+    */
+  def groupAt(host: NodeId, clause: Int): NodeId = {
+    val tagged = Surface.groupId(host, Some(clause))
+    if (groupHosts.contains(tagged)) tagged else host
+  }
+
+  /** The clause a group inside a set member belongs to. */
+  def clauseOf(gid: NodeId): Option[Int] = groupHosts.get(gid).flatMap(_._2)
 
   /** Ordered by `bakeIndex`, then surface id: what a variable's index selects
     * among and a state selection walks first-match. A fixed, tiny set, so
@@ -112,7 +133,7 @@ private[runtime] final class SurfaceGraph(
     }.toMap
 
   private val bakeOwnerIds: Set[NodeId] =
-    surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
+    surfaces.values.flatMap(_.group).toSet
 
   /** Tabs, selected by a viewer's variable: the selected member lives in the
     * host, which a patch never carries; filling it is per client
@@ -129,11 +150,13 @@ private[runtime] final class SurfaceGraph(
     * its own surface's prefix. Members and nested sets answer through the
     * graph; unknown would read as visible to everyone.
     */
-  def rootOf(id: NodeId): Option[String] =
+  def rootOf(id: NodeId): Option[String] = {
+    val node = hostOf(id)
     rootOfIndexed
-      .get(id)
-      .orElse(members.rootOfMember(id))
-      .orElse(members.rootOfSet(id))
+      .get(node)
+      .orElse(members.rootOfMember(node))
+      .orElse(members.rootOfSet(node))
+  }
 
   // A popup has no `bakeInto` and is absent: it hosts on the main page.
   private val surfaceParent: Map[String, String] =
@@ -170,7 +193,7 @@ private[runtime] final class SurfaceGraph(
       sid: String,
       states: Map[String, EntityState]
   ): Boolean =
-    surfaces.get(sid).flatMap(_.bakeInto).exists { gid =>
+    surfaces.get(sid).flatMap(_.group).exists { gid =>
       resolveActiveByState(gid, states)
         .flatMap(bakeGroup(gid).lift)
         .contains(sid)
@@ -339,7 +362,7 @@ private[runtime] final class SurfaceGraph(
       surfaces.toList.partition(_._2.bakeInto.isDefined)
     val fromGroups =
       baked
-        .flatMap(_._2.bakeInto)
+        .flatMap(_._2.group)
         .distinct
         .filterNot(isStateGroup)
         .map(gid => bakeGroup(gid)(resolveActive(gid, selections)))
@@ -388,6 +411,18 @@ private[runtime] final class SurfaceGraph(
   /** What `open` records: a live pull renders with these, since a press moves
     * `open` and not the request its stream connected with.
     */
+  /** [[selectionsIn]], where a group none of whose members `open` holds takes
+    * `env`'s: a group in a set member's clause is first shown when the member
+    * switches to that clause.
+    */
+  def selectionsShown(open: Set[String], env: VarEnv): Selections = {
+    val shown = selectionsIn(open)
+    shown.copy(panels =
+      panelChoices(env).collect { case (gid, Right(i)) => gid -> i } ++
+        shown.panels
+    )
+  }
+
   def selectionsIn(open: Set[String]): Selections =
     Selections(
       surfacesAt(Dashboard.PopupHostId).find(open),

@@ -131,6 +131,14 @@ surface bakes into. What is left:
 
 - `validate` drops the refusal of a declaration inside a clause.
 - The slider's `perMember` workaround (keep the first control) goes, and the flag with it.
+- **A bake group inside a clause is that clause's.** Once a slider in a clause has heads, two
+  slider clauses of one candidate minted the same surface ids (the build refused it) and would
+  have pooled their heads into one group. The build tags a surface baked inside a clause with
+  it and gives it `<host>_k<clause>_<key>`; its group is `<host>_k<clause>`. A popup keeps its
+  id, since its opener spells it. A write swaps only the current clause's group; a member is
+  replaced when its clause changes even if the node is equal (hoisting leaves two slider nodes
+  equal); and a group first shown by a clause switch takes its selection from the session's
+  variables, not from what is already open.
 
 ### Tests
 
@@ -140,7 +148,8 @@ surface bakes into. What is left:
   one member's choice opens only that member on it, and each member mirrors its own URL entry. In
   the default dashboard's shape (a slider while on, a card while off), a choice survives the
   member moving to the other clause and back. An `If` over a member's own variable swaps only
-  that member's branch.
+  that member's branch. Two slider clauses each show their own heads, a write swaps the current
+  clause's, and the choice carries to the other clause.
 - `validate`: a declaration in a clause builds, and its readers resolve to the member.
 - The three tests pinning the refusal and the first-control workaround are rewritten (approved
   2026-10-18).

@@ -233,7 +233,14 @@ class Renderer(
     */
   private[runtime] lazy val vars: VarGraph =
     new VarGraph(
-      scopes = dashboard.varScopes.filter(_._2.nonEmpty),
+      // A group inside a member's clause has an id of its own, and sees its
+      // host's scope.
+      scopes = {
+        val byNode = dashboard.varScopes.filter(_._2.nonEmpty)
+        byNode ++ surfaces.varBakeOwnerIds.flatMap(gid =>
+          byNode.get(surfaces.hostOf(gid)).map(gid -> _)
+        )
+      },
       panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
@@ -765,8 +772,30 @@ class Renderer(
     * var added to [[Dashboard.structuralVars]] reaches both. `bakeIndex`
     * depends on a selection, so it is not here ([[resolveBakeTraced]]).
     */
-  private def structuralVars(id: NodeId): Map[String, String] =
-    Dashboard.structuralVars(id, hostId(id), dashboard.slug)
+  private def structuralVars(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Map[String, String] =
+    Dashboard.structuralVars(id, hostId(groupOf(id, states)), dashboard.slug)
+
+  /** The bake group `id` owns: inside a set member, its current clause's
+    * ([[Surface.group]]).
+    */
+  private def groupOf(id: NodeId, states: Map[String, EntityState]): NodeId =
+    members
+      .nodeAt(id, states)
+      .fold(id)((m, _) => surfaces.groupAt(id, m.clause))
+
+  /** Whether `gid` is on the page as `states` has it: a group inside a member
+    * only while the member is present and in that clause.
+    */
+  def groupShown(gid: NodeId, states: Map[String, EntityState]): Boolean =
+    surfaces.clauseOf(gid).forall { k =>
+      members
+        .memberOwning(surfaces.hostOf(gid))
+        .flatMap(members.memberAt(_, states))
+        .exists(_.clause == k)
+    }
 
   /** Whether a node may be a log key or a patch target: decided by its card
     * alone. Structure's element contains its regions, so patching it would
@@ -806,11 +835,11 @@ class Renderer(
     * rendered lazily, when the template reaches the hole.
     */
   private def resolveBakeTraced(
-      id: NodeId,
+      gid: NodeId,
       selections: Selections,
       states: Map[String, EntityState]
   ): (Map[String, String], Option[(String, String)]) = {
-    val group = surfaces.bakeGroup(id)
+    val group = surfaces.bakeGroup(gid)
     def bakeMember(
         idx: Int
     ): (Map[String, String], Option[(String, String)]) = {
@@ -822,7 +851,7 @@ class Renderer(
     }
     if (group.isEmpty) (Map.empty, None)
     else
-      activeBakeIndex(id, selections, states) match {
+      activeBakeIndex(gid, selections, states) match {
         case Some(idx) => bakeMember(idx)
         // A state group with no matching branch: the hole renders empty.
         case None => (Map.empty, None)
@@ -833,14 +862,14 @@ class Renderer(
     * holding.
     */
   private def activeBakeIndex(
-      id: NodeId,
+      gid: NodeId,
       selections: Selections,
       states: Map[String, EntityState]
   ): Option[Int] =
-    if (surfaces.bakeGroup(id).isEmpty) None
-    else if (surfaces.isStateGroup(id))
-      surfaces.resolveActiveByState(id, states)
-    else Some(surfaces.resolveActive(id, selections))
+    if (surfaces.bakeGroup(gid).isEmpty) None
+    else if (surfaces.isStateGroup(gid))
+      surfaces.resolveActiveByState(gid, states)
+    else Some(surfaces.resolveActive(gid, selections))
 
   /** The render cache's key (ADR 0012): the content version of each entity that
     * can move this node's bytes — not those read only through signal slots,
@@ -1068,7 +1097,10 @@ class Renderer(
   ): Unit =
     node match {
       case c: LayoutNode.Component =>
-        val (bakeIndex, bakeSel) = resolveBakeTraced(id, selections, states)
+        val gid =
+          if (within == null) id
+          else surfaces.groupAt(id, within.nn.clause)
+        val (bakeIndex, bakeSel) = resolveBakeTraced(gid, selections, states)
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
         val plan = planOf(id, c, states)
@@ -1570,7 +1602,7 @@ class Renderer(
     NodePlan(
       node = c,
       tpl = templateOf(c.card),
-      structural = structuralVars(id),
+      structural = structuralVars(id, states),
       constants = constB.result(),
       dynamic = dynB.result(),
       bindings = named.flatMap { case (slot, kind, signal) =>
