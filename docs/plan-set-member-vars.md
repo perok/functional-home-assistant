@@ -10,8 +10,9 @@ q.from(dump.lights.all).caseOf(q.eq(q.stateProp, "on"), c.entitySlider)
 ```
 
 Each light's slider keeps its own main control (brightness, colour temperature, colour),
-switched on its own, and a switch swaps only that light's head. Today a slider rendered per
-member keeps its first control, because the build refuses a declaration inside a clause.
+switched on its own, and a switch swaps only that light's head. Before this plan a slider
+rendered per member kept its first control, because the build refused a declaration inside a
+clause.
 
 ## Step 1: a member's children are normal nodes
 
@@ -123,20 +124,21 @@ its total bytes stay about the same.
 
 ### How
 
-- `Dashboard.varScopes` walks each member's clause nodes under the member's id, from the set's
-  scope; every clause of a candidate shares the id, so their scopes merge and a declaration in one
-  clause survives the member moving to another. `VarGraph`'s `setOfMember` fallback goes.
-- `validate` drops the refusal and sees member nodes as places a surface can bake into.
-- The slider's `perMember` workaround (keep the first control) goes, and the flag with it.
+Step 1 already made `Dashboard.varScopes` walk each member's clause nodes under the member's id
+(their scopes merge, so a declaration in one clause survives the member moving to another),
+dropped `VarGraph`'s `setOfMember` fallback, and let `validate` see member nodes as places a
+surface bakes into. What is left:
 
-Done on the local branch `set-member-vars-wip`, waiting for step 1.
+- `validate` drops the refusal of a declaration inside a clause.
+- The slider's `perMember` workaround (keep the first control) goes, and the flag with it.
 
 ### Tests
 
-- Through the server: two lights in a set, each with its own control. A write to one member's
-  variable moves only that member's head. A member leaving and returning shows the choice made
-  before it left.
-- `validate`: a declaration in a clause builds.
+- `SetMemberVarsSuite`, through the server: two lights in a set and one above it, all declaring
+  `control`. A write to one member's variable moves only that member's choice and sends only its
+  head. A member leaving and returning shows the choice made before it left. A page link naming
+  one member's choice opens only that member on it, and each member mirrors its own URL entry.
+- `validate`: a declaration in a clause builds, and its readers resolve to the member.
 - The three tests pinning the refusal and the first-control workaround are rewritten (approved
   2026-10-18).
 

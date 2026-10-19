@@ -1347,11 +1347,10 @@ case class Dashboard(
         kids: Map[String, List[LayoutNode]],
         prefix: String,
         id: NodeId,
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope, inSet)
+        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope)
       }
 
     // Interpolated into a `class` attribute unescaped.
@@ -1418,8 +1417,7 @@ case class Dashboard(
         node: LayoutNode,
         prefix: String,
         nodeId: NodeId,
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       node match
         case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
@@ -1443,18 +1441,7 @@ case class Dashboard(
                   )
                   .toList
           val here = scope ++ vars
-          // One clause renders once per member, so a declaration there would
-          // be every member's own choice; members read the set's scope.
-          val inSetDeclarations = Option
-            .when(inSet && vars.nonEmpty)(
-              s"$nodeId: declares the variable(s) " +
-                vars.keys.toList.sorted
-                  .mkString(", ") + " inside a candidate " +
-                "set's clause, which renders once per member — declare it above " +
-                "the set"
-            )
-            .toList
-          inSetDeclarations ++ checkRef(
+          checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
@@ -1464,7 +1451,7 @@ case class Dashboard(
             valueErrors(nodeId, c) ++
             typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
-            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
+            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
         // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>
           val setId = nodeId
@@ -1493,8 +1480,7 @@ case class Dashboard(
                     LayoutNode.Step(LayoutNode.DefaultRegion, i),
                     clause.node
                   ),
-                  scope,
-                  inSet = true
+                  scope
                 ) ++ (clause.node match {
                   case c: LayoutNode.Component if noWrap(c.card) =>
                     List(
@@ -1849,15 +1835,14 @@ case class Dashboard(
       danglingBakes ++
       activationErrors ++
       unboundConditions ++
-      walk(card, "", LayoutNode.rootId("", card), Map.empty, inSet = false) ++
+      walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         val p = LayoutNode.surfacePrefix(sid)
         walk(
           surface.content,
           p,
           LayoutNode.rootId(p, surface.content),
-          scopeOf(surface),
-          inSet = false
+          scopeOf(surface)
         ).map(err => s"surface '$sid': $err")
       }
 

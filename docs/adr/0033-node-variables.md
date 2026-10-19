@@ -38,7 +38,8 @@ not be enumerated there. A declared reference can.
 5. A node sees its own declarations.
 6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
    the scope of the one node it is baked into.
-7. A candidate set's members read the scope at the set. A node inside a clause cannot declare.
+7. A candidate set's members read the scope at the set. A node inside a clause declares for its
+   member alone: each member's copy is its own declarer.
 8. A read with no declarer is a build error naming the node and the variable.
 9. A value is per viewer, kept on the session and addressed by declarer and name, so a write to
    an inner declaration cannot move a reader of an outer one.
@@ -95,8 +96,13 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
   from the set's scope, a set's reads are resolved per viewer for every clause (the snapshot is
   built before the walk picks one), and a write re-renders the readers this viewer is shown and
   swaps the panels it selects, a member's included. A set fill or a member's placement asks the
-  member's whole subtree's reads. A declaration inside a clause is refused: it would be every
-  member's own choice.
+  member's whole subtree's reads.
+- **A declaration inside a clause is each member's own** (#556). Its declarer is a node below the
+  member, so its id is static too, and every clause of a candidate gives it the same one: their
+  scopes merge, and a choice survives the member moving to another clause. A write moves only that
+  member's readers. A member that leaves keeps its choice in the session under that id and shows
+  it when it comes back; its URL entry leaves with it, since `data-fh-url` releases a parameter
+  when its element leaves the page.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `Variable.declarer`
@@ -235,9 +241,8 @@ of `vars` (scopes, validation, the mirror's declared value, the snapshots) uncha
 - **"Opens" means when the document loaded.** A wall tablet that never reloads keeps the head it
   opened on however the light changes. A reconnect keeps it too: the SSE GET carries the committed
   value, and a session this process forgot adopts it as a choice, start or not.
-- **Two places a start does nothing.** A slider a candidate set renders per member declares no
-  `control` (`Node.perMember`), so it keeps its first control. With `.syncRows()` the rows follow
-  the head, which starts from the group entity's state, not each bulb's.
+- **One place a start does nothing.** With `.syncRows()` the rows follow the head, which starts
+  from the group entity's state, not each bulb's.
 - **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
   already produce different `SlotRead`s, which the render key and both caches
