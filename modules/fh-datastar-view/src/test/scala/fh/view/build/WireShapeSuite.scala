@@ -120,10 +120,13 @@ class WireShapeSuite extends munit.FunSuite {
     // `regions` is emitted and decoded, while the authored `children` is
     // `hidden`. If only one side moved, every container's children would decode
     // to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
-    // `DashboardBuild.hoistInlineSurfaces` lifts and removes.
+    // `DashboardBuild.hoistInlineSurfaces` lifts and removes. `notInUrl` is
+    // Scala-only: `Component`'s decoder lifts it from a declaration's object
+    // form in `vars`.
     check(
       "Node",
       LayoutNode.Component("card"),
+      scalaOnly = Set("notInUrl"),
       pklOnly = Set("inlineSurfaces")
     )
   }
