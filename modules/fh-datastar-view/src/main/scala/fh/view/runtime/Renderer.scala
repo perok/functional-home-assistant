@@ -36,7 +36,7 @@ import scala.jdk.CollectionConverters.*
   */
 private[runtime] case class Painted(
     // The digest, not the bytes: holding them kept 99 kB of a 128 kB page a
-    // second time. [[Traced.rootOwn]] carries the root's real bytes.
+    // second time.
     digest: Digest,
     signals: Map[SignalId, SlotValue]
 )
@@ -935,8 +935,11 @@ class Renderer(
       .flatMap(e => states.get(e).map(e -> _.contentVersion))
       .toMap
 
-  /** The patch form comes from the trace's root, so what `renderNodeById`
-    * returns and what `holds` recorded are one string by construction.
+  /** A leaf's patch form is written directly, not taken from a [[traced]] walk,
+    * which builds the document form, its digest and the trace maps a tick
+    * throws away. A leaf has no children and no bake group (its card declares
+    * no region), so this is its whole body; [[wrapperInto]] is shared with the
+    * walk, and `DigestPropertySuite` pins that the two agree.
     */
   private def render(
       node: LayoutNode,
@@ -946,9 +949,22 @@ class Renderer(
       selections: Selections,
       form: SlotForm,
       fragments: QuerySnapshot
-  ): Option[String] = {
-    val t = traced(node, id, idPrefix, states, selections, fragments)
-    if (form.isPatch) t.rootOwn else Some(t.html)
+  ): Option[String] = node match {
+    case c: LayoutNode.Component if form.isPatch =>
+      val plan = planOf(id, c, states)
+      val resolved = resolvePlanned(plan, states, Map.empty, fragments)
+      Some(Sink.scratched { buf =>
+        wrapperInto(buf, c, id, plan, resolved, SlotForm.Patch)
+        Templates.run(
+          plan.tpl,
+          buf,
+          NodeContext(resolved, Map.empty, SlotForm.Patch)
+        )
+        if (plan.wrapped) { val _ = buf.append("</div>") }
+        buf.result
+      })
+    case _ =>
+      Some(traced(node, id, idPrefix, states, selections, fragments).html)
   }
 
   /** The composed rendering and each node's own digest, kept from the one walk
@@ -959,8 +975,6 @@ class Renderer(
   private[runtime] case class Traced(
       html: String,
       own: Map[NodeId, Painted],
-      // Only [[Renderer.render]] wants real bytes, and only the root's.
-      rootOwn: Option[String] = None,
       seeded: Map[NodeId, Map[SignalId, SlotValue]] = Map.empty
   ) {
 
@@ -988,7 +1002,6 @@ class Renderer(
       within: MemberPath | Null = null
   ): Traced = {
     val trace = new Trace
-    val root = new Array[String](1)
     val html =
       tracedHtml(
         node,
@@ -998,15 +1011,9 @@ class Renderer(
         selections,
         fragments,
         trace,
-        root,
         within
       )
-    Traced(
-      html,
-      trace.own.asScala.toMap,
-      Option(root(0)),
-      trace.seeded.asScala.toMap
-    )
+    Traced(html, trace.own.asScala.toMap, trace.seeded.asScala.toMap)
   }
 
   /** A subtree's document bytes, its trace into the caller's accumulator. The
@@ -1020,8 +1027,6 @@ class Renderer(
       selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace,
-      // [[Traced.rootOwn]]; `null` for a page, whose root is structure.
-      rootOwn: Array[String] | Null,
       within: MemberPath | Null
   ): String = {
     val out = Sink.buffer(
@@ -1039,8 +1044,6 @@ class Renderer(
       selections,
       fragments,
       trace,
-      rootOwn,
-      id,
       within
     )
     out.result
@@ -1061,8 +1064,6 @@ class Renderer(
       selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace,
-      rootOwn: Array[String] | Null = null,
-      rootId: NodeId | Null = null,
       within: MemberPath | Null = null
   ): Unit =
     node match {
@@ -1110,27 +1111,7 @@ class Renderer(
           }
 
         def wrapper(buf: Sink, form: SlotForm): Unit =
-          if (wrapped) {
-            cellOpenInto(buf, c.cell, resolved, form)
-            buf
-              .append(""" id="""")
-              .append(id)
-              .append('"')
-            if (!form.isPatch)
-              Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
-            cellBindingsInto(buf, resolved)
-            // On the declarer, so a param lives as long as what it chooses
-            // for, not as long as a control choosing it (ADR 0005).
-            c.vars.toList.sortBy(_._1).foreach { (name, declared) =>
-              val _ = buf
-                .append(' ')
-                .append(
-                  VarKey(id, name)
-                    .urlMirrorAttr(declared, c.starts.contains(name))
-                )
-            }
-            val _ = buf.append('>')
-          }
+          wrapperInto(buf, c, id, plan, resolved, form)
 
         def bodyInto(
             buf: Sink,
@@ -1157,7 +1138,6 @@ class Renderer(
                       selections,
                       fragments,
                       trace,
-                      rootOwn = null,
                       within = withinOf(region, i)
                     )
                   }
@@ -1221,7 +1201,6 @@ class Renderer(
           }
         }
 
-        val isRoot = rootOwn != null && id == rootId
         def documentInto(o: Sink): Unit = {
           wrapper(o, SlotForm.Document)
           bodyInto(o, SlotForm.Document)
@@ -1229,11 +1208,8 @@ class Renderer(
         }
         // One form: the sink digests the document bytes as they pass.
         val inlineDigest: Digest | Null =
-          if (plan.ownRendering && !twoForms) {
-            val (d, bytes) = out.digesting(isRoot)(documentInto)
-            if (isRoot) rootOwn.nn(0) = bytes.nn
-            d
-          } else {
+          if (plan.ownRendering && !twoForms) out.digesting(documentInto)
+          else {
             documentInto(out)
             null
           }
@@ -1241,14 +1217,12 @@ class Renderer(
         // Wrapper included and in patch form, as `renderNodeById` produces.
         val own = Option.when(plan.ownRendering) {
           if (twoForms) {
-            val bytes = Sink.scratched { buf =>
+            val digest = Sink.scratched(_.digesting { buf =>
               wrapper(buf, SlotForm.Patch)
               bodyInto(buf, SlotForm.Patch)
               if (wrapped) { val _ = buf.append("</div>") }
-              buf.result
-            }
-            if (isRoot) rootOwn.nn(0) = bytes
-            Painted(Digest.of(bytes), resolved.signals)
+            })
+            Painted(digest, resolved.signals)
           } else Painted(inlineDigest.nn, resolved.signals)
         }
         own match
@@ -1280,6 +1254,35 @@ class Renderer(
           )
         }
         val _ = out.append("</div>")
+    }
+
+  private def wrapperInto(
+      buf: Sink,
+      c: LayoutNode.Component,
+      id: NodeId,
+      plan: NodePlan,
+      resolved: Resolved,
+      form: SlotForm
+  ): Unit =
+    if (plan.wrapped) {
+      cellOpenInto(buf, c.cell, resolved, form)
+      buf
+        .append(""" id="""")
+        .append(id)
+        .append('"')
+      if (!form.isPatch)
+        Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
+      cellBindingsInto(buf, resolved)
+      // On the declarer, so a param lives as long as what it chooses for, not
+      // as long as a control choosing it (ADR 0005).
+      c.vars.toList.sortBy(_._1).foreach { (name, declared) =>
+        val _ = buf
+          .append(' ')
+          .append(
+            VarKey(id, name).urlMirrorAttr(declared, c.starts.contains(name))
+          )
+      }
+      val _ = buf.append('>')
     }
 
   def renderMemberById(

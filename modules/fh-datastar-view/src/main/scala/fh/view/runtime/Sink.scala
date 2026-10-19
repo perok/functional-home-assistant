@@ -6,11 +6,10 @@ package fh.view.runtime
   */
 private[runtime] sealed abstract class Sink extends java.io.Writer {
 
-  /** Digest exactly the bytes `f` wrote, and return them when `keepBytes` (only
-    * a patch walk's root). A buffer bounds the run by offsets; a stream catches
-    * it on the way past. Both copy the run once.
+  /** Digest exactly the bytes `f` wrote. A buffer bounds the run by offsets; a
+    * stream catches it on the way past and copies it once.
     */
-  def digesting(keepBytes: Boolean)(f: Sink => Unit): (Digest, String | Null)
+  def digesting(f: Sink => Unit): Digest
 
   override def flush(): Unit = ()
   override def close(): Unit = ()
@@ -33,15 +32,10 @@ private[runtime] object Sink {
     }
     override def append(c: Char): this.type = { val _ = sb.append(c); this }
 
-    def digesting(
-        keepBytes: Boolean
-    )(f: Sink => Unit): (Digest, String | Null) = {
+    def digesting(f: Sink => Unit): Digest = {
       val start = sb.length
       f(this)
-      if (keepBytes) {
-        val bytes = sb.substring(start, sb.length)
-        (Digest.of(bytes), bytes)
-      } else (Digest.ofRange(sb, start, sb.length), null)
+      Digest.ofRange(sb, start, sb.length)
     }
 
     def result: String = sb.toString
@@ -72,12 +66,10 @@ private[runtime] object Sink {
     override def append(c: Char): this.type = { val _ = w.append(c); this }
     override def flush(): Unit = w.flush()
 
-    def digesting(
-        keepBytes: Boolean
-    )(f: Sink => Unit): (Digest, String | Null) = {
+    def digesting(f: Sink => Unit): Digest = {
       val bytes = Sink.scratched { buf => f(buf); buf.result }
       w.write(bytes)
-      (Digest.of(bytes), if (keepBytes) bytes else null)
+      Digest.of(bytes)
     }
   }
 
