@@ -362,8 +362,9 @@ private[runtime] final class MemberGraph(
       sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _)) ++
       slots.flatMap((at, d) => d.parent.map(at -> _))
 
-  /** A node below a member, every clause's: its member and its parent. */
-  /** A member or a node below one, with what it is in each clause. */
+  /** A member or a node below one: its member, its parent, and what it is in
+    * each clause.
+    */
   private final case class Slot(
       member: NodeId,
       parent: Option[NodeId],

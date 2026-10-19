@@ -1225,10 +1225,12 @@ class Renderer(
             Painted(digest, resolved.signals)
           } else Painted(inlineDigest.nn, resolved.signals)
         }
+        // Keyed by the plan's id, not this paint's: `holds` keeps the key per
+        // session, and a fresh string each paint was a third of an entry.
         own match
-          case Some(p)                           => val _ = trace.own.put(id, p)
+          case Some(p) => val _ = trace.own.put(plan.id, p)
           case None if resolved.signals.nonEmpty =>
-            val _ = trace.seeded.put(id, resolved.signals)
+            val _ = trace.seeded.put(plan.id, resolved.signals)
           case None => ()
       // Each member is walked like any node, so the trace holds each patch
       // target inside it; the root has no rendering.
