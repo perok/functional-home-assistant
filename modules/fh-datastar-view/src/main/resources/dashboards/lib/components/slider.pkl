@@ -4,6 +4,8 @@
 module components.slider
 
 import "../core/icon.pkl" as icons
+import "../core/node.pkl" as nodes
+import "../core/predicate.pkl" as pred
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
@@ -292,8 +294,7 @@ class EntitySlider extends sliderBase.Slider {
     else super.headNode
   memberRows =
     if (declaresControl && rowsFollow)
-      let (ms = offeredControls)
-        members.toList().map((n) -> if (n is EntitySlider) (n) { followControls = ms } else n).toListing()
+      let (ms = offeredControls) members.toList().map((n) -> followingRow(n, ms)).toListing()
     else members
 
   function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
@@ -306,6 +307,11 @@ class EntitySlider extends sliderBase.Slider {
   /// The head's switch switches the rows too: one press, the whole group on
   /// colour. A row lacking the control shows its brightness, greyed.
   function syncRows(): EntitySlider = let (self = this) (self) { rowsFollow = true }
+  /// No switch of its own: it follows the nearest `control` above it, a
+  /// [[ControlChooser]]'s, greyed on a control its light lacks. A light with
+  /// no main controls keeps its plain row.
+  function followsControl(): EntitySlider =
+    let (self = this) (self) { followControls = if (self.availableControls.isEmpty) null else itsMod.allControls }
   /// The order to try as the page opens: the first axis the light is on then,
   /// else the first control. Read once; an open page does not follow the
   /// light. `.opensOn(List(l.brightness))` always opens on brightness.
@@ -331,6 +337,64 @@ class EntitySlider extends sliderBase.Slider {
     let (self = this) (self) { buttons = xs }
   function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
+
+/// A group's row following its head's controls: a slider, or each slider of a
+/// set among the rows.
+const local function followingRow(n: nodes.LayoutNode, ms: List<itsMod.MainControl>): nodes.LayoutNode =
+  if (n is EntitySlider) (n) { followControls = ms }
+  else if (n is pred.SetNode)
+    (n) {
+      members = n.members.toMap().mapValues((_, m) ->
+        (m) { clauses = m.clauses.toList().map((cl) -> (cl) { node = followingRow(cl.node, ms) }).toListing() }
+      ).toMapping()
+    }
+  else n
+
+/// One switch over the light sliders beneath it that
+/// [[EntitySlider.followsControl]]: press colour and each shows its colour head.
+///
+///     (c.controlChooser) {
+///       children {
+///         q.from(lit).render((l) -> c.entitySlider(l).followsControl()).build()
+///       }
+///     }
+///
+/// A nested chooser, or a slider with a switch of its own, shadows this one.
+class ControlChooser extends nodes.Node {
+  card = "controlChooser"
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      [nodes.defaultRegion] = new nodes.Region {}
+      ["bar"] = new nodes.Region {}
+    }
+    template = """
+      <div class="fh-col"><div>{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  hidden controls: List<itsMod.MainControl> = itsMod.allControls
+  /// The declared control: shown until a viewer chooses another.
+  hidden start: itsMod.MainControl = "brightness"
+  hidden styleChoice: selectMod.SelectStyle = "buttons"
+  vars = sliderBase.controlVar.declare(start)
+  // `let`: inside the Mapping's body `children` does not resolve to this node's.
+  regions = let (sliders = children as Listing<nodes.LayoutNode>) let (bar = itsMod.controlSelect(controls, styleChoice))
+    new Mapping {
+      ["bar"] = new Listing { bar }
+      when (!sliders.isEmpty) {
+        [nodes.defaultRegion] = sliders
+      }
+    }
+  cellClasses { "fh-cols-full" }
+
+  /// These, in this order.
+  function options(cs: List<itsMod.MainControl>): ControlChooser = let (self = this) (self) { controls = cs }
+  function starting(m: itsMod.MainControl): ControlChooser = let (self = this) (self) { start = m }
+  /// `"buttons"`, the default, or `"dropdown"`, `"cycle"`.
+  function style(st: selectMod.SelectStyle): ControlChooser = let (self = this) (self) { styleChoice = st }
+}
+
+/// Amendable base instance — `(c.controlChooser) { children { ... } }`.
+hidden controlChooser: ControlChooser = new ControlChooser {}
 
 /// `c.entitySlider(l)` switches between the main controls the light has, opening
 /// on the one for its mode ([[EntitySlider.opensOn]]); `c.entitySlider(l.brightness)`

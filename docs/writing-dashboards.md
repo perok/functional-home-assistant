@@ -152,6 +152,18 @@ Each is a *variable*:
   `(c.windowChooser) { children { c.historyChart(s).chosen() } }`, a window bar
   over the charts beneath it. A light's `c.entitySlider` switches between
   brightness, colour temperature and colour as far as the light has them.
+- **One switch for several lights:** sliders with `.followsControl()` have no
+  switch of their own and follow the `c.controlChooser` above them, so one
+  press puts them all on colour; a light without colour shows its brightness,
+  greyed. A set's sliders can follow too:
+
+  ```pkl
+  (c.controlChooser) { children {
+    q.from(dump.lights.all).render((l) -> c.entitySlider(l).followsControl()).build()
+  } }
+  ```
+
+  A group light's slider does the same for its own rows with `.syncRows()`.
 - **Your own** is declared on a card, with the value it starts at, and read by
   the cards below it:
 

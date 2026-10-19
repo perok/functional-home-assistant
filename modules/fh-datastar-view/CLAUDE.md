@@ -348,7 +348,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `control` the slider declares (`base/slider.pkl`'s `SliderControls`, each head chosen by the control's name), with a pill over the track's end, as any slider's buttons, holding the
   slider's buttons and its switch: `c.its.mainControl`, the default list, a `c.select` of `control` (a pill
   stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; on `.syncRows()` they follow the
-  head's `control` instead, greyed where they lack one. A slider a candidate set renders per member
+  head's `control` instead, greyed where they lack one, a set among the rows included. Any slider can
+  follow that way: `.followsControl()` drops its own switch and reads the nearest `control` above it,
+  which `c.controlChooser` declares with one switch for the sliders beneath it (`itsMod.controlSelect`
+  spells that switch and the slider's own). A slider a candidate set renders per member
   declares `control` for that member alone (ADR 0033). It OPENS on the
   head for the mode the light is in, a start read once as the page opens (ADR 0033) and never
   followed; `.opensOn(List(l.colour, l.colourTemp))` gives the order, `.opensOn(List(l.brightness))`

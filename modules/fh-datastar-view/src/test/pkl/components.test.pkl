@@ -1505,6 +1505,25 @@ facts {
     c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
   }
 
+  ["a slider following a chooser has no switch of its own"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local follower = c.entitySlider(lamp).followsControl()
+    !follower.declaresControl
+    follower.controls.map((h) -> h.value) == List("brightness", "colourTemp", "colour")
+    // A light with no main controls keeps its plain row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    c.entitySlider(plug).followsControl().controls.isEmpty
+    // The chooser declares `control` and offers what it is given.
+    local chooser = c.controlChooser.options(List("brightness", "colour"))
+    chooser.vars["control"] == "brightness"
+    chooser.controls == List("brightness", "colour")
+  }
+
   ["a light's axes are its main controls, each a slider of its own"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"

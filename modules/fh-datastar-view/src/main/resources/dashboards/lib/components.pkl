@@ -185,6 +185,9 @@ function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
 /// A window bar over the charts beneath it:
 /// `(c.windowChooser) { children { c.historyChart(s).chosen() } }`.
 hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser
+/// One main-control switch over the light sliders beneath it that follow it:
+/// `(c.controlChooser) { children { c.entitySlider(l).followsControl() } }`.
+hidden controlChooser: sliderMod.ControlChooser = sliderMod.controlChooser
 /// A node variable named `name`, for a node's `vars` and a [[select]] below
 /// it: `local shade = c.variable("shade")`.
 function variable(name: String): varMod.Variable =

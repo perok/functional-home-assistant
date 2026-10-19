@@ -35,6 +35,16 @@ const local controlLabels: Mapping<MainControl, String> = new {
   ["colour"] = "Colour"
 }
 
+/// Every main control, in the order a switch offers them.
+const allControls: List<MainControl> = List("brightness", "colourTemp", "colour")
+
+/// A `c.select` of the slider's control variable over `cs`: the slider's own
+/// switch, and a chooser's over the sliders following it.
+const function controlSelect(cs: List<MainControl>, s: selectMod.SelectStyle): selectMod.Select =
+  selectMod.select(sliderBase.controlVar)
+    .options(cs.map((m) -> new selectMod.Choice { value = m; label = controlLabels[m]; icon = controlIcons[m] }))
+    .style(s)
+
 /// What the card holding a button knows, for it to resolve against: its subject
 /// entity and, on a light's slider, the main controls it shows. A card fills
 /// what it has; an item that needs what it lacks shows nothing.
@@ -77,10 +87,7 @@ class MainControlSwitch extends ItsButton {
   function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
     let (cs = h.mainControls)
       if (cs.length < 2) null
-      else
-        selectMod.select(sliderBase.controlVar)
-          .options(cs.map((m) -> new selectMod.Choice { value = m; label = controlLabels[m]; icon = controlIcons[m] }))
-          .style(styleChoice)
+      else controlSelect(cs, styleChoice)
 }
 
 const toggle: ToggleButton = new {}
