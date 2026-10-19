@@ -137,7 +137,10 @@ surface bakes into. What is left:
 - `SetMemberVarsSuite`, through the server: two lights in a set and one above it, all declaring
   `control`. A write to one member's variable moves only that member's choice and sends only its
   head. A member leaving and returning shows the choice made before it left. A page link naming
-  one member's choice opens only that member on it, and each member mirrors its own URL entry.
+  one member's choice opens only that member on it, and each member mirrors its own URL entry. In
+  the default dashboard's shape (a slider while on, a card while off), a choice survives the
+  member moving to the other clause and back. An `If` over a member's own variable swaps only
+  that member's branch.
 - `validate`: a declaration in a clause builds, and its readers resolve to the member.
 - The three tests pinning the refusal and the first-control workaround are rewritten (approved
   2026-10-18).
@@ -145,4 +148,5 @@ surface bakes into. What is left:
 ## Docs touched
 
 ADR 0017 (a member's children), ADR 0003 and ADR 0033, the rendering pipeline (§4a, §4b, §5, §6),
-terminology's "member", the module CLAUDE.md's slider paragraph.
+terminology's "member", the module CLAUDE.md's slider paragraph, and `writing-dashboards.md`'s
+sections on sets and on viewer choices (#592's `c.iff` over a variable included).

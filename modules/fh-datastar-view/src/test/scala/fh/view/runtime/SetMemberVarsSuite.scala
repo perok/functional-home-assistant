@@ -48,8 +48,56 @@ class SetMemberVarsSuite extends CatsEffectSuite {
       |}
       |""".stripMargin
 
-  private def keyOf(member: String) =
-    VarKey(fh.view.model.NodeId.derived(member), "control")
+  // The default dashboard's lights: a slider while on, a card while off, so
+  // turning one off moves it to another clause without leaving the set.
+  private val byClause =
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-dashboard/query.pkl" as q
+      |import "@fh-home/dump.pkl" as dump
+      |
+      |card = (c.column) {
+      |  children {
+      |    q.from(List(dump.lights.a, dump.lights.b))
+      |      .caseOf(q.eq(q.stateProp, "on"), c.entitySlider)
+      |      .`else`(c.entityCard)
+      |      .build()
+      |  }
+      |}
+      |""".stripMargin
+
+  private val ifInClause =
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-dashboard/query.pkl" as q
+      |import "@fh-home/dump.pkl" as dump
+      |
+      |local view = c.variable("view")
+      |
+      |card = (c.column) {
+      |  children {
+      |    q.from(List(dump.lights.a, dump.lights.b))
+      |      .render((e) -> (c.column) {
+      |        vars = view.declare("plain")
+      |        children {
+      |          c.iff(view.valueIs("detail")).then(c.title("Detail")).`else`(c.title("Plain"))
+      |        }
+      |      })
+      |      .build()
+      |  }
+      |}
+      |""".stripMargin
+
+  private def keyOf(member: String, name: String = "control") =
+    VarKey(fh.view.model.NodeId.derived(member), name)
+
+  private def write(ts: TestServer, conn: String, key: VarKey, value: String) =
+    ts.postResult(
+      s"sse/var/${ts.slug}/${key.declarer}/${key.name}/$value?group=${key.group}",
+      body = s"""{"${Server.ConnSignal}":"$conn"}"""
+    )
 
   test(
     "each member's control is its own, and kept while the member is away"
@@ -59,9 +107,11 @@ class SetMemberVarsSuite extends CatsEffectSuite {
       .use { ts =>
         for {
           viewer <- ts.viewer()
-          chose <- ts.postResult(
-            s"sse/var/${ts.slug}/c_1_light_a/control/colour?group=${keyOf("c_1_light_a").group}",
-            body = s"""{"${Server.ConnSignal}":"${viewer.document.conn}"}"""
+          chose <- write(
+            ts,
+            viewer.document.conn,
+            keyOf("c_1_light_a"),
+            "colour"
           )
           moved <- viewer.session.takeBacklog
           chosen <- viewer.session.state.map(_.vars)
@@ -116,6 +166,64 @@ class SetMemberVarsSuite extends CatsEffectSuite {
               page.contains(s"""data-fh-url:control="['v.$d.control'"""),
               page
             )
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("a choice survives the member moving to another clause and back") {
+    TestServer
+      .fromWorkspace("set-member-vars", byClause, List(a, b))
+      .use { ts =>
+        for {
+          viewer <- ts.viewer()
+          chose <- write(
+            ts,
+            viewer.document.conn,
+            keyOf("c_0_light_a"),
+            "colour"
+          )
+          _ <- viewer.session.takeBacklog
+          asCard <- viewer.step(light("light.a", "off"))
+          kept <- viewer.session.state.map(_.vars)
+          asSlider <- viewer.step(a)
+        } yield {
+          assertEquals(chose._1, org.http4s.Status.NoContent, clue = chose)
+          // Off, light.a is a card: still in the set, with no `control`.
+          val card = asCard.flatMap(_.data).mkString("\n")
+          assert(card.contains("c_0_light_a"), card)
+          assert(!card.contains("hs_color"), card)
+          assertEquals(kept, Map(keyOf("c_0_light_a") -> "colour"))
+          val back = asSlider.flatMap(_.data).mkString("\n")
+          assert(back.contains("c_0_light_a"), back)
+          assert(back.contains("hs_color"), back)
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("an If over a member's own variable swaps that member's branch alone") {
+    TestServer
+      .fromWorkspace("set-member-vars", ifInClause, List(a, b))
+      .use { ts =>
+        for {
+          viewer <- ts.viewer()
+          wrote <- write(
+            ts,
+            viewer.document.conn,
+            keyOf("c_0_light_a", "view"),
+            "detail"
+          )
+          frames <- viewer.session.takeBacklog
+        } yield {
+          val page = viewer.document.html
+          assertEquals("Plain".r.findAllMatchIn(page).size, 2, clue = page)
+          assert(!page.contains("Detail"), page)
+          assertEquals(wrote._1, org.http4s.Status.NoContent, clue = wrote)
+          val sent = frames.flatMap(_.data).mkString("\n")
+          assertEquals("Detail".r.findAllMatchIn(sent).size, 1, clue = sent)
+          assert(sent.contains("c_0_light_a"), sent)
+          assert(!sent.contains("c_0_light_b"), sent)
         }
       }
       .timeout(60.seconds)
