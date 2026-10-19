@@ -1061,14 +1061,17 @@ class Renderer(
             cellBindingsInto(buf, resolved)
             // On the declarer, so a param lives as long as what it chooses
             // for, not as long as a control choosing it (ADR 0005).
-            c.vars.toList.sortBy(_._1).foreach { (name, declared) =>
-              val _ = buf
-                .append(' ')
-                .append(
-                  VarKey(id, name)
-                    .urlMirrorAttr(declared, c.starts.contains(name))
-                )
-            }
+            c.vars.toList
+              .sortBy(_._1)
+              .filterNot((name, _) => c.notInUrl(name))
+              .foreach { (name, declared) =>
+                val _ = buf
+                  .append(' ')
+                  .append(
+                    VarKey(id, name)
+                      .urlMirrorAttr(declared, c.starts.contains(name))
+                  )
+              }
             val _ = buf.append('>')
           }
 

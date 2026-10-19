@@ -256,8 +256,9 @@ of `vars` (scopes, validation, the mirror's declared value, the snapshots) uncha
 - **A variable with NO value — "nothing selected yet".** A real UI state, not built because no
   reader can use it: `history`'s parameters are all required. A provider with an optional
   parameter is what would make it worth building. **Null cannot spell it** — `omitNullProperties`
-  drops a null Mapping entry, so `["compare"] = null` declares nothing (ADR 0006). Spell it as the
-  bare-string-or-object rule already does: `"24h"` a value, `{}` unset. `""` is a different
+  drops a null Mapping entry, so `["compare"] = null` declares nothing (ADR 0006). Spell it with the
+  declaration's object form, which `{ value, inUrl }` already uses (ADR 0005): `"24h"` a value,
+  `{}` unset. `""` is a different
   question; `core/stage.pkl` already keeps absent and empty apart.
 - **A type, if a variable ever needs one, must be a real one** — a named `ValueType` covering more
   than string enums, with one answer for where it is checked and one for how a control is derived.

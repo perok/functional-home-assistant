@@ -590,7 +590,10 @@ object LayoutNode:
       // Where a declared variable starts for a new session, evaluated once as
       // the session opens and never followed, so a head does not move under
       // the viewer's finger.
-      starts: Map[String, Dashboard.Start] = Map.empty
+      starts: Map[String, Dashboard.Start] = Map.empty,
+      // Declared here but never mirrored into the page URL: a declaration in
+      // its object form, `{ value, inUrl: false }`, lifted by the decoder.
+      notInUrl: Set[String] = Set.empty
   ) extends LayoutNode:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -645,6 +648,29 @@ object LayoutNode:
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
     * order. `limit` applies after ordering.
     */
+  object Component:
+    private val derived: Decoder[Component] = ConfiguredDecoder.derived
+
+    /** A declaration is a bare value or `{ value, inUrl }` (ADR 0033): the
+      * object form's `inUrl: false` is lifted into `notInUrl`, so `vars` stays
+      * names to values for every reader.
+      */
+    given Decoder[Component] = derived.prepare(_.withFocus(_.mapObject { o =>
+      o("vars").flatMap(_.asObject) match
+        case Some(vs) if vs.values.exists(_.isObject) =>
+          val hidden = vs.toList.collect {
+            case (name, v) if v.hcursor.get[Boolean]("inUrl").contains(false) =>
+              Json.fromString(name)
+          }
+          o.add(
+            "vars",
+            Json.fromJsonObject(
+              vs.mapValues(v => v.asObject.flatMap(_("value")).getOrElse(v))
+            )
+          ).add("notInUrl", Json.fromValues(hidden))
+        case _ => o
+    }))
+
   case class SetNode(
       candidates: List[String] = Nil,
       members: Map[String, SetMember] = Map.empty,
@@ -1388,7 +1414,7 @@ case class Dashboard(
         inSet: Boolean
     ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
+        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _, _) =>
           val wrapErrors =
             if (!noWrap(card)) Nil
             else

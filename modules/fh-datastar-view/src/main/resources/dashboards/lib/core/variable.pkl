@@ -42,6 +42,9 @@ class Ref {
 /// A node variable as one typed value.
 class Variable {
   name: Name
+  /// Whether a viewer's choice is mirrored into the page URL, so a refresh or
+  /// a link keeps it. Off, it lives as long as the page: [[notInUrl]].
+  inUrl: Boolean = true
 
   /// A read of it, for a query parameter, resolved up the ancestors at build
   /// time.
@@ -70,8 +73,13 @@ class Variable {
     let (n = name) new { name = n; value = at }
 
   /// Its entry in the declaring node's `vars`: the value before anyone chooses.
-  function declare(value: String): Mapping<String, String> =
-    let (n = name) new Mapping { [n] = value }
+  function declare(value: String): Mapping<String, String|Declaration> =
+    let (n = name) let (u = inUrl) let (v = value)
+      new Mapping { [n] = if (u) v else new Declaration { value = v; inUrl = false } }
+
+  /// The same variable, kept out of the page URL: a choice a refresh may forget,
+  /// such as one light's control in a set of many.
+  function notInUrl(): Variable = let (self = this) (self) { inUrl = false }
 
   /// Its entry in the declaring node's `starts`: CEL over `e`'s state, read
   /// once as a page opens. It does not follow the entity afterwards.
@@ -89,6 +97,12 @@ class Variable {
             "?group=\(s.group)'" + #")""#
         )
       }
+}
+
+/// A declaration's object form, for what a bare value cannot say (ADR 0033).
+class Declaration {
+  value: String
+  inUrl: Boolean
 }
 
 /// Where a session starts a variable: CEL over one entity's state, which the

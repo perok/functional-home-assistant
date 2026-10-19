@@ -192,7 +192,7 @@ abstract class Node extends LayoutNode {
   /// Node variables this node declares ([[varMod]]): name -> initial value. Its
   /// subtree is where they apply, a tab panel or `If` branch included; a popup
   /// does not see the page's.
-  vars: Mapping<String, String>? = null
+  vars: Mapping<String, String|varMod.Declaration>? = null
   /// Where a session starts a variable [[vars]] declares, when not at its
   /// value, read once as the page opens ([[varMod.Variable.start]]). A result
   /// no reader takes keeps the value.
