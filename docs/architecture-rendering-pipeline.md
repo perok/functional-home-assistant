@@ -1062,7 +1062,8 @@ one passes the same check either way (`Renderer.refusals`): every declared reade
 what it would then ask, and read only an entity the dashboard names or a query of it names at its
 declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
-URL is a 400, before any session exists, rather than a page that dies mid-walk.
+URL value is dropped with a warning (`Renderer.adopt`, as a reconnect's carry is), so the page
+opens on the declared value rather than dying mid-walk or refusing a link that outlived its layout.
 
 **A declaration may START elsewhere, once.** `Component.starts` gives a variable a CEL expression
 over one entity's state. The page route evaluates it from the store as it mints the session

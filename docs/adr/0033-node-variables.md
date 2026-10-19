@@ -137,8 +137,10 @@ parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<
 an entity the dashboard names or one of its queries names at its declared values — ADR 0023's
 bound on the read side, because a `Ref` is legal on any parameter and a variable fed to `entity`
 would otherwise chart the lock from a `Public` dashboard. A refused write is ADR 0024's 200 of
-signals; a refused URL is a 400 before any session exists; a refused carry is dropped with a
-warning, leaving the declared values. A choice naming no declaration is
+signals; a refused URL value or carry is dropped with a warning, each on its own
+(`Renderer.adopt`), leaving the declared values. A link is not refused whole: it outlives the
+layout it was copied from, and a card inserted above can move an id onto a node that cannot take
+the value. A choice naming no declaration is
 inert, not an error — a stale link after a rename, treated as `SurfaceGraph.openPopup` treats a
 gone surface, and an old `ui.<id>` tab link is not read at all. `ui.` is now only the popup's.
 
