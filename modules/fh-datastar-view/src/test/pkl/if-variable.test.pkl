@@ -17,13 +17,13 @@ facts {
     let (i = c.iff(window.valueIs("30d")).then(c.title("Month")).`else`(c.title("Other")))
       let (t = activation(i, "then") as surfaceMod.VarActivation)
         let (e = activation(i, "else") as surfaceMod.VarActivation)
-          t.name == "window" && t.value == "30d" && !t.otherwise
-          && e.name == "window" && e.value == null && e.otherwise
+          t.name == "window" && (t.at as surfaceMod.AtValue).value == "30d"
+          && e.name == "window" && e.at is surfaceMod.AtOtherwise
   }
   ["over a variable, an If with no else still has the fallback, empty"] {
     let (i = c.iff(window.valueIs("7d")).then(c.title("Week")))
       ((i.inlineSurfaces as Mapping)["else"].content as layout.Row).children.isEmpty
-      && (activation(i, "else") as surfaceMod.VarActivation).otherwise
+      && (activation(i, "else") as surfaceMod.VarActivation).at is surfaceMod.AtOtherwise
   }
   ["over state, an If with no else has none, as before"] {
     !(c.iff(true).then(c.title("x")).inlineSurfaces as Mapping).containsKey("else")

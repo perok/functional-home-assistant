@@ -55,8 +55,9 @@ private[runtime] final class SurfaceGraph(
   /** The node a group bakes into. */
   def hostOf(gid: NodeId): NodeId = groupHosts.get(gid).fold(gid)(_._1)
 
-  /** The group `host` owns in a member's `clause`; the host's own where the
-    * wire tags none (a dashboard built without the hoist).
+  /** The group `host` owns in a member's `clause`, or `host` itself for a node
+    * owning none there. `validate` makes every surface baking inside a clause
+    * name it, so an untagged one never gets here.
     */
   def groupAt(host: NodeId, clause: Int): NodeId = {
     val tagged = Surface.groupId(host, Some(clause))
@@ -100,7 +101,7 @@ private[runtime] final class SurfaceGraph(
   /** The node variable selecting `gid`'s member, for a tab bar's panel. */
   def varSelecting(gid: NodeId): Option[String] =
     bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
-      case Activation.Var(name, _, _) => name
+      case Activation.Var(name, _) => name
     }
 
   /** A viewer's selections: `requested` narrowed by [[openPopup]], and each

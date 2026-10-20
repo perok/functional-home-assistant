@@ -14,9 +14,11 @@
           "inlineSurfaces" : {
             "t0" : {
               "activation" : {
+                "at" : {
+                  "kind" : "index"
+                },
                 "kind" : "var",
-                "name" : "tab",
-                "otherwise" : false
+                "name" : "tab"
               },
               "bakeAs" : "panel",
               "bakeIndex" : 0,
@@ -239,9 +241,11 @@
             },
             "t1" : {
               "activation" : {
+                "at" : {
+                  "kind" : "index"
+                },
                 "kind" : "var",
-                "name" : "tab",
-                "otherwise" : false
+                "name" : "tab"
               },
               "bakeAs" : "panel",
               "bakeIndex" : 1,

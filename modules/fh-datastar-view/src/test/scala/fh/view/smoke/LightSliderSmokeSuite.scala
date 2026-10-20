@@ -83,18 +83,21 @@ class LightSliderSmokeSuite extends SmokeSuite {
     val param = """.*[?&]v\.[^=&]+\.control=.*"""
     def href(page: Page) =
       IO.blocking(page.evaluate("() => location.href").toString)
+    // A button carries the value after its own, so a tap before the swap
+    // lands sends that value again and the cycle stalls a step short.
+    def step(page: Page, toMax: Int) = IO.blocking {
+      controlButton(page).click()
+      assertThat(page.locator(s"input[type=range][max='$toMax']")).hasCount(1)
+    }
     withPage(scene) { (page, _) =>
       for {
         _ <- IO.blocking(assertThat(controlButton(page)).hasCount(1))
         loaded <- href(page)
         _ = assert(!loaded.matches(param), clue = loaded)
-        _ <- IO.blocking(controlButton(page).click())
+        _ <- step(page, 6500)
         _ <- eventually(href(page))(_.matches(param))
-        _ <- IO.blocking(controlButton(page).click())
-        _ <- IO.blocking(controlButton(page).click())
-        _ <- IO.blocking(
-          assertThat(page.locator("input[type=range][max='255']")).hasCount(1)
-        )
+        _ <- step(page, 360)
+        _ <- step(page, 255)
         back <- eventually(href(page))(!_.matches(param))
       } yield assert(!back.matches(param), clue = back)
     }

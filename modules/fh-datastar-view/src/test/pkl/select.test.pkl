@@ -4,6 +4,7 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
@@ -30,7 +31,7 @@ local function route(n: Any): String = (n.slots["onclick"] as slotMod.Slot).tran
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
   s.inlineSurfaces.toMap().values.toList()
     .sortBy((m) -> m.bakeIndex!!)
-    .map((m) -> Pair(m.content, m.activation.value))
+    .map((m) -> Pair(m.content, let (at = m.activation.at) if (at is surfaceMod.AtValue) at.value else null))
 
 facts {
   ["style keeps what was set on the select before it; every node field is carried or the card's"] {
