@@ -220,7 +220,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   }
 
-  test("activeStateSurfaces names the selected branch, and excluding prunes") {
+  test("the selected branch is shown, and a cut group's is not") {
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
@@ -229,10 +229,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
       roots = Map("c" -> "")
     )
     val on = snapshot(st("light.a", "on"))
-    assertEquals(g.activeStateSurfaces(on), Set("hot"))
+    assertEquals(g.shownSurfaces(Set.empty, on), Set("hot"))
     // A group already flipping renders its member wholesale; patching its parts
     // too would double-emit.
-    assertEquals(g.activeStateSurfaces(on, excluding = Set(gid)), Set.empty)
+    assert(!g.visibleSurface("hot", Set.empty, on, cut = Set(gid)))
   }
 
   test("a user surface is visible only to a client that has it open") {

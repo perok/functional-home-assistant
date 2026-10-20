@@ -458,6 +458,20 @@ class Renderer(
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities
 
+  /** The surfaces whose static nodes bind `entityId`: the candidates a tick
+    * asks [[SurfaceGraph.visibleSurface]] of, rather than every shown surface.
+    */
+  def surfacesBinding(entityId: String): List[String] =
+    surfacesByEntity.getOrElse(entityId, Nil)
+
+  private lazy val surfacesByEntity: Map[String, List[String]] =
+    surfaceIndexes.toList
+      .flatMap((sid, idx) => idx.byEntity.keys.map(_ -> sid))
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.sorted)
+      .toMap
+
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
@@ -733,8 +747,7 @@ class Renderer(
       states: Map[String, EntityState],
       env: VarEnv
   ): List[SlotRead] = {
-    val shown = open ++ surfaces.activeStateSurfaces(states) ++
-      open.flatMap(surfaces.activeStateSurfacesIn(_, states))
+    val shown = surfaces.shownSurfaces(open, states)
     (readsIn(mainIndex, env) ++
       shown.toList.sorted.flatMap(readsOfSurface(_, env))).distinct
   }
@@ -793,17 +806,6 @@ class Renderer(
     members
       .nodeAt(id, states)
       .fold(id)((m, _) => surfaces.groupAt(id, m.clause))
-
-  /** Whether `gid` is on the page as `states` has it: a group inside a member
-    * only while the member is present and in that clause.
-    */
-  def groupShown(gid: NodeId, states: Map[String, EntityState]): Boolean =
-    surfaces.clauseOf(gid).forall { k =>
-      members
-        .memberOwning(surfaces.hostOf(gid))
-        .flatMap(members.memberAt(_, states))
-        .exists(_.clause == k)
-    }
 
   /** Whether a node may be a log key or a patch target: decided by its card
     * alone. Structure's element contains its regions, so patching it would

@@ -1097,7 +1097,9 @@ class Server(
       after = renderer.surfaces.selections(selections.popup, env)
       // `refusals` made the value a member's of every group it selects.
       swapped <- groups
-        .filter(gid => shown(gid) && renderer.groupShown(gid, store.entities))
+        .filter(gid =>
+          shown(gid) && renderer.surfaces.groupShown(gid, store.entities)
+        )
         .flatMap { gid =>
           renderer.surfaces
             .memberAt(gid, value)
