@@ -8,9 +8,9 @@ import io.circe.parser.parse
 import scala.util.Random
 
 /** [[SurfaceGraph.affectedStateGroups]] finds flips from the changed entities.
-  * The reference here walks every group from the roots instead, descending
-  * only through branches that are shown and did not move: for random frames
-  * the two must name the same groups.
+  * The reference here walks every group from the roots instead, descending only
+  * through branches that are shown and did not move: for random frames the two
+  * must name the same groups.
   */
 class StateFlipIndexSuite extends munit.FunSuite {
 

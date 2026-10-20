@@ -39,12 +39,20 @@ class StateIfInClauseSuite extends CatsEffectSuite {
       |""".stripMargin
 
   private val start =
-    List(light("light.a", "on"), light("light.b", "on"), light("light.c", "off"), light("light.d", "off"))
+    List(
+      light("light.a", "on"),
+      light("light.b", "on"),
+      light("light.c", "off"),
+      light("light.d", "off")
+    )
 
-  private def text(frames: List[SseFrame]) = frames.flatMap(_.data).mkString("\n")
+  private def text(frames: List[SseFrame]) =
+    frames.flatMap(_.data).mkString("\n")
   private def count(s: String, in: String) = s.r.findAllMatchIn(in).size
 
-  test("a flip sends each present member's branch, and nothing for an absent one") {
+  test(
+    "a flip sends each present member's branch, and nothing for an absent one"
+  ) {
     TestServer
       .fromWorkspace("state-if-in-clause", entry, start)
       .use { ts =>
