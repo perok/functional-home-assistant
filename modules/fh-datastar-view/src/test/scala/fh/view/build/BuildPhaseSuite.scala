@@ -10,7 +10,8 @@ import fh.view.model.{
   Predicate,
   Region,
   SlotSource,
-  Surface
+  Surface,
+  VarAt
 }
 import fh.view.testkit.TestIds.given
 import io.circe.{parser, Json}
@@ -658,15 +659,15 @@ class BuildPhaseSuite extends munit.FunSuite {
       // Declared at a value only the fallback takes.
       card = LayoutNode.Component("ok", vars = Map("window" -> "24h")),
       surfaces = Map(
-        "then" -> member(0, Activation.Var("window", Some("30d"))),
-        "else" -> member(1, Activation.Var("window", otherwise = true))
+        "then" -> member(0, Activation.Var("window", VarAt.Value("30d"))),
+        "else" -> member(1, Activation.Var("window", VarAt.Otherwise))
       )
     )
     assertEquals(dash.validate(), Nil)
     val two = dash.copy(surfaces =
       dash.surfaces + ("more" -> member(
         2,
-        Activation.Var("window", otherwise = true)
+        Activation.Var("window", VarAt.Otherwise)
       ))
     )
     assert(

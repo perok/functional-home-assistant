@@ -67,11 +67,12 @@ class Variable {
 
   /// The activation of the bake member this variable shows at `at`.
   function selecting(at: Value): surfaceMod.VarActivation =
-    let (n = name) new { name = n; value = at }
+    let (n = name) let (v = at) new { name = n; at = new surfaceMod.AtValue { value = v } }
 
   /// The activation of the bake member it shows at every value no other member
   /// names.
-  fixed selectingAnyOther: surfaceMod.VarActivation = let (n = name) new { name = n; otherwise = true }
+  fixed selectingAnyOther: surfaceMod.VarActivation =
+    let (n = name) new { name = n; at = new surfaceMod.AtOtherwise {} }
 
   /// Whether it holds `at`, as an If's condition: `c.iff(window.valueIs("30d"))`.
   /// Not a predicate, so it cannot be combined with one over entity state. Named
