@@ -83,16 +83,24 @@ private[runtime] enum SlotForm derives CanEqual {
 /** Per render, never cached on the renderer ([[VarGraph.env]]). */
 type VarEnv = Map[NodeId, Map[String, String]]
 
-/** Where a render walk is below a set member: the member, its clause and the
-  * steps down from it, which a nested set's id spells
+/** Where a render walk is: the static tree, or below a set member, with its
+  * clause and the steps down from it, which a nested set's id spells
   * ([[MemberGraph.innerSetId]]).
   */
-private[runtime] final case class MemberPath(
-    member: MemberId,
-    clause: Int,
-    path: List[LayoutNode.Step]
-) {
-  def down(step: LayoutNode.Step): MemberPath = copy(path = path :+ step)
+private[runtime] enum WalkAt derives CanEqual {
+  case Static
+  case InMember(member: MemberId, clause: Int, path: List[LayoutNode.Step])
+
+  def down(step: LayoutNode.Step): WalkAt = this match {
+    case Static      => Static
+    case m: InMember => m.into(step)
+  }
+}
+
+private[runtime] object WalkAt {
+  extension (m: WalkAt.InMember)
+    def into(step: LayoutNode.Step): WalkAt.InMember =
+      m.copy(path = m.path :+ step)
 }
 
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
@@ -684,7 +692,7 @@ class Renderer(
       states,
       selections,
       fragments,
-      MemberPath(m.id, m.clause, Nil)
+      WalkAt.InMember(m.id, m.clause, Nil)
     )
 
   /** `s_<sid>__c`, what a state group's host holds; the same scheme the
@@ -1028,7 +1036,7 @@ class Renderer(
       states: Map[String, EntityState],
       selections: Selections,
       fragments: QuerySnapshot,
-      within: MemberPath | Null = null
+      within: WalkAt = WalkAt.Static
   ): Traced = {
     val trace = new Trace
     val html =
@@ -1056,7 +1064,7 @@ class Renderer(
       selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace,
-      within: MemberPath | Null
+      within: WalkAt
   ): String = {
     val out = Sink.buffer(
       Renderer.NodeBytesHint * (node match {
@@ -1093,13 +1101,14 @@ class Renderer(
       selections: Selections,
       fragments: QuerySnapshot,
       trace: Trace,
-      within: MemberPath | Null = null
+      within: WalkAt = WalkAt.Static
   ): Unit =
     node match {
       case c: LayoutNode.Component =>
-        val gid =
-          if (within == null) id
-          else surfaces.groupAt(id, within.nn.clause)
+        val gid = within match {
+          case WalkAt.Static      => id
+          case m: WalkAt.InMember => surfaces.groupAt(id, m.clause)
+        }
         val (bakeIndex, bakeSel) = resolveBakeTraced(gid, selections, states)
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
@@ -1124,14 +1133,13 @@ class Renderer(
         // same bytes.
         val inline = plan.inline
 
-        def withinOf(region: String, i: Int): MemberPath | Null =
-          if (within == null) null
-          else within.nn.down(LayoutNode.Step(region, i))
+        def withinOf(region: String, i: Int): WalkAt =
+          within.down(LayoutNode.Step(region, i))
 
         def childId(region: String, i: Int, child: LayoutNode) =
-          child match {
-            case set: LayoutNode.SetNode if within != null =>
-              val at = within.nn.down(LayoutNode.Step(region, i))
+          (child, within) match {
+            case (set: LayoutNode.SetNode, m: WalkAt.InMember) =>
+              val at = m.into(LayoutNode.Step(region, i))
               members.innerSetId(at.member, at.clause, at.path, set)
             case _ =>
               LayoutNode.childId(
@@ -1284,7 +1292,7 @@ class Renderer(
             selections,
             fragments,
             trace,
-            within = MemberPath(m.id, m.clause, Nil)
+            within = WalkAt.InMember(m.id, m.clause, Nil)
           )
         }
         val _ = out.append("</div>")
