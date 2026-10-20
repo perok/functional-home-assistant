@@ -1713,6 +1713,13 @@ case class Dashboard(
               s"surface '$sid' bakes into '$gid', which is not a node in this " +
                 "dashboard (main tree or any surface's content)"
             )
+          // Every clause of a candidate mints the same ids below the member, so
+          // only the clause tells two clauses' groups apart (`Surface.group`).
+          else if (inMember(gid) && s.clause.isEmpty)
+            List(
+              s"surface '$sid' bakes into '$gid', inside a candidate set's " +
+                "clause, but names no clause"
+            )
           // A flip is found from the static tree (`SurfaceGraph`), which never
           // reaches a member: such a branch would never move.
           else if (inMember(gid) && s.activation.isInstanceOf[Activation.State])
