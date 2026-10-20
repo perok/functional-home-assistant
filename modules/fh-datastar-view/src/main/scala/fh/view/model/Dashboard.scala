@@ -644,10 +644,6 @@ object LayoutNode:
       } match
         case (states, queries) => (states, queries.distinct)
 
-  /** A set over a static candidate list: the runtime decides only presence and
-    * order (ADR 0003). An empty `orderBy` means `candidates` is already in
-    * order. `limit` applies after ordering.
-    */
   object Component:
     private val derived: Decoder[Component] = ConfiguredDecoder.derived
 
@@ -671,6 +667,10 @@ object LayoutNode:
         case _ => o
     }))
 
+  /** A set over a static candidate list: the runtime decides only presence and
+    * order (ADR 0003). An empty `orderBy` means `candidates` is already in
+    * order. `limit` applies after ordering.
+    */
   case class SetNode(
       candidates: List[String] = Nil,
       members: Map[String, SetMember] = Map.empty,
