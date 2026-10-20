@@ -86,6 +86,16 @@ q.from(dump.lights.all)
   picks a card per member, the first match winning, and `` .`else`(card) ``
   takes the rest. A member matching no case is not shown, so `.caseOf(…)` with
   no `else` shows only the matching ones.
+- The card can hold a `c.iff(…)` on another entity, which switches part of
+  each member's card where a case switches all of it, so two independent
+  conditions do not need four cases:
+
+  ```pkl
+  .render((t) -> (c.column) { children {
+    c.entityCard(t)
+    c.iff(q.entity(dump.entities.vindu).stateIs("on")).then(c.title("Window open"))
+  } })
+  ```
 - `.orderBy(q.asc(q.prop("friendly_name")))` orders them and `.limit(n)` caps
   how many show.
 - `.build()` ends the chain. The result is a card like any other, so

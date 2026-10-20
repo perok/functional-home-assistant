@@ -258,7 +258,9 @@ a group is that clause's: every clause of a member shares its nodes' ids, so the
 the group's id.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
-moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.
+moved, not because a user clicked. Server truth, so every viewer gets it. Only a group shown before
+and after flips: one inside a set member whose arrival or clause switch places it, or below
+another group that flips, is in that placement instead. ADR 0007.
 
 ---
 

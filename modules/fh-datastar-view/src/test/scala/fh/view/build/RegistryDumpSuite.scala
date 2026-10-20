@@ -184,6 +184,38 @@ class RegistryDumpSuite extends munit.FunSuite {
     assertEquals(field(dump, "switch_b", "entity_category"), Json.Null)
   }
 
+  test("platform, translation_key and original_name come off the registry") {
+    val dump = RegistryDump.build(
+      states = Map("sensor.a" -> full(), "sensor.b" -> full()),
+      registry = List(
+        registryEntity("sensor.a").copy(
+          platform = "bambu_lab",
+          translation_key = Some("remaining_time"),
+          original_name = Some("Remaining time")
+        )
+      ),
+      devices = Nil,
+      areas = Nil,
+      floors = Nil
+    )
+    assertEquals(
+      field(dump, "sensor_a", "platform"),
+      Json.fromString("bambu_lab")
+    )
+    assertEquals(
+      field(dump, "sensor_a", "translation_key"),
+      Json.fromString("remaining_time")
+    )
+    assertEquals(
+      field(dump, "sensor_a", "original_name"),
+      Json.fromString("Remaining time")
+    )
+    // No registry entry, no facts.
+    List("platform", "translation_key", "original_name").foreach { f =>
+      assertEquals(field(dump, "sensor_b", f), Json.Null, clue = f)
+    }
+  }
+
   test("members come from either group attribute") {
     val lightGroup =
       full("entity_id" -> Json.arr(Json.fromString("light.x")))

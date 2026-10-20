@@ -1723,14 +1723,6 @@ case class Dashboard(
               s"surface '$sid' bakes into '$gid', inside a candidate set's " +
                 "clause, but names no clause"
             )
-          // A flip is found from the static tree (`SurfaceGraph`), which never
-          // reaches a member: such a branch would never move.
-          else if (inMember(gid) && s.activation.isInstanceOf[Activation.State])
-            List(
-              s"surface '$sid' is chosen by live state inside a candidate set's " +
-                "clause, which is not supported: put the condition on the " +
-                "clause's `when`, or the If above the set"
-            )
           else
             // `bakeAs` must be a baked region of that node's card.
             (s.bakeAs, hostCard(gid)) match {

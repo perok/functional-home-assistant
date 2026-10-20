@@ -173,14 +173,18 @@ private[runtime] final class SurfaceGraph(
       states: Map[String, EntityState],
       selections: Selections
   ): Set[String] = {
-    val selected = selectedSurfaces(selections)
-    def close(acc: Set[String]): Set[String] = {
-      val next = acc ++ acc.flatMap(activeStateSurfacesIn(_, states)) ++
-        selected.filter(s => surfaceParent.get(s).exists(acc))
-      if (next == acc) acc else close(next)
-    }
-    close(Set(sid))
+    val open = selectedSurfaces(selections)
+    surfaces.keySet.filter(shownUpTo(_, sid, open, states, Set.empty)) + sid
   }
+
+  /** Every surface [[visibleSurface]] with `open`, which is added whole: a page
+    * opens on what the viewer chose, shown or not.
+    */
+  def shownSurfaces(
+      open: Set[String],
+      states: Map[String, EntityState]
+  ): Set[String] =
+    open ++ surfaces.keySet.filter(visibleSurface(_, open, states))
 
   private def isStateSurface(sid: String): Boolean =
     surfaces
@@ -200,20 +204,40 @@ private[runtime] final class SurfaceGraph(
         .contains(sid)
     }
 
-  /** Walks up the chain: `open` includes a tab panel inside a hidden `If`. The
-    * visited set because authored `bakeInto` may cycle.
+  /** Whether `sid` is on screen for a viewer with `open` open, as `states` has
+    * it: every surface up its chain is, a user surface opened and a state
+    * branch selected, and a group inside a set member only while the member is
+    * in that clause ([[groupShown]]). `open` may hold a tab panel inside a
+    * hidden `If`, hence the whole chain. `cut`: groups flipping this frame,
+    * whose fill renders what is below them.
     */
   def visibleSurface(
       sid: String,
       open: Set[String],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      cut: Set[NodeId] = Set.empty
+  ): Boolean = sid.isEmpty || shownUpTo(sid, "", open, states, cut)
+
+  /** Every surface from `sid` up to `stop`, exclusive, is shown. The visited
+    * set because authored `bakeInto` may cycle.
+    */
+  private def shownUpTo(
+      sid: String,
+      stop: String,
+      open: Set[String],
+      states: Map[String, EntityState],
+      cut: Set[NodeId]
   ): Boolean = {
     def up(sid: String, seen: Set[String]): Boolean =
-      !seen(sid) && {
+      sid == stop || (!sid.isEmpty && !seen(sid) && {
+        val inGroup = surfaces
+          .get(sid)
+          .flatMap(_.group)
+          .forall(gid => !cut(gid) && groupShown(gid, states))
         val here =
           if (isStateSurface(sid)) stateSelected(sid, states) else open(sid)
-        here && surfaceParent.get(sid).forall(up(_, seen + sid))
-      }
+        inGroup && here && up(surfaceParent.getOrElse(sid, ""), seen + sid)
+      })
     up(sid, Set.empty)
   }
 
@@ -226,15 +250,6 @@ private[runtime] final class SurfaceGraph(
       states: Map[String, EntityState]
   ): Boolean =
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
-
-  // Walks start at one root's owners and descend only into selected members.
-  private val stateGidsByRoot: Map[String, List[NodeId]] =
-    stateBakeOwnerIds.toList.sorted
-      .flatMap(gid => rootOf(gid).map(_ -> gid))
-      .groupMap(_._1)(_._2)
-
-  private def stateGidsAtRoot(root: String): List[NodeId] =
-    stateGidsByRoot.getOrElse(root, Nil)
 
   // Subject-free (`validate`), so the subject is a stand-in nothing reads.
   private def holds(
@@ -260,94 +275,65 @@ private[runtime] final class SurfaceGraph(
     Option.when(idx >= 0)(idx)
   }
 
-  /** Exact, because conditions are subject-free: nothing outside this set can
-    * move the selection.
+  /** The inverse of what each state group's conditions read. Exact, because
+    * conditions are subject-free: nothing outside it can move a selection.
     */
-  private lazy val stateGroupEntities: Map[NodeId, Set[String]] =
-    stateBakeOwnerIds.map { gid =>
-      gid -> bakeGroup(gid).flatMap { sid =>
-        surfaces
-          .get(sid)
-          .toList
-          .flatMap(_.activation match {
-            case Activation.State(c) => Predicate.referencedEntities(c)
-            case _                   => Nil
-          })
-      }.toSet
-    }.toMap
+  private val stateGroupsReading: Map[String, List[NodeId]] =
+    stateBakeOwnerIds.toList.sorted
+      .flatMap { gid =>
+        bakeGroup(gid)
+          .flatMap(
+            surfaces
+              .get(_)
+              .toList
+              .flatMap(_.activation match {
+                case Activation.State(c) => Predicate.referencedEntities(c)
+                case _                   => Nil
+              })
+          )
+          .distinct
+          .map(_ -> gid)
+      }
+      .groupMap(_._1)(_._2)
 
-  private def conditionTouched(
-      gid: NodeId,
-      changes: List[StateChange]
-  ): Boolean = {
-    val reads = stateGroupEntities.getOrElse(gid, Set.empty)
-    changes.exists(c => reads.contains(c.current.entityId))
-  }
+  /** Whether `gid` is on the page as `states` has it: a group inside a member
+    * only while the member is present and in that clause.
+    */
+  def groupShown(gid: NodeId, states: Map[String, EntityState]): Boolean =
+    clauseOf(gid).forall { k =>
+      members
+        .memberOwning(hostOf(gid))
+        .flatMap(members.memberAt(_, states))
+        .exists(_.clause == k)
+    }
 
-  /** Only through selected members: a hidden branch is rendered fresh by its
-    * ancestor's fill when it flips in.
+  /** Found from the changed entities, not by walking every group: at 200
+    * members with an If each, the walk evaluated 200 conditions a frame. A
+    * group counts only if [[groupShown]] before and after, since a member
+    * arriving or switching clause is placed whole, and only if its root is
+    * visible past no other group flipping ([[visibleSurface]]), whose fill
+    * holds it.
     */
   def affectedStateGroups(
       changes: List[StateChange],
       before: Map[String, EntityState],
-      states: Map[String, EntityState]
-  ): List[NodeId] =
-    affectedStateGroupsFrom("", changes, before, states)
-
-  def affectedStateGroupsIn(
-      surfaceId: String,
-      changes: List[StateChange],
-      before: Map[String, EntityState],
-      states: Map[String, EntityState]
-  ): List[NodeId] =
-    affectedStateGroupsFrom(surfaceId, changes, before, states)
-
-  private def affectedStateGroupsFrom(
-      root: String,
-      changes: List[StateChange],
-      before: Map[String, EntityState],
-      states: Map[String, EntityState]
-  ): List[NodeId] =
-    stateGidsAtRoot(root).flatMap { gid =>
-      val flipped =
-        conditionTouched(gid, changes) &&
-          resolveActiveByState(gid, before) != resolveActiveByState(gid, states)
-      val nested = resolveActiveByState(gid, states).toList.flatMap(idx =>
-        affectedStateGroupsFrom(bakeGroup(gid)(idx), changes, before, states)
-      )
-      (if (flipped) List(gid) else Nil) ++ nested
-    }
-
-  /** What keeps a hidden branch silent by construction. `excluding`: groups
-    * flipping this frame, whose fill re-renders them.
-    */
-  def activeStateSurfaces(
       states: Map[String, EntityState],
-      excluding: Set[NodeId] = Set.empty
-  ): Set[String] =
-    activeStateSurfacesFrom("", states, excluding)
-
-  def activeStateSurfacesIn(
-      surfaceId: String,
-      states: Map[String, EntityState],
-      excluding: Set[NodeId] = Set.empty
-  ): Set[String] =
-    activeStateSurfacesFrom(surfaceId, states, excluding)
-
-  private def activeStateSurfacesFrom(
-      root: String,
-      states: Map[String, EntityState],
-      excluding: Set[NodeId]
-  ): Set[String] =
-    stateGidsAtRoot(root)
-      .filterNot(excluding)
-      .flatMap { gid =>
-        resolveActiveByState(gid, states).toList.flatMap { idx =>
-          val sid = bakeGroup(gid)(idx)
-          sid :: activeStateSurfacesFrom(sid, states, excluding).toList
-        }
+      visible: Set[String] = Set.empty
+  ): List[NodeId] = {
+    val moved = changes
+      .flatMap(c => stateGroupsReading.getOrElse(c.entityId, Nil))
+      .distinct
+      .filter { gid =>
+        def selected(at: Map[String, EntityState]) =
+          resolveActiveByState(gid, at)
+        groupShown(gid, before) && groupShown(gid, states) &&
+        selected(before) != selected(states)
       }
-      .toSet
+    val cut = moved.toSet
+    moved
+      .filter(rootOf(_).exists(visibleSurface(_, visible, states, cut)))
+      .sorted
+  }
 
   /** The first member when nothing chose one. */
   private[runtime] def resolveActive(gid: NodeId, selections: Selections): Int =

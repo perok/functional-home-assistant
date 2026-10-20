@@ -250,7 +250,7 @@ class MemberNodesSuite extends ServerHarness {
     }
   }
 
-  test("a branch chosen by live state inside a clause is refused") {
+  test("a branch chosen by live state inside a clause builds") {
     val flipping = panels.copy(surfaces =
       Map(
         "a0" -> panels
@@ -267,9 +267,6 @@ class MemberNodesSuite extends ServerHarness {
           )
       )
     )
-    assert(
-      flipping.validate().exists(_.contains("chosen by live state inside")),
-      clue = flipping.validate()
-    )
+    assertEquals(flipping.validate(), Nil)
   }
 }
