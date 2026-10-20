@@ -565,7 +565,9 @@ server itself last sent.
 ## 3. Inside `Patches.record` — the three kinds, and what each writes
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
-and membership arrives already applied — `MemberGraph.syncMembers` moves the recorder's membership for every
+`plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`) and kept a
+surface's nodes only where `SurfaceGraph.reaches` says it is shown, so a hidden branch is never
+asked, and membership arrives already applied — `MemberGraph.syncMembers` moves the recorder's membership for every
 member container before the gate, and hands `record` each container's list before and after plus
 the members whose case it replaced.
 
@@ -811,11 +813,13 @@ of a candidate mints the same ids below it; a render key names the clause for th
 so does a bake group: a surface baked inside a clause is tagged with it (`Surface.clause`), its
 group is `<host>_k<clause>` (`Surface.group`, `SurfaceGraph.groupAt`), so two slider clauses keep
 their own heads, and a write swaps only the group of the member's current clause
-(`Renderer.groupShown`). A member holding nodes has no one element to send, so its arrival and a
+(`SurfaceGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
 clause switch (a different node, or the same node in another clause) place it whole, rendered per
 viewer (`renderMemberTraced`), with its leaves' claims; a group first shown that way takes its
-selection from the session's variables (`SurfaceGraph.selectionsShown`). A branch chosen by live
-state cannot sit inside a clause (`validate`): flips are found from the static tree.
+selection from the session's variables (`SurfaceGraph.selectionsShown`), and a state group with
+the branch its state picks. So an `If` on live state inside a clause flips only while its member
+is present in that clause, before and after the frame (`SurfaceGraph.groupShown`); the frame
+finds it from the changed entities, not by walking every group (ADR 0007).
 
 Three properties hold it up, and each fails silently if broken:
 

@@ -1670,8 +1670,8 @@ case class Dashboard(
           prefix: String,
           id: NodeId,
           within: Option[(NodeId, Int, List[LayoutNode.Step])]
-      ): List[(NodeId, LayoutNode, Boolean)] =
-        (id, node, within.isDefined) :: (node match {
+      ): List[(NodeId, LayoutNode)] =
+        (id, node) :: (node match {
           case c: LayoutNode.Component =>
             LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               nodesIn(
@@ -1697,9 +1697,7 @@ case class Dashboard(
             nodesIn(s.content, p, LayoutNode.rootId(p, s.content), None)
           }
       val nodes: Map[NodeId, LayoutNode] =
-        walked.map((id, n, _) => id -> n).toMap
-      val inMember: Set[NodeId] =
-        walked.collect { case (id, _, true) => id }.toSet
+        walked.toMap
       def hostCard(gid: NodeId): Option[CardDef] =
         nodes
           .get(gid)
@@ -1712,14 +1710,6 @@ case class Dashboard(
             List(
               s"surface '$sid' bakes into '$gid', which is not a node in this " +
                 "dashboard (main tree or any surface's content)"
-            )
-          // A flip is found from the static tree (`SurfaceGraph`), which never
-          // reaches a member: such a branch would never move.
-          else if (inMember(gid) && s.activation.isInstanceOf[Activation.State])
-            List(
-              s"surface '$sid' is chosen by live state inside a candidate set's " +
-                "clause, which is not supported: put the condition on the " +
-                "clause's `when`, or the If above the set"
             )
           else
             // `bakeAs` must be a baked region of that node's card.

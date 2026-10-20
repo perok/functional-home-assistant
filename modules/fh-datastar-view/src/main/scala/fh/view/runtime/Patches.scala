@@ -86,9 +86,10 @@ private[runtime] object Patches {
     * drop an update someone needed.
     *
     * Flipped state groups are recorded as [[Mutation]]s and excluded below (the
-    * fill re-renders them). Only surfaces active from the page or a visible
-    * surface contribute, so a hidden branch never gets updates by construction.
-    * No viewer's [[Selections]] are read.
+    * fill re-renders them). A surface binding a changed entity contributes only
+    * if it is shown from the page or a visible surface
+    * ([[SurfaceGraph.reaches]]), so a hidden branch never gets updates. No
+    * viewer's [[Selections]] are read.
     */
   def plan(
       renderer: Renderer,
@@ -101,32 +102,30 @@ private[runtime] object Patches {
   ): DiffRequest = {
     val binding = synced.membership.binding
     val flips =
-      (renderer.surfaces.affectedStateGroups(changes, before, states) ++
-        visible.toList.flatMap(sid =>
-          renderer.surfaces.affectedStateGroupsIn(sid, changes, before, states)
-        )).distinct
+      renderer.surfaces.affectedStateGroups(changes, before, states, visible)
     val flipped = flips.toSet
-    val activeSids = renderer.surfaces.activeStateSurfaces(states, flipped) ++
-      visible.flatMap(
-        renderer.surfaces.activeStateSurfacesIn(_, states, flipped)
+    // Per frame: every changed entity a branch binds asks of the same surface,
+    // and each asking evaluates the conditions above it (`publishFlip`).
+    val reached = scala.collection.mutable.HashMap.empty[String, Boolean]
+    val shown: String => Boolean = sid =>
+      reached.getOrElseUpdate(
+        sid,
+        renderer.surfaces.reaches(sid, visible, states, flipped)
       )
-    val sids = (visible ++ activeSids).toList
     // Members included, so a case slot naming a second entity ticks: that
     // entity need not be a candidate.
     val staticIds = changes
       .flatMap(c =>
         renderer.componentsFor(c.entityId).toList ++
-          binding(c.entityId, "") ++
-          sids.flatMap(sid =>
-            renderer.surfaceComponentsFor(sid, c.entityId).toList ++
-              binding(c.entityId, sid)
-          )
+          binding(c.entityId, shown) ++
+          renderer
+            .surfacesBinding(c.entityId)
+            .filter(shown)
+            .flatMap(renderer.surfaceComponentsFor(_, c.entityId))
       )
       .distinct
       .filterNot(flipped)
-    val sets =
-      (renderer.members.affectedSets(changes) ++
-        sids.flatMap(renderer.members.affectedSurfaceSets(_, changes))).distinct
+    val sets = renderer.members.affectedSetsWithin(changes, shown)
     DiffRequest(staticIds, sets, flips, states, before, synced.deltas, at)
   }
 

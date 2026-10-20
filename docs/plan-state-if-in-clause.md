@@ -28,17 +28,20 @@ clause, so ids are not the problem.
 ## The shape
 
 - **Flips from the changed entities, not from every group.** An index `entity -> state groups
-  whose condition reads it` (the inverse of `stateGroupEntities`, static). A frame looks up the
+  whose condition reads it` (`SurfaceGraph.stateGroupsReading`, static). A frame looks up the
   groups its changed entities name; one flips if its selected branch differs before and after,
-  and it is reached: every state group above it is on the branch that holds it, up to the root
-  being walked. Today every group's condition is evaluated on every frame to decide where to
+  and it is reached (`SurfaceGraph.reaches`): every state group above it is on the branch that
+  holds it, up to the page or an open surface. A group below another that flips in the same frame
+  is left to that one's fill. Today every group's condition is evaluated on every frame to decide where to
   descend, which is free at five `If`s and is 200 evaluations a frame at 200 members.
 - **A group inside a member counts only while the member is there.** Present, in the group's
   clause, before and after the frame. A member arriving or switching clause is placed whole, and
   that render already picks the branch from state (`resolveBakeTraced`), so it needs no flip.
 - **Hidden branches stay silent, per candidate.** `Patches.plan` asks of each surface holding a
-  node that binds a changed entity whether it is active (the same walk up), instead of building
-  every active surface first. An index `entity -> surfaces binding it` makes that a lookup.
+  node that binds a changed entity whether it is shown (`reaches`, cut at the groups flipping),
+  instead of building every active surface first. An index `entity -> surfaces binding it`
+  (`Renderer.surfacesBinding`) makes that a lookup; a member's bindings and a set's moves are
+  asked the same of their root.
 - **`validate` drops the refusal.**
 - Page open and a member's placement keep their current paths: they walk what they render.
 

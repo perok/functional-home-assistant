@@ -57,10 +57,10 @@ set member, a dynamic case — but a surface supplies none. So every comparison 
 a state condition names its own entity (`Cmp.entity`) and a `Predicate.Count`
 carries its own candidates; `Dashboard.validate` rejects one that does not, with
 a located message. Evaluating a condition is then a handful of lookups
-(`Renderer.holds` → `matchesIn` against `EntityState.none`, which nothing
-reads), and `conditionTouched` is exact rather than a heuristic: a group's
-conditions read a known entity set, so a change outside it cannot move the
-selection.
+(`SurfaceGraph.holds` → `matchesIn` against `EntityState.none`, which nothing
+reads), and the index of what each group reads is exact rather than a
+heuristic: a group's conditions read a known entity set, so a change outside it
+cannot move the selection.
 
 The quantifier it replaced was `any`/`none`/`all` over the WHOLE state map, and
 those became comparisons on a count over a NAMED set: `any` is `count > 0`,
@@ -87,11 +87,18 @@ panel is tagged with the tab panel instead.
 
 Per state change, the recording pass does two things:
 
-1. **Flips** (`Renderer.affectedStateGroups`, same two-step cost model as
-   `dynamicDelta`: O(1) shortcut — the change must touch an entity the group's
-   conditions actually name — before the full before/after selection compare): record where the branch went, **prune** the group's
-   cache entries, and defer the render. Hidden-branch churn deliberately leaves
-   stale cache entries; the flip-prune is what makes that correct.
+1. **Flips** (`SurfaceGraph.affectedStateGroups`): found from the changed
+   entities, through an index of what each group's conditions read, so a frame
+   that touches no condition costs a lookup per entity however many `If`s the
+   page holds. A group flips when its selection differs before and after and it
+   is shown both times: reached from the page or an open surface through
+   selected branches (`SurfaceGraph.reaches`), and, inside a set member, the
+   member present in that clause. A member arriving or switching clause is
+   placed whole with the branch its state picks, and a group below another that
+   flips is inside that one's fill, so neither is a flip. Record where the
+   branch went, **prune** the group's cache entries, and defer the render.
+   Hidden-branch churn deliberately leaves stale cache entries; the flip-prune
+   is what makes that correct.
 
    The fill itself is `Patches.fillHost` — the same primitive a tab switch and
    a popup open use, since all three evict a host and overwrite what it holds
@@ -99,12 +106,11 @@ Per state change, the recording pass does two things:
    node: the node's own HTML embeds the branch, so morphing it would weld host
    to content, which is exactly what the leaf/structure split prevents (ADR
    0008).
-2. **Active-member liveness** (`Renderer.activeStateSurfaces`, transitive —
-   a nested state group contributes only through its active ancestor branch):
-   record the active members' affected components and dynamic groups. Inactive
-   STATE members are never consulted —
-   that IS the no-updates guarantee, and it is structural: their ids never
-   enter the selection.
+2. **Active-member liveness** (`SurfaceGraph.reaches`, per surface binding a
+   changed entity): a surface contributes its affected components and sets only
+   if every state surface above it is selected, on the page and not flipping.
+   Inactive STATE members are never consulted — that IS the no-updates
+   guarantee, and it is structural: their ids never enter the selection.
 
    Structural silence covers state members directly. A *user*-selected surface
    nested inside an inactive branch — a tab panel inside a hidden `If` — needs

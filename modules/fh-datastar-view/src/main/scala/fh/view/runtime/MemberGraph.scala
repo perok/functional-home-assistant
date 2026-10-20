@@ -100,14 +100,14 @@ private[runtime] final case class Membership(
     byEntity: Map[String, Vector[Member]]
 ) {
 
-  /** The nodes inside members under `root` that bind `entityId`: each
-    * re-renders because something it binds moved, as a static node does.
+  /** The nodes inside members under a root `within` holds that bind `entityId`:
+    * each re-renders because something it binds moved, as a static node does.
     */
-  def binding(entityId: String, root: String): Set[NodeId] =
+  def binding(entityId: String, within: String => Boolean): Set[NodeId] =
     byEntity
       .getOrElse(entityId, Vector.empty)
       .iterator
-      .filter(_.root == root)
+      .filter(m => within(m.root))
       .flatMap(_.byEntity.getOrElse(entityId, Nil))
       .toSet
 
@@ -597,21 +597,23 @@ private[runtime] final class MemberGraph(
 
   /** Membership only; a member that ticked is found by the reverse index. */
   def affectedSets(changes: List[StateChange]): List[SetId] =
-    containersIn("", changes)
+    affectedSetsWithin(changes, _.isEmpty)
 
   def affectedSurfaceSets(
       surfaceId: String,
       changes: List[StateChange]
-  ): List[SetId] = containersIn(surfaceId, changes)
+  ): List[SetId] = affectedSetsWithin(changes, _ == surfaceId)
 
-  // Off [[sources]], for the reason [[setContainer]] gives.
-  private def containersIn(
-      root: String,
-      changes: List[StateChange]
+  /** [[affectedSets]] under every root `within` holds. Off [[sources]], for the
+    * reason [[setContainer]] gives.
+    */
+  def affectedSetsWithin(
+      changes: List[StateChange],
+      within: String => Boolean
   ): List[SetId] =
     changes
       .flatMap(c => movedBy.getOrElse(c.entityId, Nil))
-      .collect { case (s, _) if s.root == root => s.gid }
+      .collect { case (s, _) if within(s.root) => s.gid }
       .distinct
       .sortBy(id => id: String)
 }
