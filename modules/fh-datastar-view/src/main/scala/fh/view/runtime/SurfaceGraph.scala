@@ -408,9 +408,6 @@ private[runtime] final class SurfaceGraph(
         .getOrElse("")
     )
 
-  /** What `open` records: a live pull renders with these, since a press moves
-    * `open` and not the request its stream connected with.
-    */
   /** [[selectionsIn]], where a group none of whose members `open` holds takes
     * `env`'s: a group in a set member's clause is first shown when the member
     * switches to that clause.
@@ -423,6 +420,9 @@ private[runtime] final class SurfaceGraph(
     )
   }
 
+  /** What `open` records: a live pull renders with these, since a press moves
+    * `open` and not the request its stream connected with.
+    */
   def selectionsIn(open: Set[String]): Selections =
     Selections(
       surfacesAt(Dashboard.PopupHostId).find(open),
