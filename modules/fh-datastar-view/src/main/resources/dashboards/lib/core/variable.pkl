@@ -67,7 +67,17 @@ class Variable {
 
   /// The activation of the bake member this variable shows at `at`.
   function selecting(at: Value): surfaceMod.VarActivation =
-    let (n = name) new { name = n; value = at }
+    let (n = name) let (v = at) new { name = n; at = new surfaceMod.AtValue { value = v } }
+
+  /// The activation of the bake member it shows at every value no other member
+  /// names.
+  fixed selectingAnyOther: surfaceMod.VarActivation =
+    let (n = name) new { name = n; at = new surfaceMod.AtOtherwise {} }
+
+  /// Whether it holds `at`, as an If's condition: `c.iff(window.valueIs("30d"))`.
+  /// Not a predicate, so it cannot be combined with one over entity state. Named
+  /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
+  function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
   /// Its entry in the declaring node's `vars`: the value before anyone chooses.
   function declare(value: String): Mapping<String, String> =
@@ -89,6 +99,12 @@ class Variable {
             "?group=\(s.group)'" + #")""#
         )
       }
+}
+
+/// A node variable at one value: what an If over a variable is chosen by.
+class ValueIs {
+  variable: Variable
+  value: Value
 }
 
 /// Where a session starts a variable: CEL over one entity's state, which the

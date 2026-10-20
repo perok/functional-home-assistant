@@ -38,7 +38,8 @@ not be enumerated there. A declared reference can.
 5. A node sees its own declarations.
 6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
    the scope of the one node it is baked into.
-7. A candidate set's members read the scope at the set. A node inside a clause cannot declare.
+7. A candidate set's members read the scope at the set. A node inside a clause declares for its
+   member alone: each member's copy is its own declarer.
 8. A read with no declarer is a build error naming the node and the variable.
 9. A value is per viewer, kept on the session and addressed by declarer and name, so a write to
    an inner declaration cannot move a reader of an outer one.
@@ -89,14 +90,19 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
-- **A candidate set's members read the scope at the set.** The candidates and each member's id
-  (`LayoutNode.memberSegment`: set id plus entity id) are fixed at build time, and a member's
-  children render under the member's id, so a member is an ordinary reader: `VarGraph` gives each the
-  scope of the indexed set above it, a set's reads are resolved per viewer for
-  every clause (the snapshot is built before the walk picks one), and a write re-renders the
-  present members this viewer is shown. A member's render key carries its whole subtree's reads,
-  or a chart nested in a clause would keep its old window. A declaration inside a clause is
-  refused: it would be every member's own choice, which nothing needs.
+- **A candidate set's members read the scope at the set.** The candidates, each member's id
+  (`LayoutNode.memberSegment`: set id plus entity id) and every id below a member are fixed at
+  build time, so each is an ordinary reader: `Dashboard.varScopes` walks every member's clauses
+  from the set's scope, a set's reads are resolved per viewer for every clause (the snapshot is
+  built before the walk picks one), and a write re-renders the readers this viewer is shown and
+  swaps the panels it selects, a member's included. A set fill or a member's placement asks the
+  member's whole subtree's reads.
+- **A declaration inside a clause is each member's own** (#556). Its declarer is a node below the
+  member, so its id is static too, and every clause of a candidate gives it the same one: their
+  scopes merge, and a choice survives the member moving to another clause. A write moves only that
+  member's readers. A member that leaves keeps its choice in the session under that id and shows
+  it when it comes back; its URL entry leaves with it, since `data-fh-url` releases a parameter
+  when its element leaves the page.
 
 **Naming the declarer.** A node below a declaration sometimes needs the declarer's ID, not its
 value: a button posting to it, or a highlight reading its committed signal. `Variable.declarer`
@@ -170,9 +176,11 @@ that variable, so a tab press is a variable write whose reader is the bake group
 (`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is shown and commits after it,
 and a value no member of every panel it selects is selected at is refused like an unparseable
 window. A `c.select` over a variable names its members' values instead (`Variable.selecting`), so
-its cycle and its dropdown's label are right in the first HTML for a value like `7d`. A tab panel cannot be opened directly; the open route refuses
+its cycle and its dropdown's label are right in the first HTML for a value like `7d`; an If over a
+variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one member at its value and one at every
+other (`VarAt.Otherwise`), so it takes any value. A tab panel cannot be opened directly; the open route refuses
 it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member's, distinct values per group, and refuses a `User`-activated member with
+the bar and its declared value to be a member's (or the group to have its one member at every other value), distinct values per group, and refuses a `User`-activated member with
 a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
 and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
 being different declarers. Every path that bakes takes a bar's member from the session's
@@ -235,9 +243,8 @@ of `vars` (scopes, validation, the mirror's declared value, the snapshots) uncha
 - **"Opens" means when the document loaded.** A wall tablet that never reloads keeps the head it
   opened on however the light changes. A reconnect keeps it too: the SSE GET carries the committed
   value, and a session this process forgot adopts it as a choice, start or not.
-- **Two places a start does nothing.** A slider a candidate set renders per member declares no
-  `control` (`Node.perMember`), so it keeps its first control. With `.syncRows()` the rows follow
-  the head, which starts from the group entity's state, not each bulb's.
+- **One place a start does nothing.** With `.syncRows()` the rows follow the head, which starts
+  from the group entity's state, not each bulb's.
 - **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
   already produce different `SlotRead`s, which the render key and both caches

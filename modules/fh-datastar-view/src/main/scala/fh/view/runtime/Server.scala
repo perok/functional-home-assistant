@@ -720,7 +720,7 @@ class Server(
               s.position + 1,
               s.open,
               // Live, not the arriving selection: a tab select moves it.
-              renderer.surfaces.selectionsIn(s.open)
+              renderer.surfaces.selectionsShown(s.open, env)
             )
             .map { patches =>
               // The cursor rides LAST, which makes it an ack: a client echoing
@@ -961,7 +961,7 @@ class Server(
           FHError.notFound(s"no surface '$id' on this dashboard — reload")
         )
       case Some(surf)
-          if surf.bakeInto.flatMap(renderer.surfaces.varSelecting).nonEmpty =>
+          if surf.group.flatMap(renderer.surfaces.varSelecting).nonEmpty =>
         IO.raiseError(
           FHError.badCondition(
             s"'$id' is chosen by a node variable, not opened — reload"
@@ -1097,7 +1097,9 @@ class Server(
       after = renderer.surfaces.selections(selections.popup, env)
       // `refusals` made the value a member's of every group it selects.
       swapped <- groups
-        .filter(shown)
+        .filter(gid =>
+          shown(gid) && renderer.surfaces.groupShown(gid, store.entities)
+        )
         .flatMap { gid =>
           renderer.surfaces
             .memberAt(gid, value)

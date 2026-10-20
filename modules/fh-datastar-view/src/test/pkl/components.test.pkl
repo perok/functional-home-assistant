@@ -1492,10 +1492,10 @@ facts {
     // One switch picks one head.
     module.catch(() -> c.entitySlider(lamp).buttons(List(c.its.mainControl, c.its.mainControl)).declaresControl)
       .contains("c.entitySlider(light.lamp) has 2 main control switches")
-    // Rendered once per member of a set, where it cannot declare `control`, it
-    // keeps its first.
+    // Rendered once per member of a set, each member declares its own
+    // `control` (#556).
     local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
-    !(inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresControl
+    (inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresControl
     // A light with none of them keeps its plain row: one list serves mixed lights.
     local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
     !narrowed.declaresControl

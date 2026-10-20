@@ -128,7 +128,8 @@ object DashboardBuild {
           cardSurfaces ++ rebuilt.flatMap(_._2)
         // `fromIterable` keeps the last of a repeated key, silently handing a
         // popup someone else's content. Two clauses of one candidate share a
-        // member id, so both owning an inline surface collide.
+        // member id, so both owning a popup collide; a baked surface carries
+        // its clause.
         val clashes = collected.map(_._1).diff(collected.map(_._1).distinct)
         if (clashes.nonEmpty)
           throw FHError.badCondition(
@@ -228,7 +229,8 @@ object DashboardBuild {
             "bakeInto",
             "bakeAs",
             "bakeIndex",
-            "activation"
+            "activation",
+            "clause"
           )
             .flatMap(k => defObj(k).map(k -> _))
       )
@@ -248,7 +250,8 @@ object DashboardBuild {
       idBase: String,
       scope: Map[String, String],
       prefix: String,
-      scopes: Scopes
+      scopes: Scopes,
+      clause: Option[Int]
   ): (List[Json], List[(String, Json)]) = {
     val rs = children.asArray.getOrElse(Vector.empty).zipWithIndex.map {
       case (ch, i) =>
@@ -259,7 +262,8 @@ object DashboardBuild {
           authoredIdOf(ch).fold(derived)(prefix + _),
           scope,
           prefix,
-          scopes
+          scopes,
+          clause
         )
     }
     (rs.map(_._1).toList, rs.toList.flatMap(_._2))
@@ -267,7 +271,9 @@ object DashboardBuild {
 
   /** Clause nodes under [[LayoutNode.memberSegment]], as `MemberGraph` mints
     * them. Both clauses of a candidate get the same id, since one is ever
-    * rendered; the collision that causes is refused in [[hoistInlineSurfaces]].
+    * rendered, so a surface baked inside one carries its clause
+    * (`Surface.group`); two clauses' popups collide, which
+    * [[hoistInlineSurfaces]] refuses.
     */
   private def walkMembers(
       obj: JsonObject,
@@ -285,13 +291,14 @@ object DashboardBuild {
           val walked = mObj(ClausesKey)
             .flatMap(_.asArray)
             .getOrElse(Vector.empty)
-            .map { clause =>
+            .zipWithIndex
+            .map { (clause, ci) =>
               val cObj = clause.asObject.getOrElse(JsonObject.empty)
               cObj(NodeKey) match {
                 case None    => (clause, Nil)
                 case Some(n) =>
                   val (walkedNode, surfaces) =
-                    walk(n, memberBase, scope, prefix, scopes)
+                    walk(n, memberBase, scope, prefix, scopes, Some(ci))
                   (Json.fromJsonObject(cObj.add(NodeKey, walkedNode)), surfaces)
               }
             }
@@ -329,19 +336,21 @@ object DashboardBuild {
       prefix + authoredIdOf(node).getOrElse("c"),
       start,
       prefix,
-      scopes
+      scopes,
+      clause = None
     )
 
   /** `scope` is variable name -> declarer id, as `Dashboard.varScopes` resolves
     * a `Ref.Var`: nearest declarer wins. `prefix` is the tree's, which an
-    * authored id below still carries.
+    * authored id below still carries. `clause` is set below a set member.
     */
   private def walk(
       node: Json,
       idBase: String,
       scope: Map[String, String],
       prefix: String,
-      scopes: Scopes
+      scopes: Scopes,
+      clause: Option[Int]
   ): (Json, List[(String, Json)]) =
     node.asObject match {
       case None           => (node, Nil)
@@ -359,7 +368,7 @@ object DashboardBuild {
             case Some(regions) =>
               val rs = regions.toList.map { case (region, arr) =>
                 val (js, ss) =
-                  walkRegion(region, arr, idBase, here, prefix, scopes)
+                  walkRegion(region, arr, idBase, here, prefix, scopes, clause)
                 (region -> Json.fromValues(js), ss)
               }
               (
@@ -378,6 +387,15 @@ object DashboardBuild {
           case None =>
             (Json.fromJsonObject(obj2), childSurfaces ++ setSurfaces)
           case Some(marker) =>
+            // A baked surface inside a clause is its clause's, so two clauses'
+            // sliders do not claim one id. A popup keeps `<idBase>_<key>`: its
+            // opener spells that (`tap.pkl`'s `_self`).
+            val inClause: JsonObject => Option[Int] =
+              sd => clause.filter(_ => sd.contains("bakeInto"))
+            def sidOf(key: String, sd: JsonObject): String =
+              inClause(sd).fold(surfaceId(idBase, key))(k =>
+                surfaceId(s"${idBase}_k$k", key)
+              )
             // Nested first, so the tokens left belong to this node. Under the
             // surface's own root id, not `<idBase>_<key>_c`: that left tabs
             // inside an `If` branch baking into a node that did not exist.
@@ -392,11 +410,14 @@ object DashboardBuild {
               val (content, nested) =
                 walkRoot(
                   sdObj(ContentKey).getOrElse(Json.Null),
-                  LayoutNode.surfacePrefix(surfaceId(idBase, key)),
+                  LayoutNode.surfacePrefix(sidOf(key, sdObj)),
                   start,
                   scopes
                 )
-              (key, sdObj.add(ContentKey, content), nested)
+              val tagged = inClause(sdObj).fold(sdObj)(k =>
+                sdObj.add("clause", Json.fromInt(k))
+              )
+              (key, tagged.add(ContentKey, content), nested)
             }
             val withResolved = obj2.add(
               InlineSurfacesKey,
@@ -414,9 +435,8 @@ object DashboardBuild {
               .getOrElse(JsonObject.empty)
               .toList
               .map { case (key, sd) =>
-                surfaceId(idBase, key) -> surfaceOf(
-                  sd.asObject.getOrElse(JsonObject.empty)
-                )
+                val sdObj = sd.asObject.getOrElse(JsonObject.empty)
+                sidOf(key, sdObj) -> surfaceOf(sdObj)
               }
             (
               Json.fromJsonObject(splicedObj.remove(InlineSurfacesKey)),

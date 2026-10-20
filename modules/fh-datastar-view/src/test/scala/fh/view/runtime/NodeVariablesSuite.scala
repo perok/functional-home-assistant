@@ -190,18 +190,22 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(windowOf(r.readsAt(member, chosen)), List("1h"))
   }
 
-  test("a declaration inside a set's clause is refused") {
-    // A clause renders once per member, so it would be every member's own
-    // choice; members read the scope at the set.
-    val errs = dash(
-      box(Map.empty, setOf(box(Map("window" -> "24h"), chartNode())))
-    ).validate()
-    assert(
-      errs.exists(e =>
-        e.contains("declares the variable(s) window inside a candidate set")
-      ),
-      clue = errs
+  test("a declaration inside a set's clause is each member's own") {
+    // Member ids are fixed at build time, so each member's copy of the clause
+    // is its own declarer and its readers resolve to it (#556).
+    val d =
+      dash(box(Map.empty, setOf(box(Map("window" -> "24h"), chartNode()))))
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.fromValidated(
+      d.validated().fold(e => fail(e.mkString), identity)
     )
+    val set = r.members
+      .setContainer(NodeId.derived("c_0"))
+      .getOrElse(fail("no set at c_0"))
+    val member: NodeId = r.members.memberIdOf(set, "sensor.t")
+    val window = VarKey(member, "window")
+    assertEquals(r.vars.declarations.get(window), Some("24h"))
+    assert(r.vars.readersOf(window).nonEmpty, clue = r.vars.readersOf(window))
   }
 
   test("a SURFACE is its own scope root") {

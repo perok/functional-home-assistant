@@ -138,7 +138,6 @@ abstract class Select extends nodes.Node {
         id = self.id
         vars = self.vars
         starts = self.starts
-        perMember = self.perMember
         expressionValues = self.expressionValues
       }
 
