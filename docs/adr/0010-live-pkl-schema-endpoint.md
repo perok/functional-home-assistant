@@ -333,7 +333,7 @@ on every save is the wrong default. Which entries those are comes from the same
 `Analyzer.importGraph` call `PklBuild` uses server-side, re-read after each push
 (an edit can add or drop an import), and an entry whose imports cannot be
 analyzed counts as reached by anything — a redundant push, never a missed one. Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
-then `ValueRenderers.json` — the *same call* the instance's backend renders
+then `evaluateOutputText` as JSON — the *same call* the instance's backend renders
 its wire JSON with, so pushed JSON matches by construction). Stock pkl tooling still works
 on the workspace — pkl-lsp completion is the point of having one, and the
 `pkl` CLI evaluates it identically — but the script requires none of it.

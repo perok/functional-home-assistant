@@ -36,12 +36,14 @@ finished, and are deleted (issue #23).
    boundary; everything downstream (`hoistInlineSurfaces`, decode, validate,
    Renderer, Server) is source-agnostic and unchanged. `literalLocator` lives
    here and greps the Pkl sources.
-2. **JSON rendering is backend-side.** `PklBuild` evaluates the entry to a
-   `PModule` and renders its exports itself (pkl-core's Java
-   `ValueRenderers.json` with `omitNullProperties = true`, so absent optional
-   fields decode as `None`) — an entry module needs **no**
-   `output { renderer = ... }` block; it just *is* its data, and the omit-null
-   semantics the slot decoder relies on are enforced in one place.
+2. **JSON rendering is backend-side.** `PklBuild` evaluates the entry's
+   `output.text` with the output format set to JSON, exactly as
+   `pkl eval -f json` does. The default `JsonRenderer` omits null properties,
+   so absent optional fields decode as `None`, and an entry module needs **no**
+   `output { renderer = ... }` block; it just *is* its data. An `output` block
+   it does write is honoured, a renderer's `converters` included, rather than
+   silently skipped: the JSON the server decodes is the JSON the `pkl` CLI
+   prints.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
    the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
    default and only shipped theme), `tokens.pkl`, the `site.pkl` entrypoint base

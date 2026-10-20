@@ -10,9 +10,9 @@ import org.pkl.core.{
   Analyzer,
   EvaluatorBuilder,
   ModuleSource,
+  OutputFormat,
   SecurityManagers,
-  StackFrameTransformers,
-  ValueRenderers
+  StackFrameTransformers
 }
 
 import java.io.{FileOutputStream, PrintWriter, StringWriter}
@@ -22,8 +22,9 @@ import scala.jdk.CollectionConverters.*
 import scala.util.Try
 import scala.util.control.NonFatal
 
-/** In-process Pkl evaluation, rendered to JSON with nulls omitted so absent
-  * optionals decode as `None`; an entry needs no `output` block.
+/** In-process Pkl evaluation of an entry's `output`, as `pkl eval -f json`
+  * renders it: the default `JsonRenderer` omits nulls, so absent optionals
+  * decode as `None`, and an entry needs no `output` block.
   */
 object PklBuild {
 
@@ -67,13 +68,11 @@ object PklBuild {
             )
           )
         case None =>
-          val evaluator = builder.build()
-          val module =
-            try evaluator.evaluate(ModuleSource.path(entry.toNIO))
+          val evaluator = builder.setOutputFormat(OutputFormat.JSON).build()
+          val text =
+            try evaluator.evaluateOutputText(ModuleSource.path(entry.toNIO))
             finally evaluator.close()
-          val writer = new StringWriter
-          ValueRenderers.json(writer, "  ", true).renderDocument(module)
-          parser.parse(writer.toString).left.map(_.message).map { json =>
+          parser.parse(text).left.map(_.message).map { json =>
             key.foreach(SiteEvalCache.write(evalCache, _, json))
             // A package the evaluation fetched was invisible to the analysis.
             val graph =

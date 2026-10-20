@@ -74,6 +74,24 @@ class PklBuildSuite extends munit.FunSuite {
     assert(r.imports.contains(tmp / "test.pkl"))
   }
 
+  test(
+    "PklBuild renders an entry as `pkl eval -f json`: its output is honoured"
+  ) {
+    val tmp = os.temp.dir()
+    os.write(
+      tmp / "test.pkl",
+      """module test
+        |
+        |a = 1
+        |b: Int? = null
+        |
+        |output { renderer { converters { [Int] = (i) -> i + 1 } } }
+        |""".stripMargin
+    )
+    val r = SourceEval.eval(tmp, "test.pkl").fold(e => fail(e), identity)
+    assertEquals(r.value, Json.obj("a" -> Json.fromInt(2)))
+  }
+
   test("PklBuild surfaces pkl errors as Left with file/line context") {
     val tmp = os.temp.dir()
     os.write(
