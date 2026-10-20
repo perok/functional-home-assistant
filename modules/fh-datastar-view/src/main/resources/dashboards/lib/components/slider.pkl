@@ -222,14 +222,10 @@ class EntitySlider extends sliderBase.Slider {
   /// which the row shows in step, greyed where it lacks one.
   hidden followControls: List<itsMod.MainControl>? = null
   /// The switch's controls where the light has them; none without a switch.
-  hidden pickedControls: List<itsMod.MainControl> =
+  hidden offeredControls: List<itsMod.MainControl> =
     if (switchSpec == null) List()
     else if (switchSpec.only == null) availableControls
     else switchSpec.only!!.filter((m) -> availableControls.contains(m))
-  /// Rendered once per member of a candidate set, a slider cannot declare
-  /// [[sliderBase.controlVar]] (ADR 0033), so it keeps its first control.
-  hidden offeredControls: List<itsMod.MainControl> =
-    if (perMember) pickedControls.take(1) else pickedControls
   /// This slider's own head as the given control's axis, dimmed and disabled
   /// for a control a group's row lacks. On a slider with a pill, the buttons
   /// are the pill's.

@@ -320,6 +320,10 @@ class RenderBench {
   private var idleFrames: Vector[Frame] = null
   private var pubIngests: Vector[List[Ingest]] = null
   private var dedupBatch: List[Ingest] = null
+  // [[publishSetIfs]]: every member holds an If on its own window.
+  private var setIfs: Renderer = null
+  private var ifStates: Map[String, EntityState] = null
+  private var setIfsFrames: Vector[Frame] = null
   // What the recorder holds between frames, per fixture ([[publishPass]]).
   private val heldBy = scala.collection.mutable.Map.empty[Renderer, Membership]
 
@@ -438,6 +442,22 @@ class RenderBench {
     pubIngests =
       flipFrames.map(_.changes.map(c => Ingest.Replace(c.current): Ingest))
     dedupBatch = dedupIngests
+    ifStates = st ++ List.tabulate(Leaves) { i =>
+      windowId(i) -> EntityState(
+        windowId(i),
+        "off",
+        Map.empty,
+        lastUpdated = Some(BaseInstant)
+      )
+    }
+    setIfs = Renderer.create(ifSetDash(Leaves, ifStates))
+    setIfsFrames = Vector(publishFrame(ifStates, 0), publishFrame(ifStates, 1))
+    if (
+      setIfs.surfaces
+        .affectedStateGroups(List(windowFlip(1)._1), ifStates, windowFlip(1)._2)
+        .sizeIs != 1
+    )
+      sys.error("publishSetIfsFlip flips no member's If")
     checkFillShape()
     checkPublishShape()
     heldAfterSetPaint = set.renderPageTraced(st).own.map { case (id, p) =>
@@ -445,7 +465,7 @@ class RenderBench {
     }
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds =
-      tickEntities.flatMap(heldBy(set).binding(_, "").toList.sorted)
+      tickEntities.flatMap(heldBy(set).binding(_, _.isEmpty).toList.sorted)
     checkTickShapes()
   }
 
@@ -1083,7 +1103,7 @@ class RenderBench {
   }
 
   /** The same frame plus the entity that CHOOSES a branch, so the pass also
-    * walks the state groups (`affectedStateGroups`, `activeStateSurfaces`).
+    * asks the state groups (`affectedStateGroups`, `reaches`).
     *
     * Alternating armed/disarmed means every call really flips, which is the
     * worst case rather than the common one — a condition that holds still
@@ -1103,6 +1123,34 @@ class RenderBench {
           frame.states.updated(FlipEntity, now)
         )
       )
+    )
+  }
+
+  /** [[publishSet]]'s frame against [[ifSetDash]], every member holding an If
+    * on its own window. The frame ticks lights, not windows: about
+    * [[publishSet]], plus the branches those lights show in.
+    */
+  @Benchmark
+  def publishSetIfs(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(setIfs, setIfsFrames(pubRot % 2)))
+  }
+
+  /** One member's window opening: one member's flip, whatever the set's size.
+    */
+  @Benchmark
+  def publishSetIfsFlip(bh: Blackhole): Unit = {
+    pubRot += 1
+    val (change, states) = windowFlip(pubRot % Leaves)
+    bh.consume(publishPass(setIfs, Frame(List(change), states)))
+  }
+
+  private def windowFlip(i: Int): (StateChange, Map[String, EntityState]) = {
+    val was = ifStates(windowId(i))
+    val now = was.copy(state = "on")
+    (
+      StateChange(windowId(i), Some(was), now),
+      ifStates.updated(windowId(i), now)
     )
   }
 
@@ -1877,6 +1925,84 @@ object RenderBench {
           )*
       )
     )
+
+  def windowId(i: Int): String = s"binary_sensor.window_$i"
+
+  /** [[setTree]], each member a column of its leaf and an If on its window:
+    * `then` a second card of its light, `else` an empty column. The If's host
+    * ids are the member graph's to derive, so a first renderer finds them and
+    * the dashboard returned carries their branches.
+    */
+  def ifSetDash(leaves: Int, states: Map[String, EntityState]): Dashboard = {
+    val withHost = cards + ("ifhost" -> CardDef(
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      regions = Map("branch" -> Region(Region.Baked))
+    ))
+    val bare = Dashboard(
+      withHost,
+      LayoutNode.Component(
+        "col",
+        regions = LayoutNode.kids(
+          LayoutNode.SetNode(
+            candidates = List.tabulate(leaves)(entityId),
+            members = List
+              .tabulate(leaves)(i =>
+                entityId(i) -> LayoutNode.SetMember(
+                  List(
+                    LayoutNode.SetClause(node =
+                      LayoutNode.Component(
+                        "col",
+                        regions = LayoutNode.kids(
+                          leaf(true)(i),
+                          LayoutNode.Component("ifhost")
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+              .toMap
+          )
+        )
+      )
+    )
+    val members = Renderer.create(bare).members
+    def branch(host: NodeId, at: Int, content: LayoutNode, when: Predicate) =
+      Surface(
+        content,
+        bakeInto = Some(host),
+        bakeAs = Some("branch"),
+        bakeIndex = Some(at),
+        activation = Activation.State(when),
+        clause = Some(0)
+      )
+    val surfaces = members.memberIdsBelow.toList.flatMap { host =>
+      members
+        .nodeAt(host, states)
+        .toList
+        .collect {
+          case (m, n) if n.card == "ifhost" =>
+            val i = m.key match {
+              case MemberKey.Entity(e)  => e.stripPrefix("light.tile_").toInt
+              case MemberKey.Surface(s) =>
+                sys.error(s"not an entity member: $s")
+            }
+            val open = Predicate.Cmp(
+              "state",
+              Op.Eq,
+              Json.fromString("on"),
+              entity = Some(windowId(i))
+            )
+            List(
+              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), open),
+              s"${host}_k0_else" ->
+                branch(host, 1, LayoutNode.Component("col"), Predicate.And(Nil))
+            )
+        }
+        .flatten
+    }
+    bare.copy(surfaces = surfaces.toMap)
+  }
 
   /** Every fixture state carries one, because a real feed always does (measured
     * against the live instance: 0 of 1070 entities without a `last_updated`). A

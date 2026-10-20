@@ -86,8 +86,9 @@ private[runtime] object Patches {
     * drop an update someone needed.
     *
     * Flipped state groups are recorded as [[Mutation]]s and excluded below (the
-    * fill re-renders them). Only surfaces active from the page or a visible
-    * surface contribute, so a hidden branch never gets updates by construction.
+    * fill re-renders them). A surface binding a changed entity contributes only
+    * if it is shown from the page or a visible surface
+    * ([[SurfaceGraph.visibleSurface]]), so a hidden branch never gets updates.
     * No viewer's [[Selections]] are read.
     */
   def plan(
@@ -101,32 +102,30 @@ private[runtime] object Patches {
   ): DiffRequest = {
     val binding = synced.membership.binding
     val flips =
-      (renderer.surfaces.affectedStateGroups(changes, before, states) ++
-        visible.toList.flatMap(sid =>
-          renderer.surfaces.affectedStateGroupsIn(sid, changes, before, states)
-        )).distinct
+      renderer.surfaces.affectedStateGroups(changes, before, states, visible)
     val flipped = flips.toSet
-    val activeSids = renderer.surfaces.activeStateSurfaces(states, flipped) ++
-      visible.flatMap(
-        renderer.surfaces.activeStateSurfacesIn(_, states, flipped)
+    // Per frame: every changed entity a branch binds asks of the same surface,
+    // and each asking evaluates the conditions above it (`publishFlip`).
+    val reached = scala.collection.mutable.HashMap.empty[String, Boolean]
+    val shown: String => Boolean = sid =>
+      reached.getOrElseUpdate(
+        sid,
+        renderer.surfaces.visibleSurface(sid, visible, states, flipped)
       )
-    val sids = (visible ++ activeSids).toList
     // Members included, so a case slot naming a second entity ticks: that
     // entity need not be a candidate.
     val staticIds = changes
       .flatMap(c =>
         renderer.componentsFor(c.entityId).toList ++
-          binding(c.entityId, "") ++
-          sids.flatMap(sid =>
-            renderer.surfaceComponentsFor(sid, c.entityId).toList ++
-              binding(c.entityId, sid)
-          )
+          binding(c.entityId, shown) ++
+          renderer
+            .surfacesBinding(c.entityId)
+            .filter(shown)
+            .flatMap(renderer.surfaceComponentsFor(_, c.entityId))
       )
       .distinct
       .filterNot(flipped)
-    val sets =
-      (renderer.members.affectedSets(changes) ++
-        sids.flatMap(renderer.members.affectedSurfaceSets(_, changes))).distinct
+    val sets = renderer.members.affectedSetsWithin(changes, shown)
     DiffRequest(staticIds, sets, flips, states, before, synced.deltas, at)
   }
 
@@ -242,8 +241,14 @@ private[runtime] object Patches {
     val was = delta.was
     val now = delta.now
     // A member whose case moved. By id: a case binding no live entity is
-    // not in the reverse index.
-    val base = delta.replaced.toList.sorted.foldLeft(log)(_.touched(_, at))
+    // not in the reverse index. One that can hold nodes has no single element
+    // to morph, so it is placed again where it stands.
+    val (morphed, replaced) =
+      delta.replaced.sortBy(_.id).partition(m => renderer.memberIsTarget(m.id))
+    val base =
+      replaced.foldLeft(morphed.foldLeft(log)((l, m) => l.touched(m.id, at))) {
+        (l, m) => l.placed(gid, m.key, m.id, at)
+      }
     if (was == now) base
     else {
       val nowSet = now.toSet
@@ -365,8 +370,8 @@ private[runtime] object Patches {
             }
             .sortBy { case (_, _, at) => -at }
             .flatTraverse { case (nodeId, entityId, _) =>
-              bytes(renderer, cache, nodeId, states, selections, fragments).map(
-                _.toList.flatMap { case NodeBytes(html, digest) =>
+              placed(renderer, cache, nodeId, states, selections, fragments)
+                .map(_.toList.flatMap { (html, claims) =>
                   List(
                     Addressed(Patch.Remove(renderer.elementId(nodeId))),
                     Addressed(
@@ -378,11 +383,10 @@ private[runtime] object Patches {
                         _ => true,
                         html
                       ),
-                      Map(nodeId -> Held.bytes(digest))
+                      claims
                     )
                   )
-                }
-              )
+                })
             }
         }
       }
@@ -544,6 +548,29 @@ private[runtime] object Patches {
             .map(NodeBytes.of)
         )
     }
+
+  /** What a placed member inserts and claims. A member that is a leaf comes
+    * through the cache as any target does; one holding nodes renders per viewer
+    * with its subtree's claims, since it can bake this viewer's selection.
+    */
+  private def placed(
+      renderer: Renderer,
+      cache: RenderCache,
+      id: NodeId,
+      states: Map[String, EntityState],
+      selections: Selections,
+      fragments: QuerySnapshot
+  ): IO[Option[(String, Map[NodeId, Held])]] =
+    if (renderer.memberIsTarget(id))
+      bytes(renderer, cache, id, states, selections, fragments).map(
+        _.map(b => b.html -> Map(id -> Held.bytes(b.digest)))
+      )
+    else
+      IO(
+        renderer
+          .renderMemberTraced(id, states, selections, fragments)
+          .map(t => t.html -> t.claims)
+      )
 
   /** Positional in `ordered`, never by comparing ids, so an author-chosen order
     * works.
