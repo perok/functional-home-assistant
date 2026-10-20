@@ -130,7 +130,9 @@ or everything left, so the fill re-sends nothing and one patch replaces N), or
 the log holds no member entry to patch against. Nothing is rendered while
 recording; each session renders what it is owed when it pulls (ADR 0012),
 through the per-slug render cache, so N viewers of one set cost one render of
-each changed member. A set inside a surface no session has open is not recorded
+each changed leaf member. A member holding nodes (a slider) arrives rendered
+per viewer instead, since what its baked regions show is each viewer's own;
+after that its leaves patch through the cache like any others. A set inside a surface no session has open is not recorded
 at all, and one inside an inactive state branch (ADR 0007) is structurally
 silent.
 
