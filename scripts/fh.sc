@@ -247,10 +247,10 @@ def resolveDeps(): IO[Unit] = IO.blocking {
 }
 
 /** `pkl eval -f json`, in-process: evaluate an entry's `output` against the
-  * project as JSON — the exact call the instance's backend uses, so the
-  * pushed JSON matches by construction.
-  * `applyFromProject` carries the manifest's `evaluatorSettings` (cache dir,
-  * http rewrites — spike-verified on 0.31.1), so nothing is wired by hand.
+  * project as JSON — the exact call the instance's backend uses, so the pushed
+  * JSON matches by construction. `applyFromProject` carries the manifest's
+  * `evaluatorSettings` (cache dir, http rewrites — spike-verified on 0.31.1),
+  * so nothing is wired by hand.
   */
 def evalJson(entry: String): IO[String] = IO.blocking {
   import org.pkl.core.{EvaluatorBuilder, ModuleSource, OutputFormat}
