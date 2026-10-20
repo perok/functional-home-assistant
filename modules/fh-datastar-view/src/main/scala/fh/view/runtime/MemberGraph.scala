@@ -595,16 +595,8 @@ private[runtime] final class MemberGraph(
     */
   def rootOfSet(id: NodeId): Option[String] = sourceRoot.get(id)
 
-  /** Membership only; a member that ticked is found by the reverse index. */
-  def affectedSets(changes: List[StateChange]): List[SetId] =
-    affectedSetsWithin(changes, _.isEmpty)
-
-  def affectedSurfaceSets(
-      surfaceId: String,
-      changes: List[StateChange]
-  ): List[SetId] = affectedSetsWithin(changes, _ == surfaceId)
-
-  /** [[affectedSets]] under every root `within` holds. Off [[sources]], for the
+  /** The sets under a root `within` holds whose membership a change can move; a
+    * member that ticked is found by the reverse index. Off [[sources]], for the
     * reason [[setContainer]] gives.
     */
   def affectedSetsWithin(

@@ -14,6 +14,7 @@ import fh.view.model.{
   Predicate,
   Reads,
   Region,
+  SetId,
   SlotSource,
   Surface,
   Theme
@@ -25,8 +26,11 @@ import io.circe.Json
 class RendererSuite extends munit.FunSuite {
 
   extension (r: Renderer)
+    // The main page's: a root of `""`.
+    private def affectedSets(changes: List[StateChange]): List[SetId] =
+      r.members.affectedSetsWithin(changes, _.isEmpty)
     private def affectedSetIds(change: StateChange): List[String] =
-      r.members.affectedSets(List(change))
+      r.affectedSets(List(change))
 
   private val cards = Map(
     "card" -> CardDef(
@@ -737,7 +741,7 @@ class RendererSuite extends munit.FunSuite {
     // The cost claim: a frame is O(changed), not O(candidates).
     assertEquals(r.affectedSetIds(ch("sensor.z")), Nil)
     assertEquals(
-      r.members.affectedSets(List(ch("light.a"), ch("light.b"))),
+      r.affectedSets(List(ch("light.a"), ch("light.b"))),
       List("c")
     )
   }
@@ -1778,35 +1782,35 @@ class RendererSuite extends munit.FunSuite {
       st(id, "x", "battery" -> Json.fromInt(50)) // no match
     // A member that merely ticked is found through the reverse index, not here.
     assertEquals(
-      r.members.affectedSets(
+      r.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), low("s.b")))
       ),
       List("c")
     )
     assertEquals(
-      r.members.affectedSets(
+      r.affectedSets(
         List(StateChange("s.b", Some(high("s.b")), low("s.b")))
       ),
       List("c")
     )
     assertEquals(
-      r.members.affectedSets(List(StateChange("s.b", None, low("s.b")))),
+      r.affectedSets(List(StateChange("s.b", None, low("s.b")))),
       List("c")
     )
     assertEquals(
-      r.members.affectedSets(
+      r.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), high("s.b")))
       ),
       List("c")
     )
     assertEquals(
-      r.members.affectedSets(
+      r.affectedSets(
         List(StateChange("s.z", Some(high("s.z")), high("s.z")))
       ),
       Nil
     )
     assertEquals(
-      r.members.affectedSets(
+      r.affectedSets(
         List(
           StateChange("s.b", Some(high("s.b")), low("s.b")),
           StateChange("s.c", Some(low("s.c")), high("s.c"))
