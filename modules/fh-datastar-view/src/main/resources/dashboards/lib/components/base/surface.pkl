@@ -104,13 +104,14 @@ const tabVar: varMod.Variable = new { name = "tab" }
 const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivation =
   new { condition = p }
 
-/// A conditional section: `then` while `condition` holds over live state, the
-/// optional `else` while it does not. The tabs machinery with a condition in
-/// place of the viewer's selection, so the choice is shared by every viewer and
-/// the inactive branch is neither rendered nor updated.
+/// A conditional section: `then` while `condition` holds, the optional `else`
+/// while it does not. The tabs machinery, and the inactive branch is neither
+/// rendered nor updated. Over live state the choice is shared by every viewer;
+/// over a node variable it is each viewer's own, as a tab bar's is.
 ///
 ///   c.iff(q.entity(dump.e_x).stateIs("on"))
 ///     .then(c.title("on")).`else`(c.title("off"))
+///   c.iff(window.valueIs("30d")).then(c.title("Month"))
 ///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
 ///
 /// An If inside `else` is else-if.
@@ -123,7 +124,7 @@ class If extends nodes.Node {
     template = #"<div class="fh-ifhost" id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>"#
   }
   cellClasses { "fh-cols-full" }
-  hidden condition: pred.Predicate
+  hidden condition: pred.Predicate|varMod.ValueIs
   hidden `then`: Listing<nodes.LayoutNode> = new {}
   hidden `else`: Listing<nodes.LayoutNode> = new {}
   // First match in `bakeIndex` order; `else` is the always-true member 1. Both
@@ -134,15 +135,21 @@ class If extends nodes.Node {
       bakeInto = nodes.NODE_ID
       bakeAs = "branch"
       bakeIndex = 0
-      activation = stateActivation(condition)
+      activation =
+        if (condition is varMod.ValueIs) condition.variable.selecting(condition.value)
+        else stateActivation(condition)
     }
-    when (!`else`.isEmpty) {
+    // Over a variable the else is always there, if empty: a variable's group
+    // shows a member at every value, and one no member takes is refused.
+    when (!`else`.isEmpty || condition is varMod.ValueIs) {
       ["else"] = new surfaceMod.SurfaceDef {
         content = new layout.Row { children = `else` }
         bakeInto = nodes.NODE_ID
         bakeAs = "branch"
         bakeIndex = 1
-        activation = stateActivation(pred.alwaysHolds)
+        activation =
+          if (condition is varMod.ValueIs) condition.variable.selectingAnyOther
+          else stateActivation(pred.alwaysHolds)
       }
     }
   }
@@ -154,10 +161,11 @@ class If extends nodes.Node {
     if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
 }
 
-/// `c.iff(p).then(...).`else`(...)`. `p` must name the entities it reads
-/// (`q.entity(e)`, or an aggregate over `q.from(…)`). A `Boolean` is accepted
-/// because the build folds: `q.from(emptyRoom).any()` is already `false`.
-function iff(p: pred.Predicate|Boolean): If =
+/// `c.iff(p).then(...).`else`(...)`. A condition over state must name the
+/// entities it reads (`q.entity(e)`, or an aggregate over `q.from(…)`). A
+/// `Boolean` is accepted because the build folds: `q.from(emptyRoom).any()` is
+/// already `false`. `v.valueIs(x)` chooses by a node variable instead.
+function iff(p: pred.Predicate|Boolean|varMod.ValueIs): If =
   new If {
     condition =
       if (p is Boolean) (if (p) pred.alwaysHolds else pred.neverHolds)

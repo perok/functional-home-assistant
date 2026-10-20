@@ -168,9 +168,11 @@ that variable, so a tab press is a variable write whose reader is the bake group
 (`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is shown and commits after it,
 and a value no member of every panel it selects is selected at is refused like an unparseable
 window. A `c.select` over a variable names its members' values instead (`Variable.selecting`), so
-its cycle and its dropdown's label are right in the first HTML for a value like `7d`. A tab panel cannot be opened directly; the open route refuses
+its cycle and its dropdown's label are right in the first HTML for a value like `7d`; an If over a
+variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one member at its value and one at every
+other (`VarAt.Otherwise`), so it takes any value. A tab panel cannot be opened directly; the open route refuses
 it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member's, distinct values per group, and refuses a `User`-activated member with
+the bar and its declared value to be a member's (or the group to have its one member at every other value), distinct values per group, and refuses a `User`-activated member with
 a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
 and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
 being different declarers. Every path that bakes takes a bar's member from the session's
