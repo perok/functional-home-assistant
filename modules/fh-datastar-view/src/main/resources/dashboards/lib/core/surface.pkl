@@ -31,16 +31,32 @@ class UserActivation {
   defaultOpen: Boolean = false
 }
 
-/// The member the node variable `name` selects at `value`, as seen from the
-/// node it bakes into; with no `value`, at its `bakeIndex` (a tab bar's panel);
-/// with `otherwise`, at every value no other member names (an If's else).
-/// Per viewer, like [[UserActivation]], but declared, so a choice is a
-/// variable write (ADR 0033).
+/// The member the node variable `name` selects [[at]], as seen from the node it
+/// bakes into. Per viewer, like [[UserActivation]], but declared, so a choice
+/// is a variable write (ADR 0033).
 class VarActivation {
   kind: "var" = "var"
   name: String
-  value: String? = null
-  otherwise: Boolean = false
+  at: VarAt = new AtIndex {}
+}
+
+/// Which values of a [[VarActivation]]'s variable select its member.
+typealias VarAt = AtValue|AtIndex|AtOtherwise
+
+/// One value.
+class AtValue {
+  kind: "value" = "value"
+  value: String
+}
+
+/// The member's `bakeIndex`, as a number: a tab bar's panel.
+class AtIndex {
+  kind: "index" = "index"
+}
+
+/// Every value no other member of the group names: an If's else.
+class AtOtherwise {
+  kind: "otherwise" = "otherwise"
 }
 
 /// Shown while `condition` holds over live state — the same for every viewer.

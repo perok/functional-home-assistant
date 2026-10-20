@@ -101,7 +101,7 @@ private[runtime] final class SurfaceGraph(
   /** The node variable selecting `gid`'s member, for a tab bar's panel. */
   def varSelecting(gid: NodeId): Option[String] =
     bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
-      case Activation.Var(name, _, _) => name
+      case Activation.Var(name, _) => name
     }
 
   /** A viewer's selections: `requested` narrowed by [[openPopup]], and each

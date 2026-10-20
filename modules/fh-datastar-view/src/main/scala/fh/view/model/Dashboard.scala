@@ -490,12 +490,9 @@ object Predicate:
   *
   *   - `User`: a popup, opened by a tap, optionally from first paint. The
   *     selection is per connection (ADR 0005). Never a baked member.
-  *   - `Var`: the member whose `value` is the node variable `name`, as seen
-  *     from the `bakeInto` node (ADR 0033). With no `value` it is its
-  *     `bakeIndex`, which a tab bar's panel chooses by; a slider's main
-  *     controls and a `c.select`'s options are named. `otherwise` is the member
-  *     at every value no other member names: an If's else. Per viewer, and
-  *     declared, so the server knows what selects it.
+  *   - `Var`: the member the node variable `name` selects, as seen from the
+  *     `bakeInto` node (ADR 0033), at the values [[VarAt]] names. Per viewer,
+  *     and declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
   *     `bakeIndex` order wins; an "else" is `And(Nil)`.
@@ -505,12 +502,18 @@ object Predicate:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case Var(
-      name: String,
-      value: Option[String] = None,
-      otherwise: Boolean = false
-  )
+  case Var(name: String, at: VarAt = VarAt.Index)
   case State(condition: Predicate)
+
+/** Which values of an [[Activation.Var]]'s variable select its member: one (a
+  * slider's main controls, a `c.select`'s options), its `bakeIndex` as a number
+  * (a tab bar's panel), or every value no other member of the group names (an
+  * If's else).
+  */
+enum VarAt derives ConfiguredDecoder, CanEqual:
+  case Value(value: String)
+  case Index
+  case Otherwise
 
 sealed trait LayoutNode derives ConfiguredDecoder {
 
@@ -876,14 +879,14 @@ case class Surface(
   /** The value of its variable that selects this member ([[Activation.Var]]).
     */
   def selectedAt: Option[String] = activation match
-    case Activation.Var(_, _, true)  => None
-    case Activation.Var(_, value, _) => value.orElse(bakeIndex.map(_.toString))
-    case _                           => None
+    case Activation.Var(_, VarAt.Value(v)) => Some(v)
+    case Activation.Var(_, VarAt.Index)    => bakeIndex.map(_.toString)
+    case _                                 => None
 
   /** Selected at every value no other member of its group names. */
   def isOtherwise: Boolean = activation match
-    case Activation.Var(_, _, otherwise) => otherwise
-    case _                               => false
+    case Activation.Var(_, VarAt.Otherwise) => true
+    case _                                  => false
 
 object Surface:
 
@@ -1767,7 +1770,7 @@ case class Dashboard(
             case (_, _, _: Activation.Var)   => "var"
             case (_, _, _: Activation.State) => "state"
           }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n, _, _)) =>
+          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
             n
           }
           // A baked member has a host, and what fills a host is a choice the
