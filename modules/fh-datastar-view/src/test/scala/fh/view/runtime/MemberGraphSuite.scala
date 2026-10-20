@@ -51,6 +51,11 @@ class MemberGraphSuite extends munit.FunSuite {
       root: String = ""
   ): MemberGraph = new MemberGraph(Map(gid -> s), Map(gid -> root))
 
+  extension (g: MemberGraph)
+    // The main page's: a root of `""`.
+    private def affectedSets(changes: List[StateChange]): List[SetId] =
+      g.affectedSetsWithin(changes, _.isEmpty)
+
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
 
@@ -312,7 +317,7 @@ class MemberGraphSuite extends munit.FunSuite {
     val g = graphOf(set(List("light.a")), root = "detail")
     val ch = List(StateChange("light.a", None, st("light.a", "on")))
     assertEquals(g.affectedSets(ch), Nil)
-    assertEquals(g.affectedSurfaceSets("detail", ch), List(gid))
+    assertEquals(g.affectedSetsWithin(ch, _ == "detail"), List(gid))
   }
 
   test("a member id is derived from its KEY, sanitized") {
