@@ -62,7 +62,7 @@ Step 1 makes members follow the rule the rest of the page already follows.
 - **A nested set keeps its clause in its id** (`LayoutNode.innerSetId`, now in the model), so the
   runtime walk, `Dashboard.varScopes` and `validate` spell it once.
 - **Not in this step:** a branch chosen by live state inside a clause. `validate` refuses it
-  with a message that says so; #601 (`docs/plan-state-if-in-clause.md`) lifts that.
+  with a message that says so; #601 lifts that.
 
 Deleted with it: `ResolvedMember`, `ResolvedChild`, `resolveMember`, `resolveChild`,
 `renderResolvedMember*`, `memberBodyInto`, `memberChildInto`, `memberSeedOf`, `memberSignalsOf`,

@@ -109,6 +109,11 @@ Per state change, the recording pass does two things:
 2. **Active-member liveness** (`SurfaceGraph.reaches`, per surface binding a
    changed entity): a surface contributes its affected components and sets only
    if every state surface above it is selected, on the page and not flipping.
+   A set member's bindings and a set's moves are asked the same of the surface
+   they sit in, so a frame asks only what reads a changed entity, never every
+   active surface. Page open walks the selected branches instead
+   (`activeStateSurfaces`), and a member's placement renders the branch its
+   state picks: both render all of it anyway.
    Inactive STATE members are never consulted — that IS the no-updates
    guarantee, and it is structural: their ids never enter the selection.
 
