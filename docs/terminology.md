@@ -175,7 +175,8 @@ possible entities known at build time from the dump. ADR 0003.
 gets the first clause whose condition holds.
 
 **Member** — one materialised entity inside a candidate set, or one row inside a grouped slider.
-Members are addressable nodes in their own right.
+Members are addressable nodes in their own right, and so is every node below a member, under an id
+below the member's.
 
 **Presence / order** — the two things about a set's membership that can move: whether an entity is in
 it, and where it sits. Tracked separately because reordering re-sends nothing.
@@ -252,7 +253,9 @@ exposed so a card can show the selection without JavaScript.
 **Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
 chooses is the group's activation: a node variable for a tab bar, a `c.select` or an If over a
 variable (`Activation.Var`, ADR 0033), each member selected at one of its values or, for an If's
-`else`, at every other value; a condition for an If over state.
+`else`, at every other value; a condition for an If over state. Inside a candidate set's clause,
+a group is that clause's: every clause of a member shares its nodes' ids, so the clause is part of
+the group's id.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

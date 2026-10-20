@@ -8,15 +8,35 @@ import fh.view.model.{LayoutNode, MemberId, NodeId, Predicate, SetId}
   */
 private[runtime] object Member {
 
-  /** The whole subtree's entities: a member renders its children under its own
-    * id.
-    */
+  /** The whole subtree's entities, the set membership index's edges. */
   def entitiesOf(node: LayoutNode): List[String] = node match {
     case c: LayoutNode.Component =>
       (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
     // Not into a nested set, whose members patch themselves; descending would
     // wake the whole tile on any bulb inside it.
     case _ => Nil
+  }
+
+  /** A member's components under the ids the render walk mints below its own
+    * (`LayoutNode.childId`), each with its parent. Not into a nested set, whose
+    * members are its own. No prefix: `validate` refuses an authored id in a
+    * clause.
+    */
+  def subtree(
+      id: NodeId,
+      node: LayoutNode.Component
+  ): List[(NodeId, LayoutNode.Component, Option[NodeId])] = {
+    def walk(
+        n: LayoutNode.Component,
+        at: NodeId,
+        parent: Option[NodeId]
+    ): List[(NodeId, LayoutNode.Component, Option[NodeId])] =
+      (at, n, parent) :: LayoutNode.steps(n.regions).flatMap {
+        case (step, c: LayoutNode.Component) =>
+          walk(c, LayoutNode.childId("", at, step, c), Some(at))
+        case _ => Nil
+      }
+    walk(node, id, None)
   }
 }
 
@@ -29,13 +49,26 @@ private[runtime] case class Member(
     node: LayoutNode.Component,
     // Part of a nested set's id, so two clauses holding sets cannot share one.
     clause: Int
-)
+) {
 
-/** `replaced`: members whose node was swapped because their clause moved. */
+  /** Its own node and every component below it, by id. */
+  lazy val nodes: Map[NodeId, LayoutNode.Component] =
+    Member.subtree(id, node).map((at, n, _) => at -> n).toMap
+
+  /** entity -> the nodes here binding it: what a tick on it re-renders. */
+  lazy val byEntity: Map[String, List[NodeId]] =
+    nodes.toList
+      .flatMap((at, n) => n.liveEntities.map(_ -> at))
+      .groupMap(_._1)(_._2)
+}
+
+/** `replaced`: members present before and after whose clause moved, as they are
+  * now.
+  */
 private[runtime] case class MemberDelta(
     was: List[String],
     now: List[String],
-    replaced: Set[MemberId]
+    replaced: Vector[Member]
 )
 
 /** Cached with its entity projection, so a frame that only ticks members costs
@@ -69,13 +102,15 @@ private[runtime] final case class Membership(
     byEntity: Map[String, Vector[Member]]
 ) {
 
-  /** Members binding `entityId` under `root`: a member re-renders because
-    * something it binds moved, as a static node does.
+  /** The nodes inside members under `root` that bind `entityId`: each
+    * re-renders because something it binds moved, as a static node does.
     */
   def binding(entityId: String, root: String): Set[NodeId] =
     byEntity
       .getOrElse(entityId, Vector.empty)
-      .collect { case m if m.root == root => m.id }
+      .iterator
+      .filter(_.root == root)
+      .flatMap(_.byEntity.getOrElse(entityId, Nil))
       .toSet
 
   /** Skips on `eq`: [[MemberGraph.syncMembers]] hands back the same value when
@@ -214,6 +249,10 @@ private[runtime] final class MemberGraph(
         }
       }
 
+    /** Every member `entityId` can be, one per component clause. */
+    def clauseMembers(entityId: String): List[Member] =
+      clauses.getOrElse(entityId, Nil).flatMap(_._2)
+
     /** An entity HA does not know is evaluated against an empty state, so a
       * clause guarded only on another entity still decides.
       */
@@ -259,9 +298,8 @@ private[runtime] final class MemberGraph(
     Member(s.gid, s.root, key, memberId(s.gid, key), node, clause)
   }
 
-  /** `<member>_<clause>_<child path>`, all static. Read by both [[sources]] and
-    * `Renderer.resolveChild`; two spellings would sync the graph and never
-    * patch the browser.
+  /** [[LayoutNode.innerSetId]], as a set: read by [[sources]] and the
+    * renderer's walk, so the graph and the browser cannot disagree.
     */
   def innerSetId(
       member: MemberId,
@@ -269,12 +307,7 @@ private[runtime] final class MemberGraph(
       path: List[LayoutNode.Step],
       set: LayoutNode.SetNode
   ): SetId =
-    SetId.of(
-      NodeId.derived(
-        s"${member}_${clauseIdx}_${LayoutNode.segments(path)}"
-      ),
-      set
-    )
+    SetId.of(LayoutNode.innerSetId(member, clauseIdx, path), set)
 
   /** Every set, nested ones ("a tile per room") included with the member they
     * hang off. Enumerable up front because candidates are static, which makes
@@ -327,11 +360,49 @@ private[runtime] final class MemberGraph(
     sourcesWithOwner.map(s => s.at -> s).toMap
 
   /** The parent edges the static index cannot see, for [[NodeAncestry]].
-    * Static: presence varies, the id space does not (ADR 0003).
+    * Static: presence varies, the id space does not (ADR 0003). Every clause of
+    * a candidate mints the same ids below it, so their edges agree.
     */
   def parentEdges: Map[NodeId, NodeId] =
     memberSlot.view.mapValues { case (s, _) => NodeId.derived(s.gid) }.toMap ++
-      sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _))
+      sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _)) ++
+      memberSlot.toList.flatMap { case (_, (s, e)) =>
+        s.clauseMembers(e)
+          .flatMap(m => Member.subtree(m.id, m.node))
+          .flatMap((at, _, parent) => parent.map(at -> _))
+      }
+
+  /** id below a member -> the member. Each member indexes its own subtree
+    * ([[Member.nodes]]); this only says whose an id is.
+    */
+  private lazy val ownerBelow: Map[NodeId, NodeId] =
+    memberSlot.toList.flatMap { case (mid, (s, e)) =>
+      s.clauseMembers(e).flatMap(_.nodes.keys).filterNot(_ == mid).map(_ -> mid)
+    }.toMap
+
+  /** The member a node belongs to: itself for a member, its member for a node
+    * below one.
+    */
+  def memberOwning(id: NodeId): Option[NodeId] =
+    if (memberSlot.contains(id)) Some(id) else ownerBelow.get(id)
+
+  /** A member or a node below one, as its member's current clause has it. */
+  def nodeAt(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Option[(Member, LayoutNode.Component)] =
+    memberOwning(id)
+      .flatMap(memberAt(_, states))
+      .flatMap(m => m.nodes.get(id).map(m -> _))
+
+  /** Every id below a member, every clause's. */
+  def memberIdsBelow: Iterable[NodeId] = ownerBelow.keys
+
+  /** What `id` can be in each clause, presence aside: a node's static reads. */
+  def clauseNodesAt(id: NodeId): List[LayoutNode.Component] =
+    memberOwning(id).flatMap(memberSlot.get).toList.flatMap { (s, e) =>
+      s.clauseMembers(e).flatMap(_.nodes.get(id))
+    }
 
   // A nested set inherits its owner's, which the walk carries down.
   private val sourceRoot: Map[NodeId, String] =
@@ -427,22 +498,19 @@ private[runtime] final class MemberGraph(
       val (now, replaced) =
         // With a live ordering or a limit, one entity moves its neighbours, so
         // rebuild — O(candidates), only for a touched set.
-        if (touched.isEmpty) (was, Set.empty[MemberId])
+        if (touched.isEmpty) (was, Vector.empty[Member])
         else if (!src.stable) {
           val rebuilt = s.materialise(states)
           // As `applyOne` reports: a clause binding no live entity has no index
           // edge, so nothing else would name it.
-          val swapped = rebuilt.members.iterator
-            .filter(m =>
-              was.members.exists(w => w.key == m.key && w.node != m.node)
-            )
-            .map(_.id)
-            .toSet
+          val swapped = rebuilt.members.filter(m =>
+            was.members.exists(w => w.key == m.key && w.clause != m.clause)
+          )
           // The old value when unchanged, so `install` skips on `eq`.
           if (rebuilt.members == was.members) (was, swapped)
           else (rebuilt, swapped)
         } else
-          touched.foldLeft((was, Set.empty[MemberId])) {
+          touched.foldLeft((was, Vector.empty[Member])) {
             case ((group, swapped), entityId) =>
               applyOne(s, group, swapped, entityId, states)
           }
@@ -461,14 +529,17 @@ private[runtime] final class MemberGraph(
   private def applyOne(
       s: Source,
       group: GroupMembers,
-      replaced: Set[MemberId],
+      replaced: Vector[Member],
       entityId: String,
       states: Map[String, EntityState]
-  ): (GroupMembers, Set[MemberId]) = {
+  ): (GroupMembers, Vector[Member]) = {
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
     val arriving = s.memberOf(entityId, states)
-    if (existing.map(_.node) == arriving.map(_.node)) (group, replaced)
+    // By clause, which fixes the node; not by node, since hoisting lifts a
+    // slider's heads out of it and two slider clauses can leave equal nodes
+    // over different surfaces.
+    if (existing.map(_.clause) == arriving.map(_.clause)) (group, replaced)
     else {
       val without = group.members.filterNot(_.key == key)
       (
@@ -477,7 +548,7 @@ private[runtime] final class MemberGraph(
         ),
         // Present before and after; arrivals and departures are mutations.
         if (existing.isDefined && arriving.isDefined)
-          replaced ++ arriving.map(_.id)
+          replaced ++ arriving
         else replaced
       )
     }
@@ -503,7 +574,7 @@ private[runtime] final class MemberGraph(
   /** Present or not: a departed member's patch is scoped like a present one's.
     */
   def rootOfMember(id: NodeId): Option[String] =
-    memberSlot.get(id).map(_._1.root)
+    memberOwning(id).flatMap(memberSlot.get).map(_._1.root)
 
   /** Without this a nested set's fill or removal reads as main-page and reaches
     * clients without the surface open.

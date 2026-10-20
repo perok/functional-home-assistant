@@ -740,8 +740,8 @@ The two halves are two files, and the seam between them is one sentence: **`Memb
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
 it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
 answers membership questions with no template, no mustache context and no document walk. The
-`render*` half deliberately stayed behind: `resolveMember`, `renderResolvedMember` and
-`renderSet` need `templates` and `identityCache`.
+painting stayed behind: a member is walked by the same `tracedInto` as the static tree, from the
+set's case and from `renderMemberTraced`.
 
 **`SurfaceGraph` is the same split, for the other decision.** Which branch of a bake group is
 active, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
@@ -801,10 +801,26 @@ is all it takes for a member to stop being special. `renderNodeById` renders it,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
 
+**A member's children are nodes too.** Below a member, the walk mints the ids the static tree
+would (`LayoutNode.childId` from the member's id; a nested set's is `innerSetId`, which names the
+clause), and every `Member` indexes its subtree under them (`Member.nodes`). So the card rule holds
+inside a set: a member that is a leaf is its own patch target, and one holding regions is
+structure, patched through its leaves, with baked regions of its own (a slider's main controls).
+Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause
+of a candidate mints the same ids below it; a render key names the clause for the same reason, and
+so does a bake group: a surface baked inside a clause is tagged with it (`Surface.clause`), its
+group is `<host>_k<clause>` (`Surface.group`, `SurfaceGraph.groupAt`), so two slider clauses keep
+their own heads, and a write swaps only the group of the member's current clause
+(`Renderer.groupShown`). A member holding nodes has no one element to send, so its arrival and a
+clause switch (a different node, or the same node in another clause) place it whole, rendered per
+viewer (`renderMemberTraced`), with its leaves' claims; a group first shown that way takes its
+selection from the session's variables (`SurfaceGraph.selectionsShown`). A branch chosen by live
+state cannot sit inside a clause (`validate`): flips are found from the static tree.
+
 Three properties hold it up, and each fails silently if broken:
 
-- **A member is selected like any other node.** `Patches.plan` adds the members binding the
-  entity (`Membership.binding`) to `componentsFor`'s static nodes, so a member re-renders because something it binds moved — the group's query is asked
+- **A member is selected like any other node.** `Patches.plan` adds the nodes inside members that
+  bind the entity (`Membership.binding`) to `componentsFor`'s static nodes, so a member's node re-renders because something it binds moved — the group's query is asked
   about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
   did, silently), and `rootOf` must resolve a member through its group or a member inside a
   surface reaches clients who do not have it open. The one case the index cannot cover is a
@@ -1142,9 +1158,9 @@ with a chart in every position against exactly the decided set, and fails on any
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
 answered. An unselected tab is not; switching to it fetches its own (`setVar`, then `swapHost`). A pull asks for
-exactly what it renders: each target's own reads (a set member's include its whole subtree's, at
-this viewer's values, and the sets above it) and what each host
-it fills shows. A target is a leaf or a member, never structure, so a pull that moves only plain
+exactly what it renders: each target's own reads (a placed member's include its whole subtree's,
+at this viewer's values, and the sets above it) and what each host
+it fills shows. A target is a leaf, never structure, a set member's nodes included, so a pull that moves only plain
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 
@@ -1387,7 +1403,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
-| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (resolved once), `resolveTemplate` / `executeResolved` (run per form), `Traced.own` (the patch form lives here, and only for a node that has one) |
+| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; `wrapperInto` is shared with the walk) |
 | a signal's name, and a node's values | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
@@ -1402,7 +1418,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
-| the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`, `executeInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
+| the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |

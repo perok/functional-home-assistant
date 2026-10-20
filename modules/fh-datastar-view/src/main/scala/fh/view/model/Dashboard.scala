@@ -786,6 +786,29 @@ object LayoutNode:
   def memberSegment(setId: String, key: String): String =
     s"${setId}_${sanitize(key)}"
 
+  /** A set nested below a set member: `<member>_<clause>_<path>`. The clause
+    * keeps two clauses' sets apart, since their member ids are one. Read by the
+    * runtime's member graph and walk, and the model's scope walk.
+    */
+  def innerSetId(member: NodeId, clause: Int, path: List[Step]): NodeId =
+    NodeId.derived(s"${member}_${clause}_${segments(path)}")
+
+  /** A child's id, given where a walk is below a set member: a nested set's is
+    * [[innerSetId]], everything else's [[childId]].
+    */
+  def childIdWithin(
+      prefix: String,
+      parent: NodeId,
+      step: Step,
+      child: LayoutNode,
+      within: Option[(NodeId, Int, List[Step])]
+  ): NodeId =
+    (child, within) match {
+      case (_: SetNode, Some((member, clause, path))) =>
+        innerSetId(member, clause, path :+ step)
+      case _ => childId(prefix, parent, step, child)
+    }
+
   def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
 
   /** `s_<id>__c_0`; the same scheme as the build-phase hoist. */
@@ -828,14 +851,23 @@ case class Theme(
   *   - `bakeIndex`: the order a user selection indexes and a state selection
   *     walks first-match.
   *   - `activation`: absent means a plain popup.
+  *   - `clause`: set by the build on a baked surface inside a set member's
+  *     clause ([[group]]).
   */
 case class Surface(
     content: LayoutNode,
     bakeInto: Option[NodeId] = None,
     bakeAs: Option[String] = None,
     bakeIndex: Option[Int] = None,
-    activation: Activation = Activation.User(false)
+    activation: Activation = Activation.User(false),
+    clause: Option[Int] = None
 ) derives ConfiguredDecoder:
+
+  /** Its bake group. Not `bakeInto` alone: every clause of a member gives its
+    * nodes the same ids, so two clauses' sliders would pool their heads into
+    * one group (#556).
+    */
+  def group: Option[NodeId] = bakeInto.map(Surface.groupId(_, clause))
 
   /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
     * popup host.
@@ -857,6 +889,13 @@ case class Surface(
     case _                                  => false
 
 object Surface:
+
+  /** `<host>_k<clause>`: no derived node id has a lone `k<n>` segment, since a
+    * step is an index or `<region>_<index>` ([[LayoutNode.segment]]) and an
+    * entity id carries a `.`.
+    */
+  def groupId(host: NodeId, clause: Option[Int]): NodeId =
+    clause.fold(host)(k => NodeId.derived(s"${host}_k$k"))
 
   /** What a variable-selected group's members are selected at, for a message:
     * an index group as the range an author thinks of.
@@ -1327,11 +1366,10 @@ case class Dashboard(
         kids: Map[String, List[LayoutNode]],
         prefix: String,
         id: NodeId,
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope, inSet)
+        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope)
       }
 
     // Interpolated into a `class` attribute unescaped.
@@ -1398,8 +1436,7 @@ case class Dashboard(
         node: LayoutNode,
         prefix: String,
         nodeId: NodeId,
-        scope: Map[String, String],
-        inSet: Boolean
+        scope: Map[String, String]
     ): List[String] =
       node match
         case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
@@ -1423,18 +1460,7 @@ case class Dashboard(
                   )
                   .toList
           val here = scope ++ vars
-          // One clause renders once per member, so a declaration there would
-          // be every member's own choice; members read the set's scope.
-          val inSetDeclarations = Option
-            .when(inSet && vars.nonEmpty)(
-              s"$nodeId: declares the variable(s) " +
-                vars.keys.toList.sorted
-                  .mkString(", ") + " inside a candidate " +
-                "set's clause, which renders once per member — declare it above " +
-                "the set"
-            )
-            .toList
-          inSetDeclarations ++ checkRef(
+          checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
@@ -1444,7 +1470,7 @@ case class Dashboard(
             valueErrors(nodeId, c) ++
             typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
-            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
+            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
         // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>
           val setId = nodeId
@@ -1473,8 +1499,7 @@ case class Dashboard(
                     LayoutNode.Step(LayoutNode.DefaultRegion, i),
                     clause.node
                   ),
-                  scope,
-                  inSet = true
+                  scope
                 ) ++ (clause.node match {
                   case c: LayoutNode.Component if noWrap(c.card) =>
                     List(
@@ -1641,64 +1666,70 @@ case class Dashboard(
     // renderer's id derivations drifted; otherwise the symptom is a blank
     // panel, indistinguishable from an unmatched state group.
     val danglingBakes: List[String] = {
-      def cardAt(
+      // Every node under the id the runtime gives it, set members' included:
+      // a member's nodes own bake groups too, a slider's heads (#556).
+      def nodesIn(
           node: LayoutNode,
           prefix: String,
           id: NodeId,
-          target: NodeId
-      ): Option[String] =
-        node match {
-          case c: LayoutNode.Component =>
-            if (id == target) Some(c.card)
-            else
-              LayoutNode
-                .steps(c.regions)
-                .collectFirst(Function.unlift { case (step, ch) =>
-                  cardAt(
-                    ch,
-                    prefix,
-                    LayoutNode.childId(prefix, id, step, ch),
-                    target
-                  )
-                })
-          case _: LayoutNode.SetNode => None
-        }
-
-      def idsOf(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId
-      ): List[NodeId] =
-        id :: (node match {
+          within: Option[(NodeId, Int, List[LayoutNode.Step])]
+      ): List[(NodeId, LayoutNode, Boolean)] =
+        (id, node, within.isDefined) :: (node match {
           case c: LayoutNode.Component =>
             LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              idsOf(ch, prefix, LayoutNode.childId(prefix, id, step, ch))
+              nodesIn(
+                ch,
+                prefix,
+                LayoutNode.childIdWithin(prefix, id, step, ch, within),
+                within.map((m, cl, path) => (m, cl, path :+ step))
+              )
             }
-          // A member owns no bake group.
-          case _: LayoutNode.SetNode => Nil
+          case set: LayoutNode.SetNode =>
+            set.members.toList.flatMap { (entityId, m) =>
+              val member =
+                NodeId.derived(LayoutNode.memberSegment(id, entityId))
+              m.clauses.zipWithIndex.flatMap((clause, ci) =>
+                nodesIn(clause.node, prefix, member, Some((member, ci, Nil)))
+              )
+            }
         })
-      val known: Set[NodeId] =
-        (idsOf(card, "", LayoutNode.rootId("", card)) ++
+      val walked =
+        nodesIn(card, "", LayoutNode.rootId("", card), None) ++
           surfaces.toList.flatMap { case (sid, s) =>
             val p = LayoutNode.surfacePrefix(sid)
-            idsOf(s.content, p, LayoutNode.rootId(p, s.content))
-          }).toSet
+            nodesIn(s.content, p, LayoutNode.rootId(p, s.content), None)
+          }
+      val nodes: Map[NodeId, LayoutNode] =
+        walked.map((id, n, _) => id -> n).toMap
+      val inMember: Set[NodeId] =
+        walked.collect { case (id, _, true) => id }.toSet
       def hostCard(gid: NodeId): Option[CardDef] =
-        cardAt(card, "", LayoutNode.rootId("", card), gid)
-          .orElse(
-            surfaces.collectFirst(Function.unlift { case (sid, s) =>
-              val p = LayoutNode.surfacePrefix(sid)
-              cardAt(s.content, p, LayoutNode.rootId(p, s.content), gid)
-            })
-          )
+        nodes
+          .get(gid)
+          .collect { case c: LayoutNode.Component => c.card }
           .flatMap(cards.get)
 
       surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
         s.bakeInto.toList.flatMap { gid =>
-          if (!known(gid))
+          if (!nodes.contains(gid))
             List(
               s"surface '$sid' bakes into '$gid', which is not a node in this " +
                 "dashboard (main tree or any surface's content)"
+            )
+          // Every clause of a candidate mints the same ids below the member, so
+          // only the clause tells two clauses' groups apart (`Surface.group`).
+          else if (inMember(gid) && s.clause.isEmpty)
+            List(
+              s"surface '$sid' bakes into '$gid', inside a candidate set's " +
+                "clause, but names no clause"
+            )
+          // A flip is found from the static tree (`SurfaceGraph`), which never
+          // reaches a member: such a branch would never move.
+          else if (inMember(gid) && s.activation.isInstanceOf[Activation.State])
+            List(
+              s"surface '$sid' is chosen by live state inside a candidate set's " +
+                "clause, which is not supported: put the condition on the " +
+                "clause's `when`, or the If above the set"
             )
           else
             // `bakeAs` must be a baked region of that node's card.
@@ -1729,7 +1760,7 @@ case class Dashboard(
     // Selection is per session or server truth per group, never both.
     val activationErrors: List[String] =
       surfaces.toList
-        .flatMap { case (sid, s) => s.bakeInto.map((_, sid, s.activation)) }
+        .flatMap { case (sid, s) => s.group.map((_, sid, s.activation)) }
         .groupBy(_._1)
         .toList
         .sortBy(_._1)
@@ -1769,6 +1800,7 @@ case class Dashboard(
                 .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
               varSelectionErrors(
                 gid,
+                inOrder.flatMap(_.bakeInto).headOption.getOrElse(gid),
                 name,
                 inOrder.flatMap(_.selectedAt),
                 inOrder.count(_.isOtherwise)
@@ -1830,15 +1862,14 @@ case class Dashboard(
       danglingBakes ++
       activationErrors ++
       unboundConditions ++
-      walk(card, "", LayoutNode.rootId("", card), Map.empty, inSet = false) ++
+      walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         val p = LayoutNode.surfacePrefix(sid)
         walk(
           surface.content,
           p,
           LayoutNode.rootId(p, surface.content),
-          scopeOf(surface),
-          inSet = false
+          scopeOf(surface)
         ).map(err => s"surface '$sid': $err")
       }
 
@@ -1873,16 +1904,21 @@ case class Dashboard(
     * its own scope root, since one content may be opened from many places. An
     * owned surface (a tab panel, an `If` branch) has exactly one host, so it
     * starts with the scope at its `bakeInto` node: a chooser above a tab bar
-    * reaches the charts in its panels. A set is a leaf here: its members take
-    * its scope in the runtime (`VarGraph`).
+    * reaches the charts in its panels. A set member is walked under its own id
+    * ([[LayoutNode.memberSegment]], static since the candidates are), starting
+    * from the set's scope, so a clause's declaration is that member's own
+    * (#556). Every clause of a candidate shares the id, so their scopes merge:
+    * a choice survives the member moving to another clause.
     */
   lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
     type Scope = Map[String, Dashboard.InScope]
+    // `within`: the member a walk is below, its clause and the steps down.
     def walk(
         node: LayoutNode,
         prefix: String,
         id: NodeId,
-        scope: Scope
+        scope: Scope,
+        within: Option[(NodeId, Int, List[LayoutNode.Step])]
     ): List[(NodeId, Scope)] =
       node match
         case c: LayoutNode.Component =>
@@ -1896,12 +1932,26 @@ case class Dashboard(
           }
           (id -> here) :: LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
-              walk(ch, prefix, LayoutNode.childId(prefix, id, step, ch), here)
+              walk(
+                ch,
+                prefix,
+                LayoutNode.childIdWithin(prefix, id, step, ch, within),
+                here,
+                within.map((m, cl, path) => (m, cl, path :+ step))
+              )
           }
-        case _: LayoutNode.SetNode => List(id -> scope)
+        case s: LayoutNode.SetNode =>
+          (id -> scope) :: s.members.toList.flatMap { (entityId, m) =>
+            val member = NodeId.derived(LayoutNode.memberSegment(id, entityId))
+            m.clauses.zipWithIndex.flatMap((clause, ci) =>
+              walk(clause.node, prefix, member, scope, Some((member, ci, Nil)))
+            )
+          }
+    def merged(xs: List[(NodeId, Scope)]): Map[NodeId, Scope] =
+      xs.groupMapReduce(_._1)(_._2)(_ ++ _)
     def tree(sid: String, s: Surface, start: Scope): List[(NodeId, Scope)] = {
       val p = LayoutNode.surfacePrefix(sid)
-      walk(s.content, p, LayoutNode.rootId(p, s.content), start)
+      walk(s.content, p, LayoutNode.rootId(p, s.content), start, None)
     }
     // A surface waits for the tree holding its host; one whose host is in no
     // tree (`danglingBakes` reports it) starts empty.
@@ -1914,17 +1964,17 @@ case class Dashboard(
         pending.partition(_._2.bakeInto.forall(done.contains))
       if (pending.isEmpty) done
       else if (ready.isEmpty)
-        done ++ waiting.flatMap((sid, s) => tree(sid, s, Map.empty))
+        done ++ merged(waiting.flatMap((sid, s) => tree(sid, s, Map.empty)))
       else
         owned(
-          done ++ ready.flatMap { (sid, s) =>
+          done ++ merged(ready.flatMap { (sid, s) =>
             tree(sid, s, s.bakeInto.flatMap(done.get).getOrElse(Map.empty))
-          },
+          }),
           waiting
         )
     }
     owned(
-      walk(card, "", LayoutNode.rootId("", card), Map.empty).toMap,
+      merged(walk(card, "", LayoutNode.rootId("", card), Map.empty, None)),
       surfaces.toList.sortBy(_._1)
     )
   }
@@ -1935,6 +1985,7 @@ case class Dashboard(
     */
   private def varSelectionErrors(
       gid: NodeId,
+      host: NodeId,
       name: String,
       values: List[String],
       fallbacks: Int
@@ -1949,7 +2000,7 @@ case class Dashboard(
         s"bake group '$gid' has $fallbacks members selected at every other " +
           s"value of '$name'; one can be"
       )
-      .toList ++ (varScopes.get(gid).flatMap(_.get(name)) match {
+      .toList ++ (varScopes.get(host).flatMap(_.get(name)) match {
       case None =>
         List(
           s"bake group '$gid' is selected by the variable '$name', which no " +

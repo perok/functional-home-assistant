@@ -223,7 +223,7 @@ class MemberGraphSuite extends munit.FunSuite {
       ).deltas(gid)
     assertEquals(delta.was, List("light.a", "light.c"))
     assertEquals(delta.now, List("light.a", "light.b", "light.c"))
-    assertEquals(delta.replaced, Set.empty[MemberId])
+    assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
   }
 
   test("a clause switch is reported as REPLACED, not as a departure") {
@@ -246,7 +246,33 @@ class MemberGraphSuite extends munit.FunSuite {
       ).deltas(gid)
     assertEquals(delta.was, List("light.a"))
     assertEquals(delta.now, List("light.a"))
-    assertEquals(delta.replaced, Set(g.memberIdOf(gid, "light.a")))
+    assertEquals(delta.replaced.map(_.id), Vector(g.memberIdOf(gid, "light.a")))
+  }
+
+  test("a switch between clauses with equal nodes is REPLACED, limit or not") {
+    // Hoisting lifts a slider's heads out of its node, so two slider clauses
+    // can leave equal nodes over different surfaces: only the clause differs.
+    // A limit takes the rebuild path, which must say so too.
+    val equalClauses = (e: String) =>
+      List(clause(e, Some(isOn(e)), as = "slider"), clause(e, as = "slider"))
+    val before = snapshot(st("light.a", "on"))
+    val after = snapshot(st("light.a", "off"))
+    List(None, Some(5)).foreach { limit =>
+      val g = graphOf(set(List("light.a"), equalClauses, limit = limit))
+      val delta = g
+        .syncMembers(
+          Membership.empty,
+          List(change(before, after, "light.a")),
+          before,
+          after
+        )
+        .deltas(gid)
+      assertEquals(
+        delta.replaced.map(_.id),
+        Vector(g.memberIdOf(gid, "light.a")),
+        clue = s"limit $limit"
+      )
+    }
   }
 
   test("a frame that only TICKS a member moves no membership") {
@@ -261,7 +287,7 @@ class MemberGraphSuite extends munit.FunSuite {
         after
       ).deltas(gid)
     assertEquals(delta.was, delta.now)
-    assertEquals(delta.replaced, Set.empty[MemberId])
+    assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
   }
 
   test("affectedSets wakes a set for a GUARD's entity, not only a candidate") {

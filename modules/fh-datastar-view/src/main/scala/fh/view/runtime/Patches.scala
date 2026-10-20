@@ -242,8 +242,14 @@ private[runtime] object Patches {
     val was = delta.was
     val now = delta.now
     // A member whose case moved. By id: a case binding no live entity is
-    // not in the reverse index.
-    val base = delta.replaced.toList.sorted.foldLeft(log)(_.touched(_, at))
+    // not in the reverse index. One that can hold nodes has no single element
+    // to morph, so it is placed again where it stands.
+    val (morphed, replaced) =
+      delta.replaced.sortBy(_.id).partition(m => renderer.memberIsTarget(m.id))
+    val base =
+      replaced.foldLeft(morphed.foldLeft(log)((l, m) => l.touched(m.id, at))) {
+        (l, m) => l.placed(gid, m.key, m.id, at)
+      }
     if (was == now) base
     else {
       val nowSet = now.toSet
@@ -365,8 +371,8 @@ private[runtime] object Patches {
             }
             .sortBy { case (_, _, at) => -at }
             .flatTraverse { case (nodeId, entityId, _) =>
-              bytes(renderer, cache, nodeId, states, selections, fragments).map(
-                _.toList.flatMap { case NodeBytes(html, digest) =>
+              placed(renderer, cache, nodeId, states, selections, fragments)
+                .map(_.toList.flatMap { (html, claims) =>
                   List(
                     Addressed(Patch.Remove(renderer.elementId(nodeId))),
                     Addressed(
@@ -378,11 +384,10 @@ private[runtime] object Patches {
                         _ => true,
                         html
                       ),
-                      Map(nodeId -> Held.bytes(digest))
+                      claims
                     )
                   )
-                }
-              )
+                })
             }
         }
       }
@@ -544,6 +549,29 @@ private[runtime] object Patches {
             .map(NodeBytes.of)
         )
     }
+
+  /** What a placed member inserts and claims. A member that is a leaf comes
+    * through the cache as any target does; one holding nodes renders per viewer
+    * with its subtree's claims, since it can bake this viewer's selection.
+    */
+  private def placed(
+      renderer: Renderer,
+      cache: RenderCache,
+      id: NodeId,
+      states: Map[String, EntityState],
+      selections: Selections,
+      fragments: QuerySnapshot
+  ): IO[Option[(String, Map[NodeId, Held])]] =
+    if (renderer.memberIsTarget(id))
+      bytes(renderer, cache, id, states, selections, fragments).map(
+        _.map(b => b.html -> Map(id -> Held.bytes(b.digest)))
+      )
+    else
+      IO(
+        renderer
+          .renderMemberTraced(id, states, selections, fragments)
+          .map(t => t.html -> t.claims)
+      )
 
   /** Positional in `ordered`, never by comparing ids, so an author-chosen order
     * works.

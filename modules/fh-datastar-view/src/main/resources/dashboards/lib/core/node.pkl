@@ -197,9 +197,6 @@ abstract class Node extends LayoutNode {
   /// value, read once as the page opens ([[varMod.Variable.start]]). A result
   /// no reader takes keeps the value.
   starts: Mapping<String, varMod.Start>? = null
-  /// Set by a candidate set on the node it renders once per member, where a
-  /// declaration is a build error: a card that would declare one does without.
-  hidden perMember: Boolean = false
   /// Named values this node's own CEL reads: a literal, a live count
   /// (`q.from(xs).where(…).count()`, an `int`) or a live condition (`….any()`,
   /// a `bool`).

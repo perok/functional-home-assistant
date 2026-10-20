@@ -262,9 +262,9 @@ class SetNodeSuite extends ServerHarness {
     }
   }
 
-  test("a member renders a SUBTREE, woken by the entities its children bind") {
-    // The children have no ids, so a child's entity has to reach the reverse
-    // index through the member, or the tile silently stops updating.
+  test("a member renders a SUBTREE, and a child's entity patches that child") {
+    // A member's children are nodes with ids of their own (#556), so a tick on
+    // what one child binds patches that child, not the whole member.
     val cards = tile ++ Map(
       "col" -> CardDef(
         """<div>{{#children}}{{{html}}}{{/children}}</div>""",
@@ -305,8 +305,9 @@ class SetNodeSuite extends ServerHarness {
         assert(html.contains("<b>21</b>"), clue = html)
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
-        assert(p.contains("""id="c_light_a""""), clue = p)
+        assert(p.contains("""id="c_light_a_1""""), clue = p)
         assert(p.contains("<b>22</b>"), clue = p)
+        assert(!p.contains("<b>on</b>"), clue = p)
       }
     }
   }
