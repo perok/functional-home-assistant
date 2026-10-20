@@ -244,13 +244,11 @@ private[runtime] object Patches {
     // not in the reverse index. One that can hold nodes has no single element
     // to morph, so it is placed again where it stands.
     val (morphed, replaced) =
-      delta.replaced.toList.sorted.partition(renderer.memberIsTarget)
-    val base = replaced.foldLeft(morphed.foldLeft(log)(_.touched(_, at))) {
-      (l, cid) =>
-        now
-          .find(e => renderer.members.memberIdOf(gid, e) == cid)
-          .fold(l)(e => l.placed(gid, MemberKey.Entity(e), cid, at))
-    }
+      delta.replaced.sortBy(_.id).partition(m => renderer.memberIsTarget(m.id))
+    val base =
+      replaced.foldLeft(morphed.foldLeft(log)((l, m) => l.touched(m.id, at))) {
+        (l, m) => l.placed(gid, m.key, m.id, at)
+      }
     if (was == now) base
     else {
       val nowSet = now.toSet

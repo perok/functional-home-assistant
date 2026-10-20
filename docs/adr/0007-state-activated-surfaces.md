@@ -164,8 +164,7 @@ c.iff(q.from(hass.lights(dump.areas.stue.all))                // a named set
 `iff` also takes a node variable at one value, `c.iff(window.valueIs("30d"))`
 (#510). Then the group is variable-selected like a `c.select`'s panels, so the
 branch is each viewer's own and no flip is involved: `then` is the member at
-the value, and `else` the member at every other value (`Activation.Var`'s
-`otherwise`). That member is always there, empty without an `else`, because a
+the value, and `else` the member at every other value (`VarAt.Otherwise`). That member is always there, empty without an `else`, because a
 variable's group shows a member at every value and a write no member takes is
 refused for the whole variable. `valueIs` is not a predicate, so a condition
 cannot mix a variable with entity state; that would need the flip machinery to

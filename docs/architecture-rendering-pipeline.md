@@ -1123,7 +1123,7 @@ dashboard hosts and dropping a value no member of its group is selected at. A pu
 (`SurfaceGraph.selectionsIn`), which the write keeps in step. `Selections` is what all of them
 hand the renderer: the popup's surface id and each chosen bake group's member index, which
 `SurfaceGraph.memberAt` finds from the variable's value, falling back to the group's
-`otherwise` member (an If over a variable's `else`).
+member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
 
 The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
 `tab` node per window. A button names the declaring node in the route it posts to and the signal
