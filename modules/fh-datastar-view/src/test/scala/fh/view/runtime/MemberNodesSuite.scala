@@ -178,7 +178,9 @@ class MemberNodesSuite extends ServerHarness {
       bakeInto = Some(member),
       bakeAs = Some("panel"),
       bakeIndex = Some(i),
-      activation = Activation.Var("tab")
+      activation = Activation.Var("tab"),
+      // As the build tags a surface baked inside a clause.
+      clause = Some(0)
     )
     Dashboard(
       cards = cards,
@@ -219,7 +221,7 @@ class MemberNodesSuite extends ServerHarness {
   test("a baked region inside a member shows this viewer's member") {
     assertEquals(panels.validate(), Nil)
     val r = Renderer.create(panels)
-    val html = r.renderBody(twoOn, picking("c_0_light_a" -> 1))
+    val html = r.renderBody(twoOn, picking("c_0_light_a_k0" -> 1))
     assert(html.contains("A second") && !html.contains("A first"), clue = html)
     assert(html.contains("B first") && !html.contains("B second"), clue = html)
     assert(html.contains("""id="c_0_light_a_panel""""), clue = html)
