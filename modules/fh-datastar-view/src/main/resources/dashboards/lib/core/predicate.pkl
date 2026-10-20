@@ -104,6 +104,14 @@ class SetNode extends nodes.LayoutNode {
   /// from the DOM, not hidden in it.
   limit: Int? = null
   members: Mapping<String, SetMember>
+
+  /// This set with `f` applied to what every member renders, in every clause.
+  function mapClauseNodes(f: (nodes.LayoutNode) -> nodes.LayoutNode): SetNode =
+    let (self = this) (self) {
+      members = self.members.toMap().mapValues((_, m) ->
+        (m) { clauses = m.clauses.toList().map((cl) -> (cl) { node = f.apply(cl.node) }).toListing() }
+      ).toMapping()
+    }
 }
 
 /// One ordering position: a property's value ([[SortProp]]), or whether a

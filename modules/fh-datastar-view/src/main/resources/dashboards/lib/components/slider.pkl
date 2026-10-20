@@ -342,12 +342,7 @@ class EntitySlider extends sliderBase.Slider {
 /// set among the rows.
 const local function followingRow(n: nodes.LayoutNode, ms: List<itsMod.MainControl>): nodes.LayoutNode =
   if (n is EntitySlider) (n) { followControls = ms }
-  else if (n is pred.SetNode)
-    (n) {
-      members = n.members.toMap().mapValues((_, m) ->
-        (m) { clauses = m.clauses.toList().map((cl) -> (cl) { node = followingRow(cl.node, ms) }).toListing() }
-      ).toMapping()
-    }
+  else if (n is pred.SetNode) n.mapClauseNodes((c) -> followingRow(c, ms))
   else n
 
 /// One switch over the light sliders beneath it that
