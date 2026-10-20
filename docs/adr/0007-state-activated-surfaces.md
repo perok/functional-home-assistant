@@ -91,9 +91,9 @@ Per state change, the recording pass does two things:
    entities, through an index of what each group's conditions read, so a frame
    that touches no condition costs a lookup per entity however many `If`s the
    page holds. A group flips when its selection differs before and after and it
-   is shown both times: reached from the page or an open surface through
-   selected branches (`SurfaceGraph.reaches`), and, inside a set member, the
-   member present in that clause. A member arriving or switching clause is
+   is shown both times: its root visible past no other group flipping
+   (`SurfaceGraph.visibleSurface`), and, inside a set member, the member
+   present in that clause. A member arriving or switching clause is
    placed whole with the branch its state picks, and a group below another that
    flips is inside that one's fill, so neither is a flip. Record where the
    branch went, **prune** the group's cache entries, and defer the render.
@@ -106,14 +106,13 @@ Per state change, the recording pass does two things:
    node: the node's own HTML embeds the branch, so morphing it would weld host
    to content, which is exactly what the leaf/structure split prevents (ADR
    0008).
-2. **Active-member liveness** (`SurfaceGraph.reaches`, per surface binding a
-   changed entity): a surface contributes its affected components and sets only
-   if every state surface above it is selected, on the page and not flipping.
-   A set member's bindings and a set's moves are asked the same of the surface
-   they sit in, so a frame asks only what reads a changed entity, never every
-   active surface. Page open walks the selected branches instead
-   (`activeStateSurfaces`), and a member's placement renders the branch its
-   state picks: both render all of it anyway.
+2. **Active-member liveness** (`SurfaceGraph.visibleSurface`, per surface
+   binding a changed entity): a surface contributes its affected components and
+   sets only if it is visible and no group above it is flipping. A set member's
+   bindings and a set's moves are asked the same of the surface they sit in,
+   so a frame asks only what reads a changed entity, never every active
+   surface. Page open asks it of every surface (`shownSurfaces`), and a
+   member's placement renders the branch its state picks.
    Inactive STATE members are never consulted — that IS the no-updates
    guarantee, and it is structural: their ids never enter the selection.
 
@@ -122,8 +121,10 @@ Per state change, the recording pass does two things:
    one more step, because `selectedSurfaces` reports a selection for every bake
    group whether or not it is on screen, so `open` alone would keep recording
    it. The recorder therefore filters each session's open set through
-   `Renderer.visibleSurface`, the visibility CHAIN (ADR 0012): every user
-   surface above a node selected AND every state surface above it active. A
+   `SurfaceGraph.visibleSurface`, the visibility CHAIN (ADR 0012): every user
+   surface above a node selected AND every state surface above it active, and
+   inside a set member, the member in that clause. It is the one test of
+   "shown": the flips, the liveness above and page open all ask it. A
    group in an unopened tab is not merely unsent — it is never planned.
 
 The one crossing edge: a state group whose subtree contains a *user-activated*

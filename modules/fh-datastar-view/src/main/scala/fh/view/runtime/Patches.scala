@@ -88,8 +88,8 @@ private[runtime] object Patches {
     * Flipped state groups are recorded as [[Mutation]]s and excluded below (the
     * fill re-renders them). A surface binding a changed entity contributes only
     * if it is shown from the page or a visible surface
-    * ([[SurfaceGraph.reaches]]), so a hidden branch never gets updates. No
-    * viewer's [[Selections]] are read.
+    * ([[SurfaceGraph.visibleSurface]]), so a hidden branch never gets updates.
+    * No viewer's [[Selections]] are read.
     */
   def plan(
       renderer: Renderer,
@@ -110,7 +110,7 @@ private[runtime] object Patches {
     val shown: String => Boolean = sid =>
       reached.getOrElseUpdate(
         sid,
-        renderer.surfaces.reaches(sid, visible, states, flipped)
+        renderer.surfaces.visibleSurface(sid, visible, states, flipped)
       )
     // Members included, so a case slot naming a second entity ticks: that
     // entity need not be a candidate.

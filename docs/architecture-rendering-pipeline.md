@@ -566,7 +566,7 @@ server itself last sent.
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
 `plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`) and kept a
-surface's nodes only where `SurfaceGraph.reaches` says it is shown, so a hidden branch is never
+surface's nodes only where `SurfaceGraph.visibleSurface` says it is shown, so a hidden branch is never
 asked, and membership arrives already applied — `MemberGraph.syncMembers` moves the recorder's membership for every
 member container before the gate, and hands `record` each container's list before and after plus
 the members whose case it replaced.
@@ -1426,7 +1426,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
-| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `rootOf` |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `starts`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `startsFor`; `lib/core/variable.pkl` · `Variable` (the template half) |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |

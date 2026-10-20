@@ -451,7 +451,7 @@ class Renderer(
   def watchedEntities: Set[String] = dashboard.watchedEntities
 
   /** The surfaces whose static nodes bind `entityId`: the candidates a tick
-    * asks [[SurfaceGraph.reaches]] of, rather than every shown surface.
+    * asks [[SurfaceGraph.visibleSurface]] of, rather than every shown surface.
     */
   def surfacesBinding(entityId: String): List[String] =
     surfacesByEntity.getOrElse(entityId, Nil)
@@ -739,8 +739,7 @@ class Renderer(
       states: Map[String, EntityState],
       env: VarEnv
   ): List[SlotRead] = {
-    val shown = open ++ surfaces.activeStateSurfaces(states) ++
-      open.flatMap(surfaces.activeStateSurfacesIn(_, states))
+    val shown = surfaces.shownSurfaces(open, states)
     (readsIn(mainIndex, env) ++
       shown.toList.sorted.flatMap(readsOfSurface(_, env))).distinct
   }

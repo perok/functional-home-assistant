@@ -8,9 +8,9 @@ import io.circe.parser.parse
 import scala.util.Random
 
 /** [[SurfaceGraph.affectedStateGroups]] finds flips from the changed entities.
-  * The reference here walks every group from the roots instead, descending only
-  * through branches that are shown and did not move: for random frames the two
-  * must name the same groups.
+  * The reference here walks every group down from the page instead, through
+  * branches that are shown and did not move and into the visible surfaces they
+  * hold: for random frames the two must name the same groups.
   */
 class StateFlipIndexSuite extends munit.FunSuite {
 
@@ -77,6 +77,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
   )
 
   private def reference(
+      d: Dashboard,
       g: SurfaceGraph,
       before: Map[String, EntityState],
       now: Map[String, EntityState],
@@ -84,6 +85,13 @@ class StateFlipIndexSuite extends munit.FunSuite {
   ): List[NodeId] = {
     def at(root: String) =
       g.stateBakeOwnerIds.toList.filter(g.rootOf(_).contains(root))
+    // A popup has no group and opens on the page.
+    def openAt(root: String) = visible.toList.filter { sid =>
+      d.surfaces(sid).group match {
+        case None      => root.isEmpty
+        case Some(gid) => g.rootOf(gid).contains(root) && g.groupShown(gid, now)
+      }
+    }
     def walk(root: String): List[NodeId] = at(root).flatMap { gid =>
       val sel = g.resolveActiveByState(gid, now)
       if (!g.groupShown(gid, now)) Nil
@@ -91,8 +99,8 @@ class StateFlipIndexSuite extends munit.FunSuite {
         g.groupShown(gid, before) && g.resolveActiveByState(gid, before) != sel
       ) List(gid)
       else sel.toList.flatMap(i => walk(g.bakeGroup(gid)(i)))
-    }
-    (walk("") ++ visible.toList.flatMap(walk)).distinct.sorted
+    } ++ openAt(root).flatMap(walk)
+    walk("").distinct.sorted
   }
 
   private val alphabet = List("on", "off", "locked", "unlocked")
@@ -117,7 +125,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
           val flips = g.affectedStateGroups(changes, states, now, visible)
           assertEquals(
             flips,
-            reference(g, states, now, visible),
+            reference(d, g, states, now, visible),
             clue = s"$name, frame $frame, moved $moved, visible $visible"
           )
           flips
