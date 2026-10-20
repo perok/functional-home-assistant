@@ -62,11 +62,13 @@ private[runtime] case class Member(
       .groupMap(_._1)(_._2)
 }
 
-/** `replaced`: members whose node was swapped because their clause moved. */
+/** `replaced`: members present before and after whose clause moved, as they are
+  * now.
+  */
 private[runtime] case class MemberDelta(
     was: List[String],
     now: List[String],
-    replaced: Set[MemberId]
+    replaced: Vector[Member]
 )
 
 /** Cached with its entity projection, so a frame that only ticks members costs
@@ -247,6 +249,10 @@ private[runtime] final class MemberGraph(
         }
       }
 
+    /** Every member `entityId` can be, one per component clause. */
+    def clauseMembers(entityId: String): List[Member] =
+      clauses.getOrElse(entityId, Nil).flatMap(_._2)
+
     /** An entity HA does not know is evaluated against an empty state, so a
       * clause guarded only on another entity still decides.
       */
@@ -360,41 +366,25 @@ private[runtime] final class MemberGraph(
   def parentEdges: Map[NodeId, NodeId] =
     memberSlot.view.mapValues { case (s, _) => NodeId.derived(s.gid) }.toMap ++
       sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _)) ++
-      slots.flatMap((at, d) => d.parent.map(at -> _))
-
-  /** A member or a node below one: its member, its parent, and what it is in
-    * each clause.
-    */
-  private final case class Slot(
-      member: NodeId,
-      parent: Option[NodeId],
-      nodes: List[LayoutNode.Component]
-  )
-
-  /** Static, built once: every clause of every candidate mints the same ids
-    * below its member, so each id gathers what it is in each.
-    */
-  private lazy val slots: Map[NodeId, Slot] =
-    memberSlot.toList
-      .flatMap { case (mid, (s, entityId)) =>
-        s.src.s.members.get(entityId).toList.flatMap(_.clauses).flatMap { c =>
-          c.node match {
-            case comp: LayoutNode.Component =>
-              Member
-                .subtree(mid, comp)
-                .map((at, n, parent) => (at, mid, parent, n))
-            case _ => Nil
-          }
-        }
+      memberSlot.toList.flatMap { case (_, (s, e)) =>
+        s.clauseMembers(e)
+          .flatMap(m => Member.subtree(m.id, m.node))
+          .flatMap((at, _, parent) => parent.map(at -> _))
       }
-      .groupBy(_._1)
-      .map((at, xs) => at -> Slot(xs.head._2, xs.head._3, xs.map(_._4)))
+
+  /** id below a member -> the member. Each member indexes its own subtree
+    * ([[Member.nodes]]); this only says whose an id is.
+    */
+  private lazy val ownerBelow: Map[NodeId, NodeId] =
+    memberSlot.toList.flatMap { case (mid, (s, e)) =>
+      s.clauseMembers(e).flatMap(_.nodes.keys).filterNot(_ == mid).map(_ -> mid)
+    }.toMap
 
   /** The member a node belongs to: itself for a member, its member for a node
     * below one.
     */
   def memberOwning(id: NodeId): Option[NodeId] =
-    if (memberSlot.contains(id)) Some(id) else slots.get(id).map(_.member)
+    if (memberSlot.contains(id)) Some(id) else ownerBelow.get(id)
 
   /** A member or a node below one, as its member's current clause has it. */
   def nodeAt(
@@ -406,12 +396,13 @@ private[runtime] final class MemberGraph(
       .flatMap(m => m.nodes.get(id).map(m -> _))
 
   /** Every id below a member, every clause's. */
-  def memberIdsBelow: Iterable[NodeId] =
-    slots.keys.filterNot(memberSlot.contains)
+  def memberIdsBelow: Iterable[NodeId] = ownerBelow.keys
 
   /** What `id` can be in each clause, presence aside: a node's static reads. */
   def clauseNodesAt(id: NodeId): List[LayoutNode.Component] =
-    slots.get(id).fold(Nil)(_.nodes)
+    memberOwning(id).flatMap(memberSlot.get).toList.flatMap { (s, e) =>
+      s.clauseMembers(e).flatMap(_.nodes.get(id))
+    }
 
   // A nested set inherits its owner's, which the walk carries down.
   private val sourceRoot: Map[NodeId, String] =
@@ -507,22 +498,19 @@ private[runtime] final class MemberGraph(
       val (now, replaced) =
         // With a live ordering or a limit, one entity moves its neighbours, so
         // rebuild — O(candidates), only for a touched set.
-        if (touched.isEmpty) (was, Set.empty[MemberId])
+        if (touched.isEmpty) (was, Vector.empty[Member])
         else if (!src.stable) {
           val rebuilt = s.materialise(states)
           // As `applyOne` reports: a clause binding no live entity has no index
           // edge, so nothing else would name it.
-          val swapped = rebuilt.members.iterator
-            .filter(m =>
-              was.members.exists(w => w.key == m.key && w.node != m.node)
-            )
-            .map(_.id)
-            .toSet
+          val swapped = rebuilt.members.filter(m =>
+            was.members.exists(w => w.key == m.key && w.clause != m.clause)
+          )
           // The old value when unchanged, so `install` skips on `eq`.
           if (rebuilt.members == was.members) (was, swapped)
           else (rebuilt, swapped)
         } else
-          touched.foldLeft((was, Set.empty[MemberId])) {
+          touched.foldLeft((was, Vector.empty[Member])) {
             case ((group, swapped), entityId) =>
               applyOne(s, group, swapped, entityId, states)
           }
@@ -541,19 +529,17 @@ private[runtime] final class MemberGraph(
   private def applyOne(
       s: Source,
       group: GroupMembers,
-      replaced: Set[MemberId],
+      replaced: Vector[Member],
       entityId: String,
       states: Map[String, EntityState]
-  ): (GroupMembers, Set[MemberId]) = {
+  ): (GroupMembers, Vector[Member]) = {
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
     val arriving = s.memberOf(entityId, states)
-    // The clause too: hoisting lifts a slider's heads out of its node, so two
-    // slider clauses can leave equal nodes over different surfaces.
-    if (
-      existing.map(m => (m.node, m.clause)) ==
-        arriving.map(m => (m.node, m.clause))
-    ) (group, replaced)
+    // By clause, which fixes the node; not by node, since hoisting lifts a
+    // slider's heads out of it and two slider clauses can leave equal nodes
+    // over different surfaces.
+    if (existing.map(_.clause) == arriving.map(_.clause)) (group, replaced)
     else {
       val without = group.members.filterNot(_.key == key)
       (
@@ -562,7 +548,7 @@ private[runtime] final class MemberGraph(
         ),
         // Present before and after; arrivals and departures are mutations.
         if (existing.isDefined && arriving.isDefined)
-          replaced ++ arriving.map(_.id)
+          replaced ++ arriving
         else replaced
       )
     }
