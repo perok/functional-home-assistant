@@ -74,7 +74,8 @@ class Variable {
   fixed selectingAnyOther: surfaceMod.VarActivation = let (n = name) new { name = n; otherwise = true }
 
   /// Whether it holds `at`, as an If's condition: `c.iff(window.valueIs("30d"))`.
-  /// Not a predicate, so it cannot be combined with one over entity state.
+  /// Not a predicate, so it cannot be combined with one over entity state. Named
+  /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
   /// Its entry in the declaring node's `vars`: the value before anyone chooses.
