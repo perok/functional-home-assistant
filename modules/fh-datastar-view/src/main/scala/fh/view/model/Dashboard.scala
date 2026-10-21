@@ -1265,9 +1265,14 @@ case class Dashboard(
         nodeId: String,
         vars: List[Dashboard.Declaration]
     ): List[String] =
-      vars.map(_.name).diff(vars.map(_.name).distinct).distinct.sorted.map {
-        name => s"$nodeId: declares the variable '$name' more than once"
-      } ++ vars.sortBy(_.name).flatMap { d =>
+      vars
+        .groupBy(_.name)
+        .collect {
+          case (name, ds) if ds.sizeIs > 1 =>
+            s"$nodeId: declares the variable '$name' more than once"
+        }
+        .toList
+        .sorted ++ vars.sortBy(_.name).flatMap { d =>
         Option
           .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
             s"$nodeId: variable '${d.name}' is not a plain name " +
@@ -1995,9 +2000,10 @@ case class Dashboard(
           s"bake group '$gid' is selected by the variable '$name', which no " +
             "node at or above it declares"
         )
-      case Some(in) if fallbacks == 0 && !values.contains(in.default) =>
+      case Some(in)
+          if fallbacks == 0 && !values.contains(in.declaration.default) =>
         List(
-          s"bake group '$gid' is selected by '$name', declared '${in.default}' " +
+          s"bake group '$gid' is selected by '$name', declared '${in.declaration.default}' " +
             s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
         )
       case Some(_) => Nil
@@ -2007,7 +2013,7 @@ case class Dashboard(
   def scopeOf(s: Surface): Map[String, String] =
     s.bakeInto
       .flatMap(varScopes.get)
-      .fold(Map.empty)(_.view.mapValues(_.default).toMap)
+      .fold(Map.empty)(_.view.mapValues(_.declaration.default).toMap)
 
   /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
     * act on it.
@@ -2093,8 +2099,7 @@ case class Dashboard(
 object Dashboard:
 
   /** A node variable as seen from a node: who declared it, and how. */
-  final case class InScope(declarer: NodeId, declaration: Declaration):
-    def default: String = declaration.default
+  final case class InScope(declarer: NodeId, declaration: Declaration)
 
   /** One node's declaration of a node variable: its default, whether a choice
     * is mirrored into the URL (ADR 0005), and where a session opens it instead

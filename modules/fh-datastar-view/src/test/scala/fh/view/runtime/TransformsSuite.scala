@@ -43,7 +43,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
       assertEquals(
         t.run(Transform.Simple.State, entity),
-        t.run("state", entity, "dashboard"),
+        t.run(Transform.CelKey("state"), entity, "dashboard"),
         clue = state
       )
     }
@@ -221,7 +221,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
   test("a tap's URL carries the dashboard it was rendered for") {
     assertEquals(
-      Transforms.from(dashboard("kitchen")).run(tapUrl, state, "kitchen"),
+      Transforms
+        .from(dashboard("kitchen"))
+        .run(Transform.CelKey(tapUrl), state, "kitchen"),
       "@post('sse/action/kitchen/light/toggle/light.kitchen', " +
         "{filterSignals:{exclude:'.*'}})"
     )
@@ -238,7 +240,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         assertEquals(
           Transforms
             .fromValidated(validated)
-            .run(tapUrl, state, validated.dashboard.slug),
+            .run(Transform.CelKey(tapUrl), state, validated.dashboard.slug),
           "@post('sse/action/renamed/light/toggle/light.kitchen', " +
             "{filterSignals:{exclude:'.*'}})"
         )
@@ -258,6 +260,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
         slots = Map("onclick" -> SlotSource(transform = "state"))
       )
     )
-    assertEquals(Transforms.from(plain).run("state", state, "x"), "on")
+    assertEquals(
+      Transforms.from(plain).run(Transform.CelKey("state"), state, "x"),
+      "on"
+    )
   }
 }

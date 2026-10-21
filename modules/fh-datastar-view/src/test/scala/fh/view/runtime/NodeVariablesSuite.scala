@@ -361,7 +361,8 @@ class NodeVariablesSuite extends munit.FunSuite {
       assertEquals(
         env.get(id),
         Some(scope.map { case (name, in) =>
-          name -> chosen.getOrElse(VarKey(in.declarer, name), in.default)
+          name -> chosen
+            .getOrElse(VarKey(in.declarer, name), in.declaration.default)
         }),
         clue = id
       )
