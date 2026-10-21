@@ -256,28 +256,21 @@ class Renderer(
     )
 
   /** Where a session opening on `states` opens each variable with an initial
-    * transform: its result, where every reader takes it. Otherwise the declared
-    * value stands, as for a stale link.
+    * transform: its result, where every reader takes it. Otherwise the default
+    * stands, as for a stale link.
     */
   def initialValuesFor(
       states: Map[String, EntityState]
-  ): Map[VarKey, String] = {
-    // One run per reading, as a display signal is one per (entity,
-    // transform): a light on two sliders opens both from one evaluation.
-    val results = vars.initialTransforms.values.toList.distinct.flatMap { t =>
+  ): Map[VarKey, String] =
+    vars.initialTransforms.toList.flatMap { (key, t) =>
       states
         .get(t.entityId)
-        .map(e => t -> transforms.run(t.celKey, e, dashboard.slug))
-    }.toMap
-    vars.initialTransforms.toList.flatMap { (key, t) =>
-      results
-        .get(t)
+        .map(transforms.run(t.celKey, _, dashboard.slug))
         .filter(v =>
           VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
         )
         .map(key -> _)
     }.toMap
-  }
 
   /** One line per refused choice. Every reader must still parse and read only
     * an entity this dashboard shows — the read-side twin of an action's bound
@@ -1350,8 +1343,7 @@ class Renderer(
         val _ = buf
           .append(' ')
           .append(
-            VarKey(id, d.name)
-              .urlMirrorAttr(d.default, d.initialTransform.isDefined)
+            VarKey(id, d.name).urlMirrorAttr(d)
           )
       }
       val _ = buf.append('>')

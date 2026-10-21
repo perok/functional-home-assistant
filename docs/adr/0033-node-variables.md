@@ -56,14 +56,13 @@ opened from many places, so inheriting from its opener would be dynamic scoping.
 whether a choice is mirrored into the URL (ADR 0005), and where a session opens it instead. In Pkl
 a node amends `vars { window.defaultingTo("24h") }`. A `varMod.Declaration` holds the `Variable`
 it declares (hidden, so not on the wire); a reader holds only the `Variable`, written without
-knowing which node above declares it. The decoder is derived, and `Component.declared` is the
+knowing which node above declares it. The decoder is derived, and `Component.defaults` is the
 name → default view most readers want. Nothing else: no type, no list of allowed values (below).
 
 **Initial transform.** `Declaration.initialTransform` (`withInitialTransform(e, cel)` in Pkl): CEL
 over one entity's state (`InitialTransform(entityId, transform)`). It is compiled at validate into
 the same table as a slot's transform, by one key (`InitialTransform.celKey`, as a slot's is
-`SlotSource.celKey`), and only looked up after. The page route runs it as it mints the session,
-once per distinct (entity, transform) as a display signal is one per reading, and a result every
+`SlotSource.celKey`), and only looked up after. The page route runs it as it mints the session, and a result every
 reader takes (`Renderer.refusals`) becomes `SessionState.initialValues`, under the viewer's
 choices and over the default. A light's slider
 opens its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
@@ -77,7 +76,7 @@ ZHA group reports a false `xy` 59 ms after a temperature command,
 `docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
 groups, a path only a write has. An initial value is not a choice: no `v.` param, so a refresh
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
-default in the shared node bytes. Its entity is watched (ADR 0030), since it decides what the page shows.
+default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
 **Reference.** A query parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
 string is a literal and `{"var": "window"}` a reference, the rule `SlotSource`'s decoder already

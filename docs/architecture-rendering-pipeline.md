@@ -1087,14 +1087,14 @@ opens on the declared value rather than dying mid-walk or refusing a link that o
 
 **A declaration may OPEN elsewhere, once.** `Declaration.initialTransform` gives a variable a CEL
 expression over one entity's state, compiled with the slots' transforms. The page route runs it
-from the store as it mints the session (`Renderer.initialValuesFor`, once per distinct entity and
-expression), keeps a result only where `Renderer.refusals` takes it, and records it as
+from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.refusals` takes it, and records it as
 `SessionState.initialValues`, a layer under the viewer's choices: everything that resolves the
 viewer's values reads `SessionState.values`, a choice over an initial value over the default. Nothing
 re-evaluates it afterwards, so an entity changing does not move an open page (it is not a flip,
 ADR 0007), and a write's own re-render keeps it under the new choice. An initial value is not a
 choice: it puts no `v.` param on the URL, because such a variable's mirror compares the committed
-value to `_var_<declarer>__<name>__initialValue`, which the shell seeds per document, not to the
+value to `_var_<declarer>__<name>__initialValue`, which the shell seeds per document
+(`VarGraph.mirroredInitials`, so only where a mirror reads it), not to the
 default spelled into the shared node bytes. A declaration with `inUrl = false` has no mirror at
 all. Its entity counts among `Dashboard.watchedEntities`, so
 the store holds it.

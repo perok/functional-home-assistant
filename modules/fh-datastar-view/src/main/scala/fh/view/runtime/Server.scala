@@ -1533,7 +1533,7 @@ class Server(
             Server
               .varChoicesOf(req)
               .view
-              .filterKeys(renderer.vars.declarations.contains)
+              .filterKeys(renderer.vars.defaults.contains)
               .toMap
           )
           // From this read, not the walk's: an initial value is decided once,
@@ -1668,13 +1668,9 @@ class Server(
               editMode,
               haDown = !live,
               committed = renderer.vars.committed(initialValues ++ choices),
-              initialValues =
-                renderer.vars.initialTransforms.keys.toList.map { key =>
-                  key -> initialValues.getOrElse(
-                    key,
-                    renderer.vars.declarations(key)
-                  )
-                }.toMap
+              initialValues = renderer.vars.mirroredInitials.toList.map { key =>
+                key -> initialValues.getOrElse(key, renderer.vars.defaults(key))
+              }.toMap
             )
             // Flush, not close: `readOutputStream` owns the stream.
             w.flush()
@@ -2421,7 +2417,7 @@ object Server {
       renderer: Renderer
   ): Map[VarKey, String] =
     signalsOf(req).fold(Map.empty) { c =>
-      renderer.vars.declarations.keys.toList.flatMap { key =>
+      renderer.vars.defaults.keys.toList.flatMap { key =>
         c.downField(key.committedSignal).as[String].toOption.map(key -> _)
       }.toMap
     }

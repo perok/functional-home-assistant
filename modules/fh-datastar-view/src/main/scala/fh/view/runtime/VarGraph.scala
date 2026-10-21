@@ -35,15 +35,15 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
     s"$$$pendingSignal !== '' && $$$committedSignal == $$$pendingSignal && ($$$pendingSignal = '')"
 
   /** The declarer's `data-fh-url`, keyed by the name because a node may declare
-    * several and an element holds one attribute per name. No param at
-    * `declared` (ADR 0005), or for a variable with an initial transform, at the
+    * several and an element holds one attribute per name. No param at the
+    * default (ADR 0005), or for a variable with an initial transform, at the
     * session's initial value: a signal, since the node's bytes are shared by
     * every session.
     */
-  def urlMirrorAttr(declared: String, transformed: Boolean): String = {
+  def urlMirrorAttr(d: Dashboard.Declaration): String = {
     val unchanged =
-      if (transformed) s"$$$initialValueSignal"
-      else s"'${Server.escapeHtml(Server.escapeJsString(declared))}'"
+      if (d.initialTransform.isDefined) s"$$$initialValueSignal"
+      else s"'${Server.escapeHtml(Server.escapeJsString(d.default))}'"
     s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
   }
 
@@ -95,23 +95,30 @@ private[runtime] final class VarGraph(
     asksAt: NodeId => List[SlotAsk]
 ):
 
-  /** Every declaration, with the value it holds before anyone chooses. */
-  val declarations: Map[VarKey, String] =
+  private val declarations: Map[VarKey, Dashboard.Declaration] =
     scopes.values.flatten.map { case (name, in) =>
-      VarKey(in.declarer, name) -> in.declared
+      VarKey(in.declarer, name) -> in.declaration
     }.toMap
+
+  /** Every declaration, with the value it holds before anyone chooses. */
+  val defaults: Map[VarKey, String] =
+    declarations.view.mapValues(_.default).toMap
 
   /** The declarations a session may open elsewhere. */
   val initialTransforms: Map[VarKey, Dashboard.InitialTransform] =
-    scopes.values.flatten.flatMap { case (name, in) =>
-      in.initialTransform.map(VarKey(in.declarer, name) -> _)
-    }.toMap
+    declarations.flatMap((key, d) => d.initialTransform.map(key -> _))
+
+  /** Where a URL mirror compares to the session's initial value
+    * ([[VarKey.urlMirrorAttr]]), its signal's one reader.
+    */
+  val mirroredInitials: Set[VarKey] =
+    initialTransforms.keySet.filter(declarations(_).inUrl)
 
   /** Total over declarations, so a control never shows the declared value over
     * a choice.
     */
   def committed(chosen: Map[VarKey, String]): Map[VarKey, String] =
-    declarations.map((key, declared) => key -> chosen.getOrElse(key, declared))
+    defaults.map((key, default) => key -> chosen.getOrElse(key, default))
 
   // Every node under one declarer chain sees the same scope, so a page has a
   // handful of distinct ones however many nodes it has.
@@ -133,7 +140,7 @@ private[runtime] final class VarGraph(
     VarGraph.SharedEnv(
       scopeIndex,
       distinctScopes.map(_.map { case (name, in) =>
-        name -> chosen.getOrElse(VarKey(in.declarer, name), in.declared)
+        name -> chosen.getOrElse(VarKey(in.declarer, name), in.default)
       })
     )
 

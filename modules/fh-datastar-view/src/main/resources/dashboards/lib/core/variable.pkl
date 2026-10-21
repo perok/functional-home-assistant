@@ -83,7 +83,7 @@ class Variable {
 
   /// Its declaration, at `value` until a viewer chooses: an entry in the
   /// declaring node's `vars`.
-  function defaultingTo(value: String): Declaration =
+  function defaultingTo(value: Value): Declaration =
     let (self = this) let (v = value) new Declaration { variable = self; default = v }
 
   /// Choose `value`, from a node below the declarer. It sets only the pending
@@ -106,7 +106,7 @@ class Declaration {
   hidden variable: Variable
   fixed name: Name = variable.name
   /// What it holds before anyone chooses.
-  default: String
+  default: Value
   /// Whether a choice is mirrored into the page URL, so a refresh or a link
   /// keeps it. Off, it lives as long as the page: [[notInUrl]].
   inUrl: Boolean = true

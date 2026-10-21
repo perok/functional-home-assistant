@@ -205,7 +205,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       .getOrElse(fail("no set at c_0"))
     val member: NodeId = r.members.memberIdOf(set, "sensor.t")
     val window = VarKey(member, "window")
-    assertEquals(r.vars.declarations.get(window), Some("24h"))
+    assertEquals(r.vars.defaults.get(window), Some("24h"))
     assert(r.vars.readersOf(window).nonEmpty, clue = r.vars.readersOf(window))
   }
 
@@ -361,7 +361,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       assertEquals(
         env.get(id),
         Some(scope.map { case (name, in) =>
-          name -> chosen.getOrElse(VarKey(in.declarer, name), in.declared)
+          name -> chosen.getOrElse(VarKey(in.declarer, name), in.default)
         }),
         clue = id
       )

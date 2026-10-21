@@ -37,7 +37,7 @@ class VarStartSuite extends CatsEffectSuite {
   private val byMode =
     """attr[?'color_mode'].orValue('') == 'hs' ? 'colour' : (attr[?'color_mode'].orValue('') == 'color_temp' ? 'colourTemp' : 'nonsense')"""
 
-  private def entry(start: String) =
+  private def entry(start: String, after: String = "") =
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
@@ -48,7 +48,7 @@ class VarStartSuite extends CatsEffectSuite {
        |card = (c.column) {
        |  children {
        |    (c.entitySlider(l)) {
-       |      controlDeclaration = super.controlDeclaration.withInitialTransform(l, #"$start"#)
+       |      controlDeclaration = super.controlDeclaration.withInitialTransform(l, #"$start"#)$after
        |    }
        |  }
        |}
@@ -108,6 +108,19 @@ class VarStartSuite extends CatsEffectSuite {
     val d =
       startOn(control(Dashboard.InitialTransform("light.other", "'colour'")))
     assert(d.watchedEntities.contains("light.other"), d.watchedEntities)
+  }
+
+  test(
+    "out of the URL, it still opens on its initial value, and no signal is seeded for a mirror it lacks"
+  ) {
+    TestServer
+      .fromWorkspace("lamp", entry(byMode, ".notInUrl()"), List(lamp("hs")))
+      .use(_.page().map { html =>
+        assert(html.contains("max=\"360\""), html)
+        assert(!html.contains("data-fh-url:control"), html)
+        assert(!html.contains("__control__initialValue"), html)
+      })
+      .timeout(60.seconds)
   }
 
   test("a fresh page opens on the head its initial transform names") {

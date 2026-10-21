@@ -604,7 +604,7 @@ object LayoutNode:
     /** Each declared name and its default. A repeated name keeps the last;
       * `validate` rejects one.
       */
-    lazy val declared: Map[String, String] =
+    lazy val defaults: Map[String, String] =
       vars.map(d => d.name -> d.default).toMap
 
     /** Only a literal `entity_id`: a transform one resolves at render time. */
@@ -1460,7 +1460,7 @@ case class Dashboard(
                       "card opts out of"
                   )
                   .toList
-          val here = scope ++ c.declared
+          val here = scope ++ c.defaults
           checkRef(
             nodeId,
             card,
@@ -1917,7 +1917,7 @@ case class Dashboard(
         case c: LayoutNode.Component =>
           // A nested declaration replacing the entry is shadowing.
           val here = scope ++ c.vars.map { d =>
-            d.name -> Dashboard.InScope(id, d.default, d.initialTransform)
+            d.name -> Dashboard.InScope(id, d)
           }
           (id -> here) :: LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
@@ -1995,9 +1995,9 @@ case class Dashboard(
           s"bake group '$gid' is selected by the variable '$name', which no " +
             "node at or above it declares"
         )
-      case Some(in) if fallbacks == 0 && !values.contains(in.declared) =>
+      case Some(in) if fallbacks == 0 && !values.contains(in.default) =>
         List(
-          s"bake group '$gid' is selected by '$name', declared '${in.declared}' " +
+          s"bake group '$gid' is selected by '$name', declared '${in.default}' " +
             s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
         )
       case Some(_) => Nil
@@ -2007,7 +2007,7 @@ case class Dashboard(
   def scopeOf(s: Surface): Map[String, String] =
     s.bakeInto
       .flatMap(varScopes.get)
-      .fold(Map.empty)(_.view.mapValues(_.declared).toMap)
+      .fold(Map.empty)(_.view.mapValues(_.default).toMap)
 
   /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
     * act on it.
@@ -2041,7 +2041,7 @@ case class Dashboard(
       scope: Map[String, String]
   ): List[(SlotSource, Map[String, String])] = n match
     case c: LayoutNode.Component =>
-      val here = scope ++ c.declared
+      val here = scope ++ c.defaults
       c.slots.values.toList.map(_ -> here) ++
         c.allChildren.flatMap(scopedSlots(_, here))
     case s: LayoutNode.SetNode =>
@@ -2092,14 +2092,9 @@ case class Dashboard(
 
 object Dashboard:
 
-  /** A node variable as seen from a node: who declared it, its value, and where
-    * a session opens it, if anywhere else.
-    */
-  final case class InScope(
-      declarer: NodeId,
-      declared: String,
-      initialTransform: Option[InitialTransform] = None
-  )
+  /** A node variable as seen from a node: who declared it, and how. */
+  final case class InScope(declarer: NodeId, declaration: Declaration):
+    def default: String = declaration.default
 
   /** One node's declaration of a node variable: its default, whether a choice
     * is mirrored into the URL (ADR 0005), and where a session opens it instead
