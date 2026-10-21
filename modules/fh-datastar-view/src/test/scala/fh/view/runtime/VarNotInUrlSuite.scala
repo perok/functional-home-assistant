@@ -4,7 +4,7 @@ import munit.CatsEffectSuite
 
 import scala.concurrent.duration.*
 
-/** `c.variable(n).notInUrl()`: declared and chosen like any variable, never
+/** `v.defaultingTo(x).notInUrl()`: declared and chosen like any variable, never
   * mirrored into the page URL.
   */
 class VarNotInUrlSuite extends CatsEffectSuite {
@@ -14,11 +14,14 @@ class VarNotInUrlSuite extends CatsEffectSuite {
       |
       |import "@fh-dashboard/components.pkl" as c
       |
-      |local view = c.variable("view").notInUrl()
+      |local view = c.variable("view")
       |local shade = c.variable("shade")
       |
       |card = (c.column) {
-      |  vars = new Mapping { ...view.declare("plain"); ...shade.declare("light") }
+      |  vars {
+      |    view.defaultingTo("plain").notInUrl()
+      |    shade.defaultingTo("light")
+      |  }
       |  children {
       |    c.select(view).options(List("plain", "detail"))
       |    c.select(shade).options(List("light", "dark"))

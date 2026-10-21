@@ -276,7 +276,9 @@ class EntitySlider extends sliderBase.Slider {
         else
           let (w = a.inUseWhen!!)
             "(attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
-  starts = if (openingExpr == null) null else sliderBase.controlVar.start(entity, openingExpr!!)
+  controlDeclaration =
+    if (openingExpr == null) super.controlDeclaration
+    else super.controlDeclaration.withInitialTransform(entity, openingExpr!!)
   /// What this slider hands its `c.its` buttons: a row reading its head's
   /// controls has no switch of its own, so it hands none.
   hidden holder: itsMod.Holder =

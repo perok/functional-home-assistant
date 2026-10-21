@@ -591,22 +591,21 @@ object LayoutNode:
       // Node variables (issue #209), resolved by name up the ancestors,
       // nearest wins. No allowed-values list: the write refuses what a reader
       // cannot parse.
-      vars: Map[String, String] = Map.empty,
+      vars: List[Dashboard.Declaration] = Nil,
       // Expression values, this node's alone: never resolved up the
       // ancestors, and attached to the slots that read them ([[foldNode]]).
-      values: Map[String, ExprValue] = Map.empty,
-      // Where a declared variable starts for a new session, evaluated once as
-      // the session opens and never followed, so a head does not move under
-      // the viewer's finger.
-      starts: Map[String, Dashboard.Start] = Map.empty,
-      // Declared here but never mirrored into the page URL: a declaration in
-      // its object form, `{ value, inUrl: false }`, lifted by the decoder.
-      notInUrl: Set[String] = Set.empty
+      values: Map[String, ExprValue] = Map.empty
   ) extends LayoutNode:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[LayoutNode] =
       regions.toList.sortBy(_._1).flatMap(_._2)
+
+    /** Each declared name and its default. A repeated name keeps the last;
+      * `validate` rejects one.
+      */
+    lazy val declared: Map[String, String] =
+      vars.map(d => d.name -> d.default).toMap
 
     /** Only a literal `entity_id`: a transform one resolves at render time. */
     lazy val subjectEntity: Option[String] =
@@ -651,29 +650,6 @@ object LayoutNode:
           case SlotShape.Query(q)   => (states, q :: queries)
       } match
         case (states, queries) => (states, queries.distinct)
-
-  object Component:
-    private val derived: Decoder[Component] = ConfiguredDecoder.derived
-
-    /** A declaration is a bare value or `{ value, inUrl }` (ADR 0033): the
-      * object form's `inUrl: false` is lifted into `notInUrl`, so `vars` stays
-      * names to values for every reader.
-      */
-    given Decoder[Component] = derived.prepare(_.withFocus(_.mapObject { o =>
-      o("vars").flatMap(_.asObject) match
-        case Some(vs) if vs.values.exists(_.isObject) =>
-          val hidden = vs.toList.collect {
-            case (name, v) if v.hcursor.get[Boolean]("inUrl").contains(false) =>
-              Json.fromString(name)
-          }
-          o.add(
-            "vars",
-            Json.fromJsonObject(
-              vs.mapValues(v => v.asObject.flatMap(_("value")).getOrElse(v))
-            )
-          ).add("notInUrl", Json.fromValues(hidden))
-        case _ => o
-    }))
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
@@ -1050,9 +1026,10 @@ case class Dashboard(
   lazy val watchedEntities: Set[String] = {
     def deciders(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        c.starts.values.toList.map(_.entityId) ++ c.allChildren.flatMap(
-          deciders
-        )
+        c.vars.flatMap(_.initialTransform).map(_.entityId) ++ c.allChildren
+          .flatMap(
+            deciders
+          )
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
@@ -1284,31 +1261,29 @@ case class Dashboard(
             "produce a bool — compare it (`on > 0`), or use a condition"
       }
 
-    def startErrors(nodeId: String, c: LayoutNode.Component): List[String] =
-      c.starts.toList.sortBy(_._1).flatMap { (name, start) =>
+    def varErrors(
+        nodeId: String,
+        vars: List[Dashboard.Declaration]
+    ): List[String] =
+      vars.map(_.name).diff(vars.map(_.name).distinct).distinct.sorted.map {
+        name => s"$nodeId: declares the variable '$name' more than once"
+      } ++ vars.sortBy(_.name).flatMap { d =>
         Option
-          .when(!c.vars.contains(name))(
-            s"$nodeId: a start for '$name', which this node does not declare"
-          )
-          .orElse(
-            Transform
-              .parse(Transform.CelKey(start.transform))
-              .left
-              .toOption
-              .map(e => s"$nodeId: the start for '$name' does not compile: $e")
-          )
-          .toList
-      }
-
-    def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
-      vars.keys.toList.sorted.flatMap { name =>
-        Option
-          .when(!name.matches("[A-Za-z][A-Za-z0-9_]*"))(
-            s"$nodeId: variable '$name' is not a plain name " +
+          .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
+            s"$nodeId: variable '${d.name}' is not a plain name " +
               "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
               "the URL mirror"
           )
-          .toList
+          .toList ++ d.initialTransform.flatMap(t =>
+          Transform
+            .parse(t.celKey)
+            .left
+            .toOption
+            .map(e =>
+              s"$nodeId: the initial transform for '${d.name}' does not " +
+                s"compile: $e"
+            )
+        )
       }
 
     /** `<slot>__read` has no answer for a live non-signal slot (ADR 0017);
@@ -1465,7 +1440,7 @@ case class Dashboard(
         scope: Map[String, String]
     ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _, _) =>
+        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _) =>
           val wrapErrors =
             if (!noWrap(card)) Nil
             else
@@ -1485,14 +1460,14 @@ case class Dashboard(
                       "card opts out of"
                   )
                   .toList
-          val here = scope ++ vars
+          val here = scope ++ c.declared
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots, here) ++
-            varErrors(nodeId, vars) ++ startErrors(nodeId, c) ++
+            varErrors(nodeId, vars) ++
             valueErrors(nodeId, c) ++
             typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
@@ -1941,12 +1916,8 @@ case class Dashboard(
       node match
         case c: LayoutNode.Component =>
           // A nested declaration replacing the entry is shadowing.
-          val here = scope ++ c.vars.map { (n, v) =>
-            n -> Dashboard.InScope(
-              id,
-              v,
-              c.starts.get(n)
-            )
+          val here = scope ++ c.vars.map { d =>
+            d.name -> Dashboard.InScope(id, d.default, d.initialTransform)
           }
           (id -> here) :: LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
@@ -2070,7 +2041,7 @@ case class Dashboard(
       scope: Map[String, String]
   ): List[(SlotSource, Map[String, String])] = n match
     case c: LayoutNode.Component =>
-      val here = scope ++ c.vars
+      val here = scope ++ c.declared
       c.slots.values.toList.map(_ -> here) ++
         c.allChildren.flatMap(scopedSlots(_, here))
     case s: LayoutNode.SetNode =>
@@ -2087,17 +2058,18 @@ case class Dashboard(
     )).toList
       .filter(_.literal.isEmpty)
       .flatMap(_.celKey) ++
-      (startExprs(card) ++ surfaces.values.flatMap(s => startExprs(s.content)))
-        .map(Transform.CelKey(_))).distinct
+      (initialKeys(card) ++ surfaces.values.flatMap(s =>
+        initialKeys(s.content)
+      ))).distinct
 
-  private def startExprs(n: LayoutNode): List[String] = n match
+  private def initialKeys(n: LayoutNode): List[Transform.CelKey] = n match
     case c: LayoutNode.Component =>
-      c.starts.values.toList.map(_.transform) ++
-        c.allChildren.flatMap(startExprs)
+      c.vars.flatMap(_.initialTransform).map(_.celKey) ++
+        c.allChildren.flatMap(initialKeys)
     case s: LayoutNode.SetNode =>
       s.members.values.toList
         .flatMap(_.clauses)
-        .flatMap(cl => startExprs(cl.node))
+        .flatMap(cl => initialKeys(cl.node))
 
   /** [[validate]] plus the compiled transforms and parsed queries, so the
     * renderer never recompiles or defends against a bad expression.
@@ -2121,17 +2093,33 @@ case class Dashboard(
 object Dashboard:
 
   /** A node variable as seen from a node: who declared it, its value, and where
-    * a session starts it, if anywhere else.
+    * a session opens it, if anywhere else.
     */
   final case class InScope(
       declarer: NodeId,
       declared: String,
-      start: Option[Start] = None
+      initialTransform: Option[InitialTransform] = None
   )
 
-  /** Where a session starts a node variable: CEL over one entity's state. */
-  final case class Start(entityId: String, transform: String)
-      derives ConfiguredDecoder
+  /** One node's declaration of a node variable: its default, whether a choice
+    * is mirrored into the URL (ADR 0005), and where a session opens it instead
+    * of at the default, evaluated once as the session opens and never followed,
+    * so a head does not move under the viewer's finger.
+    */
+  final case class Declaration(
+      name: String,
+      default: String,
+      inUrl: Boolean = true,
+      initialTransform: Option[InitialTransform] = None
+  ) derives ConfiguredDecoder
+
+  /** Where a session opens a node variable: CEL over one entity's state. */
+  final case class InitialTransform(entityId: String, transform: String)
+      derives ConfiguredDecoder:
+    /** The one spelling of its key: validated, compiled and run by it, as a
+      * slot's transform is by [[SlotSource.celKey]].
+      */
+    def celKey: Transform.CelKey = Transform.CelKey(transform)
 
   /** The slot naming a card's subject, which every other slot inherits. Not
     * HA's `entity_id` field or the CEL `entity_id` binding, which share only

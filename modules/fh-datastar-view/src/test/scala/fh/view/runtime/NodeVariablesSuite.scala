@@ -5,6 +5,7 @@ import fh.view.history.ChartStyle
 import fh.view.query.{Staged, QuerySnapshot}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.DashboardBuilders.declared
 
 /** Node variables (issue #209): a node declares a named choice, a descendant
   * reads it by name, and the chain decides which declaration wins. A render
@@ -46,7 +47,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     LayoutNode.Component(
       "box",
       regions = LayoutNode.kids(kids*),
-      vars = vars
+      vars = declared(vars.toList*)
     )
 
   /** Named, so a test about addressing a choice does not depend on position. */
@@ -108,7 +109,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       LayoutNode.Component(
         "chart",
         slots = Map("chart" -> chartSlot()),
-        vars = Map("window" -> "7d")
+        vars = declared("window" -> "7d")
       )
     )
     assertEquals(d.validate(), Nil)
@@ -417,6 +418,6 @@ class NodeVariablesSuite extends munit.FunSuite {
         case c: LayoutNode.Component => c.vars
         case other                   => fail(s"expected a component: $other")
       }
-    assertEquals(d, Right(Map.empty[String, String]), clue = d)
+    assertEquals(d, Right(Nil), clue = d)
   }
 }

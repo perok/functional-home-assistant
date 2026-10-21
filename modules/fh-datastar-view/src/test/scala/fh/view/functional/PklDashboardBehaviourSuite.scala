@@ -871,7 +871,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    ((c.windowChooser).starting("7d")) {
+         |    ((c.windowChooser).defaultingTo("7d")) {
          |      children {
          |        c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
          |      }

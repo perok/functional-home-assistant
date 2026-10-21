@@ -255,20 +255,29 @@ class Renderer(
       asksAt = queriesForNode
     )
 
-  /** Where a session opening on `states` starts each variable that has a start:
-    * its expression over the declarer's subject, where every reader takes the
-    * result. Otherwise the declared value stands, as for a stale link.
+  /** Where a session opening on `states` opens each variable with an initial
+    * transform: its result, where every reader takes it. Otherwise the declared
+    * value stands, as for a stale link.
     */
-  def startsFor(states: Map[String, EntityState]): Map[VarKey, String] =
-    vars.starts.toList.flatMap { (key, start) =>
+  def initialValuesFor(
+      states: Map[String, EntityState]
+  ): Map[VarKey, String] = {
+    // One run per reading, as a display signal is one per (entity,
+    // transform): a light on two sliders opens both from one evaluation.
+    val results = vars.initialTransforms.values.toList.distinct.flatMap { t =>
       states
-        .get(start.entityId)
-        .map(transforms.run(start.transform, _, dashboard.slug))
+        .get(t.entityId)
+        .map(e => t -> transforms.run(t.celKey, e, dashboard.slug))
+    }.toMap
+    vars.initialTransforms.toList.flatMap { (key, t) =>
+      results
+        .get(t)
         .filter(v =>
           VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
         )
         .map(key -> _)
     }.toMap
+  }
 
   /** One line per refused choice. Every reader must still parse and read only
     * an entity this dashboard shows — the read-side twin of an action's bound
@@ -1337,16 +1346,14 @@ class Renderer(
       cellBindingsInto(buf, resolved)
       // On the declarer, so a param lives as long as what it chooses for, not
       // as long as a control choosing it (ADR 0005).
-      c.vars.toList
-        .sortBy(_._1)
-        .filterNot((name, _) => c.notInUrl(name))
-        .foreach { (name, declared) =>
-          val _ = buf
-            .append(' ')
-            .append(
-              VarKey(id, name).urlMirrorAttr(declared, c.starts.contains(name))
-            )
-        }
+      c.vars.filter(_.inUrl).sortBy(_.name).foreach { d =>
+        val _ = buf
+          .append(' ')
+          .append(
+            VarKey(id, d.name)
+              .urlMirrorAttr(d.default, d.initialTransform.isDefined)
+          )
+      }
       val _ = buf.append('>')
     }
 

@@ -356,8 +356,8 @@ object DashboardBuild {
       case None           => (node, Nil)
       case Some(authored) =>
         val here = scope ++ authored(VarsKey)
-          .flatMap(_.asObject)
-          .fold(Nil)(_.keys.toList)
+          .flatMap(_.asArray)
+          .fold(Nil)(_.toList.flatMap(_.hcursor.get[String]("name").toOption))
           .map(_ -> idBase)
         scopes.update(idBase, here)
         val obj0 = spliceDeclarers(authored, idBase, here)

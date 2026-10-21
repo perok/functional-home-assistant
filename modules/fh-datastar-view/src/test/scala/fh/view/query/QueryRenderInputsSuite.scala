@@ -30,6 +30,7 @@ import fh.view.runtime.{EntityState, RenderInputs, Renderer, Selections}
 import io.circe.Json
 import fh.view.testkit.TestIds.given
 import fh.view.FHError
+import fh.view.testkit.DashboardBuilders.declared
 
 import java.time.Instant
 
@@ -409,7 +410,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         card = LayoutNode.Component(
           card = "col",
           regions = LayoutNode.kids(
-            host("tabs").copy(vars = Map("tab" -> "0")),
+            host("tabs").copy(vars = declared("tab" -> "0")),
             host("branch")
           )
         ),

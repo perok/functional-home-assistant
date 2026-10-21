@@ -17,7 +17,7 @@ class IfVariableSuite extends CatsEffectSuite {
       |local window = c.variable("window")
       |
       |card = (c.column) {
-      |  vars = window.declare("24h")
+      |  vars { window.defaultingTo("24h") }
       |  children {
       |    c.iff(window.valueIs("30d")).then(c.title("Month")).`else`(c.title("Other"))
       |    // No else: still takes every value, showing nothing at the others.

@@ -1093,7 +1093,7 @@ class Server(
         case refused =>
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
       }
-      env = renderer.vars.env(s.starts ++ proposed)
+      env = renderer.vars.env(s.initialValues ++ proposed)
       after = renderer.surfaces.selections(selections.popup, env)
       // `refusals` made the value a member's of every group it selects.
       swapped <- groups
@@ -1536,14 +1536,22 @@ class Server(
               .filterKeys(renderer.vars.declarations.contains)
               .toMap
           )
-          // From this read, not the walk's: a start is decided once, and a
-          // state a few milliseconds older starts it just as well.
-          val starts = renderer.startsFor(store.entities)
+          // From this read, not the walk's: an initial value is decided once,
+          // and a state a few milliseconds older decides it just as well.
+          val initialValues = renderer.initialValuesFor(store.entities)
           IO.whenA(refused.nonEmpty)(
             logger.warn(
               s"a link carried choices no reader takes, ignored: ${refused.mkString("; ")}"
             )
-          ) *> renderPage(slug, renderer, log, conn, req, choices, starts)
+          ) *> renderPage(
+            slug,
+            renderer,
+            log,
+            conn,
+            req,
+            choices,
+            initialValues
+          )
     }
 
   /** The dashboard document for a `Ready` slug. The document mints this
@@ -1557,9 +1565,9 @@ class Server(
       conn: String,
       req: Request[IO],
       choices: Map[VarKey, String],
-      starts: Map[VarKey, String]
+      initialValues: Map[VarKey, String]
   ): IO[Response[IO]] = {
-    val env = renderer.vars.env(starts ++ choices)
+    val env = renderer.vars.env(initialValues ++ choices)
     val selections = renderer.surfaces.selections(Server.popupOf(req), env)
     val editMode = req.uri.query.params.get("edit").contains("1")
     val open = renderer.surfaces.selectedSurfaces(selections)
@@ -1573,7 +1581,7 @@ class Server(
           supervisor,
           logger,
           SessionState.initial
-            .copy(open = open, vars = choices, starts = starts)
+            .copy(open = open, vars = choices, initialValues = initialValues)
         )
         .flatTap(_.haDown.set(Some(!live)))
       // REGISTERED BEFORE THE SNAPSHOT IS READ — see [[recordFrame]].
@@ -1659,10 +1667,14 @@ class Server(
               restore,
               editMode,
               haDown = !live,
-              committed = renderer.vars.committed(starts ++ choices),
-              starts = renderer.vars.starts.keys.toList.map { key =>
-                key -> starts.getOrElse(key, renderer.vars.declarations(key))
-              }.toMap
+              committed = renderer.vars.committed(initialValues ++ choices),
+              initialValues =
+                renderer.vars.initialTransforms.keys.toList.map { key =>
+                  key -> initialValues.getOrElse(
+                    key,
+                    renderer.vars.declarations(key)
+                  )
+                }.toMap
             )
             // Flush, not close: `readOutputStream` owns the stream.
             w.flush()
@@ -1755,8 +1767,8 @@ class Server(
       // only name the declared value, and would mirror it into the URL over
       // the viewer's choice until connect.
       committed: Map[VarKey, String],
-      // Each started variable's start, which its URL mirror leaves off.
-      starts: Map[VarKey, String]
+      // Each initial transform's value, which its URL mirror leaves off.
+      initialValues: Map[VarKey, String]
   ): Unit = {
     // Inline card and theme scripts are emitted verbatim (authored source, not user
     // input); as classic scripts they run before the deferred modules.
@@ -1830,10 +1842,10 @@ class Server(
       .map { (key, v) =>
         s", ${key.committedSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}', ${key.pendingSignal}: ''"
       }
-      .mkString + starts.toList
-      .sortBy(_._1.startSignal)
+      .mkString + initialValues.toList
+      .sortBy(_._1.initialValueSignal)
       .map { (key, v) =>
-        s", ${key.startSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
+        s", ${key.initialValueSignal}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
       }
       .mkString
     // Every ask's clear in one effect: pending signals are client-only, so the

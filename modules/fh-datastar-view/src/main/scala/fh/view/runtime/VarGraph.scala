@@ -18,11 +18,11 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 
   def pendingSignal: String = s"${committedSignal}__pending"
 
-  /** Where this session started it, which the URL mirror leaves off the URL as
-    * it does the declared value: a start is not a choice, so a refresh starts
-    * it afresh.
+  /** Where this session opened it, which the URL mirror leaves off the URL as
+    * it does the declared value: an initial value is not a choice, so a refresh
+    * decides it afresh.
     */
-  def startSignal: String = s"${committedSignal}__start"
+  def initialValueSignal: String = s"${committedSignal}__initialValue"
 
   /** The URL mirror, which survives a refresh. */
   def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
@@ -36,12 +36,13 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 
   /** The declarer's `data-fh-url`, keyed by the name because a node may declare
     * several and an element holds one attribute per name. No param at
-    * `declared` (ADR 0005), or for a variable with a start, at the session's
-    * start: a signal, since the node's bytes are shared by every session.
+    * `declared` (ADR 0005), or for a variable with an initial transform, at the
+    * session's initial value: a signal, since the node's bytes are shared by
+    * every session.
     */
-  def urlMirrorAttr(declared: String, started: Boolean): String = {
+  def urlMirrorAttr(declared: String, transformed: Boolean): String = {
     val unchanged =
-      if (started) s"$$$startSignal"
+      if (transformed) s"$$$initialValueSignal"
       else s"'${Server.escapeHtml(Server.escapeJsString(declared))}'"
     s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
   }
@@ -100,10 +101,10 @@ private[runtime] final class VarGraph(
       VarKey(in.declarer, name) -> in.declared
     }.toMap
 
-  /** The declarations a session may start elsewhere ([[Dashboard.Start]]). */
-  val starts: Map[VarKey, Dashboard.Start] =
+  /** The declarations a session may open elsewhere. */
+  val initialTransforms: Map[VarKey, Dashboard.InitialTransform] =
     scopes.values.flatten.flatMap { case (name, in) =>
-      in.start.map(VarKey(in.declarer, name) -> _)
+      in.initialTransform.map(VarKey(in.declarer, name) -> _)
     }.toMap
 
   /** Total over declarations, so a control never shows the declared value over

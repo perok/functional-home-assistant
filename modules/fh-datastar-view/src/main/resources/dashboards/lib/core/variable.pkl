@@ -5,13 +5,14 @@
 /// a build error naming both. The server resolves it before rendering, because
 /// the first HTML a browser gets is complete. ADR 0033 lists the rules.
 ///
-/// A component holds a variable as one [[Variable]], so its declaration, its
-/// readers, its buttons and its signals are spelled from one name:
+/// A [[Variable]] is only a name: a reader holds one, written independently of
+/// whichever node above declares it. A [[Declaration]] is one node owning a
+/// value for that name, and holds the variable it declares:
 ///
 ///     const window: varMod.Variable = new { name = "window" }
 ///
 ///     (c.column) {
-///       vars = window.declare("24h")
+///       vars { window.defaultingTo("24h") }
 ///       children { c.historyChart(sensor).over(window.ref) }
 ///     }
 ///
@@ -39,12 +40,10 @@ class Ref {
   `var`: String
 }
 
-/// A node variable as one typed value.
+/// A node variable as one typed value: its name, and every spelling of it a
+/// reader below its declarer needs.
 class Variable {
   name: Name
-  /// Whether a viewer's choice is mirrored into the page URL, so a refresh or
-  /// a link keeps it. Off, it lives as long as the page: [[notInUrl]].
-  inUrl: Boolean = true
 
   /// A read of it, for a query parameter, resolved up the ancestors at build
   /// time.
@@ -82,19 +81,10 @@ class Variable {
   /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
-  /// Its entry in the declaring node's `vars`: the value before anyone chooses.
-  function declare(value: String): Mapping<String, String|Declaration> =
-    let (n = name) let (u = inUrl) let (v = value)
-      new Mapping { [n] = if (u) v else new Declaration { value = v; inUrl = false } }
-
-  /// The same variable, kept out of the page URL: a choice a refresh may forget,
-  /// such as one light's control in a set of many.
-  function notInUrl(): Variable = let (self = this) (self) { inUrl = false }
-
-  /// Its entry in the declaring node's `starts`: CEL over `e`'s state, read
-  /// once as a page opens. It does not follow the entity afterwards.
-  function start(e: hass.Entity, cel: String): Mapping<String, Start> =
-    let (n = name) new Mapping { [n] = new Start { entityId = e.entity_id; transform = cel } }
+  /// Its declaration, at `value` until a viewer chooses: an entry in the
+  /// declaring node's `vars`.
+  function defaultingTo(value: String): Declaration =
+    let (self = this) let (v = value) new Declaration { variable = self; default = v }
 
   /// Choose `value`, from a node below the declarer. It sets only the pending
   /// ask; the server commits once the readers have re-rendered (ADR 0025).
@@ -109,10 +99,29 @@ class Variable {
       }
 }
 
-/// A declaration's object form, for what a bare value cannot say (ADR 0033).
+/// One node's declaration of a [[Variable]]. Its value, highest first: the
+/// viewer's choice, its [[initialTransform]]'s result, its [[default]].
 class Declaration {
-  value: String
-  inUrl: Boolean
+  /// What it declares, for the readers below: `d.variable.ref`.
+  hidden variable: Variable
+  fixed name: Name = variable.name
+  /// What it holds before anyone chooses.
+  default: String
+  /// Whether a choice is mirrored into the page URL, so a refresh or a link
+  /// keeps it. Off, it lives as long as the page: [[notInUrl]].
+  inUrl: Boolean = true
+  /// Where a session opens it instead of at [[default]]: [[withInitialTransform]].
+  initialTransform: InitialTransform? = null
+
+  /// Kept out of the page URL: a choice a refresh may forget, such as one
+  /// light's control in a set of many. A link naming it is still read.
+  function notInUrl(): Declaration = let (self = this) (self) { inUrl = false }
+
+  /// Opened by CEL over `e`'s state, run once as a session opens; it does not
+  /// follow the entity afterwards. A result no reader takes keeps [[default]].
+  function withInitialTransform(e: hass.Entity, cel: String): Declaration =
+    let (self = this) let (id = e.entity_id)
+      (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }
 
 /// A node variable at one value: what an If over a variable is chosen by.
@@ -121,9 +130,9 @@ class ValueIs {
   value: Value
 }
 
-/// Where a session starts a variable: CEL over one entity's state, which the
+/// Where a session opens a variable: CEL over one entity's state, which the
 /// dashboard then watches.
-class Start {
+class InitialTransform {
   entityId: String
   transform: String
 }

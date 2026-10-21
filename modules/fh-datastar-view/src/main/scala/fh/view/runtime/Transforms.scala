@@ -11,7 +11,14 @@ class Transforms private (
 
   // `expr` is always one the dashboard declared; a miss is a bug.
   def run(expr: String, entity: EntityState, dashboardSlug: String): String =
-    Transform.run(compiled(Transform.CelKey(expr)), entity, dashboardSlug)
+    run(Transform.CelKey(expr), entity, dashboardSlug)
+
+  def run(
+      key: Transform.CelKey,
+      entity: EntityState,
+      dashboardSlug: String
+  ): String =
+    Transform.run(compiled(key), entity, dashboardSlug)
 
   def runValue(
       expr: String,

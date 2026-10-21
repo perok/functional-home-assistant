@@ -3,6 +3,7 @@ package fh.view.build
 import fh.view.model.{
   Access,
   Cell,
+  Dashboard,
   LayoutNode,
   Predicate,
   SlotQuery,
@@ -42,6 +43,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
         |import "@fh-dashboard/core/access.pkl" as accessMod
+        |import "@fh-dashboard/core/variable.pkl" as varMod
         |import "@fh-dashboard/theme.pkl" as themeMod
         |
         |// The wire shape is spread across the library's modules, and reflection
@@ -50,7 +52,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, accessMod, themeMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, accessMod, varMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -120,15 +122,17 @@ class WireShapeSuite extends munit.FunSuite {
     // `regions` is emitted and decoded, while the authored `children` is
     // `hidden`. If only one side moved, every container's children would decode
     // to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
-    // `DashboardBuild.hoistInlineSurfaces` lifts and removes. `notInUrl` is
-    // Scala-only: `Component`'s decoder lifts it from a declaration's object
-    // form in `vars`.
+    // `DashboardBuild.hoistInlineSurfaces` lifts and removes.
     check(
       "Node",
       LayoutNode.Component("card"),
-      scalaOnly = Set("notInUrl"),
       pklOnly = Set("inlineSurfaces")
     )
+  }
+
+  test("a node variable's declaration agrees on both sides") {
+    check("Declaration", Dashboard.Declaration("view", "plain"))
+    check("InitialTransform", Dashboard.InitialTransform("light.a", "'x'"))
   }
 
   test("SetNode / SetMember / SetClause agree on both sides") {
