@@ -425,6 +425,7 @@ class VarTapSuite extends ServerHarness {
               .get(conn)
               .flatMap(_.traverse(_.state.map(_.vars)))
             linked <- ts.pageResponse("?v.panel.e=lock.front_door")
+            linkedPage <- linked.bodyText.compile.string
             entities <- asked.get
           } yield {
             assertEquals(named._1, Status.NoContent)
@@ -433,7 +434,9 @@ class VarTapSuite extends ServerHarness {
               chose,
               Some(Map(VarKey(NodeId.derived("panel"), "e") -> "sensor.b"))
             )
-            assertEquals(linked.status, Status.BadRequest)
+            // The link's value is dropped: the page opens on the declared one.
+            assertEquals(linked.status, Status.Ok)
+            assert(linkedPage.contains("_var_panel__e: 'sensor.a'"), linkedPage)
             assertEquals(entities, Set("sensor.a", "sensor.b"))
           },
         recorder = (_, end, entityId) =>
@@ -444,16 +447,18 @@ class VarTapSuite extends ServerHarness {
   }
 
   test(
-    "a link carrying a value no reader can parse is a 400, not a torn page"
+    "a link carrying a value no reader can parse opens on the declared value"
   ) {
     // The URL once skipped the write's check: the page answered 200 and died
-    // mid-walk.
+    // mid-walk. A stale link is dropped, not a 400: it outlives its layout.
     served(
       _.pageResponse("?v.panel.window=bogus")
         .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
         .map { (status, body) =>
-          assertEquals(status, Status.BadRequest)
-          assert(body.contains("bogus"), clue = body)
+          assertEquals(status, Status.Ok)
+          assert(body.contains("_var_panel__window: '24h'"), clue = body)
+          assert(!body.contains("bogus"), clue = body)
+          assert(body.contains(Day), clue = body)
         }
     )
   }

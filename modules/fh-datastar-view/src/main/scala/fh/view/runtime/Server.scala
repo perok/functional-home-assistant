@@ -1158,18 +1158,10 @@ class Server(
       renderer: Renderer,
       req: Request[IO]
   ): IO[SessionState] = {
-    val (kept, refused) = Server
-      .carriedVars(req, renderer)
-      .removedAll(s.vars.keys)
-      .toList
-      .sortBy((key, _) => (key.declarer, key.name))
-      .foldLeft((s.vars, List.empty[String])) {
-        case ((acc, refused), (key, value)) =>
-          renderer.refusals(acc + (key -> value)) match {
-            case Nil  => (acc + (key -> value), refused)
-            case more => (acc, refused ++ more)
-          }
-      }
+    val (kept, refused) = renderer.adopt(
+      s.vars,
+      Server.carriedVars(req, renderer).removedAll(s.vars.keys)
+    )
     IO.whenA(refused.nonEmpty)(
       logger.warn(
         s"a reconnect carried choices no reader takes, ignored: ${refused.mkString("; ")}"
@@ -1534,21 +1526,24 @@ class Server(
           errorPage(slug, message, req)
         case Server.RendererState.Ready(renderer) =>
           // Narrowed to declarations: an undeclared URL key would become a
-          // signal name in the opening frame.
-          val choices = Server
-            .varChoicesOf(req)
-            .view
-            .filterKeys(renderer.vars.declarations.contains)
-            .toMap
+          // signal name in the opening frame. A refused one is dropped, not a
+          // 400: a link outlives the layout it was copied from.
+          val (choices, refused) = renderer.adopt(
+            Map.empty,
+            Server
+              .varChoicesOf(req)
+              .view
+              .filterKeys(renderer.vars.declarations.contains)
+              .toMap
+          )
           // From this read, not the walk's: a start is decided once, and a
           // state a few milliseconds older starts it just as well.
           val starts = renderer.startsFor(store.entities)
-          renderer.refusals(choices) match {
-            case Nil =>
-              renderPage(slug, renderer, log, conn, req, choices, starts)
-            case refused =>
-              FHError.logged(FHError.badCondition(refused.mkString("; ")))
-          }
+          IO.whenA(refused.nonEmpty)(
+            logger.warn(
+              s"a link carried choices no reader takes, ignored: ${refused.mkString("; ")}"
+            )
+          ) *> renderPage(slug, renderer, log, conn, req, choices, starts)
     }
 
   /** The dashboard document for a `Ready` slug. The document mints this

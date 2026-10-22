@@ -292,6 +292,24 @@ class Renderer(
     }
   }
 
+  /** `offered` on top of `kept`, each under [[refusals]] on its own, so one
+    * stale value costs only its own variable. In key order, so which of two
+    * clashing values wins does not depend on a map's.
+    */
+  def adopt(
+      kept: Map[VarKey, String],
+      offered: Map[VarKey, String]
+  ): (Map[VarKey, String], List[String]) =
+    offered.toList
+      .sortBy((key, _) => (key.declarer, key.name))
+      .foldLeft((kept, List.empty[String])) {
+        case ((acc, refused), (key, value)) =>
+          refusals(acc + (key -> value)) match {
+            case Nil  => (acc + (key -> value), refused)
+            case more => (acc, refused ++ more)
+          }
+      }
+
   private def refusal(query: SlotQuery): Option[String] =
     Queries.parse(query) match {
       case Left(e)    => Some(e)
