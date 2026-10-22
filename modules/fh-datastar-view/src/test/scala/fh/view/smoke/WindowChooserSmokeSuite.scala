@@ -29,7 +29,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
        |card = (c.column) {
        |  children {
        |    (c.windowChooser) {
-       |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+       |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
        |    }
        |  }
        |}
@@ -139,7 +139,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
   test("a tab whose panel charts slowly spins until the panel lands") {
     val tabbed = entry.replace(
       s"""(c.windowChooser) {
-         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
          |    }""".stripMargin,
       s"""(c.tabs) {
          |      tabs {
@@ -195,7 +195,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
   test("a more-info whose chart is slow spins on the card that opened it") {
     val moreInfo = entry.replace(
       s"""(c.windowChooser) {
-         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
          |    }""".stripMargin,
       s"c.entityCard(dump.entities.${sensor.dumpKey})"
     )
@@ -229,7 +229,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
       "moreinfo-url",
       entry.replace(
         s"""(c.windowChooser) {
-           |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+           |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
            |    }""".stripMargin,
         s"c.entityCard(dump.entities.${sensor.dumpKey})"
       ),

@@ -1128,8 +1128,8 @@ hand the renderer: the popup's surface id and each chosen bake group's member in
 `SurfaceGraph.memberAt` finds from the variable's value, falling back to the group's
 member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
 
-The authoring side is one component (`c.windowChooser`): it declares the variable, and its bar is a
-`tab` node per window. A button names the declaring node in the route it posts to and the signal
+The authoring side is one component (`c.chooser(c.select(v))`, `c.windowChooser` for the window): it
+declares the variable, and its bar is a `tab` node per option. A button names the declaring node in the route it posts to and the signal
 it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR
 0033), so each button is a node with its own busy guard.
 

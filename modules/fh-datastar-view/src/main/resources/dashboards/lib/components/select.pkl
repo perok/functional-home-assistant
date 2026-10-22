@@ -170,7 +170,8 @@ abstract class Select extends nodes.Node {
   children = optionNodes.toListing()
 }
 
-/// One button per option, the chosen one lit: a window chooser's bar.
+/// One button per option, the chosen one lit: a chooser's bar.
+/// A `div`, not a `nav`: under a `nav`, BeerCSS makes every `.tabs > a` the bar's full width.
 class SelectButtons extends Select {
   card = "selectButtons"
   cardDef = new nodes.CardDef {
@@ -330,3 +331,40 @@ class EntityOption extends nodes.ActiveNode {
 /// `c.select(target)`: buttons until `.style(…)` says otherwise.
 function select(t: Target): Select =
   new SelectButtons { target = if (t is hass.SelectEntity) t.choices else t }
+
+/// A select over a node variable, above the cards beneath it: it declares the
+/// variable at its first option, or at [[defaultingTo]], so its readers below
+/// follow each press. A nested chooser of the same variable shadows this one.
+///
+///     (c.chooser(c.select(view).options(List("simple", "detail")))) {
+///       children { c.iff(view.valueIs("detail")).then(…) }
+///     }
+class Chooser extends nodes.Node {
+  hidden bar: Select(target is varMod.Variable)
+  hidden defaultValue: varMod.Value = bar.choices.first.value
+  card = "chooser"
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      [nodes.defaultRegion] = new nodes.Region {}
+      ["bar"] = new nodes.Region {}
+    }
+    template = """
+      <div class="fh-col">{{#bar}}{{{html}}}{{/bar}}{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  vars { (bar.target as varMod.Variable).defaultingTo(defaultValue) }
+  // `let`: inside the Mapping's body `children` does not resolve to this node's.
+  regions = let (below = children as Listing<nodes.LayoutNode>) let (b = bar)
+    new Mapping {
+      ["bar"] = new Listing { b }
+      when (!below.isEmpty) {
+        [nodes.defaultRegion] = below
+      }
+    }
+  // A section header over its cards, not a third of a grid row.
+  cellClasses { "fh-cols-full" }
+
+  function defaultingTo(v: varMod.Value): Chooser = let (self = this) let (d = v) (self) { defaultValue = d }
+}
+
+function chooser(s: Select): Chooser = new Chooser { bar = s }

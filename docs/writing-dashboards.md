@@ -158,37 +158,42 @@ Each is a *variable*:
 - **It is the viewer's own.** Two people on one dashboard each choose for
   themselves, and the choice is kept in the page's address, so a refresh or a
   bookmark keeps it.
-- **Some cards come with one:** `(c.tabs) { tabs { … } }`, and
-  `(c.windowChooser) { children { c.historyChart(s).chosen() } }`, a window bar
-  over the charts beneath it. A light's `c.entitySlider` switches between
-  brightness, colour temperature and colour as far as the light has them.
-- **One switch for several lights:** sliders with `.followsControl()` have no
-  switch of their own and follow the `c.controlChooser` above them, so one
-  press puts them all on colour; a light without colour shows its brightness,
-  greyed. A set's sliders can follow too:
+- **Some cards come with one:** `(c.tabs) { tabs { … } }`, and a light's
+  `c.entitySlider`, which switches between brightness, colour temperature and
+  colour as far as the light has them.
+- **A chooser** is a bar of buttons over the cards beneath it. Two come
+  ready-made, each with the cards that follow it:
 
   ```pkl
+  (c.windowChooser) { children { c.historyChart(s).fromChooser() } }
+
   (c.controlChooser) { children {
-    q.from(dump.lights.all).render((l) -> c.entitySlider(l).followsControl()).build()
+    q.from(dump.lights.all).render((l) -> c.entitySlider(l).fromChooser()).build()
   } }
   ```
 
-  A group light's slider does the same for its own rows with `.syncRows()`.
-- **Your own** is declared on a card, with the value it starts at, and read by
-  the cards below it:
+  Press `7d` and every chart redraws at a week; press colour and every light
+  shows its colour, or its brightness, greyed, if it has none.
+  `.defaultingTo("7d")` picks where a chooser starts.
+- **A light group** works the same way: `c.entitySlider(group)` has its own
+  switch, and rows that are `.fromChooser()` follow it instead of having one
+  each.
+- **Your own** is a chooser over a `c.select`, read by the cards below it. It
+  starts on the first option:
 
   ```pkl
   local view = c.variable("view")
 
-  (c.column) {
-    vars { view.defaultingTo("simple") }
+  (c.chooser(c.select(view).options(List("simple", "detail")))) {
     children {
-      c.select(view).options(List("simple", "detail"))
       c.iff(view.valueIs("detail")).then(c.historyChart(dump.sensors.ute)).`else`(c.title("Ute"))
     }
   }
   ```
 
+  To put the select somewhere other than above its cards, declare the
+  variable on any card around both, `vars { view.defaultingTo("simple") }`,
+  and place `c.select(view)` where you want it.
   `c.iff(view.valueIs(…))` shows its `then` at that value and its `else` at
   any other; with no `else` it shows nothing there.
 - **The nearest declaration wins.** A card that declares the same name lower

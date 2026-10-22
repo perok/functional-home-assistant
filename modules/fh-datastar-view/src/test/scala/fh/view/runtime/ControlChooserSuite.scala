@@ -7,8 +7,8 @@ import munit.CatsEffectSuite
 
 import scala.concurrent.duration.*
 
-/** One main-control switch over sliders that follow it: `c.controlChooser` with
-  * `.followsControl()`, and a group head's `.syncRows()`.
+/** One main-control switch over sliders that are `.fromChooser()`: a
+  * `c.controlChooser`'s, or a group head's.
   */
 class ControlChooserSuite extends CatsEffectSuite {
 
@@ -76,8 +76,8 @@ class ControlChooserSuite extends CatsEffectSuite {
     choose(
       """(c.controlChooser) {
         |  children {
-        |    c.entitySlider(dump.lights.a).followsControl()
-        |    c.entitySlider(dump.lights.b).followsControl()
+        |    c.entitySlider(dump.lights.a).fromChooser()
+        |    c.entitySlider(dump.lights.b).fromChooser()
         |  }
         |}""".stripMargin,
       "c",
@@ -96,7 +96,7 @@ class ControlChooserSuite extends CatsEffectSuite {
       """(c.controlChooser) {
         |  children {
         |    q.from(List(dump.lights.a, dump.lights.b))
-        |      .render((l) -> c.entitySlider(l).followsControl())
+        |      .render((l) -> c.entitySlider(l).fromChooser())
         |      .build()
         |  }
         |}""".stripMargin,
@@ -110,16 +110,16 @@ class ControlChooserSuite extends CatsEffectSuite {
     }
   }
 
-  test("syncRows reaches a set among a group's rows") {
+  test("a set among a group's rows follows the head") {
     choose(
-      """(c.entitySlider(dump.lights.a).syncRows()) {
-        |  members { q.from(List(dump.lights.b)).render(c.entitySlider).build() }
+      """(c.entitySlider(dump.lights.a)) {
+        |  members { q.from(List(dump.lights.b)).render((l) -> c.entitySlider(l).fromChooser()).build() }
         |}""".stripMargin,
       "c",
       "colour"
     ).map { (page, wrote, sent) =>
-      // The set's row follows the head instead of declaring its own: the head
-      // goes to colour, the row (no colour) to its brightness, greyed.
+      // The set's row reads the head's control instead of declaring its own:
+      // the head goes to colour, the row (no colour) to its brightness, greyed.
       assertEquals(declarers(page), List("c"), clue = page)
       assertEquals(wrote._1, org.http4s.Status.NoContent, clue = wrote)
       assertEquals(count("""max="360"""", sent), 1, clue = sent)

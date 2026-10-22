@@ -6,14 +6,15 @@ Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it 
 `settable` draft of [#210](https://github.com/perok/functional-home-assistant/issues/210).
 
 Two users: a chart's window — `c.windowChooser` declares `window`, and every
-`c.historyChart(s).chosen()` beneath it reads it, so pressing `7d` redraws them all — and a tab
+`c.historyChart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
 bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
 A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
 declares `control` the same way, valued by the control's name: its head is a bake group, one head
 per control, and the pill's switch is a `c.select` of it. A group's rows with main controls declare
-their own, which shadows the head's. On `.syncRows()`
-they declare none and are bake groups selected by the head's `control`, so one press switches them
-all; that is the ancestor lookup doing what it is for, not a mechanism of its own.
+their own, which shadows the head's. A slider that is `.fromChooser()` declares none and is a bake
+group selected by the nearest `control` above it — a group head's or `c.controlChooser`'s — so one
+press switches them all; that is the ancestor lookup doing what it is for, not a mechanism of its
+own.
 
 ## Context
 
@@ -168,12 +169,15 @@ life. The renderer puts the URL mirror on the declarer's `.fh-cell`, one keyed
 `data-fh-url:<name>` per variable, so a param lives as long as what it chooses for (ADR 0005).
 Any node can declare, and a control choosing from below it needs no host.
 
-**The control is a node per value.** `c.windowChooser` declares `window` and builds its bar from
-one `Listing<Window>`, each value a `tab` node whose tap is `Variable.choose`: a guarded `Click`
-naming the declarer by token in its route and its pending signal. Its name and value are typed as
-plain tokens, since they travel in a route segment and a JS string. A button per node is what lets
-each have its own busy signal (ADR 0019). Neither the chooser nor `chosen()` takes the variable's
-name, so the pair cannot drift.
+**The control is a node per value.** A `c.chooser(c.select(v))` declares `v` at the select's first
+option and puts the select above the cards beneath it; `c.windowChooser` is one over the windows,
+`c.controlChooser` one over the main controls. Each option is a `tab` node whose tap is
+`Variable.choose`: a guarded `Click` naming the declarer by token in its route and its pending
+signal. Its name and value are typed as plain tokens, since they travel in a route segment and a JS
+string. A button per node is what lets each have its own busy signal (ADR 0019). One generic
+chooser rather than a card per variable: a card per variable copied the same regions and template.
+Neither a shipped chooser nor its reader's `.fromChooser()` takes the variable's name, so the pair
+cannot drift.
 
 **A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
 panel's surfaces are `Activation.Var("tab")`: the member selected at the variable's value as seen
@@ -255,7 +259,7 @@ instead.
 - **"Opens" means when the document loaded.** A wall tablet that never reloads keeps the head it
   opened on however the light changes. A reconnect keeps it too: the SSE GET carries the committed
   value, and a session this process forgot adopts it as a choice, initial value or not.
-- **One place an initial transform does nothing.** With `.syncRows()` the rows follow the head, which starts
+- **One place an initial transform does nothing.** Rows that are `.fromChooser()` follow the head, which starts
   from the group entity's state, not each bulb's.
 - **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
