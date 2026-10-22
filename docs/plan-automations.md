@@ -121,17 +121,34 @@ fh can replace it.
 | A Hue dimmer's buttons drive a set of lights | ZHA, RWL021/RWL022 | M7 |
 | A relative light group | `relative_light_group` | M8 |
 
-**Beyond these: a scene that spreads.** Nothing here does this today. The lights reach a scene's
-levels one after another, outward from one spot (the door you came in by, the sensor that saw
-you), and each fades in with HA's `transition`.
-- It is a rule like any other. A light is reached once the time since the scene began passes its
-  distance from the spot divided by a speed. Until then the rule leaves that light's slot empty.
-- The rule reads the clock rather than running a sequence. A restart in the middle of a spread
-  therefore recomputes where it should be. A light a person touches takes the manual level, as
-  with any other rule.
-- It needs M6 (the clock) and M7 (the press that starts it), plus one new input: where each light
-  is. HA records no positions, so they are declared in Pkl. An ordered list of rings per starting
-  spot is enough. Coordinates are worth adding only when one room needs many starting spots.
+**Beyond these: sequences**, the building block for effects. Nothing here provides one today
+apart from HA's own scripts. A sequence is an ordered list of steps with a wait between them, and
+something that starts it: a press, an event, or a declared value changing.
+
+```pkl
+sequence {
+  startsWhen = q.entity(v.scene).stateIs("evening")
+  steps {
+    step(hall, lights.on { brightness = 60; transition = 2.s })
+    wait(300.ms)
+    step(q.from(hass.lights(stue.all)), lights.on { brightness = 40; transition = 2.s })
+  }
+}
+```
+
+- A step's target is anything a tap can target: an entity, an area, a floor or a set (M0).
+- **A state step** ("these lights at 60 %") is a desired state. The sequence writes it into its
+  own priority slot from that step's time on. A restart part-way through recomputes from the
+  stored start time which steps have been reached, as with any rule, and a light a person touches
+  takes the manual level.
+- **An action step** is a call with no state to compare, such as a notification. It fires once,
+  and the store records that it fired so a restart does not fire it again. Build it only when a
+  sequence needs one; state steps cover lights.
+- Effects are Pkl functions that produce sequences, and they ship as packages (M9). A light
+  spreading outward from one spot is one ring of lights per step with an equal wait. The rings
+  are the author's, since HA records no positions.
+- Its end, and starting it again while it runs, are Q10.
+- Until the engine exists, an HA script with `delay` steps does this, and a tap can run it.
 
 ## Milestones
 
@@ -205,8 +222,10 @@ it off until the condition next changes.
 - The engine wakes on the clock, not only on changes from HA. Dashboards need no clock of their
   own: they read "night" like any entity, and its state change re-renders them. HA's own
   automations can use it too. There is no `q.clock`.
+- Sequences (Reference behaviours), since a step's time is the clock's.
 
-Done when Adaptive Lighting's behaviour for one room is an fh rule.
+Done when Adaptive Lighting's behaviour for one room is an fh rule, and a light spreading outward
+from one spot is a sequence written in Pkl.
 
 **M7: events.** Button presses and other HA events feed reducers. Done when a Hue dimmer's
 on/off/dim/scene behaviour is a set of fh rules.
@@ -291,6 +310,15 @@ Done when M6–M8's behaviours are packages a workspace imports.
    - The engine's calls go out under the machine token (ADR 0023), since no person is behind them.
    - Check that the app's Supervisor token can read the device registry.
 9. **Tracking.** #584 is the roadmap epic. Each milestone gets its own issue when it starts.
+10. **A sequence's end, and starting it again.**
+    - After the last step the sequence relinquishes its slots, and the rules below it take over.
+      A sequence is a way into a state. Holding that state is a rule's job, such as the rule for
+      `scene = evening`. The alternative, holding the last step until the trigger turns off, makes
+      every sequence a second kind of rule.
+    - Starting it while it runs restarts it from the first step, rather than queueing a second
+      run or ignoring the start.
+    - A sequence's slot shares the priority array with rules, so a sequence that should beat
+      "follow the sun" sits above it.
 
 ## Prior art, and the words to borrow
 
@@ -353,5 +381,5 @@ its own. The words go into `docs/terminology.md` when they land.
 - ADR 0030 (subscribe to what we read): rules subscribe the same way (M4).
 - `docs/architecture-rendering-pipeline.md`: section 7 (M1), and a sibling doc for the engine.
 - `docs/terminology.md`: rule, reconcile, desired state, priority array, relinquish, override,
-  declared value and instance device, each when it lands.
+  declared value, instance device and sequence, each when it lands.
 - The CLAUDE.md files: modules and build commands (M1).
