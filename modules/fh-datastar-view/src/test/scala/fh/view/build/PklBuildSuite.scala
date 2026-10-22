@@ -2454,24 +2454,27 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(col.card, "fhcol")
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
-    assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
+    assertEquals(kids.map(_.card), List("slider", "slider", "selectDropdown"))
     assertEquals(rowOf(kids(0)).slots("dataKey").literal, Some("brightness"))
     assertEquals(
       rowOf(kids(1)).slots("dataKey").literal,
       Some("color_temp_kelvin")
     )
-    val pills = kids(2).allChildren.collect { case c: LayoutNode.Component =>
+    val options = kids(2).allChildren.collect { case c: LayoutNode.Component =>
       c
     }
     assertEquals(
-      pills.map(_.slots("label").literal),
+      options.map(_.slots("label").literal),
       List(Some("off"), Some("Color loop"))
     )
     // The value is a literal slot the template puts in the call's body, as a
     // JSON literal.
-    assertEquals(pills(1).slots("service").literal, Some("light/turn_on"))
-    assertEquals(pills(1).slots("dataKey").literal, Some("effect"))
-    assertEquals(pills(1).slots("dataValue").literal, Some("\"Color loop\""))
+    assertEquals(options(1).slots("service").literal, Some("light/turn_on"))
+    assertEquals(options(1).slots("dataKey").literal, Some("effect"))
+    assertEquals(
+      options(1).slots("dataValue").literal,
+      Some("\"Color loop\"")
+    )
     // Exact bytes: the transform string ships and hashes as written, so its
     // shape is a contract. The colour-temperature span is the light's own range
     // baked (4535.0), not a constant.

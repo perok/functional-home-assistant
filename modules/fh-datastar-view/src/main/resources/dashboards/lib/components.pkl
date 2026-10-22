@@ -72,7 +72,7 @@ function tap(e: hass.Entity): tapMod.TapAction = tapVerbs.default(e)
 /// `c.simple.percent("brightness", 1, 255)`.
 hidden simple: simpleMod = simpleMod
 
-/// `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
+/// `c.light.controls(l)`.
 hidden light: lightMod = lightMod
 
 /// `c.lock.controls(l)`, `c.lock.openLatch(l)`.

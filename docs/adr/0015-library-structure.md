@@ -246,7 +246,7 @@ and so cannot depend on either tool's cleverness.
   re-syncs against a new HA release, which is why every such table is under
   `hass/` where that person is already looking.
 - **This is a breaking rename** (alpha, and taken deliberately): the seven tap
-  constructors moved under `c.tap`, `lightControls`/`effectPills` under
+  constructors moved under `c.tap`, `lightControls` under
   `c.light`, `floorView` under `c.recipes`. Existing user dashboards fail at
   build with a "cannot find" naming the old name.
 - The wire format is unchanged — the checked-in wire snapshots pass untouched,
