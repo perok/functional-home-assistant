@@ -64,23 +64,28 @@ object Series {
     )
 
   /** [[toJson]]'s inverse. A stage decodes the JSON rather than taking a typed
-    * value because the JSON is the provider's contract.
+    * value because the JSON is the provider's contract. A null value is the
+    * non-finite one `toJson` wrote it for, and the chart draws it as a break.
     */
   given Decoder[Series] = Decoder.instance { c =>
     for {
       pts <- c.get[Vector[(Long, Option[Double])]]("points")
       un <- c.getOrElse[Int]("unavailable")(0)
     } yield Series(
-      pts.collect { case (at, Some(v)) =>
-        Point(Instant.ofEpochMilli(at), v)
-      },
+      pts.map((at, v) =>
+        Point(Instant.ofEpochMilli(at), v.getOrElse(Double.NaN))
+      ),
       un
     )
   }
 
-  /** Sorted here: the WS contract does not promise row order. */
+  /** Sorted here: the WS contract does not promise row order. A `NaN` or
+    * `Infinity` state parses as a double but is not a reading.
+    */
   def fromHistory(rows: List[HistoryPoint]): Series = {
-    val numeric = rows.flatMap(r => r.state.toDoubleOption.map(Point(r.at, _)))
+    val numeric = rows.flatMap(r =>
+      r.state.toDoubleOption.filter(_.isFinite).map(Point(r.at, _))
+    )
     Series(
       numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector,
       rows.size - numeric.size

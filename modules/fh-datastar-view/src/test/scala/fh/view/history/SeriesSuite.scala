@@ -61,6 +61,27 @@ class SeriesSuite extends munit.FunSuite {
     assertEquals(s.unavailable, 2)
   }
 
+  test("a non-finite state is dropped and counted, like a non-numeric one") {
+    // Each parses as a Double, and would reach the wire as a null.
+    val s = Series.fromHistory(
+      List(
+        HistoryPoint("NaN", at(0)),
+        HistoryPoint("Infinity", at(1)),
+        HistoryPoint("2.5", at(2))
+      )
+    )
+    assertEquals(s.points.map(_.value), Vector(2.5))
+    assertEquals(s.unavailable, 2)
+  }
+
+  test("a null point decodes, rather than being dropped by the decoder") {
+    val s = io.circe.parser
+      .decode[Series]("""{"points": [[1000, null], [2000, 2.5]]}""")
+      .fold(e => fail(e.getMessage), identity)
+    assertEquals(s.points.map(_.at.toEpochMilli), Vector(1000L, 2000L))
+    assert(s.points.head.value.isNaN, clue = s)
+  }
+
   test("ordering is imposed, not assumed") {
     val s = Series.fromHistory(
       List(HistoryPoint("2", at(10)), HistoryPoint("1", at(0)))
