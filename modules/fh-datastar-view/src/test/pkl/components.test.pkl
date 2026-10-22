@@ -258,7 +258,7 @@ facts {
     // chooser is what DECLARES the window, so the nesting is what puts the
     // chart in scope of it. Composed here so no dashboard ever writes it.
     body.children.toList().map((n) -> n.card)
-      == List("tile", "historyWindows", "entityInfo", "button")
+      == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
     body.children[1].children[0].slots["chart"].query.params["window"].`var`
@@ -267,7 +267,7 @@ facts {
 
   ["a chooser declares the window its charts read, and nothing spells it twice"] {
     local picked = (c.windowChooser) {
-      children { c.historyChart(power).chosen() }
+      children { c.historyChart(power).fromChooser() }
     }
     // The DECLARATION and the REFERENCE, produced by two calls that take no
     // name between them — which is the property, not the string: an author
@@ -290,7 +290,7 @@ facts {
   }
 
   ["each window is a tab node of its own, guarded by its own tap"] {
-    local bar = (c.windowChooser).regions["bar"].toList()
+    local bar = (c.windowChooser).regions["bar"][0].children.toList()
     bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
     bar.map((n) -> (n as nodes.Node).slots["label"]) == List("1h", "24h", "7d", "30d")
     // Per node, so one window's answer never clears another's guard (ADR 0019).
@@ -1509,6 +1509,24 @@ facts {
     c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
   }
 
+  ["a slider following a chooser has no switch of its own"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local follower = c.entitySlider(lamp).fromChooser()
+    !follower.declaresControl
+    follower.controls.map((h) -> h.value) == List("brightness", "colourTemp", "colour")
+    // A light with no main controls keeps its plain row.
+    local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
+    c.entitySlider(plug).fromChooser().controls.isEmpty
+    // The chooser declares `control` at its first option, over a switch of all three.
+    defaults.apply(c.controlChooser) == Map("control", "brightness")
+    c.controlChooser.bar.choices.map((ch) -> ch.value) == List("brightness", "colourTemp", "colour")
+  }
+
   ["a light's axes are its main controls, each a slider of its own"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"
@@ -1593,7 +1611,7 @@ facts {
       == List(false, true, false)
   }
 
-  ["a group's rows have their own main controls, or switch with the head on syncRows"] {
+  ["a group's rows have their own main controls, or follow the head's from the chooser"] {
     local lamp: hass.LightEntity = new {
       entity_id = "light.lamp"
       colourModes { "color_temp"; "hs" }
@@ -1602,13 +1620,13 @@ facts {
     }
     // By default each row is its own: a colour row has a pill of its own.
     local apart = c.entitySlider(lamp).withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
-    local apartRows = apart.memberRows.toList().map((r) -> r as c.EntitySlider)
+    local apartRows = apart.members.toList().map((r) -> r as c.EntitySlider)
     apartRows[0].declaresControl && apartRows[0].shownButtons.filterNonNull().any((b) -> b is selectMod.Select)
     !apartRows[1].declaresControl
-    // `.syncRows()`: the head's switch switches them all.
-    local g = c.entitySlider(lamp).syncRows().withSubSliders(List(c.entitySlider(lamp), c.entitySlider(dimmer)))
+    // `.fromChooser()` on each row: the head's switch switches them all.
+    local g = c.entitySlider(lamp).withSubSliders(List(c.entitySlider(lamp).fromChooser(), c.entitySlider(dimmer).fromChooser()))
     g.declaresControl
-    local rows = g.memberRows.toList().map((r) -> r as c.EntitySlider)
+    local rows = g.members.toList().map((r) -> r as c.EntitySlider)
     // The rows read the head's variable rather than declaring their own.
     rows.every((r) -> !r.declaresControl && r.shownButtons.filterNonNull().isEmpty && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
     rows[0].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")

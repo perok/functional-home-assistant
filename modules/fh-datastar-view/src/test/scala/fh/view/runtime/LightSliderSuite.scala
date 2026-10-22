@@ -134,13 +134,13 @@ class LightSliderSuite extends CatsEffectSuite {
   }
 
   test(
-    "on syncRows, a group's rows switch with its head, greyed where they lack it"
+    "rows from the chooser switch with their head, greyed where they lack it"
   ) {
     val lamp2 = lamp.copy(entityId = "light.lamp2")
     val card =
-      s"c.entitySlider(dump.entities.${lamp.dumpKey}).syncRows().withSubSliders(List(" +
-        s"c.entitySlider(dump.entities.${lamp2.dumpKey}), " +
-        s"c.entitySlider(dump.entities.${dimmer.dumpKey})))"
+      s"c.entitySlider(dump.entities.${lamp.dumpKey}).withSubSliders(List(" +
+        s"c.entitySlider(dump.entities.${lamp2.dumpKey}).fromChooser(), " +
+        s"c.entitySlider(dump.entities.${dimmer.dumpKey}).fromChooser()))"
     val groupEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |

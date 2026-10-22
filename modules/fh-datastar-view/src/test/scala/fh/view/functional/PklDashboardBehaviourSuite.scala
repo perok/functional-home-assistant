@@ -609,8 +609,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |      children {
          |        (c.tabs) {
          |          tabs {
-         |            ["T"] { c.historyChart(dump.entities.${nestedX1.dumpKey}).chosen() }
-         |            ["H"] { c.historyChart(dump.entities.${nestedX2.dumpKey}).chosen() }
+         |            ["T"] { c.historyChart(dump.entities.${nestedX1.dumpKey}).fromChooser() }
+         |            ["H"] { c.historyChart(dump.entities.${nestedX2.dumpKey}).fromChooser() }
          |          }
          |        }
          |      }
@@ -828,7 +828,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |  children {
          |    (c.windowChooser) {
          |      children {
-         |        c.historyReadings(dump.entities.${HouseFixture.outsideTemp.dumpKey}).chosen()
+         |        c.historyReadings(dump.entities.${HouseFixture.outsideTemp.dumpKey}).fromChooser()
          |      }
          |    }
          |  }
@@ -928,7 +928,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |  children {
          |    (c.windowChooser) {
          |      children {
-         |        c.historyChart(dump.entities.${HouseFixture.outsideTemp.dumpKey}).chosen()
+         |        c.historyChart(dump.entities.${HouseFixture.outsideTemp.dumpKey}).fromChooser()
          |      }
          |    }
          |  }

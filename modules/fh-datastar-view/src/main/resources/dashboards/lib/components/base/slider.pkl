@@ -363,8 +363,6 @@ open class Slider extends nodes.Node {
   hidden declaresControl: Boolean = controls.length > 1
   /// Dimmed and disabled: a group's row standing in for a control it lacks.
   hidden greyed: Boolean = false
-  /// What fills the member region; a subclass may adapt [[members]].
-  hidden memberRows: Listing<nodes.LayoutNode> = members
   /// Its declaration of [[controlVar]], made only where [[declaresControl]].
   hidden controlDeclaration: varMod.Declaration = controlVar.defaultingTo(controls[0].value)
   vars {
@@ -419,7 +417,7 @@ open class Slider extends nodes.Node {
         headNode
       }
     }
-    ["children"] = memberRows
+    ["children"] = members
   }
 
   /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour!!)))`.

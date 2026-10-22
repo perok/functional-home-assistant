@@ -12,7 +12,7 @@ import "../core/stage.pkl" as stageMod
 import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
 import "../core/variable.pkl" as varMod
-import "base/surface.pkl" as surfaces
+import "select.pkl" as selectMod
 import "../hass.pkl"
 
 /// How far back a chart looks. Closed because the server's cache keys on it
@@ -115,8 +115,8 @@ class HistoryChart extends nodes.Node {
   function size(w: Int(isPositive), h: Int(isPositive)): HistoryChart =
     let (self = this) (self) { chartWidth = w; chartHeight = h }
 
-  /// Read the window from the nearest [[WindowChooser]] above this chart.
-  function chosen(): HistoryChart = over(windowVar.ref)
+  /// Read the window from the nearest [[windowChooser]] above this chart.
+  function fromChooser(): HistoryChart = over(windowVar.ref)
 }
 
 /// The history answer as data rather than a drawing: now, low and high over
@@ -161,7 +161,7 @@ class HistoryReadings extends nodes.Node {
   }
 
   function over(w: Window|varMod.Ref): HistoryReadings = let (self = this) (self) { window = w }
-  function chosen(): HistoryReadings = over(windowVar.ref)
+  function fromChooser(): HistoryReadings = over(windowVar.ref)
 }
 
 // Named by the node, so two readings cards never share one signal.
@@ -178,8 +178,8 @@ const local covers: String =
   "(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')" +
     "($\(readingsSignal).points)"
 
-/// Now, low and high of `e` over the last 24 hours; `.chosen()` under a
-/// [[WindowChooser]].
+/// Now, low and high of `e` over the last 24 hours; `.fromChooser()` under a
+/// [[windowChooser]].
 function historyReadings(e: hass.SensorEntity): HistoryReadings =
   new HistoryReadings { entity = e }
 
@@ -189,8 +189,8 @@ function historyReadings(e: hass.SensorEntity): HistoryReadings =
 function historyChart(e: hass.SensorEntity): HistoryChart =
   new HistoryChart { entity = e }
 
-/// The node variable a [[WindowChooser]] declares and [[HistoryChart.chosen]]
-/// reads. Fixed rather than an argument on either: see [[HistoryChart.chosen]].
+/// The node variable [[windowChooser]] declares and [[HistoryChart.fromChooser]]
+/// reads. Fixed rather than an argument on either, so the pair cannot drift.
 const windowVar: varMod.Variable = new { name = "window" }
 
 /// The windows the bar offers. A second list beside the typealias, but typed
@@ -198,49 +198,10 @@ const windowVar: varMod.Variable = new { name = "window" }
 const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
 
 /// A window bar over the charts beneath it: press `7d` and every
-/// [[HistoryChart.chosen]] in this subtree redraws at a week.
+/// [[HistoryChart.fromChooser]] in this subtree redraws at a week.
 ///
 ///     (c.windowChooser) {
-///       children { c.historyChart(sensor).chosen() }
+///       children { c.historyChart(sensor).fromChooser() }
 ///     }
-///
-/// Each window is a `tab` node of its own, so a press dims and rings only the
-/// button pressed while the charts redraw (ADR 0019). A nested chooser shadows
-/// this one. The bar is a `div`, not a `nav`: under a `nav`, BeerCSS makes
-/// every `.tabs > a` the bar's full width. The committed window is mirrored
-/// into the URL and seeded by the page at the viewer's value
-/// (`Server.varChoicesOf`).
-class WindowChooser extends nodes.Node {
-  card = "historyWindows"
-  cardDef = new nodes.CardDef {
-    regions = new Mapping {
-      [nodes.defaultRegion] = new nodes.Region {}
-      ["bar"] = new nodes.Region {}
-    }
-    template = """
-      <div class="fh-col"><div class="fh-tabs">{{#bar}}{{{html}}}{{/bar}}</div>{{#children}}{{{html}}}{{/children}}</div>
-      """
-  }
-  /// The declared window: shown until a viewer chooses another.
-  hidden defaultWindow: Window = "24h"
-  vars { windowVar.defaultingTo(defaultWindow) }
-  // `let`: inside the Mapping's body `children` does not resolve to this node's.
-  regions = let (charts = children as Listing<nodes.LayoutNode>)
-    new Mapping {
-      ["bar"] = new Listing {
-        for (w in windows) {
-          surfaces.tabButton(windowVar, w, w)
-        }
-      }
-      when (!charts.isEmpty) {
-        [nodes.defaultRegion] = charts
-      }
-    }
-  // A chooser is a section header over its charts, not a third of a grid row.
-  cellClasses { "fh-cols-full" }
-
-  function defaultingTo(w: Window): WindowChooser = let (self = this) (self) { defaultWindow = w }
-}
-
-/// Amendable base instance — `(c.windowChooser) { children { ... } }`.
-hidden windowChooser: WindowChooser = new WindowChooser {}
+hidden windowChooser: selectMod.Chooser =
+  selectMod.chooser(selectMod.select(windowVar).options(windows.toList())).defaultingTo("24h")

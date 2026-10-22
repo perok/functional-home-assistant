@@ -347,8 +347,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   them, its MAIN CONTROLS (HA's name): a head per control in a bake group selected by the node variable
   `control` the slider declares (`base/slider.pkl`'s `SliderControls`, each head chosen by the control's name), with a pill over the track's end, as any slider's buttons, holding the
   slider's buttons and its switch: `c.its.mainControl`, the default list, a `c.select` of `control` (a pill
-  stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; on `.syncRows()` they follow the
-  head's `control` instead, greyed where they lack one. A slider a candidate set renders per member
+  stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; a row that is
+  `.fromChooser()` drops its switch and reads the nearest `control` above it instead, greyed where it
+  lacks one: the head's, or `c.controlChooser`'s over the sliders beneath it (`itsMod.controlSelect`
+  spells that switch and the slider's own). A slider a candidate set renders per member
   declares `control` for that member alone (ADR 0033). It OPENS on the
   head for the mode the light is in, a start read once as the page opens (ADR 0033) and never
   followed; `.opensOn(List(l.colour, l.colourTemp))` gives the order, `.opensOn(List(l.brightness))`
@@ -359,9 +361,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving
   up the ancestor chain so a nested declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader can parse, which is why a declaration carries no list
-  of allowed values. `c.windowChooser` is the one shipped control: it declares `window`, its bar is
-  a `tab` node per window whose `choose` names the chooser by `Variable.declarer` (a build
-  token), and `c.historyChart(s).chosen()` reads it),
+  of allowed values. `c.chooser(c.select(v))` (`components/select.pkl`) declares `v` over the cards
+  beneath it, its bar a `tab` node per option whose `choose` names the chooser by
+  `Variable.declarer` (a build token); `c.windowChooser` and `c.controlChooser` are two, read by
+  `.fromChooser()` on a chart or a light slider),
   **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
   or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;

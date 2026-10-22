@@ -18,8 +18,8 @@
 ///
 /// No list of allowed values: the write boundary refuses a value no declared
 /// reader can parse, or one naming an entity the dashboard does not show. For
-/// a closed set, emit the declaration and its control from one list
-/// (`components/history.pkl`'s `WindowChooser`).
+/// a closed set, emit the declaration and its control from one select
+/// (`components/select.pkl`'s `Chooser`).
 module core.variable
 
 import "tap.pkl" as tapMod

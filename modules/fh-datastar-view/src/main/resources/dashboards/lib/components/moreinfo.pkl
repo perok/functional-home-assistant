@@ -67,7 +67,7 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
     }
     when (e is hass.SensorEntity && (e as hass.SensorEntity).isNumeric) {
       (historyMod.windowChooser) {
-        children { historyMod.historyChart(e as hass.SensorEntity).chosen() }
+        children { historyMod.historyChart(e as hass.SensorEntity).fromChooser() }
       }
     }
     entityInfo(e)

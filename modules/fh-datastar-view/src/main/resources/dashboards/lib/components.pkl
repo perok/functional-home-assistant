@@ -178,13 +178,16 @@ function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
 /// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
   historyMod.historyChart(e)
-/// Now, low and high over the last 24 hours; `.over(…)` and `.chosen()` as
+/// Now, low and high over the last 24 hours; `.over(…)` and `.fromChooser()` as
 /// [[historyChart]].
 function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
   historyMod.historyReadings(e)
 /// A window bar over the charts beneath it:
-/// `(c.windowChooser) { children { c.historyChart(s).chosen() } }`.
-hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser
+/// `(c.windowChooser) { children { c.historyChart(s).fromChooser() } }`.
+hidden windowChooser: selectMod.Chooser = historyMod.windowChooser
+/// One main-control switch over the light sliders beneath it:
+/// `(c.controlChooser) { children { c.entitySlider(l).fromChooser() } }`.
+hidden controlChooser: selectMod.Chooser = sliderMod.controlChooser
 /// A node variable named `name`, for a node's `vars` and a [[select]] below
 /// it: `local shade = c.variable("shade")`.
 function variable(name: String): varMod.Variable =
@@ -193,6 +196,10 @@ function variable(name: String): varMod.Variable =
 /// entity, or a light's `effects` — as buttons until `.style("dropdown")` or
 /// `.style("cycle")`; `.options(…)` picks, orders and relabels them.
 function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
+/// A select of a node variable over the cards beneath it, declaring the
+/// variable at its first option or `.defaultingTo(…)`:
+/// `(c.chooser(c.select(view).options(List("simple", "detail")))) { children { … } }`.
+function chooser(s: selectMod.Select): selectMod.Chooser = selectMod.chooser(s)
 /// A section shown while `p` holds over live state.
 function iff(p: pred.Predicate|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
 /// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
