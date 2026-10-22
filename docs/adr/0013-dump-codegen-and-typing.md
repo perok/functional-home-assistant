@@ -389,7 +389,7 @@ c.entitySlider(l)               // the domain's default axis — on a light, bri
 c.entitySlider(l.brightness)    // brightness alone
 c.entitySlider(l.colourTemp)    // colour temperature, bounds from the light itself
 c.entitySlider(l.colour)        // the hue, posted as hs_color = [h, 100]
-c.light.effectPills(l.effects)
+c.select(l.effects)             // the effects, posted as turn_on effect=<name>
 ```
 
 `EntitySlider` accepts `SlideAxis = hass.Entity|hass.Axis` and reads its entity, key, bounds and

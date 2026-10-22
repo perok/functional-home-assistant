@@ -337,7 +337,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   four `CallByState` domains. `c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch,
   and a `c.button`/`c.pill` with no action, or a `c.entityButton`/`c.toggle` whose domain implies none, is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
-  (`c.entitySlider(l.colourTemp)` / `c.entitySlider(l.colour)` (the hue) / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
+  (`c.entitySlider(l.colourTemp)` / `c.entitySlider(l.colour)` (the hue) / `c.select(l.effects)` — a card takes the capability GROUP, which
   carries its `owner`, so ONE argument is both the values and the subject: the entity is named once,
   capabilities are discovered by completion on `l.`, and passing a group the entity lacks is a
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability

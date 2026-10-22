@@ -4,26 +4,15 @@
 /// written (ADR 0013). Other domains follow this pattern.
 module components.light
 
-import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "../layout.pkl" as layout
-import "base/button.pkl" as buttonMod
 import "entity.pkl" as entityMod
+import "select.pkl" as selectMod
 import "slider.pkl" as sliderMod
-
-/// One pill per named effect, each posting `light/turn_on effect=<name>`:
-/// `c.light.effectPills(l.effects)`.
-function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
-  children {
-    for (name in fx.list) {
-      buttonMod.pill(tapMod.call(fx.service, fx.owner).with(fx.key, name)).label(name)
-    }
-  }
-}
 
 /// A brightness slider when it dims (a tappable card when it only switches), a
 /// colour-temperature slider when it has a kelvin range, a hue slider when it
-/// shows colour, effect pills when it names effects: every control at once,
+/// shows colour, an effect dropdown when it names effects: every control at once,
 /// where `c.entitySlider(l)` switches between them.
 function controls(l: hass.LightEntity): layout.Column = new layout.Column {
   children {
@@ -39,7 +28,7 @@ function controls(l: hass.LightEntity): layout.Column = new layout.Column {
       sliderMod.entitySlider(l.colour!!)
     }
     when (l.effects != null) {
-      effectPills(l.effects!!)
+      selectMod.select(l.effects!!).style("dropdown")
     }
   }
 }
