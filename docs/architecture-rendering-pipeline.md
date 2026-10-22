@@ -108,7 +108,7 @@ flowchart TB
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
   VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
-  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: digest + signals),<br/>position, told, vars (this viewer's choices),<br/>starts (where the document started a variable)<br/>+ a backlog for a client with no stream"]
+  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: digest + signals),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
@@ -177,7 +177,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the query side: `QueryResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Membership` (held in its fold, reset per renderer), the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document started them, `starts`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -284,7 +284,7 @@ GET /d/:slug
   evaluate each variable's start from the store (once; never followed), under the
     `v.` choices: the render and its selections read both
   render the WHOLE page from the current snapshot
-  mint conn; create Session{slug, open surfaces, vars, starts, holds, position} and its owner
+  mint conn; create Session{slug, open surfaces, vars, initialValues, holds, position} and its owner
   holds = the digest of every node this render painted   // what THIS client's DOM has
           + every seeded signal, structure's included (no digest: it has no bytes
           of its own), so the first frame after a load sends only what moved
@@ -1082,18 +1082,21 @@ one passes the same check either way (`Renderer.refusals`): every declared reade
 what it would then ask, and read only an entity the dashboard names or a query of it names at its
 declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
-URL is a 400, before any session exists, rather than a page that dies mid-walk.
+URL value is dropped with a warning (`Renderer.adopt`, as a reconnect's carry is), so the page
+opens on the declared value rather than dying mid-walk or refusing a link that outlived its layout.
 
-**A declaration may START elsewhere, once.** `Component.starts` gives a variable a CEL expression
-over one entity's state. The page route evaluates it from the store as it mints the session
-(`Renderer.startsFor`), keeps a result only where `Renderer.refusals` takes it, and records it as
-`SessionState.starts`, a layer under the viewer's choices: everything that resolves the viewer's
-values reads `SessionState.values`, a choice over a start over the declared value. Nothing
+**A declaration may OPEN elsewhere, once.** `Declaration.initialTransform` gives a variable a CEL
+expression over one entity's state, compiled with the slots' transforms. The page route runs it
+from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.refusals` takes it, and records it as
+`SessionState.initialValues`, a layer under the viewer's choices: everything that resolves the
+viewer's values reads `SessionState.values`, a choice over an initial value over the default. Nothing
 re-evaluates it afterwards, so an entity changing does not move an open page (it is not a flip,
-ADR 0007), and a write's own re-render keeps it under the new choice. A start is not a choice: it
-puts no `v.` param on the URL, because a started variable's mirror compares the committed value
-to `_var_<declarer>__<name>__start`, which the shell seeds per document, not to the declared
-value spelled into the shared node bytes. Its entity counts among `Dashboard.watchedEntities`, so
+ADR 0007), and a write's own re-render keeps it under the new choice. An initial value is not a
+choice: it puts no `v.` param on the URL, because such a variable's mirror compares the committed
+value to `_var_<declarer>__<name>__initialValue`, which the shell seeds per document
+(`VarGraph.mirroredInitials`, so only where a mirror reads it), not to the
+default spelled into the shared node bytes. A declaration with `inUrl = false` has no mirror at
+all. Its entity counts among `Dashboard.watchedEntities`, so
 the store holds it.
 
 **The write re-renders the readers this viewer is shown, and commits last.** `VarGraph.readersOf`
@@ -1427,7 +1430,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
-| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `starts`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `startsFor`; `lib/core/variable.pkl` · `Variable` (the template half) |
+| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |

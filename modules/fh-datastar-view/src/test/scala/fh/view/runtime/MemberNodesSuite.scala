@@ -15,7 +15,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.query.QuerySnapshot
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 import org.http4s.Status
@@ -186,7 +186,7 @@ class MemberNodesSuite extends ServerHarness {
       cards = cards,
       card = LayoutNode.Component(
         "col",
-        vars = Map("tab" -> "0"),
+        vars = declared("tab" -> "0"),
         regions = LayoutNode.kids(
           LayoutNode.SetNode(
             candidates = ids,

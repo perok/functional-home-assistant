@@ -59,7 +59,9 @@
                                               "value" : "unit_of_measurement"
                                             }
                                           }
-                                        }
+                                        },
+                                        "vars" : [
+                                        ]
                                       },
                                       {
                                         "card" : "historyWindows",
@@ -85,7 +87,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             },
                                             {
                                               "card" : "tab",
@@ -101,7 +105,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             },
                                             {
                                               "card" : "tab",
@@ -117,7 +123,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             },
                                             {
                                               "card" : "tab",
@@ -133,7 +141,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             }
                                           ],
                                           "children" : [
@@ -160,16 +170,22 @@
                                                     "stage" : "chart"
                                                   }
                                                 }
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             }
                                           ]
                                         },
                                         "slots" : {
                                           
                                         },
-                                        "vars" : {
-                                          "window" : "24h"
-                                        }
+                                        "vars" : [
+                                          {
+                                            "default" : "24h",
+                                            "inUrl" : true,
+                                            "name" : "window"
+                                          }
+                                        ]
                                       },
                                       {
                                         "card" : "entityInfo",
@@ -182,7 +198,9 @@
                                             "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                           },
                                           "entity_id" : "sensor.outside_temp"
-                                        }
+                                        },
+                                        "vars" : [
+                                        ]
                                       },
                                       {
                                         "card" : "button",
@@ -191,19 +209,25 @@
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
                                           "sizeLarge" : "1"
-                                        }
+                                        },
+                                        "vars" : [
+                                        ]
                                       }
                                     ]
                                   },
                                   "slots" : {
                                     
-                                  }
+                                  },
+                                  "vars" : [
+                                  ]
                                 }
                               ]
                             },
                             "slots" : {
                               
-                            }
+                            },
+                            "vars" : [
+                            ]
                           }
                         }
                       },
@@ -230,13 +254,17 @@
                             "value" : "unit_of_measurement"
                           }
                         }
-                      }
+                      },
+                      "vars" : [
+                      ]
                     }
                   ]
                 },
                 "slots" : {
                   
-                }
+                },
+                "vars" : [
+                ]
               }
             },
             "t1" : {
@@ -314,13 +342,17 @@
                             "value" : "unit_of_measurement"
                           }
                         }
-                      }
+                      },
+                      "vars" : [
+                      ]
                     }
                   ]
                 },
                 "slots" : {
                   
-                }
+                },
+                "vars" : [
+                ]
               }
             }
           },
@@ -341,7 +373,9 @@
                     "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
                   },
                   "tappable" : "1"
-                }
+                },
+                "vars" : [
+                ]
               },
               {
                 "card" : "tab",
@@ -357,16 +391,22 @@
                     "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
                   },
                   "tappable" : "1"
-                }
+                },
+                "vars" : [
+                ]
               }
             ]
           },
           "slots" : {
             
           },
-          "vars" : {
-            "tab" : "0"
-          }
+          "vars" : [
+            {
+              "default" : "0",
+              "inUrl" : true,
+              "name" : "tab"
+            }
+          ]
         },
         {
           "card" : "ifhost",
@@ -424,7 +464,9 @@
                                               "value" : "unit_of_measurement"
                                             }
                                           }
-                                        }
+                                        },
+                                        "vars" : [
+                                        ]
                                       },
                                       {
                                         "card" : "historyWindows",
@@ -450,7 +492,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             },
                                             {
                                               "card" : "tab",
@@ -466,7 +510,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             },
                                             {
                                               "card" : "tab",
@@ -482,7 +528,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             },
                                             {
                                               "card" : "tab",
@@ -498,7 +546,9 @@
                                                   "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
                                                 },
                                                 "tappable" : "1"
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             }
                                           ],
                                           "children" : [
@@ -525,16 +575,22 @@
                                                     "stage" : "chart"
                                                   }
                                                 }
-                                              }
+                                              },
+                                              "vars" : [
+                                              ]
                                             }
                                           ]
                                         },
                                         "slots" : {
                                           
                                         },
-                                        "vars" : {
-                                          "window" : "24h"
-                                        }
+                                        "vars" : [
+                                          {
+                                            "default" : "24h",
+                                            "inUrl" : true,
+                                            "name" : "window"
+                                          }
+                                        ]
                                       },
                                       {
                                         "card" : "entityInfo",
@@ -547,7 +603,9 @@
                                             "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                           },
                                           "entity_id" : "sensor.outside_temp"
-                                        }
+                                        },
+                                        "vars" : [
+                                        ]
                                       },
                                       {
                                         "card" : "button",
@@ -556,19 +614,25 @@
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
                                           "sizeLarge" : "1"
-                                        }
+                                        },
+                                        "vars" : [
+                                        ]
                                       }
                                     ]
                                   },
                                   "slots" : {
                                     
-                                  }
+                                  },
+                                  "vars" : [
+                                  ]
                                 }
                               ]
                             },
                             "slots" : {
                               
-                            }
+                            },
+                            "vars" : [
+                            ]
                           }
                         }
                       },
@@ -595,13 +659,17 @@
                             "value" : "unit_of_measurement"
                           }
                         }
-                      }
+                      },
+                      "vars" : [
+                      ]
                     }
                   ]
                 },
                 "slots" : {
                   
-                }
+                },
+                "vars" : [
+                ]
               }
             },
             "then" : {
@@ -682,26 +750,34 @@
                             "value" : "unit_of_measurement"
                           }
                         }
-                      }
+                      },
+                      "vars" : [
+                      ]
                     }
                   ]
                 },
                 "slots" : {
                   
-                }
+                },
+                "vars" : [
+                ]
               }
             }
           },
           "kind" : "component",
           "slots" : {
             
-          }
+          },
+          "vars" : [
+          ]
         }
       ]
     },
     "slots" : {
       
-    }
+    },
+    "vars" : [
+    ]
   },
   "cards" : {
     "button" : {

@@ -13,7 +13,7 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -60,7 +60,7 @@ class RenderCacheContentionSuite extends ServerHarness {
               )
             )
           ),
-          vars = Map("tab" -> "0")
+          vars = declared("tab" -> "0")
         )
       )
     ),

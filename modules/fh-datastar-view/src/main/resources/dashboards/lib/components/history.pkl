@@ -222,8 +222,8 @@ class WindowChooser extends nodes.Node {
       """
   }
   /// The declared window: shown until a viewer chooses another.
-  hidden start: Window = "24h"
-  vars = windowVar.declare(start)
+  hidden defaultWindow: Window = "24h"
+  vars { windowVar.defaultingTo(defaultWindow) }
   // `let`: inside the Mapping's body `children` does not resolve to this node's.
   regions = let (charts = children as Listing<nodes.LayoutNode>)
     new Mapping {
@@ -239,7 +239,7 @@ class WindowChooser extends nodes.Node {
   // A chooser is a section header over its charts, not a third of a grid row.
   cellClasses { "fh-cols-full" }
 
-  function starting(w: Window): WindowChooser = let (self = this) (self) { start = w }
+  function defaultingTo(w: Window): WindowChooser = let (self = this) (self) { defaultWindow = w }
 }
 
 /// Amendable base instance — `(c.windowChooser) { children { ... } }`.

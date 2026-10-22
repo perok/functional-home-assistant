@@ -75,7 +75,7 @@ class Tabs extends nodes.Node {
   hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
   // A List, because the derivations below need each tab's index.
   hidden labels: List<String> = tabs.keys.toList()
-  vars = tabVar.declare("0")
+  vars { tabVar.defaultingTo("0") }
   inlineSurfaces = new Mapping {
     for (i, l in labels) {
       ["t\(i)"] = new surfaceMod.SurfaceDef {

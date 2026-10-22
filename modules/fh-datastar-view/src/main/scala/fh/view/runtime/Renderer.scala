@@ -255,15 +255,17 @@ class Renderer(
       asksAt = queriesForNode
     )
 
-  /** Where a session opening on `states` starts each variable that has a start:
-    * its expression over the declarer's subject, where every reader takes the
-    * result. Otherwise the declared value stands, as for a stale link.
+  /** Where a session opening on `states` opens each variable with an initial
+    * transform: its result, where every reader takes it. Otherwise the default
+    * stands, as for a stale link.
     */
-  def startsFor(states: Map[String, EntityState]): Map[VarKey, String] =
-    vars.starts.toList.flatMap { (key, start) =>
+  def initialValuesFor(
+      states: Map[String, EntityState]
+  ): Map[VarKey, String] =
+    vars.initialTransforms.toList.flatMap { (key, t) =>
       states
-        .get(start.entityId)
-        .map(transforms.run(start.transform, _, dashboard.slug))
+        .get(t.entityId)
+        .map(transforms.run(t.celKey, _, dashboard.slug))
         .filter(v =>
           VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
         )
@@ -291,6 +293,24 @@ class Renderer(
       )
     }
   }
+
+  /** `offered` on top of `kept`, each under [[refusals]] on its own, so one
+    * stale value costs only its own variable. In key order, so which of two
+    * clashing values wins does not depend on a map's.
+    */
+  def adopt(
+      kept: Map[VarKey, String],
+      offered: Map[VarKey, String]
+  ): (Map[VarKey, String], List[String]) =
+    offered.toList
+      .sortBy((key, _) => (key.declarer, key.name))
+      .foldLeft((kept, List.empty[String])) {
+        case ((acc, refused), (key, value)) =>
+          refusals(acc + (key -> value)) match {
+            case Nil  => (acc + (key -> value), refused)
+            case more => (acc, refused ++ more)
+          }
+      }
 
   private def refusal(query: SlotQuery): Option[String] =
     Queries.parse(query) match {
@@ -1319,11 +1339,11 @@ class Renderer(
       cellBindingsInto(buf, resolved)
       // On the declarer, so a param lives as long as what it chooses for, not
       // as long as a control choosing it (ADR 0005).
-      c.vars.toList.sortBy(_._1).foreach { (name, declared) =>
+      c.vars.filter(_.inUrl).sortBy(_.name).foreach { d =>
         val _ = buf
           .append(' ')
           .append(
-            VarKey(id, name).urlMirrorAttr(declared, c.starts.contains(name))
+            VarKey(id, d.name).urlMirrorAttr(d)
           )
       }
       val _ = buf.append('>')

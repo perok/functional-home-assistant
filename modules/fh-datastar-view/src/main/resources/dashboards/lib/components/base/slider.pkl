@@ -365,7 +365,11 @@ open class Slider extends nodes.Node {
   hidden greyed: Boolean = false
   /// What fills the member region; a subclass may adapt [[members]].
   hidden memberRows: Listing<nodes.LayoutNode> = members
-  vars = if (declaresControl) controlVar.declare(controls[0].value) else null
+  /// Its declaration of [[controlVar]], made only where [[declaresControl]].
+  hidden controlDeclaration: varMod.Declaration = controlVar.defaultingTo(controls[0].value)
+  vars {
+    when (declaresControl) { controlDeclaration }
+  }
   slots {
     when (!members.isEmpty) {
       ["group"] = "fh-slider-group"

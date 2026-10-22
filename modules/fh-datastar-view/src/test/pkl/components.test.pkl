@@ -28,6 +28,9 @@ import "../../main/resources/dashboards/lib/hass/actions.pkl" as hassActions
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 import "../../main/resources/dashboards/lib/hass/light.pkl" as hassLight
 
+/// A node's declarations as name -> default.
+local defaults = (n: nodes.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> d.default)
+
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
   entity_id = "light.dimmer"
@@ -257,7 +260,7 @@ facts {
     body.children.toList().map((n) -> n.card)
       == List("tile", "historyWindows", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
-    body.children[1].vars["window"] == "24h"
+    defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
     body.children[1].children[0].slots["chart"].query.params["window"].`var`
       == "window"
   }
@@ -269,7 +272,7 @@ facts {
     // The DECLARATION and the REFERENCE, produced by two calls that take no
     // name between them — which is the property, not the string: an author
     // cannot misspell one side of this pair because neither side is typed.
-    picked.vars["window"] == "24h"
+    defaults.apply(picked) == Map("window", "24h")
     picked.children[0].slots["chart"].query.params["window"].`var` == "window"
     // The entity is still written down beside it. Only a declared variable is
     // writable, so this chart's subject has nowhere for a write to land.
@@ -316,13 +319,14 @@ facts {
     tab.below.group == "var_@@VAR:tab@@__tab"
     tab.below.pending == "_var_@@VAR:tab@@__tab__pending"
     tab.ref.`var` == "tab"
-    tab.declare("0") == new Mapping { ["tab"] = "0" }
+    tab.defaultingTo("0").variable == tab
+    tab.defaultingTo("0").default == "0"
     tab.selects.name == "tab"
   }
 
-  ["the declared window moves with `starting`"] {
-    local week = (c.windowChooser).starting("7d")
-    week.vars["window"] == "7d"
+  ["the declared window moves with `defaultingTo`"] {
+    local week = (c.windowChooser).defaultingTo("7d")
+    defaults.apply(week) == Map("window", "7d")
     // The page seeds the highlight from the viewer's value, and the cell's URL
     // mirror takes the declared one from `vars`, so the template carries no
     // copy of it to disagree with either.
@@ -1468,7 +1472,7 @@ facts {
     s.controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
     // Each head is chosen by its main control's name, the first declared.
     s.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour")
-    s.vars == new Mapping { ["control"] = "brightness" }
+    defaults.apply(s) == Map("control", "brightness")
     // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
     local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
@@ -1557,7 +1561,7 @@ facts {
       colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
       colour = new hass.Colour { owner = lamp }
     }
-    local startOf = (s: c.EntitySlider) -> s.starts?.getOrNull("control")
+    local startOf = (s: c.EntitySlider) -> s.vars.toList().findOrNull((d) -> d.name == "control")?.initialTransform
     // By default the mode axes, in the light's order, else the first control.
     local byMode = startOf.apply(c.entitySlider(lamp))!!
     byMode.entityId == "light.lamp"
@@ -1572,7 +1576,7 @@ facts {
     startOf.apply(c.entitySlider(lamp.colour!!)) == null
     startOf.apply(c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))) == null
     // The declared value stays the first control: what a refused start keeps.
-    c.entitySlider(lamp).vars == new Mapping { ["control"] = "brightness" }
+    defaults.apply(c.entitySlider(lamp)) == Map("control", "brightness")
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {

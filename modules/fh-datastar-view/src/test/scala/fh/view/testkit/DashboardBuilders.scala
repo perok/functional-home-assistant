@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{LayoutNode, SlotSource}
+import fh.view.model.{Dashboard, LayoutNode, SlotSource}
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -29,6 +29,12 @@ object DashboardBuilders {
   /** An [[EntityState]] with optional typed attributes. */
   def st(entityId: String, state: String, attrs: (String, Json)*): EntityState =
     EntityState(entityId, state, attrs.toMap)
+
+  /** A node's `vars`: each name at its default, in the URL, opened nowhere
+    * else.
+    */
+  def declared(defaults: (String, String)*): List[Dashboard.Declaration] =
+    defaults.toList.map(Dashboard.Declaration(_, _))
 
   /** A constant literal slot (a bare value, no entity/transform). */
   def lit(s: String): SlotSource = SlotSource(literal = Some(s))

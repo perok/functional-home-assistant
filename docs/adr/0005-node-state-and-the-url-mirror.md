@@ -89,6 +89,10 @@ name, like `conn`.
   means the declared value when the server reads the query, so the param said
   nothing, and a page with a dozen mode sliders wrote a dozen of them on every
   load. A URL names only what a viewer changed.
+- **A variable can stay out of the URL** (`v.defaultingTo(x).notInUrl()`): the setting is its
+  declaration's (`Declaration.inUrl`, ADR 0033), never a read site's, and its declarer carries no
+  mirror, so a choice lives as long as the page. Meant for a choice a refresh may forget, such as one light's control in a
+  large set; a link naming it is still read.
 - **A param lives as long as the element that mirrors it** (issue #411).
   `data-fh-url` is a Datastar attribute, bundled with the vendored Datastar
   into one module, so its cleanup is Datastar's: when the last element

@@ -87,7 +87,10 @@ class VarSignalNamesSuite extends CatsEffectSuite {
          |import "@fh-dashboard/components.pkl" as c
          |
          |card = (c.column) {
-         |  vars = new Mapping { ["shade"] = "pale"; ["size"] = "s" }
+         |  vars {
+         |    c.variable("shade").defaultingTo("pale")
+         |    c.variable("size").defaultingTo("s")
+         |  }
          |  children { c.title("x") }
          |}
          |""".stripMargin

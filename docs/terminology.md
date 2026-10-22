@@ -103,12 +103,21 @@ Three words go with it, and they are not interchangeable:
   variable is writable, so a literal parameter has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
-- **Start** — where a session begins a variable when not at its declared value: an expression
-  over one entity's state (`Component.starts`), read ONCE as the page opens. Not a choice (no URL
-  param) and not a flip (it never follows the entity). A slider's `opensOn` is one.
+- **Variable** vs **declaration** — a variable (`varMod.Variable`) is only the name, which a
+  reader holds without knowing who declares it. A declaration (`varMod.Declaration`, an entry in
+  `Component.vars`) is one node owning a value for that name, and holds the variable.
 
-A declaration is a NAME and the value the variable holds before anybody chooses — that is the
-whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold
+What a variable holds, highest first:
+
+- **Choice** — what the viewer picked: a write, a `v.` URL param, a link.
+- **Initial value** — what the declaration's **initial transform** gave this session: CEL over one
+  entity's state (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
+  page opens. Not a choice (no URL param) and not a flip (it never follows the entity). A slider's
+  `opensOn` is one.
+- **Default** — the value it holds before anybody chooses (`defaultingTo`).
+
+A declaration is a NAME, its default, whether a choice is mirrored into the URL, and an optional
+initial transform — that is the whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold
 is decided by whoever READS it (a chart's provider refuses a window it cannot parse), and a list
 beside the declaration would be a second, weaker copy of that, free to disagree with the control
 the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that

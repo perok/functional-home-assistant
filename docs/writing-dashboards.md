@@ -181,7 +181,7 @@ Each is a *variable*:
   local view = c.variable("view")
 
   (c.column) {
-    vars = view.declare("simple")
+    vars { view.defaultingTo("simple") }
     children {
       c.select(view).options(List("simple", "detail"))
       c.iff(view.valueIs("detail")).then(c.historyChart(dump.sensors.ute)).`else`(c.title("Ute"))
@@ -201,3 +201,6 @@ Each is a *variable*:
 - **The address names a card by its place on the page.** To keep bookmarks
   working when you add cards above it, give the card that holds the choice, or
   one around it, an id: `(c.column) { id = "lights" … }`.
+- **A choice can stay out of the address**, for one a reload may forget, such
+  as each light's control in a long list: `view.defaultingTo("simple").notInUrl()`.
+  A link that names it still works.

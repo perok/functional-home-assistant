@@ -19,6 +19,7 @@ import fh.view.model.{
 }
 import fh.view.query.{QuerySnapshot, Staged}
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.DashboardBuilders.declared
 
 /** A pull asks for the reads of what it renders, and nothing else — most pulls
   * move a plain card and ask none.
@@ -56,7 +57,7 @@ class PullReadsSuite extends munit.FunSuite {
     )
 
   private def host(id: String) =
-    LayoutNode.Component("col", id = Some(id), vars = Map("tab" -> "0"))
+    LayoutNode.Component("col", id = Some(id), vars = declared("tab" -> "0"))
 
   private val renderer = Renderer.create(
     Dashboard(

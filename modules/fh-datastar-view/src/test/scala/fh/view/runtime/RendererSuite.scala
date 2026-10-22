@@ -19,7 +19,14 @@ import fh.view.model.{
   Surface,
   Theme
 }
-import fh.view.testkit.DashboardBuilders.{asComponent, col, lit, row, st}
+import fh.view.testkit.DashboardBuilders.{
+  asComponent,
+  col,
+  declared,
+  lit,
+  row,
+  st
+}
 import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
@@ -86,7 +93,7 @@ class RendererSuite extends munit.FunSuite {
           LayoutNode.Component("btn", Map("label" -> lit("A"))),
           LayoutNode.Component("btn", Map("label" -> lit("B")))
         ),
-        vars = Map("tab" -> "0")
+        vars = declared("tab" -> "0")
       ),
       surfaces = Map(
         "c_t0" -> Surface(
@@ -1334,7 +1341,7 @@ class RendererSuite extends munit.FunSuite {
             )
           )
         ),
-        vars = Map("tab" -> "0")
+        vars = declared("tab" -> "0")
       ),
       surfaces = Map(
         "c_t0" -> Surface(
@@ -1715,7 +1722,7 @@ class RendererSuite extends munit.FunSuite {
       ifCards,
       col(
         // c_0 — hosts the tab panel t0
-        LayoutNode.Component("tabs", vars = Map("tab" -> "0")),
+        LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
         LayoutNode.Component("ifhost") // c_1 — hosts the state surface sx
       ),
       surfaces = Map(
@@ -1734,7 +1741,7 @@ class RendererSuite extends munit.FunSuite {
           activation = Activation.State(always)
         ),
         "sx" -> Surface(
-          LayoutNode.Component("tabs", vars = Map("tab" -> "0")),
+          LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
           bakeInto = Some("c_1"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),

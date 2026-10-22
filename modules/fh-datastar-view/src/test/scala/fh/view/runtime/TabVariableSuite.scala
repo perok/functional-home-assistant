@@ -13,6 +13,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.DashboardBuilders.declared
 import org.http4s.*
 
 import scala.concurrent.duration.*
@@ -41,7 +42,7 @@ class TabVariableSuite extends ServerHarness {
   private def lit(s: String) = fh.view.model.SlotSource(literal = Some(s))
 
   private def barNode(vars: Map[String, String]) =
-    LayoutNode.Component("bar", id = Some("bar"), vars = vars)
+    LayoutNode.Component("bar", id = Some("bar"), vars = declared(vars.toList*))
 
   private val dash = Dashboard(
     cards = Map("bar" -> barCard, "text" -> textCard),

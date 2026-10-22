@@ -18,11 +18,11 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 
   def pendingSignal: String = s"${committedSignal}__pending"
 
-  /** Where this session started it, which the URL mirror leaves off the URL as
-    * it does the declared value: a start is not a choice, so a refresh starts
-    * it afresh.
+  /** Where this session opened it, which the URL mirror leaves off the URL as
+    * it does the declared value: an initial value is not a choice, so a refresh
+    * decides it afresh.
     */
-  def startSignal: String = s"${committedSignal}__start"
+  def initialValueSignal: String = s"${committedSignal}__initialValue"
 
   /** The URL mirror, which survives a refresh. */
   def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
@@ -35,14 +35,15 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
     s"$$$pendingSignal !== '' && $$$committedSignal == $$$pendingSignal && ($$$pendingSignal = '')"
 
   /** The declarer's `data-fh-url`, keyed by the name because a node may declare
-    * several and an element holds one attribute per name. No param at
-    * `declared` (ADR 0005), or for a variable with a start, at the session's
-    * start: a signal, since the node's bytes are shared by every session.
+    * several and an element holds one attribute per name. No param at the
+    * default (ADR 0005), or for a variable with an initial transform, at the
+    * session's initial value: a signal, since the node's bytes are shared by
+    * every session.
     */
-  def urlMirrorAttr(declared: String, started: Boolean): String = {
+  def urlMirrorAttr(d: Dashboard.Declaration): String = {
     val unchanged =
-      if (started) s"$$$startSignal"
-      else s"'${Server.escapeHtml(Server.escapeJsString(declared))}'"
+      if (d.initialTransform.isDefined) s"$$$initialValueSignal"
+      else s"'${Server.escapeHtml(Server.escapeJsString(d.default))}'"
     s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
   }
 
@@ -94,23 +95,30 @@ private[runtime] final class VarGraph(
     asksAt: NodeId => List[SlotAsk]
 ):
 
-  /** Every declaration, with the value it holds before anyone chooses. */
-  val declarations: Map[VarKey, String] =
+  private val declarations: Map[VarKey, Dashboard.Declaration] =
     scopes.values.flatten.map { case (name, in) =>
-      VarKey(in.declarer, name) -> in.declared
+      VarKey(in.declarer, name) -> in.declaration
     }.toMap
 
-  /** The declarations a session may start elsewhere ([[Dashboard.Start]]). */
-  val starts: Map[VarKey, Dashboard.Start] =
-    scopes.values.flatten.flatMap { case (name, in) =>
-      in.start.map(VarKey(in.declarer, name) -> _)
-    }.toMap
+  /** Every declaration, with the value it holds before anyone chooses. */
+  val defaults: Map[VarKey, String] =
+    declarations.view.mapValues(_.default).toMap
+
+  /** The declarations a session may open elsewhere. */
+  val initialTransforms: Map[VarKey, Dashboard.InitialTransform] =
+    declarations.flatMap((key, d) => d.initialTransform.map(key -> _))
+
+  /** Where a URL mirror compares to the session's initial value
+    * ([[VarKey.urlMirrorAttr]]), its signal's one reader.
+    */
+  val mirroredInitials: Set[VarKey] =
+    initialTransforms.keySet.filter(declarations(_).inUrl)
 
   /** Total over declarations, so a control never shows the declared value over
     * a choice.
     */
   def committed(chosen: Map[VarKey, String]): Map[VarKey, String] =
-    declarations.map((key, declared) => key -> chosen.getOrElse(key, declared))
+    defaults.map((key, default) => key -> chosen.getOrElse(key, default))
 
   // Every node under one declarer chain sees the same scope, so a page has a
   // handful of distinct ones however many nodes it has.
@@ -132,7 +140,10 @@ private[runtime] final class VarGraph(
     VarGraph.SharedEnv(
       scopeIndex,
       distinctScopes.map(_.map { case (name, in) =>
-        name -> chosen.getOrElse(VarKey(in.declarer, name), in.declared)
+        name -> chosen.getOrElse(
+          VarKey(in.declarer, name),
+          in.declaration.default
+        )
       })
     )
 

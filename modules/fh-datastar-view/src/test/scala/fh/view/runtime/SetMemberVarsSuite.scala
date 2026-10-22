@@ -98,7 +98,7 @@ class SetMemberVarsSuite extends CatsEffectSuite {
       |  children {
       |    q.from(List(dump.lights.a, dump.lights.b))
       |      .render((e) -> (c.column) {
-      |        vars = view.declare("plain")
+      |        vars { view.defaultingTo("plain") }
       |        children {
       |          c.iff(view.valueIs("detail")).then(c.title("Detail")).`else`(c.title("Plain"))
       |        }

@@ -20,6 +20,7 @@ import fh.view.model.{
 }
 import fh.view.query.{QuerySnapshot, Staged}
 import fh.view.testkit.HouseFixture
+import fh.view.testkit.DashboardBuilders.declared
 import io.circe.Json
 import io.circe.parser.parse
 
@@ -83,7 +84,7 @@ class QueryDriftSuite extends munit.FunSuite {
     )
     // A host is a tab bar's: it declares the variable its panel is chosen by.
     def host(id: String) =
-      LayoutNode.Component("host", id = Some(id), vars = Map("tab" -> "0"))
+      LayoutNode.Component("host", id = Some(id), vars = declared("tab" -> "0"))
     def col(kids: LayoutNode*) =
       LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
     def baked(into: String, idx: Int, content: LayoutNode, a: Activation) =
