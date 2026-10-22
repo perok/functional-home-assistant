@@ -33,7 +33,7 @@
 // Because the scaffold matches the server's exactly, you can keep the
 // workspace in git and use the same files on both sides (only `.fh/machine.json`
 // differs, and it is gitignored). Resolution and evaluation run in-process on
-// pkl-core (the same library — and for push the same ValueRenderers.json call —
+// pkl-core (the same library — and for push the same `evaluateOutputText` call —
 // the instance itself uses). Stock pkl tooling still works on the workspace
 // (pkl-lsp completion, the pkl CLI) but nothing here requires it.
 //
@@ -246,25 +246,21 @@ def resolveDeps(): IO[Unit] = IO.blocking {
   ).get
 }
 
-/** `pkl eval -f json`, in-process: evaluate an entry against the project and
-  * render it with pkl-core's own `ValueRenderers.json` — the exact call the
-  * instance's backend uses, so the pushed JSON matches by construction.
-  * `applyFromProject` carries the manifest's `evaluatorSettings` (cache dir,
-  * http rewrites — spike-verified on 0.31.1), so nothing is wired by hand.
+/** `pkl eval -f json`, in-process: evaluate an entry's `output` against the
+  * project as JSON — the exact call the instance's backend uses, so the pushed
+  * JSON matches by construction. `applyFromProject` carries the manifest's
+  * `evaluatorSettings` (cache dir, http rewrites — spike-verified on 0.31.1),
+  * so nothing is wired by hand.
   */
 def evalJson(entry: String): IO[String] = IO.blocking {
-  import org.pkl.core.{EvaluatorBuilder, ModuleSource, ValueRenderers}
+  import org.pkl.core.{EvaluatorBuilder, ModuleSource, OutputFormat}
   Using(
     EvaluatorBuilder
       .preconfigured()
       .applyFromProject(loadProject())
+      .setOutputFormat(OutputFormat.JSON)
       .build()
-  ) { evaluator =>
-    val module = evaluator.evaluate(ModuleSource.path(Paths.get(entry)))
-    val writer = new java.io.StringWriter
-    ValueRenderers.json(writer, "  ", true).renderDocument(module)
-    writer.toString
-  }.get
+  )(_.evaluateOutputText(ModuleSource.path(Paths.get(entry)))).get
 }
 
 def withClient[A](f: Client[IO] => IO[A]): IO[A] =

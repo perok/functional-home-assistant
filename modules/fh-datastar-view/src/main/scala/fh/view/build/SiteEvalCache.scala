@@ -21,7 +21,7 @@ import scala.util.Try
 object SiteEvalCache {
 
   /** Bump when [[PklBuild.eval]] renders differently. */
-  private val Format = "1"
+  private val Format = "2"
 
   private val Kept = 4
 
