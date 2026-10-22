@@ -189,14 +189,16 @@ abstract class Node extends LayoutNode {
     if (children is Mapping) children
     else if (children.isEmpty) null
     else new Mapping { [defaultRegion] = children }
-  /// Node variables this node declares ([[varMod]]): name -> initial value. Its
-  /// subtree is where they apply, a tab panel or `If` branch included; a popup
-  /// does not see the page's.
-  vars: Mapping<String, String>? = null
-  /// Where a session starts a variable [[vars]] declares, when not at its
-  /// value, read once as the page opens ([[varMod.Variable.start]]). A result
-  /// no reader takes keeps the value.
-  starts: Mapping<String, varMod.Start>? = null
+  /// The node variables this node declares ([[varMod]]). Its subtree is where
+  /// they apply, a tab panel or `If` branch included; a popup does not see the
+  /// page's.
+  ///
+  ///   local view = c.variable("view")
+  ///   (c.column) {
+  ///     vars { view.defaultingTo("plain").notInUrl() }
+  ///     children { c.select(view).options(List("plain", "detail")) }
+  ///   }
+  vars: Listing<varMod.Declaration>(isDistinctBy((d) -> d.name)) = new {}
   /// Named values this node's own CEL reads: a literal, a live count
   /// (`q.from(xs).where(…).count()`, an `int`) or a live condition (`….any()`,
   /// a `bool`).

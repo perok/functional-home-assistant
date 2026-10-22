@@ -17,6 +17,7 @@ import fh.view.model.{
   Transform
 }
 import fh.view.testkit.{FakeConfig, FixtureEntity}
+import fh.view.testkit.DashboardBuilders.declared
 import org.http4s.*
 
 import java.time.Instant
@@ -67,7 +68,7 @@ class VarTapSuite extends ServerHarness {
       "panel",
       regions = LayoutNode.kids(chartNode),
       id = Some("panel"),
-      vars = Map("window" -> "24h")
+      vars = declared("window" -> "24h")
     )
   )
 
@@ -102,7 +103,7 @@ class VarTapSuite extends ServerHarness {
         )
       ),
       id = Some("panel"),
-      vars = Map("e" -> "sensor.a", "window" -> "24h")
+      vars = declared("e" -> "sensor.a", "window" -> "24h")
     )
   )
 
@@ -309,7 +310,7 @@ class VarTapSuite extends ServerHarness {
           )
         ),
         id = Some("panel"),
-        vars = Map("window" -> "24h")
+        vars = declared("window" -> "24h")
       )
     )
   }
@@ -603,7 +604,7 @@ class VarTapSuite extends ServerHarness {
         )
       ),
       id = Some("panel"),
-      vars = Map("window" -> "24h")
+      vars = declared("window" -> "24h")
     )
   )
 

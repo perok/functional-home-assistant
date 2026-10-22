@@ -14,6 +14,7 @@ import fh.view.model.{
   VarAt
 }
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.DashboardBuilders.declared
 import io.circe.{parser, Json}
 
 class BuildPhaseSuite extends munit.FunSuite {
@@ -296,7 +297,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     j.findAllByKey("g").flatMap(_.asString)
 
   test("a declarer token is the nearest declaring ancestor's id") {
-    val window = """, "vars": { "window": "24h" }"""
+    val window = """, "vars": [{ "name": "window", "default": "24h" }]"""
     val hoisted = hoistCard(
       node(
         window,
@@ -314,7 +315,12 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("a declarer token with no declarer above it fails the build") {
     // Unspliced it would ship as a literal, and every press would 404.
     val e = intercept[fh.view.FHError](
-      hoistCard(node(""", "vars": { "other": "1" }""", node(tokenAt("window"))))
+      hoistCard(
+        node(
+          """, "vars": [{ "name": "other", "default": "1" }]""",
+          node(tokenAt("window"))
+        )
+      )
     )
     assert(e.getMessage.contains("c_0"), clue = e.getMessage)
     assert(e.getMessage.contains("'window'"), clue = e.getMessage)
@@ -324,7 +330,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // ADR 0033: a surface is its own scope root, since one content can be
     // shown from more than one place.
     val opener = node(
-      """, "vars": { "window": "24h" }, "inlineSurfaces": { "self": """ +
+      """, "vars": [{ "name": "window", "default": "24h" }], "inlineSurfaces": { "self": """ +
         s"""{ "content": ${node(tokenAt("window"))} } }"""
     )
     val e = intercept[fh.view.FHError](hoistCard(node("", opener)))
@@ -333,7 +339,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val registered = hoistCard(
       node(""),
       s"""{ "detail": { "content": ${node(
-          """, "vars": { "window": "24h" }""",
+          """, "vars": [{ "name": "window", "default": "24h" }]""",
           node(tokenAt("window"))
         )} } }"""
     )
@@ -351,7 +357,12 @@ class BuildPhaseSuite extends munit.FunSuite {
       """, "inlineSurfaces": { "t0": { "bakeInto": "@@NODE_ID@@", "content": """ +
         s"""${node(tokenAt("window"))} } }"""
     val hoisted =
-      hoistCard(node(""", "vars": { "window": "24h" }""", node(panel)))
+      hoistCard(
+        node(
+          """, "vars": [{ "name": "window", "default": "24h" }]""",
+          node(panel)
+        )
+      )
     assertEquals(spliced(hoisted), List("c"))
   }
 
@@ -361,7 +372,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     val set =
       """{ "kind": "set", "candidates": ["sensor.a"], "members": { "sensor.a": """ +
         s"""{ "clauses": [ { "node": ${node(tokenAt("window"))} } ] } } }"""
-    val hoisted = hoistCard(node(""", "vars": { "window": "24h" }""", set))
+    val hoisted = hoistCard(
+      node(""", "vars": [{ "name": "window", "default": "24h" }]""", set)
+    )
     assertEquals(spliced(hoisted), List("c"))
   }
 
@@ -608,7 +621,7 @@ class BuildPhaseSuite extends munit.FunSuite {
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
-      card = LayoutNode.Component("ok", vars = Map("tab" -> "0")),
+      card = LayoutNode.Component("ok", vars = declared("tab" -> "0")),
       surfaces = Map(
         "a" -> member(0, Activation.Var("tab")),
         "b" -> member(1, state)
@@ -657,7 +670,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         )
       ),
       // Declared at a value only the fallback takes.
-      card = LayoutNode.Component("ok", vars = Map("window" -> "24h")),
+      card = LayoutNode.Component("ok", vars = declared("window" -> "24h")),
       surfaces = Map(
         "then" -> member(0, Activation.Var("window", VarAt.Value("30d"))),
         "else" -> member(1, Activation.Var("window", VarAt.Otherwise))
@@ -726,7 +739,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("validate rejects a surface baking into a region its card lacks") {
     def dash(hostCard: CardDef, as: String) = Dashboard(
       cards = Map("host" -> hostCard),
-      card = LayoutNode.Component("host", vars = Map("tab" -> "0")),
+      card = LayoutNode.Component("host", vars = declared("tab" -> "0")),
       surfaces = Map(
         "s" -> Surface(
           LayoutNode.Component("host"),

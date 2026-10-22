@@ -20,7 +20,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
@@ -195,7 +195,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   }
 
   /** What a tab bar declares: the open member's index (ADR 0033). */
-  val TabDeclared: Map[String, String] = Map("tab" -> "0")
+  val TabDeclared: List[Dashboard.Declaration] = declared("tab" -> "0")
 
   /** A member of a tab bar's panel, selected by the bar's `tab`. */
   def tabMember(

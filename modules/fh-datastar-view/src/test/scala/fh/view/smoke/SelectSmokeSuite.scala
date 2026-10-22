@@ -26,7 +26,7 @@ class SelectSmokeSuite extends SmokeSuite {
        |local shade = c.variable("shade")
        |
        |card = (c.column) {
-       |  vars = shade.declare("24h")
+       |  vars { shade.defaultingTo("24h") }
        |  children {
        |    c.select(shade).options(List("24h", "7d", "30d")).style("dropdown")
        |    c.select(shade).options(List("24h", "7d", "30d")).style("cycle")

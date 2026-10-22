@@ -5,6 +5,7 @@ import fh.view.history.ChartStyle
 import fh.view.query.{Staged, QuerySnapshot}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.DashboardBuilders.declared
 
 /** Node variables (issue #209): a node declares a named choice, a descendant
   * reads it by name, and the chain decides which declaration wins. A render
@@ -46,7 +47,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     LayoutNode.Component(
       "box",
       regions = LayoutNode.kids(kids*),
-      vars = vars
+      vars = declared(vars.toList*)
     )
 
   /** Named, so a test about addressing a choice does not depend on position. */
@@ -108,7 +109,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       LayoutNode.Component(
         "chart",
         slots = Map("chart" -> chartSlot()),
-        vars = Map("window" -> "7d")
+        vars = declared("window" -> "7d")
       )
     )
     assertEquals(d.validate(), Nil)
@@ -204,7 +205,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       .getOrElse(fail("no set at c_0"))
     val member: NodeId = r.members.memberIdOf(set, "sensor.t")
     val window = VarKey(member, "window")
-    assertEquals(r.vars.declarations.get(window), Some("24h"))
+    assertEquals(r.vars.defaults.get(window), Some("24h"))
     assert(r.vars.readersOf(window).nonEmpty, clue = r.vars.readersOf(window))
   }
 
@@ -360,7 +361,8 @@ class NodeVariablesSuite extends munit.FunSuite {
       assertEquals(
         env.get(id),
         Some(scope.map { case (name, in) =>
-          name -> chosen.getOrElse(VarKey(in.declarer, name), in.declared)
+          name -> chosen
+            .getOrElse(VarKey(in.declarer, name), in.declaration.default)
         }),
         clue = id
       )
@@ -417,6 +419,6 @@ class NodeVariablesSuite extends munit.FunSuite {
         case c: LayoutNode.Component => c.vars
         case other                   => fail(s"expected a component: $other")
       }
-    assertEquals(d, Right(Map.empty[String, String]), clue = d)
+    assertEquals(d, Right(Nil), clue = d)
   }
 }

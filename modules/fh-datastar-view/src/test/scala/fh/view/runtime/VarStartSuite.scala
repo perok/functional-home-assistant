@@ -8,7 +8,7 @@ import munit.CatsEffectSuite
 
 import scala.concurrent.duration.*
 
-/** A node variable with a start (`Node.starts`): a session opens it where an
+/** A node variable with an initial transform: a session opens it where an
   * entity's state says, once, and a choice or a link still wins.
   */
 class VarStartSuite extends CatsEffectSuite {
@@ -37,11 +37,10 @@ class VarStartSuite extends CatsEffectSuite {
   private val byMode =
     """attr[?'color_mode'].orValue('') == 'hs' ? 'colour' : (attr[?'color_mode'].orValue('') == 'color_temp' ? 'colourTemp' : 'nonsense')"""
 
-  private def entry(start: String) =
+  private def entry(start: String, after: String = "") =
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/core/variable.pkl" as varMod
        |import "@fh-home/dump.pkl" as dump
        |
        |local l = dump.entities.${lamp("hs").dumpKey}
@@ -49,7 +48,7 @@ class VarStartSuite extends CatsEffectSuite {
        |card = (c.column) {
        |  children {
        |    (c.entitySlider(l)) {
-       |      starts = (new varMod.Variable { name = "control" }).start(l, #"$start"#)
+       |      controlDeclaration = super.controlDeclaration.withInitialTransform(l, #"$start"#)$after
        |    }
        |  }
        |}
@@ -71,58 +70,74 @@ class VarStartSuite extends CatsEffectSuite {
       .findFirstMatchIn(html)
       .fold(fail(s"no control mirror on the page: $html"))(_.group(1))
 
-  private def startOn(
-      vars: Map[String, String],
-      start: Dashboard.Start
-  ): Dashboard =
+  private def startOn(vars: Dashboard.Declaration*): Dashboard =
     Dashboard(
       cards = Map("plain" -> CardDef("<span></span>")),
-      card = LayoutNode.Component(
-        "plain",
-        vars = vars,
-        starts = Map("control" -> start)
-      )
+      card = LayoutNode.Component("plain", vars = vars.toList)
+    )
+
+  private def control(start: Dashboard.InitialTransform) =
+    Dashboard.Declaration(
+      "control",
+      "brightness",
+      initialTransform = Some(start)
     )
 
   test(
-    "a start for an undeclared variable, or one that does not compile, fails the build"
+    "a variable declared twice on one node, or an initial transform that does not compile, fails the build"
   ) {
-    val ok = Dashboard.Start("light.lamp", "'colour'")
-    assertEquals(startOn(Map("control" -> "brightness"), ok).validate(), Nil)
+    val ok = Dashboard.InitialTransform("light.lamp", "'colour'")
+    assertEquals(startOn(control(ok)).validate(), Nil)
     assert(
-      startOn(Map.empty, ok)
+      startOn(control(ok), Dashboard.Declaration("control", "colour"))
         .validate()
-        .exists(
-          _.contains("a start for 'control', which this node does not declare")
-        )
+        .exists(_.contains("declares the variable 'control' more than once"))
     )
     assert(
-      startOn(Map("control" -> "brightness"), ok.copy(transform = "attr["))
+      startOn(control(ok.copy(transform = "attr[")))
         .validate()
-        .exists(_.contains("the start for 'control' does not compile"))
+        .exists(
+          _.contains("the initial transform for 'control' does not compile")
+        )
     )
   }
 
-  test("a start's entity is watched, since it decides what the page opens on") {
-    val d = startOn(
-      Map("control" -> "brightness"),
-      Dashboard.Start("light.other", "'colour'")
-    )
+  test(
+    "an initial transform's entity is watched, since it decides what the page opens on"
+  ) {
+    val d =
+      startOn(control(Dashboard.InitialTransform("light.other", "'colour'")))
     assert(d.watchedEntities.contains("light.other"), d.watchedEntities)
   }
 
-  test("a fresh page opens on the head its start names") {
+  test(
+    "out of the URL, it still opens on its initial value, and no signal is seeded for a mirror it lacks"
+  ) {
+    TestServer
+      .fromWorkspace("lamp", entry(byMode, ".notInUrl()"), List(lamp("hs")))
+      .use(_.page().map { html =>
+        assert(html.contains("max=\"360\""), html)
+        assert(!html.contains("data-fh-url:control"), html)
+        assert(!html.contains("__control__initialValue"), html)
+      })
+      .timeout(60.seconds)
+  }
+
+  test("a fresh page opens on the head its initial transform names") {
     served("hs") { ts =>
       ts.page().map { html =>
         val d = declarer(html)
         assert(html.contains("max=\"360\""), html)
         assert(!html.contains("max=\"255\""), html)
         assert(html.contains(s"_var_${d}__control: 'colour'"), html)
-        // The mirror leaves the start off the URL, as it does a declared value.
-        assert(html.contains(s"_var_${d}__control__start: 'colour'"), html)
+        // The mirror leaves the initial value off the URL, as it does a declared one.
+        assert(
+          html.contains(s"_var_${d}__control__initialValue: 'colour'"),
+          html
+        )
         assert(
           html.contains(
-            s"""data-fh-url:control="['v.$d.control', $$_var_${d}__control, $$_var_${d}__control__start]""""
+            s"""data-fh-url:control="['v.$d.control', $$_var_${d}__control, $$_var_${d}__control__initialValue]""""
           ),
           html
         )
@@ -130,7 +145,7 @@ class VarStartSuite extends CatsEffectSuite {
     }
   }
 
-  test("a link's choice wins over the start") {
+  test("a link's choice wins over the initial value") {
     served("hs") { ts =>
       for {
         plain <- ts.page()
@@ -142,13 +157,16 @@ class VarStartSuite extends CatsEffectSuite {
     }
   }
 
-  test("a start no reader takes keeps the declared value") {
+  test("an initial value no reader takes keeps the declared value") {
     served("xy") { ts =>
       ts.page().map { html =>
         val d = declarer(html)
         assert(html.contains("max=\"255\""), html)
         assert(html.contains(s"_var_${d}__control: 'brightness'"), html)
-        assert(html.contains(s"_var_${d}__control__start: 'brightness'"), html)
+        assert(
+          html.contains(s"_var_${d}__control__initialValue: 'brightness'"),
+          html
+        )
       }
     }
   }
@@ -159,13 +177,13 @@ class VarStartSuite extends CatsEffectSuite {
         v <- ts.viewer()
         sent <- v.step(lamp("color_temp")).map(_.flatMap(_.data).mkString)
         state <- v.session.state
-        // The store did move: a page opening now starts on temperature.
+        // The store did move: a page opening now opens on temperature.
         fresh <- ts.page()
       } yield {
         assert(!sent.contains("max=\"6500\""), sent)
         assert(fresh.contains("max=\"6500\""), fresh)
         assertEquals(state.vars, Map.empty)
-        assertEquals(state.starts.values.toList, List("colour"))
+        assertEquals(state.initialValues.values.toList, List("colour"))
       }
     }
   }

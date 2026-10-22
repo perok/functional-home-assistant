@@ -9,9 +9,13 @@ class Transforms private (
     private val compiled: Map[Transform.CelKey, Transform.Compiled]
 ) {
 
-  // `expr` is always one the dashboard declared; a miss is a bug.
-  def run(expr: String, entity: EntityState, dashboardSlug: String): String =
-    Transform.run(compiled(Transform.CelKey(expr)), entity, dashboardSlug)
+  // `key` is always one the dashboard declared; a miss is a bug.
+  def run(
+      key: Transform.CelKey,
+      entity: EntityState,
+      dashboardSlug: String
+  ): String =
+    Transform.run(compiled(key), entity, dashboardSlug)
 
   def runValue(
       expr: String,

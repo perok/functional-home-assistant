@@ -31,7 +31,8 @@ not be enumerated there. A declared reference can.
 ### The rules, in one place
 
 1. A node declares variables: a name and the value it holds before anyone chooses. A declaration
-   may also START elsewhere: an expression over one entity's state, read once as a session opens.
+   may also OPEN elsewhere: an initial transform over one entity's state, run once as a session
+   opens.
 2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
 3. A node that declares nothing is transparent.
 4. A nested declaration of the same name shadows the outer one, for its own subtree only.
@@ -50,16 +51,21 @@ Rules 2–6 are lexical scoping, as in Scheme, ML or Pkl itself: where a node st
 decides, never where it is shown. Rule 6 is what keeps that true for surfaces — a popup can be
 opened from many places, so inheriting from its opener would be dynamic scoping.
 
-**Declaration.** `LayoutNode.Component.vars: Map[String, String]` — a name and the value it holds
-before anyone chooses. In Pkl, `vars = new Mapping { ["window"] = "24h" }` — assigned, because a null-defaulted
-`Mapping?` cannot be amended (ADR 0034). Nothing else: no type, no list of
-allowed values (below).
+**Declaration.** `LayoutNode.Component.vars: List[Declaration]`, one per name:
+`Declaration(name, default, inUrl, initialTransform)` — the value it holds before anyone chooses,
+whether a choice is mirrored into the URL (ADR 0005), and where a session opens it instead. In Pkl
+a node amends `vars { window.defaultingTo("24h") }`. A `varMod.Declaration` holds the `Variable`
+it declares (hidden, so not on the wire); a reader holds only the `Variable`, written without
+knowing which node above declares it. The decoder is derived, and `Component.defaults` is the
+name → default view most readers want. Nothing else: no type, no list of allowed values (below).
 
-**Start.** `LayoutNode.Component.starts: Map[String, Start]`: per declared name, CEL over one
-entity's state (`Start(entityId, transform)`), compiled at validate. The page route evaluates it
-as it mints the session, and a result every reader takes (`Renderer.refusals`) becomes
-`SessionState.starts`, under the viewer's choices and over the declared value. A light's slider
-starts its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
+**Initial transform.** `Declaration.initialTransform` (`withInitialTransform(e, cel)` in Pkl): CEL
+over one entity's state (`InitialTransform(entityId, transform)`). It is compiled at validate into
+the same table as a slot's transform, by one key (`InitialTransform.celKey`, as a slot's is
+`SlotSource.celKey`), and only looked up after. The page route runs it as it mints the session, and a result every
+reader takes (`Renderer.refusals`) becomes `SessionState.initialValues`, under the viewer's
+choices and over the default. A light's slider
+opens its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
 that have an `inUseWhen`: brightness is always in use, so a list leading with it always opens on
 brightness, which is how `.opensOn(List(l.brightness))` keeps the old behaviour). It names its
 entity rather than reading the declarer's subject, because a slider's declaring node has none (its
@@ -68,9 +74,9 @@ declared value stands, as for a stale link. It is read **once**: an open page ne
 follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
 ZHA group reports a false `xy` 59 ms after a temperature command,
 `docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
-groups, a path only a write has. A start is not a choice: no `v.` param, so a refresh starts
-afresh, and the mirror compares to the session's `__start` signal rather than the declared value
-in the shared node bytes. Its entity is watched (ADR 0030), since it decides what the page shows.
+groups, a path only a write has. An initial value is not a choice: no `v.` param, so a refresh
+decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
+default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
 **Reference.** A query parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
 string is a literal and `{"var": "window"}` a reference, the rule `SlotSource`'s decoder already
@@ -117,7 +123,7 @@ unresolved tokens stays behind it, so a missed splice fails the build instead of
 **One typed value on each side, never a bare name.** A component holds a variable as a
 `varMod.Variable`: its `ref` for a query parameter, `declarer` for a node below, its signals and URL
 param spelled from the declarer's own template (`own`) or from below it (`below`), the `selects`
-activation of a panel, `declare(value)` for the node's `vars`, and `choose(value)` for a guarded
+activation of a panel, `defaultingTo(value)` for the node's `vars`, and `choose(value)` for a guarded
 tap. So a component writes the name once, and a misspelt signal cannot exist. The server's half
 is `VarKey(declarer, name)`, which owns the same spellings where the server commits, seeds,
 adopts a reconnect's values and reads a link, and `VarGraph`, beside `SurfaceGraph` and
@@ -234,16 +240,22 @@ could not be enumerated before the walk — the property this exists to keep.
 **Ordering the walk.** #209 predicted a declared edge would need topological ordering. It does not:
 a value is ambient session state, in hand before the walk, never computed by it.
 
-**A start beside `vars`, not inside it.** A declaration could have been a bare string or
-`{value, start}`, the rule `SlotSource` uses. A field of its own, as `values` is, left every reader
-of `vars` (scopes, validation, the mirror's declared value, the snapshots) unchanged.
+**Settings beside `vars`, keyed by the same name.** A map per setting (a `starts` map, a
+`notInUrl` set) next to a name → value `vars` left every reader of `vars` unchanged, but spread
+one declaration over parallel maps, each needing its own "this node declares no such name" check.
+A setting belongs to the declaration, never to a read site (one value, one URL param), so it sits
+on the `Declaration`, and a setting for an undeclared name cannot be written.
+
+**A declaration that extends its variable.** A `Declaration` subclassing `Variable` would let a
+URL setting or an initial transform travel to a reader, which ignores it. It holds the variable
+instead.
 
 ## Consequences
 
 - **"Opens" means when the document loaded.** A wall tablet that never reloads keeps the head it
   opened on however the light changes. A reconnect keeps it too: the SSE GET carries the committed
-  value, and a session this process forgot adopts it as a choice, start or not.
-- **One place a start does nothing.** With `.syncRows()` the rows follow the head, which starts
+  value, and a session this process forgot adopts it as a choice, initial value or not.
+- **One place an initial transform does nothing.** With `.syncRows()` the rows follow the head, which starts
   from the group entity's state, not each bulb's.
 - **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
@@ -263,8 +275,8 @@ of `vars` (scopes, validation, the mirror's declared value, the snapshots) uncha
 - **A variable with NO value — "nothing selected yet".** A real UI state, not built because no
   reader can use it: `history`'s parameters are all required. A provider with an optional
   parameter is what would make it worth building. **Null cannot spell it** — `omitNullProperties`
-  drops a null Mapping entry, so `["compare"] = null` declares nothing (ADR 0006). Spell it as the
-  bare-string-or-object rule already does: `"24h"` a value, `{}` unset. `""` is a different
+  drops a null property, so `default = null` would read as no default given (ADR 0006). Spell it as
+  a field of the `Declaration` that says so, not as an absent `default`. `""` is a different
   question; `core/stage.pkl` already keeps absent and empty apart.
 - **A type, if a variable ever needs one, must be a real one** — a named `ValueType` covering more
   than string enums, with one answer for where it is checked and one for how a control is derived.
