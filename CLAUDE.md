@@ -53,6 +53,10 @@ target, a renamed builder, an option — update the doc in the same commit, at t
 level: what to write and what happens, not how the server does it. The Pkl doc comments are the
 reference; these are the guide, so they need only what a reader would otherwise miss.
 
+[`docs/experiments.md`](docs/experiments.md) records measurements and spikes that ended in "don't
+build it": the question, how it was measured, the numbers, and what would reopen it. Check it
+before measuring something, and add an entry when an experiment's answer is no.
+
 A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
 assume an API written there exists.
 
