@@ -385,7 +385,7 @@ class RenderBench {
       Transform.Simple.Match(Map("on" -> "lit"), ""),
       Transform.Simple.State,
       Transform.Simple.Attr("brightness"),
-      Transform.Simple.UnitSuffix("unit_of_measurement"),
+      Transform.Simple.SuffixUnit("unit_of_measurement"),
       Transform.Simple.Fill("brightness", 1.0, 255.0),
       Transform.Simple.Percent("brightness", 1.0, 255.0)
     )
@@ -1735,7 +1735,7 @@ object RenderBench {
                transform = Transform.Simple.Attr("friendly_name")
              )),
         "state" -> SlotSource(
-          transform = Transform.Simple.UnitSuffix("unit_of_measurement"),
+          transform = Transform.Simple.SuffixUnit("unit_of_measurement"),
           signal = Option.when(signals)(SignalBind.Text)
         ),
         "fill" -> SlotSource(

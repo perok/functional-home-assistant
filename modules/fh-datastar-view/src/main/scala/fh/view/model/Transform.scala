@@ -2,7 +2,7 @@ package fh.view.model
 
 import fh.view.history.ChartStyle
 import fh.view.runtime.{Cel, EntityState}
-import io.circe.{Decoder, DecodingFailure}
+import io.circe.Decoder
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Slot transforms in [CEL](https://cel.dev), over `state`, `attr`,
@@ -32,6 +32,8 @@ object Transform {
     * Each case is defined by the idiomatic CEL below; TransformSuite holds
     * [[runSimple]] byte-equal to it over a hostile sweep, and pins the few
     * divergences where CEL would error. Closed: anything more is CEL.
+    *
+    * On the wire, `core/simple.pkl`'s `kind` is the case name, lower-camel.
     */
   enum Simple {
 
@@ -44,7 +46,7 @@ object Transform {
     /** CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A
       * non-String unit counts as absent (CEL would error).
       */
-    case UnitSuffix(name: String)
+    case SuffixUnit(name: String)
 
     /** CEL: `'literal' + state`. */
     case Prefix(literal: String)
@@ -102,13 +104,24 @@ object Transform {
       case _                   => None
     }
 
-    given Decoder[Simple] = Decoder[SimpleWire].emap(_.toSimple)
+    private given Configuration =
+      Configuration.default
+        .withDiscriminator("kind")
+        .withTransformConstructorNames(n => n.take(1).toLowerCase + n.drop(1))
+
+    // Boolean first: the narrower type goes first.
+    private given Decoder[SlotValue] =
+      Decoder[Boolean]
+        .map(b => b: SlotValue)
+        .or(Decoder[String].map(s => s: SlotValue))
+
+    given Decoder[Simple] = ConfiguredDecoder.derived
 
     /** Injective, for signal names and the once-cache. */
     def key(s: Simple): String = s match {
       case Simple.State            => "state"
       case Simple.Attr(n)          => s"attr:$n"
-      case Simple.UnitSuffix(n)    => s"unit:$n"
+      case Simple.SuffixUnit(n)    => s"unit:$n"
       case Simple.Prefix(lit)      => s"prefix:$lit"
       case Simple.Suffix(lit)      => s"suffix:$lit"
       case m: Simple.Match         => matchKey(m)
@@ -134,93 +147,6 @@ object Transform {
     }
   }
 
-  /** What Pkl emits: an operator name with arguments, or a match table. `kind`
-    * picks the case and `op` the operator, since circe's discriminator maps a
-    * constructor to one fixed string.
-    */
-  enum SimpleWire {
-    case Value(
-        op: String,
-        value: Option[String] = None,
-        params: Map[String, String | Double] = Map.empty
-    )
-    case Match(cases: Map[String, SlotValue], otherwise: SlotValue)
-
-    /** At decode time, so the renderer matches exhaustively over [[Simple]] (a
-      * new shape cannot skip the parity suite) and pays no argument lookups. A
-      * missing argument, possible only from hand-written JSON, fails the build.
-      */
-    def toSimple: Either[String, Simple] = this match {
-      case SimpleWire.Match(cases, otherwise) =>
-        Right(Simple.Match(cases, otherwise))
-
-      case SimpleWire.Value(op, value, params) =>
-        def arg: Either[String, String] =
-          value.toRight(s"simple `$op` needs a `value`")
-        def param(name: String): Either[String, Double] =
-          params.get(name) match {
-            case Some(d: Double) => Right(d)
-            case Some(s: String) =>
-              s.toDoubleOption.toRight(
-                s"simple `$op` param `$name` is not a number"
-              )
-            case None => Left(s"simple `$op` needs a `$name` param")
-          }
-        def range(make: (String, Double, Double) => Simple) =
-          for {
-            n <- arg
-            lo <- param("min")
-            hi <- param("max")
-          } yield make(n, lo, hi)
-
-        op match {
-          case "state"      => Right(Simple.State)
-          case "attr"       => arg.map(Simple.Attr.apply)
-          case "suffixUnit" => arg.map(Simple.UnitSuffix.apply)
-          case "prefix"     => arg.map(Simple.Prefix.apply)
-          case "suffix"     => arg.map(Simple.Suffix.apply)
-          case "percent"    => range(Simple.Percent.apply)
-          case "fill"       => range(Simple.Fill.apply)
-          // Reads the state, so no `value`.
-          case "duration" => param("scale").map(Simple.Duration.apply)
-          case other      => Left(s"unknown simple op `$other`")
-        }
-    }
-  }
-
-  object SimpleWire {
-
-    // `withDefaults` lets Pkl omit empty `value`/`params`: bytes in a wire
-    // whose content hash is the package version.
-    private given Configuration =
-      Configuration.default.withDefaults
-        .withDiscriminator("kind")
-        .withTransformConstructorNames(_.toLowerCase)
-
-    // Boolean first: the narrower type goes first.
-    private given Decoder[SlotValue] =
-      Decoder[Boolean]
-        .map(b => b: SlotValue)
-        .or(Decoder[String].map(s => s: SlotValue))
-
-    /** By JSON shape, not an ordered `or`: circe's numeric decoders accept a
-      * numeric string, which would turn a string argument into a Double.
-      */
-    private given Decoder[String | Double] = Decoder.instance { c =>
-      c.value.fold(
-        jsonNull = Left(DecodingFailure("param is null", c.history)),
-        jsonBoolean =
-          _ => Left(DecodingFailure("param is a boolean", c.history)),
-        jsonNumber = n => Right(n.toDouble),
-        jsonString = s => Right(s),
-        jsonArray = _ => Left(DecodingFailure("param is an array", c.history)),
-        jsonObject = _ => Left(DecodingFailure("param is an object", c.history))
-      )
-    }
-
-    given Decoder[SimpleWire] = ConfiguredDecoder.derived
-  }
-
   /** Rendered exactly as [[run]] renders the equivalent CEL. No engine
     * fallback.
     */
@@ -233,7 +159,7 @@ object Transform {
       case Simple.State      => entity.state
       case Simple.Attr(name) =>
         Cel.stringify(entity.javaAttributes.get(name))
-      case Simple.UnitSuffix(name) =>
+      case Simple.SuffixUnit(name) =>
         entity.javaAttributes.get(name) match {
           case u: String => entity.state + " " + u
           case _         => entity.state

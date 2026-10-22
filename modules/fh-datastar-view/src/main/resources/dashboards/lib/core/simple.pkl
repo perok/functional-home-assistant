@@ -13,21 +13,20 @@
 /// documented divergence, pinned too. The constructors are the only door.
 module core.simple
 
-/// Mirrors `Transform.SimpleWire.toSimple`, which rejects any other name.
-typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"|"duration"
+/// `Transform.Simple`'s case names, lower-camel: the backend's decoder is
+/// derived, so any other name fails the decode.
+typealias Kind = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"|"duration"
 
-/// An operator over one read. `kind` names the shape (the wire discriminator),
-/// `op` the operator.
-///
-/// The extras default to null, which the JSON renderer omits: an empty `params`
-/// on every slot would be bytes in a wire whose content hash is the package
-/// version. That is also why constructors spell `new Mapping`: a bare `new`
-/// with no default to amend infers `Dynamic` and fails at eval.
+/// An operator over one read, named by `kind` (the wire discriminator). Each
+/// constructor sets the fields its kind reads; the rest stay null, which the
+/// JSON renderer omits.
 class SimpleValue {
-  kind = "value"
-  op: Op
-  value: String? = null
-  params: Mapping<String, String|Number>? = null
+  kind: Kind
+  name: String? = null
+  literal: String? = null
+  min: Number? = null
+  max: Number? = null
+  scale: Number? = null
 }
 
 /// The state as a lookup:
@@ -48,24 +47,24 @@ typealias Simple = SimpleValue|SimpleMatch
 // `const`, because components call them from class bodies.
 
 /// `state`.
-const function state(): Simple = new SimpleValue { op = "state" }
+const function state(): Simple = new SimpleValue { kind = "state" }
 
 /// `attr[?'name']`; absent renders `""` and the slot's default applies.
 const function attr(attrName: String): Simple =
-  new SimpleValue { op = "attr"; value = attrName }
+  new SimpleValue { kind = "attr"; name = attrName }
 
 /// `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A unit that is not a
 /// String renders the state alone.
 const function suffixUnit(attrName: String): Simple =
-  new SimpleValue { op = "suffixUnit"; value = attrName }
+  new SimpleValue { kind = "suffixUnit"; name = attrName }
 
 /// `'literal' + state`.
 const function prefix(lit: String): Simple =
-  new SimpleValue { op = "prefix"; value = lit }
+  new SimpleValue { kind = "prefix"; literal = lit }
 
 /// `state + 'literal'`.
 const function suffix(lit: String): Simple =
-  new SimpleValue { op = "suffix"; value = lit }
+  new SimpleValue { kind = "suffix"; literal = lit }
 
 const function matchOf(byState: Mapping<String, String|Boolean>, elseV: String|Boolean): Simple =
   new SimpleMatch { cases = byState; otherwise = elseV }
@@ -85,27 +84,16 @@ const function stateIn(states: Listing<String>): Simple =
 /// The attribute as a percentage of `[min, max]`, rounded half away from zero
 /// like `math.round`. Numeric as `double()` is; otherwise `"0 %"`.
 const function percent(attrName: String, minV: Number, maxV: Number): Simple =
-  new SimpleValue {
-    op = "percent"
-    value = attrName
-    params = new Mapping { ["min"] = minV; ["max"] = maxV }
-  }
+  new SimpleValue { kind = "percent"; name = attrName; min = minV; max = maxV }
 
 /// [[percent]]'s complement for a right-anchored track, unrounded, since it is
 /// a CSS length. Otherwise `"100%"`.
 const function fill(attrName: String, minV: Number, maxV: Number): Simple =
-  new SimpleValue {
-    op = "fill"
-    value = attrName
-    params = new Mapping { ["min"] = minV; ["max"] = maxV }
-  }
+  new SimpleValue { kind = "fill"; name = attrName; min = minV; max = maxV }
 
 /// The state as a number of `unitSeconds`, rendered `4h 13m` / `13m` / `45s`.
 /// Otherwise `""`: an appliance between programmes reports `unknown`, where
 /// `0s` would claim it just finished. Pass `e.durationSeconds`, which is null
 /// for a unit with no fixed length.
 const function duration(unitSeconds: Number): Simple =
-  new SimpleValue {
-    op = "duration"
-    params = new Mapping { ["scale"] = unitSeconds }
-  }
+  new SimpleValue { kind = "duration"; scale = unitSeconds }

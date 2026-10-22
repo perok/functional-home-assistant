@@ -761,7 +761,7 @@ facts {
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
     // The state readout opted in as the raw-state shape.
-    (row.headSlots["state"].transform as simpleMod.SimpleValue).op == "state"
+    (row.headSlots["state"].transform as simpleMod.SimpleValue).kind == "state"
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
@@ -777,9 +777,10 @@ facts {
     // The percent READOUT rides the "state" slot (shownReadout), opted in as
     // the simple tier's percent over the light's own 1..255 range.
     local statePercent: simpleMod.SimpleValue = dim.headSlots["state"].transform!!
-    statePercent.op == "percent"
-    statePercent.value == "brightness"
-    statePercent.params.toMap() == Map("min", 1, "max", 255)
+    statePercent.kind == "percent"
+    statePercent.name == "brightness"
+    statePercent.min == 1
+    statePercent.max == 255
     dim.headSlots["dragPercent"] == "1"
   }
 
@@ -1301,15 +1302,15 @@ facts {
     // is minutes here and seconds elsewhere, and a countdown scaled by a guess
     // runs sixty times fast.
     local d: simpleMod.SimpleValue = c.progress(remainingMin).slots["value"].transform!!
-    d.op == "duration"
-    d.params!!.toMap() == Map("scale", 60)
+    d.kind == "duration"
+    d.scale == 60
     local secs: hass.SensorEntity = new {
       entity_id = "sensor.secs"
       device_class = "duration"
       unit_of_measurement = "s"
     }
     (c.progress(secs).slots["value"].transform as simpleMod.SimpleValue)
-      .params!!.toMap() == Map("scale", 1)
+      .scale == 1
   }
 
   ["a duration that cannot be scaled renders no countdown at all"] {

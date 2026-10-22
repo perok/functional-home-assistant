@@ -39,9 +39,8 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
-                                  "kind" : "value",
-                                  "op" : "suffixUnit",
-                                  "value" : "unit_of_measurement"
+                                  "kind" : "suffixUnit",
+                                  "name" : "unit_of_measurement"
                                 }
                               }
                             },
@@ -247,9 +246,8 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "value",
-                "op" : "suffixUnit",
-                "value" : "unit_of_measurement"
+                "kind" : "suffixUnit",
+                "name" : "unit_of_measurement"
               }
             }
           },
@@ -310,9 +308,8 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "value",
-                "op" : "suffixUnit",
-                "value" : "unit_of_measurement"
+                "kind" : "suffixUnit",
+                "name" : "unit_of_measurement"
               }
             }
           },
@@ -409,9 +406,8 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
-                                  "kind" : "value",
-                                  "op" : "suffixUnit",
-                                  "value" : "unit_of_measurement"
+                                  "kind" : "suffixUnit",
+                                  "name" : "unit_of_measurement"
                                 }
                               }
                             },
@@ -477,9 +473,8 @@
                                       "reads" : "live",
                                       "signal" : "text",
                                       "transform" : {
-                                        "kind" : "value",
-                                        "op" : "suffixUnit",
-                                        "value" : "unit_of_measurement"
+                                        "kind" : "suffixUnit",
+                                        "name" : "unit_of_measurement"
                                       }
                                     }
                                   },
@@ -557,9 +552,8 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "value",
-                "op" : "suffixUnit",
-                "value" : "unit_of_measurement"
+                "kind" : "suffixUnit",
+                "name" : "unit_of_measurement"
               }
             }
           },
@@ -630,13 +624,10 @@
                     "reads" : "live",
                     "signal" : "style:--fh-fill",
                     "transform" : {
-                      "kind" : "value",
-                      "op" : "fill",
-                      "params" : {
-                        "max" : 255,
-                        "min" : 1
-                      },
-                      "value" : "brightness"
+                      "kind" : "fill",
+                      "max" : 255,
+                      "min" : 1,
+                      "name" : "brightness"
                     }
                   },
                   "fillColor" : {
@@ -656,8 +647,7 @@
                     "reads" : "live",
                     "signal" : "text",
                     "transform" : {
-                      "kind" : "value",
-                      "op" : "state"
+                      "kind" : "state"
                     }
                   },
                   "tapDisabled" : {
@@ -681,9 +671,8 @@
                     "reads" : "live",
                     "signal" : "attr:value",
                     "transform" : {
-                      "kind" : "value",
-                      "op" : "attr",
-                      "value" : "brightness"
+                      "kind" : "attr",
+                      "name" : "brightness"
                     }
                   }
                 },
@@ -762,9 +751,8 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
-                          "kind" : "value",
-                          "op" : "suffixUnit",
-                          "value" : "unit_of_measurement"
+                          "kind" : "suffixUnit",
+                          "name" : "unit_of_measurement"
                         }
                       }
                     },
@@ -837,9 +825,8 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
-                          "kind" : "value",
-                          "op" : "suffixUnit",
-                          "value" : "unit_of_measurement"
+                          "kind" : "suffixUnit",
+                          "name" : "unit_of_measurement"
                         }
                       }
                     },
@@ -1124,9 +1111,8 @@
                                     "reads" : "live",
                                     "signal" : "text",
                                     "transform" : {
-                                      "kind" : "value",
-                                      "op" : "suffixUnit",
-                                      "value" : "unit_of_measurement"
+                                      "kind" : "suffixUnit",
+                                      "name" : "unit_of_measurement"
                                     }
                                   }
                                 },
@@ -1332,9 +1318,8 @@
                   "reads" : "live",
                   "signal" : "text",
                   "transform" : {
-                    "kind" : "value",
-                    "op" : "suffixUnit",
-                    "value" : "unit_of_measurement"
+                    "kind" : "suffixUnit",
+                    "name" : "unit_of_measurement"
                   }
                 }
               },

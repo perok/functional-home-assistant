@@ -365,7 +365,7 @@ class TransformSuite extends munit.FunSuite {
       es("")
     )
     agree(
-      Simple.UnitSuffix("unit_of_measurement"),
+      Simple.SuffixUnit("unit_of_measurement"),
       "state + attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')",
       probes
     )
@@ -425,7 +425,7 @@ class TransformSuite extends munit.FunSuite {
     // the tier renders the state alone.
     val e = es("on", "unit_of_measurement" -> Json.fromInt(5))
     assertEquals(
-      Transform.runSimple(Simple.UnitSuffix("unit_of_measurement"), e),
+      Transform.runSimple(Simple.SuffixUnit("unit_of_measurement"), e),
       "on"
     )
     assert(
@@ -562,15 +562,10 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("a duration decodes off the wire under the name Pkl writes") {
-    // Written in two languages, the `Op` typealias in `core/simple.pkl` and
-    // `toSimple` here, so only this checks they agree; a mismatch is a decode
-    // failure at boot. `duration` carries its argument only in `params`: its
-    // read is the state.
+    // `duration` carries only `scale`: its read is the state.
     assertEquals(
       io.circe.parser
-        .decode[Transform.Simple](
-          """{"kind":"value","op":"duration","params":{"scale":60}}"""
-        ),
+        .decode[Transform.Simple]("""{"kind":"duration","scale":60}"""),
       Right(Simple.Duration(60.0))
     )
   }
@@ -583,7 +578,7 @@ class TransformSuite extends munit.FunSuite {
     )
     assertNotEquals(
       Transform.Simple.key(Simple.Attr("x")),
-      Transform.Simple.key(Simple.UnitSuffix("x"))
+      Transform.Simple.key(Simple.SuffixUnit("x"))
     )
     assertNotEquals(
       Transform.Simple.key(Simple.Percent("x", 1.0, 2.0)),
@@ -600,14 +595,18 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
-  // The wire form: the flat `{op, value, params}` Pkl emits is parsed into the
-  // enum once, here. A structure missing an argument must fail loudly, not
-  // render blank.
+  // The wire form: `core/simple.pkl`'s `kind` names the case and the decoder
+  // is derived. A structure missing an argument must fail loudly, not render
+  // blank.
 
-  /** A literal, not derived: a derivation from the Scala enum would agree with
-    * itself.
-    */
-  private val PklOps =
+  private def decode(src: String) =
+    io.circe.parser.decode[Transform.Simple](src)
+
+  test("every kind the Pkl module can spell decodes into a runtime shape") {
+    // Written in two languages, the `Kind` typealias in `core/simple.pkl` and
+    // the case names here, so only this checks they agree; a literal, since a
+    // list derived from the Scala enum would agree with itself. Every field
+    // any kind takes; each ignores what it does not read.
     List(
       "state",
       "attr",
@@ -617,88 +616,54 @@ class TransformSuite extends munit.FunSuite {
       "percent",
       "fill",
       "duration"
-    )
-
-  private def wire(
-      op: String,
-      value: Option[String] = None,
-      params: Map[String, String | Double] = Map.empty
-  ) = Transform.SimpleWire.Value(op, value, params).toSimple
-
-  test("every op the Pkl module can spell parses into a runtime shape") {
-    // Every param any operator takes; each ignores what it does not need.
-    val args = Map(
-      "min" -> (1.0: String | Double),
-      "max" -> (255.0: String | Double),
-      "scale" -> (60.0: String | Double)
-    )
-    PklOps.foreach { op =>
+    ).foreach { kind =>
       assert(
-        wire(op, Some("brightness"), args).isRight,
-        s"op `$op` is spellable in Pkl but does not parse"
+        decode(
+          s"""{"kind":"$kind","name":"brightness","literal":"x",""" +
+            """"min":1,"max":255,"scale":60}"""
+        ).isRight,
+        s"kind `$kind` is spellable in Pkl but does not decode"
       )
     }
   }
 
-  test("an op outside that set is refused, not silently dropped") {
-    assert(wire("attrOrId", Some("x")).isLeft)
-    assert(wire("", Some("x")).isLeft)
+  test("a kind outside that set is refused, not silently dropped") {
+    assert(decode("""{"kind":"attrOrId","name":"x"}""").isLeft)
+    assert(decode("""{"kind":"","name":"x"}""").isLeft)
   }
 
-  test("a missing argument fails the parse rather than defaulting") {
+  test("a missing argument fails the decode rather than defaulting") {
     // A hand-written `SimpleValue` forgetting a field. The typed Pkl
     // constructors cannot produce these, which is why nothing downstream would
     // catch them.
-    assert(wire("attr").isLeft, "attr with no value")
-    assert(wire("prefix").isLeft, "prefix with no literal")
-    assert(wire("percent", Some("brightness")).isLeft, "percent with no range")
+    assert(decode("""{"kind":"attr"}""").isLeft, "attr with no name")
+    assert(decode("""{"kind":"prefix"}""").isLeft, "prefix with no literal")
     assert(
-      wire(
-        "percent",
-        Some("brightness"),
-        Map("min" -> (1.0: String | Double))
-      ).isLeft,
+      decode("""{"kind":"percent","name":"b"}""").isLeft,
+      "percent with no range"
+    )
+    assert(
+      decode("""{"kind":"percent","name":"b","min":1}""").isLeft,
       "percent with only half a range"
     )
     assert(
-      wire(
-        "percent",
-        Some("b"),
-        Map("min" -> ("lo": String | Double), "max" -> (2.0: String | Double))
-      ).isLeft,
+      decode("""{"kind":"percent","name":"b","min":"lo","max":2}""").isLeft,
       "percent whose min is not a number"
     )
   }
 
   test("state takes no argument, and one it does not need is ignored") {
-    assertEquals(wire("state"), Right(Simple.State))
-    assertEquals(wire("state", Some("brightness")), Right(Simple.State))
-  }
-
-  test("a param may arrive as a numeric string, as Pkl's JSON may render it") {
+    assertEquals(decode("""{"kind":"state"}"""), Right(Simple.State))
     assertEquals(
-      wire(
-        "percent",
-        Some("b"),
-        Map("min" -> ("1": String | Double), "max" -> ("255": String | Double))
-      ),
-      Right(Simple.Percent("b", 1.0, 255.0))
-    )
-  }
-
-  test("the decoder reads both wire shapes off real JSON") {
-    def decode(src: String) =
-      io.circe.parser.decode[Transform.Simple](src)
-    assertEquals(
-      decode(
-        """{"kind":"value","op":"percent","value":"brightness",""" +
-          """"params":{"min":1,"max":255}}"""
-      ),
-      Right(Simple.Percent("brightness", 1.0, 255.0))
-    )
-    assertEquals(
-      decode("""{"kind":"value","op":"state"}"""),
+      decode("""{"kind":"state","name":"brightness"}"""),
       Right(Simple.State)
+    )
+  }
+
+  test("the decoder reads an operator and a match off real JSON") {
+    assertEquals(
+      decode("""{"kind":"percent","name":"brightness","min":1,"max":255}"""),
+      Right(Simple.Percent("brightness", 1.0, 255.0))
     )
     assertEquals(
       decode("""{"kind":"match","cases":{"on":"Open"},"otherwise":false}"""),
@@ -712,14 +677,9 @@ class TransformSuite extends munit.FunSuite {
           case _                      => false
         }
     )
-    assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
-    // An unknown `kind` fails on the discriminator, not as a confusing unknown
-    // op in `Value`.
-    assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
-    // Optional on the wire, so Pkl can omit both.
     assertEquals(
-      decode("""{"kind":"value","op":"suffixUnit","value":"u"}"""),
-      Right(Simple.UnitSuffix("u"))
+      decode("""{"kind":"suffixUnit","name":"u"}"""),
+      Right(Simple.SuffixUnit("u"))
     )
   }
 }

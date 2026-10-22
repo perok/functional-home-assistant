@@ -56,7 +56,7 @@ class ChartStyleSuite extends munit.FunSuite {
   test("a simple transform and a CEL string still decode") {
     assertEquals(transformOf(""""state""""), Right("state"))
     assertEquals(
-      transformOf("""{"kind": "value", "op": "state"}"""),
+      transformOf("""{"kind": "state"}"""),
       Right(Transform.Simple.State)
     )
   }
