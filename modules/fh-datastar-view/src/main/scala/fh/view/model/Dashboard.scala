@@ -45,7 +45,7 @@ case class SlotSource(
     `type`: SlotType = SlotType.Text,
     query: Option[QueryTemplate] = None,
     // Not on the wire: the node's expression values this transform reads,
-    // attached at decode ([[LayoutNode.foldNode]]).
+    // attached by [[Dashboard.folded]].
     values: Map[String, ExprValue] = Map.empty
 ) {
 
@@ -388,9 +388,8 @@ object Region {
 
 /** What the renderer puts on the node's `.fh-cell` wrapper: static classes,
   * `classWhen`'s live ones, and `cssProperty`'s live custom properties — the
-  * live two folded into the component's slots at decode
-  * ([[LayoutNode.foldNode]]). An object so it can grow `grid_options`-style
-  * fields without a wire break.
+  * live two folded into the component's slots by [[Dashboard.folded]]. An
+  * object so it can grow `grid_options`-style fields without a wire break.
   */
 case class Cell(
     classes: List[String] = Nil,
@@ -537,17 +536,19 @@ object LayoutNode:
   def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
     if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
 
-  /** At decode, two things a node declares beside its slots move ONTO them, so
-    * the reverse index, the plan, the seed and the signal frames carry them
-    * with no path of their own:
+  /** Two things a node declares beside its slots move ONTO them, so the reverse
+    * index, the plan, the seed and the signal frames carry them with no path of
+    * their own:
     *
     *   - its live cell classes and properties become slots
     *     ([[Dashboard.cellClassSlot]], [[Dashboard.cellStyleSlot]]). A set
     *     keeps its own: it has no slots, so `validate` rejects them there.
     *   - each expression value goes onto every slot whose expression names it
     *     ([[SlotSource.values]]), so a slot alone says what it reads.
+    *
+    * Idempotent: a folded node has no live cell entries left to move.
     */
-  def foldNode(n: LayoutNode): LayoutNode = n match
+  private[model] def foldNode(n: LayoutNode): LayoutNode = n match
     case c: Component =>
       val live = c.cell.toList.flatMap(cell =>
         cell.classWhen.map((cls, src) => Dashboard.cellClassSlot(cls) -> src) ++
@@ -1053,12 +1054,25 @@ case class Dashboard(
       )
   }
 
+  /** [[LayoutNode.foldNode]] over every tree: the step between decoding and
+    * [[validate]], which [[validated]]'s proof carries.
+    */
+  def folded: Dashboard =
+    copy(
+      card = LayoutNode.foldNode(card),
+      surfaces = surfaces.view
+        .mapValues(s => s.copy(content = LayoutNode.foldNode(s.content)))
+        .toMap
+    )
+
   /** Human-readable errors, empty when valid. `locateTransform` maps a
     * transform to a source location for the message.
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
-  ): List[String] =
+  ): List[String] = folded.errors(locateTransform)
+
+  private def errors(locateTransform: String => Option[String]): List[String] =
     // A required var is satisfied by a slot or [[Dashboard.injectedStatic]].
     def checkRef(
         nodeId: String,
@@ -1220,7 +1234,7 @@ case class Dashboard(
 
     /** At the declaration, so an unreferenced variable is still wrong loudly.
       */
-    // Attached by `foldNode` to every slot that reads one, so "read by no slot"
+    // Attached by `folded` to every slot that reads one, so "read by no slot"
     // is the attachment's absence.
     def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
       val read = c.slots.values.flatMap(_.values.keySet).toSet
@@ -2092,9 +2106,10 @@ case class Dashboard(
   def validated(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
-    validate(locateTransform) match
+    val d = folded
+    d.errors(locateTransform) match
       case Nil =>
-        Right(Dashboard.Validated(this, compileTransforms, parseQueries))
+        Right(Dashboard.Validated(d, d.compileTransforms, d.parseQueries))
       case errs => Left(errs)
 
   // Only after `validate` proved each parses, so a `Left` cannot occur.
@@ -2175,17 +2190,7 @@ object Dashboard:
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
 
-  given Decoder[Dashboard] =
-    ConfiguredDecoder
-      .derived[Dashboard]
-      .map(d =>
-        d.copy(
-          card = LayoutNode.foldNode(d.card),
-          surfaces = d.surfaces.view
-            .mapValues(s => s.copy(content = LayoutNode.foldNode(s.content)))
-            .toMap
-        )
-      )
+  given Decoder[Dashboard] = ConfiguredDecoder.derived[Dashboard]
 
   /** `tap.pkl`'s route slots that [[Dashboard.calls]] reads. */
   val ServiceSlot: String = "service"

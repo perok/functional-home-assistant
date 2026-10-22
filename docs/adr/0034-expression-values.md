@@ -65,7 +65,8 @@ value, not. Sharing comes from content instead — a tally is its candidates and
 condition its canonical predicate — so two nodes counting the same lights under different names
 count the same thing.
 
-**Attached at decode.** `LayoutNode.foldNode` first turns the node's live cell classes and live
+**Attached after decode.** `Dashboard.folded`, the step `validated` runs before its checks (the
+decoder only decodes), applies `LayoutNode.foldNode`, which first turns the node's live cell classes and live
 custom properties into slots, then puts each value onto every slot whose CEL names it, by the
 identifiers the expression PARSES to, so a word inside a string literal is not a read. A slot then
 says alone what it reads, and the compile key, the signal name and the watched entities all come

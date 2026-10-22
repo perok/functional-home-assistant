@@ -368,7 +368,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
   or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
-  attached at decode to the slots that read them, so a counted light wakes the node through the
+  attached before validation to the slots that read them, so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
   the button/tile/slider, `classWhen`: a Boolean, a reading, an `Expr` or a condition directly —
   `.disabled(lit.none())` — a condition lowered onto a derived `__` value; `Slot.type = "bool"`
