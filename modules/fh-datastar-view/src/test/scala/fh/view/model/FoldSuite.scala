@@ -2,9 +2,9 @@ package fh.view.model
 
 import io.circe.parser.decode
 
-/** The decoder only decodes; folding a node's live cell entries and
-  * expression values onto its slots is [[Dashboard.folded]]'s, which
-  * `validated` runs, so a dashboard built by hand is folded as one decoded is.
+/** The decoder only decodes; folding a node's live cell entries and expression
+  * values onto its slots is [[Dashboard.folded]]'s, which `validated` runs, so
+  * a dashboard built by hand is folded as one decoded is.
   */
 class FoldSuite extends munit.FunSuite {
 
@@ -53,7 +53,8 @@ class FoldSuite extends munit.FunSuite {
         |     {"entityId": "light.k", "transform": "state == 'on'",
         |      "signal": "class:warm"}}},
         |   "values": {"n": 2}}}""".stripMargin
-    val decoded = decode[Dashboard](wire).fold(e => fail(e.getMessage), identity)
+    val decoded =
+      decode[Dashboard](wire).fold(e => fail(e.getMessage), identity)
     assertEquals(decoded, byHand)
     assertEquals(decoded.folded.folded, decoded.folded)
   }
