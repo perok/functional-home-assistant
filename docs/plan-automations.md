@@ -121,6 +121,18 @@ fh can replace it.
 | A Hue dimmer's buttons drive a set of lights | ZHA, RWL021/RWL022 | M7 |
 | A relative light group | `relative_light_group` | M8 |
 
+**Beyond these: a scene that spreads.** Nothing here does this today. The lights reach a scene's
+levels one after another, outward from one spot (the door you came in by, the sensor that saw
+you), and each fades in with HA's `transition`.
+- It is a rule like any other. A light is reached once the time since the scene began passes its
+  distance from the spot divided by a speed. Until then the rule leaves that light's slot empty.
+- The rule reads the clock rather than running a sequence. A restart in the middle of a spread
+  therefore recomputes where it should be. A light a person touches takes the manual level, as
+  with any other rule.
+- It needs M6 (the clock) and M7 (the press that starts it), plus one new input: where each light
+  is. HA records no positions, so they are declared in Pkl. An ordered list of rings per starting
+  spot is enough. Coordinates are worth adding only when one room needs many starting spots.
+
 ## Milestones
 
 **M0: a call over a set.** #583, PR #586. It is the condition shape that rules reuse.
