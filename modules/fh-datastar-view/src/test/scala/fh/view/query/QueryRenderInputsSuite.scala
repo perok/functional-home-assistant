@@ -477,6 +477,18 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
+  test("a chart whose size is not positive is a build error") {
+    def errsFor(style: ChartStyle) =
+      dashboard(chartSource().copy(transform = Transform.Stage.Chart(style)))
+        .validate()
+    for (bad <- List(ChartStyle(width = 0), ChartStyle(height = -1)))
+      assert(
+        errsFor(bad).exists(_.contains("must be positive")),
+        clue = errsFor(bad)
+      )
+    assertEquals(errsFor(ChartStyle()), Nil)
+  }
+
   test("a query slot whose wire says 'live' is rejected as untruthful") {
     // Inert, since a `SlotShape.Query` never reads it: this keeps the wire from
     // lying. The Pkl default derives `onRender` from the query.

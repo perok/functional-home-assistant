@@ -25,13 +25,9 @@ object ChartStyle {
   private given Configuration = Configuration.default.withDefaults
 
   /** `components/history.pkl`'s `ChartParams`; an absent field is the default
-    * here. Pkl already refuses a size that is not positive, which this repeats
-    * for a hand-written wire.
+    * here. A size that is not positive is `Dashboard.validate`'s to refuse.
     */
-  given Decoder[ChartStyle] =
-    ConfiguredDecoder
-      .derived[ChartStyle]
-      .ensure(s => s.width > 0 && s.height > 0, "chart size must be positive")
+  given Decoder[ChartStyle] = ConfiguredDecoder.derived[ChartStyle]
 }
 
 /** The ECharts option object, built in Scala so what a chart says is tested on

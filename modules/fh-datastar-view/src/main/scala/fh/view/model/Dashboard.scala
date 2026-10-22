@@ -1205,8 +1205,17 @@ case class Dashboard(
               case _ => None
             }
           }
+        // Pkl already refuses one; only a hand-written wire gets here.
+        val chartSize = src.stage match {
+          case Transform.Stage.Chart(s) if s.width <= 0 || s.height <= 0 =>
+            Some(
+              s"$nodeId: slot '$name' draws a ${s.width}x${s.height} chart " +
+                "— a chart's width and height must be positive"
+            )
+          case _ => None
+        }
         untruthfulReads.toList ++ refErrors ++
-          parseError ++ stageError.toList ++ rawHole.toList
+          parseError ++ stageError.toList ++ rawHole.toList ++ chartSize.toList
       }
 
     /** At the declaration, so an unreferenced variable is still wrong loudly.
