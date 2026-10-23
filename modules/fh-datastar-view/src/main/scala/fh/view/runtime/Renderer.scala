@@ -1932,13 +1932,12 @@ object Renderer {
     override def writerHoles: Map[String, java.io.Writer => Unit] = holes
   }
 
+  /** Unvalidated, for tests and benchmarks; folded as [[fromValidated]]'s
+    * dashboard already is.
+    */
   def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
-    new Renderer(
-      dashboard,
-      Templates.from(dashboard),
-      Transforms.from(dashboard),
-      access
-    )
+    val d = dashboard.folded
+    new Renderer(d, Templates.from(d), Transforms.from(d), access)
 
   /** The production path: reuses the proof's compiled transforms. */
   def fromValidated(v: Dashboard.Validated): Renderer =

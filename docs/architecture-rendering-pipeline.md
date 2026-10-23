@@ -952,7 +952,7 @@ of what the render reads, not all of it: an entity reached only through a signal
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.foldNode` attaches them at decode to exactly the slots whose CEL names them
+live. `LayoutNode.foldNode` attaches them, in `Dashboard.folded` before validation, to exactly the slots whose CEL names them
 (`SlotSource.values`), so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
@@ -1215,7 +1215,7 @@ arriving that way is correct before any frame reaches it. That seed is why a fil
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
 wrapper also carries the node's live cell classes (`LayoutNode.classWhen`) and live custom
 properties (`LayoutNode.cssProperty`): ordinary signal slots under `Dashboard.cellClassSlot` /
-`cellStyleSlot` names (`class:` and `style:--…` bindings), folded in at decode, so the renderer
+`cellStyleSlot` names (`class:` and `style:--…` bindings), folded in before validation, so the renderer
 places their bindings on the wrapper in both forms and the class or `style="--x:…"` itself only in
 the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
