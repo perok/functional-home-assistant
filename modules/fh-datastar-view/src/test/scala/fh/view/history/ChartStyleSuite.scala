@@ -2,6 +2,7 @@ package fh.view.history
 
 import fh.view.model.{SlotSource, Transform}
 import io.circe.parser.decode
+import io.github.iltotore.iron.autoRefine
 
 /** A chart stage's params are decoded with the wire, so a bad one fails the
   * build with its own reason.

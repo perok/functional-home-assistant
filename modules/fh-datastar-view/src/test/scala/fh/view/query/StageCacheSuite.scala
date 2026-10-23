@@ -1,5 +1,6 @@
 package fh.view.query
 
+import io.github.iltotore.iron.autoRefine
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.FHError

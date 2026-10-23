@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import io.circe.Json
+import io.github.iltotore.iron.autoRefine
 
 import java.time.Instant
 import scala.concurrent.duration.*

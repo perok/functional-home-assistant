@@ -3,6 +3,9 @@ package fh.view.history
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 import io.circe.syntax.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.circe.given
+import io.github.iltotore.iron.constraint.numeric.Positive
 
 /** Everything about a chart that is not its data.
   *
@@ -12,8 +15,8 @@ import io.circe.syntax.*
   * theme sets `--fh-chart-*`; left unset, each falls back to the base tokens.
   */
 final case class ChartStyle(
-    width: Int = 400,
-    height: Int = 160,
+    width: ChartStyle.Size = 400,
+    height: ChartStyle.Size = 160,
     line: String = "var(--fh-chart-line, var(--fh-accent))",
     fill: Option[String] = Some("var(--fh-chart-fill, transparent)"),
     /** The entity's own `unit_of_measurement`, so it agrees with the card. */
@@ -22,16 +25,17 @@ final case class ChartStyle(
 
 object ChartStyle {
 
+  /** Pkl already refuses a size that is not positive; this is the type that
+    * says so, for a hand-written wire.
+    */
+  type Size = Int :| DescribedAs[Positive, "chart size must be positive"]
+
   private given Configuration = Configuration.default.withDefaults
 
   /** `components/history.pkl`'s `ChartParams`; an absent field is the default
-    * here. Pkl already refuses a size that is not positive, which this repeats
-    * for a hand-written wire.
+    * here.
     */
-  given Decoder[ChartStyle] =
-    ConfiguredDecoder
-      .derived[ChartStyle]
-      .ensure(s => s.width > 0 && s.height > 0, "chart size must be positive")
+  given Decoder[ChartStyle] = ConfiguredDecoder.derived[ChartStyle]
 }
 
 /** The ECharts option object, built in Scala so what a chart says is tested on
