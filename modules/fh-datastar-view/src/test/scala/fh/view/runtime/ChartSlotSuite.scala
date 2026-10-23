@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import io.github.iltotore.iron.autoRefine
 import fh.view.model.{
   CardDef,
   Dashboard,
