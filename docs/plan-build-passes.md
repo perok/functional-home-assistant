@@ -70,10 +70,15 @@ list, sort and hash a valued slot pays. It is strictly more work, and this remov
 
 ## 3. One pipeline
 
-`validated` runs rewrite → check → compile on a decoded `Dashboard`, and nothing else runs any of
-them. `Renderer.create` (tests and benchmarks) stops folding. Whether it also stops compiling on
-its own (`Transforms.from`) and goes through `validated` instead depends on how many tests build
-an invalid renderer on purpose, so it is decided after a spike.
+`DashboardBuild.decode` decodes and rewrites; `validated` then runs check → compile, and is the
+only producer of `Validated`. With lower in Pkl and bind on the node, there is no step left that
+has to run before the checks, so nothing runs one twice.
+
+`Renderer.create` (tests and benchmarks) stays an unchecked door: it compiles with
+`Transforms.from` and skips the checks. Spiked: routing it through `validated` fails 14 tests in 9
+suites, whose hand-built fixtures `validate` rejects (a card that is not registered, a chart slot
+whose `reads` is not `onRender`, a structural card with a live byte slot). Fixing those fixtures
+buys a test helper nothing a production path needs.
 
 ## 4. Not changing
 
@@ -103,8 +108,8 @@ New: a Pkl test that a replaced `slots` dropping a live entry fails, and that a 
 
 ## Done when
 
-- One function runs the passes from a decoded `Dashboard` to `Validated`, and nothing else runs
-  any of them.
+- `validated` is the one function from a decoded `Dashboard` to `Validated`, and no pass runs
+  outside the build path (`Renderer.create`'s compile is the test door above).
 - `SlotSource` has no `values` field, and `Cell` has no live entries.
 - The renderer builds no compile key per render.
 - The docs above describe the passes, and this plan is deleted.
