@@ -336,12 +336,15 @@ as standing review criteria, not a one-time cleanup that's now "done".
   `fh.view.build.SystemPkl` (module/packageArtifact/packagesIndex) for the shape.
 - **Parse, don't validate.** Prefer producing a value that makes an illegal state
   unrepresentable over re-validating the same precondition at every consumer. `Dashboard.Validated`
-  (produced only by `Dashboard.validate`, carrying already-compiled CEL transforms) is the
+  (produced only by `Dashboard.validated`, carrying already-compiled CEL transforms) is the
   model: `Renderer`/`Transforms` take the validated type instead of re-checking and throwing
   "validate should have rejected this". Look for the same smell elsewhere: a `None`/`Left` that
   really means "this workspace/value is unusable" and gets re-derived or re-thrown-defensively at
   multiple call sites instead of being parsed once at the boundary into a type that carries the
-  proof.
+  proof. A rule about ONE value belongs in its type and fails at decode (an iron refinement:
+  `ChartStyle.Size`); a rule across fields or nodes stays in `validate`. A decoder only decodes:
+  anything derived from the decoded value is computed from it (`Component.bound`), not written
+  back into it. The passes are named in `docs/terminology.md`.
 - **Functional core / imperative shell.** Keep pure logic (diffing, rendering, validation, AST
   evaluation) separate from the `os.*`/`IO`/network shell, and prefer extracting pure logic out of
   a class that's only reachable today via a full-boot test harness (e.g. `Server`'s pure diff core

@@ -5,6 +5,7 @@ import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
   Activation,
+  BoundSlot,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -112,7 +113,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       signal = Some(SignalBind.Text),
       reads = Reads.Live
     )
-    assertEquals(src.shape, SlotShape.Query(ask()))
+    assertEquals(BoundSlot(src, Map.empty).shape, SlotShape.Query(ask()))
     assertEquals(
       LayoutNode
         .Component(card = "c", slots = Map("chart" -> src))

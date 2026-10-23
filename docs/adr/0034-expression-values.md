@@ -35,10 +35,9 @@ had no spelling either.
 ### One machinery: a slot reads values, a node names them
 
 A **slot** is where a result lands (text, a class, an attribute, a style property). An
-**expression value** is a named input. They are not alternatives: a slot carries the values its CEL
-reads (`SlotSource.values`), and `expressionValues` is the node-level declaration that `foldNode`
-distributes onto them. Everything below builds on that one path, and nothing gains a second
-evaluator.
+**expression value** is a named input. They are not alternatives: `expressionValues` is the
+node-level declaration, and each slot is bound to the ones its CEL reads (`BoundSlot`). Everything
+below builds on that one path, and nothing gains a second evaluator.
 
 **Declaration.** `Node.expressionValues: Mapping<String(!startsWith("__")), ExpressionValue>`, where
 `ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate`, written as an amend or with
@@ -65,12 +64,15 @@ value, not. Sharing comes from content instead — a tally is its candidates and
 condition its canonical predicate — so two nodes counting the same lights under different names
 count the same thing.
 
-**Attached after decode.** `Dashboard.folded`, the step `validated` runs before its checks (the
-decoder only decodes), applies `LayoutNode.foldNode`, which puts each value onto every slot whose
-CEL names it, live cell classes and properties included (Pkl writes those as slots), by the
-identifiers the expression PARSES to, so a word inside a string literal is not a read. A slot then
-says alone what it reads, and the compile key, the signal name and the watched entities all come
-off it; no render path takes the node's values as an argument.
+**Bound on the node.** Binding is the build pass that connects a name to its definition and type
+(`docs/terminology.md`). `LayoutNode.Component.bound` runs it lazily, once per node: it pairs each
+slot, live cell classes and properties included (Pkl writes those as slots), with the values its
+CEL names, by the identifiers the expression PARSES to, so a word inside a string literal is not a
+read. It is derived from the decoded node rather than written back into it, so no slot can be seen
+before it is bound, or bound twice, and the decoder only decodes. The bound slot says alone what it
+reads: the compile key, the signal name and the watched entities all come off it, and no render
+path takes the node's values as an argument. The binding fixes each name's type, not its value,
+which `Conditions.resolve` computes on every render.
 
 ### Boolean slots, and what fills one
 

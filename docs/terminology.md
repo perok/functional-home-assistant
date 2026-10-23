@@ -90,6 +90,23 @@ list and which of it is present, counted live, the same thing a state condition'
 — or a **condition**, decided live.
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
+**Build passes** — what turns a dashboard's JSON into `Dashboard.Validated`, once per evaluation,
+named as a compiler names them:
+
+- **decode** (a compiler's parse): JSON → `Dashboard`. A rule about one value is part of its type
+  and fails here (`ChartStyle.Size`).
+- **rewrite**: the slug is applied (`DashboardBuild.decode`).
+- **lower**: sugar becomes the core form. Pkl does it before emitting: a live cell class or
+  property is written as a slot.
+- **bind**: each name a slot's CEL reads is connected to its definition, an expression value, and
+  so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
+  where a value lands (`signalBind`, `{{{slot__bind}}}`).
+- **check**: the rules across fields and nodes (`validate`).
+- **compile**: CEL against the names and types binding gave it, and queries parsed.
+
+Bind and compile fix CEL's **environment**, the names and their types. The values are its
+**activation**, computed on every render (`Conditions.resolve`).
+
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ;
 ADR 0033 lists its scoping rules in one place. The word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
 calls CSS custom properties the same, so a bare "vars" in prose is ambiguous three ways.

@@ -952,8 +952,8 @@ of what the render reads, not all of it: an entity reached only through a signal
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.foldNode` attaches them, in `Dashboard.folded` before validation, to exactly the slots whose CEL names them
-(`SlotSource.values`), so no box downstream knows they exist: a tally's candidates and the
+live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
+names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is

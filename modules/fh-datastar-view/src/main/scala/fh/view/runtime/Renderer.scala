@@ -10,7 +10,6 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
-  ExprValue,
   LayoutNode,
   MemberId,
   NodeId,
@@ -23,7 +22,7 @@ import fh.view.model.{
   Transform,
   SignalBind,
   SignalId,
-  SlotSource,
+  BoundSlot,
   SlotValue,
   Surface,
   TapCall,
@@ -1522,7 +1521,7 @@ class Renderer(
       tpl: Mustache,
       structural: Map[String, String],
       constants: Map[String, SlotValue],
-      dynamic: List[(String, Option[String], SlotSource)],
+      dynamic: List[(String, Option[String], BoundSlot)],
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
@@ -1560,7 +1559,7 @@ class Renderer(
       c: LayoutNode.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
-    val slots = c.slots
+    val slots = c.bound
     // `None`: the subject is a transform and can change per paint, the one
     // shape a plan cannot precompute ([[resolveDirect]]).
     val subjectConst: Option[Option[String]] =
@@ -1570,8 +1569,8 @@ class Renderer(
         case Some(_)                        => None
       }
     val constB = Map.newBuilder[String, SlotValue]
-    val dynB = List.newBuilder[(String, Option[String], SlotSource)]
-    val dynInhB = List.newBuilder[(String, SlotSource)]
+    val dynB = List.newBuilder[(String, Option[String], BoundSlot)]
+    val dynInhB = List.newBuilder[(String, BoundSlot)]
     slots.foreach { case (slot, source) =>
       // The section guard (ADR 0017), for every slot: a withheld signal value
       // is a false section, so `{{#value}}` would delete its own element and
@@ -1714,7 +1713,7 @@ class Renderer(
       fragments: QuerySnapshot
   ): Resolved = {
     val injected = plan.structural ++ bakeIndex
-    val slots = plan.node.slots
+    val slots = plan.node.bound
     val subject: Option[String] =
       slots.get(Dashboard.SubjectSlot).map { s =>
         s.literal.getOrElse(resolveStateSlot(s.entityId, s, states))
@@ -1820,10 +1819,10 @@ class Renderer(
       c: LayoutNode.Component,
       states: Map[String, EntityState]
   ): Map[SignalId, SlotValue] = {
-    val subject = c.slots
+    val subject = c.bound
       .get(Dashboard.SubjectSlot)
       .map(s => s.literal.getOrElse(resolveStateSlot(s.entityId, s, states)))
-    c.slots.collect {
+    c.bound.collect {
       case (slot, src) if Renderer.isSignalSlot(src) =>
         val entity = src.entityId.orElse(subject)
         val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
@@ -1835,7 +1834,7 @@ class Renderer(
   /** Resolves before any state arrives, so a `domain` action still works. */
   private def resolveSlot(
       srcEntity: Option[String],
-      source: SlotSource,
+      source: BoundSlot,
       states: Map[String, EntityState],
       fragments: QuerySnapshot,
       node: NodeId
@@ -1849,7 +1848,7 @@ class Renderer(
     */
   private def resolveStateSlot(
       srcEntity: Option[String],
-      source: SlotSource,
+      source: BoundSlot,
       states: Map[String, EntityState]
   ): String = SlotValue.text(resolveStateSlotValue(srcEntity, source, states))
 
@@ -1858,7 +1857,7 @@ class Renderer(
     */
   private def resolveSlotValue(
       srcEntity: Option[String],
-      source: SlotSource,
+      source: BoundSlot,
       states: Map[String, EntityState],
       fragments: QuerySnapshot,
       node: NodeId
@@ -1870,7 +1869,7 @@ class Renderer(
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
-      source: SlotSource,
+      source: BoundSlot,
       states: Map[String, EntityState]
   ): SlotValue = {
     val st =
@@ -1883,9 +1882,10 @@ class Renderer(
       // The form is the tier (ADR 0028).
       val out: SlotValue = source.transform match {
         case sm: Transform.Simple => transforms.runValue(sm, st)
-        case t: String            =>
+        case _: String            =>
           transforms.runValue(
-            Transform.CelKey(t, ExprValue.env(source.values)),
+            // Defined for every CEL transform, and built once per node.
+            source.celKey.get,
             st,
             dashboard.slug,
             Conditions.resolve(source.values, states)
@@ -1932,12 +1932,14 @@ object Renderer {
     override def writerHoles: Map[String, java.io.Writer => Unit] = holes
   }
 
-  /** Unvalidated, for tests and benchmarks; folded as [[fromValidated]]'s
-    * dashboard already is.
-    */
+  /** Unvalidated, for tests and benchmarks. */
   def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
-    val d = dashboard.folded
-    new Renderer(d, Templates.from(d), Transforms.from(d), access)
+    new Renderer(
+      dashboard,
+      Templates.from(dashboard),
+      Transforms.from(dashboard),
+      access
+    )
 
   /** The production path: reuses the proof's compiled transforms. */
   def fromValidated(v: Dashboard.Validated): Renderer =
@@ -2073,10 +2075,10 @@ object Renderer {
     * inline seed is the whole story. Answering `None` everywhere yields the
     * plain form (ADR 0017).
     */
-  def signalBind(src: SlotSource): Option[SignalBind] =
+  def signalBind(src: BoundSlot): Option[SignalBind] =
     src.signal.filter(_ => src.literal.isEmpty && src.reads == Reads.Live)
 
-  def isSignalSlot(src: SlotSource): Boolean = signalBind(src).isDefined
+  def isSignalSlot(src: BoundSlot): Boolean = signalBind(src).isDefined
 
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)
