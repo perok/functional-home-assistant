@@ -2,6 +2,7 @@ package fh.view.history
 
 import fh.view.model.{SlotSource, Transform}
 import io.circe.parser.decode
+import io.github.iltotore.iron.autoRefine
 
 /** A chart stage's params are decoded with the wire, so a bad one fails the
   * build with its own reason.
@@ -37,7 +38,7 @@ class ChartStyleSuite extends munit.FunSuite {
     )
   }
 
-  test("a size of the wrong type is refused with the stage's own reason") {
+  test("a bad size is refused with the stage's own reason") {
     // Not the Simple arm's "no discriminator 'kind'", which is what trying
     // each arm in turn reported.
     val wrongType = refusal(
@@ -45,6 +46,8 @@ class ChartStyleSuite extends munit.FunSuite {
     )
     assert(wrongType.contains("width"), clue = wrongType)
     assert(!wrongType.contains("kind"), clue = wrongType)
+    val zero = refusal("""{"stage": "chart", "params": {"height": 0}}""")
+    assert(zero.contains("chart size must be positive"), clue = zero)
   }
 
   test("an unknown stage is refused, not read as a simple transform") {

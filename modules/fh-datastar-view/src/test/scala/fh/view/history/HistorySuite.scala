@@ -8,6 +8,7 @@ import api.homeassistant.ws.domain.{
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.query.{QueryIdentity, QueryRequest}
+import io.circe.syntax.*
 
 import java.time.Instant
 import scala.concurrent.duration.*
@@ -267,10 +268,9 @@ class HistorySuite extends munit.CatsEffectSuite {
       Vector(
         Series.Point(Instant.ofEpochMilli(1000L), 1.5),
         Series.Point(Instant.ofEpochMilli(2000L), 2.5)
-      ),
-      unavailable = 3
+      )
     )
-    val json = Series.toJson(s)
+    val json = s.asJson
     assert(json.noSpaces.contains("[[1000,1.5],[2000,2.5]]"), clue = json)
     assertEquals(json.as[Series], Right(s))
   }
