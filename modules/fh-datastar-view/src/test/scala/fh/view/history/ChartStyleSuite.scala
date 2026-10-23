@@ -21,19 +21,19 @@ class ChartStyleSuite extends munit.FunSuite {
   test("a chart stage decodes into its style, absent params defaulted") {
     assertEquals(
       transformOf(
-        """{"stage": "chart", "params": {"width": 320, "unit": "°C"}}"""
+        """{"stage": "Chart", "params": {"width": 320, "unit": "°C"}}"""
       ),
       Right(Transform.Stage.Chart(ChartStyle(width = 320, unit = Some("°C"))))
     )
     assertEquals(
-      transformOf("""{"stage": "chart"}"""),
+      transformOf("""{"stage": "Chart"}"""),
       Right(Transform.Stage.Chart(ChartStyle()))
     )
   }
 
   test("passthrough decodes") {
     assertEquals(
-      transformOf("""{"stage": "passthrough"}"""),
+      transformOf("""{"stage": "Passthrough"}"""),
       Right(Transform.Stage.Passthrough)
     )
   }
@@ -42,11 +42,11 @@ class ChartStyleSuite extends munit.FunSuite {
     // Not the Simple arm's "no discriminator 'kind'", which is what trying
     // each arm in turn reported.
     val wrongType = refusal(
-      """{"stage": "chart", "params": {"width": "wide"}}"""
+      """{"stage": "Chart", "params": {"width": "wide"}}"""
     )
     assert(wrongType.contains("width"), clue = wrongType)
     assert(!wrongType.contains("kind"), clue = wrongType)
-    val zero = refusal("""{"stage": "chart", "params": {"height": 0}}""")
+    val zero = refusal("""{"stage": "Chart", "params": {"height": 0}}""")
     assert(zero.contains("chart size must be positive"), clue = zero)
   }
 
@@ -59,7 +59,7 @@ class ChartStyleSuite extends munit.FunSuite {
   test("a simple transform and a CEL string still decode") {
     assertEquals(transformOf(""""state""""), Right("state"))
     assertEquals(
-      transformOf("""{"kind": "value", "op": "state"}"""),
+      transformOf("""{"kind": "Op", "op": "State"}"""),
       Right(Transform.Simple.State)
     )
   }

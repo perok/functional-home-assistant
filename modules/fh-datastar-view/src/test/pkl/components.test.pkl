@@ -138,9 +138,9 @@ facts {
     local b = q.entity(kitchen).lt(q.prop("brightness"), 20)
     a.and(b).items.toList().length == 2
     a.and(b).items.toList()[0].property == "state"
-    a.or(b).kind == "or"
+    a.or(b).kind == "Or"
     a.not().item.property == "state"
-    a.not().kind == "not"
+    a.not().kind == "Not"
   }
 
   // ---- entity icons -----------------------------------------------------------
@@ -767,7 +767,7 @@ facts {
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
     // The state readout opted in as the raw-state shape.
-    (row.headSlots["state"].transform as simpleMod.SimpleValue).op == "state"
+    (row.headSlots["state"].transform as simpleMod.SimpleValue).op == "State"
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
@@ -783,7 +783,7 @@ facts {
     // The percent READOUT rides the "state" slot (shownReadout), opted in as
     // the simple tier's percent over the light's own 1..255 range.
     local statePercent: simpleMod.Percent = dim.headSlots["state"].transform!!
-    statePercent.op == "percent"
+    statePercent.op == "Percent"
     statePercent.attribute == "brightness"
     statePercent.min == 1
     statePercent.max == 255
@@ -1318,7 +1318,7 @@ facts {
     // is minutes here and seconds elsewhere, and a countdown scaled by a guess
     // runs sixty times fast.
     local d: simpleMod.Duration = c.progress(remainingMin).slots["value"].transform!!
-    d.op == "duration"
+    d.op == "Duration"
     d.scale == 60
     local secs: hass.SensorEntity = new {
       entity_id = "sensor.secs"
@@ -1799,6 +1799,6 @@ facts {
     // The JSON `ChartStyleSuite` decodes: a number, not a string, and no null.
     new JsonRenderer { omitNullProperties = true; indent = "" }
       .renderValue(historyMod.chartStage(320, null, "°C"))
-      == #"{"stage":"chart","params":{"width":320,"unit":"°C"}}"#
+      == #"{"stage":"Chart","params":{"width":320,"unit":"°C"}}"#
   }
 }

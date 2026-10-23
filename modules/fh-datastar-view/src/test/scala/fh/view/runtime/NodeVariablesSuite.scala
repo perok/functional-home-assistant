@@ -415,7 +415,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a node with no declaration carries none on the wire") {
-    val d = decode[LayoutNode]("""{"kind":"component","card":"plain"}""")
+    val d = decode[LayoutNode]("""{"kind":"Component","card":"plain"}""")
       .map {
         case c: LayoutNode.Component => c.vars
         case other                   => fail(s"expected a component: $other")

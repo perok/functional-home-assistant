@@ -1,12 +1,12 @@
 {
   "card" : {
     "card" : "fhcol",
-    "kind" : "component",
+    "kind" : "Component",
     "regions" : {
       "children" : [
         {
           "card" : "sectionTitle",
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             "label" : "Features"
           },
@@ -19,17 +19,17 @@
             "self" : {
               "content" : {
                 "card" : "popup",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
                       "card" : "fhcol",
-                      "kind" : "component",
+                      "kind" : "Component",
                       "regions" : {
                         "children" : [
                           {
                             "card" : "tile",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "entity_id" : "sensor.outside_temp",
                               "icon" : "mdi mdi-thermometer",
@@ -40,8 +40,8 @@
                                 "signal" : "text",
                                 "transform" : {
                                   "attribute" : "unit_of_measurement",
-                                  "kind" : "value",
-                                  "op" : "suffixUnit"
+                                  "kind" : "Op",
+                                  "op" : "SuffixUnit"
                                 }
                               }
                             },
@@ -55,17 +55,17 @@
                                 "fh-cols-full"
                               ]
                             },
-                            "kind" : "component",
+                            "kind" : "Component",
                             "regions" : {
                               "bar" : [
                                 {
                                   "card" : "selectButtons",
-                                  "kind" : "component",
+                                  "kind" : "Component",
                                   "regions" : {
                                     "children" : [
                                       {
                                         "card" : "tab",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                           "busy" : "1",
@@ -83,7 +83,7 @@
                                       },
                                       {
                                         "card" : "tab",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                           "busy" : "1",
@@ -101,7 +101,7 @@
                                       },
                                       {
                                         "card" : "tab",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                           "busy" : "1",
@@ -119,7 +119,7 @@
                                       },
                                       {
                                         "card" : "tab",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                           "busy" : "1",
@@ -147,7 +147,7 @@
                               "children" : [
                                 {
                                   "card" : "historyChart",
-                                  "kind" : "component",
+                                  "kind" : "Component",
                                   "slots" : {
                                     "chart" : {
                                       "bypassUnavailable" : true,
@@ -165,7 +165,7 @@
                                         "params" : {
                                           "unit" : "°C"
                                         },
-                                        "stage" : "chart"
+                                        "stage" : "Chart"
                                       }
                                     }
                                   },
@@ -187,7 +187,7 @@
                           },
                           {
                             "card" : "entityInfo",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "attributes" : {
                                 "bypassUnavailable" : true,
@@ -202,7 +202,7 @@
                           },
                           {
                             "card" : "button",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
@@ -229,7 +229,7 @@
               }
             }
           },
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
@@ -248,8 +248,8 @@
               "signal" : "text",
               "transform" : {
                 "attribute" : "unit_of_measurement",
-                "kind" : "value",
-                "op" : "suffixUnit"
+                "kind" : "Op",
+                "op" : "SuffixUnit"
               }
             }
           },
@@ -258,7 +258,7 @@
         },
         {
           "card" : "tile",
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
@@ -273,7 +273,7 @@
                   "unavailable" : false,
                   "unknown" : false
                 },
-                "kind" : "match",
+                "kind" : "Match",
                 "otherwise" : true
               },
               "type" : "bool"
@@ -292,7 +292,7 @@
                 "cases" : {
                   "unavailable" : true
                 },
-                "kind" : "match",
+                "kind" : "Match",
                 "otherwise" : false
               }
             },
@@ -305,8 +305,8 @@
               "signal" : "text",
               "transform" : {
                 "attribute" : "unit_of_measurement",
-                "kind" : "value",
-                "op" : "suffixUnit"
+                "kind" : "Op",
+                "op" : "SuffixUnit"
               }
             }
           },
@@ -319,17 +319,17 @@
             "self" : {
               "content" : {
                 "card" : "popup",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
                       "card" : "fhcol",
-                      "kind" : "component",
+                      "kind" : "Component",
                       "regions" : {
                         "children" : [
                           {
                             "card" : "tile",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "busy" : "1",
                               "busyVisual" : "1",
@@ -344,7 +344,7 @@
                                     "unavailable" : false,
                                     "unknown" : false
                                   },
-                                  "kind" : "match",
+                                  "kind" : "Match",
                                   "otherwise" : true
                                 },
                                 "type" : "bool"
@@ -363,7 +363,7 @@
                                   "cases" : {
                                     "unavailable" : true
                                   },
-                                  "kind" : "match",
+                                  "kind" : "Match",
                                   "otherwise" : false
                                 }
                               },
@@ -376,8 +376,8 @@
                                 "signal" : "text",
                                 "transform" : {
                                   "attribute" : "unit_of_measurement",
-                                  "kind" : "value",
-                                  "op" : "suffixUnit"
+                                  "kind" : "Op",
+                                  "op" : "SuffixUnit"
                                 }
                               }
                             },
@@ -386,12 +386,12 @@
                           },
                           {
                             "card" : "fhcol",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "regions" : {
                               "children" : [
                                 {
                                   "card" : "tile",
-                                  "kind" : "component",
+                                  "kind" : "Component",
                                   "slots" : {
                                     "busy" : "1",
                                     "busyVisual" : "1",
@@ -406,7 +406,7 @@
                                           "unavailable" : false,
                                           "unknown" : false
                                         },
-                                        "kind" : "match",
+                                        "kind" : "Match",
                                         "otherwise" : true
                                       },
                                       "type" : "bool"
@@ -425,7 +425,7 @@
                                         "cases" : {
                                           "unavailable" : true
                                         },
-                                        "kind" : "match",
+                                        "kind" : "Match",
                                         "otherwise" : false
                                       }
                                     },
@@ -438,8 +438,8 @@
                                       "signal" : "text",
                                       "transform" : {
                                         "attribute" : "unit_of_measurement",
-                                        "kind" : "value",
-                                        "op" : "suffixUnit"
+                                        "kind" : "Op",
+                                        "op" : "SuffixUnit"
                                       }
                                     }
                                   },
@@ -456,7 +456,7 @@
                           },
                           {
                             "card" : "entityInfo",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "attributes" : {
                                 "bypassUnavailable" : true,
@@ -471,7 +471,7 @@
                           },
                           {
                             "card" : "button",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
@@ -498,7 +498,7 @@
               }
             }
           },
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
@@ -513,7 +513,7 @@
                   "unavailable" : false,
                   "unknown" : false
                 },
-                "kind" : "match",
+                "kind" : "Match",
                 "otherwise" : true
               },
               "type" : "bool"
@@ -534,8 +534,8 @@
               "signal" : "text",
               "transform" : {
                 "attribute" : "unit_of_measurement",
-                "kind" : "value",
-                "op" : "suffixUnit"
+                "kind" : "Op",
+                "op" : "SuffixUnit"
               }
             }
           },
@@ -544,7 +544,7 @@
         },
         {
           "card" : "slider",
-          "kind" : "component",
+          "kind" : "Component",
           "regions" : {
             "children" : [
             ],
@@ -556,7 +556,7 @@
                     "fh-slider-head-cell"
                   ]
                 },
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "actions" : [
                   ],
@@ -568,7 +568,7 @@
                           "fh-slider-text"
                         ]
                       },
-                      "kind" : "component",
+                      "kind" : "Component",
                       "slots" : {
                         "entity_id" : "light.kitchen",
                         "label" : "Kitchen"
@@ -591,7 +591,7 @@
                         "unavailable" : false,
                         "unknown" : false
                       },
-                      "kind" : "match",
+                      "kind" : "Match",
                       "otherwise" : true
                     },
                     "type" : "bool"
@@ -605,10 +605,10 @@
                     "signal" : "style:--fh-fill",
                     "transform" : {
                       "attribute" : "brightness",
-                      "kind" : "value",
+                      "kind" : "Op",
                       "max" : 255,
                       "min" : 1,
-                      "op" : "fill"
+                      "op" : "Fill"
                     }
                   },
                   "fillColor" : {
@@ -628,8 +628,8 @@
                     "reads" : "live",
                     "signal" : "text",
                     "transform" : {
-                      "kind" : "value",
-                      "op" : "state"
+                      "kind" : "Op",
+                      "op" : "State"
                     }
                   },
                   "tapDisabled" : {
@@ -641,7 +641,7 @@
                       "cases" : {
                         "unavailable" : true
                       },
-                      "kind" : "match",
+                      "kind" : "Match",
                       "otherwise" : false
                     }
                   },
@@ -654,8 +654,8 @@
                     "signal" : "attr:value",
                     "transform" : {
                       "attribute" : "brightness",
-                      "kind" : "value",
-                      "op" : "attr"
+                      "kind" : "Op",
+                      "op" : "Attr"
                     }
                   }
                 },
@@ -675,14 +675,14 @@
             "light.kitchen",
             "light.living_room"
           ],
-          "kind" : "set",
+          "kind" : "SetNode",
           "members" : {
             "light.kitchen" : {
               "clauses" : [
                 {
                   "node" : {
                     "card" : "tile",
-                    "kind" : "component",
+                    "kind" : "Component",
                     "slots" : {
                       "busy" : "1",
                       "busyVisual" : "1",
@@ -697,7 +697,7 @@
                             "unavailable" : false,
                             "unknown" : false
                           },
-                          "kind" : "match",
+                          "kind" : "Match",
                           "otherwise" : true
                         },
                         "type" : "bool"
@@ -716,7 +716,7 @@
                           "cases" : {
                             "unavailable" : true
                           },
-                          "kind" : "match",
+                          "kind" : "Match",
                           "otherwise" : false
                         }
                       },
@@ -729,8 +729,8 @@
                         "signal" : "text",
                         "transform" : {
                           "attribute" : "unit_of_measurement",
-                          "kind" : "value",
-                          "op" : "suffixUnit"
+                          "kind" : "Op",
+                          "op" : "SuffixUnit"
                         }
                       }
                     },
@@ -738,7 +738,7 @@
                     ]
                   },
                   "when" : {
-                    "kind" : "cmp",
+                    "kind" : "Cmp",
                     "op" : "eq",
                     "property" : "state",
                     "value" : "on"
@@ -751,7 +751,7 @@
                 {
                   "node" : {
                     "card" : "tile",
-                    "kind" : "component",
+                    "kind" : "Component",
                     "slots" : {
                       "busy" : "1",
                       "busyVisual" : "1",
@@ -766,7 +766,7 @@
                             "unavailable" : false,
                             "unknown" : false
                           },
-                          "kind" : "match",
+                          "kind" : "Match",
                           "otherwise" : true
                         },
                         "type" : "bool"
@@ -785,7 +785,7 @@
                           "cases" : {
                             "unavailable" : true
                           },
-                          "kind" : "match",
+                          "kind" : "Match",
                           "otherwise" : false
                         }
                       },
@@ -798,8 +798,8 @@
                         "signal" : "text",
                         "transform" : {
                           "attribute" : "unit_of_measurement",
-                          "kind" : "value",
-                          "op" : "suffixUnit"
+                          "kind" : "Op",
+                          "op" : "SuffixUnit"
                         }
                       }
                     },
@@ -807,7 +807,7 @@
                     ]
                   },
                   "when" : {
-                    "kind" : "cmp",
+                    "kind" : "Cmp",
                     "op" : "eq",
                     "property" : "state",
                     "value" : "on"
@@ -821,7 +821,7 @@
         },
         {
           "card" : "button",
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
@@ -842,17 +842,17 @@
             "self" : {
               "content" : {
                 "card" : "popup",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
                       "card" : "fhcol",
-                      "kind" : "component",
+                      "kind" : "Component",
                       "regions" : {
                         "children" : [
                           {
                             "card" : "sectionTitle",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "label" : "Inline"
                             },
@@ -861,7 +861,7 @@
                           },
                           {
                             "card" : "button",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "slots" : {
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
@@ -888,7 +888,7 @@
               }
             }
           },
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
@@ -1046,12 +1046,12 @@
     "detail" : {
       "content" : {
         "card" : "popup",
-        "kind" : "component",
+        "kind" : "Component",
         "regions" : {
           "children" : [
             {
               "card" : "sectionTitle",
-              "kind" : "component",
+              "kind" : "Component",
               "slots" : {
                 "label" : "Detail"
               },
@@ -1064,17 +1064,17 @@
                 "self" : {
                   "content" : {
                     "card" : "popup",
-                    "kind" : "component",
+                    "kind" : "Component",
                     "regions" : {
                       "children" : [
                         {
                           "card" : "fhcol",
-                          "kind" : "component",
+                          "kind" : "Component",
                           "regions" : {
                             "children" : [
                               {
                                 "card" : "tile",
-                                "kind" : "component",
+                                "kind" : "Component",
                                 "slots" : {
                                   "entity_id" : "sensor.outside_temp",
                                   "icon" : "mdi mdi-thermometer",
@@ -1085,8 +1085,8 @@
                                     "signal" : "text",
                                     "transform" : {
                                       "attribute" : "unit_of_measurement",
-                                      "kind" : "value",
-                                      "op" : "suffixUnit"
+                                      "kind" : "Op",
+                                      "op" : "SuffixUnit"
                                     }
                                   }
                                 },
@@ -1100,17 +1100,17 @@
                                     "fh-cols-full"
                                   ]
                                 },
-                                "kind" : "component",
+                                "kind" : "Component",
                                 "regions" : {
                                   "bar" : [
                                     {
                                       "card" : "selectButtons",
-                                      "kind" : "component",
+                                      "kind" : "Component",
                                       "regions" : {
                                         "children" : [
                                           {
                                             "card" : "tab",
-                                            "kind" : "component",
+                                            "kind" : "Component",
                                             "slots" : {
                                               "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                               "busy" : "1",
@@ -1128,7 +1128,7 @@
                                           },
                                           {
                                             "card" : "tab",
-                                            "kind" : "component",
+                                            "kind" : "Component",
                                             "slots" : {
                                               "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                               "busy" : "1",
@@ -1146,7 +1146,7 @@
                                           },
                                           {
                                             "card" : "tab",
-                                            "kind" : "component",
+                                            "kind" : "Component",
                                             "slots" : {
                                               "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                               "busy" : "1",
@@ -1164,7 +1164,7 @@
                                           },
                                           {
                                             "card" : "tab",
-                                            "kind" : "component",
+                                            "kind" : "Component",
                                             "slots" : {
                                               "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                               "busy" : "1",
@@ -1192,7 +1192,7 @@
                                   "children" : [
                                     {
                                       "card" : "historyChart",
-                                      "kind" : "component",
+                                      "kind" : "Component",
                                       "slots" : {
                                         "chart" : {
                                           "bypassUnavailable" : true,
@@ -1210,7 +1210,7 @@
                                             "params" : {
                                               "unit" : "°C"
                                             },
-                                            "stage" : "chart"
+                                            "stage" : "Chart"
                                           }
                                         }
                                       },
@@ -1232,7 +1232,7 @@
                               },
                               {
                                 "card" : "entityInfo",
-                                "kind" : "component",
+                                "kind" : "Component",
                                 "slots" : {
                                   "attributes" : {
                                     "bypassUnavailable" : true,
@@ -1247,7 +1247,7 @@
                               },
                               {
                                 "card" : "button",
-                                "kind" : "component",
+                                "kind" : "Component",
                                 "slots" : {
                                   "label" : "Close",
                                   "onclick" : "$ui_popups && history.back()",
@@ -1274,7 +1274,7 @@
                   }
                 }
               },
-              "kind" : "component",
+              "kind" : "Component",
               "slots" : {
                 "busy" : "1",
                 "busyVisual" : "1",
@@ -1293,8 +1293,8 @@
                   "signal" : "text",
                   "transform" : {
                     "attribute" : "unit_of_measurement",
-                    "kind" : "value",
-                    "op" : "suffixUnit"
+                    "kind" : "Op",
+                    "op" : "SuffixUnit"
                   }
                 }
               },
@@ -1303,7 +1303,7 @@
             },
             {
               "card" : "button",
-              "kind" : "component",
+              "kind" : "Component",
               "slots" : {
                 "label" : "Close",
                 "onclick" : "$ui_popups && history.back()",

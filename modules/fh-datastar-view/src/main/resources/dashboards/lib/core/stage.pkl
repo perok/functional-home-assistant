@@ -14,6 +14,8 @@ open class Stage {
   stage: String
 }
 
-/// No transform: the provider's data, escaped into the hole. What a query slot
-/// gets by default.
-const passthrough: Stage = new Stage { stage = "passthrough" }
+/// No transform: the provider's data, escaped into the hole.
+class Passthrough extends Stage { stage: "Passthrough" = "Passthrough" }
+
+/// What a query slot gets by default.
+const passthrough: Stage = new Passthrough {}

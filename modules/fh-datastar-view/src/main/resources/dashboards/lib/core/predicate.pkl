@@ -22,7 +22,7 @@ abstract class Predicate {
 /// `"entity_id"` or `"attr:<name>"`. `value` rides as JSON, so a threshold
 /// stays a number.
 class Cmp extends Predicate {
-  kind: "cmp" = "cmp"
+  kind: "Cmp" = "Cmp"
   property: String
   op: PredicateOp
   value: Any
@@ -44,7 +44,7 @@ open class Tally {
 /// candidate, since residuals diverge across one set; a candidate absent from
 /// it is unconditionally present.
 class Count extends Predicate {
-  kind: "count" = "count"
+  kind: "Count" = "Count"
   candidates: Listing<String>
   `when`: Mapping<String, Predicate> = new {}
   op: PredicateOp
@@ -55,7 +55,7 @@ class Count extends Predicate {
 /// scene activated last, in a row of scenes. `candidates` are in the build's
 /// order, which breaks ties; `when` guards as for [[Count]].
 class First extends Predicate {
-  kind: "first" = "first"
+  kind: "First" = "First"
   candidates: Listing<String>
   `when`: Mapping<String, Predicate> = new {}
   orderBy: Listing<SortTerm> = new {}
@@ -63,17 +63,17 @@ class First extends Predicate {
 }
 
 class PAnd extends Predicate {
-  kind: "and" = "and"
+  kind: "And" = "And"
   items: Listing<Predicate>
 }
 
 class POr extends Predicate {
-  kind: "or" = "or"
+  kind: "Or" = "Or"
   items: Listing<Predicate>
 }
 
 class PNot extends Predicate {
-  kind: "not" = "not"
+  kind: "Not" = "Not"
   item: Predicate
 }
 
@@ -95,7 +95,7 @@ class SetMember {
 /// A set over a candidate list known at build time; the runtime decides
 /// presence and order, never membership.
 class SetNode extends nodes.LayoutNode {
-  kind: "set" = "set"
+  kind: "SetNode" = "SetNode"
   /// In render order, already sorted when the ordering folded to registry facts.
   candidates: Listing<String>
   /// Most significant first; empty when the ordering folded away.
@@ -118,14 +118,14 @@ abstract class SortKey {
 }
 
 class SortProp extends SortKey {
-  kind: "prop" = "prop"
+  kind: "Prop" = "Prop"
   /// `state` or `attr:<name>`, never `reg:`: a registry key folds into the
   /// candidate order.
   property: String
 }
 
 class SortHolds extends SortKey {
-  kind: "holds" = "holds"
+  kind: "Holds" = "Holds"
   predicate: Predicate
 }
 

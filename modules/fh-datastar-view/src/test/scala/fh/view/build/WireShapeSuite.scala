@@ -2,16 +2,22 @@ package fh.view.build
 
 import fh.view.model.{
   Access,
+  Activation,
   Cell,
   Dashboard,
   LayoutNode,
   Predicate,
   SlotQuery,
   SlotSource,
-  Theme
+  Theme,
+  Transform,
+  VarAt
 }
 import fh.view.testkit.PklWorkspace
 import io.circe.Json
+
+import scala.compiletime.constValueTuple
+import scala.deriving.Mirror
 
 /** The wire shape is declared twice, a Pkl class in the library and a Scala
   * case class in `Dashboard.scala`, and a field on one side only decodes to its
@@ -27,7 +33,7 @@ class WireShapeSuite extends munit.FunSuite {
   /** `hidden` properties are authoring inputs that never reach the wire (a
     * card's `entity`, an `If`'s `then`/`else`), so they are excluded.
     */
-  private lazy val pklProperties: Map[String, Set[String]] = {
+  private lazy val probe: Json = {
     val tmp = os.temp.dir()
     val _ = PklWorkspace.bootstrap(tmp)
     os.makeDir.all(tmp / "lib")
@@ -44,6 +50,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/predicate.pkl" as pred
         |import "@fh-dashboard/core/simple.pkl" as simpleMod
         |import "@fh-dashboard/core/access.pkl" as accessMod
+        |import "@fh-dashboard/core/stage.pkl" as stageMod
         |import "@fh-dashboard/core/variable.pkl" as varMod
         |import "@fh-dashboard/theme.pkl" as themeMod
         |
@@ -53,7 +60,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, themeMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, stageMod, varMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -73,16 +80,39 @@ class WireShapeSuite extends munit.FunSuite {
         |    [name] = new Listing { for (p in propsOf(cls).distinct) { p } }
         |  }
         |}
+        |
+        |// Each class's discriminator, where it declares one as a literal type.
+        |discriminators: Mapping<String, String> = new {
+        |  for (name, cls in own) {
+        |    for (pn, p in cls.properties) {
+        |      when (List("kind", "op", "stage").contains(pn) && p.type is reflect.StringLiteralType) {
+        |        [name] = (p.type as reflect.StringLiteralType).value
+        |      }
+        |    }
+        |  }
+        |}
         |""".stripMargin
     )
-    val res = SourceEval
+    SourceEval
       .eval(tmp, "probe.pkl")
       .fold(e => fail(s"reflect probe failed: $e"), identity)
-    res.value.hcursor
+      .value
+  }
+
+  private lazy val pklProperties: Map[String, Set[String]] =
+    probe.hcursor
       .downField("shapes")
       .as[Map[String, List[String]]]
       .fold(e => fail(s"decode: $e"), _.map { case (k, v) => k -> v.toSet })
-  }
+
+  private lazy val pklDiscriminators: Map[String, String] =
+    probe.hcursor
+      .downField("discriminators")
+      .as[Map[String, String]]
+      .fold(e => fail(s"decode: $e"), identity)
+
+  private inline def caseNames[T](using m: Mirror.SumOf[T]): Set[String] =
+    constValueTuple[m.MirroredElemLabels].toList.map(_.toString).toSet
 
   private def scalaFields(p: Product): Set[String] =
     p.productElementNames.toSet
@@ -182,6 +212,63 @@ class WireShapeSuite extends munit.FunSuite {
     op("Duration", Simple.Duration(1))
     check("SimpleMatch", Simple.Match(Map.empty, ""))
   }
+
+  test("every discriminator Pkl writes is a Scala case name, verbatim") {
+    // Scala's names come from each family's Mirror, so a renamed case fails
+    // here rather than at the first decode of a dashboard that uses it.
+    // `Access` assigns a plain String, so a bad site rule reaches the decoder's
+    // fallback (`SiteAccessSuite`); its literals are pinned by decoding below.
+    val families: List[(Set[String], Set[String])] = List(
+      caseNames[LayoutNode] -> Set("Node", "SetNode"),
+      caseNames[Predicate] -> Set(
+        "Cmp",
+        "Count",
+        "First",
+        "PAnd",
+        "POr",
+        "PNot"
+      ),
+      caseNames[LayoutNode.SortKey] -> Set("SortProp", "SortHolds"),
+      caseNames[Activation] ->
+        Set("UserActivation", "VarActivation", "StateActivation"),
+      caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
+      caseNames[Transform.Stage] -> Set("Passthrough", "ChartStage"),
+      caseNames[Transform.Simple] -> Set("SimpleValue", "SimpleMatch"),
+      caseNames[Transform.Simple.Op] -> ops
+    )
+    families.foreach { (scalaNames, pklClasses) =>
+      pklClasses.foreach { cls =>
+        val written = pklDiscriminators.getOrElse(
+          cls,
+          fail(s"'$cls' declares no literal kind, op or stage")
+        )
+        assert(
+          scalaNames.contains(written),
+          clue = s"'$cls' writes '$written'; the Scala cases are " +
+            scalaNames.toList.sorted.mkString(", ")
+        )
+      }
+    }
+    val covered = families.flatMap(_._2).toSet
+    assertEquals(
+      pklDiscriminators.keySet -- covered,
+      Set.empty[String],
+      clue = "a class with a discriminator no family here checks"
+    )
+    // One Pkl class per operator, named as its case.
+    ops.foreach(cls => assertEquals(pklDiscriminators.get(cls), Some(cls)))
+  }
+
+  private val ops: Set[String] = Set(
+    "State",
+    "Attr",
+    "SuffixUnit",
+    "Prefix",
+    "Suffix",
+    "Percent",
+    "Fill",
+    "Duration"
+  )
 
   test("the theme agrees on both sides") {
     check("Theme", Theme())

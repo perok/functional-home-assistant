@@ -16,7 +16,7 @@ module core.access
 
 import "../hass.pkl"
 
-/// `kind` is the wire discriminator: the backend's `Access` enum, lowercased.
+/// `kind` is the wire discriminator: the backend's `Access` case, verbatim.
 /// Closed: every case is one HA can answer, except [[Public]], which HA has no
 /// notion of.
 abstract class Access {
@@ -24,18 +24,18 @@ abstract class Access {
 }
 
 /// No login: a wall tablet, a kitchen screen. Its taps still act on the home.
-class Public extends Access { kind = "public" }
+class Public extends Access { kind = "Public" }
 
 /// Any HA user. The default.
-class Authenticated extends Access { kind = "authenticated" }
+class Authenticated extends Access { kind = "Authenticated" }
 
 /// HA admins, owner included.
-class Admin extends Access { kind = "admin" }
+class Admin extends Access { kind = "Admin" }
 
 /// Exactly these HA users, an unlisted admin included: an implicit admin
 /// override would make "only these two people" untrue. Built by [[users]].
 class Users extends Access {
-  kind = "users"
+  kind = "Users"
   ids: Listing<String>(!isEmpty)
 }
 

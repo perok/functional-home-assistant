@@ -98,7 +98,7 @@ facts {
   // null-means-inherit shape, which is what lets the backend tell "this
   // dashboard has no opinion" apart from "this dashboard chose the default".
   ["a site requires a logged-in user unless it says otherwise"] {
-    inlineSite.access.kind == "authenticated"
+    inlineSite.access.kind == "Authenticated"
   }
 
   ["a dashboard that names no rule inherits — it does not pick one"] {
@@ -106,11 +106,11 @@ facts {
   }
 
   ["a dashboard can override its site, in both directions"] {
-    accessSite.dashboards["wall"].access.kind == "public"
-    accessSite.dashboards["secret"].access.kind == "admin"
-    accessSite.dashboards["mine"].access.kind == "users"
+    accessSite.dashboards["wall"].access.kind == "Public"
+    accessSite.dashboards["secret"].access.kind == "Admin"
+    accessSite.dashboards["mine"].access.kind == "Users"
     accessSite.dashboards["mine"].access.ids.toList() == List("u1", "u2")
     // The site's own rule is still the one the others inherit.
-    accessSite.access.kind == "admin"
+    accessSite.access.kind == "Admin"
   }
 }
