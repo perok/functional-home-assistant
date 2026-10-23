@@ -28,6 +28,7 @@ import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource}
 import fh.view.runtime.{EntityState, RenderInputs, Renderer, Selections}
 import io.circe.Json
+import io.github.iltotore.iron.refineUnsafe
 import fh.view.testkit.TestIds.given
 import fh.view.FHError
 import fh.view.testkit.DashboardBuilders.declared
@@ -62,7 +63,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     * two drawings.
     */
   private def drawn(width: Int = 600) =
-    Transform.Stage.Chart(ChartStyle(width = width))
+    Transform.Stage.Chart(ChartStyle(width = width.refineUnsafe))
 
   private def read(window: String = "24h", width: Int = 600) =
     SlotRead(resolved(window), drawn(width))
@@ -475,18 +476,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     )
     assertEquals(errsFor("{{{chart}}}"), Nil)
     assertEquals(errsFor("{{{ chart }}}"), Nil)
-  }
-
-  test("a chart whose size is not positive is a build error") {
-    def errsFor(style: ChartStyle) =
-      dashboard(chartSource().copy(transform = Transform.Stage.Chart(style)))
-        .validate()
-    for (bad <- List(ChartStyle(width = 0), ChartStyle(height = -1)))
-      assert(
-        errsFor(bad).exists(_.contains("must be positive")),
-        clue = errsFor(bad)
-      )
-    assertEquals(errsFor(ChartStyle()), Nil)
   }
 
   test("a query slot whose wire says 'live' is rejected as untruthful") {

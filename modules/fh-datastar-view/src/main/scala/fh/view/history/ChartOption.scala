@@ -3,6 +3,9 @@ package fh.view.history
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 import io.circe.syntax.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.circe.given
+import io.github.iltotore.iron.constraint.numeric.Positive
 
 /** Everything about a chart that is not its data.
   *
@@ -12,8 +15,8 @@ import io.circe.syntax.*
   * theme sets `--fh-chart-*`; left unset, each falls back to the base tokens.
   */
 final case class ChartStyle(
-    width: Int = 400,
-    height: Int = 160,
+    width: ChartStyle.Size = 400,
+    height: ChartStyle.Size = 160,
     line: String = "var(--fh-chart-line, var(--fh-accent))",
     fill: Option[String] = Some("var(--fh-chart-fill, transparent)"),
     /** The entity's own `unit_of_measurement`, so it agrees with the card. */
@@ -22,10 +25,15 @@ final case class ChartStyle(
 
 object ChartStyle {
 
+  /** Pkl already refuses a size that is not positive; this is the type that
+    * says so, for a hand-written wire.
+    */
+  type Size = Int :| DescribedAs[Positive, "chart size must be positive"]
+
   private given Configuration = Configuration.default.withDefaults
 
   /** `components/history.pkl`'s `ChartParams`; an absent field is the default
-    * here. A size that is not positive is `Dashboard.validate`'s to refuse.
+    * here.
     */
   given Decoder[ChartStyle] = ConfiguredDecoder.derived[ChartStyle]
 }
@@ -40,11 +48,8 @@ object ChartStyle {
 object ChartOption {
 
   def apply(series: Series, style: ChartStyle): Json = {
-    val data = Json.arr(
-      series.points.map(p =>
-        Json.arr(Json.fromLong(p.at.toEpochMilli), doubleOrNull(p.value))
-      )*
-    )
+    // A non-finite value encodes as null, which ECharts draws as a break.
+    val data = series.points.asJson
 
     // `inherit` so the page's font draws the labels. zrender writes it into a
     // `font:` shorthand on the time axis, where it is invalid and dropped —
@@ -108,8 +113,4 @@ object ChartOption {
       )
     )
   }
-
-  // Null for a non-finite value, which ECharts draws as a break in the line.
-  private def doubleOrNull(d: Double): Json =
-    Json.fromDouble(d).getOrElse(Json.Null)
 }

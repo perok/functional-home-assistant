@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import io.circe.Json
+import io.github.iltotore.iron.autoRefine
 
 import java.time.Instant
 import scala.concurrent.duration.*
@@ -23,8 +24,7 @@ class ChartSuite extends munit.FunSuite {
     Series(
       values.zipWithIndex.map { case (v, i) =>
         Series.Point(at(i.toLong * 60), v)
-      }.toVector,
-      0
+      }.toVector
     )
 
   private def option(s: Series, style: ChartStyle = ChartStyle()) =
@@ -79,7 +79,7 @@ class ChartSuite extends munit.FunSuite {
 
   test("a non-finite value becomes null rather than invalid JSON") {
     val data = ChartOption(
-      Series(Vector(Series.Point(at(0), Double.NaN)), 0),
+      Series(Vector(Series.Point(at(0), Double.NaN))),
       ChartStyle()
     ).hcursor.downField("series").downArray.get[List[List[Json]]]("data")
     assertEquals(data.map(_.head.last), Right(Json.Null))
