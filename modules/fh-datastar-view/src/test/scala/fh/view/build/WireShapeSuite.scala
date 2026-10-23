@@ -42,6 +42,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/surface.pkl" as surfaceMod
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
+        |import "@fh-dashboard/core/simple.pkl" as simpleMod
         |import "@fh-dashboard/core/access.pkl" as accessMod
         |import "@fh-dashboard/core/variable.pkl" as varMod
         |import "@fh-dashboard/theme.pkl" as themeMod
@@ -52,7 +53,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, accessMod, varMod, themeMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -166,6 +167,22 @@ class WireShapeSuite extends munit.FunSuite {
     // `params` is untyped on the wire, so nothing else would notice the sides
     // disagreeing on what a query is.
     check("Query", SlotQuery("history", Map.empty))
+  }
+
+  test("each simple operator agrees with its case on both sides") {
+    // `op` is the discriminator, explicit in Pkl like `kind`.
+    import fh.view.model.Transform.Simple
+    def op(pklClass: String, sample: Product) =
+      check(pklClass, sample, pklOnly = Set("op"))
+    op("State", Simple.State)
+    op("Attr", Simple.Attr("a"))
+    op("SuffixUnit", Simple.SuffixUnit("a"))
+    op("Prefix", Simple.Prefix("x"))
+    op("Suffix", Simple.Suffix("x"))
+    op("Percent", Simple.Percent("a", 0, 1))
+    op("Fill", Simple.Fill("a", 0, 1))
+    op("Duration", Simple.Duration(1))
+    check("SimpleMatch", Simple.Match(Map.empty, ""))
   }
 
   test("the theme agrees on both sides") {

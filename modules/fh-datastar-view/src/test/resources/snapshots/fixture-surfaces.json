@@ -54,9 +54,9 @@
                                             "reads" : "live",
                                             "signal" : "text",
                                             "transform" : {
+                                              "attribute" : "unit_of_measurement",
                                               "kind" : "value",
-                                              "op" : "suffixUnit",
-                                              "value" : "unit_of_measurement"
+                                              "op" : "suffixUnit"
                                             }
                                           }
                                         },
@@ -262,9 +262,9 @@
                           "reads" : "live",
                           "signal" : "text",
                           "transform" : {
+                            "attribute" : "unit_of_measurement",
                             "kind" : "value",
-                            "op" : "suffixUnit",
-                            "value" : "unit_of_measurement"
+                            "op" : "suffixUnit"
                           }
                         }
                       },
@@ -350,9 +350,9 @@
                           "reads" : "live",
                           "signal" : "text",
                           "transform" : {
+                            "attribute" : "unit_of_measurement",
                             "kind" : "value",
-                            "op" : "suffixUnit",
-                            "value" : "unit_of_measurement"
+                            "op" : "suffixUnit"
                           }
                         }
                       },
@@ -472,9 +472,9 @@
                                             "reads" : "live",
                                             "signal" : "text",
                                             "transform" : {
+                                              "attribute" : "unit_of_measurement",
                                               "kind" : "value",
-                                              "op" : "suffixUnit",
-                                              "value" : "unit_of_measurement"
+                                              "op" : "suffixUnit"
                                             }
                                           }
                                         },
@@ -680,9 +680,9 @@
                           "reads" : "live",
                           "signal" : "text",
                           "transform" : {
+                            "attribute" : "unit_of_measurement",
                             "kind" : "value",
-                            "op" : "suffixUnit",
-                            "value" : "unit_of_measurement"
+                            "op" : "suffixUnit"
                           }
                         }
                       },
@@ -771,9 +771,9 @@
                           "reads" : "live",
                           "signal" : "text",
                           "transform" : {
+                            "attribute" : "unit_of_measurement",
                             "kind" : "value",
-                            "op" : "suffixUnit",
-                            "value" : "unit_of_measurement"
+                            "op" : "suffixUnit"
                           }
                         }
                       },

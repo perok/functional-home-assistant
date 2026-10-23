@@ -39,9 +39,9 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
+                                  "attribute" : "unit_of_measurement",
                                   "kind" : "value",
-                                  "op" : "suffixUnit",
-                                  "value" : "unit_of_measurement"
+                                  "op" : "suffixUnit"
                                 }
                               }
                             },
@@ -247,9 +247,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
+                "attribute" : "unit_of_measurement",
                 "kind" : "value",
-                "op" : "suffixUnit",
-                "value" : "unit_of_measurement"
+                "op" : "suffixUnit"
               }
             }
           },
@@ -310,9 +310,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
+                "attribute" : "unit_of_measurement",
                 "kind" : "value",
-                "op" : "suffixUnit",
-                "value" : "unit_of_measurement"
+                "op" : "suffixUnit"
               }
             }
           },
@@ -409,9 +409,9 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
+                                  "attribute" : "unit_of_measurement",
                                   "kind" : "value",
-                                  "op" : "suffixUnit",
-                                  "value" : "unit_of_measurement"
+                                  "op" : "suffixUnit"
                                 }
                               }
                             },
@@ -477,9 +477,9 @@
                                       "reads" : "live",
                                       "signal" : "text",
                                       "transform" : {
+                                        "attribute" : "unit_of_measurement",
                                         "kind" : "value",
-                                        "op" : "suffixUnit",
-                                        "value" : "unit_of_measurement"
+                                        "op" : "suffixUnit"
                                       }
                                     }
                                   },
@@ -557,9 +557,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
+                "attribute" : "unit_of_measurement",
                 "kind" : "value",
-                "op" : "suffixUnit",
-                "value" : "unit_of_measurement"
+                "op" : "suffixUnit"
               }
             }
           },
@@ -630,13 +630,11 @@
                     "reads" : "live",
                     "signal" : "style:--fh-fill",
                     "transform" : {
+                      "attribute" : "brightness",
                       "kind" : "value",
-                      "op" : "fill",
-                      "params" : {
-                        "max" : 255,
-                        "min" : 1
-                      },
-                      "value" : "brightness"
+                      "max" : 255,
+                      "min" : 1,
+                      "op" : "fill"
                     }
                   },
                   "fillColor" : {
@@ -681,9 +679,9 @@
                     "reads" : "live",
                     "signal" : "attr:value",
                     "transform" : {
+                      "attribute" : "brightness",
                       "kind" : "value",
-                      "op" : "attr",
-                      "value" : "brightness"
+                      "op" : "attr"
                     }
                   }
                 },
@@ -762,9 +760,9 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
+                          "attribute" : "unit_of_measurement",
                           "kind" : "value",
-                          "op" : "suffixUnit",
-                          "value" : "unit_of_measurement"
+                          "op" : "suffixUnit"
                         }
                       }
                     },
@@ -837,9 +835,9 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
+                          "attribute" : "unit_of_measurement",
                           "kind" : "value",
-                          "op" : "suffixUnit",
-                          "value" : "unit_of_measurement"
+                          "op" : "suffixUnit"
                         }
                       }
                     },
@@ -1124,9 +1122,9 @@
                                     "reads" : "live",
                                     "signal" : "text",
                                     "transform" : {
+                                      "attribute" : "unit_of_measurement",
                                       "kind" : "value",
-                                      "op" : "suffixUnit",
-                                      "value" : "unit_of_measurement"
+                                      "op" : "suffixUnit"
                                     }
                                   }
                                 },
@@ -1332,9 +1330,9 @@
                   "reads" : "live",
                   "signal" : "text",
                   "transform" : {
+                    "attribute" : "unit_of_measurement",
                     "kind" : "value",
-                    "op" : "suffixUnit",
-                    "value" : "unit_of_measurement"
+                    "op" : "suffixUnit"
                   }
                 }
               },

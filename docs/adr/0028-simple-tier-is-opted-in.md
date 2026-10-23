@@ -96,48 +96,47 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    domain shipped), so an unmatched state must degrade rather than blank a card months later. A
    helper that covers every variant of a vendored state union belongs in the domain module,
    where the vocabulary is.
-3. **Flat on the wire, typed in the renderer.** The wire and Pkl form is TWO shapes, not one per
-   case: `SimpleValue {kind: "value", op, value, params}` — an operator name, its single String
-   argument, and whatever else it needs — and `SimpleMatch {kind: "match", cases, otherwise}`
-   beside it.
+3. **`kind` names the shape, `op` the operator, and both levels are derived.** Pkl writes
+   `{kind: "value", op: "percent", attribute, min, max}` and `{kind: "match", cases, otherwise}`.
+   They are two fields because they answer two questions, and `kind` is the spelling
+   `LayoutNode` and `Predicate` already use. In Scala, `Transform.Simple` is a sealed trait
+   holding `Simple.Op`, an enum of the operators whose decoder is derived with discriminator
+   `op`, and `Simple.Match`, a derived case class. The operator cases are exported onto `Simple`,
+   so code still says `Simple.Percent`.
 
-   **`kind` says which SHAPE and `op` says which OPERATOR**, and they are two fields rather than
-   one because they answer two questions. `kind` is also the spelling `LayoutNode` and
-   `Predicate` already use, so the wire reads consistently. The practical forcing function is
-   circe: its derivation maps one CONSTRUCTOR NAME to one fixed discriminator string
-   (`Configuration.withTransformConstructorNames`), so an `op` that varies per operator cannot
-   also select the case. Overloading one field buys ~16 bytes a slot and costs the derivation —
-   and with it the good error, since a bad `kind` then falls into `Value` and reports a
-   confusing unknown-op instead of an unknown shape.
+   The one hand-written line picks the level: it reads `kind` and hands the object to the `Op`
+   or `Match` decoder. circe's Scala 3 derivation cannot do it, because it flattens a nested sum
+   to its innermost case, so the outer discriminator would have to name the operator
+   (circe#2110, fixed that way by circe#2156). The other hand-written instance is for
+   `SlotValue`, a union circe can't derive. It tries BOOLEAN first: `Decoder[String]` fails on a
+   JSON boolean, and the narrower type goes first.
 
-   `match` cannot flatten: its payload is a Mapping plus arms that may be Boolean, and forcing
-   that into an argument list would mean encoding a table inside a field — a parser, which is
-   the thing this tier exists to avoid. Two shapes is the honest floor, and `Simple` is their
-   union.
-
-   `Transform.SimpleWire` is that pair as a Scala `enum`, decoded by `ConfiguredDecoder.derived`
-   — the ONLY hand-written instances are the two UNION types circe has no generic story for
-   (`SlotValue`, and a `params` entry). `SimpleWire.toSimple` then parses it into the runtime
-   `Simple` ONCE, applied with `emap` so a `Left` becomes a decoding failure carrying the JSON
-   path. The wire form does not reach the renderer, and that is the point:
+   Decoding straight into the runtime type, with no flatter wire form parsed afterwards, is what
+   keeps these three:
 
    - The renderer keeps an **exhaustive match**, which is what stops a new shape quietly
-     skipping the parity suite. Matching on a `String` op would let one fall through to a
+     skipping the parity suite. Matching on a `String` operator would let one fall through to a
      default, green and unproven.
    - **No evaluation pays a map lookup** for an argument it could have read off a field.
    - A malformed structure is a **build-time failure naming the dashboard** rather than a slot
-     that renders blank forever.
+     that renders blank forever: a missing field, an unknown `kind` or an unknown `op` fails the
+     decode, with its JSON path.
 
-   The authoring safety the flat form appears to cost is not actually lost: the `const function`
-   constructors in `core/simple.pkl` are typed, they are the only door (nothing constructs these
-   classes directly and nothing amends one), and `toSimple`'s `Left` catches what hand-written
-   JSON could still smuggle past them.
+   In Pkl, each operator is a class of its own, named as its `Simple.Op` case and extending an
+   abstract `SimpleValue` that fixes `kind`. Each class requires exactly the fields its operator
+   reads, so no argument is optional, and `WireShapeSuite` checks every class's fields against
+   its Scala case. The `const function` constructors in `core/simple.pkl` are still the door
+   authors use. `match` keeps a class of its own, because its payload is a Mapping whose arms
+   may be Boolean.
 
-   The two union decoders are where the care goes, because neither is derivable. A `SlotValue`
-   arm tries BOOLEAN first — `Decoder[String]` fails on a JSON boolean, and the narrower type
-   always goes first. A `params` entry is decided on the JSON's OWN shape rather than by an
-   ordered `or` at all: circe's numeric decoders accept a JSON string that parses as a number, so
-   `Double`-first would silently turn a genuine string argument into a Double.
+   Rejected: a `params` map beside one String `value`. It needed a hand-written step after
+   decoding, numeric strings included, and a decoder should only decode (#607); a field per
+   argument needs no parser. `value` also meant an attribute for some operators and literal text
+   for others, which is why the fields are now `attribute` and `literal`. Also rejected:
+   - one `SimpleValue` class holding every operator's fields as optional, which Pkl could not
+     check and `WireShapeSuite` could not compare with any single Scala case;
+   - one `kind` per operator, which derives with no hand-written line but makes one field answer
+     both questions.
 4. **Each case is DEFINED by its idiomatic CEL spelling** — documented on the Scala case and on
    the Pkl constructor — and `TransformSuite`'s battery evaluates that spelling through the engine,
    asserting **byte-equality with the fast read over the hostile sweep**. The mapping is a test
@@ -176,7 +175,7 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
   documented one: a mistyped value now renders the absent-value form instead of the engine's error
   text — visible diagnosis traded for tier ownership, pinned in the suite.
 - **A shape beyond the catalog cannot sneak into the fast tier** — there is nothing to fool. An
-  `op` with no `toSimple` arm is a decode failure, not a dead slot. Growth is a catalog decision,
+  unknown `kind` is a decode failure, not a dead slot. Growth is a catalog decision,
   made here and gated by review.
 - **Opted-in slots' signal names changed once** (structure keys, not CEL hashes) and are stable
   from here; re-indenting or re-spelling any CEL in the library can no longer move a tier or a
