@@ -97,7 +97,7 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    helper that covers every variant of a vendored state union belongs in the domain module,
    where the vocabulary is.
 3. **`kind` names the shape, `op` the operator, and both levels are derived.** Pkl writes
-   `{kind: "value", op: "percent", name, min, max}` and `{kind: "match", cases, otherwise}`.
+   `{kind: "value", op: "percent", attribute, min, max}` and `{kind: "match", cases, otherwise}`.
    They are two fields because they answer two questions, and `kind` is the spelling
    `LayoutNode` and `Predicate` already use. In Scala, `Transform.Simple` is a sealed trait
    holding `Simple.Op`, an enum of the operators whose decoder is derived with discriminator
@@ -122,17 +122,21 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
      that renders blank forever: a missing field, an unknown `kind` or an unknown `op` fails the
      decode, with its JSON path.
 
-   In Pkl, the operators share one `SimpleValue` class. Its `op` is typed by the `Op` alias, and
-   its argument fields default to null, which the JSON renderer leaves out. The
-   `const function` constructors in `core/simple.pkl` are the only door: each sets exactly the
-   fields its operator reads, and nothing amends one. The derived decoders catch whatever
-   hand-written JSON gets past them. `match` keeps a class of its own, because its payload is a
-   Mapping whose arms may be Boolean.
+   In Pkl, each operator is a class of its own, named as its `Simple.Op` case and extending an
+   abstract `SimpleValue` that fixes `kind`. Each class requires exactly the fields its operator
+   reads, so no argument is optional, and `WireShapeSuite` checks every class's fields against
+   its Scala case. The `const function` constructors in `core/simple.pkl` are still the door
+   authors use. `match` keeps a class of its own, because its payload is a Mapping whose arms
+   may be Boolean.
 
    Rejected: a `params` map beside one String `value`. It needed a hand-written step after
    decoding, numeric strings included, and a decoder should only decode (#607); a field per
-   argument needs no parser. Rejected too: one `kind` per operator, which derives with no
-   hand-written line but makes one field answer both questions.
+   argument needs no parser. `value` also meant an attribute for some operators and literal text
+   for others, which is why the fields are now `attribute` and `literal`. Also rejected:
+   - one `SimpleValue` class holding every operator's fields as optional, which Pkl could not
+     check and `WireShapeSuite` could not compare with any single Scala case;
+   - one `kind` per operator, which derives with no hand-written line but makes one field answer
+     both questions.
 4. **Each case is DEFINED by its idiomatic CEL spelling** — documented on the Scala case and on
    the Pkl constructor — and `TransformSuite`'s battery evaluates that spelling through the engine,
    asserting **byte-equality with the fast read over the hostile sweep**. The mapping is a test

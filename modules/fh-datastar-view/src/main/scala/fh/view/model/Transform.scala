@@ -45,13 +45,13 @@ object Transform {
       /** CEL: `state`. */
       case State
 
-      /** CEL: `attr[?'name']`. Absent renders `""`. */
-      case Attr(name: String)
+      /** CEL: `attr[?'attribute']`. Absent renders `""`. */
+      case Attr(attribute: String)
 
-      /** CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A
+      /** CEL: `state + attr[?'attribute'].optMap(u, ' ' + u).orValue('')`. A
         * non-String unit counts as absent (CEL would error).
         */
-      case SuffixUnit(name: String)
+      case SuffixUnit(attribute: String)
 
       /** CEL: `'literal' + state`. */
       case Prefix(literal: String)
@@ -59,18 +59,18 @@ object Transform {
       /** CEL: `state + 'literal'`. */
       case Suffix(literal: String)
 
-      /** CEL: `attr[?'name'].optMap(v, str(math.round((double(v) - min) * 100.0
-        * / (max - min))) + ' %').orValue('0 %')`, rounding half away from zero
-        * like `math.round`. Numbers or numeric strings, as `double()` takes;
-        * unparseable renders `0 %` (CEL would error).
+      /** CEL: `attr[?'attribute'].optMap(v, str(math.round((double(v) - min) *
+        * 100.0 / (max - min))) + ' %').orValue('0 %')`, rounding half away from
+        * zero like `math.round`. Numbers or numeric strings, as `double()`
+        * takes; unparseable renders `0 %` (CEL would error).
         */
-      case Percent(name: String, min: Double, max: Double)
+      case Percent(attribute: String, min: Double, max: Double)
 
-      /** CEL: `attr[?'name'].optMap(v, str(100.0 - ((double(v) - min) * 100.0 /
-        * (max - min)))).orValue('100') + '%'`, for a right-anchored track.
-        * Unparseable renders `100%`.
+      /** CEL: `attr[?'attribute'].optMap(v, str(100.0 - ((double(v) - min) *
+        * 100.0 / (max - min)))).orValue('100') + '%'`, for a right-anchored
+        * track. Unparseable renders `100%`.
         */
-      case Fill(name: String, min: Double, max: Double)
+      case Fill(attribute: String, min: Double, max: Double)
 
       /** CEL:
         * {{{

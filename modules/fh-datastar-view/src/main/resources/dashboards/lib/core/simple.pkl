@@ -13,21 +13,53 @@
 /// documented divergence, pinned too. The constructors are the only door.
 module core.simple
 
-/// `Transform.Simple.Op`'s case names, lower-camel: the backend's decoder is
-/// derived, so any other name fails the decode.
-typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"|"duration"
-
-/// An operator over one read. `kind` names the shape and `op` the operator.
-/// Each constructor sets the fields its operator reads; the rest stay null,
-/// which the JSON renderer omits.
-class SimpleValue {
+/// An operator over one read: one class per `Transform.Simple.Op` case, of the
+/// same name and with the same fields, which `WireShapeSuite` checks. `kind`
+/// names the shape and `op` the operator, the case name in lower camel case.
+abstract class SimpleValue {
   kind = "value"
-  op: Op
-  name: String? = null
-  literal: String? = null
-  min: Number? = null
-  max: Number? = null
-  scale: Number? = null
+  op: String
+}
+
+class State extends SimpleValue { op = "state" }
+
+class Attr extends SimpleValue {
+  op = "attr"
+  attribute: String
+}
+
+class SuffixUnit extends SimpleValue {
+  op = "suffixUnit"
+  attribute: String
+}
+
+class Prefix extends SimpleValue {
+  op = "prefix"
+  literal: String
+}
+
+class Suffix extends SimpleValue {
+  op = "suffix"
+  literal: String
+}
+
+class Percent extends SimpleValue {
+  op = "percent"
+  attribute: String
+  min: Number
+  max: Number
+}
+
+class Fill extends SimpleValue {
+  op = "fill"
+  attribute: String
+  min: Number
+  max: Number
+}
+
+class Duration extends SimpleValue {
+  op = "duration"
+  scale: Number
 }
 
 /// The state as a lookup:
@@ -48,24 +80,24 @@ typealias Simple = SimpleValue|SimpleMatch
 // `const`, because components call them from class bodies.
 
 /// `state`.
-const function state(): Simple = new SimpleValue { op = "state" }
+const function state(): Simple = new State {}
 
-/// `attr[?'name']`; absent renders `""` and the slot's default applies.
+/// `attr[?'attribute']`; absent renders `""` and the slot's default applies.
 const function attr(attrName: String): Simple =
-  new SimpleValue { op = "attr"; name = attrName }
+  new Attr { attribute = attrName }
 
-/// `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A unit that is not a
+/// `state + attr[?'attribute'].optMap(u, ' ' + u).orValue('')`. A unit that is not a
 /// String renders the state alone.
 const function suffixUnit(attrName: String): Simple =
-  new SimpleValue { op = "suffixUnit"; name = attrName }
+  new SuffixUnit { attribute = attrName }
 
 /// `'literal' + state`.
 const function prefix(lit: String): Simple =
-  new SimpleValue { op = "prefix"; literal = lit }
+  new Prefix { literal = lit }
 
 /// `state + 'literal'`.
 const function suffix(lit: String): Simple =
-  new SimpleValue { op = "suffix"; literal = lit }
+  new Suffix { literal = lit }
 
 const function matchOf(byState: Mapping<String, String|Boolean>, elseV: String|Boolean): Simple =
   new SimpleMatch { cases = byState; otherwise = elseV }
@@ -85,16 +117,16 @@ const function stateIn(states: Listing<String>): Simple =
 /// The attribute as a percentage of `[min, max]`, rounded half away from zero
 /// like `math.round`. Numeric as `double()` is; otherwise `"0 %"`.
 const function percent(attrName: String, minV: Number, maxV: Number): Simple =
-  new SimpleValue { op = "percent"; name = attrName; min = minV; max = maxV }
+  new Percent { attribute = attrName; min = minV; max = maxV }
 
 /// [[percent]]'s complement for a right-anchored track, unrounded, since it is
 /// a CSS length. Otherwise `"100%"`.
 const function fill(attrName: String, minV: Number, maxV: Number): Simple =
-  new SimpleValue { op = "fill"; name = attrName; min = minV; max = maxV }
+  new Fill { attribute = attrName; min = minV; max = maxV }
 
 /// The state as a number of `unitSeconds`, rendered `4h 13m` / `13m` / `45s`.
 /// Otherwise `""`: an appliance between programmes reports `unknown`, where
 /// `0s` would claim it just finished. Pass `e.durationSeconds`, which is null
 /// for a unit with no fixed length.
 const function duration(unitSeconds: Number): Simple =
-  new SimpleValue { op = "duration"; scale = unitSeconds }
+  new Duration { scale = unitSeconds }

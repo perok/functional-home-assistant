@@ -621,7 +621,7 @@ class TransformSuite extends munit.FunSuite {
     ).foreach { op =>
       assert(
         decode(
-          s"""{"kind":"value","op":"$op","name":"brightness","literal":"x",""" +
+          s"""{"kind":"value","op":"$op","attribute":"brightness","literal":"x",""" +
             """"min":1,"max":255,"scale":60}"""
         ).isRight,
         s"op `$op` is spellable in Pkl but does not decode"
@@ -630,8 +630,10 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("an op outside that set is refused, not silently dropped") {
-    assert(decode("""{"kind":"value","op":"attrOrId","name":"x"}""").isLeft)
-    assert(decode("""{"kind":"value","op":"","name":"x"}""").isLeft)
+    assert(
+      decode("""{"kind":"value","op":"attrOrId","attribute":"x"}""").isLeft
+    )
+    assert(decode("""{"kind":"value","op":"","attribute":"x"}""").isLeft)
   }
 
   test("a missing argument fails the decode rather than defaulting") {
@@ -647,16 +649,18 @@ class TransformSuite extends munit.FunSuite {
       "prefix with no literal"
     )
     assert(
-      decode("""{"kind":"value","op":"percent","name":"b"}""").isLeft,
+      decode("""{"kind":"value","op":"percent","attribute":"b"}""").isLeft,
       "percent with no range"
     )
     assert(
-      decode("""{"kind":"value","op":"percent","name":"b","min":1}""").isLeft,
+      decode(
+        """{"kind":"value","op":"percent","attribute":"b","min":1}"""
+      ).isLeft,
       "percent with only half a range"
     )
     assert(
       decode(
-        """{"kind":"value","op":"percent","name":"b","min":"lo","max":2}"""
+        """{"kind":"value","op":"percent","attribute":"b","min":"lo","max":2}"""
       ).isLeft,
       "percent whose min is not a number"
     )
@@ -668,7 +672,7 @@ class TransformSuite extends munit.FunSuite {
       Right(Simple.State)
     )
     assertEquals(
-      decode("""{"kind":"value","op":"state","name":"brightness"}"""),
+      decode("""{"kind":"value","op":"state","attribute":"brightness"}"""),
       Right(Simple.State)
     )
   }
@@ -676,7 +680,7 @@ class TransformSuite extends munit.FunSuite {
   test("the decoder reads an operator and a match off real JSON") {
     assertEquals(
       decode(
-        """{"kind":"value","op":"percent","name":"brightness",""" +
+        """{"kind":"value","op":"percent","attribute":"brightness",""" +
           """"min":1,"max":255}"""
       ),
       Right(Simple.Percent("brightness", 1.0, 255.0))
@@ -697,7 +701,7 @@ class TransformSuite extends munit.FunSuite {
     // An unknown `kind` fails on the shape, not as a confusing unknown op.
     assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
     assertEquals(
-      decode("""{"kind":"value","op":"suffixUnit","name":"u"}"""),
+      decode("""{"kind":"value","op":"suffixUnit","attribute":"u"}"""),
       Right(Simple.SuffixUnit("u"))
     )
   }
