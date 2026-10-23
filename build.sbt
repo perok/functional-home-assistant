@@ -498,6 +498,7 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-circe" % http4sVersion,
       "io.circe" %% "circe-core" % "0.14.17",
       "io.circe" %% "circe-parser" % "0.14.17",
+      "io.github.iltotore" %% "iron-circe" % "3.4.1",
       // filesystem paths/IO for the build phase
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)

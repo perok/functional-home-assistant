@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
 import fh.view.history.ChartStyle
 import fh.view.query.{Staged, QuerySnapshot}
