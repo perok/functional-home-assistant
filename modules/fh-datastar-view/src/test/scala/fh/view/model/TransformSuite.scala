@@ -565,7 +565,9 @@ class TransformSuite extends munit.FunSuite {
     // `duration` carries only `scale`: its read is the state.
     assertEquals(
       io.circe.parser
-        .decode[Transform.Simple]("""{"kind":"duration","scale":60}"""),
+        .decode[Transform.Simple](
+          """{"kind":"value","op":"duration","scale":60}"""
+        ),
       Right(Simple.Duration(60.0))
     )
   }
@@ -595,18 +597,18 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
-  // The wire form: `core/simple.pkl`'s `kind` names the case and the decoder
-  // is derived. A structure missing an argument must fail loudly, not render
-  // blank.
+  // The wire form: `core/simple.pkl`'s `kind` names the shape and `op` the
+  // operator, and both levels are derived. A structure missing an argument
+  // must fail loudly, not render blank.
 
   private def decode(src: String) =
     io.circe.parser.decode[Transform.Simple](src)
 
-  test("every kind the Pkl module can spell decodes into a runtime shape") {
-    // Written in two languages, the `Kind` typealias in `core/simple.pkl` and
+  test("every op the Pkl module can spell decodes into a runtime shape") {
+    // Written in two languages, the `Op` typealias in `core/simple.pkl` and
     // the case names here, so only this checks they agree; a literal, since a
     // list derived from the Scala enum would agree with itself. Every field
-    // any kind takes; each ignores what it does not read.
+    // any op takes; each ignores what it does not read.
     List(
       "state",
       "attr",
@@ -616,53 +618,67 @@ class TransformSuite extends munit.FunSuite {
       "percent",
       "fill",
       "duration"
-    ).foreach { kind =>
+    ).foreach { op =>
       assert(
         decode(
-          s"""{"kind":"$kind","name":"brightness","literal":"x",""" +
+          s"""{"kind":"value","op":"$op","name":"brightness","literal":"x",""" +
             """"min":1,"max":255,"scale":60}"""
         ).isRight,
-        s"kind `$kind` is spellable in Pkl but does not decode"
+        s"op `$op` is spellable in Pkl but does not decode"
       )
     }
   }
 
-  test("a kind outside that set is refused, not silently dropped") {
-    assert(decode("""{"kind":"attrOrId","name":"x"}""").isLeft)
-    assert(decode("""{"kind":"","name":"x"}""").isLeft)
+  test("an op outside that set is refused, not silently dropped") {
+    assert(decode("""{"kind":"value","op":"attrOrId","name":"x"}""").isLeft)
+    assert(decode("""{"kind":"value","op":"","name":"x"}""").isLeft)
   }
 
   test("a missing argument fails the decode rather than defaulting") {
     // A hand-written `SimpleValue` forgetting a field. The typed Pkl
     // constructors cannot produce these, which is why nothing downstream would
     // catch them.
-    assert(decode("""{"kind":"attr"}""").isLeft, "attr with no name")
-    assert(decode("""{"kind":"prefix"}""").isLeft, "prefix with no literal")
     assert(
-      decode("""{"kind":"percent","name":"b"}""").isLeft,
+      decode("""{"kind":"value","op":"attr"}""").isLeft,
+      "attr with no name"
+    )
+    assert(
+      decode("""{"kind":"value","op":"prefix"}""").isLeft,
+      "prefix with no literal"
+    )
+    assert(
+      decode("""{"kind":"value","op":"percent","name":"b"}""").isLeft,
       "percent with no range"
     )
     assert(
-      decode("""{"kind":"percent","name":"b","min":1}""").isLeft,
+      decode("""{"kind":"value","op":"percent","name":"b","min":1}""").isLeft,
       "percent with only half a range"
     )
     assert(
-      decode("""{"kind":"percent","name":"b","min":"lo","max":2}""").isLeft,
+      decode(
+        """{"kind":"value","op":"percent","name":"b","min":"lo","max":2}"""
+      ).isLeft,
       "percent whose min is not a number"
     )
   }
 
   test("state takes no argument, and one it does not need is ignored") {
-    assertEquals(decode("""{"kind":"state"}"""), Right(Simple.State))
     assertEquals(
-      decode("""{"kind":"state","name":"brightness"}"""),
+      decode("""{"kind":"value","op":"state"}"""),
+      Right(Simple.State)
+    )
+    assertEquals(
+      decode("""{"kind":"value","op":"state","name":"brightness"}"""),
       Right(Simple.State)
     )
   }
 
   test("the decoder reads an operator and a match off real JSON") {
     assertEquals(
-      decode("""{"kind":"percent","name":"brightness","min":1,"max":255}"""),
+      decode(
+        """{"kind":"value","op":"percent","name":"brightness",""" +
+          """"min":1,"max":255}"""
+      ),
       Right(Simple.Percent("brightness", 1.0, 255.0))
     )
     assertEquals(
@@ -677,8 +693,11 @@ class TransformSuite extends munit.FunSuite {
           case _                      => false
         }
     )
+    assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
+    // An unknown `kind` fails on the shape, not as a confusing unknown op.
+    assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
     assertEquals(
-      decode("""{"kind":"suffixUnit","name":"u"}"""),
+      decode("""{"kind":"value","op":"suffixUnit","name":"u"}"""),
       Right(Simple.SuffixUnit("u"))
     )
   }

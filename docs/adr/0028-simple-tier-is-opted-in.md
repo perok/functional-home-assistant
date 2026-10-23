@@ -96,35 +96,43 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    domain shipped), so an unmatched state must degrade rather than blank a card months later. A
    helper that covers every variant of a vendored state union belongs in the domain module,
    where the vocabulary is.
-3. **One wire shape per case, and the decoder is derived.** Pkl writes each structure with
-   `kind` naming its case in lower camel case, `{kind: "percent", name, min, max}` and
-   `{kind: "match", cases, otherwise}`, and `Transform.Simple` derives its decoder from that
-   (`ConfiguredDecoder`, discriminator `kind`, the spelling `LayoutNode` and `Predicate` already
-   use). The one hand-written instance is for `SlotValue`, a union circe can't derive. It tries
-   BOOLEAN first: `Decoder[String]` fails on a JSON boolean, and the narrower type goes first.
+3. **`kind` names the shape, `op` the operator, and both levels are derived.** Pkl writes
+   `{kind: "value", op: "percent", name, min, max}` and `{kind: "match", cases, otherwise}`.
+   They are two fields because they answer two questions, and `kind` is the spelling
+   `LayoutNode` and `Predicate` already use. In Scala, `Transform.Simple` is a sealed trait
+   holding `Simple.Op`, an enum of the operators whose decoder is derived with discriminator
+   `op`, and `Simple.Match`, a derived case class. The operator cases are exported onto `Simple`,
+   so code still says `Simple.Percent`.
 
-   Deriving the runtime enum itself, with no flatter wire form parsed afterwards, is what keeps
-   these three:
+   The one hand-written line picks the level: it reads `kind` and hands the object to the `Op`
+   or `Match` decoder. circe's Scala 3 derivation cannot do it, because it flattens a nested sum
+   to its innermost case, so the outer discriminator would have to name the operator
+   (circe#2110, fixed that way by circe#2156). The other hand-written instance is for
+   `SlotValue`, a union circe can't derive. It tries BOOLEAN first: `Decoder[String]` fails on a
+   JSON boolean, and the narrower type goes first.
+
+   Decoding straight into the runtime type, with no flatter wire form parsed afterwards, is what
+   keeps these three:
 
    - The renderer keeps an **exhaustive match**, which is what stops a new shape quietly
      skipping the parity suite. Matching on a `String` operator would let one fall through to a
      default, green and unproven.
    - **No evaluation pays a map lookup** for an argument it could have read off a field.
    - A malformed structure is a **build-time failure naming the dashboard** rather than a slot
-     that renders blank forever: a missing field or an unknown `kind` fails the decode, with
-     its JSON path.
+     that renders blank forever: a missing field, an unknown `kind` or an unknown `op` fails the
+     decode, with its JSON path.
 
-   In Pkl, the operators share one `SimpleValue` class. Its `kind` is typed by the `Kind` alias,
-   and its argument fields default to null, which the JSON renderer leaves out. The
+   In Pkl, the operators share one `SimpleValue` class. Its `op` is typed by the `Op` alias, and
+   its argument fields default to null, which the JSON renderer leaves out. The
    `const function` constructors in `core/simple.pkl` are the only door: each sets exactly the
-   fields its kind reads, and nothing amends one. The derived decoder catches whatever
+   fields its operator reads, and nothing amends one. The derived decoders catch whatever
    hand-written JSON gets past them. `match` keeps a class of its own, because its payload is a
    Mapping whose arms may be Boolean.
 
-   Rejected: one `kind: "value"` for every operator, with an `op` field and a `params` map. That
-   decoded to a wire type, and a hand-written step then parsed it into `Simple`, including
-   numeric strings in `params`. A decoder should only decode (#607), and a field per argument
-   needs no parser.
+   Rejected: a `params` map beside one String `value`. It needed a hand-written step after
+   decoding, numeric strings included, and a decoder should only decode (#607); a field per
+   argument needs no parser. Rejected too: one `kind` per operator, which derives with no
+   hand-written line but makes one field answer both questions.
 4. **Each case is DEFINED by its idiomatic CEL spelling** — documented on the Scala case and on
    the Pkl constructor — and `TransformSuite`'s battery evaluates that spelling through the engine,
    asserting **byte-equality with the fast read over the hostile sweep**. The mapping is a test

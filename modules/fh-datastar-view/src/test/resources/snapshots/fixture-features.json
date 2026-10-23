@@ -39,8 +39,9 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
-                                  "kind" : "suffixUnit",
-                                  "name" : "unit_of_measurement"
+                                  "kind" : "value",
+                                  "name" : "unit_of_measurement",
+                                  "op" : "suffixUnit"
                                 }
                               }
                             },
@@ -246,8 +247,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "suffixUnit",
-                "name" : "unit_of_measurement"
+                "kind" : "value",
+                "name" : "unit_of_measurement",
+                "op" : "suffixUnit"
               }
             }
           },
@@ -308,8 +310,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "suffixUnit",
-                "name" : "unit_of_measurement"
+                "kind" : "value",
+                "name" : "unit_of_measurement",
+                "op" : "suffixUnit"
               }
             }
           },
@@ -406,8 +409,9 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
-                                  "kind" : "suffixUnit",
-                                  "name" : "unit_of_measurement"
+                                  "kind" : "value",
+                                  "name" : "unit_of_measurement",
+                                  "op" : "suffixUnit"
                                 }
                               }
                             },
@@ -473,8 +477,9 @@
                                       "reads" : "live",
                                       "signal" : "text",
                                       "transform" : {
-                                        "kind" : "suffixUnit",
-                                        "name" : "unit_of_measurement"
+                                        "kind" : "value",
+                                        "name" : "unit_of_measurement",
+                                        "op" : "suffixUnit"
                                       }
                                     }
                                   },
@@ -552,8 +557,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "suffixUnit",
-                "name" : "unit_of_measurement"
+                "kind" : "value",
+                "name" : "unit_of_measurement",
+                "op" : "suffixUnit"
               }
             }
           },
@@ -624,10 +630,11 @@
                     "reads" : "live",
                     "signal" : "style:--fh-fill",
                     "transform" : {
-                      "kind" : "fill",
+                      "kind" : "value",
                       "max" : 255,
                       "min" : 1,
-                      "name" : "brightness"
+                      "name" : "brightness",
+                      "op" : "fill"
                     }
                   },
                   "fillColor" : {
@@ -647,7 +654,8 @@
                     "reads" : "live",
                     "signal" : "text",
                     "transform" : {
-                      "kind" : "state"
+                      "kind" : "value",
+                      "op" : "state"
                     }
                   },
                   "tapDisabled" : {
@@ -671,8 +679,9 @@
                     "reads" : "live",
                     "signal" : "attr:value",
                     "transform" : {
-                      "kind" : "attr",
-                      "name" : "brightness"
+                      "kind" : "value",
+                      "name" : "brightness",
+                      "op" : "attr"
                     }
                   }
                 },
@@ -751,8 +760,9 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
-                          "kind" : "suffixUnit",
-                          "name" : "unit_of_measurement"
+                          "kind" : "value",
+                          "name" : "unit_of_measurement",
+                          "op" : "suffixUnit"
                         }
                       }
                     },
@@ -825,8 +835,9 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
-                          "kind" : "suffixUnit",
-                          "name" : "unit_of_measurement"
+                          "kind" : "value",
+                          "name" : "unit_of_measurement",
+                          "op" : "suffixUnit"
                         }
                       }
                     },
@@ -1111,8 +1122,9 @@
                                     "reads" : "live",
                                     "signal" : "text",
                                     "transform" : {
-                                      "kind" : "suffixUnit",
-                                      "name" : "unit_of_measurement"
+                                      "kind" : "value",
+                                      "name" : "unit_of_measurement",
+                                      "op" : "suffixUnit"
                                     }
                                   }
                                 },
@@ -1318,8 +1330,9 @@
                   "reads" : "live",
                   "signal" : "text",
                   "transform" : {
-                    "kind" : "suffixUnit",
-                    "name" : "unit_of_measurement"
+                    "kind" : "value",
+                    "name" : "unit_of_measurement",
+                    "op" : "suffixUnit"
                   }
                 }
               },

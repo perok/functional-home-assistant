@@ -33,26 +33,62 @@ object Transform {
     * [[runSimple]] byte-equal to it over a hostile sweep, and pins the few
     * divergences where CEL would error. Closed: anything more is CEL.
     *
-    * On the wire, `core/simple.pkl`'s `kind` is the case name, lower-camel.
+    * On the wire `kind` names the shape, `value` or `match`, and a value's `op`
+    * names its operator: the [[Simple.Op]] case, lower-camel.
     */
-  enum Simple {
+  sealed trait Simple derives CanEqual
 
-    /** CEL: `state`. */
-    case State
+  object Simple {
 
-    /** CEL: `attr[?'name']`. Absent renders `""`. */
-    case Attr(name: String)
+    enum Op extends Simple {
 
-    /** CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A
-      * non-String unit counts as absent (CEL would error).
-      */
-    case SuffixUnit(name: String)
+      /** CEL: `state`. */
+      case State
 
-    /** CEL: `'literal' + state`. */
-    case Prefix(literal: String)
+      /** CEL: `attr[?'name']`. Absent renders `""`. */
+      case Attr(name: String)
 
-    /** CEL: `state + 'literal'`. */
-    case Suffix(literal: String)
+      /** CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A
+        * non-String unit counts as absent (CEL would error).
+        */
+      case SuffixUnit(name: String)
+
+      /** CEL: `'literal' + state`. */
+      case Prefix(literal: String)
+
+      /** CEL: `state + 'literal'`. */
+      case Suffix(literal: String)
+
+      /** CEL: `attr[?'name'].optMap(v, str(math.round((double(v) - min) * 100.0
+        * / (max - min))) + ' %').orValue('0 %')`, rounding half away from zero
+        * like `math.round`. Numbers or numeric strings, as `double()` takes;
+        * unparseable renders `0 %` (CEL would error).
+        */
+      case Percent(name: String, min: Double, max: Double)
+
+      /** CEL: `attr[?'name'].optMap(v, str(100.0 - ((double(v) - min) * 100.0 /
+        * (max - min)))).orValue('100') + '%'`, for a right-anchored track.
+        * Unparseable renders `100%`.
+        */
+      case Fill(name: String, min: Double, max: Double)
+
+      /** CEL:
+        * {{{
+        * cel.bind(t, int(math.round(double(state) * scale)),
+        *   t <= 0 ? '0s'
+        *   : t >= 3600 ? str(t / 3600) + 'h ' + str(t % 3600 / 60) + 'm'
+        *   : t >= 60 ? str(t / 60) + 'm'
+        *   : str(t) + 's')
+        * }}}
+        *
+        * `scale` is seconds per unit: HA's `duration` class fixes no unit (45
+        * from one appliance, 2700 from another). Coarser than the reading on
+        * purpose — appliances update slowly. Unparseable renders `""`: a
+        * dishwasher between programmes reports `unknown`, and `0s` would claim
+        * it just finished.
+        */
+      case Duration(scale: Double)
+    }
 
     /** CEL: `cel.bind(m, {'k': 'v', …}, state in m ? m[state] : 'otherwise')`.
       *
@@ -62,40 +98,10 @@ object Transform {
       * runtime does not know a domain's states, and HA adds new ones, so an
       * unmatched state must degrade rather than blank a panel.
       */
-    case Match(cases: Map[String, SlotValue], otherwise: SlotValue)
+    final case class Match(cases: Map[String, SlotValue], otherwise: SlotValue)
+        extends Simple
 
-    /** CEL: `attr[?'name'].optMap(v, str(math.round((double(v) - min) * 100.0 /
-      * (max - min))) + ' %').orValue('0 %')`, rounding half away from zero like
-      * `math.round`. Numbers or numeric strings, as `double()` takes;
-      * unparseable renders `0 %` (CEL would error).
-      */
-    case Percent(name: String, min: Double, max: Double)
-
-    /** CEL: `attr[?'name'].optMap(v, str(100.0 - ((double(v) - min) * 100.0 /
-      * (max - min)))).orValue('100') + '%'`, for a right-anchored track.
-      * Unparseable renders `100%`.
-      */
-    case Fill(name: String, min: Double, max: Double)
-
-    /** CEL:
-      * {{{
-      * cel.bind(t, int(math.round(double(state) * scale)),
-      *   t <= 0 ? '0s'
-      *   : t >= 3600 ? str(t / 3600) + 'h ' + str(t % 3600 / 60) + 'm'
-      *   : t >= 60 ? str(t / 60) + 'm'
-      *   : str(t) + 's')
-      * }}}
-      *
-      * `scale` is seconds per unit: HA's `duration` class fixes no unit (45
-      * from one appliance, 2700 from another). Coarser than the reading on
-      * purpose — appliances update slowly. Unparseable renders `""`: a
-      * dishwasher between programmes reports `unknown`, and `0s` would claim it
-      * just finished.
-      */
-    case Duration(scale: Double)
-  }
-
-  object Simple {
+    export Op.{State, Attr, SuffixUnit, Prefix, Suffix, Percent, Fill, Duration}
 
     /** As CEL's `double()` accepts; anything else is the absent form. */
     private[Transform] def num(v: Any | Null): Option[Double] = v match {
@@ -104,18 +110,29 @@ object Transform {
       case _                   => None
     }
 
-    private given Configuration =
-      Configuration.default
-        .withDiscriminator("kind")
-        .withTransformConstructorNames(n => n.take(1).toLowerCase + n.drop(1))
-
     // Boolean first: the narrower type goes first.
     private given Decoder[SlotValue] =
       Decoder[Boolean]
         .map(b => b: SlotValue)
         .or(Decoder[String].map(s => s: SlotValue))
 
-    given Decoder[Simple] = ConfiguredDecoder.derived
+    private given Decoder[Op] = {
+      given Configuration = Configuration.default
+        .withDiscriminator("op")
+        .withTransformConstructorNames(n => n.take(1).toLowerCase + n.drop(1))
+      ConfiguredDecoder.derived
+    }
+
+    // By hand only to pick the level: circe's derivation flattens a nested
+    // sum to its innermost case, so it cannot read `kind` and then `op`.
+    given Decoder[Simple] = Decoder[String].at("kind").flatMap {
+      case "value" => Decoder[Op].map(o => o: Simple)
+      case "match" =>
+        ConfiguredDecoder
+          .derived[Match](using Configuration.default)
+          .map(m => m: Simple)
+      case other => Decoder.failedWithMessage(s"unknown simple kind `$other`")
+    }
 
     /** Injective, for signal names and the once-cache. */
     def key(s: Simple): String = s match {

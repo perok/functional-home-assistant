@@ -50,8 +50,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
   }
 
   test("the simple tier decodes from the wire's explicit opt-in") {
-    // `kind` picks the operator, and the decoded slot dispatches without the
-    // engine.
+    // `kind` picks the wire shape and `op` the operator, and the decoded slot
+    // dispatches without the engine.
     val simpleWire = Json.obj(
       "slug" -> Json.fromString("k"),
       "cards" -> Json.obj(
@@ -66,7 +66,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
         "slots" -> Json.obj(
           "v" -> Json.obj(
             "transform" -> Json.obj(
-              "kind" -> Json.fromString("suffix"),
+              "kind" -> Json.fromString("value"),
+              "op" -> Json.fromString("suffix"),
               "literal" -> Json.fromString(" W")
             )
           )
