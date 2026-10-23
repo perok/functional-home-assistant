@@ -102,11 +102,12 @@ slot had been carrying `"transform": "state"`, which was never true of it.
 None of this was designed separately; all of it fell out.
 
 - **Passthrough is the third-party contract, and it is an absence rather than a feature.** No
-  transform means the provider's JSON — `[[epochMillis, value], …]` — which is what someone using
-  their own chart library reads against. The positional array is a rule, not a preference: the
-  payload can ride a Datastar signal, where a JSON null DELETES the signal and orphans every
-  binding on it with no error anywhere, so a gap must be an array element and never an object
-  field.
+  transform means the provider's JSON — `{"points": [[epochMillis, value], …]}` — which is what
+  someone using their own chart library reads against, so the shape is the chart libraries':
+  `[x, y]` pairs, ECharts' own data form, where a null value would be a break in the line. How a
+  card gets the payload to its script is the card's business, not the contract's; one that lifts
+  it into a Datastar signal must know that a null object FIELD deletes a signal, which an array
+  entry never is.
 - **The fetch/draw split is structural.** `QuerySnapshot.resolve` deduplicates one fetch per QUERY and
   one drawing per `(query, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
   carries. Two cards charting one sensor over one window at different sizes cost one fetch and two

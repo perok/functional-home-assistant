@@ -48,11 +48,8 @@ object ChartStyle {
 object ChartOption {
 
   def apply(series: Series, style: ChartStyle): Json = {
-    val data = Json.arr(
-      series.points.map(p =>
-        Json.arr(Json.fromLong(p.at.toEpochMilli), doubleOrNull(p.value))
-      )*
-    )
+    // A non-finite value encodes as null, which ECharts draws as a break.
+    val data = series.points.asJson
 
     // `inherit` so the page's font draws the labels. zrender writes it into a
     // `font:` shorthand on the time axis, where it is invalid and dropped —
@@ -116,8 +113,4 @@ object ChartOption {
       )
     )
   }
-
-  // Null for a non-finite value, which ECharts draws as a break in the line.
-  private def doubleOrNull(d: Double): Json =
-    Json.fromDouble(d).getOrElse(Json.Null)
 }
