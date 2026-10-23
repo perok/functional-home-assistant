@@ -386,16 +386,11 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** What the renderer puts on the node's `.fh-cell` wrapper: static classes,
-  * `classWhen`'s live ones, and `cssProperty`'s live custom properties — the
-  * live two folded into the component's slots by [[Dashboard.folded]]. An
-  * object so it can grow `grid_options`-style fields without a wire break.
+/** The static classes on the node's `.fh-cell` wrapper; the live ones are slots
+  * ([[Dashboard.CellClassPrefix]]). An object so it can grow
+  * `grid_options`-style fields without a wire break.
   */
-case class Cell(
-    classes: List[String] = Nil,
-    classWhen: Map[String, SlotSource] = Map.empty,
-    properties: Map[String, SlotSource] = Map.empty
-) derives ConfiguredDecoder
+case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
 
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
@@ -536,28 +531,13 @@ object LayoutNode:
   def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
     if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
 
-  /** Two things a node declares beside its slots move ONTO them, so the reverse
-    * index, the plan, the seed and the signal frames carry them with no path of
-    * their own:
-    *
-    *   - its live cell classes and properties become slots
-    *     ([[Dashboard.cellClassSlot]], [[Dashboard.cellStyleSlot]]). A set
-    *     keeps its own: it has no slots, so `validate` rejects them there.
-    *   - each expression value goes onto every slot whose expression names it
-    *     ([[SlotSource.values]]), so a slot alone says what it reads.
-    *
-    * Idempotent: a folded node has no live cell entries left to move.
+  /** Each expression value goes onto every slot whose expression names it
+    * ([[SlotSource.values]]), so a slot alone says what it reads. Idempotent.
     */
   private[model] def foldNode(n: LayoutNode): LayoutNode = n match
     case c: Component =>
-      val live = c.cell.toList.flatMap(cell =>
-        cell.classWhen.map((cls, src) => Dashboard.cellClassSlot(cls) -> src) ++
-          cell.properties.map((p, src) => Dashboard.cellStyleSlot(p) -> src)
-      )
       c.copy(
-        slots = (c.slots ++ live).view.mapValues(attachValues(c.values)).toMap,
-        cell =
-          c.cell.map(_.copy(classWhen = Map.empty, properties = Map.empty)),
+        slots = c.slots.view.mapValues(attachValues(c.values)).toMap,
         regions = c.regions.view.mapValues(_.map(foldNode)).toMap
       )
     case s: SetNode =>
@@ -1495,15 +1475,6 @@ case class Dashboard(
         case s: LayoutNode.SetNode =>
           val setId = nodeId
           cellErrors(setId, s.cell) ++
-            s.cell.toList.flatMap(_.classWhen.keys).sorted.map { cls =>
-              s"$setId: a candidate set cannot carry the live cell class " +
-                s"'$cls' — it has no slots to read through; put it on the " +
-                "clause's node"
-            } ++
-            s.cell.toList.flatMap(_.properties.keys).sorted.map { p =>
-              s"$setId: a candidate set cannot carry the cssProperty '$p' — " +
-                "it has no slots to read through; put it on the clause's node"
-            } ++
             s.candidates.filterNot(s.members.contains).map { c =>
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
@@ -2168,14 +2139,13 @@ object Dashboard:
   private def allBoolean(m: Transform.Simple.Match): Boolean =
     (m.otherwise :: m.cases.values.toList).forall(_.isInstanceOf[Boolean])
 
-  /** Where a live cell class rides among a node's slots. The `:` keeps it out
-    * of any name a card's template could place.
+  /** Where Pkl puts a live cell class among a node's slots (`core/node.pkl`'s
+    * `cellClassPrefix`). The `:` keeps it out of any name a card's template
+    * could place.
     */
-  def cellClassSlot(cls: String): String = CellClassPrefix + cls
   val CellClassPrefix: String = "cell.class:"
 
-  /** [[cellClassSlot]]'s twin for a live custom property (`cssProperty`). */
-  def cellStyleSlot(property: String): String = CellStylePrefix + property
+  /** [[CellClassPrefix]]'s twin for a live custom property (`cssProperty`). */
   val CellStylePrefix: String = "cell.style:"
 
   /** A CSS custom property name; a plain property would fight the theme. */

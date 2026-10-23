@@ -66,8 +66,8 @@ condition its canonical predicate — so two nodes counting the same lights unde
 count the same thing.
 
 **Attached after decode.** `Dashboard.folded`, the step `validated` runs before its checks (the
-decoder only decodes), applies `LayoutNode.foldNode`, which first turns the node's live cell classes and live
-custom properties into slots, then puts each value onto every slot whose CEL names it, by the
+decoder only decodes), applies `LayoutNode.foldNode`, which puts each value onto every slot whose
+CEL names it, live cell classes and properties included (Pkl writes those as slots), by the
 identifiers the expression PARSES to, so a word inside a string literal is not a read. A slot then
 says alone what it reads, and the compile key, the signal name and the watched entities all come
 off it; no render path takes the node's values as an argument.

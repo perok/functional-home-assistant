@@ -1820,7 +1820,7 @@ class PklBuildSuite extends munit.FunSuite {
         .asComponent
         .cell
         .map(_.classes),
-      Some(Nil)
+      None
     )
   }
 
@@ -2079,7 +2079,8 @@ class PklBuildSuite extends munit.FunSuite {
         "max",
         "icon",
         "busyVisual",
-        "onoff"
+        "onoff",
+        "cell.class:fh-active"
       ),
       clue = rowOf(plain).slots.keySet
     )

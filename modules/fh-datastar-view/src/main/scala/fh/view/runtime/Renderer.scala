@@ -1402,7 +1402,7 @@ class Renderer(
   )
 
   /** A component's `<div class="fh-cell …"`, its live classes and custom
-    * properties ([[Dashboard.cellClassSlot]], [[Dashboard.cellStyleSlot]])
+    * properties ([[Dashboard.CellClassPrefix]], [[Dashboard.CellStylePrefix]])
     * inline in the document form only, where signal values are not withheld.
     * Their bindings are [[cellBindingsInto]].
     */

@@ -1214,8 +1214,8 @@ instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapp
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
 wrapper also carries the node's live cell classes (`LayoutNode.classWhen`) and live custom
-properties (`LayoutNode.cssProperty`): ordinary signal slots under `Dashboard.cellClassSlot` /
-`cellStyleSlot` names (`class:` and `style:--…` bindings), folded in before validation, so the renderer
+properties (`LayoutNode.cssProperty`): ordinary signal slots, which Pkl writes under
+`cell.class:` / `cell.style:` names (`class:` and `style:--…` bindings), so the renderer
 places their bindings on the wrapper in both forms and the class or `style="--x:…"` itself only in
 the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
