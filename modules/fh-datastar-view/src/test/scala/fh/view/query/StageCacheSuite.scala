@@ -7,6 +7,7 @@ import fh.view.FHError
 import fh.view.history.{ChartStyle, History, Series, SeriesSource, Window}
 import fh.view.model.Transform
 import io.circe.Json
+import io.circe.syntax.*
 
 /** What a STAGE costs: keyed by question, stage (every field of its style) and
   * version, and shared by everyone reading one version — for any stage, since
@@ -19,9 +20,8 @@ class StageCacheSuite extends munit.CatsEffectSuite {
 
   private val q = question("sensor.t")
 
-  private val data = Series.toJson(
-    Series(Vector(Series.Point(java.time.Instant.EPOCH, 1.0)), 0)
-  )
+  private val data =
+    Series(Vector(Series.Point(java.time.Instant.EPOCH, 1.0))).asJson
 
   private def chart(style: ChartStyle = ChartStyle()) =
     Transform.Stage.Chart(style)
@@ -136,7 +136,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
     // Two sensors over one window share a version (the bucket), so the
     // version alone cannot say whose drawing an entry is.
     def dataOf(v: Double) =
-      Series.toJson(Series(Vector(Series.Point(java.time.Instant.EPOCH, v)), 0))
+      Series(Vector(Series.Point(java.time.Instant.EPOCH, v))).asJson
     fixture(draw = (s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
       .flatMap { case (r, draws) =>
         for {

@@ -1,7 +1,7 @@
 package fh.view.history
 
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticPoint}
-import io.circe.{Decoder, Json}
+import io.circe.{Codec, Decoder, Encoder}
 
 import java.time.Instant
 
@@ -10,11 +10,15 @@ import java.time.Instant
   * No unit or name: those come from the entity's live state, and a copy here
   * could disagree with the card beside it.
   *
-  * `unavailable` counts dropped non-numeric rows. The line is drawn straight
-  * across them; a real gap would need nullable points through the downsampler
-  * and the chart, which is not done yet.
+  * A row that is not a reading is dropped, and the line is drawn straight
+  * across it. A real gap would be a null point, through the downsampler and the
+  * chart, which is not done yet.
+  *
+  * The JSON is the history provider's answer, and the passthrough contract a
+  * component's own chart library reads against; the chart stage decodes it
+  * rather than taking a typed value so the two cannot drift.
   */
-final case class Series(points: Vector[Series.Point], unavailable: Int) {
+final case class Series(points: Vector[Series.Point]) derives Codec.AsObject {
   def isEmpty: Boolean = points.isEmpty
 
   def oldest: Option[Instant] = points.headOption.map(_.at)
@@ -41,51 +45,33 @@ object Series {
 
   final case class Point(at: Instant, value: Double)
 
-  val empty: Series = Series(Vector.empty, 0)
+  object Point {
 
-  /** The wire form, and the third-party contract: what passthrough puts in the
-    * hole and what the chart stage reads.
-    *
-    * `[[epochMillis, value], …]` rather than `[{t, v}, …]`: this can ride a
-    * Datastar signal, where a null object FIELD deletes the signal but a null
-    * array entry is a value.
-    */
-  def toJson(s: Series): Json =
-    Json.obj(
-      "points" -> Json.arr(
-        s.points.map(p =>
-          Json.arr(
-            Json.fromLong(p.at.toEpochMilli),
-            Json.fromDoubleOrNull(p.value)
-          )
-        )*
-      ),
-      "unavailable" -> Json.fromInt(s.unavailable)
-    )
-
-  /** [[toJson]]'s inverse. A stage decodes the JSON rather than taking a typed
-    * value because the JSON is the provider's contract.
-    */
-  given Decoder[Series] = Decoder.instance { c =>
-    for {
-      pts <- c.get[Vector[(Long, Option[Double])]]("points")
-      un <- c.getOrElse[Int]("unavailable")(0)
-    } yield Series(
-      pts.collect { case (at, Some(v)) =>
+    /** `[epochMillis, value]`: the `[x, y]` pair chart libraries take, ECharts
+      * included.
+      */
+    given Codec[Point] = Codec.from(
+      Decoder[(Long, Double)].map((at, v) =>
         Point(Instant.ofEpochMilli(at), v)
-      },
-      un
+      ),
+      Encoder[(Long, Double)].contramap(p => (p.at.toEpochMilli, p.value))
     )
   }
 
-  /** Sorted here: the WS contract does not promise row order. */
-  def fromHistory(rows: List[HistoryPoint]): Series = {
-    val numeric = rows.flatMap(r => r.state.toDoubleOption.map(Point(r.at, _)))
+  val empty: Series = Series(Vector.empty)
+
+  /** Sorted here: the WS contract does not promise row order. A `NaN` or
+    * `Infinity` state parses as a double but is not a reading.
+    */
+  def fromHistory(rows: List[HistoryPoint]): Series =
     Series(
-      numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector,
-      rows.size - numeric.size
+      rows
+        .flatMap(r =>
+          r.state.toDoubleOption.filter(_.isFinite).map(Point(r.at, _))
+        )
+        .sortBy(p => (p.at.getEpochSecond, p.at.getNano))
+        .toVector
     )
-  }
 
   /** Plotted at the bucket's END, which is when its value was reached.
     *
@@ -93,13 +79,13 @@ object Series {
     * `change`): the same quantity [[fromHistory]] returns, so a window crossing
     * from one source to the other stays one line.
     */
-  def fromStatistics(buckets: List[StatisticPoint]): Series = {
-    val numeric = buckets.flatMap(b =>
-      b.mean.map(_.mean).orElse(b.sum.map(_.state)).map(Point(b.end, _))
-    )
+  def fromStatistics(buckets: List[StatisticPoint]): Series =
     Series(
-      numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector,
-      buckets.size - numeric.size
+      buckets
+        .flatMap(b =>
+          b.mean.map(_.mean).orElse(b.sum.map(_.state)).map(Point(b.end, _))
+        )
+        .sortBy(p => (p.at.getEpochSecond, p.at.getNano))
+        .toVector
     )
-  }
 }

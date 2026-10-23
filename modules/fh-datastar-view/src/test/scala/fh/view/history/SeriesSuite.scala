@@ -48,7 +48,7 @@ class SeriesSuite extends munit.FunSuite {
     }
   }
 
-  test("a non-numeric row is dropped and counted, not charted as zero") {
+  test("a non-numeric row is dropped, not charted as zero") {
     val s = Series.fromHistory(
       List(
         HistoryPoint("1.5", at(0)),
@@ -58,7 +58,19 @@ class SeriesSuite extends munit.FunSuite {
       )
     )
     assertEquals(s.points.map(_.value), Vector(1.5, 2.5))
-    assertEquals(s.unavailable, 2)
+  }
+
+  test("a non-finite state is dropped, like a non-numeric one") {
+    // Each parses as a Double, and would reach the wire as a null.
+    val s = Series.fromHistory(
+      List(
+        HistoryPoint("NaN", at(0)),
+        HistoryPoint("Infinity", at(1)),
+        HistoryPoint("1e400", at(2)),
+        HistoryPoint("2.5", at(3))
+      )
+    )
+    assertEquals(s.points.map(_.value), Vector(2.5))
   }
 
   test("ordering is imposed, not assumed") {

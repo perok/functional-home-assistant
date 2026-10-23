@@ -3,6 +3,7 @@ package fh.view.history
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.query.{Answer, QueryIdentity, QueryRequest, SharedCache}
+import io.circe.syntax.*
 
 import java.time.{Duration as JDuration, Instant}
 import scala.concurrent.duration.FiniteDuration
@@ -85,7 +86,7 @@ final class History private (
     val bucket = window.bucketOf(asOf)
     cache.get(SeriesKey(identity, entityId, window, bucket))(
       fetch(entityId, window, asOf)
-        .map(s => Answer(bucket.getEpochSecond, Series.toJson(s)))
+        .map(s => Answer(bucket.getEpochSecond, s.asJson))
     )
   }
 

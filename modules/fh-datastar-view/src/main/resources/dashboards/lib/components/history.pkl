@@ -125,8 +125,8 @@ class HistoryChart extends nodes.Node {
 /// A query slot is bytes, never a signal (ADR 0031), so the card lifts the
 /// JSON into a client-only signal itself, `data-signals:_hist_<id>` over an
 /// escaped hole. A re-query morphs the attribute, and Datastar re-applies a
-/// changed `data-*` attribute, so every reading re-runs. The JSON is
-/// `Series.toJson`'s `{"points": [[epochMillis, value], …], "unavailable": n}`.
+/// changed `data-*` attribute, so every reading re-runs. The JSON is the
+/// history provider's `{"points": [[epochMillis, value], …]}`.
 class HistoryReadings extends nodes.Node {
   card = "historyReadings"
   cardDef = new nodes.CardDef {
