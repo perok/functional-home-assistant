@@ -224,7 +224,7 @@ is not: a node re-rendered to the same bytes must NOT have its version advanced.
 would make the version mean "when did we last look", `since` would over-report, and
 returning clients would be sent morphs for nodes that never changed.
 
-Digests are compared, never inspected, and are held as hex rather than
+Digests are compared, never inspected, and are held as two `Long`s rather than
 `Array[Byte]` — array equality is by reference, so the map would have quietly
 never matched.
 

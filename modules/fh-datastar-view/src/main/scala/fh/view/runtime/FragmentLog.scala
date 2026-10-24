@@ -6,9 +6,10 @@ import fh.view.model.{NodeId, SignalId, SlotValue}
 import java.nio.charset.StandardCharsets
 
 /** 128 bits, not `String.hashCode`: a collision suppresses a real change and
-  * leaves the client stale. Hex, not `Array[Byte]`, so `==` compares content.
+  * leaves the client stale. Two `Long`s, not `Array[Byte]`, so `==` compares
+  * content.
   */
-private[runtime] opaque type Digest = String
+private[runtime] final case class Digest(hi: Long, lo: Long) derives CanEqual
 
 private[runtime] object Digest {
 
@@ -19,8 +20,12 @@ private[runtime] object Digest {
     */
   private val murmur = Hashing.murmur3_128()
 
-  def of(html: String): Digest =
-    murmur.hashBytes(html.getBytes(StandardCharsets.UTF_8)).toString
+  def of(html: String): Digest = {
+    val b = java.nio.ByteBuffer.wrap(
+      murmur.hashBytes(html.getBytes(StandardCharsets.UTF_8)).asBytes()
+    )
+    Digest(b.getLong(0), b.getLong(8))
+  }
 
   /** Copies the slice: a `CharsetEncoder` version without the copy measured +83
     * kB and +17% time, since `String.getBytes` is intrinsified.

@@ -61,24 +61,24 @@ dashboard.
 **Worth asking again if** a dashboard reaches thousands of nodes or open sessions reach the
 hundreds: then rerun the probe on that dashboard before choosing a structure.
 
-## A digest as two `Long`s instead of a hex `String`
+## A digest's two `Long`s inline in `Held`
 
 2026-10-22, the same probe. **Not worth doing.**
 
-`Digest` (`FragmentLog.scala`) is a 32-character hex `String`: 72 bytes with its `byte[]`, plus a
-16-byte `Some` in `Held`. There were two ways to shrink it:
+`Digest` (`FragmentLog.scala`) is a `case class` of two `Long`s, a 32-byte object, held as
+`Option[Digest]` in `Held`, which adds a 16-byte `Some`. Inlining the two `Long`s into `Held`, with
+a flag in place of the `Option`, would save about 48 B per node more: under 10 KiB per open
+browser on a 200-node page. It changes `Held`'s shape, `merge` and the 20 places that construct
+one.
 
-- **A `final case class Digest(hi: Long, lo: Long)`**: about 40 B less per node (a 32-byte object
-  in place of 72), and `HashCode.toString` goes. The change stays in one file.
-- **The two `Long`s inline in `Held`**, with a flag in place of the `Option`: about 72 B less per
-  node. This changes `Held`'s shape, `merge` and the 20 places that construct one.
-
-On a 200-node page that is 8 to 14 KiB per open browser. Speed doesn't change: comparing two
-32-byte strings is a JIT intrinsic, against roughly 230 ns of murmur3 to produce each digest
-(`RenderBench.holdsSeed`, 46 µs for 200).
+When `Digest` was still a 32-character hex `String` (72 bytes with its `byte[]`), this entry
+declined the `case class` too, saying speed would not change. A profile showed otherwise:
+`HashCode.toString` was about 30% of making a digest, 1.8% of `RenderBench.page`. As two `Long`s,
+`holdsSeed` (200 digests) went from 50.6 / 48.1 µs to 34.8 / 34.1 µs and from 179,136 to 158,336
+B/op, in two alternating runs each with `-prof gc`. `page` and `pageSignals` moved within noise.
 
 **Worth asking again if** the per-session figure above starts to matter, for the same reasons as
-the previous entry. The `case class` variant is the one to try first.
+the previous entry.
 
 ## Sharing one render across a repaint storm
 
