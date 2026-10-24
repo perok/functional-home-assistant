@@ -66,9 +66,9 @@ the same table as a slot's transform, by one key (`InitialTransform.celKey`, as 
 `SlotSource.celKey`), and only looked up after. The page route runs it as it mints the session, and a result every
 reader takes (`Renderer.refusals`) becomes `SessionState.initialValues`, under the viewer's
 choices and over the default. A light's slider
-opens its `control` on the head for the mode the light is in (`.opensOn(…)`, by default the axes
-that have an `inUseWhen`: brightness is always in use, so a list leading with it always opens on
-brightness, which is how `.opensOn(List(l.brightness))` keeps the old behaviour). It names its
+opens its `control` on brightness, and with `.opensOn(…)` on the head for the mode the light is in
+(`.opensOn(List(l.colourTemp, l.colour))`: the first listed axis the light is on wins, and
+brightness is always in use, so nothing after it is tried). It names its
 entity rather than reading the declarer's subject, because a slider's declaring node has none (its
 head does). A result no reader takes (the light unavailable, no mode yet) is dropped, and the
 declared value stands, as for a stale link. It is read **once**: an open page never

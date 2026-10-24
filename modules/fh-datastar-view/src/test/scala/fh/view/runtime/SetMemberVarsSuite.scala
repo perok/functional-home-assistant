@@ -42,7 +42,7 @@ class SetMemberVarsSuite extends CatsEffectSuite {
       |    c.entitySlider(dump.lights.b)
       |    q.from(List(dump.lights.a, dump.lights.b))
       |      .where(q.eq(q.stateProp, "on"))
-      |      .render((e) -> c.entitySlider(e))
+      |      .render((e) -> c.entitySlider(e).opensOn(List(e.colourTemp, e.colour)))
       |      .build()
       |  }
       |}

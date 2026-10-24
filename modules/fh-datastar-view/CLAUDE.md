@@ -351,10 +351,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `.fromChooser()` drops its switch and reads the nearest `control` above it instead, greyed where it
   lacks one: the head's, or `c.controlChooser`'s over the sliders beneath it (`itsMod.controlSelect`
   spells that switch and the slider's own). A slider a candidate set renders per member
-  declares `control` for that member alone (ADR 0033). It OPENS on the
-  head for the mode the light is in, a start read once as the page opens (ADR 0033) and never
-  followed; `.opensOn(List(l.colour, l.colourTemp))` gives the order, `.opensOn(List(l.brightness))`
-  always brightness. Each control is a `hass.Axis` (`l.brightness`, `l.colourTemp`, `l.colour`;
+  declares `control` for that member alone (ADR 0033). It OPENS on
+  brightness; `.opensOn(List(l.colour, l.colourTemp))` opens on the head for the mode the light is
+  in, tried in that order, a start read once as the page opens (ADR 0033) and never followed. Each control is a `hass.Axis` (`l.brightness`, `l.colourTemp`, `l.colour`;
   `l.axes`), which carries what the slider drives, so the card holds no light branches (ADR 0013). `c.its.mainControl.options(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars { v.defaultingTo(x) }`, a `varMod.Declaration` holding the `Variable`) and a descendant reads it
   by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as

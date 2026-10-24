@@ -253,14 +253,12 @@ class EntitySlider extends sliderBase.Slider {
     else List()
   declaresControl = !following && controls.length > 1
   /// What the slider opens on, tried in order as the page opens: the first axis
-  /// the light is on then wins, else its first control. Null is the light's
-  /// mode axes, so it opens on the mode the light is in; brightness is always
-  /// in use, so listing it first always opens on it.
-  hidden opensOnAxes: List<hass.Axis>? = null
+  /// the light is on then wins, else its first control. Empty is the first
+  /// control alone: brightness, where the light dims.
+  hidden opensOnAxes: List<hass.Axis> = List()
   /// The tries that can win, up to the first that always does.
   hidden openingTries: List<hass.Axis> =
-    let (tries = (opensOnAxes ?? (if (entity is hass.LightEntity) entity.axes.filter((a) -> a.inUseWhen != null) else List()))
-        .filter((a) -> offeredControls.contains(a.name)))
+    let (tries = opensOnAxes.filter((a) -> offeredControls.contains(a.name)))
       let (always = tries.findIndexOrNull((a) -> a.inUseWhen == null))
         if (always == null) tries else tries.take(always + 1)
   /// The start as CEL, the tries nested: `a ? 'colour' : (b ? … : 'brightness')`.
@@ -303,9 +301,10 @@ class EntitySlider extends sliderBase.Slider {
   function fromChooser(): EntitySlider = let (self = this) (self) { chosenAbove = true }
   /// The order to try as the page opens: the first axis the light is on then,
   /// else the first control. Read once; an open page does not follow the
-  /// light. `.opensOn(List(l.brightness))` always opens on brightness.
+  /// light. Without it the slider opens on brightness; this opens on the
+  /// mode the light is in:
   ///
-  ///   c.entitySlider(l).opensOn(List(l.colour, l.colourTemp))
+  ///   c.entitySlider(l).opensOn(List(l.colourTemp, l.colour))
   function opensOn(xs: List<hass.Axis?>): EntitySlider =
     let (self = this) let (axs = xs.filterNonNull() as List<hass.Axis>) (self) { opensOnAxes = axs }
   /// The member rows, each composed by the caller:
@@ -332,7 +331,7 @@ class EntitySlider extends sliderBase.Slider {
 hidden controlChooser: selectMod.Chooser = selectMod.chooser(itsMod.controlSelect(itsMod.allControls, "buttons"))
 
 /// `c.entitySlider(l)` switches between the main controls the light has, opening
-/// on the one for its mode ([[EntitySlider.opensOn]]); `c.entitySlider(l.brightness)`
+/// on brightness unless told otherwise ([[EntitySlider.opensOn]]); `c.entitySlider(l.brightness)`
 /// is brightness alone, `c.entitySlider(l.colourTemp)` colour temperature,
 /// `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
