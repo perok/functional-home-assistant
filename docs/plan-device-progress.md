@@ -47,7 +47,8 @@ job is, and the author never has to know which sensor plays which part.
 - Only a `sensor` can fill a role. A row that matches another domain is
   skipped, and `PklDump.warnings` names it.
 - Two entities for one role on one device: the role is dropped, and the
-  warning names both. That is also the washer-dryer case (Q1).
+  warning names both. That is also what a device with several jobs looks like;
+  one `progress` per job is E5 on #541.
 - There is no `owner` (Q2). The card takes the device, and a hand-written card
   reading `d.progress` already holds `d`.
 - These are static registry facts, so the content version does not churn
@@ -113,8 +114,6 @@ Nothing here touches the live path: every choice is made at build time.
 
 ## Questions
 
-1. **A device with two jobs** (washer-dryer). Recommend one `progress` per
-   device: a role filled twice is dropped with a warning, and a list waits for a
-   real device that has two jobs.
-2. **Drop `owner` from `hass.Progress`?** Recommend yes. Add it when a card
+2. **No `owner` on the new `hass.Progress`?** Recommend yes. The entity
+   groups (`colourTemp`, `effects`, …) keep theirs. Add one here when a card
    takes `d.progress` on its own.
