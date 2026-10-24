@@ -274,6 +274,7 @@ class RenderBench {
   private var manySets: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
+  private var stLights: Map[String, EntityState] = null
   private var celProbes: List[Transform.Compiled] = null
   private var celComplex: Transform.Compiled = null
   // The explicit fast tier's probes and the two shipped shapes that stay on
@@ -338,6 +339,9 @@ class RenderBench {
   @Setup(Level.Trial)
   def setup(): Unit = {
     st = states(Leaves)
+    stLights = st.view
+      .mapValues(e => e.copy(attributes = LightAttributes ++ e.attributes))
+      .toMap
     plain = Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = false)))
     signalled =
       Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = true)))
@@ -547,6 +551,14 @@ class RenderBench {
   /** The baseline: a whole page, no signal slots. */
   @Benchmark
   def page(bh: Blackhole): Unit = bh.consume(plain.renderPageTraced(st))
+
+  /** [[page]] with every light carrying what a Hue colour bulb reports
+    * ([[LightAttributes]]): what a CEL read of `attr` costs when the map is the
+    * size a real one is.
+    */
+  @Benchmark
+  def pageLightAttributes(bh: Blackhole): Unit =
+    bh.consume(plain.renderPageTraced(stLights))
 
   /** The same page with two signal slots per card, which is what the shipped
     * cards look like. The gap against [[page]] is what ADR 0017 costs on a
@@ -2094,6 +2106,28 @@ object RenderBench {
     */
   final val BaseInstant: java.time.Instant =
     java.time.Instant.parse("2026-09-04T06:00:00Z")
+
+  /** The rest of what a Hue colour bulb reports, beside [[states]]' own. */
+  final val LightAttributes: Map[String, Json] = Map(
+    "min_color_temp_kelvin" -> Json.fromInt(2000),
+    "max_color_temp_kelvin" -> Json.fromInt(6535),
+    "min_mireds" -> Json.fromInt(153),
+    "max_mireds" -> Json.fromInt(500),
+    "effect_list" -> Json.arr(
+      List("None", "candle", "fire", "prism", "sparkle", "opal", "glisten")
+        .map(Json.fromString)*
+    ),
+    "supported_color_modes" ->
+      Json.arr(Json.fromString("color_temp"), Json.fromString("xy")),
+    "color_mode" -> Json.fromString("xy"),
+    "hs_color" -> Json.arr(Json.fromDoubleOrNull(30.5), Json.fromInt(80)),
+    "xy_color" ->
+      Json.arr(Json.fromDoubleOrNull(0.55), Json.fromDoubleOrNull(0.4)),
+    "effect" -> Json.fromString("None"),
+    "mode" -> Json.fromString("normal"),
+    "dynamics" -> Json.fromString("none"),
+    "supported_features" -> Json.fromInt(44)
+  )
 
   def states(leaves: Int): Map[String, EntityState] =
     List

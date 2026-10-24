@@ -3,6 +3,7 @@ package fh.view.runtime
 import api.homeassistant.ws.domain.EntitiesEvent
 import cats.effect.IO
 import cats.effect.kernel.Ref
+import dev.cel.common.values.MutableMapValue
 import fs2.{Chunk, Stream}
 import fs2.concurrent.Topic
 import io.circe.Json
@@ -29,9 +30,17 @@ case class EntityState(
   /** What CEL binds as `attr`, converted once per state. Rebuilt per change on
     * purpose: 3.4% of a signals tick (`RenderBench.resumeSignals`), not worth
     * carrying across one.
+    *
+    * Held as CEL's own map type, which cel-java 0.14.0 passes through, because
+    * it converts a plain `java.util.Map` on every read of `attr` by walking
+    * every attribute: a quarter of `RenderBench.page`, and more on a light with
+    * a long `effect_list`. `MutableMapValue` is `@Internal`; should an upgrade
+    * break it, `toJavaObject(attributes)` alone is the fallback, at that cost.
+    * Upstream `main` stops the walk for `attr.x` but not for a bare `attr`
+    * (`'k' in attr`). `TransformsSuite` pins that both read the same.
     */
-  lazy val javaAttributes: java.util.Map[String, Any] =
-    EntityState.toJavaObject(attributes)
+  lazy val javaAttributes: java.util.Map[Object, Object] =
+    MutableMapValue.create(EntityState.toJavaObject(attributes))
 }
 
 object EntityState {

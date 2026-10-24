@@ -50,6 +50,55 @@ class TransformsSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("CEL reads attr through its own map type as it reads a plain map") {
+    // `javaAttributes` is cel-java's internal `MutableMapValue`, so an upgrade
+    // that changes how CEL reads one shows here.
+    val attrs = Map(
+      "brightness" -> Json.fromInt(180),
+      "rgb_color" -> Json.arr(Json.fromInt(255), Json.fromInt(170)),
+      "xy_color" -> Json.arr(Json.fromDoubleOrNull(0.55)),
+      "effect_list" -> Json
+        .arr(Json.fromString("None"), Json.fromString("fire")),
+      "dynamics" -> Json.obj("speed" -> Json.fromInt(3)),
+      "on" -> Json.True,
+      "friendly_name" -> Json.fromString("Kjøkken"),
+      "gone" -> Json.Null
+    )
+    val entity = EntityState("light.k", "on", attrs)
+    val plain = EntityState.toJavaObject(attrs)
+    def read(program: Transform.Compiled, attr: Object): Either[String, Any] =
+      scala.util
+        .Try(program.eval(new dev.cel.runtime.CelVariableResolver {
+          def find(name: String): java.util.Optional[Object] =
+            if (name == "attr") java.util.Optional.of(attr)
+            else java.util.Optional.empty()
+        }))
+        .toEither
+        .left
+        .map(_.getClass.getName)
+    List(
+      "'brightness' in attr",
+      "'gone' in attr",
+      "attr['brightness']",
+      "attr.brightness",
+      "attr[?'nope'].orValue('none')",
+      "attr['rgb_color'][1]",
+      "size(attr['effect_list'])",
+      "attr['dynamics']['speed']",
+      "attr['on'] ? 'y' : 'n'",
+      "size(attr)",
+      "attr.transformList(k, v, k).sort().join(',')",
+      "attr['nope']"
+    ).foreach { src =>
+      val p = Transform.parse(src).fold(e => fail(e), identity)
+      assertEquals(
+        read(p, entity.javaAttributes),
+        read(p, plain),
+        clue = src
+      )
+    }
+  }
+
   test("the simple tier decodes from the wire's explicit opt-in") {
     // `kind` picks the wire shape and `op` the operator, and the decoded slot
     // dispatches without the engine.

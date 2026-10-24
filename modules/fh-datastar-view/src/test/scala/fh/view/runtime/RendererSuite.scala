@@ -775,7 +775,7 @@ class RendererSuite extends munit.FunSuite {
       es.javaAttributes eq es.javaAttributes,
       clue = "identity-stable cache"
     )
-    assertEquals(es.javaAttributes.get("brightness"), 200L)
+    assertEquals[Any, Any](es.javaAttributes.get("brightness"), 200L)
   }
 
   test("theme tokens + styles are injected as a <style> block") {
