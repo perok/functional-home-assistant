@@ -179,7 +179,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d = dash(box(Map("window" -> "7d"), setOf(chartNode())))
     assertEquals(d.validate(), Nil)
     assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
-    val r = Renderer.fromValidated(
+    val r = Renderer(
       d.validated().fold(e => fail(e.mkString), identity)
     )
     val set = r.members
@@ -198,7 +198,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d =
       dash(box(Map.empty, setOf(box(Map("window" -> "24h"), chartNode()))))
     assertEquals(d.validate(), Nil)
-    val r = Renderer.fromValidated(
+    val r = Renderer(
       d.validated().fold(e => fail(e.mkString), identity)
     )
     val set = r.members

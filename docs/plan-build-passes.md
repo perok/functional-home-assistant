@@ -74,9 +74,9 @@ list, sort and hash a valued slot pays. It is strictly more work, and this remov
 only producer of `Validated`. With lower in Pkl and bind on the node, there is no step left that
 has to run before the checks, so nothing runs one twice.
 
-`Renderer.create` (tests and benchmarks) goes through `validated` too, and throws on a dashboard
-the build refuses, so no test renders a dashboard production cannot have. `Transforms.from`, the
-compile that skipped the checks, is deleted.
+`Renderer`'s constructor takes `Validated`. `Renderer.create` (tests and benchmarks) goes through
+`validated` too, and throws on a dashboard the build refuses, so no test renders a dashboard
+production cannot have. `Transforms.from`, the compile that skipped the checks, is deleted.
 
 ## 4. Not changing
 

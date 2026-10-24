@@ -40,7 +40,7 @@ class QueryDriftSuite extends munit.FunSuite {
   )
 
   private def built(d: Dashboard): Renderer =
-    Renderer.fromValidated(
+    Renderer(
       d.validated().fold(e => fail(e.mkString("; ")), identity)
     )
 
