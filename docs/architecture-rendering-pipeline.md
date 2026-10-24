@@ -953,7 +953,8 @@ because its value is not in the patch form and so cannot move these bytes (ADR 0
 
 Compile keeps one program per distinct CEL source and typed names (`Validated.transforms`). The
 renderer looks each slot's up once, when it plans the node (`Planned`), so a paint runs a program
-and looks nothing up.
+and looks nothing up. An id keeps a plan for each node it shows — a member's id shows one per
+clause — so a clause switch picks a plan instead of building one (`RenderBench.memberClauseFlip`).
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
@@ -1071,7 +1072,7 @@ against the values in scope at that node into the `SlotRead` everything keys on.
 **The values ride inside `QuerySnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
 fetched for another's, because the resolution happens from the snapshot's own values. They are
-NOT on a `NodePlan` — a plan is memoised per authored position and reused across sessions, so a
+NOT on a `NodePlan` — a plan is memoised per node and reused across sessions, so a
 chosen window held there would be served to the next viewer; the plan carries the node's id and
 the values come from the render.
 

@@ -327,6 +327,13 @@ class RenderBench {
   private var setIfsFrames: Vector[Frame] = null
   // What the recorder holds between frames, per fixture ([[publishPass]]).
   private val heldBy = scala.collection.mutable.Map.empty[Renderer, Membership]
+  // [[memberClauseFlip]]: one member, and two ticks of its subject that switch
+  // its clause and two that do not.
+  private var clauseSet: Renderer = null
+  private var clauseMember: NodeId = compiletime.uninitialized
+  private var clauseFlips: Vector[Map[String, EntityState]] = null
+  private var clauseSteady: Vector[Map[String, EntityState]] = null
+  private var clauseRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -447,6 +454,31 @@ class RenderBench {
     tickMemberIds =
       tickEntities.flatMap(heldBy(set).binding(_, _.isEmpty).toList.sorted)
     checkTickShapes()
+    clauseSet = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
+    def lit(state: String, brightness: Int) =
+      st.updated(
+        entityId(0),
+        st(entityId(0)).copy(
+          state = state,
+          attributes = st(entityId(0)).attributes
+            .updated("brightness", Json.fromInt(brightness))
+        )
+      )
+    clauseFlips = Vector(lit("on", 10), lit("off", 20))
+    clauseSteady = Vector(lit("on", 10), lit("on", 20))
+    clauseMember = clauseSet.members.memberIdOf(
+      clauseSet.members.memberIds
+        .flatMap(clauseSet.members.memberAt(_, st))
+        .head
+        .gid,
+      entityId(0)
+    )
+    def clauseAt(s: Map[String, EntityState]) =
+      clauseSet.members.memberAt(clauseMember, s).map(_.clause)
+    if (clauseFlips.map(clauseAt).distinct.sizeIs != 2)
+      sys.error("memberClauseFlip switches no clause")
+    if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
+      sys.error("memberClauseSteady switches a clause")
   }
 
   /** The two pull fixtures assert what they are, because the thing that makes
@@ -997,6 +1029,32 @@ class RenderBench {
     flipRot += 1
     bh.consume(pullFlip(1))
   }
+
+  /** A member's element as a clause switch inserts it, its subject alternating
+    * between [[clauseSetTree]]'s two clauses on every call. Against
+    * [[memberClauseSteady]] the gap is what a switch costs on top of a render:
+    * every node in the member is a different node than the last call's.
+    */
+  @Benchmark
+  def memberClauseFlip(bh: Blackhole): Unit = {
+    clauseRot += 1
+    bh.consume(memberRender(clauseFlips(clauseRot % 2)))
+  }
+
+  /** The same member and the same tick, its clause holding still. */
+  @Benchmark
+  def memberClauseSteady(bh: Blackhole): Unit = {
+    clauseRot += 1
+    bh.consume(memberRender(clauseSteady(clauseRot % 2)))
+  }
+
+  private def memberRender(states: Map[String, EntityState]) =
+    clauseSet.renderMemberTraced(
+      clauseMember,
+      states,
+      Selections.none,
+      QuerySnapshot.empty
+    )
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
     *
@@ -1890,6 +1948,40 @@ object RenderBench {
         )
       )
     )
+
+  /** [[tileSetTree]] with two clauses per member, `on` and otherwise, each its
+    * own column of two leaves: the shape a "lit lights first" tile has.
+    */
+  def clauseSetTree(leaves: Int): LayoutNode = {
+    def tile(i: Int) =
+      LayoutNode.Component(
+        "col",
+        regions = LayoutNode.kids(leaf(true)(i), leaf(false)(i))
+      )
+    LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(
+        LayoutNode.SetNode(
+          candidates = List.tabulate(leaves)(entityId),
+          members = List
+            .tabulate(leaves)(i =>
+              entityId(i) -> LayoutNode.SetMember(
+                List(
+                  LayoutNode.SetClause(
+                    when = Some(
+                      Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+                    ),
+                    node = tile(i)
+                  ),
+                  LayoutNode.SetClause(node = tile(i))
+                )
+              )
+            )
+            .toMap
+        )
+      )
+    )
+  }
 
   /** [[setTree]]'s leaves as [[ManySets]] sibling sets, in candidate order. */
   def manySetsTree(leaves: Int): LayoutNode =

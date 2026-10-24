@@ -1520,8 +1520,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** What a paint cannot change about one node, derived once per renderer so a
     * paint resolves only live slot values, signal values and the bake
-    * selection. Held by node identity and rechecked on lookup: a set's clause
-    * can hand a different node for the same member id as state moves.
+    * selection.
     */
   private case class NodePlan(
       node: LayoutNode.Component,
@@ -1557,19 +1556,23 @@ class Renderer(validated: Dashboard.Validated) {
   private def planned(source: BoundSlot): Planned =
     Planned(source, source.celKey.map(programs))
 
+  /** One plan per node an id has shown, matched by identity: a member's id
+    * shows one node per clause, so a clause switch picks a plan rather than
+    * building one. Bounded because every node is built once (a member's in
+    * `MemberGraph`); a node built per paint would grow its list forever.
+    */
   private val nodePlans =
-    new java.util.concurrent.ConcurrentHashMap[String, NodePlan]()
+    new java.util.concurrent.ConcurrentHashMap[String, List[NodePlan]]()
 
   private def planOf(
       id: NodeId,
       node: LayoutNode.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
-    val cached = nodePlans.get(id)
-    if (cached != null && (cached.node eq node)) cached
-    else {
+    val cached = nodePlans.getOrDefault(id, Nil)
+    cached.find(_.node eq node).getOrElse {
       val p = buildPlan(id, node, states)
-      nodePlans.put(id, p)
+      nodePlans.put(id, p :: cached)
       p
     }
   }
