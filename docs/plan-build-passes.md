@@ -63,10 +63,15 @@ A value is derived from the decoded node, so nothing can see a slot before bindi
 twice. `Dashboard.folded`, `LayoutNode.foldNode` and `attachValues` are deleted. A pass that
 binds names on demand is how Roslyn's binder works too.
 
-The renderer, `liveEntities` and `validate` read `c.bound` where they need a slot's values. The
-renderer reads `bound.celKey` and builds no key per render. That rebuild was measured and the
-benchmark could not see it, but none of its fixtures has expression values, so it never ran the
-list, sort and hash a valued slot pays. It is strictly more work, and this removes it at no cost.
+The renderer, `liveEntities` and `validate` read `c.bound` where they need a slot's values.
+
+Compile keeps one program per distinct source and typed names (`Validated.transforms`), a
+constant pool. The renderer looks each slot's program up once, when it plans the node
+(`Planned`), and each variable's initial value's when it is built, so a paint runs a program and
+looks nothing up; `Transforms`, a wrapper over that map, is deleted. A literal slot runs no
+program, so its `celKey` is `None`. Measured with `RenderBench.pageValued`, which no fixture
+covered before: building the key once saves 139 KB a page against 8661bf9b; skipping the
+per-paint lookup is below the noise.
 
 ## 3. One pipeline
 
@@ -83,8 +88,6 @@ production cannot have. `Transforms.from`, the compile that skipped the checks, 
 - **`valuesNamedIn` stays.** Values belong to one node (ADR 0034 rejected looking names up the
   ancestors), so a structural card such as the slider hands each part the values that part reads,
   and Pkl cannot run the CEL parser. Scala's "read by no expression" check catches a wrong regex.
-- **No bound programs in the renderer's plan.** The key built once is the fix; holding the
-  compiled program too would save one map lookup per slot, unmeasured.
 
 ## Tests
 
@@ -115,5 +118,5 @@ New: a Pkl test that a replaced `slots` dropping a live entry fails, and that a 
 - `validated` is the one function from a decoded `Dashboard` to `Validated`, and no pass runs
   outside the build path, tests and benchmarks included.
 - `SlotSource` has no `values` field, and `Cell` has no live entries.
-- The renderer builds no compile key per render.
+- A paint builds no compile key and looks up no program: the node's plan holds each slot's.
 - The docs above describe the passes, and this plan is deleted.

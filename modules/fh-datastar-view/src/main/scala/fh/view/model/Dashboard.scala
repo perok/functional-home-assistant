@@ -85,11 +85,13 @@ final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
   }
 
   /** What the compiled program is keyed by: one source compiles differently
-    * against a different set of typed names.
+    * against a different set of typed names. None for a literal, which runs no
+    * program.
     */
   lazy val celKey: Option[Transform.CelKey] = transform match
-    case t: String => Some(Transform.CelKey(t, ExprValue.env(values)))
-    case _         => None
+    case t: String if literal.isEmpty =>
+      Some(Transform.CelKey(t, ExprValue.env(values)))
+    case _ => None
 
   /** Every entity a live value this slot reads can be moved by. */
   def valueEntities: List[String] = values.values.toList.flatMap(_.entities)
@@ -2039,7 +2041,6 @@ case class Dashboard(
     ((slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList
-      .filter(_.literal.isEmpty)
       .flatMap(_.celKey) ++
       (initialKeys(card) ++ surfaces.values.flatMap(s =>
         initialKeys(s.content)
@@ -2094,7 +2095,7 @@ object Dashboard:
   final case class InitialTransform(entityId: String, transform: String)
       derives ConfiguredDecoder:
     /** The one spelling of its key: validated, compiled and run by it, as a
-      * slot's transform is by [[SlotSource.celKey]].
+      * slot's transform is by [[BoundSlot.celKey]].
       */
     def celKey: Transform.CelKey = Transform.CelKey(transform)
 
