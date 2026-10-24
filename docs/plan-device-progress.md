@@ -10,9 +10,14 @@ job is, and the author never has to know which sensor plays which part.
 
 ## 1. The roles table lives in the generator
 
-- `fh.view.build.DeviceRoles` holds rows of `(platform, key) -> role`. The key
+- `fh.view.build.DeviceRoles` holds rows of `(platform, key) -> roles`. The key
   is the entity's `translation_key`. For an integration that sets none, the key
   is its `original_name`, and the row says so.
+- It is one table for every device capability, not one per capability. Each
+  role names its capability (`progress.remaining`), and a row can give one
+  entity roles in several, so E4 adds rows and a capability class, not a second
+  table. It is best effort: an integration with no rows is still usable through
+  its entities.
 - It is Scala, not `hass/roles.pkl`. Only the generator reads it, and it reads
   it before any Pkl runs, so a Pkl copy would be a second list kept in step by a
   test (the `HassVocabulary` situation) with no reader. An author wiring an
@@ -26,7 +31,8 @@ job is, and the author never has to know which sensor plays which part.
   The Roborock gets no rows: its time-left sensors are consumables, not a job.
   Each row is checked against the live registry and the integration's source,
   and the PR lists both.
-- The roles in E3 are `remaining`, `total`, `percent`, `status` and `phase` (Q3).
+- The roles in E3 are `remaining`, `total`, `percent`, `status` and `phase`.
+  `elapsed`, `start` and `end` arrive with E2, the first thing that reads them.
 
 ## 2. The generator writes `progress` onto the device
 
@@ -68,10 +74,12 @@ job is, and the author never has to know which sensor plays which part.
 - **The countdown** is from `remaining`. End − now waits for E2.
 - **The reading**, where there is no countdown, is the percent, else the
   status.
-- **The second line** shows the phase, else the status (Q4).
+- **The second line** shows the phase, else the status.
 - **The label** is the device's name.
 - **A device with nothing at all**, no role and no override, fails the build.
   The error names the device and its sensors, and points at `.remaining(…)`.
+  There is no `device_class` guess for a device the table does not know: its
+  author gives the entities, through the overrides or `c.progress(e)`.
 - `d.progress` stays public, for hand-written cards and for filtering:
   `dump.devices.all.filter((d) -> d.progress != null).map(c.deviceProgress)`.
 
@@ -110,20 +118,3 @@ Nothing here touches the live path: every choice is made at build time.
    real device that has two jobs.
 2. **Drop `owner` from `hass.Progress`?** Recommend yes. Add it when a card
    takes `d.progress` on its own.
-3. **Leave out `elapsed`, `start` and `end` until E2**, the first thing that
-   reads them? Recommend yes: adding a field later breaks nothing.
-4. **The second line: the phase, else the status?** Recommend yes. Mid-cycle,
-   "Rinsing" says more than "Running".
-5. **Drop the `device_class` + unit fallback for integrations not in the
-   table?** It was agreed on 2026-10-12. Recommend dropping it from E3:
-   - a lone `duration` sensor is as likely a run time as a time left, so
-     "exactly one fits" is still a guess;
-   - an unknown device is one table row, or one `.remaining(e)`, away.
-
-   Add it when a device the table does not know turns up and its one candidate
-   is reliably right.
-6. **`original_name` as a key?** Recommend yes, but only in a row for an
-   integration that sets no `translation_key` (Electrolux). That keeps it opt-in
-   per integration, and visible in the table.
-7. **One table, or one per capability?** Recommend one, with each role naming
-   its capability (`progress.remaining`). Split it if E4 makes it unwieldy.
