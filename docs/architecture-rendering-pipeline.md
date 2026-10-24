@@ -861,7 +861,9 @@ What a reader pays for deriving: a member lookup evaluates that one candidate's 
 set only under a `limit`, where presence depends on neighbours), and a set render evaluates its
 candidates once. Every `Member` a candidate can be — one per clause — is built with the graph, so a
 lookup allocates nothing and picks an instance; without that, `resumeMembers` cost 15% more
-allocation than reading a shared index did.
+allocation than reading a shared index did. The renderer's node plans lean on the same fact: an id
+keeps one plan per node it shows, matched by identity, so a clause switch picks a plan rather than
+building one (`RenderBench.memberClauseFlip`), and the plans an id holds are bounded by its clauses.
 
 ---
 
@@ -1071,7 +1073,7 @@ against the values in scope at that node into the `SlotRead` everything keys on.
 **The values ride inside `QuerySnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
 fetched for another's, because the resolution happens from the snapshot's own values. They are
-NOT on a `NodePlan` — a plan is memoised per authored position and reused across sessions, so a
+NOT on a `NodePlan` — a plan is memoised per node and reused across sessions, so a
 chosen window held there would be served to the next viewer; the plan carries the node's id and
 the values come from the render.
 
