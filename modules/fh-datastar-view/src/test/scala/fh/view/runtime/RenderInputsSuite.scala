@@ -301,15 +301,24 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  /** The authoring layer refuses this combination, so the model is built
-    * directly: the point is what the renderer answers.
+  /** A bake owner that reads an entity itself, as a signal: structure cannot
+    * carry live bytes (`validate`).
     */
   private val tabsOwner: Dashboard =
     Dashboard(
-      cards,
+      cards + ("signalBanner" -> cards("banner").copy(
+        template = cards("banner").template
+          .replace("<i>", "<b {{{title__bind}}}></b><i>"),
+        slots = List("title")
+      )),
       LayoutNode.Component(
-        "banner",
-        slots = Map("title" -> SlotSource(Some("sensor.t"))),
+        "signalBanner",
+        slots = Map(
+          "title" -> SlotSource(
+            Some("sensor.t"),
+            signal = Some(SignalBind.Text)
+          )
+        ),
         regions = LayoutNode.kids(
           LayoutNode.Component("btn", Map("label" -> lit("A")))
         )
@@ -319,7 +328,7 @@ class RenderInputsSuite extends munit.FunSuite {
       }
     )
 
-  test("a bake owner with a live slot of its own has no key either") {
+  test("a bake owner with a live signal of its own has no key either") {
     val tabs = Renderer.create(tabsOwner)
     assertEquals(
       tabs.renderInputs("c", line.head, fragments = QuerySnapshot.empty),

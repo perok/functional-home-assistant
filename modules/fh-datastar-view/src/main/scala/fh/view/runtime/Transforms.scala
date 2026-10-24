@@ -44,20 +44,4 @@ object Transforms {
 
   def fromValidated(v: Dashboard.Validated): Transforms =
     new Transforms(v.transforms)
-
-  /** For tests and [[Renderer.create]]. A parse failure means validation was
-    * bypassed, so it fails loudly at setup rather than blanking a value.
-    */
-  def from(dashboard: Dashboard): Transforms = {
-    val compiled = dashboard.celKeys.map { k =>
-      Transform.parse(k) match {
-        case Right(c)  => k -> c
-        case Left(err) =>
-          throw new IllegalStateException(
-            s"unvalidated transform reached transform setup: ${k.src} ($err)"
-          )
-      }
-    }.toMap
-    new Transforms(compiled)
-  }
 }

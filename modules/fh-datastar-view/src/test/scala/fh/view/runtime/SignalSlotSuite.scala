@@ -436,11 +436,14 @@ class SignalSlotSuite extends ServerHarness {
         "entity_id" -> SlotSource(Some("light.a"), transform = "entity_id")
       )
     )
+    // Of these, only a `once` slot may be read as `__read` (`readErrors`).
     def dash(reads: String, subject: Map[String, SlotSource]): Dashboard =
+      val read =
+        if reads == Reads.Once then """ data-r="{{{on__read}}}"""" else ""
       Dashboard(
         Map(
           "flag" -> CardDef(
-            """<i{{#on}} class="on"{{/on}} data-r="{{{on__read}}}"></i>""",
+            s"""<i{{#on}} class="on"{{/on}}$read></i>""",
             slots = List("on")
           )
         ),
