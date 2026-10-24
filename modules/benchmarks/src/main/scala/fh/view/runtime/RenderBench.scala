@@ -77,7 +77,7 @@ import java.util.concurrent.TimeUnit
   * cel                  1,596.1     1,058,235     …all six on the engine
   * celComplex             268.7       328,002     the hostile expression
   * mustache               133.8       392,001     200 executions + contexts
-  * holdsSeed               90.1       145,534     200 SHA-256 over leaf html
+  * holdsSeed               90.1       145,534     200 digests over leaf html
   * direct                  11.7        27,200     raw reads, no dispatch
   * wireTick                19.3        46,647     a bare 3-node render
   * wire                    53.5       239,874     structural tick, 10 clients
@@ -720,7 +720,7 @@ class RenderBench {
     }
   }
 
-  /** Seeding `holds`: one SHA-256 per painted node, on every page open. */
+  /** Seeding `holds`: one digest per painted node, on every page open. */
   @Benchmark
   def holdsSeed(bh: Blackhole): Unit =
     painted.foreach(h => bh.consume(Digest.of(h)))

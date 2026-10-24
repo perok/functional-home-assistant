@@ -69,14 +69,13 @@ hundreds: then rerun the probe on that dashboard before choosing a structure.
 16-byte `Some` in `Held`. There were two ways to shrink it:
 
 - **A `final case class Digest(hi: Long, lo: Long)`**: about 40 B less per node (a 32-byte object
-  in place of 72), and the hex encoder goes. The change stays in
-  one file, apart from `FragmentLogSuite`'s check of the hex encoding, which goes with it.
+  in place of 72), and `HashCode.toString` goes. The change stays in one file.
 - **The two `Long`s inline in `Held`**, with a flag in place of the `Option`: about 72 B less per
   node. This changes `Held`'s shape, `merge` and the 20 places that construct one.
 
 On a 200-node page that is 8 to 14 KiB per open browser. Speed doesn't change: comparing two
-32-byte strings is a JIT intrinsic, against roughly 450 ns of SHA-256 to produce each digest
-(`RenderBench.holdsSeed`, 90 µs for 200).
+32-byte strings is a JIT intrinsic, against roughly 230 ns of murmur3 to produce each digest
+(`RenderBench.holdsSeed`, 46 µs for 200).
 
 **Worth asking again if** the per-session figure above starts to matter, for the same reasons as
 the previous entry. The `case class` variant is the one to try first.
