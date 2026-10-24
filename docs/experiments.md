@@ -81,6 +81,30 @@ On a 200-node page that is 8 to 14 KiB per open browser. Speed doesn't change: c
 **Worth asking again if** the per-session figure above starts to matter, for the same reasons as
 the previous entry. The `case class` variant is the one to try first.
 
+## Sharing one render across a repaint storm
+
+Measured on #130, recorded here 2026-10-24. **Not worth doing.**
+
+**Question.** After a dashboard edit, `reloadRepaints` renders the body once per connected session,
+and N browsers loading at once each render the whole page. Would one shared render (the cache, or
+one memoised body per set of viewer inputs) be worth having?
+
+**How.** A spike on #130's branch timed `renderBody` on real cards.
+
+| dashboard | nodes | HTML | `renderBody` |
+|---|---|---|---|
+| shipped starter | 15 | 33 kB | 0.19 ms |
+| 200 real cards (sliders and entity cards) | 335 | 257 kB | 5.7 ms |
+
+Ten coincident loads of the 200-card page cost 57 ms of CPU between them while shipping 2.5 MB:
+the render is about 2% of the work it feeds. A repaint storm follows a manual edit in the editor,
+never anything a viewer does. The numbers predate CEL and #620, both of which made a render
+cheaper.
+
+**Worth asking again if** a deployment shows page renders on a profile, or sessions per dashboard
+reach the dozens. #130 stays open for the effectful walk itself, which is wanted for other
+reasons.
+
 ## One lookup map per plan for a template's names
 
 2026-10-24, on #620. **Not worth doing.**
@@ -101,7 +125,16 @@ layers a paint cannot change (structural, constants, bindings) into one `java.ut
 | `mustache` | 110 ± 8 | 117 ± 14 |
 
 Allocation was unchanged (66.5 kB per `tickRender`). The maps are small enough that the layered
-lookup costs about what one hash lookup does; the `String.equals` time is spent elsewhere.
+lookup costs about what one hash lookup does.
+
+**Where `String.equals` goes.** Grouped by caller (async-profiler, collapsed stacks), 93% of it is
+Scala's `==` on map and list keys (`BoxesRunTime.equals2`). Half is in `fhGet`: `List.contains`
+over the signal slots for every hole of the patch form (18.5%), which the spike kept, and the one
+comparison that confirms each hash-map hit (about 30%). A hit compares characters because the
+template's name and the map's key are different `String` objects. The rest builds the paint map,
+looks up `states` and checks `EntityState.unavailable`. All of it is 8.6% of a tick, about 3 µs,
+and no one change reaches more than half of it.
 
 **Worth asking again if** a profile attributes the time to `fhGet` itself, not to the template
-around it.
+around it. Interning the plan's keys against the template's names would make each hit a
+reference comparison, and a `Set` would replace the `List.contains`.
