@@ -25,7 +25,7 @@ case class EntityState(
 
   val domain: String = entityId.takeWhile(_ != '.')
 
-  def unavailable: Boolean = EntityState.unavailableStates(state)
+  val unavailable: Boolean = EntityState.unavailableStates(state)
 
   /** What CEL binds as `attr`, converted once per state. Rebuilt per change on
     * purpose: 3.4% of a signals tick (`RenderBench.resumeSignals`), not worth
