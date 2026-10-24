@@ -10,26 +10,29 @@ class FragmentLogSuite extends munit.FunSuite {
 
   private val log = FragmentLog("test")
 
-  test("a digest is the truncated SHA-256, whatever the encoding costs") {
-    // `Digest.of` hand-rolls the hex encoding to skip a `String.format` per
-    // byte, safe only while it agrees exactly: a different encoding would make
-    // every node look changed forever. Empty and multi-byte cases cover the two
-    // places a hand-rolled version differs: a sign-extended byte (`ffffffab`)
-    // and the platform charset in `.getBytes`.
-    List(
+  test("a digest is the same from a buffer slice, and keeps every character") {
+    // A page digests a slice of its buffer (`ofRange`), a patch the whole
+    // string (`of`): if the two disagreed, every node would look changed
+    // forever. A lossy encoding would make the non-ASCII variants collide.
+    val htmls = List(
       "",
       "<div>21.4</div>",
       "<b>ø 😀 ünïcødé</b>",
+      "<b>ö 😁 ünïcødé</b>",
+      "<b>? ?? ün?c?d?</b>",
       "<div class=\"fh-cell\" id=\"c_1_2\">" + ("x" * 5000) + "</div>"
-    ).foreach { html =>
+    )
+    htmls.foreach { html =>
+      val buf = new java.lang.StringBuilder("<p>before</p>")
+      val from = buf.length
+      buf.append(html).append("<p>after</p>")
       assertEquals(
-        // `Digest` is opaque with no `String` bound; at runtime it is the hex
-        // string.
-        Digest.of(html).toString,
-        fh.view.build.LibPackage.sha256(html.getBytes("UTF-8")).take(32),
+        Digest.ofRange(buf, from, from + html.length),
+        Digest.of(html),
         clue = html.take(40)
       )
     }
+    assertEquals(htmls.map(Digest.of).distinct.size, htmls.size)
   }
 
   private def member(e: String): MemberKey = MemberKey.Entity(e)

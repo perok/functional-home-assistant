@@ -512,6 +512,9 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.14.0",
+      // already a runtime dep of cel; explicit so Digest can use murmur3 (keep
+      // version in lockstep with what cel resolves)
+      "com.google.guava" % "guava" % "33.6.0-jre",
       // LTTB for chart series. The major version is the class-file baseline:
       // 21, because CI tests on JDK 21 (25.x fails there to load).
       "com.ggalmazor" % "downsampling" % "25.2.0",

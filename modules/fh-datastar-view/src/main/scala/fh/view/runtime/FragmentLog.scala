@@ -1,9 +1,9 @@
 package fh.view.runtime
 
+import com.google.common.hash.Hashing
 import fh.view.model.{NodeId, SignalId, SlotValue}
 
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 
 /** 128 bits, not `String.hashCode`: a collision suppresses a real change and
   * leaves the client stale. Hex, not `Array[Byte]`, so `==` compares content.
@@ -12,43 +12,21 @@ private[runtime] opaque type Digest = String
 
 private[runtime] object Digest {
 
-  /** Per thread, since `getInstance` is a provider lookup per painted node.
-    * Sound under fibers only because each use is synchronous and never
-    * suspends.
+  /** Murmur3, not SHA-256: a digest never leaves the server's memory, so it
+    * needs no resistance to a crafted collision, and SHA-256 is fast only on a
+    * CPU with SHA instructions, which a Pi 4 lacks. `RenderBench.holdsSeed`,
+    * 200 digests: SHA-256 75 µs, or 447 µs without them; murmur3 46 µs.
     */
-  private val digester: ThreadLocal[MessageDigest] =
-    ThreadLocal.withInitial(() => MessageDigest.getInstance("SHA-256"))
+  private val murmur = Hashing.murmur3_128()
 
-  private val Hex: Array[Char] = "0123456789abcdef".toCharArray
-
-  /** `LibPackage.sha256(...).take(32)`, hex-encoding only the 16 bytes kept, by
-    * table: `"%02x".format` cost more than the hashing here.
-    */
-  def of(html: String): Digest = hex(digestOf(html))
+  def of(html: String): Digest =
+    murmur.hashBytes(html.getBytes(StandardCharsets.UTF_8)).toString
 
   /** Copies the slice: a `CharsetEncoder` version without the copy measured +83
     * kB and +17% time, since `String.getBytes` is intrinsified.
     */
   def ofRange(buf: CharSequence, from: Int, until: Int): Digest =
     of(buf.subSequence(from, until).toString)
-
-  private def digestOf(html: String): Array[Byte] = {
-    val md = digester.get()
-    md.reset()
-    md.digest(html.getBytes(StandardCharsets.UTF_8))
-  }
-
-  private def hex(bytes: Array[Byte]): Digest = {
-    val out = new Array[Char](32)
-    var i = 0
-    while (i < 16) {
-      val b = bytes(i) & 0xff
-      out(2 * i) = Hex(b >>> 4)
-      out(2 * i + 1) = Hex(b & 0x0f)
-      i += 1
-    }
-    new String(out)
-  }
 }
 
 /** What one client has for one node: the digest of the bytes it was sent and

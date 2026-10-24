@@ -1360,7 +1360,7 @@ signals FRAME carries a few signals, where the SEED is per node.
 rendered into a throwaway buffer purely to fingerprint it — `char[1024]` plus a `toString` per node,
 for bytes nobody keeps, which the profiler put at a quarter of a page open. `Sink.scratched` lends
 one buffer per THREAD to the whole walk instead (per thread because sessions render concurrently and
-the walk is otherwise pure — the same reason `Digest.digester` is a `ThreadLocal`). `pageWalkStream`
+the walk is otherwise pure). `pageWalkStream`
 **1,322 kB -> 1,113 kB, −15.8%**; time unchanged. Nested borrows fall back to allocating, which no
 current path needs — instrumenting the borrow across the suite counts zero — so the guard exists to
 keep "never render into a scratch while holding one" from being an unwritten precondition.
