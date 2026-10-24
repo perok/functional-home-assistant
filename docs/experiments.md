@@ -128,12 +128,22 @@ lookup costs about what one hash lookup does.
 
 **Where `String.equals` goes.** Grouped by caller (async-profiler, collapsed stacks), 93% of it is
 Scala's `==` on map and list keys (`BoxesRunTime.equals2`). Half is in `fhGet`: `List.contains`
-over the signal slots for every hole of the patch form (18.5%), which the spike kept, and the one
-comparison that confirms each hash-map hit (about 30%). A hit compares characters because the
-template's name and the map's key are different `String` objects. The rest builds the paint map,
-looks up `states` and checks `EntityState.unavailable`. All of it is 8.6% of a tick, about 3 µs,
-and no one change reaches more than half of it.
+over the signal slots for every hole of the patch form (18.5%), and the one comparison that
+confirms each hash-map hit (about 30%). A hit compares characters because the template's name and
+the map's key are different `String` objects. The rest builds the paint map, looks up `states` and
+checks `EntityState.unavailable`. All of it is 8.6% of a tick, about 3 µs.
+
+A `Set` for the signal slots and `unavailable` as a `val` were kept: `tickRender` 32.9 ± 1.5 →
+30.1 ± 0.6 µs, and 31.7 ± 1.5 → 29.8 ± 1.3 in a second run.
+
+**Interning, also not worth doing.** On top of those, interning the plan's keys and the template's
+names (an override of `SimpleObjectHandler.find`, which mustache.java also calls with `null`) made
+each hit a reference comparison and took `String.equals` from 8.6% to 4.7% of a tick, but no time
+off it: `tickRender` 29.8, `page` 574, `pageSignals` 720 µs, all within noise. What is left, about
+1.4 µs a tick, is `states.get` (a third) and Scala's small `Set`/`Map` classes, which compare every
+element on a miss; that bounds what interning entity ids or hash-based small collections could buy.
+Integer ids instead of names would buy no more than interning: a `String` caches its hash, so only
+the confirming comparison costs.
 
 **Worth asking again if** a profile attributes the time to `fhGet` itself, not to the template
-around it. Interning the plan's keys against the template's names would make each hit a
-reference comparison, and a `Set` would replace the `List.contains`.
+around it.
