@@ -161,21 +161,22 @@ abstract class Node extends LayoutNode {
   /// so the builders refuse them there.
   hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
   hidden liveProperties: Mapping<String, slotMod.Slot> = new {}
-  // A live slot carrying BYTES on a structural card is a build error: its patch
-  // would carry everything the card holds. Put live markup in a region as a
-  // node ([[SliderHead]]), or make it a signal slot, which never becomes bytes.
-  // `once`/`onRender` reads are fine. Mirrors
-  // `LayoutNode.Component.liveEntitiesAsBytes`.
-  //
-  // Starts with the live cell classes and properties, so a card amending its
-  // slots keeps them; a card replacing them must spread them back.
+  // The structural check mirrors `LayoutNode.Component.liveEntitiesAsBytes`.
+  /// What this node's card reads, by slot name. Amend it, `slots { ["label"] = … }`:
+  /// it already holds the node's live cell classes and properties
+  /// ([[LayoutNode.classWhen]], [[LayoutNode.cssProperty]]), and replacing it with
+  /// `slots = new { … }` drops them, which the build refuses.
+  ///
+  /// On a structural card (one with regions) a live slot read as bytes is refused,
+  /// since its patch would carry everything the card holds: put live markup in a
+  /// region as a node, or make it a signal slot. `once` and `onRender` reads are
+  /// fine.
   slots: Mapping<String, slotMod.Slot|String>(
     !isStructure(cardDef) || !toMap().values.any((v) ->
       v is slotMod.Slot && v.reads == "live" && v.signal == null &&
         (v.entityId != null ||
         (containsKey("entity_id") && this["entity_id"] is String))),
-    liveClasses.keys.every((cls) -> containsKey(cellClassPrefix + cls)),
-    liveProperties.keys.every((p) -> containsKey(cellStylePrefix + p))
+    keepsLiveCell(this, card, liveClasses, liveProperties)
   ) = new {
     for (cls, s in liveClasses) { [cellClassPrefix + cls] = s }
     for (p, s in liveProperties) { [cellStylePrefix + p] = s }
@@ -317,6 +318,19 @@ class CardDef {
 }
 
 const local function isStructure(d: CardDef): Boolean = d.regions != null
+
+// Throws rather than returning false, so the message names what was dropped.
+const local function keepsLiveCell(
+  slots: Mapping,
+  card: String,
+  classes: Mapping<String, slotMod.Slot>,
+  properties: Mapping<String, slotMod.Slot>
+): Boolean =
+  let (lost =
+      classes.keys.toList().filter((c) -> !slots.containsKey(cellClassPrefix + c)).map((c) -> "class '\(c)'")
+      + properties.keys.toList().filter((p) -> !slots.containsKey(cellStylePrefix + p)).map((p) -> "property '\(p)'"))
+    if (lost.isEmpty) true
+    else throw("card '\(card)': `slots = new { … }` drops its live cell \(lost.join(", ")); amend with `slots { … }`, which keeps them")
 
 /// Every card the trees under `roots` use, by name — a page ships these cards'
 /// templates, CSS and scripts and no others. Read off the nodes rather than
