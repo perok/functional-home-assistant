@@ -2165,8 +2165,10 @@ object Dashboard:
       name
     ) + "\\s*\\}\\}\\}").r
 
-  /** Constructed only by [[Dashboard.validated]]: the type is the proof. */
-  case class Validated(
+  /** Constructed only by [[Dashboard.validated]]: the type is the proof, so its
+    * constructor, `apply` and `copy` are private to the model.
+    */
+  case class Validated private[model] (
       dashboard: Dashboard,
       transforms: Map[Transform.CelKey, Transform.Compiled],
       queries: Map[SlotRead, QueryRequest] = Map.empty,
