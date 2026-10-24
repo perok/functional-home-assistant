@@ -160,7 +160,9 @@ Each is a *variable*:
   bookmark keeps it.
 - **Some cards come with one:** `(c.tabs) { tabs { … } }`, and a light's
   `c.entitySlider`, which switches between brightness, colour temperature and
-  colour as far as the light has them.
+  colour as far as the light has them. It opens on brightness;
+  `c.entitySlider(l).opensOn(List(l.colourTemp, l.colour))` opens on the one
+  the light is in.
 - **A chooser** is a bar of buttons over the cards beneath it. Two come
   ready-made, each with the cards that follow it:
 

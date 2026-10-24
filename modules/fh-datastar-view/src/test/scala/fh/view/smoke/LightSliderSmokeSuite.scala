@@ -149,7 +149,7 @@ class LightSliderSmokeSuite extends SmokeSuite {
     def showing(page: Page, max: Int) = IO.blocking(
       assertThat(page.locator(s"input[type=range][max='$max']")).hasCount(1)
     )
-    withPage(Scene.of(SmokeDashboard.lightSlider).entity(onColour)) {
+    withPage(Scene.of(SmokeDashboard.lightSliderByMode).entity(onColour)) {
       (page, _) =>
         for {
           _ <- showing(page, 360)

@@ -268,6 +268,25 @@ object SmokeDashboard {
       HouseFixture.dumpWith(colourLamp)
     )
 
+  /** [[lightSlider]] opening on the mode the light is in. */
+  val lightSliderByMode: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-light-slider-by-mode",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Light Slider"
+         |
+         |$fontPinnedTheme
+         |
+         |local l = dump.entities.${colourLamp.dumpKey}
+         |card = (c.grid) { children { c.entitySlider(l).opensOn(List(l.colourTemp, l.colour)) } }
+         |""".stripMargin,
+      HouseFixture.dumpWith(colourLamp)
+    )
+
   /** [[lightSlider]] switching its modes from a dropdown on the pill, between a
     * power pill and the colour wheel's.
     */
