@@ -1879,19 +1879,21 @@ class Renderer(validated: Dashboard.Validated) {
     // The bypass, not the transform, keeps an unavailable entity readable.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      // The form is the tier (ADR 0028).
-      val out: SlotValue = source.transform match {
-        case sm: Transform.Simple => transforms.runValue(sm, st)
-        case _: String            =>
+      // The form is the tier (ADR 0028): a CEL transform is the one with a key.
+      val out: SlotValue = source.celKey match {
+        case Some(key) =>
           transforms.runValue(
-            // Defined for every CEL transform, and built once per node.
-            source.celKey.get,
+            key,
             st,
             dashboard.slug,
             Conditions.resolve(source.values, states)
           )
-        // Rejected by `validate`; the raw state keeps a bypass readable.
-        case _: Transform.Stage => st.state
+        case None =>
+          source.transform match {
+            case sm: Transform.Simple => transforms.runValue(sm, st)
+            // Rejected by `validate`; the raw state keeps a bypass readable.
+            case _ => st.state
+          }
       }
       out match {
         case b: Boolean              => b
@@ -1933,9 +1935,9 @@ object Renderer {
   }
 
   /** For tests and benchmarks: a dashboard the build would refuse throws. */
-  def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
+  def create(dashboard: Dashboard): Renderer =
     dashboard.validated() match
-      case Right(v)   => Renderer(v.copy(access = access))
+      case Right(v)   => Renderer(v)
       case Left(errs) =>
         throw IllegalArgumentException(
           errs.mkString("invalid dashboard:\n", "\n", "")

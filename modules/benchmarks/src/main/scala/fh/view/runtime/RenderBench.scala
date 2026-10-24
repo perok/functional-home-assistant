@@ -7,6 +7,7 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
+  ExprValue,
   LayoutNode,
   NodeId,
   Op,
@@ -264,6 +265,7 @@ class RenderBench {
 
   private var plain: Renderer = null
   private var signalled: Renderer = null
+  private var valued: Renderer = null
   private var narrow: Renderer = null
   private var flat: Renderer = null
   private var set: Renderer = null
@@ -333,6 +335,7 @@ class RenderBench {
     plain = Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = false)))
     signalled =
       Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = true)))
+    valued = Renderer.create(Dashboard(cards, tree(Leaves, 4, valued = true)))
     narrow = Renderer.create(Dashboard(cards, tree(Leaves, 2, signals = true)))
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
@@ -546,6 +549,15 @@ class RenderBench {
   @Benchmark
   def pageSignals(bh: Blackhole): Unit =
     bh.consume(signalled.renderPageTraced(st))
+
+  /** [[pageSignals]] with each card's fill colour reading two expression
+    * values: the only page here whose CEL is typed against named values, so the
+    * only one that prices the compile key and the per-render activation
+    * (`Conditions.resolve`). Rebuilding that key per render cost 139 KB a page
+    * here (#615).
+    */
+  @Benchmark
+  def pageValued(bh: Blackhole): Unit = bh.consume(valued.renderPageTraced(st))
 
   /** Same leaves, one container: composition copies the page's bytes once. */
   @Benchmark
@@ -1661,6 +1673,14 @@ object RenderBench {
   final val TransformAttrLines = CelShapes.TransformAttrLines
   final val TransformComplex = CelShapes.TransformComplex
 
+  /** [[TransformFillColor]] with its kelvin range read from expression values,
+    * so its program is typed against named values ([[RenderBench.pageValued]]).
+    */
+  final val TransformFillColorValued =
+    TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
+  final val FillColorValues: Map[String, ExprValue] =
+    Map("lo" -> ExprValue.Real(2000.0), "span" -> ExprValue.Real(4500.0))
+
   /** The shapes [[RenderBench.simple]] runs through the production dispatch
     * ([[Transforms.run]]): the six live shapes, each precompiled into the warm
     * map — plus [[TransformComplex]] for [[RenderBench.celComplex]], which the
@@ -1717,11 +1737,14 @@ object RenderBench {
     *   shape — the shipped card's name reads `friendly_name` — but the
     *   difference between the two is exactly what one byte-reading slot costs
     *   the cache key, which is what [[RenderBench.resumeSignalsPure]] prices.
+    * @param valued
+    *   the fill colour reads expression values ([[TransformFillColorValued]]).
     */
   def leaf(
       signals: Boolean,
       distinct: Int = Int.MaxValue,
-      signalOnly: Boolean = false
+      signalOnly: Boolean = false,
+      valued: Boolean = false
   )(
       i: Int
   ): LayoutNode.Component =
@@ -1749,13 +1772,15 @@ object RenderBench {
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
         "fillColor" -> SlotSource(
-          transform = TransformFillColor,
+          transform =
+            if (valued) TransformFillColorValued else TransformFillColor,
           signal = Option.when(signals)(SignalBind.Style("background"))
         ),
         // Every dashboard has action slots, and ADR 0016 made them build-time
         // literals; leaving the hole out would not match a shipped card.
         "action" -> SlotSource(literal = Some(actionLiteral(i, distinct)))
-      )
+      ),
+      values = if (valued) FillColorValues else Map.empty
     )
 
   /** `leaves` leaves under columns of `branching` children each, stacked until
@@ -1773,7 +1798,8 @@ object RenderBench {
       branching: Int,
       signals: Boolean = true,
       distinct: Int = Int.MaxValue,
-      signalOnly: Boolean = false
+      signalOnly: Boolean = false,
+      valued: Boolean = false
   ): LayoutNode = {
     def stack(items: List[LayoutNode]): LayoutNode =
       if (items.sizeIs == 1) items.head
@@ -1786,7 +1812,7 @@ object RenderBench {
             )
             .toList
         )
-    stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly)))
+    stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly, valued)))
   }
 
   /** Leaves in EACH branch of the flip fixture. Smaller than [[Leaves]] on
