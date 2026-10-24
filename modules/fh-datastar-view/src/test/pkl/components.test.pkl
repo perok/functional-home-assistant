@@ -1050,7 +1050,8 @@ facts {
     local lit = c.button("x", c.tap.toggle(kitchen)).classWhen("warm", c.isOn(kitchen))
     lit.slots["cell.class:warm"].signal == "class:warm"
     lit.cssProperty("--x", c.expr("'1'")).slots.containsKey("cell.style:--x")
-    module.catch(() -> new OwnSlots {}.classWhen("warm", c.isOn(kitchen)).slots).contains("liveClasses")
+    module.catch(() -> new OwnSlots {}.classWhen("warm", c.isOn(kitchen)).slots)
+      .contains("card 'ownSlots': `slots = new { … }` drops its live cell class 'warm'")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
     module.catch(() -> set.classWhen("warm", c.isOn(kitchen))).contains("only a card node has")
     module.catch(() -> set.cssProperty("--x", c.expr("'1'"))).contains("only a card node has")
