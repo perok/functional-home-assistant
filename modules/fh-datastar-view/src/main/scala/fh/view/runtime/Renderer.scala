@@ -979,7 +979,7 @@ class Renderer(validated: Dashboard.Validated) {
         else {
           val b = Map.newBuilder[String, String]
           plan.dynamic.foreach { case (slot, srcEntity, source) =>
-            if (!plan.signalSlotSet.contains(slot))
+            if (!plan.signalSlots.contains(slot))
               b += (
                 (
                   slot,
@@ -1392,8 +1392,7 @@ class Renderer(validated: Dashboard.Validated) {
     *   the direct path's `__bind`/`__signal` strings — the subject is dynamic
     *   there, so the names cannot be precomputed
     * @param signalSlots
-    *   slots withheld (blanked) in the patch form, in the order their cell
-    *   bindings are written; `signalSlotSet` is the same for the per-name check
+    *   slots withheld (blanked) in the patch form
     * @param signals
     *   the seed values, captured as they resolve
     */
@@ -1404,8 +1403,7 @@ class Renderer(validated: Dashboard.Validated) {
       paint: Map[String, SlotValue],
       bake: Map[String, String],
       liveBindings: Map[String, String],
-      signalSlots: List[String],
-      signalSlotSet: Set[String],
+      signalSlots: Set[String],
       signals: Map[SignalId, SlotValue]
   )
 
@@ -1434,7 +1432,7 @@ class Renderer(validated: Dashboard.Validated) {
         }
     val _ = buf.append('"')
     if (!form.isPatch) {
-      val props = cellSlots(r, Dashboard.CellStylePrefix).flatMap(slot =>
+      val props = cellSlots(r, Dashboard.CellStylePrefix).toList.flatMap(slot =>
         r.paint
           .get(slot)
           .map(v =>
@@ -1456,16 +1454,18 @@ class Renderer(validated: Dashboard.Validated) {
     * reads a signal that does not exist yet (`Cannot read properties of
     * undefined`, the first `LiveCellClassSmokeSuite` run).
     */
-  private def cellBindingsInto(buf: Sink, r: Resolved): Unit =
-    (cellSlots(r, Dashboard.CellClassPrefix) ++
-      cellSlots(r, Dashboard.CellStylePrefix)).foreach { slot =>
+  private def cellBindingsInto(buf: Sink, r: Resolved): Unit = {
+    def bind(slot: String): Unit = {
       val key = slot + "__bind"
       r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
         buf.append(' ').append(b)
       }
     }
+    cellSlots(r, Dashboard.CellClassPrefix).foreach(bind)
+    cellSlots(r, Dashboard.CellStylePrefix).foreach(bind)
+  }
 
-  private def cellSlots(r: Resolved, prefix: String): List[String] =
+  private def cellSlots(r: Resolved, prefix: String): Set[String] =
     r.signalSlots.filter(_.startsWith(prefix))
 
   /** The template context, read in place. Not a `java.util.Map`: mustache.java
@@ -1495,7 +1495,7 @@ class Renderer(validated: Dashboard.Validated) {
           )
           list
         case _ =>
-          if (form.isPatch && resolved.signalSlotSet.contains(name)) ""
+          if (form.isPatch && resolved.signalSlots.contains(name)) ""
           else {
             // Flat, not nested `getOrElse`s: those defaults were capturing
             // lambdas, 5.7% of a page open (`RenderBench.page`); a constant
@@ -1533,8 +1533,6 @@ class Renderer(validated: Dashboard.Validated) {
       // Every slot, for a subject that is itself a transform ([[resolveDirect]]).
       slots: Map[String, Planned],
       bindings: Map[String, String],
-      signalSlots: List[String],
-      signalSlotSet: Set[String],
       signalNameBySlot: Map[String, SignalId],
       // The address variables are looked up by, never their values: a plan is
       // shared across sessions.
@@ -1546,7 +1544,10 @@ class Renderer(validated: Dashboard.Validated) {
       wrapped: Boolean,
       inline: Set[String],
       nodeCount: Int
-  )
+  ) {
+    // Not `keySet`: that view filters through a builder, per cell, per paint.
+    val signalSlots: Set[String] = signalNameBySlot.keysIterator.toSet
+  }
 
   /** A slot and its CEL program, looked up once when its node is planned, so a
     * paint runs the program and looks nothing up.
@@ -1671,8 +1672,6 @@ class Renderer(validated: Dashboard.Validated) {
           s"${slot}__read" -> s"$$$signal"
         )
       }.toMap,
-      signalSlots = named.map(_._1),
-      signalSlotSet = named.map(_._1).toSet,
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
       }.toMap,
@@ -1726,7 +1725,6 @@ class Renderer(validated: Dashboard.Validated) {
       bake = bakeIndex,
       liveBindings = Map.empty,
       plan.signalSlots,
-      plan.signalSlotSet,
       signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
   }
@@ -1797,7 +1795,6 @@ class Renderer(validated: Dashboard.Validated) {
       paint = resolved,
       bake = bakeIndex,
       liveBindings = bindings.toMap,
-      named.map(_._1),
       named.map(_._1).toSet,
       named.map { case (slot, _, signal) => signal -> resolved(slot) }.toMap
     )
