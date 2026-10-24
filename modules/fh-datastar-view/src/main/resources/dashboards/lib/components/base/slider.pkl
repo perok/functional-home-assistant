@@ -379,9 +379,7 @@ open class Slider extends nodes.Node {
   hidden headValues: Map<String, nodes.ExpressionValue> = nodes.valuesNamedIn(expressionValues, headSlots)
   hidden textValues: Map<String, nodes.ExpressionValue> = nodes.valuesNamedIn(expressionValues, textSlots)
   values =
-    let (ownRead = nodes.valuesNamedIn(expressionValues, slots)
-        + nodes.valuesNamedIn(expressionValues, liveClasses)
-        + nodes.valuesNamedIn(expressionValues, liveProperties))
+    let (ownRead = nodes.valuesNamedIn(expressionValues, slots))
     let (own = expressionValues.toMap().filter((name, _) ->
         ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
       if (own.isEmpty && derivedValues.isEmpty) null
@@ -390,14 +388,14 @@ open class Slider extends nodes.Node {
   hidden headNode: SliderHead =
     let (headActive = active) (new SliderHead {}) {
       active = headActive
-      slots = headSlots
+      slots { ...headSlots }
       expressionValues = headValues.toMapping()
       // On the head, the node whose slot reads it: values are local.
       derivedValues {
         when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
       }
       children = new Mapping {
-        ["text"] = new Listing { (new SliderText {}) { slots = textSlots; expressionValues = textValues.toMapping() } }
+        ["text"] = new Listing { (new SliderText {}) { slots { ...textSlots }; expressionValues = textValues.toMapping() } }
         ["actions"] = pillsOf(shownButtons)
       }
     }

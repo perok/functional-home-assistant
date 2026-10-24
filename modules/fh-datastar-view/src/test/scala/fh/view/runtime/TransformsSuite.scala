@@ -31,19 +31,20 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "ø 😀",
       "locks path with \"quotes\""
     )
-    val t = Transforms.from(
+    val cel = programOf(
       dashboard("kitchen").copy(
         card = LayoutNode.Component(
           card = "c",
           slots = Map("onclick" -> SlotSource(transform = "state"))
         )
-      )
+      ),
+      "state"
     )
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
       assertEquals(
-        t.run(Transform.Simple.State, entity),
-        t.run(Transform.CelKey("state"), entity, "dashboard"),
+        Transform.runSimple(Transform.Simple.State, entity),
+        Transform.run(cel, entity, "dashboard"),
         clue = state
       )
     }
@@ -85,12 +86,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
-        Transforms
-          .fromValidated(validated)
-          .run(
-            Transform.Simple.Suffix(" W"),
-            state
-          ),
+        Transform.runSimple(Transform.Simple.Suffix(" W"), state),
         "on W"
       )
     }
@@ -178,6 +174,10 @@ class TransformsSuite extends munit.CatsEffectSuite {
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
       "+ \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""
 
+  private def programOf(d: Dashboard, src: String): Transform.Compiled =
+    d.validated()
+      .fold(e => fail(e.mkString("\n")), _.transforms(Transform.CelKey(src)))
+
   private def dashboard(slug: String) =
     Dashboard(
       cards = Map(
@@ -221,9 +221,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
   test("a tap's URL carries the dashboard it was rendered for") {
     assertEquals(
-      Transforms
-        .from(dashboard("kitchen"))
-        .run(Transform.CelKey(tapUrl), state, "kitchen"),
+      Transform.run(programOf(dashboard("kitchen"), tapUrl), state, "kitchen"),
       "@post('sse/action/kitchen/light/toggle/light.kitchen', " +
         "{filterSignals:{exclude:'.*'}})"
     )
@@ -238,9 +236,11 @@ class TransformsSuite extends munit.CatsEffectSuite {
       .map { validated =>
         assertEquals(validated.dashboard.slug, "renamed")
         assertEquals(
-          Transforms
-            .fromValidated(validated)
-            .run(Transform.CelKey(tapUrl), state, validated.dashboard.slug),
+          Transform.run(
+            validated.transforms(Transform.CelKey(tapUrl)),
+            state,
+            validated.dashboard.slug
+          ),
           "@post('sse/action/renamed/light/toggle/light.kitchen', " +
             "{filterSignals:{exclude:'.*'}})"
         )
@@ -261,7 +261,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       )
     )
     assertEquals(
-      Transforms.from(plain).run(Transform.CelKey("state"), state, "x"),
+      Transform.run(programOf(plain, "state"), state, "x"),
       "on"
     )
   }

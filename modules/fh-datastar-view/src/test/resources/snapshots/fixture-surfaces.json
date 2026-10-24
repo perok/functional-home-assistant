@@ -298,32 +298,26 @@
                   "children" : [
                     {
                       "card" : "tile",
-                      "cell" : {
-                        "classWhen" : {
-                          "fh-active" : {
-                            "bypassUnavailable" : false,
-                            "entityId" : "light.kitchen",
-                            "reads" : "live",
-                            "signal" : "class:fh-active",
-                            "transform" : {
-                              "cases" : {
-                                "off" : false,
-                                "unavailable" : false,
-                                "unknown" : false
-                              },
-                              "kind" : "match",
-                              "otherwise" : true
-                            },
-                            "type" : "bool"
-                          }
-                        },
-                        "classes" : [
-                        ]
-                      },
                       "kind" : "component",
                       "slots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
+                        "cell.class:fh-active" : {
+                          "bypassUnavailable" : false,
+                          "entityId" : "light.kitchen",
+                          "reads" : "live",
+                          "signal" : "class:fh-active",
+                          "transform" : {
+                            "cases" : {
+                              "off" : false,
+                              "unavailable" : false,
+                              "unknown" : false
+                            },
+                            "kind" : "match",
+                            "otherwise" : true
+                          },
+                          "type" : "bool"
+                        },
                         "entity_id" : "light.kitchen",
                         "icon" : "mdi mdi-lightbulb",
                         "label" : "Kitchen",
@@ -719,32 +713,26 @@
                   "children" : [
                     {
                       "card" : "tile",
-                      "cell" : {
-                        "classWhen" : {
-                          "fh-active" : {
-                            "bypassUnavailable" : false,
-                            "entityId" : "light.kitchen",
-                            "reads" : "live",
-                            "signal" : "class:fh-active",
-                            "transform" : {
-                              "cases" : {
-                                "off" : false,
-                                "unavailable" : false,
-                                "unknown" : false
-                              },
-                              "kind" : "match",
-                              "otherwise" : true
-                            },
-                            "type" : "bool"
-                          }
-                        },
-                        "classes" : [
-                        ]
-                      },
                       "kind" : "component",
                       "slots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
+                        "cell.class:fh-active" : {
+                          "bypassUnavailable" : false,
+                          "entityId" : "light.kitchen",
+                          "reads" : "live",
+                          "signal" : "class:fh-active",
+                          "transform" : {
+                            "cases" : {
+                              "off" : false,
+                              "unavailable" : false,
+                              "unknown" : false
+                            },
+                            "kind" : "match",
+                            "otherwise" : true
+                          },
+                          "type" : "bool"
+                        },
                         "entity_id" : "light.kitchen",
                         "icon" : "mdi mdi-lightbulb",
                         "label" : "Kitchen",

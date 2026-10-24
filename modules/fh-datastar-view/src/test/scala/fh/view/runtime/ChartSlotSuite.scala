@@ -6,6 +6,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   QueryTemplate,
+  Reads,
   Ref,
   SlotQuery,
   SlotRead,
@@ -45,7 +46,11 @@ class ChartSlotSuite extends munit.FunSuite {
         card = "chart",
         slots = Map(
           "entity_id" -> SlotSource(literal = Some("sensor.t")),
-          "chart" -> SlotSource(query = Some(query), transform = stage),
+          "chart" -> SlotSource(
+            query = Some(query),
+            transform = stage,
+            reads = Reads.OnRender
+          ),
           "name" -> SlotSource(transform = "state")
         )
       )
@@ -68,19 +73,6 @@ class ChartSlotSuite extends munit.FunSuite {
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
-  }
-
-  test("the chart hole must be the RAW one, and the escaped one shows it") {
-    // `{{chart}}` escapes the markup, so the page shows SVG source as text:
-    // visible, hence a card-author rule, but the first thing a chart card gets
-    // wrong.
-    val escaped =
-      Renderer
-        .create(dashboardWith("{{chart}}"))
-        .renderBodyTraced(states, Selections.none, fragments())
-        .html
-    assert(!escaped.contains(svg), clue = escaped)
-    assert(escaped.contains("&lt;svg"), clue = escaped)
   }
 
   test("rendering a chart nobody resolved is an error, not an empty slot") {

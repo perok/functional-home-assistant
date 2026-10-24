@@ -951,9 +951,13 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
+Compile keeps one program per distinct CEL source and typed names (`Validated.transforms`). The
+renderer looks each slot's up once, when it plans the node (`Planned`), so a paint runs a program
+and looks nothing up.
+
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.foldNode` attaches them, in `Dashboard.folded` before validation, to exactly the slots whose CEL names them
-(`SlotSource.values`), so no box downstream knows they exist: a tally's candidates and the
+live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
+names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
@@ -1214,8 +1218,8 @@ instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapp
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
 wrapper also carries the node's live cell classes (`LayoutNode.classWhen`) and live custom
-properties (`LayoutNode.cssProperty`): ordinary signal slots under `Dashboard.cellClassSlot` /
-`cellStyleSlot` names (`class:` and `style:--…` bindings), folded in before validation, so the renderer
+properties (`LayoutNode.cssProperty`): ordinary signal slots, which Pkl writes under
+`cell.class:` / `cell.style:` names (`class:` and `style:--…` bindings), so the renderer
 places their bindings on the wrapper in both forms and the class or `style="--x:…"` itself only in
 the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went

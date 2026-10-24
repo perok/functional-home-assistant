@@ -57,7 +57,7 @@ class PullReadsSuite extends munit.FunSuite {
     )
 
   private def host(id: String) =
-    LayoutNode.Component("col", id = Some(id), vars = declared("tab" -> "0"))
+    LayoutNode.Component("tabs", id = Some(id), vars = declared("tab" -> "0"))
 
   private val renderer = Renderer.create(
     Dashboard(
@@ -67,6 +67,10 @@ class PullReadsSuite extends munit.FunSuite {
         "col" -> CardDef(
           "<div>{{#children}}{{{html}}}{{/children}}</div>",
           regions = Map("children" -> Region())
+        ),
+        "tabs" -> CardDef(
+          """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          regions = Map("panel" -> Region(Region.Baked))
         )
       ),
       card = LayoutNode.Component(

@@ -660,7 +660,7 @@ class VarTapSuite extends ServerHarness {
   test("the opening frame states every declared variable, chosen or not") {
     // Total over the declarations, so a control still showing last session's
     // window is corrected on connect.
-    val renderer = Renderer.fromValidated(
+    val renderer = Renderer(
       dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
     )
     val declared = Server

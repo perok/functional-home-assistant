@@ -4,7 +4,7 @@
 - **Date:** 2026-08-29 (decision and Phase-0 gate pinned first, in the
   since-deleted `docs/plan-simple-transforms.md` — its decisions live here and
   in ADR 0028; this ADR lands after the swap, per the repo routine)
-- **Scope:** `model/Transform.scala`, `runtime/Cel.scala`, `runtime/Transforms.scala`,
+- **Scope:** `model/Transform.scala`, `runtime/Cel.scala`, `runtime/Renderer.scala` (`Planned`),
   `runtime/StateStore.scala` (null-attr rule), the Pkl library's transform strings,
   `modules/benchmarks` (engine cells)
 - **Owns:** the choice of transform ENGINE and its value semantics. ADR 0001

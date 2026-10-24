@@ -104,7 +104,7 @@ per entity and memoized (ADR 0004).
 
 - Authors get a standard, documented expression language; phase discipline is
   preserved (transforms are data; templates stay pure and shared).
-- Compiled once (`Transforms.from`), never parsed on the hot path; compile
+- Compiled once (`Dashboard.validated`), never parsed on the hot path; compile
   errors fail the build with node/slot/source-line context.
 - Per-eval cost is higher than a hand-rolled AST — negligible for the rendered
   cards per change; the hot membership scan deliberately does *not* evaluate

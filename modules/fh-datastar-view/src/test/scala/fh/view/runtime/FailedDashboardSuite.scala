@@ -457,7 +457,8 @@ class FailedDashboardSuite extends ServerHarness {
     // The registry's record of each slug's origin is the only input besides the
     // new site.
     val dash = liveLeafDash
-    def validated(d: Dashboard) = Right(Dashboard.Validated(d, Map.empty))
+    def validated(d: Dashboard) =
+      Right(d.validated().fold(e => fail(e.mkString("\n")), identity))
     val renamed = dash.copy(title = Some("Renamed"))
     for {
       live <- Server.LiveSlug.of(Server.RendererState.Failed("x"))
