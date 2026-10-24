@@ -62,13 +62,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
         )
       ),
       "card" -> Json.obj(
-        "kind" -> Json.fromString("component"),
+        "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
         "slots" -> Json.obj(
           "v" -> Json.obj(
             "transform" -> Json.obj(
-              "kind" -> Json.fromString("value"),
-              "op" -> Json.fromString("suffix"),
+              "kind" -> Json.fromString("Op"),
+              "op" -> Json.fromString("Suffix"),
               "literal" -> Json.fromString(" W")
             )
           )
@@ -208,7 +208,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         )
       ),
       "card" -> Json.obj(
-        "kind" -> Json.fromString("component"),
+        "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
         "slots" -> Json.obj(
           "onclick" -> Json.obj(

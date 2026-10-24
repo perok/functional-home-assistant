@@ -27,7 +27,7 @@ open class SurfaceDef {
 /// paint. Never a baked member: a host is filled by a [[VarActivation]] or a
 /// [[StateActivation]].
 class UserActivation {
-  kind: "user" = "user"
+  kind: "User" = "User"
   defaultOpen: Boolean = false
 }
 
@@ -35,7 +35,7 @@ class UserActivation {
 /// bakes into. Per viewer, like [[UserActivation]], but declared, so a choice
 /// is a variable write (ADR 0033).
 class VarActivation {
-  kind: "var" = "var"
+  kind: "Var" = "Var"
   name: String
   at: VarAt = new AtIndex {}
 }
@@ -45,25 +45,25 @@ typealias VarAt = AtValue|AtIndex|AtOtherwise
 
 /// One value.
 class AtValue {
-  kind: "value" = "value"
+  kind: "Value" = "Value"
   value: String
 }
 
 /// The member's `bakeIndex`, as a number: a tab bar's panel.
 class AtIndex {
-  kind: "index" = "index"
+  kind: "Index" = "Index"
 }
 
 /// Every value no other member of the group names: an If's else.
 class AtOtherwise {
-  kind: "otherwise" = "otherwise"
+  kind: "Otherwise" = "Otherwise"
 }
 
 /// Shown while `condition` holds over live state — the same for every viewer.
 /// Subject-free: every comparison names its own entity, and one that names
 /// none is a `Dashboard.validate` error.
 class StateActivation {
-  kind: "state" = "state"
+  kind: "State" = "State"
   condition: pred.Predicate
 }
 

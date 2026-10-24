@@ -1,7 +1,7 @@
 {
   "card" : {
     "card" : "fhcol",
-    "kind" : "component",
+    "kind" : "Component",
     "regions" : {
       "children" : [
         {
@@ -15,9 +15,9 @@
             "t0" : {
               "activation" : {
                 "at" : {
-                  "kind" : "index"
+                  "kind" : "Index"
                 },
-                "kind" : "var",
+                "kind" : "Var",
                 "name" : "tab"
               },
               "bakeAs" : "panel",
@@ -25,7 +25,7 @@
               "bakeInto" : "@@NODE_ID@@",
               "content" : {
                 "card" : "fhrow",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
@@ -34,17 +34,17 @@
                         "self" : {
                           "content" : {
                             "card" : "popup",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "regions" : {
                               "children" : [
                                 {
                                   "card" : "fhcol",
-                                  "kind" : "component",
+                                  "kind" : "Component",
                                   "regions" : {
                                     "children" : [
                                       {
                                         "card" : "tile",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : "mdi mdi-thermometer",
@@ -55,8 +55,8 @@
                                             "signal" : "text",
                                             "transform" : {
                                               "attribute" : "unit_of_measurement",
-                                              "kind" : "value",
-                                              "op" : "suffixUnit"
+                                              "kind" : "Op",
+                                              "op" : "SuffixUnit"
                                             }
                                           }
                                         },
@@ -70,17 +70,17 @@
                                             "fh-cols-full"
                                           ]
                                         },
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "regions" : {
                                           "bar" : [
                                             {
                                               "card" : "selectButtons",
-                                              "kind" : "component",
+                                              "kind" : "Component",
                                               "regions" : {
                                                 "children" : [
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                                       "busy" : "1",
@@ -98,7 +98,7 @@
                                                   },
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                                       "busy" : "1",
@@ -116,7 +116,7 @@
                                                   },
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                                       "busy" : "1",
@@ -134,7 +134,7 @@
                                                   },
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                                       "busy" : "1",
@@ -162,7 +162,7 @@
                                           "children" : [
                                             {
                                               "card" : "historyChart",
-                                              "kind" : "component",
+                                              "kind" : "Component",
                                               "slots" : {
                                                 "chart" : {
                                                   "bypassUnavailable" : true,
@@ -180,7 +180,7 @@
                                                     "params" : {
                                                       "unit" : "°C"
                                                     },
-                                                    "stage" : "chart"
+                                                    "stage" : "Chart"
                                                   }
                                                 }
                                               },
@@ -202,7 +202,7 @@
                                       },
                                       {
                                         "card" : "entityInfo",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "attributes" : {
                                             "bypassUnavailable" : true,
@@ -217,7 +217,7 @@
                                       },
                                       {
                                         "card" : "button",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
@@ -244,7 +244,7 @@
                           }
                         }
                       },
-                      "kind" : "component",
+                      "kind" : "Component",
                       "slots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
@@ -263,8 +263,8 @@
                           "signal" : "text",
                           "transform" : {
                             "attribute" : "unit_of_measurement",
-                            "kind" : "value",
-                            "op" : "suffixUnit"
+                            "kind" : "Op",
+                            "op" : "SuffixUnit"
                           }
                         }
                       },
@@ -283,9 +283,9 @@
             "t1" : {
               "activation" : {
                 "at" : {
-                  "kind" : "index"
+                  "kind" : "Index"
                 },
-                "kind" : "var",
+                "kind" : "Var",
                 "name" : "tab"
               },
               "bakeAs" : "panel",
@@ -293,12 +293,12 @@
               "bakeInto" : "@@NODE_ID@@",
               "content" : {
                 "card" : "fhrow",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
                       "card" : "tile",
-                      "kind" : "component",
+                      "kind" : "Component",
                       "slots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
@@ -313,7 +313,7 @@
                               "unavailable" : false,
                               "unknown" : false
                             },
-                            "kind" : "match",
+                            "kind" : "Match",
                             "otherwise" : true
                           },
                           "type" : "bool"
@@ -332,7 +332,7 @@
                             "cases" : {
                               "unavailable" : true
                             },
-                            "kind" : "match",
+                            "kind" : "Match",
                             "otherwise" : false
                           }
                         },
@@ -345,8 +345,8 @@
                           "signal" : "text",
                           "transform" : {
                             "attribute" : "unit_of_measurement",
-                            "kind" : "value",
-                            "op" : "suffixUnit"
+                            "kind" : "Op",
+                            "op" : "SuffixUnit"
                           }
                         }
                       },
@@ -363,12 +363,12 @@
               }
             }
           },
-          "kind" : "component",
+          "kind" : "Component",
           "regions" : {
             "children" : [
               {
                 "card" : "tab",
-                "kind" : "component",
+                "kind" : "Component",
                 "slots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
                   "busy" : "1",
@@ -386,7 +386,7 @@
               },
               {
                 "card" : "tab",
-                "kind" : "component",
+                "kind" : "Component",
                 "slots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
                   "busy" : "1",
@@ -428,16 +428,16 @@
                 "condition" : {
                   "items" : [
                   ],
-                  "kind" : "and"
+                  "kind" : "And"
                 },
-                "kind" : "state"
+                "kind" : "State"
               },
               "bakeAs" : "branch",
               "bakeIndex" : 1,
               "bakeInto" : "@@NODE_ID@@",
               "content" : {
                 "card" : "fhrow",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
@@ -446,17 +446,17 @@
                         "self" : {
                           "content" : {
                             "card" : "popup",
-                            "kind" : "component",
+                            "kind" : "Component",
                             "regions" : {
                               "children" : [
                                 {
                                   "card" : "fhcol",
-                                  "kind" : "component",
+                                  "kind" : "Component",
                                   "regions" : {
                                     "children" : [
                                       {
                                         "card" : "tile",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : "mdi mdi-thermometer",
@@ -467,8 +467,8 @@
                                             "signal" : "text",
                                             "transform" : {
                                               "attribute" : "unit_of_measurement",
-                                              "kind" : "value",
-                                              "op" : "suffixUnit"
+                                              "kind" : "Op",
+                                              "op" : "SuffixUnit"
                                             }
                                           }
                                         },
@@ -482,17 +482,17 @@
                                             "fh-cols-full"
                                           ]
                                         },
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "regions" : {
                                           "bar" : [
                                             {
                                               "card" : "selectButtons",
-                                              "kind" : "component",
+                                              "kind" : "Component",
                                               "regions" : {
                                                 "children" : [
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                                       "busy" : "1",
@@ -510,7 +510,7 @@
                                                   },
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                                       "busy" : "1",
@@ -528,7 +528,7 @@
                                                   },
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                                       "busy" : "1",
@@ -546,7 +546,7 @@
                                                   },
                                                   {
                                                     "card" : "tab",
-                                                    "kind" : "component",
+                                                    "kind" : "Component",
                                                     "slots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                                       "busy" : "1",
@@ -574,7 +574,7 @@
                                           "children" : [
                                             {
                                               "card" : "historyChart",
-                                              "kind" : "component",
+                                              "kind" : "Component",
                                               "slots" : {
                                                 "chart" : {
                                                   "bypassUnavailable" : true,
@@ -592,7 +592,7 @@
                                                     "params" : {
                                                       "unit" : "°C"
                                                     },
-                                                    "stage" : "chart"
+                                                    "stage" : "Chart"
                                                   }
                                                 }
                                               },
@@ -614,7 +614,7 @@
                                       },
                                       {
                                         "card" : "entityInfo",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "attributes" : {
                                             "bypassUnavailable" : true,
@@ -629,7 +629,7 @@
                                       },
                                       {
                                         "card" : "button",
-                                        "kind" : "component",
+                                        "kind" : "Component",
                                         "slots" : {
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
@@ -656,7 +656,7 @@
                           }
                         }
                       },
-                      "kind" : "component",
+                      "kind" : "Component",
                       "slots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
@@ -675,8 +675,8 @@
                           "signal" : "text",
                           "transform" : {
                             "attribute" : "unit_of_measurement",
-                            "kind" : "value",
-                            "op" : "suffixUnit"
+                            "kind" : "Op",
+                            "op" : "SuffixUnit"
                           }
                         }
                       },
@@ -696,24 +696,24 @@
               "activation" : {
                 "condition" : {
                   "entity" : "light.kitchen",
-                  "kind" : "cmp",
+                  "kind" : "Cmp",
                   "op" : "eq",
                   "property" : "state",
                   "value" : "on"
                 },
-                "kind" : "state"
+                "kind" : "State"
               },
               "bakeAs" : "branch",
               "bakeIndex" : 0,
               "bakeInto" : "@@NODE_ID@@",
               "content" : {
                 "card" : "fhrow",
-                "kind" : "component",
+                "kind" : "Component",
                 "regions" : {
                   "children" : [
                     {
                       "card" : "tile",
-                      "kind" : "component",
+                      "kind" : "Component",
                       "slots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
@@ -728,7 +728,7 @@
                               "unavailable" : false,
                               "unknown" : false
                             },
-                            "kind" : "match",
+                            "kind" : "Match",
                             "otherwise" : true
                           },
                           "type" : "bool"
@@ -747,7 +747,7 @@
                             "cases" : {
                               "unavailable" : true
                             },
-                            "kind" : "match",
+                            "kind" : "Match",
                             "otherwise" : false
                           }
                         },
@@ -760,8 +760,8 @@
                           "signal" : "text",
                           "transform" : {
                             "attribute" : "unit_of_measurement",
-                            "kind" : "value",
-                            "op" : "suffixUnit"
+                            "kind" : "Op",
+                            "op" : "SuffixUnit"
                           }
                         }
                       },
@@ -778,7 +778,7 @@
               }
             }
           },
-          "kind" : "component",
+          "kind" : "Component",
           "slots" : {
             
           },

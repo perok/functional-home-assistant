@@ -66,8 +66,15 @@ finished, and are deleted (issue #23).
    hand-curated per domain (HA's attribute shapes exist only in its developer
    docs, not machine-readably); it types only what the dump extracts.
 5. **The output contract is the existing one**: Pkl components emit
-   `{kind: "component", card, slots, regions}` nodes and a
-   `{cards, theme, card, surfaces?}` top level. A slot is a bare string
+   `{kind: "Component", card, slots, regions}` nodes and a
+   `{cards, theme, card, surfaces?}` top level. Every discriminator (`kind`, `op`, `stage`) is the
+   Scala case name, verbatim, so no decoder renames one (`SetNode` included: `LayoutNode.Set`
+   would shadow `scala.Set`). Pkl declares each as a string-literal type, so Pkl refuses a
+   misspelling, and `WireShapeSuite` checks each literal against the case names. `Access` alone
+   assigns a plain String: a site rule Pkl cannot read must reach the decoder, which falls back
+   to the default rule rather than to public (`SiteAccessSuite`). Pkl class names are the
+   author's API and keep theirs (`Node`, `PAnd`); only `Simple`'s operator classes are named as
+   their case, so a class name equals its `op`. A slot is a bare string
    (literal) or the `SlotSource` object form. **Literal slots must be JSON
    strings, never numbers** (the slot decoder rejects numbers) — numeric config
    like the slider's `min`/`max` is stringified.

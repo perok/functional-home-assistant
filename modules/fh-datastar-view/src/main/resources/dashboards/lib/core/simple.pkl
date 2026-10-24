@@ -15,50 +15,50 @@ module core.simple
 
 /// An operator over one read: one class per `Transform.Simple.Op` case, of the
 /// same name and with the same fields, which `WireShapeSuite` checks. `kind`
-/// names the shape and `op` the operator, the case name in lower camel case.
+/// names the shape and `op` the operator, each its Scala case name.
 abstract class SimpleValue {
-  kind = "value"
+  kind: "Op" = "Op"
   op: String
 }
 
-class State extends SimpleValue { op = "state" }
+class State extends SimpleValue { op: "State" = "State" }
 
 class Attr extends SimpleValue {
-  op = "attr"
+  op: "Attr" = "Attr"
   attribute: String
 }
 
 class SuffixUnit extends SimpleValue {
-  op = "suffixUnit"
+  op: "SuffixUnit" = "SuffixUnit"
   attribute: String
 }
 
 class Prefix extends SimpleValue {
-  op = "prefix"
+  op: "Prefix" = "Prefix"
   literal: String
 }
 
 class Suffix extends SimpleValue {
-  op = "suffix"
+  op: "Suffix" = "Suffix"
   literal: String
 }
 
 class Percent extends SimpleValue {
-  op = "percent"
+  op: "Percent" = "Percent"
   attribute: String
   min: Number
   max: Number
 }
 
 class Fill extends SimpleValue {
-  op = "fill"
+  op: "Fill" = "Fill"
   attribute: String
   min: Number
   max: Number
 }
 
 class Duration extends SimpleValue {
-  op = "duration"
+  op: "Duration" = "Duration"
   scale: Number
 }
 
@@ -70,7 +70,7 @@ class Duration extends SimpleValue {
 /// type across a map's values. `otherwise` is required because HA adds states
 /// to a domain after it ships, and an unmatched one must degrade, not blank.
 class SimpleMatch {
-  kind = "match"
+  kind: "Match" = "Match"
   cases: Mapping<String, String|Boolean>
   otherwise: String|Boolean
 }

@@ -97,9 +97,10 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    helper that covers every variant of a vendored state union belongs in the domain module,
    where the vocabulary is.
 3. **`kind` names the shape, `op` the operator, and both levels are derived.** Pkl writes
-   `{kind: "value", op: "percent", attribute, min, max}` and `{kind: "match", cases, otherwise}`.
-   They are two fields because they answer two questions, and `kind` is the spelling
-   `LayoutNode` and `Predicate` already use. In Scala, `Transform.Simple` is a sealed trait
+   `{kind: "Op", op: "Percent", attribute, min, max}` and `{kind: "Match", cases, otherwise}`,
+   each the Scala case name, as every discriminator on the wire is (ADR 0006). They are two
+   fields because they answer two questions, and `kind` is the spelling `LayoutNode` and
+   `Predicate` already use. In Scala, `Transform.Simple` is a sealed trait
    holding `Simple.Op`, an enum of the operators whose decoder is derived with discriminator
    `op`, and `Simple.Match`, a derived case class. The operator cases are exported onto `Simple`,
    so code still says `Simple.Percent`.
@@ -123,9 +124,9 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
      decode, with its JSON path.
 
    In Pkl, each operator is a class of its own, named as its `Simple.Op` case and extending an
-   abstract `SimpleValue` that fixes `kind`. Each class requires exactly the fields its operator
-   reads, so no argument is optional, and `WireShapeSuite` checks every class's fields against
-   its Scala case. The `const function` constructors in `core/simple.pkl` are still the door
+   abstract `SimpleValue` that fixes `kind`; its `op` is that same name. Each class requires
+   exactly the fields its operator reads, so no argument is optional, and `WireShapeSuite` checks
+   every class's fields and `op` against its Scala case. The `const function` constructors in `core/simple.pkl` are still the door
    authors use. `match` keeps a class of its own, because its payload is a Mapping whose arms
    may be Boolean.
 

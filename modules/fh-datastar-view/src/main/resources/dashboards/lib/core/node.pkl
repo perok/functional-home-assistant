@@ -151,7 +151,7 @@ const local cellClassFamilies: List<List<String>> =
   List(List("fh-cols-"), List("fh-text-"), List("fh-hug", "fh-grow"), List("fh-stick-"))
 
 abstract class Node extends LayoutNode {
-  kind: "component" = "component"
+  kind: "Component" = "Component"
   card: String
   // The same for every node of the card ([[cardsIn]]), so it must not
   // reference instance properties. Keep each HTML attribute value on one line.

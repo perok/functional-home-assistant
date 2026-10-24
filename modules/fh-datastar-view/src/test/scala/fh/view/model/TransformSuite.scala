@@ -566,7 +566,7 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(
       io.circe.parser
         .decode[Transform.Simple](
-          """{"kind":"value","op":"duration","scale":60}"""
+          """{"kind":"Op","op":"Duration","scale":60}"""
         ),
       Right(Simple.Duration(60.0))
     )
@@ -610,18 +610,18 @@ class TransformSuite extends munit.FunSuite {
     // list derived from the Scala enum would agree with itself. Every field
     // any op takes; each ignores what it does not read.
     List(
-      "state",
-      "attr",
-      "suffixUnit",
-      "prefix",
-      "suffix",
-      "percent",
-      "fill",
-      "duration"
+      "State",
+      "Attr",
+      "SuffixUnit",
+      "Prefix",
+      "Suffix",
+      "Percent",
+      "Fill",
+      "Duration"
     ).foreach { op =>
       assert(
         decode(
-          s"""{"kind":"value","op":"$op","attribute":"brightness","literal":"x",""" +
+          s"""{"kind":"Op","op":"$op","attribute":"brightness","literal":"x",""" +
             """"min":1,"max":255,"scale":60}"""
         ).isRight,
         s"op `$op` is spellable in Pkl but does not decode"
@@ -631,9 +631,9 @@ class TransformSuite extends munit.FunSuite {
 
   test("an op outside that set is refused, not silently dropped") {
     assert(
-      decode("""{"kind":"value","op":"attrOrId","attribute":"x"}""").isLeft
+      decode("""{"kind":"Op","op":"AttrOrId","attribute":"x"}""").isLeft
     )
-    assert(decode("""{"kind":"value","op":"","attribute":"x"}""").isLeft)
+    assert(decode("""{"kind":"Op","op":"","attribute":"x"}""").isLeft)
   }
 
   test("a missing argument fails the decode rather than defaulting") {
@@ -641,26 +641,26 @@ class TransformSuite extends munit.FunSuite {
     // constructors cannot produce these, which is why nothing downstream would
     // catch them.
     assert(
-      decode("""{"kind":"value","op":"attr"}""").isLeft,
+      decode("""{"kind":"Op","op":"Attr"}""").isLeft,
       "attr with no name"
     )
     assert(
-      decode("""{"kind":"value","op":"prefix"}""").isLeft,
+      decode("""{"kind":"Op","op":"Prefix"}""").isLeft,
       "prefix with no literal"
     )
     assert(
-      decode("""{"kind":"value","op":"percent","attribute":"b"}""").isLeft,
+      decode("""{"kind":"Op","op":"Percent","attribute":"b"}""").isLeft,
       "percent with no range"
     )
     assert(
       decode(
-        """{"kind":"value","op":"percent","attribute":"b","min":1}"""
+        """{"kind":"Op","op":"Percent","attribute":"b","min":1}"""
       ).isLeft,
       "percent with only half a range"
     )
     assert(
       decode(
-        """{"kind":"value","op":"percent","attribute":"b","min":"lo","max":2}"""
+        """{"kind":"Op","op":"Percent","attribute":"b","min":"lo","max":2}"""
       ).isLeft,
       "percent whose min is not a number"
     )
@@ -668,11 +668,11 @@ class TransformSuite extends munit.FunSuite {
 
   test("state takes no argument, and one it does not need is ignored") {
     assertEquals(
-      decode("""{"kind":"value","op":"state"}"""),
+      decode("""{"kind":"Op","op":"State"}"""),
       Right(Simple.State)
     )
     assertEquals(
-      decode("""{"kind":"value","op":"state","attribute":"brightness"}"""),
+      decode("""{"kind":"Op","op":"State","attribute":"brightness"}"""),
       Right(Simple.State)
     )
   }
@@ -680,28 +680,28 @@ class TransformSuite extends munit.FunSuite {
   test("the decoder reads an operator and a match off real JSON") {
     assertEquals(
       decode(
-        """{"kind":"value","op":"percent","attribute":"brightness",""" +
+        """{"kind":"Op","op":"Percent","attribute":"brightness",""" +
           """"min":1,"max":255}"""
       ),
       Right(Simple.Percent("brightness", 1.0, 255.0))
     )
     assertEquals(
-      decode("""{"kind":"match","cases":{"on":"Open"},"otherwise":false}"""),
+      decode("""{"kind":"Match","cases":{"on":"Open"},"otherwise":false}"""),
       Right(Simple.Match(Map("on" -> "Open"), false))
     )
     // `"false"` would be truthy as a Mustache section.
     assert(
-      decode("""{"kind":"match","cases":{"on":true},"otherwise":false}""")
+      decode("""{"kind":"Match","cases":{"on":true},"otherwise":false}""")
         .exists {
           case Simple.Match(cases, _) => cases("on") == (true: SlotValue)
           case _                      => false
         }
     )
-    assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
+    assert(decode("""{"kind":"Op","op":"nope"}""").isLeft)
     // An unknown `kind` fails on the shape, not as a confusing unknown op.
-    assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
+    assert(decode("""{"kind":"nope","op":"State"}""").isLeft)
     assertEquals(
-      decode("""{"kind":"value","op":"suffixUnit","attribute":"u"}"""),
+      decode("""{"kind":"Op","op":"SuffixUnit","attribute":"u"}"""),
       Right(Simple.SuffixUnit("u"))
     )
   }

@@ -129,13 +129,13 @@ class BuildPhaseSuite extends munit.FunSuite {
         parser
           .parse(s"""
             { "cards": {}, "card": {
-                "kind": "component", "card": "fhcol",
+                "kind": "Component", "card": "fhcol",
                 "regions": { "children": [
-                  { "kind": "component", "card": "card" },
-                  { "kind": "component", "card": "button"$idField,
+                  { "kind": "Component", "card": "card" },
+                  { "kind": "Component", "card": "button"$idField,
                     "slots": { "onclick": "open @@NODE_ID@@_self" },
                     "inlineSurfaces": { "self": {
-                      "content": { "kind": "component", "card": "card" } } } }
+                      "content": { "kind": "Component", "card": "card" } } } }
                 ] } } }
           """)
           .toOption
@@ -171,15 +171,15 @@ class BuildPhaseSuite extends munit.FunSuite {
     val json = parser
       .parse("""
         { "cards": {}, "card": {
-            "kind": "component", "card": "fhcol",
+            "kind": "Component", "card": "fhcol",
             "regions": { "children": [
-              { "kind": "set",
+              { "kind": "SetNode",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "component", "card": "tile",
+                  { "node": { "kind": "Component", "card": "tile",
                       "slots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
-                        "content": { "kind": "component", "card": "card" } } } } }
+                        "content": { "kind": "Component", "card": "card" } } } } }
                 ] } } }
             ] } } }
       """)
@@ -205,17 +205,17 @@ class BuildPhaseSuite extends munit.FunSuite {
     val json = parser
       .parse("""
         { "cards": {}, "card": {
-            "kind": "component", "card": "fhcol",
+            "kind": "Component", "card": "fhcol",
             "regions": { "children": [
-              { "kind": "set",
+              { "kind": "SetNode",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "component", "card": "a",
+                  { "node": { "kind": "Component", "card": "a",
                       "inlineSurfaces": { "self": {
-                        "content": { "kind": "component", "card": "card" } } } } },
-                  { "node": { "kind": "component", "card": "b",
+                        "content": { "kind": "Component", "card": "card" } } } } },
+                  { "node": { "kind": "Component", "card": "b",
                       "inlineSurfaces": { "self": {
-                        "content": { "kind": "component", "card": "card" } } } } }
+                        "content": { "kind": "Component", "card": "card" } } } } }
                 ] } } }
             ] } } }
       """)
@@ -236,25 +236,25 @@ class BuildPhaseSuite extends munit.FunSuite {
     val json = parser
       .parse("""
         { "cards": {}, "card": {
-            "kind": "component", "card": "fhcol",
+            "kind": "Component", "card": "fhcol",
             "regions": { "children": [
-              { "kind": "component", "card": "slider",
+              { "kind": "Component", "card": "slider",
                 "regions": {
                   "head": [
-                    { "kind": "component", "card": "sliderHead",
+                    { "kind": "Component", "card": "sliderHead",
                       "regions": {
                         "actions": [
-                          { "kind": "component", "card": "sliderAction",
+                          { "kind": "Component", "card": "sliderAction",
                             "slots": { "onclick": "open @@NODE_ID@@_self" },
                             "inlineSurfaces": { "self": {
-                              "content": { "kind": "component", "card": "card" } } } }
+                              "content": { "kind": "Component", "card": "card" } } } }
                         ] } }
                   ],
                   "children": [
-                    { "kind": "component", "card": "slider",
+                    { "kind": "Component", "card": "slider",
                       "slots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
-                        "content": { "kind": "component", "card": "card" } } } }
+                        "content": { "kind": "Component", "card": "card" } } } }
                   ] } }
             ] } } }
       """)
@@ -276,7 +276,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   private def node(fields: String, children: String*): String =
-    s"""{ "kind": "component", "card": "x"$fields""" +
+    s"""{ "kind": "Component", "card": "x"$fields""" +
       (if (children.isEmpty) ""
        else s""", "regions": { "children": [${children.mkString(",")}] }""") +
       " }"
@@ -370,7 +370,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // A member reads the scope at its set, so a token there names a declarer
     // above the set by its static id.
     val set =
-      """{ "kind": "set", "candidates": ["sensor.a"], "members": { "sensor.a": """ +
+      """{ "kind": "SetNode", "candidates": ["sensor.a"], "members": { "sensor.a": """ +
         s"""{ "clauses": [ { "node": ${node(tokenAt("window"))} } ] } } }"""
     val hoisted = hoistCard(
       node(""", "vars": [{ "name": "window", "default": "24h" }]""", set)
@@ -382,7 +382,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // A surface keyed, or a token spliced, under an id no node has is broken
     // and silent, so the expected ids are the renderer's own functions.
     val popup =
-      """, "inlineSurfaces": { "self": { "content": { "kind": "component", "card": "x" } } }"""
+      """, "inlineSurfaces": { "self": { "content": { "kind": "Component", "card": "x" } } }"""
     val authoredRoot = hoistCard(node(""", "id": "home"""", node(popup)))
     val rootId = LayoutNode.rootId(
       "",
@@ -423,15 +423,15 @@ class BuildPhaseSuite extends munit.FunSuite {
         {
           "cards": {},
           "card": {
-            "kind": "component", "card": "fhcol",
+            "kind": "Component", "card": "fhcol",
             "regions": { "children": [
-              { "kind": "component", "card": "button",
+              { "kind": "Component", "card": "button",
                 "params": { "label": "More" },
                 "entities": [],
                 "slots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
-                  "content": { "kind": "component", "card": "card" } } } }
+                  "content": { "kind": "Component", "card": "card" } } } }
             ] }
           }
         }
@@ -485,17 +485,17 @@ class BuildPhaseSuite extends munit.FunSuite {
         {
           "cards": {},
           "card": {
-            "kind": "component", "card": "tabs", "entities": [], "slots": {},
+            "kind": "Component", "card": "tabs", "entities": [], "slots": {},
             "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
             "regions": { "children": [
-              { "kind": "component", "card": "button", "entities": [],
+              { "kind": "Component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
                 "slots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ] },
             "inlineSurfaces": {
-              "0": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
-              "1": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
+              "0": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
+              "1": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
             }
           }
         }
@@ -549,7 +549,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("Surface.activation decodes: absent key -> User(false)") {
     val decoded = parser
-      .parse("""{ "content": { "kind": "component", "card": "x" } }""")
+      .parse("""{ "content": { "kind": "Component", "card": "x" } }""")
       .toOption
       .get
       .as[Surface]
@@ -558,7 +558,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // effect survives through resolveActive's index-0 fallback.
     val flat = parser
       .parse(
-        """{ "content": { "kind": "component", "card": "x" }, "defaultOpen": true }"""
+        """{ "content": { "kind": "Component", "card": "x" }, "defaultOpen": true }"""
       )
       .toOption
       .get
@@ -570,7 +570,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     def surface(activation: String): io.circe.Decoder.Result[Surface] =
       parser
         .parse(
-          s"""{ "content": { "kind": "component", "card": "x" },
+          s"""{ "content": { "kind": "Component", "card": "x" },
              |  "activation": $activation }""".stripMargin
         )
         .toOption
@@ -579,17 +579,17 @@ class BuildPhaseSuite extends munit.FunSuite {
 
     assertEquals(
       surface(
-        """{ "kind": "user", "defaultOpen": true }"""
+        """{ "kind": "User", "defaultOpen": true }"""
       ).toOption.get.activation,
       Activation.User(defaultOpen = true)
     )
     // No quantifier: the condition names the entities it reads.
     val cond =
-      """{ "kind": "cmp", "property": "state", "op": "eq", "value": "on",
+      """{ "kind": "Cmp", "property": "state", "op": "eq", "value": "on",
          |  "entity": "light.a" }""".stripMargin
     assertEquals(
       surface(
-        s"""{ "kind": "state", "condition": $cond }"""
+        s"""{ "kind": "State", "condition": $cond }"""
       ).toOption.get.activation,
       Activation.State(
         Predicate
@@ -814,13 +814,13 @@ class BuildPhaseSuite extends munit.FunSuite {
         {
           "cards": {},
           "card": {
-            "kind": "component", "card": "ifhost",
+            "kind": "Component", "card": "ifhost",
             "inlineSurfaces": { "then": {
-              "content": { "kind": "component", "card": "card" },
+              "content": { "kind": "Component", "card": "card" },
               "bakeInto": "@@NODE_ID@@", "bakeAs": "branch", "bakeIndex": 0,
               "defaultOpen": true,
-              "activation": { "kind": "state",
-                "condition": { "kind": "cmp", "property": "state", "op": "eq", "value": "on" } }
+              "activation": { "kind": "State",
+                "condition": { "kind": "Cmp", "property": "state", "op": "eq", "value": "on" } }
             } }
           }
         }
@@ -831,7 +831,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val lifted = hoisted.downField("surfaces").downField("c_then")
     assertEquals(
       lifted.downField("activation").get[String]("kind").toOption,
-      Some("state")
+      Some("State")
     )
     assert(
       lifted.downField("defaultOpen").failed,

@@ -552,7 +552,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           // server log, so the rejection comes back on the wire.
           bogus <- push(
             "bogus",
-            """{"cards":{},"card":{"kind":"component","card":"nosuchcard",
+            """{"cards":{},"card":{"kind":"Component","card":"nosuchcard",
               |"children":[],"slots":{}}}""".stripMargin
           )
           bogusBody <- bogus.body.through(fs2.text.utf8.decode).compile.string

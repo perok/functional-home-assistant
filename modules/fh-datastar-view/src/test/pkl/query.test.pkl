@@ -224,7 +224,7 @@ facts {
       .orderBy(q.desc(q.eq(q.stateProp, "on")))
       .render((e) -> c.entityCard(e))
       .build()
-    s.orderBy[0].by.kind == "holds"
+    s.orderBy[0].by.kind == "Holds"
     s.orderBy[0].by.predicate.property == "state"
     s.orderBy[0].by.predicate.value == "on"
   }
@@ -268,7 +268,7 @@ facts {
   ["`count` compares the PRESENT members, with no quantifier"] {
     // The original ask: "if more than X elements then we show this."
     local cond = q.from(stue).where(q.eq(q.stateProp, "on")).count().gt(1)
-    cond.kind == "count"
+    cond.kind == "Count"
     cond.op == "gt"
     cond.value == 1
     cond.candidates.toList() == List("light.taklys", "light.lampe")
@@ -334,7 +334,7 @@ facts {
     // The rooms are ordinary layout; each holds one set of its own.
     card.children.toList().length == 2
     local stueSet = card.children.toList()[0].children.toList()[1]
-    stueSet.kind == "set"
+    stueSet.kind == "SetNode"
     stueSet.candidates.toList() == List("light.taklys", "light.lampe")
     stueSet.members["light.taklys"].clauses.toList()[0].`when`.property == "state"
     // ...and a room's title is a LITERAL, which is why the tile needs no
@@ -367,7 +367,7 @@ facts {
     // gives that inner set its own id, so a bulb patches its own element
     // rather than re-rendering the group tile.
     local inner = memberOf.apply(s, "light.stue_group")[0].node.children.toList()[1]
-    inner.kind == "set"
+    inner.kind == "SetNode"
     inner.candidates.toList() == List("light.taklys", "light.lampe")
     inner.members["light.lampe"].clauses.toList()[0].`when`.property == "state"
   }
@@ -513,7 +513,7 @@ facts {
       .where(q.eq(q.stateProp, "on"))
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
       .build()
-    memberOf.apply(s, "light.taklys")[0].`when`.kind == "cmp"
+    memberOf.apply(s, "light.taklys")[0].`when`.kind == "Cmp"
   }
 
   ["same-kind nesting FLATTENS instead of nesting"] {
@@ -528,9 +528,9 @@ facts {
       .render((e) -> c.entityCard(e))
       .build()
     local g = memberOf.apply(s, "light.taklys")[0].`when`
-    g.kind == "and"
+    g.kind == "And"
     g.items.toList().length == 3
-    g.items.toList().every((i) -> i.kind == "cmp")
+    g.items.toList().every((i) -> i.kind == "Cmp")
   }
 
   ["two spellings of the same filter produce the SAME term"] {
@@ -587,7 +587,7 @@ facts {
     local branch = c.iff(q.from(stue).where(q.eq(q.stateProp, "on")).any())
       .then(c.title("some light is on"))
     local cond = branch.inlineSurfaces["then"].activation.condition
-    cond.kind == "count"
+    cond.kind == "Count"
     cond.op == "gt"
     cond.value == 0
     cond.candidates.toList() == List("light.taklys", "light.lampe")
@@ -598,7 +598,7 @@ facts {
       .then(c.title("on"))
       .`else`(c.title("off"))
     local cond = branch.inlineSurfaces["else"].activation.condition
-    cond.kind == "and"
+    cond.kind == "And"
     cond.items.toList().isEmpty
   }
 
@@ -606,15 +606,15 @@ facts {
     // `any()` over a set no candidate can join folds to `false` before anything
     // runs, so the branch it guards simply never shows.
     local never = c.iff(q.from(stue).where(false).any()).then(c.title("x"))
-    never.inlineSurfaces["then"].activation.condition.kind == "or"
+    never.inlineSurfaces["then"].activation.condition.kind == "Or"
     never.inlineSurfaces["then"].activation.condition.items.toList().isEmpty
     // ...and the mirror.
-    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition.kind == "and"
+    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition.kind == "And"
   }
 
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
-    s.kind == "set"
+    s.kind == "SetNode"
     ids.apply(s).every((id) -> s.members.containsKey(id))
   }
 

@@ -57,7 +57,7 @@ class ChartParams {
 }
 
 class ChartStage extends stageMod.Stage {
-  stage = "chart"
+  stage: "Chart" = "Chart"
   params: ChartParams = new ChartParams {}
 }
 

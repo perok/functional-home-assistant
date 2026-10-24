@@ -1068,10 +1068,10 @@ class RendererSuite extends munit.FunSuite {
       .decode[Dashboard](
         s"""{"cards":{"col":{"template":"<div>{{#children}}{{{html}}}{{/children}}</div>"},
            | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
-           | "card":{"kind":"component","card":"col"$regionsField}}""".stripMargin
+           | "card":{"kind":"Component","card":"col"$regionsField}}""".stripMargin
       )
 
-    val leaf = """{"kind":"component","card":"card","slots":{"state":"x"}}"""
+    val leaf = """{"kind":"Component","card":"card","slots":{"state":"x"}}"""
 
     val fromObject = decode(s""","regions":{"children":[$leaf]}""")
       .fold(e => fail(s"decode failed: $e"), identity)

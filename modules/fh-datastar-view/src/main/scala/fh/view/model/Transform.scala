@@ -116,18 +116,16 @@ object Transform {
         .map(b => b: SlotValue)
         .or(Decoder[String].map(s => s: SlotValue))
 
-    private given Decoder[Op] = {
-      given Configuration = Configuration.default
-        .withDiscriminator("op")
-        .withTransformConstructorNames(n => n.take(1).toLowerCase + n.drop(1))
-      ConfiguredDecoder.derived
-    }
+    private given Decoder[Op] =
+      ConfiguredDecoder.derived(using
+        Configuration.default.withDiscriminator("op")
+      )
 
     // By hand only to pick the level: circe's derivation flattens a nested
     // sum to its innermost case, so it cannot read `kind` and then `op`.
     given Decoder[Simple] = Decoder[String].at("kind").flatMap {
-      case "value" => Decoder[Op].map(o => o: Simple)
-      case "match" =>
+      case "Op"    => Decoder[Op].map(o => o: Simple)
+      case "Match" =>
         ConfiguredDecoder
           .derived[Match](using Configuration.default)
           .map(m => m: Simple)
@@ -259,9 +257,7 @@ object Transform {
     }
 
     private given Configuration =
-      Configuration.default.withDefaults
-        .withDiscriminator("stage")
-        .withTransformConstructorNames(_.toLowerCase)
+      Configuration.default.withDefaults.withDiscriminator("stage")
 
     given Decoder[Stage] = ConfiguredDecoder.derived
   }

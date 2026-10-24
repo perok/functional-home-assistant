@@ -6,14 +6,10 @@ import fh.view.runtime.Cel
 import io.circe.{Decoder, DecodingFailure, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
+// The wire names each case exactly as here (`WireShapeSuite` checks Pkl's
+// literals), `SetNode` included: `LayoutNode.Set` would shadow `scala.Set`.
 given Configuration =
-  Configuration.default.withDefaults
-    .withDiscriminator("kind")
-    .withTransformConstructorNames {
-      // `SetNode`, because `LayoutNode.Set` would shadow `scala.Set` here.
-      case "SetNode" => "set"
-      case other     => other.toLowerCase
-    }
+  Configuration.default.withDefaults.withDiscriminator("kind")
 
 /** Where one mustache slot gets its value.
   *
