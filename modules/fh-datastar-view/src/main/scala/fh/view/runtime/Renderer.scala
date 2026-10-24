@@ -134,7 +134,9 @@ class Renderer(validated: Dashboard.Validated) {
 
   private val dashboard = validated.dashboard
   private val templates = Templates.from(dashboard)
-  private val transforms = Transforms.fromValidated(validated)
+  // Every CEL program, once per distinct source and names. Looked up when a
+  // node is planned ([[Planned]]), never by a paint.
+  private val programs = validated.transforms
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
   // value.
   val access: Access = validated.access
@@ -258,13 +260,18 @@ class Renderer(validated: Dashboard.Validated) {
     * transform: its result, where every reader takes it. Otherwise the default
     * stands, as for a stale link.
     */
+  private lazy val initialPrograms: List[(VarKey, String, Transform.Compiled)] =
+    vars.initialTransforms.toList.map((key, t) =>
+      (key, t.entityId, programs(t.celKey))
+    )
+
   def initialValuesFor(
       states: Map[String, EntityState]
   ): Map[VarKey, String] =
-    vars.initialTransforms.toList.flatMap { (key, t) =>
+    initialPrograms.flatMap { (key, entityId, program) =>
       states
-        .get(t.entityId)
-        .map(transforms.run(t.celKey, _, dashboard.slug))
+        .get(entityId)
+        .map(Transform.run(program, _, dashboard.slug))
         .filter(v =>
           VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
         )
@@ -1521,7 +1528,9 @@ class Renderer(validated: Dashboard.Validated) {
       tpl: Mustache,
       structural: Map[String, String],
       constants: Map[String, SlotValue],
-      dynamic: List[(String, Option[String], BoundSlot)],
+      dynamic: List[(String, Option[String], Planned)],
+      // Every slot, for a subject that is itself a transform ([[resolveDirect]]).
+      slots: Map[String, Planned],
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
@@ -1536,6 +1545,17 @@ class Renderer(validated: Dashboard.Validated) {
       inline: Set[String],
       nodeCount: Int
   )
+
+  /** A slot and its CEL program, looked up once when its node is planned, so a
+    * paint runs the program and looks nothing up.
+    */
+  private final case class Planned(
+      source: BoundSlot,
+      program: Option[Transform.Compiled]
+  )
+
+  private def planned(source: BoundSlot): Planned =
+    Planned(source, source.celKey.map(programs))
 
   private val nodePlans =
     new java.util.concurrent.ConcurrentHashMap[String, NodePlan]()
@@ -1559,19 +1579,19 @@ class Renderer(validated: Dashboard.Validated) {
       c: LayoutNode.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
-    val slots = c.bound
+    val slots = c.bound.view.mapValues(planned).toMap
     // `None`: the subject is a transform and can change per paint, the one
     // shape a plan cannot precompute ([[resolveDirect]]).
     val subjectConst: Option[Option[String]] =
-      slots.get(Dashboard.SubjectSlot) match {
+      c.bound.get(Dashboard.SubjectSlot) match {
         case None                           => Some(None)
         case Some(s) if s.literal.isDefined => Some(s.literal)
         case Some(_)                        => None
       }
     val constB = Map.newBuilder[String, SlotValue]
-    val dynB = List.newBuilder[(String, Option[String], BoundSlot)]
-    val dynInhB = List.newBuilder[(String, BoundSlot)]
-    slots.foreach { case (slot, source) =>
+    val dynB = List.newBuilder[(String, Option[String], Planned)]
+    slots.foreach { case (slot, planned) =>
+      val source = planned.source
       // The section guard (ADR 0017), for every slot: a withheld signal value
       // is a false section, so `{{#value}}` would delete its own element and
       // binding on the first patch. Uniform because a card may not know its
@@ -1592,17 +1612,17 @@ class Renderer(validated: Dashboard.Validated) {
               // `once` reads only identity, so the plan holds it; the memo is
               // keyed by entity, which is why a query slot never enters it.
               source.shape match
-                case SlotShape.Query(_)  => dynB += ((slot, srcEntity, source))
+                case SlotShape.Query(_)  => dynB += ((slot, srcEntity, planned))
                 case SlotShape.State(st) =>
                   if (st.reads == Reads.Once) {
                     val once = identityCache.computeIfAbsent(
                       (srcEntity.getOrElse(""), st.valueKey),
-                      _ => resolveStateSlotValue(srcEntity, st, states)
+                      _ => resolveStateSlotValue(srcEntity, planned, states)
                     )
                     constB += ((slot, once))
                     constB += ((slot + "__read", Datastar.jsValue(once)))
-                  } else dynB += ((slot, srcEntity, source))
-            case None => dynInhB += ((slot, source))
+                  } else dynB += ((slot, srcEntity, planned))
+            case None => ()
           }
       }
     }
@@ -1611,7 +1631,7 @@ class Renderer(validated: Dashboard.Validated) {
     // `live` and non-literal, so its name is constant per node.
     val named = subjectConst match {
       case Some(subject) =>
-        slots.toList.flatMap { case (slot, src) =>
+        c.bound.toList.flatMap { case (slot, src) =>
           Renderer.signalBind(src).map { kind =>
             (
               slot,
@@ -1634,6 +1654,7 @@ class Renderer(validated: Dashboard.Validated) {
       structural = structuralVars(id, states),
       constants = constB.result(),
       dynamic = dynB.result(),
+      slots = slots,
       bindings = named.flatMap { case (slot, kind, signal) =>
         List(
           s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
@@ -1653,7 +1674,7 @@ class Renderer(validated: Dashboard.Validated) {
       signalSeed = Datastar.seedFor(named.map(_._3)),
       subjectDynamic = subjectConst.isEmpty,
       ownRendering = ownRenderingOf(c),
-      declaresSignals = slots.values.exists(Renderer.isSignalSlot),
+      declaresSignals = c.bound.values.exists(Renderer.isSignalSlot),
       wrapped = !noWrapCards(c.card),
       inline = templates.inlineRegions.getOrElse(c.card, Set.empty),
       // Once, not per paint: it walks the subtree.
@@ -1713,12 +1734,15 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: QuerySnapshot
   ): Resolved = {
     val injected = plan.structural ++ bakeIndex
-    val slots = plan.node.bound
+    val slots = plan.slots
     val subject: Option[String] =
       slots.get(Dashboard.SubjectSlot).map { s =>
-        s.literal.getOrElse(resolveStateSlot(s.entityId, s, states))
+        s.source.literal.getOrElse(
+          resolveStateSlot(s.source.entityId, s, states)
+        )
       }
-    val resolved: Map[String, SlotValue] = slots.map { case (slot, source) =>
+    val resolved: Map[String, SlotValue] = slots.map { case (slot, planned) =>
+      val source = planned.source
       val value: SlotValue = source.literal match {
         case Some(text) => text
         case None       =>
@@ -1728,14 +1752,14 @@ class Renderer(validated: Dashboard.Validated) {
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
-              _ => resolveStateSlotValue(srcEntity, source, states)
+              _ => resolveStateSlotValue(srcEntity, planned, states)
             )
           else
-            resolveSlotValue(srcEntity, source, states, fragments, plan.id)
+            resolveSlotValue(srcEntity, planned, states, fragments, plan.id)
       }
       slot -> value
     }
-    val signalled = slots.toList.flatMap { case (slot, src) =>
+    val signalled = plan.node.bound.toList.flatMap { case (slot, src) =>
       Renderer.signalBind(src).map((slot, src, _))
     }
     val id = NodeId.derived(injected.getOrElse("id", ""))
@@ -1797,7 +1821,7 @@ class Renderer(validated: Dashboard.Validated) {
       val plan = planOf(id, c, states)
       // A dynamic subject's plan holds no names, not because it has no
       // signals.
-      if (plan.subjectDynamic) directSignalsOfSlots(id, c, states)
+      if (plan.subjectDynamic) directSignalsOfSlots(id, plan, states)
       else if (plan.signalNameBySlot.isEmpty) Map.empty
       else {
         val b = Map.newBuilder[SignalId, SlotValue]
@@ -1816,25 +1840,29 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def directSignalsOfSlots(
       id: NodeId,
-      c: LayoutNode.Component,
+      plan: NodePlan,
       states: Map[String, EntityState]
   ): Map[SignalId, SlotValue] = {
-    val subject = c.bound
+    val subject = plan.slots
       .get(Dashboard.SubjectSlot)
-      .map(s => s.literal.getOrElse(resolveStateSlot(s.entityId, s, states)))
-    c.bound.collect {
-      case (slot, src) if Renderer.isSignalSlot(src) =>
+      .map(s =>
+        s.source.literal
+          .getOrElse(resolveStateSlot(s.source.entityId, s, states))
+      )
+    plan.slots.collect {
+      case (slot, planned) if Renderer.isSignalSlot(planned.source) =>
+        val src = planned.source
         val entity = src.entityId.orElse(subject)
         val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
         Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
-          resolveStateSlotValue(entity, src, states)
+          resolveStateSlotValue(entity, planned, states)
     }
   }
 
   /** Resolves before any state arrives, so a `domain` action still works. */
   private def resolveSlot(
       srcEntity: Option[String],
-      source: BoundSlot,
+      source: Planned,
       states: Map[String, EntityState],
       fragments: QuerySnapshot,
       node: NodeId
@@ -1848,7 +1876,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def resolveStateSlot(
       srcEntity: Option[String],
-      source: BoundSlot,
+      source: Planned,
       states: Map[String, EntityState]
   ): String = SlotValue.text(resolveStateSlotValue(srcEntity, source, states))
 
@@ -1857,21 +1885,22 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def resolveSlotValue(
       srcEntity: Option[String],
-      source: BoundSlot,
+      source: Planned,
       states: Map[String, EntityState],
       fragments: QuerySnapshot,
       node: NodeId
-  ): SlotValue = source.shape match {
+  ): SlotValue = source.source.shape match {
     // Answered before the walk began; `QuerySnapshot` raises on a miss.
     case SlotShape.Query(ask) => fragments.value(node, ask)
-    case SlotShape.State(st)  => resolveStateSlotValue(srcEntity, st, states)
+    case SlotShape.State(_) => resolveStateSlotValue(srcEntity, source, states)
   }
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
-      source: BoundSlot,
+      planned: Planned,
       states: Map[String, EntityState]
   ): SlotValue = {
+    val source = planned.source
     val st =
       srcEntity
         .flatMap(states.get)
@@ -1879,18 +1908,19 @@ class Renderer(validated: Dashboard.Validated) {
     // The bypass, not the transform, keeps an unavailable entity readable.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      // The form is the tier (ADR 0028): a CEL transform is the one with a key.
-      val out: SlotValue = source.celKey match {
-        case Some(key) =>
-          transforms.runValue(
-            key,
+      // The form is the tier (ADR 0028): a CEL transform is the one with a
+      // program.
+      val out: SlotValue = planned.program match {
+        case Some(program) =>
+          Transform.runValue(
+            program,
             st,
             dashboard.slug,
             Conditions.resolve(source.values, states)
           )
         case None =>
           source.transform match {
-            case sm: Transform.Simple => transforms.runValue(sm, st)
+            case sm: Transform.Simple => Transform.runSimpleValue(sm, st)
             // Rejected by `validate`; the raw state keeps a bypass readable.
             case _ => st.state
           }

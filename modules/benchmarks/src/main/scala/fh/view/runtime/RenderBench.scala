@@ -274,7 +274,6 @@ class RenderBench {
   private var manySets: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
-  private var transforms: Transforms = null
   private var celProbes: List[Transform.Compiled] = null
   private var celComplex: Transform.Compiled = null
   // The explicit fast tier's probes and the two shipped shapes that stay on
@@ -354,30 +353,6 @@ class RenderBench {
           e => sys.error(s"cel won't compile: $src [$e]"),
           identity
         )
-    // The production dispatch: Transforms pre-compiles every shape and
-    // resolves the fast tier once, so [[simple]] measures exactly what the
-    // renderer's warm path does per evaluation.
-    transforms = Transforms.fromValidated(
-      valid(
-        Dashboard(
-          cards ++ ProbeTransforms.zipWithIndex.map { case (_, i) =>
-            s"probe$i" -> CardDef(s"{{v}}", slots = List("v"))
-          },
-          LayoutNode.Component(
-            "col",
-            regions = LayoutNode.kids(
-              (tree(Leaves, 4, signals = true) :: ProbeTransforms.zipWithIndex
-                .map { case (t, i) =>
-                  LayoutNode.Component(
-                    s"probe$i",
-                    Map("v" -> SlotSource(transform = t))
-                  )
-                })*
-            )
-          )
-        )
-      )
-    )
     celProbes = CelShapes.LiveTransforms.map(cparse)
     celComplex = cparse(CelShapes.TransformComplex)
     // The shapes the library ACTUALLY emits, weighted as it emits them: the
@@ -610,20 +585,20 @@ class RenderBench {
   @Benchmark
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
-  /** The EXPLICIT fast tier through the production dispatch
-    * ([[Transforms.run]]): the four opted-in [[Transform.Simple]] shapes
-    * evaluate without the engine (~45 B); the fill colour and the attribute
-    * comprehension stay on the engine, exactly the shipped mix (4 of 6). The
-    * gap against [[cel]] (all six on the engine) is what the tier saves per
-    * page, and against [[direct]] it prices the dispatch on top of the raw
-    * read. `Reads.Once` slots excluded — the renderer memoises those.
+  /** The EXPLICIT fast tier as the renderer runs it ([[Transform.runSimple]]):
+    * the four opted-in [[Transform.Simple]] shapes evaluate without the engine
+    * (~45 B); the fill colour and the attribute comprehension stay on the
+    * engine, exactly the shipped mix (4 of 6). The gap against [[cel]] (all six
+    * on the engine) is what the tier saves per page, and against [[direct]] it
+    * prices the dispatch on top of the raw read. `Reads.Once` slots excluded —
+    * the renderer memoises those.
     */
   @Benchmark
   def simple(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      simpleProbes.foreach(s => bh.consume(transforms.run(s, e)))
+      simpleProbes.foreach(s => bh.consume(Transform.runSimple(s, e)))
       engineShapes.foreach(t => bh.consume(Transform.run(t, e, "dashboard")))
       i += 1
     }
@@ -1437,9 +1412,9 @@ class RenderBench {
     * The check resolves only the slots that travel as BYTES and compares them
     * to what the cache entry was built from. On the shipped `entityCard` that
     * is exactly one slot — the name, a guarded attr read through the production
-    * dispatch ([[Transforms.run]], ADR 0028's fast tier, no engine). The signal
-    * slots are NOT in it: they are resolved on a signals tick regardless, to
-    * fill the frame.
+    * dispatch ([[Transform.runSimple]], ADR 0028's fast tier, no engine). The
+    * signal slots are NOT in it: they are resolved on a signals tick
+    * regardless, to fill the frame.
     *
     * Against [[tickRender]] — the render this replaces, same twenty nodes —
     * this is the whole trade, and it is the number that says whether thread C
@@ -1454,7 +1429,7 @@ class RenderBench {
     var i = 0
     while (i < tickEntities.size) {
       val e = moved(tickEntities(i))
-      bh.consume(transforms.run(NameSlot, e))
+      bh.consume(Transform.runSimple(NameSlot, e))
       i += 1
     }
   }
@@ -1601,10 +1576,6 @@ class RenderBench {
 
 object RenderBench {
 
-  def valid(d: Dashboard): Dashboard.Validated =
-    d.validated()
-      .fold(e => sys.error(e.mkString("invalid:\n", "\n", "")), identity)
-
   /** One frame as the feed delivers it: the changes, and the states they leave
     * behind. Paired because a pass needs both and they must agree.
     */
@@ -1680,21 +1651,6 @@ object RenderBench {
     TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
   final val FillColorValues: Map[String, ExprValue] =
     Map("lo" -> ExprValue.Real(2000.0), "span" -> ExprValue.Real(4500.0))
-
-  /** The shapes [[RenderBench.simple]] runs through the production dispatch
-    * ([[Transforms.run]]): the six live shapes, each precompiled into the warm
-    * map — plus [[TransformComplex]] for [[RenderBench.celComplex]], which the
-    * catalog deliberately does not recognise.
-    */
-  final val LiveTransforms = List(
-    TransformName,
-    TransformUnit,
-    TransformFill,
-    TransformPercent,
-    TransformFillColor,
-    TransformAttrLines
-  )
-  final val ProbeTransforms = LiveTransforms :+ TransformComplex
 
   /** A tap's action as the builder bakes it for one entity (ADR 0016): a
     * build-time literal per entity, so the card's action hole stays filled but

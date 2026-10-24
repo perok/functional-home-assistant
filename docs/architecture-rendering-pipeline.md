@@ -951,6 +951,10 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
+Compile keeps one program per distinct CEL source and typed names (`Validated.transforms`). The
+renderer looks each slot's up once, when it plans the node (`Planned`), so a paint runs a program
+and looks nothing up.
+
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
 names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates and the
