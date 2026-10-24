@@ -116,12 +116,7 @@ class RenderCacheContentionSuite extends ServerHarness {
   /** Per node: a total cannot tell a second viewer's miss from a member render
     * that happens anyway.
     */
-  private class PerNode(v: Dashboard.Validated)
-      extends Renderer(
-        v.dashboard,
-        Templates.from(v.dashboard),
-        Transforms.fromValidated(v)
-      ) {
+  private class PerNode(v: Dashboard.Validated) extends Renderer(v) {
     private val counts =
       new java.util.concurrent.ConcurrentHashMap[NodeId, AtomicInteger]()
 

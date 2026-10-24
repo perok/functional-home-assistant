@@ -428,7 +428,7 @@ class Server(
   def push(validated: Dashboard.Validated): IO[Unit] =
     site.installPushed(
       validated.dashboard.slug,
-      Server.RendererState.Ready(Renderer.fromValidated(validated))
+      Server.RendererState.Ready(Renderer(validated))
     )
 
   /** The shell around [[Patches.plan]] + [[Patches.record]]. No viewer's
@@ -2164,7 +2164,7 @@ object Server {
       result: Either[String, Dashboard.Validated]
   ): RendererState = result match {
     case Right(validated) =>
-      RendererState.Ready(Renderer.fromValidated(validated))
+      RendererState.Ready(Renderer(validated))
     case Left(message) => RendererState.Failed(message)
   }
 

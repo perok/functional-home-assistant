@@ -130,15 +130,15 @@ case class RenderInputs(
 /** Container kinds are templates splicing `children`, not cases here. A surface
   * is a separate tree whose ids are namespaced (`s_<id>__…`).
   */
-class Renderer(
-    dashboard: Dashboard,
-    templates: Templates,
-    transforms: Transforms,
-    // Here, not beside the renderer, so a reload swaps rule and dashboard as
-    // one value. The default is the restrictive one.
-    val access: Access = Access.default,
-    private val parsedQueries: Map[SlotRead, QueryRequest] = Map.empty
-) {
+class Renderer(validated: Dashboard.Validated) {
+
+  private val dashboard = validated.dashboard
+  private val templates = Templates.from(dashboard)
+  private val transforms = Transforms.fromValidated(validated)
+  // Here, not beside the renderer, so a reload swaps rule and dashboard as one
+  // value.
+  val access: Access = validated.access
+  private val parsedQueries = validated.queries
 
   private val themeClasses = dashboard.theme.classes
   private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
@@ -1935,21 +1935,11 @@ object Renderer {
   /** For tests and benchmarks: a dashboard the build would refuse throws. */
   def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
     dashboard.validated() match
-      case Right(v)   => fromValidated(v.copy(access = access))
+      case Right(v)   => Renderer(v.copy(access = access))
       case Left(errs) =>
         throw IllegalArgumentException(
           errs.mkString("invalid dashboard:\n", "\n", "")
         )
-
-  /** The production path: reuses the proof's compiled transforms. */
-  def fromValidated(v: Dashboard.Validated): Renderer =
-    new Renderer(
-      v.dashboard,
-      Templates.from(v.dashboard),
-      Transforms.fromValidated(v),
-      v.access,
-      v.queries
-    )
 
   /** [[Renderer.headHash]]. Not the `<base href>`, which is per request. Over
     * the model, not the JSON text: `toString` is deterministic, since the maps

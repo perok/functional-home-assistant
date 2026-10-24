@@ -15,9 +15,7 @@ import scala.util.Random
 class StateFlipIndexSuite extends munit.FunSuite {
 
   private def graphOf(d: Dashboard): SurfaceGraph =
-    Renderer
-      .fromValidated(d.validated().fold(e => fail(e.mkString("; ")), identity))
-      .surfaces
+    Renderer(d.validated().fold(e => fail(e.mkString("; ")), identity)).surfaces
 
   private def fixture(name: String): Dashboard = {
     val wire = os.read(
