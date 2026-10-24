@@ -1556,10 +1556,9 @@ class Renderer(validated: Dashboard.Validated) {
   private def planned(source: BoundSlot): Planned =
     Planned(source, source.celKey.map(programs))
 
-  /** One plan per node an id has shown, matched by identity: a member's id
-    * shows one node per clause, so a clause switch picks a plan rather than
-    * building one. Bounded because every node is built once (a member's in
-    * `MemberGraph`); a node built per paint would grow its list forever.
+  /** One plan per node an id shows, matched by identity: bounded only because
+    * every node is built once (a member's with the graph, see the pipeline
+    * doc), so a node built per paint would grow its list forever.
     */
   private val nodePlans =
     new java.util.concurrent.ConcurrentHashMap[String, List[NodePlan]]()

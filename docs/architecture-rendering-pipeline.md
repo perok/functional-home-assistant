@@ -861,7 +861,9 @@ What a reader pays for deriving: a member lookup evaluates that one candidate's 
 set only under a `limit`, where presence depends on neighbours), and a set render evaluates its
 candidates once. Every `Member` a candidate can be — one per clause — is built with the graph, so a
 lookup allocates nothing and picks an instance; without that, `resumeMembers` cost 15% more
-allocation than reading a shared index did.
+allocation than reading a shared index did. The renderer's node plans lean on the same fact: an id
+keeps one plan per node it shows, matched by identity, so a clause switch picks a plan rather than
+building one (`RenderBench.memberClauseFlip`), and the plans an id holds are bounded by its clauses.
 
 ---
 
@@ -953,8 +955,7 @@ because its value is not in the patch form and so cannot move these bytes (ADR 0
 
 Compile keeps one program per distinct CEL source and typed names (`Validated.transforms`). The
 renderer looks each slot's up once, when it plans the node (`Planned`), so a paint runs a program
-and looks nothing up. An id keeps a plan for each node it shows — a member's id shows one per
-clause — so a clause switch picks a plan instead of building one (`RenderBench.memberClauseFlip`).
+and looks nothing up.
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
