@@ -2033,10 +2033,9 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(c => scopedSlots(c.node, scope))
 
-  /** The CEL expressions to compile, each with the names it is typed against,
-    * for both [[validated]] and `Transforms.from`.
+  /** The CEL expressions to compile, each with the names it is typed against.
     */
-  def celKeys: List[Transform.CelKey] =
+  private def celKeys: List[Transform.CelKey] =
     ((slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList

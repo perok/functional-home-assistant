@@ -386,7 +386,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         card = "chart",
         slots = Map("chart" -> chartSource(w))
       )
-    def host(id: String) = LayoutNode.Component(card = "col", id = Some(id))
+    def host(id: String) = LayoutNode.Component(card = "host", id = Some(id))
     def baked(into: String, idx: Int, w: String, activation: Activation) =
       Surface(
         panel(w),
@@ -407,6 +407,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
           "col" -> CardDef(
             """<div>{{#children}}{{{html}}}{{/children}}</div>""",
             regions = Map("children" -> Region())
+          ),
+          "host" -> CardDef(
+            """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+            regions = Map("panel" -> Region(Region.Baked))
           )
         ),
         card = LayoutNode.Component(

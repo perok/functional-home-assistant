@@ -354,21 +354,23 @@ class RenderBench {
     // The production dispatch: Transforms pre-compiles every shape and
     // resolves the fast tier once, so [[simple]] measures exactly what the
     // renderer's warm path does per evaluation.
-    transforms = Transforms.from(
-      Dashboard(
-        cards ++ ProbeTransforms.zipWithIndex.map { case (_, i) =>
-          s"probe$i" -> CardDef(s"{{v}}", slots = List("v"))
-        },
-        LayoutNode.Component(
-          "col",
-          regions = LayoutNode.kids(
-            (tree(Leaves, 4, signals = true) :: ProbeTransforms.zipWithIndex
-              .map { case (t, i) =>
-                LayoutNode.Component(
-                  s"probe$i",
-                  Map("v" -> SlotSource(transform = t))
-                )
-              })*
+    transforms = Transforms.fromValidated(
+      valid(
+        Dashboard(
+          cards ++ ProbeTransforms.zipWithIndex.map { case (_, i) =>
+            s"probe$i" -> CardDef(s"{{v}}", slots = List("v"))
+          },
+          LayoutNode.Component(
+            "col",
+            regions = LayoutNode.kids(
+              (tree(Leaves, 4, signals = true) :: ProbeTransforms.zipWithIndex
+                .map { case (t, i) =>
+                  LayoutNode.Component(
+                    s"probe$i",
+                    Map("v" -> SlotSource(transform = t))
+                  )
+                })*
+            )
           )
         )
       )
@@ -1587,6 +1589,10 @@ class RenderBench {
 
 object RenderBench {
 
+  def valid(d: Dashboard): Dashboard.Validated =
+    d.validated()
+      .fold(e => sys.error(e.mkString("invalid:\n", "\n", "")), identity)
+
   /** One frame as the feed delivers it: the changes, and the states they leave
     * behind. Paired because a pass needs both and they must agree.
     */
@@ -1805,7 +1811,8 @@ object RenderBench {
   def flipDash(signals: Boolean = true): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        template =
+          """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),
       card = LayoutNode.Component(
@@ -1935,7 +1942,8 @@ object RenderBench {
     */
   def ifSetDash(leaves: Int, states: Map[String, EntityState]): Dashboard = {
     val withHost = cards + ("ifhost" -> CardDef(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      template =
+        """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))
     val bare = Dashboard(

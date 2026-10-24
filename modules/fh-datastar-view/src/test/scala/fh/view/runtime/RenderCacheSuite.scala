@@ -6,6 +6,7 @@ import cats.effect.unsafe.implicits.global
 import cats.syntax.parallel.*
 import cats.syntax.traverse.*
 import fh.view.model.{
+  CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
@@ -27,7 +28,9 @@ class RenderCacheSuite extends munit.FunSuite {
 
   /** Generations compare by identity, so only distinct instances matter. */
   private def aRenderer: Renderer =
-    Renderer.create(Dashboard(Map.empty, LayoutNode.Component("card")))
+    Renderer.create(
+      Dashboard(Map("card" -> CardDef("<i></i>")), LayoutNode.Component("card"))
+    )
 
   private val r = aRenderer
 

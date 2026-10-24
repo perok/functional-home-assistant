@@ -5,6 +5,7 @@ import fh.view.runtime.RendererTestOps.*
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -13,6 +14,7 @@ import fh.view.model.{
   Surface,
   Theme
 }
+import fh.view.testkit.DashboardBuilders.declared
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 import org.http4s.*
@@ -534,14 +536,22 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("openPopup adopts only a surface this dashboard can actually host") {
+    val base = titleDash("home", None)
     val r = Renderer.create(
-      titleDash("home", None).copy(
+      base.copy(
+        cards = base.cards + ("tabs" -> CardDef(
+          """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          regions = Map("panel" -> Region(Region.Baked))
+        )),
+        card = LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
         surfaces = Map(
           "det" -> Surface(LayoutNode.Component("col")),
           "panel" -> Surface(
             LayoutNode.Component("col"),
             bakeInto = Some("c"),
-            bakeAs = Some("panel")
+            bakeAs = Some("panel"),
+            bakeIndex = Some(0),
+            activation = Activation.Var("tab")
           )
         )
       )

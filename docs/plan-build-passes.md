@@ -74,11 +74,9 @@ list, sort and hash a valued slot pays. It is strictly more work, and this remov
 only producer of `Validated`. With lower in Pkl and bind on the node, there is no step left that
 has to run before the checks, so nothing runs one twice.
 
-`Renderer.create` (tests and benchmarks) stays an unchecked door: it compiles with
-`Transforms.from` and skips the checks. Spiked: routing it through `validated` fails 14 tests in 9
-suites, whose hand-built fixtures `validate` rejects (a card that is not registered, a chart slot
-whose `reads` is not `onRender`, a structural card with a live byte slot). Fixing those fixtures
-buys a test helper nothing a production path needs.
+`Renderer.create` (tests and benchmarks) goes through `validated` too, and throws on a dashboard
+the build refuses, so no test renders a dashboard production cannot have. `Transforms.from`, the
+compile that skipped the checks, is deleted.
 
 ## 4. Not changing
 
@@ -95,6 +93,12 @@ Edits to existing tests, each needing the maintainer's OK:
 - `FoldSuite` is deleted: what it tests is deleted.
 - `WireShapeSuite`: `values` leaves `Slot`'s Scala-only set; `Cell` checks `classes` only.
 - Snapshots regenerated: live entries move from `cell` into `slots`.
+- Fixtures `validate` refuses are made valid (14 tests in 9 suites, three bench fixtures): a card
+  registered, a baked region declared and selected, a chart slot read `onRender`, a signal slot's
+  bind placed. Three tests exercised a refused combination and change what they cover:
+  ChartSlotSuite's escaped chart hole is deleted (`QueryRenderInputsSuite` pins its build error);
+  SignalSlotSuite places `__read` only for `once`; RenderInputsSuite's bake owner reads its
+  entity as a signal.
 
 New: a Pkl test that a replaced `slots` dropping a live entry fails, and that a set refuses one.
 
@@ -109,7 +113,7 @@ New: a Pkl test that a replaced `slots` dropping a live entry fails, and that a 
 ## Done when
 
 - `validated` is the one function from a decoded `Dashboard` to `Validated`, and no pass runs
-  outside the build path (`Renderer.create`'s compile is the test door above).
+  outside the build path, tests and benchmarks included.
 - `SlotSource` has no `values` field, and `Cell` has no live entries.
 - The renderer builds no compile key per render.
 - The docs above describe the passes, and this plan is deleted.

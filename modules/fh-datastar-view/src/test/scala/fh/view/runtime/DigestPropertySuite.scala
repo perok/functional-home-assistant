@@ -44,11 +44,17 @@ class DigestPropertySuite extends HedgehogSuite {
   private def valueSlot(signal: Boolean): SlotSource =
     SlotSource(signal = if signal then Some(SignalBind.Text) else None)
 
-  private val cardTemplate = """<b data-t="{{v}}">{{v}}</b>"""
+  // A signal slot is placed by its bind; without one the value never updates.
+  private def card(signal: Boolean): CardDef =
+    CardDef(
+      if signal then """<b {{{v__bind}}} data-t="{{v}}">{{v}}</b>"""
+      else """<b data-t="{{v}}">{{v}}</b>""",
+      slots = List("v")
+    )
 
   private def dashboard(signal: Boolean): Dashboard =
     Dashboard(
-      Map("card" -> CardDef(cardTemplate, slots = List("v"))),
+      Map("card" -> card(signal)),
       LayoutNode.Component(
         "card",
         Map(
@@ -75,7 +81,7 @@ class DigestPropertySuite extends HedgehogSuite {
       )
     }.toMap
     Dashboard(
-      Map("card" -> CardDef(cardTemplate, slots = List("v"))),
+      Map("card" -> card(signal)),
       LayoutNode.SetNode(candidates = List("alpha", "beta"), members = members)
     )
   }

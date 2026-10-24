@@ -31,7 +31,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "ø 😀",
       "locks path with \"quotes\""
     )
-    val t = Transforms.from(
+    val t = transformsOf(
       dashboard("kitchen").copy(
         card = LayoutNode.Component(
           card = "c",
@@ -178,6 +178,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
       "+ \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""
 
+  private def transformsOf(d: Dashboard): Transforms =
+    d.validated().fold(e => fail(e.mkString("\n")), Transforms.fromValidated)
+
   private def dashboard(slug: String) =
     Dashboard(
       cards = Map(
@@ -221,8 +224,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
   test("a tap's URL carries the dashboard it was rendered for") {
     assertEquals(
-      Transforms
-        .from(dashboard("kitchen"))
+      transformsOf(dashboard("kitchen"))
         .run(Transform.CelKey(tapUrl), state, "kitchen"),
       "@post('sse/action/kitchen/light/toggle/light.kitchen', " +
         "{filterSignals:{exclude:'.*'}})"
@@ -261,7 +263,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       )
     )
     assertEquals(
-      Transforms.from(plain).run(Transform.CelKey("state"), state, "x"),
+      transformsOf(plain).run(Transform.CelKey("state"), state, "x"),
       "on"
     )
   }

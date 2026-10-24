@@ -1932,14 +1932,14 @@ object Renderer {
     override def writerHoles: Map[String, java.io.Writer => Unit] = holes
   }
 
-  /** Unvalidated, for tests and benchmarks. */
+  /** For tests and benchmarks: a dashboard the build would refuse throws. */
   def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
-    new Renderer(
-      dashboard,
-      Templates.from(dashboard),
-      Transforms.from(dashboard),
-      access
-    )
+    dashboard.validated() match
+      case Right(v)   => fromValidated(v.copy(access = access))
+      case Left(errs) =>
+        throw IllegalArgumentException(
+          errs.mkString("invalid dashboard:\n", "\n", "")
+        )
 
   /** The production path: reuses the proof's compiled transforms. */
   def fromValidated(v: Dashboard.Validated): Renderer =

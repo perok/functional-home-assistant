@@ -20,6 +20,7 @@ import fh.view.model.{
   Transform
 }
 import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
+import fh.view.testkit.DashboardBuilders.declared
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -196,7 +197,13 @@ object QueryBench {
           List.tabulate(4)(i =>
             chart(s"sensor.main_$i", Option.when(i == 0)("chart0"))
           ) ++
-          List(LayoutNode.Component("host", id = Some("tabs"))))*
+          List(
+            LayoutNode.Component(
+              "host",
+              id = Some("tabs"),
+              vars = declared("tab" -> "0")
+            )
+          ))*
       )
     ),
     surfaces = Map(
@@ -209,7 +216,7 @@ object QueryBench {
         bakeInto = Some(NodeId.derived("tabs")),
         bakeAs = Some("panel"),
         bakeIndex = Some(0),
-        activation = Activation.User(true)
+        activation = Activation.Var("tab")
       )
     )
   )
