@@ -80,3 +80,28 @@ On a 200-node page that is 8 to 14 KiB per open browser. Speed doesn't change: c
 
 **Worth asking again if** the per-session figure above starts to matter, for the same reasons as
 the previous entry. The `case class` variant is the one to try first.
+
+## One lookup map per plan for a template's names
+
+2026-10-24, on #620. **Not worth doing.**
+
+**Question.** A template hole is looked up through up to six maps in turn
+(`NodeContext.fhGet`: bindings, live bindings, paint, constants, bake, structural), and
+async-profiler put `String.equals` at 8% of `RenderBench.tickRender`'s own time. Would merging the
+layers a paint cannot change (structural, constants, bindings) into one `java.util.HashMap` on the
+`NodePlan`, built once, cut that?
+
+**How.** That change, the suite green, then `-f 2 -wi 4 -i 5 -prof gc` before and after.
+
+| µs/op | before | after |
+|---|---|---|
+| `page` | 612 ± 59 | 612 ± 44 |
+| `pageSignals` | 799 ± 52 | 827 ± 62 |
+| `tickRender` | 33.3 ± 2.9 | 33.6 ± 2.3 |
+| `mustache` | 110 ± 8 | 117 ± 14 |
+
+Allocation was unchanged (66.5 kB per `tickRender`). The maps are small enough that the layered
+lookup costs about what one hash lookup does; the `String.equals` time is spent elsewhere.
+
+**Worth asking again if** a profile attributes the time to `fhGet` itself, not to the template
+around it.
