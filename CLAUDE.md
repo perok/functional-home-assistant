@@ -336,9 +336,11 @@ as standing review criteria, not a one-time cleanup that's now "done".
   `fh.view.build.SystemPkl` (module/packageArtifact/packagesIndex) for the shape.
 - **Parse, don't validate.** Prefer producing a value that makes an illegal state
   unrepresentable over re-validating the same precondition at every consumer. `Dashboard.Validated`
-  (produced only by `Dashboard.validated`, carrying already-compiled CEL transforms) is the
-  model: `Renderer` takes the validated type instead of re-checking and throwing
-  "validate should have rejected this". Look for the same smell elsewhere: a `None`/`Left` that
+  (produced only by `Dashboard.validated`, its constructor private, carrying already-compiled CEL
+  transforms) is the model: `Renderer` takes the validated type instead of re-checking and
+  throwing "validate should have rejected this". Tests and benchmarks reach it the same way
+  (`Renderer.create` validates and throws), so no fixture renders a dashboard the build refuses:
+  a test of a refused shape proves behaviour production cannot reach. Look for the same smell elsewhere: a `None`/`Left` that
   really means "this workspace/value is unusable" and gets re-derived or re-thrown-defensively at
   multiple call sites instead of being parsed once at the boundary into a type that carries the
   proof. A rule about ONE value belongs in its type and fails at decode (an iron refinement:
