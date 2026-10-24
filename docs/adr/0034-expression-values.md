@@ -165,7 +165,9 @@ alone sends nothing, because the frame is diffed against what each session holds
 - Values are node-local, so a STRUCTURAL card puts a condition's value on the child node whose slot
   reads it — the slider's `disabled` declares `__disabled` on its head. An author's values go on
   the card, and the card hands each part the ones that part's slots name (`nodes.valuesNamedIn`):
-  a slider's second line reads them on its text node, its readout on its head.
+  a slider's second line reads them on its text node, its readout on its head. It matches names
+  with a regex, since Pkl cannot run the CEL parser; a wrong match is caught by the build, which
+  binds by the parsed identifiers and refuses a value no expression reads.
 - Not built, and why: a `names` value (the present members' names — a list, so a second CEL type
   and an order to decide); a `Simple` shape over values (a percent of two counts needs its own
   totality rule for `total = 0`); a `"number"` slot type (needs a numeric signal value); a
