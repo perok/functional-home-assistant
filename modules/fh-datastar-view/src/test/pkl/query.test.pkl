@@ -692,7 +692,6 @@ facts {
     local b: hass.SceneEntity = new { entity_id = "scene.b" }
     local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
     local p = c.pill(c.tap.activate(a)).label("A").active(latest.eq(a))
-    p.derivedValues["__active"] == latest.eq(a)
-    p.liveClasses.containsKey("fh-active")
+    p.liveClasses["fh-active"].transform == latest.eq(a)
   }
 }

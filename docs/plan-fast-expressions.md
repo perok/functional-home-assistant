@@ -1,7 +1,8 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Not started.** The work lands in three PRs, in stack order:
+**Part 1 is built on this PR; 2 and 3 are not started.** The work lands in three PRs, in stack
+order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not
    write.
@@ -41,7 +42,10 @@ and the signal path. It also finds the gating entity in two places (`Component.g
 - **One decoder.** A `transform` is a string (CEL), an object with `stage` (a fetch stage), or an
   object with `kind`. `Op`/`Match` decode as today; the predicate kinds decode as `Predicate`.
 - **One interpreter.** `Transform.runSimpleValue(s, subject, states)`. `Conditions.matchesIn` is
-  its bool half, and a predicate shape returns a real `Boolean`.
+  its bool half, and a predicate shape returns a real `Boolean`. Measured: a condition filling a
+  slot, 200 times, costs 9.5 µs and 14.4 kB decided directly, against 22.6 µs and 78.4 kB through
+  the CEL bridge (`RenderBench.condition` vs `conditionCel`). `simple` and `page` allocate 2.3% and
+  0.7% less than before.
 - **One key.** `Simple.key` covers the predicate shapes, reusing the canonical form `ExprValue.key`
   gives a condition today. A key cannot collide with a CEL source, because no key is valid CEL.
 - **Every read may name an entity**, defaulting to the slot's: each value shape gains
@@ -49,11 +53,13 @@ and the signal path. It also finds the gating entity in two places (`Component.g
   wakes the slot) and `referencedEntities` (so ADR 0023's bound covers it). A named entity the
   store does not hold renders the shape's absent form, as a `Cmp` on it is already `false`.
 - **A condition in a slot reads the slot's entity** when it names none. The "free subject"
-  refusal stays where there is no subject (a state activation, a value shared by content).
+  refusal stays where there is no subject (a state activation, a value shared by content, a slot
+  with no entity). A `once` slot that names another entity is refused, as one reading a live
+  value is.
 - **Types:** a predicate shape is a bool, so it fills a bool slot. On a text slot it renders
   `true`/`false`, as a bool CEL result does.
-- **`Match` reads any property**, not only `state`: it takes the `Cmp` read (`property`, plus an
-  optional `entity`). That is what `c.select`'s labels need.
+- **`Match` reads any property**, not only `state`: it takes the `Cmp` read (`property`, null
+  meaning the state, plus an optional `entity`). That is what `c.select`'s labels need.
 
 ### No CEL the author did not write
 
@@ -141,7 +147,7 @@ Merged onto this PR's branch first (merge, not rebase).
 ## Open questions
 
 - **Q32.** `c.select`'s `chosen` shows a value outside the options as itself, so a `Match`'s
-  `otherwise` there is "the property read", not a constant. Recommended: `otherwise` becomes
-  optional, and absent means the read itself. That still degrades on a state HA adds, which is
+  `otherwise` there is "the property read", not a constant. Recommended, and built that way
+  pending a yes: `otherwise` becomes optional, and absent means the read itself. That still degrades on a state HA adds, which is
   why ADR 0028 made it required, and it is not "the cases are exhaustive", which it rejected. The
   alternative is to leave `chosen` as CEL.

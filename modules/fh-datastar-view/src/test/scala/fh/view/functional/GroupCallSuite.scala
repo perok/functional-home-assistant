@@ -108,7 +108,8 @@ class GroupCallSuite extends FunctionalSuite {
       "name" -> lit("Door"),
       "state" -> SlotSource(Some(HouseFixture.frontLock.entityId)),
       "service" -> SlotSource(transform =
-        Transform.Simple.Match(Map("locked" -> "lock/unlock"), "lock/lock")
+        Transform.Simple
+          .Match(Map("locked" -> "lock/unlock"), Some("lock/lock"))
       ),
       "targetKind" -> lit("entity"),
       "targetId" -> lit(HouseFixture.frontLock.entityId)

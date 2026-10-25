@@ -1974,7 +1974,8 @@ class Renderer(validated: Dashboard.Validated) {
           )
         case None =>
           source.transform match {
-            case sm: Transform.Simple => Transform.runSimpleValue(sm, st)
+            case sm: Transform.Simple =>
+              Transform.runSimpleValue(sm, st, states)
             // Rejected by `validate`; the raw state keeps a bypass readable.
             case _ => st.state
           }

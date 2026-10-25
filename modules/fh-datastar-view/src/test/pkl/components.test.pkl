@@ -762,7 +762,7 @@ facts {
     local fillMatch: simpleMod.SimpleMatch = row.headSlots["fill"].transform!!
     fillMatch.cases.toMap() == Map("on", "0%")
     fillMatch.otherwise == "100%"
-    row.headSlots["fillColor"].default == "var(--fh-default-color)"
+    row.headSlots["fillColor"] == "var(--fh-default-color)"
     // ...and the token is one the contract actually defines. A `var()` naming
     // nothing paints TRANSPARENT, and only a browser would ever say so.
     cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")

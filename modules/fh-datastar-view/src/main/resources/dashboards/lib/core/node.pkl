@@ -19,12 +19,9 @@ typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predi
 /// `Boolean`, so a room with no lights needs no live slot.
 typealias BooleanInput = Boolean|slotMod.Slot|slotMod.Expr|predMod.Predicate
 
-/// The slot a live [[BooleanInput]] fills. A condition is read through the
-/// value `name`, which the caller declares in [[Node.derivedValues]].
-const function booleanSlot(
-  input: slotMod.Slot|slotMod.Expr|predMod.Predicate,
-  name: String
-): slotMod.Slot =
+/// The slot a live [[BooleanInput]] fills. A condition is its transform,
+/// decided on the fast path.
+const function booleanSlot(input: slotMod.Slot|slotMod.Expr|predMod.Predicate): slotMod.Slot =
   if (input is slotMod.Slot) (input) { type = "bool" }
   else if (input is slotMod.Expr)
     new slotMod.Slot {
@@ -33,16 +30,15 @@ const function booleanSlot(
       bypassUnavailable = false
       type = "bool"
     }
-  else new slotMod.Slot { transform = name; bypassUnavailable = false; type = "bool" }
+  else new slotMod.Slot { transform = input; bypassUnavailable = false; type = "bool" }
 
 /// A card's own `disabled`, as the slot `tapMod.refused` ORs in: nothing for
-/// `false`, a literal for `true`, else a handler. A card whose input is a
-/// condition also declares `["__disabled"]` in its [[Node.derivedValues]].
+/// `false`, a literal for `true`, else a handler.
 const function disabledSlot(d: BooleanInput?): (slotMod.Slot|String)? =
   if (d == null || d == false) null
   else if (d == true) "1"
   else
-    (booleanSlot(d as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__disabled")) {
+    (booleanSlot(d as slotMod.Slot|slotMod.Expr|predMod.Predicate)) {
       signal = slotMod.asHandler
     }
 
@@ -106,13 +102,7 @@ abstract class LayoutNode {
     let (self = this)
       if (`when` is Boolean) (if (`when`) self.addCellClass(cls) else self)
       else if (!(self is Node)) throw("classWhen: a live class is a slot, which only a card node has — put it on the clause's node")
-      else if (`when` is predMod.Predicate)
-        let (name = "__class_" + cls.md5.take(12))
-          (self) {
-            derivedValues { [name] = `when` }
-            liveClasses { [cls] = (booleanSlot(`when`, name)) { signal = slotMod.asClass(cls) } }
-          }
-      else (self) { liveClasses { [cls] = (booleanSlot(`when`, "")) { signal = slotMod.asClass(cls) } } }
+      else (self) { liveClasses { [cls] = (booleanSlot(`when`)) { signal = slotMod.asClass(cls) } } }
   /// A custom property on the wrapper, set from a reading and kept live, for
   /// the card's CSS to read by inheritance:
   ///
@@ -216,14 +206,9 @@ abstract class Node extends LayoutNode {
   ///       ["lights_total"] = lights.length
   ///     }
   ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
-  hidden expressionValues: Mapping<String(!startsWith("__")), ExpressionValue> = new {}
-  /// The values boolean inputs declare (`__active`, `__disabled`, `__class_…`),
-  /// apart from [[expressionValues]] so an author assigning those cannot drop
-  /// them.
-  hidden derivedValues: Mapping<String, ExpressionValue> = new {}
+  hidden expressionValues: Mapping<String, ExpressionValue> = new {}
   values: Mapping<String, ExpressionValue>? =
-    if (expressionValues.isEmpty && derivedValues.isEmpty) null
-    else new Mapping { ...expressionValues; ...derivedValues }
+    if (expressionValues.isEmpty) null else expressionValues
   // Lifted into the top-level `surfaces` by the build's hoist, keyed
   // `<node-id>_<localKey>`, with the node's id spliced into every [[NODE_ID]].
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
@@ -263,13 +248,10 @@ abstract class ActiveNode extends Node {
   }
   liveClasses {
     when (!(active is Boolean)) {
-      ["fh-active"] = (booleanSlot(active as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__active")) {
+      ["fh-active"] = (booleanSlot(active as slotMod.Slot|slotMod.Expr|predMod.Predicate)) {
         signal = slotMod.asClass("fh-active")
       }
     }
-  }
-  derivedValues {
-    when (active is predMod.Predicate) { ["__active"] = active }
   }
 }
 
