@@ -42,6 +42,11 @@ class AddonBootstrapSuite extends munit.FunSuite {
     // No lib/: the littering the package form exists to remove.
     assert(!os.exists(box.ws / "lib"), clue = os.list(box.ws))
     assert(os.exists(box.ws / "site.pkl"))
+    // The starter site imports it.
+    assertEquals(
+      os.read(box.ws / AddonBootstrap.ComponentsFile),
+      AddonBootstrap.starterComponents
+    )
 
     // The user's PklProject amends the machine-owned .fh/base.pkl, with no pin
     // of its own.
@@ -216,6 +221,27 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
     assertEquals(os.read(box.ws / "PklProject"), customized)
     assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
+  }
+
+  test(
+    "the user's components.pkl is never rewritten, and an older workspace gets one"
+  ) {
+    val (box, _) = boot()
+    val mine = "amends \"@fh-dashboard/components.pkl\"\n// mine\n"
+    os.write.over(box.ws / AddonBootstrap.ComponentsFile, mine)
+    val _ = AddonBootstrap.run(box.ws, bundled, box.cache)
+    assertEquals(os.read(box.ws / AddonBootstrap.ComponentsFile), mine)
+
+    // A workspace from before the file existed: its site stays as it was.
+    val site = os.read(box.ws / Site.EntryFile)
+    val _ = os.remove(box.ws / AddonBootstrap.ComponentsFile)
+    val log = AddonBootstrap.run(box.ws, bundled, box.cache)
+    assertEquals(
+      os.read(box.ws / AddonBootstrap.ComponentsFile),
+      AddonBootstrap.starterComponents
+    )
+    assertEquals(os.read(box.ws / Site.EntryFile), site)
+    assert(log.exists(_.contains(AddonBootstrap.ComponentsFile)), clue = log)
   }
 
   test("second boot is quiet: no new backups, no re-seeding, cache untouched") {

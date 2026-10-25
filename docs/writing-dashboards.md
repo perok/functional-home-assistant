@@ -8,8 +8,9 @@ Your dashboards live in one folder. With the add-on that is
 
 ```
 fh-dashboards/
-  site.pkl     # every dashboard you serve: edit me
-  PklProject   # binds the @fh-dashboard and @fh-home names your files import
+  site.pkl        # every dashboard you serve: edit me
+  components.pkl  # the cards your files import as `c`, with your defaults
+  PklProject      # binds the @fh-dashboard and @fh-home names your files import
   .fh/         # written by the server on every start: don't edit
 ```
 
@@ -41,6 +42,33 @@ brings the new one without touching your files.
   recovers the moment you fix it; the others keep serving. If `site.pkl`
   itself will not evaluate, every dashboard shows that error — the file no
   longer says what they are — and one fix restores them all.
+
+## Your components
+
+Every file imports the cards as `c`:
+
+```pkl
+import "components.pkl" as c
+```
+
+`components.pkl` is yours: the library's cards with your `defaults`, which every
+card starts from. Set one there and it applies to every dashboard that imports
+the file:
+
+```pkl
+amends "@fh-dashboard/components.pkl"
+
+defaults {
+  light { opensOn = List("colourTemp", "colour") }
+}
+```
+
+Completion inside `defaults { }` lists what you can set. One card still
+overrides a default with its own builder, e.g. `.opensOn(List())`.
+
+`import "@fh-dashboard/components.pkl" as c` works too, and gets the library's
+defaults instead of yours. A workspace from before `components.pkl` existed
+gets the file on its next start; nothing changes until you import it.
 
 ## Your entities
 
@@ -162,7 +190,9 @@ Each is a *variable*:
   `c.entitySlider`, which switches between brightness, colour temperature and
   colour as far as the light has them. It opens on brightness;
   `c.entitySlider(l).opensOn(List(l.colourTemp, l.colour))` opens on the one
-  the light is in.
+  the light is in. To make every slider do that, set it once in your
+  `components.pkl`: `defaults { light { opensOn = List("colourTemp", "colour") } }`.
+  `.opensOn(List())` puts one slider back on brightness.
 - **A chooser** is a bar of buttons over the cards beneath it. Two come
   ready-made, each with the cards that follow it:
 

@@ -26,10 +26,14 @@
 // generated dump. The sibling `PklProject` (seeded at first boot, then yours)
 // holds the @fh-dashboard pin; the machine's own wiring lives in
 // `.fh/base.pkl`, machine-managed.
+//
+// `c` is the sibling `components.pkl` (seeded beside this file, then yours): the
+// library's components with YOUR defaults, set once there for every dashboard
+// file that imports it.
 
 amends "@fh-dashboard/site.pkl"
 
-import "@fh-dashboard/components.pkl" as c
+import "components.pkl" as c
 import "@fh-dashboard/query.pkl" as q
 import "@fh-home/dump.pkl" as dump
 

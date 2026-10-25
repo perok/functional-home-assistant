@@ -143,6 +143,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/entry.pkl` | ONE dashboard — a `dashboards` value `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
 | `resources/dashboards/site_default.pkl` | The seeded starter SITE — what a fresh workspace's `site.pkl` is ([[AddonBootstrap.starterSite]], read off the jar's own resources) |
+| `resources/dashboards/components_default.pkl` | The seeded workspace `components.pkl` ([[AddonBootstrap.starterComponents]]): amends the facade and sets the user's `defaults` (`lib/components/defaults.pkl`). Every workspace file imports it as `c`. **Adding a default — read ADR 0015's "Your components" first**: a card carries the whole object and the facade and recipes hand it over, so a facade-only default would miss the library's own sections |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
 | `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
@@ -352,7 +353,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   lacks one: the head's, or `c.controlChooser`'s over the sliders beneath it (`itsMod.controlSelect`
   spells that switch and the slider's own). A slider a candidate set renders per member
   declares `control` for that member alone (ADR 0033). It OPENS on
-  brightness; `.opensOn(List(l.colour, l.colourTemp))` opens on the head for the mode the light is
+  brightness unless the workspace's `defaults.light.opensOn` says otherwise (ADR 0015); `.opensOn(List(l.colour, l.colourTemp))` opens on the head for the mode the light is
   in, tried in that order, a start read once as the page opens (ADR 0033) and never followed. Each control is a `hass.Axis` (`l.brightness`, `l.colourTemp`, `l.colour`;
   `l.axes`), which carries what the slider drives, so the card holds no light branches (ADR 0013). `c.its.mainControl.options(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars { v.defaultingTo(x) }`, a `varMod.Declaration` holding the `Variable`) and a descendant reads it
@@ -469,6 +470,9 @@ gotchas"):
 - Required (no-default) class properties are **lazy**: a missing value errors only when
   forced, and the trace points at the class definition, not the author's dashboard line.
 - `and` / `or` / `not` are legal method names (the operators are `&&`/`||`/`!`).
+- **Nested code cannot see an inherited module property**: a name the file only gets from the
+  module it amends resolves at the top level and fails inside `{ … }` ("Cannot find property"),
+  and pkl-lsp shows nothing. By design (apple/pkl#909). Import it, or use `module.x`.
 - Function-valued properties on a *rendered* module cannot be exported — mark them `hidden`.
 - `Mapping` preserves insertion order; structurally-equal duplicate keys are a build error.
 - `|>` binds looser than call/amend; `Mixin<T>` values and Mixin-returning methods chain

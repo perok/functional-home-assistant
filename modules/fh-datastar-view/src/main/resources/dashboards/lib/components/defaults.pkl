@@ -1,0 +1,32 @@
+/// What the components start from. A workspace sets its own once, in the
+/// `components.pkl` every dashboard file imports as `c`:
+///
+///     amends "@fh-dashboard/components.pkl"
+///
+///     defaults {
+///       light { opensOn = List("colourTemp", "colour") }
+///     }
+///
+/// One group per card family, each default named after the builder that
+/// overrides it on one card: `defaults.light.opensOn` is `.opensOn(…)`'s. A
+/// default takes names, not values about one entity, since it applies to
+/// every entity.
+///
+/// A card that reads a default carries the whole object, so it can hand it to
+/// what it builds itself; the facade's functions and the recipes hand it over
+/// (ADR 0015). Imports nothing from the card modules, which import it.
+module components.defaults
+
+import "../hass.pkl"
+
+class Defaults {
+  /// A light's slider.
+  light: Light = new {}
+}
+
+class Light {
+  /// The main controls a light's slider opens on, tried in order as the page
+  /// opens: the first the light is in then wins, else brightness. Empty opens
+  /// on brightness. `.opensOn(…)` overrides it on one slider.
+  opensOn: List<hass.LightControl> = List()
+}

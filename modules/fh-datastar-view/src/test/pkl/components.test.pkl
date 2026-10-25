@@ -7,6 +7,7 @@
 amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
+import "workspace-components.pkl" as ws
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/badge.pkl" as badgeMod
@@ -70,6 +71,7 @@ local plainLock: hass.LockEntity = new { entity_id = "lock.plain" }
 local doorbell: hass.GenericEntity = new { entity_id = "button.doorbell"; domain = "button" }
 local class StueArea extends hass.Area { area_id = "stue"; area_name = "Stue" }
 local stue = new StueArea {}
+local class GroundFloor extends hass.Floor { floor_id = "ground"; floor_name = "Ground" }
 
 // Icon fixtures, shaped as PklDump generates them: a capability attribute lives
 // on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
@@ -1596,6 +1598,32 @@ facts {
     startOf.apply(c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))) == null
     // The declared value stays the first control: what a refused start keeps.
     defaults.apply(c.entitySlider(lamp)) == Map("control", "brightness")
+  }
+
+  ["defaults.light.opensOn reaches every slider the workspace's c builds, and one card overrides it"] {
+    local lamp: hass.LightEntity = new {
+      entity_id = "light.lamp"
+      colourModes { "color_temp"; "hs" }
+      colourTemp = new hass.ColourTemp { owner = lamp; min_kelvin = 2000; max_kelvin = 6500 }
+      colour = new hass.Colour { owner = lamp }
+    }
+    local floor = new GroundFloor { areas = List(new StueArea { allWithHidden = List(lamp) }) }
+    local opensOnMode = (s: c.EntitySlider) ->
+      s.vars.toList().findOrNull((d) -> d.name == "control")?.initialTransform?.transform?.startsWith("(attr[?'color_mode'].orValue('') in ['color_temp']") ?? false
+    local recipeSlider = (r: c.Column) -> (r.children[0] as c.Column).children[1] as c.EntitySlider
+    // Every way the workspace's `c` builds one.
+    opensOnMode.apply(ws.entitySlider(lamp))
+    opensOnMode.apply(((ws.column) { children { ws.entitySlider(lamp) } }).children[0] as c.EntitySlider)
+    opensOnMode.apply(ws.entitySlider.apply(lamp))
+    opensOnMode.apply(recipeSlider.apply(ws.recipes.floorView(floor)))
+    // One card overrides it, by builder or amend.
+    !opensOnMode.apply(ws.entitySlider(lamp).opensOn(List()))
+    !opensOnMode.apply((ws.entitySlider(lamp)) { opensOnAxes = List() })
+    // The library's own defaults, wherever the workspace's are not handed over.
+    !opensOnMode.apply(c.entitySlider(lamp))
+    !opensOnMode.apply(recipeSlider.apply(c.recipes.floorView(floor)))
+    !opensOnMode.apply(new c.EntitySlider { on = lamp })
+    opensOnMode.apply(new c.EntitySlider { on = lamp; defaults = ws.defaults })
   }
 
   ["a hue slider's marker is painted in the hue it marks"] {

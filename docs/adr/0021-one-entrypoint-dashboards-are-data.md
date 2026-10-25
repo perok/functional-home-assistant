@@ -27,7 +27,7 @@ It amends the new `@fh-dashboard/site.pkl`:
 
 ```pkl
 amends "@fh-dashboard/site.pkl"
-import "@fh-dashboard/components.pkl" as c
+import "components.pkl" as c   // the workspace's components, with its defaults
 
 default = "home"
 
@@ -49,7 +49,11 @@ before the design was settled; the second needs the CALL form, `import("x.pkl")`
 since the declaration form does not parse in a value position.
 
 The three costs above are paid at once. Site-wide settings have a home (`default`
-and the `access` rule of ADR 0023). Membership is ordinary data that the reload
+and the `access` rule of ADR 0023). What every CARD starts from is not one of
+them: that is the workspace's `components.pkl`, its `defaults`, which the site
+and every dashboard file import as `c` (ADR 0015). Held on `site.pkl` instead, a
+dashboard file would have to import `site.pkl` back, and nested code there
+cannot see an inherited property (ADR 0006's gotchas). Membership is ordinary data that the reload
 re-reads.
 And an ordinary module beside the entrypoint is just a module.
 

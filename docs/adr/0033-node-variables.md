@@ -68,7 +68,9 @@ reader takes (`Renderer.refusals`) becomes `SessionState.initialValues`, under t
 choices and over the default. A light's slider
 opens its `control` on brightness, and with `.opensOn(…)` on the head for the mode the light is in
 (`.opensOn(List(l.colourTemp, l.colour))`: the first listed axis the light is on wins, and
-brightness is always in use, so nothing after it is tried). It names its
+brightness is always in use, so nothing after it is tried). A workspace sets that order for every
+slider at once with `defaults.light.opensOn` (control names, ADR 0015), and `.opensOn(…)`
+overrides it on one. It names its
 entity rather than reading the declarer's subject, because a slider's declaring node has none (its
 head does). A result no reader takes (the light unavailable, no mode yet) is dropped, and the
 declared value stands, as for a stale link. It is read **once**: an open page never

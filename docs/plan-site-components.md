@@ -150,16 +150,22 @@ Tested on a copy of main's library, with workspace files importing it by path:
   It doesn't complete class names after `new c.`, but neither does today's
   direct import.
 
-## To prove here, in the package form a real workspace uses
+## In the package form a real workspace uses
 
-- The server rebuilds on a `components.pkl` edit and repaints every dashboard.
-  It is in each build's imports, so the watcher and `SiteEvalCache` should
-  pick it up already.
-- pkl-lsp over a bootstrapped workspace, with `@fh-dashboard` as a package:
-  the same checks as above.
-- `fh push` of a dashboard file that imports `components.pkl`
-  (`scripts/fh.test.scala`).
-- The `/edit` editor opens and saves `components.pkl`.
+- Shown (`WorkspaceComponentsSuite`): the site and a dashboard file both get
+  the workspace's defaults, `components.pkl` is in the build's imports, and an
+  edit to it repaints a dashboard in its own file. No server change was needed.
+- `fh push --write` sends an entry's local imports, found by the same
+  `Analyzer.importGraph` call the server uses, so `components.pkl` travels with
+  a dashboard that imports it. No script change, and no new script test: the
+  existing `writeSet` tests stub the analysis, which needs the instance's
+  packages.
+- The `/edit` editor accepts any `<name>.pkl`, `components.pkl` included.
+- Not shown: pkl-lsp over a package-form workspace. pkl-lsp loads a project's
+  packages by running the `pkl` CLI, which is not installed in this
+  environment, so every `@fh-dashboard` import there reads "Cannot resolve
+  import", the starter `site.pkl` included. The checks above ran on a copy of
+  the library imported by path.
 
 ## Changes
 
@@ -210,4 +216,3 @@ Tested on a copy of main's library, with workspace files importing it by path:
   are among the imports.
 - A server suite: editing `components.pkl` repaints a dashboard defined in
   another file.
-- `scripts/fh.test.scala`: pushing such a file.

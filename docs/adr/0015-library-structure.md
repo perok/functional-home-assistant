@@ -33,7 +33,8 @@ core/       node · slot · icon · tap · surface · predicate · — writing a
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
-            light · lock · moreinfo · history · bar · progress · tap
+            light · lock · moreinfo · history · bar · progress · tap ·
+            defaults
   components/base/  button · onoff · tile · bar · slider ·   — the same, knowing no HA
                     text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
@@ -137,7 +138,8 @@ having gone looking for the library.
 ### Grouped where grouping reads better
 
 `c.tap.*` (what a click does in HA), `c.view.*` (what a click only shows),
-`c.its.*` (below), `c.light.*` (a domain's controls), `c.recipes.*`.
+`c.its.*` (below), `c.light.*` (a domain's controls), `c.recipes.*`, and
+`c.defaults` (below).
 The everyday cards stay flat — `c.entityCard`, `c.entitySlider`, `c.button` — because
 those are the names an author wants first, and a namespace in front of them buys
 nothing. `c.light` is the shape the next modelled domain follows (`c.cover.*`),
@@ -193,6 +195,63 @@ the card that knows it fills it.
 to accept `nodes.SubjectButton`, and in its HA subclass map each `ItsButton`
 through `resolve(new Holder { entity = … })` before the base sees it, as
 `EntitySlider.shownButtons` does. The items come for free.
+
+### Your components: the workspace's `components.pkl` and `defaults`
+
+A dashboard author reaches the facade through their own workspace's
+`components.pkl` (seeded once, then theirs: ADR 0010), which amends the library's
+and sets `defaults`. Every file imports that one:
+
+```pkl
+// components.pkl
+amends "@fh-dashboard/components.pkl"
+
+defaults {
+  light { opensOn = List("colourTemp", "colour") }
+}
+
+// site.pkl, kitchen.pkl, …
+import "components.pkl" as c
+```
+
+Importing `@fh-dashboard/components.pkl` directly still works and gets the
+library's defaults. Neither the library nor the dump can import the workspace,
+and Pkl has no implicit context, so a value every card must see reaches a card
+only by late binding on the module the workspace amends, then by being handed
+over. The rules every default follows:
+
+- **One class, grouped by card family.** `components/defaults.pkl` declares
+  `Defaults` with a group per family (`light: Light`), each default named after
+  the builder it feeds: `defaults.light.opensOn` is `.opensOn(…)`'s. It imports
+  no card module, so they all can import it. A default takes names, never values
+  about one entity, since it applies to every entity.
+- **A card that reads a default carries the whole object** (`hidden defaults:
+  Defaults = new {}`) and works its property out from it, next to the builder
+  that overrides it. Carrying the whole object lets it hand the object to what
+  it builds itself.
+- **The facade and the recipes hand it over.** The facade's function for such a
+  card sets `defaults` from the facade's own `hidden defaults`, which is what
+  the workspace amends; the constructor-as-value calls that function. `c.recipes`
+  is an instance of `Recipes` given `defaults = module.defaults`, for the cards
+  a recipe builds.
+- **One card overrides it** with its builder or an amend, which come after.
+- **What sees only the library's:** the library import, a family module called
+  directly, and `new c.EntitySlider { … }` (`defaults = c.defaults` passes them).
+
+Shapes not taken:
+
+- **The components as a property of `site.pkl`** (`site.c`): nested code cannot
+  see an inherited property and pkl-lsp does not flag it (ADR 0006's gotchas;
+  `docs/experiments.md`). An import is in scope at every depth.
+- **One facade property per default, applied by the facade's function:** it
+  reaches only cards built through `c.`, since the library's own sections call
+  the family modules directly, and it puts a default's logic away from its
+  builder.
+- **Replacing a facade function from the workspace file:** amends cannot
+  redefine a method ("Method needs a `local` modifier"), and `extends` breaks
+  completion (below).
+- **Passing defaults down the card tree** from the site: it would reach `new`
+  too, but every container kind would have to pass them on.
 
 ## What the editor forced
 

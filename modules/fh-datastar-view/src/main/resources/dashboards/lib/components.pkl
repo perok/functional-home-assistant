@@ -1,4 +1,6 @@
-/// The shipped components — what a dashboard entry imports as `c`.
+/// The shipped components. A workspace's own `components.pkl` amends this
+/// module with its [[defaults]], and every dashboard file imports that one as
+/// `c`; importing this one directly gets the library's defaults.
 ///
 /// A facade: every card lives in a family module beside it
 /// (`components/entity.pkl`, …), which is also importable directly. The
@@ -46,6 +48,7 @@ import "components/select.pkl" as selectMod
 import "components/wheel.pkl" as wheelMod
 import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
+import "components/defaults.pkl" as defaultsMod
 
 // ---- namespaces ----
 
@@ -83,7 +86,14 @@ hidden lock: lockMod = lockMod
 hidden bar: barMod = barMod
 
 /// Whole sections: `c.recipes.floorView(floor)`.
-hidden recipes: recipesMod = recipesMod
+hidden recipes: recipesMod.Recipes = new { defaults = module.defaults }
+
+/// What the cards start from. A workspace's own `components.pkl` amends this
+/// module and sets them, and every dashboard file imports that one as `c`:
+/// `defaults { light { opensOn = List("colourTemp", "colour") } }`. One card
+/// still overrides a default with its builder. Importing this module directly
+/// gets the library's.
+hidden defaults: defaultsMod.Defaults = new {}
 
 /// Who may see a dashboard: `c.access.admin`, `c.access.public`,
 /// `c.access.users(List(dump.users.peri))`. On an entry's `access`, or on
@@ -169,7 +179,8 @@ function entityButton(e: hass.Entity): control.EntityButton = control.entityButt
 function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// An entity for its domain's default axis, or a capability group for that
 /// axis: `c.entitySlider(l.colourTemp)`.
-function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
+function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider =
+  let (d = defaults) (sliderMod.entitySlider(a)) { defaults = d }
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
 /// bar where it also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
@@ -221,7 +232,8 @@ function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(
 
 hidden entityCard: (hass.Entity) -> entityMod.EntityCard = entityMod.entityCard
 hidden toggle: (hass.Entity) -> control.Toggle = control.toggle
-hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = sliderMod.entitySlider
+// Through the method, which hands over `defaults`.
+hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = (e) -> entitySlider(e)
 
 // ---- the library's index ----
 //
