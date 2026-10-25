@@ -20,6 +20,9 @@ card through a `c.iff`.
   is the card's to say. The bar hides on it.
 - **Q31.** Which condition gates the bar follows the role the device was found with, and the
   expensive bar (history) is gated so it is never read while idle.
+- **Q27.** The battery bar always shows. An animation while it charges is a later idea.
+- **Q28.** While idle the countdown reads empty, by the same rule, so the status line is what
+  shows.
 
 ## `valueWhile` on a slot
 
@@ -83,33 +86,25 @@ form withholds. Revisit if the moment before Datastar starts shows.
 
 | Found | Bar | `valueWhile` |
 |---|---|---|
-| percent | its own % | `0 < percent < 100` |
-| time left + total | left of total | `left > 0` |
-| charging countdown + battery | battery | `left > 0` (Q27) |
-| time left only | out of where it started, from history | `left > 0`: history is never read while idle |
+| percent | its own % | `running` |
+| time left + total | left of total | `running` |
+| charging countdown + battery | battery | `true` (Q27) |
+| time left only | out of where it started, from history | `running`: history is never read while idle |
 
-And, where a status was found and `idleStates` is not empty, `and` its state is not one of them.
-
-`Progress` carries the condition it was found with (`running`), so a hand-written card or a
-`c.iff(p.running)` reads the same rule.
+`running` (`runningOf`) is `left > 0`, else with no countdown `0 < percent < 100`, and, where a
+status was found, its state in none of `idleStates`. The countdown's reading uses it too (Q28).
+`Progress` carries it, so a hand-written card or a `c.iff(p.running)` reads the same rule.
 
 ## Still open
 
-- **Q27.** "We should not hide the battery while it's charging": the table already shows it while
-  the charging countdown is above 0. Open: whether the battery bar should never hide, charging or
-  not.
-- **Q28.** While idle, the countdown reads "0s". Recommended: the reading's own `valueWhile`, so it is
-  empty and the status line ("Ready") is what shows.
 - When cel-java ships async functions (cel-expr/cel-java#1240, merged after 0.14.0), a fetch can
-  become a function the transform calls only when reached. `valueWhile` stays: it is the gate a
-  reader can see, and a slot behind it is skipped entirely. ADR 0034 records this as what reopens
-  the fetch design.
+  become a function the transform calls only when reached. ADR 0034 records this.
 
 ## Steps
 
 1. Done: runtime and model, `ValueWhileSuite`. Docs with it: ADR 0017, ADR 0034, the architecture
    doc, `terminology.md`, `writing-components.md`.
 2. Done: the bar hides on `""`. Needs a look in the browser.
-3. Roles: `running` per option, `idleStates`, the bar's `valueWhile`; `.whileRunning()` removed.
-   `SinceStartBarSuite`: idle at 0 reads no history and shows no bar; a start brings the bar.
-4. Docs: `writing-dashboards.md` (the bar while idle, `idleStates`).
+3. Done: roles, `running`, `idleStates`, the bar's and the countdown's `valueWhile`;
+   `.whileRunning()` removed.
+4. Done: `writing-dashboards.md`.

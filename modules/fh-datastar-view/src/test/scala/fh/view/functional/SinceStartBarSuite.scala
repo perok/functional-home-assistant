@@ -87,22 +87,25 @@ class SinceStartBarSuite extends CatsEffectSuite {
     }
   }
 
-  test("whileRunning: no card at 0; a start brings the card with its bar") {
+  test("idle at 0, no history is read; a start reads it and fills the bar") {
     served(
-      card =
-        "((c.progress(left)) { sinceStart = true }).label(\"Vask\").whileRunning()",
+      card = "((c.progress(left)) { sinceStart = true }).label(\"Vask\")",
       now = "0"
-    ) { (ts, _) =>
+    ) { (ts, asked) =>
       for {
         idle <- ts.page()
+        idleAsked <- asked
         client <- ts.connect()
         _ <- client.drain
         _ <- ts.change(left.entityId, "46")
         sent <- client.drain
+        runningAsked <- asked
       } yield {
-        assert(!idle.contains("Vask"), clue = idle)
+        assert(idle.contains("Vask"), clue = idle)
+        assertEquals(idleAsked, 0)
         val data = sent.flatMap(_.data).mkString
-        assert(data.contains("Vask") && data.contains("101"), clue = data)
+        assert(data.contains("101"), clue = data)
+        assert(runningAsked > 0)
       }
     }
   }

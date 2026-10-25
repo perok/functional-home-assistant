@@ -68,6 +68,10 @@ class ProgressRules {
   status: Listing<Rule> = new { default = (_) -> new Match {}; "status"; "state" }
   /// What plays no part, whatever else matches it at the same level.
   ignore: Listing<Rule> = new { default = (_) -> new Match {}; "total"; "last"; "lifetime" }
+  /// A status in one of these states means no job runs, whatever the numbers
+  /// say (a delayed start shows the programme's length as time left). Words
+  /// differ between integrations, so none are shipped.
+  idleStates: Listing<String> = new {}
 }
 
 class Light {
