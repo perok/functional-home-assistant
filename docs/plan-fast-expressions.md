@@ -1,8 +1,9 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Part 1 is built on this PR, part 2 on #634; 3 is not started.** The work lands in three PRs, in stack
-order:
+**Part 1 is built on this PR, except Q32's `otherwise` (built as optional, to be reworked); part 2
+is built on #634 as a first version, to be reworked as below; 3 is not started.** The work lands
+in three PRs, in stack order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not
    write.
@@ -60,6 +61,10 @@ and the signal path. It also finds the gating entity in two places (`Component.g
   `true`/`false`, as a bool CEL result does.
 - **`Match` reads any property**, not only `state`: it takes the `Cmp` read (`property`, null
   meaning the state, plus an optional `entity`). That is what `c.select`'s labels need.
+- **`otherwise` stays required, and may be a read (Q32).** It is a literal or a value shape
+  (`Simple.Value`), so a match still says what an unmatched value shows. `c.select`'s `chosen`
+  passes the read of its current property (`simple.state()` or `simple.attr(name)`): an option
+  it has a label for shows the label, any other its raw value. The key covers the read.
 
 ### No CEL the author did not write
 
@@ -146,11 +151,3 @@ Merged onto this PR's branch first (merge, not rebase).
   card itself never hides; only its bar does.
 - **Docs:** ADR 0015's paragraph and `writing-dashboards.md` describe the `c.iff`, not the class.
   `SinceStartBarSuite`'s cell assertion moves to the empty `.fh-ifhost`.
-
-## Open questions
-
-- **Q32.** `c.select`'s `chosen` shows a value outside the options as itself, so a `Match`'s
-  `otherwise` there is "the property read", not a constant. Recommended, and built that way
-  pending a yes: `otherwise` becomes optional, and absent means the read itself. That still degrades on a state HA adds, which is
-  why ADR 0028 made it required, and it is not "the cases are exhaustive", which it rejected. The
-  alternative is to leave `chosen` as CEL.
