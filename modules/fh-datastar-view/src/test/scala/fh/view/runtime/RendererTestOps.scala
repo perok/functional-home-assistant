@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.NodeId
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 
 /** The render entry points returning a `String`, outside [[Renderer]] since no
   * production caller uses them. They wrap the production walk but buffer where
@@ -25,7 +25,7 @@ private[runtime] object RendererTestOps {
         states: Map[String, EntityState],
         selections: Selections = Selections.none
     ): String =
-      r.renderBodyTraced(states, selections, fragments = QuerySnapshot.empty)
+      r.renderBodyTraced(states, selections, fragments = FetchSnapshot.empty)
         .html
 
     def renderPage(
@@ -43,7 +43,7 @@ private[runtime] object RendererTestOps {
         out,
         states,
         selections,
-        fragments = QuerySnapshot.empty
+        fragments = FetchSnapshot.empty
       )
       // The whole page is never a patch target — a repaint replaces
       // `#dashboard` wholesale — so it has no second form of its own. Its

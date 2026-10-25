@@ -3,14 +3,14 @@ package fh.view.runtime
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
 import fh.view.history.ChartStyle
-import fh.view.query.{Staged, QuerySnapshot}
+import fh.view.fetch.{Staged, FetchSnapshot}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.declared
 
 /** Node variables (issue #209): a node declares a named choice, a descendant
   * reads it by name, and the chain decides which declaration wins. A render
-  * resolves every query before the walk, which needs the input set enumerable
+  * resolves every fetch before the walk, which needs the input set enumerable
   * from the tree, so "an undeclared reference is a build error" is the
   * load-bearing assertion.
   */
@@ -28,8 +28,8 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   private def chartSlot(param: Ref = Ref.Var("window")) =
     SlotSource(
-      query = Some(
-        QueryTemplate(
+      fetch = Some(
+        FetchTemplate(
           "history",
           Map("entity" -> Ref.Literal("sensor.t"), "window" -> param)
         )
@@ -70,12 +70,12 @@ class NodeVariablesSuite extends munit.FunSuite {
     )
 
   private def windowOf(reads: List[SlotRead]): List[String] =
-    reads.flatMap(_.query.params.get("window"))
+    reads.flatMap(_.fetch.params.get("window"))
 
   test("a reference resolves to the nearest declaring ancestor's value") {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(d.validate(), Nil)
-    assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
+    assertEquals(windowOf(d.fetchesIn(d.card)), List("7d"))
   }
 
   test("a node that declares nothing is TRANSPARENT to the chain") {
@@ -88,7 +88,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(d.validate(), Nil)
-    assertEquals(windowOf(d.queriesIn(d.card)), List("30d"))
+    assertEquals(windowOf(d.fetchesIn(d.card)), List("30d"))
   }
 
   test("a nested declaration SHADOWS for its own subtree, and only that") {
@@ -102,7 +102,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(d.validate(), Nil)
-    assertEquals(windowOf(d.queriesIn(d.card)).sorted, List("1h", "24h"))
+    assertEquals(windowOf(d.fetchesIn(d.card)).sorted, List("1h", "24h"))
   }
 
   test("a node's own declaration is in scope for its own slots") {
@@ -114,13 +114,13 @@ class NodeVariablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(d.validate(), Nil)
-    assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
+    assertEquals(windowOf(d.fetchesIn(d.card)), List("7d"))
   }
 
   test("a written-down parameter reads no variable at all") {
     // A literal has nowhere for a write to land, so `entity` is not
     // substitutable and nothing has to refuse it.
-    val t = chartSlot(Ref.Literal("24h")).query.get
+    val t = chartSlot(Ref.Literal("24h")).fetch.get
     assertEquals(t.references, Nil)
     assertEquals(t.resolve(Map("window" -> "7d")).params("window"), "24h")
     assertEquals(t.resolve(Map.empty).params("entity"), "sensor.t")
@@ -140,7 +140,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // can only get its name wrong.
     val d = dash(box(Map("window" -> "24h"), chartNode()))
     assertEquals(d.validate(), Nil)
-    assertEquals(windowOf(d.queriesIn(d.card)), List("24h"))
+    assertEquals(windowOf(d.fetchesIn(d.card)), List("24h"))
   }
 
   test("a name that is not a plain token is refused where it is WRITTEN") {
@@ -178,7 +178,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // scope at its set like any node (ADR 0033).
     val d = dash(box(Map("window" -> "7d"), setOf(chartNode())))
     assertEquals(d.validate(), Nil)
-    assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
+    assertEquals(windowOf(d.fetchesIn(d.card)), List("7d"))
     val r = Renderer(
       d.validated().fold(e => fail(e.mkString), identity)
     )
@@ -243,7 +243,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     )
     val errs = d.validate()
     assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
-    assertEquals(windowOf(d.allQueries), List("7d"))
+    assertEquals(windowOf(d.allFetches), List("7d"))
     assertEquals(
       d.varScopes
         .get(NodeId.derived(LayoutNode.surfacePrefix("t0") + "c"))
@@ -256,18 +256,18 @@ class NodeVariablesSuite extends munit.FunSuite {
   test("the build asks what the dashboard asks: one read, at the default") {
     // A viewer's later value is checked at the write.
     val d = dash(box(Map("window" -> "7d"), chartNode()))
-    assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
-    assertEquals(windowOf(d.allQueries), List("7d"))
+    assertEquals(windowOf(d.fetchesIn(d.card)), List("7d"))
+    assertEquals(windowOf(d.allFetches), List("7d"))
 
     val v = d.validated().fold(e => fail(e.mkString("; ")), identity)
-    assertEquals(v.queries.size, 1)
+    assertEquals(v.fetches.size, 1)
   }
 
   private val states =
     Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
 
   private def readAt(window: String) = SlotRead(
-    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window)),
+    SlotFetch("history", Map("entity" -> "sensor.t", "window" -> window)),
     Transform.Stage.Chart(ChartStyle(width = 600))
   )
 
@@ -276,7 +276,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     r.renderBodyTraced(
       states,
       Selections.none,
-      QuerySnapshot.of(
+      FetchSnapshot.of(
         drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
         env
       )
@@ -295,7 +295,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val chose7d =
       r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
     assertEquals(
-      r.queriesForPage(Set.empty, Map.empty, chose7d),
+      r.fetchesForPage(Set.empty, Map.empty, chose7d),
       List(readAt("7d"))
     )
     assert(
@@ -309,8 +309,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     val a = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "1h"))
     val b = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
 
-    assertEquals(r.queriesForPage(Set.empty, Map.empty, a), List(readAt("1h")))
-    assertEquals(r.queriesForPage(Set.empty, Map.empty, b), List(readAt("30d")))
+    assertEquals(r.fetchesForPage(Set.empty, Map.empty, a), List(readAt("1h")))
+    assertEquals(r.fetchesForPage(Set.empty, Map.empty, b), List(readAt("30d")))
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
     assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
 
@@ -327,7 +327,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       r.renderInputs(
         chartId,
         states,
-        QuerySnapshot.of(Map(readAt(window) -> Staged(100L, "<svg/>")), env)
+        FetchSnapshot.of(Map(readAt(window) -> Staged(100L, "<svg/>")), env)
       )
     assert(keyFor(a, "1h").isDefined)
     assertNotEquals(keyFor(a, "1h"), keyFor(b, "30d"))
@@ -341,7 +341,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val env =
       r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
     assertEquals(
-      r.queriesForPage(Set.empty, Map.empty, env).toSet,
+      r.fetchesForPage(Set.empty, Map.empty, env).toSet,
       Set(readAt("30d"), readAt("1h"))
     )
   }
@@ -387,7 +387,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(
-      r.queriesForPage(Set.empty, Map.empty, env),
+      r.fetchesForPage(Set.empty, Map.empty, env),
       List(readAt("24h"))
     )
   }
@@ -400,7 +400,7 @@ class NodeVariablesSuite extends munit.FunSuite {
         box(Map("window" -> "1h"), chartNode())
       )
     )
-    assertEquals(d.queriesIn(d.card).size, 2)
+    assertEquals(d.fetchesIn(d.card).size, 2)
   }
 
   test("a bare string decodes as a literal, an object as a reference") {

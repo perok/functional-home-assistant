@@ -1176,7 +1176,7 @@ class PklBuildSuite extends munit.FunSuite {
       "tabs" -> Nil,
       "ifhost" -> Nil,
       "progressBar" -> List("value"),
-      // The chart's entity rides in the query's params, so no `entity_id`.
+      // The chart's entity rides in the fetch's params, so no `entity_id`.
       "historyChart" -> List("chart"),
       "chooser" -> Nil,
       "historyReadings" -> List("label", "readings", "unit", "entity_id"),

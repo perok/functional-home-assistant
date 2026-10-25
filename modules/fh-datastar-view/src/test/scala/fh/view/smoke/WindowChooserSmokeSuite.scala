@@ -85,7 +85,7 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("passthrough readings re-run when a window press re-queries them") {
+  test("passthrough readings re-run when a window press re-fetches them") {
     // The client half of `c.historyReadings`: the JSON arrives in a
     // `data-signals` attribute, and a morph that changes it has to re-run the
     // expressions reading the signal. The fake recorder answers the same

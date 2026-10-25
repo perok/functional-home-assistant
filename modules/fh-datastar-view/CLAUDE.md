@@ -357,7 +357,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   in, tried in that order, a start read once as the page opens (ADR 0033) and never followed. Each control is a `hass.Axis` (`l.brightness`, `l.colourTemp`, `l.colour`;
   `l.axes`), which carries what the slider drives, so the card holds no light branches (ADR 0013). `c.its.mainControl.options(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars { v.defaultingTo(x) }`, a `varMod.Declaration` holding the `Variable`) and a descendant reads it
-  by name in a query parameter (`varMod.Variable`'s `ref`; a component holds each variable as
+  by name in a fetch parameter (`varMod.Variable`'s `ref`; a component holds each variable as
   one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving
   up the ancestor chain so a nested declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader can parse, which is why a declaration carries no list

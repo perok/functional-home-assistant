@@ -5,23 +5,23 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
-  QueryTemplate,
+  FetchTemplate,
   Reads,
   Ref,
-  SlotQuery,
+  SlotFetch,
   SlotRead,
   SlotSource,
   Transform
 }
 import fh.view.history.ChartStyle
-import fh.view.query.{Staged, QuerySnapshot}
+import fh.view.fetch.{Staged, FetchSnapshot}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
   * render key moves with them.
   */
 class ChartSlotSuite extends munit.FunSuite {
 
-  private val query = QueryTemplate(
+  private val chartFetch = FetchTemplate(
     "history",
     Map("entity" -> Ref.Literal("sensor.t"), "window" -> Ref.Literal("24h"))
   )
@@ -29,7 +29,7 @@ class ChartSlotSuite extends munit.FunSuite {
   // Every parameter is written down, so the ask resolves to this whatever the
   // environment — which is what keeps this suite about the chart slot.
   private val read = SlotRead(
-    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "24h")),
+    SlotFetch("history", Map("entity" -> "sensor.t", "window" -> "24h")),
     stage
   )
   private val svg = """<svg width="600"><path d="M0 0"/></svg>"""
@@ -47,7 +47,7 @@ class ChartSlotSuite extends munit.FunSuite {
         slots = Map(
           "entity_id" -> SlotSource(literal = Some("sensor.t")),
           "chart" -> SlotSource(
-            query = Some(query),
+            fetch = Some(chartFetch),
             transform = stage,
             reads = Reads.OnRender
           ),
@@ -60,7 +60,7 @@ class ChartSlotSuite extends munit.FunSuite {
     Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
 
   private def fragments(bytes: String = svg, version: Long = 100L) =
-    QuerySnapshot.of(Map(read -> Staged(version, bytes)))
+    FetchSnapshot.of(Map(read -> Staged(version, bytes)))
 
   private def rootId(d: Dashboard) = LayoutNode.rootId("", d.card)
 
@@ -82,13 +82,13 @@ class ChartSlotSuite extends munit.FunSuite {
     val e = intercept[fh.view.FHError](
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, QuerySnapshot.empty)
+        .renderBodyTraced(states, Selections.none, FetchSnapshot.empty)
     )
     assertEquals(e.status, 500)
     assert(e.getMessage.contains("not resolved for this render"))
 
     // …and when it IS resolved the rest of the card still renders from state;
-    // the slot's `default` is not what fills a query slot.
+    // the slot's `default` is not what fills a fetch slot.
     val html =
       Renderer
         .create(d)

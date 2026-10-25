@@ -2,37 +2,37 @@ package fh.view.history
 
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import fh.view.query.{Answer, QueryIdentity, QueryRequest, SharedCache}
+import fh.view.fetch.{Answer, FetchIdentity, FetchRequest, SharedCache}
 import io.circe.syntax.*
 
 import java.time.{Duration as JDuration, Instant}
 import scala.concurrent.duration.FiniteDuration
 
-/** Parsing a history query — pure, so `Dashboard.validate` can reject a bad one
+/** Parsing a history fetch — pure, so `Dashboard.validate` can reject a bad one
   * with nothing wired.
   */
-object HistoryQuery {
+object HistoryFetch {
 
   val Name: String = "history"
 
   /** `entity` and `window` only: size and unit are how the answer is drawn (the
     * stage), so two sizes of one chart are one request and one fetch.
     */
-  def parse(params: Map[String, String]): Either[String, QueryRequest] =
+  def parse(params: Map[String, String]): Either[String, FetchRequest] =
     for {
       entityId <- params
         .get("entity")
-        .toRight(s"query '$Name' needs an 'entity' parameter")
+        .toRight(s"fetch '$Name' needs an 'entity' parameter")
       name <- params
         .get("window")
-        .toRight(s"query '$Name' needs a 'window' parameter")
+        .toRight(s"fetch '$Name' needs a 'window' parameter")
       window <- Window
         .byName(name)
         .toRight(
-          s"query '$Name' has unknown window '$name' — one of " +
+          s"fetch '$Name' has unknown window '$name' — one of " +
             Window.values.map(_.name).mkString(", ")
         )
-    } yield QueryRequest.History(entityId, window)
+    } yield FetchRequest.History(entityId, window)
 }
 
 /** `bucket` is the window's floor of "now", so an entry expires by its bucket
@@ -40,7 +40,7 @@ object HistoryQuery {
   * recorder data by user.
   */
 final case class SeriesKey(
-    identity: QueryIdentity,
+    identity: FetchIdentity,
     entityId: String,
     window: Window,
     bucket: Instant
@@ -70,15 +70,15 @@ final class History private (
     * provider whose data is pushed has no use for one.
     */
   def answer(
-      identity: QueryIdentity,
+      identity: FetchIdentity,
       entityId: String,
       window: Window
   ): IO[Answer] = now.flatMap(answerAt(identity, entityId, window, _))
 
   // Encoded once, on the fetch: re-encoding per ask was 5 µs a read, all of a
-  // warm chart pull's cost over a plain one (`QueryBench.pullChart`).
+  // warm chart pull's cost over a plain one (`FetchBench.pullChart`).
   private[history] def answerAt(
-      identity: QueryIdentity,
+      identity: FetchIdentity,
       entityId: String,
       window: Window,
       asOf: Instant
@@ -91,7 +91,7 @@ final class History private (
   }
 
   private[history] def series(
-      identity: QueryIdentity,
+      identity: FetchIdentity,
       entityId: String,
       window: Window,
       asOf: Instant

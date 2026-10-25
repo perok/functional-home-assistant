@@ -1,23 +1,23 @@
-package fh.view.query
+package fh.view.fetch
 
 import cats.effect.IO
-import fh.view.history.{ChartDraw, ChartStage, History, HistoryQuery, Window}
-import fh.view.model.{SlotQuery, Transform}
+import fh.view.history.{ChartDraw, ChartStage, History, HistoryFetch, Window}
+import fh.view.model.{SlotFetch, Transform}
 
 import io.circe.Json
 
 import scala.concurrent.duration.FiniteDuration
 
-/** Who a query reads as — part of every provider cache key, because HA scopes
+/** Who a fetch reads as — part of every provider cache key, because HA scopes
   * recorder data by user and a per-user provider must not share by omission.
   */
-opaque type QueryIdentity = String
+opaque type FetchIdentity = String
 
-object QueryIdentity {
+object FetchIdentity {
 
-  val Instance: QueryIdentity = "instance"
+  val Instance: FetchIdentity = "instance"
 
-  def user(id: String): QueryIdentity = s"user:$id"
+  def user(id: String): FetchIdentity = s"user:$id"
 }
 
 /** What a provider answers with: data (never markup — that is the stage's), and
@@ -63,11 +63,11 @@ object Staged {
     s"""<span class="fh-label fh-label-$tone fh-text"><span class="fh-text-run">$text</span></span>"""
 }
 
-/** A query with its parameters parsed. A closed sum, not a registry: adding a
-  * provider is a case here, an arm in [[Queries.parse]] and [[QueryResolver]],
+/** A fetch with its parameters parsed. A closed sum, not a registry: adding a
+  * provider is a case here, an arm in [[Fetches.parse]] and [[FetchResolver]],
   * and a typed helper in its component's Pkl module.
   */
-enum QueryRequest derives CanEqual {
+enum FetchRequest derives CanEqual {
   case History(entityId: String, window: Window)
 
   /** What this reads, held to the dashboard's names when a viewer's value
@@ -78,24 +78,24 @@ enum QueryRequest derives CanEqual {
   }
 }
 
-object Queries {
+object Fetches {
 
-  /** Pure, so `Dashboard.validate` makes a bad query a build error with nothing
+  /** Pure, so `Dashboard.validate` makes a bad fetch a build error with nothing
     * wired.
     */
-  def parse(query: SlotQuery): Either[String, QueryRequest] =
-    query.provider match {
-      case HistoryQuery.Name => HistoryQuery.parse(query.params)
+  def parse(fetch: SlotFetch): Either[String, FetchRequest] =
+    fetch.provider match {
+      case HistoryFetch.Name => HistoryFetch.parse(fetch.params)
       case other             =>
         Left(
-          s"unknown query provider '$other' — one of ${HistoryQuery.Name}"
+          s"unknown fetch provider '$other' — one of ${HistoryFetch.Name}"
         )
     }
 }
 
-/** Answers parsed queries and runs parsed stages. Two methods because they
-  * dedupe at different levels: one fetch per query, one staged value per
-  * (query, stage).
+/** Answers parsed fetches and runs parsed stages. Two methods because they
+  * dedupe at different levels: one call per fetch, one staged value per (fetch,
+  * stage).
   *
   * The two levels are cached by different owners. An answer is cached by its
   * PROVIDER, since when one moves is the provider's policy (a bucket, a push,
@@ -103,27 +103,27 @@ object Queries {
   * alike: a stage is a function of an answer, and a version names an answer, so
   * nothing about a provider has to be known to share one.
   */
-final class QueryResolver private (
+final class FetchResolver private (
     history: History,
     chart: IO[ChartDraw],
-    staged: SharedCache[QueryResolver.StageKey, String]
+    staged: SharedCache[FetchResolver.StageKey, String]
 ) {
-  import QueryResolver.StageKey
+  import FetchResolver.StageKey
 
-  def answer(identity: QueryIdentity, request: QueryRequest): IO[Answer] =
+  def answer(identity: FetchIdentity, request: FetchRequest): IO[Answer] =
     request match {
-      case QueryRequest.History(entityId, window) =>
+      case FetchRequest.History(entityId, window) =>
         history.answer(identity, entityId, window)
     }
 
   def stage(
-      identity: QueryIdentity,
-      query: QueryRequest,
+      identity: FetchIdentity,
+      fetch: FetchRequest,
       stage: Transform.Stage,
       answered: Answer
   ): IO[Staged] =
     staged
-      .get(StageKey((identity, query), stage, answered.version))(
+      .get(StageKey((identity, fetch), stage, answered.version))(
         run(stage, answered.data)
       )
       .map(Staged(answered.version, _))
@@ -134,15 +134,15 @@ final class QueryResolver private (
       case Transform.Stage.Chart(style) => ChartStage.draw(chart, style, data)
     }
 
-  private[query] def keys: IO[Set[StageKey]] = staged.keys
+  private[fetch] def keys: IO[Set[StageKey]] = staged.keys
 }
 
-object QueryResolver {
+object FetchResolver {
 
   /** Who asked, and what: identity is part of it because what a provider
     * answers may depend on who reads.
     */
-  type Question = (QueryIdentity, QueryRequest)
+  type Question = (FetchIdentity, FetchRequest)
 
   /** The question is in the key because a version alone does not name an answer
     * — two sensors over one window share a bucket. The stage carries every
@@ -163,7 +163,7 @@ object QueryResolver {
       chart: IO[ChartDraw],
       failureTtl: FiniteDuration = SharedCache.FailureTtl,
       onFailure: SharedCache.OnFailure[StageKey] = SharedCache.ignore
-  ): IO[QueryResolver] =
+  ): IO[FetchResolver] =
     SharedCache
       .create[StageKey, String](
         (added, other) =>
@@ -171,5 +171,5 @@ object QueryResolver {
         failureTtl,
         onFailure
       )
-      .map(new QueryResolver(history, chart, _))
+      .map(new FetchResolver(history, chart, _))
 }

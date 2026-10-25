@@ -1,7 +1,7 @@
 package fh.view.model
 
 import api.homeassistant.ServiceTarget
-import fh.view.query.{Queries, QueryRequest}
+import fh.view.fetch.{Fetches, FetchRequest}
 import fh.view.runtime.Cel
 import io.circe.{Decoder, DecodingFailure, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
@@ -14,7 +14,7 @@ given Configuration =
 /** Where one mustache slot gets its value.
   *
   *   - `transform`: a CEL string or a [[Transform.Simple]] object — the form is
-  *     the tier (ADR 0028) — or, on a query slot, a [[Transform.Stage]]. Only
+  *     the tier (ADR 0028) — or, on a fetch slot, a [[Transform.Stage]]. Only
   *     the slot's own entity is reachable, beside the node's expression values
   *     it names ([[BoundSlot]]).
   *   - `default`: used when the transform yields `""`, which keeps a numeric
@@ -26,7 +26,7 @@ given Configuration =
   *   - `signal`: carry the value as a Datastar signal, so a change is one
   *     signal frame rather than a re-rendered card (ADR 0017). The card puts
   *     `{{{<slot>__bind}}}` on the element beside its `{{<slot>}}` hole.
-  *   - `query`: a query slot, which ignores `reads` and `signal`
+  *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
   *     ([[SlotShape]]).
   */
 case class SlotSource(
@@ -40,13 +40,13 @@ case class SlotSource(
     // What the card reads the value AS, set where it binds the slot. Declared
     // where the binding cannot say it: a `class:` binding is a bool by kind.
     `type`: SlotType = SlotType.Text,
-    query: Option[QueryTemplate] = None
+    fetch: Option[FetchTemplate] = None
 ) {
 
   def isBool: Boolean =
     `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
 
-  /** Total so `validate` can call it; `validate` rejects a query slot whose
+  /** Total so `validate` can call it; `validate` rejects a fetch slot whose
     * transform is not a stage, so the fallback never renders.
     */
   def stage: Transform.Stage = transform match {
@@ -79,7 +79,7 @@ final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
     reads,
     signal,
     `type`,
-    query,
+    fetch,
     isBool,
     stage
   }
@@ -97,7 +97,7 @@ final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
   def valueEntities: List[String] = values.values.toList.flatMap(_.entities)
 
   def shape: SlotShape =
-    query.fold(SlotShape.State(this))(q => SlotShape.Query(SlotAsk(q, stage)))
+    fetch.fold(SlotShape.State(this))(q => SlotShape.Fetch(SlotAsk(q, stage)))
 
   /** What the renderer keys a value by (signal names, the once-cache): two
     * nodes saying the same thing over the same values share a signal.
@@ -215,9 +215,9 @@ object ExprValue:
     )
   }
 
-/** Untyped params, so the model knows no provider (`Queries.parse` types them).
+/** Untyped params, so the model knows no provider (`Fetches.parse` types them).
   */
-case class SlotQuery(provider: String, params: Map[String, String])
+case class SlotFetch(provider: String, params: Map[String, String])
     derives CanEqual
 
 /** A literal, or a node variable from this node or an ancestor (issue #209),
@@ -235,8 +235,8 @@ object Ref:
       .map[Ref](Ref.Literal.apply)
       .or(Decoder.instance(_.get[String]("var").map(Ref.Var.apply)))
 
-/** A query as authored; [[SlotQuery]] is the resolved form. */
-case class QueryTemplate(provider: String, params: Map[String, Ref])
+/** A fetch as authored; [[SlotFetch]] is the resolved form. */
+case class FetchTemplate(provider: String, params: Map[String, Ref])
     derives CanEqual,
       ConfiguredDecoder:
 
@@ -244,8 +244,8 @@ case class QueryTemplate(provider: String, params: Map[String, Ref])
     case Ref.Var(n) => n
   }
 
-  def resolve(env: Map[String, String]): SlotQuery =
-    SlotQuery(
+  def resolve(env: Map[String, String]): SlotFetch =
+    SlotFetch(
       provider,
       params.view.mapValues {
         case Ref.Literal(v) => v
@@ -256,21 +256,21 @@ case class QueryTemplate(provider: String, params: Map[String, Ref])
     )
 
 /** Decided once from the wire form, which keeps one `SlotSource` so snapshots
-  * do not churn. The match makes a `live`, `once` or signal query unreachable.
+  * do not churn. The match makes a `live`, `once` or signal fetch unreachable.
   */
 enum SlotShape derives CanEqual:
   case State(slot: BoundSlot)
-  case Query(ask: SlotAsk)
+  case Fetch(ask: SlotAsk)
 
 /** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render. */
-case class SlotAsk(query: QueryTemplate, stage: Transform.Stage)
+case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
     derives CanEqual:
 
   def resolve(env: Map[String, String]): SlotRead =
-    SlotRead(query.resolve(env), stage)
+    SlotRead(fetch.resolve(env), stage)
 
-/** Query and stage: two sizes of one chart share a fetch, not bytes. */
-case class SlotRead(query: SlotQuery, stage: Transform.Stage) derives CanEqual
+/** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
+case class SlotRead(fetch: SlotFetch, stage: Transform.Stage) derives CanEqual
 
 /** When a slot is read, and whether that is a reason to re-render:
   *
@@ -624,19 +624,19 @@ object LayoutNode:
     /** In the render key but not [[liveEntities]]: otherwise a sensor ticking
       * every second would refetch its history every second.
       */
-    lazy val queries: List[SlotAsk] = shapes._2
+    lazy val fetches: List[SlotAsk] = shapes._2
 
     private def stateSlots: List[BoundSlot] = shapes._1
 
     private lazy val shapes: (List[BoundSlot], List[SlotAsk]) =
       bound.values.toList.foldRight(
         (List.empty[BoundSlot], List.empty[SlotAsk])
-      ) { case (s, (states, queries)) =>
+      ) { case (s, (states, fetches)) =>
         s.shape match
-          case SlotShape.State(src) => (src :: states, queries)
-          case SlotShape.Query(q)   => (states, q :: queries)
+          case SlotShape.State(src) => (src :: states, fetches)
+          case SlotShape.Fetch(q)   => (states, q :: fetches)
       } match
-        case (states, queries) => (states, queries.distinct)
+        case (states, fetches) => (states, fetches.distinct)
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
@@ -927,7 +927,7 @@ case class Dashboard(
     cards.toList.sortBy(_._1).flatMap(_._2.script).distinct
 
   /** Every entity this dashboard can ever address — what a viewer's variable
-    * value may make a query read (ADR 0023). Static and sound: a set's
+    * value may make a fetch read (ADR 0023). Static and sound: a set's
     * candidate list is fixed at build time (ADR 0003). A tap is bounded by
     * [[calls]] instead.
     */
@@ -1075,8 +1075,8 @@ case class Dashboard(
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
-          // A query slot's transform is `queryErrors`' to check.
-          if (src.literal.isDefined || src.query.isDefined) None
+          // A fetch slot's transform is `fetchErrors`' to check.
+          if (src.literal.isDefined || src.fetch.isDefined) None
           else
             src.transform match {
               case p: Transform.Simple.Percent if p.max == p.min =>
@@ -1123,27 +1123,27 @@ case class Dashboard(
               case st: Transform.Stage =>
                 Some(
                   s"$nodeId: slot '$name' has a '${Transform.Stage.key(st)}' " +
-                    "transform but reads no query — a stage turns a " +
+                    "transform but reads no fetch — a stage turns a " +
                     "provider's answer into the hole's content, and a state " +
                     "slot has no answer to turn"
                 )
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
           readErrors(nodeId, cardName, name, src) ++
-          queryErrors(nodeId, cardName, name, src, scope)
+          fetchErrors(nodeId, cardName, name, src, scope)
       }
 
-    /** Otherwise a bad query renders blank forever with nothing saying why. */
-    def queryErrors(
+    /** Otherwise a bad fetch renders blank forever with nothing saying why. */
+    def fetchErrors(
         nodeId: String,
         cardName: String,
         name: String,
         src: BoundSlot,
         scope: Map[String, String]
     ): List[String] =
-      src.query.toList.flatMap { template =>
+      src.fetch.toList.flatMap { template =>
         val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
-          s"$nodeId: slot '$name' reads a query, so its 'reads' must be " +
+          s"$nodeId: slot '$name' reads a fetch, so its 'reads' must be " +
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
@@ -1158,7 +1158,7 @@ case class Dashboard(
         val parseError =
           if (refErrors.nonEmpty) Nil
           else
-            Queries
+            Fetches
               .parse(template.resolve(scope))
               .left
               .toOption
@@ -1168,9 +1168,9 @@ case class Dashboard(
           case _: Transform.Stage => None
           case _                  =>
             Some(
-              s"$nodeId: slot '$name' reads a query, so its transform must " +
+              s"$nodeId: slot '$name' reads a fetch, so its transform must " +
                 "be a STAGE (a chart, or passthrough) — a CEL expression and " +
-                "a simple transform both read an entity's state, and a query " +
+                "a simple transform both read an entity's state, and a fetch " +
                 "slot has none"
             )
         }
@@ -1244,7 +1244,7 @@ case class Dashboard(
     ): List[String] =
       slots.toList.sortBy(_._1).collect {
         case (name, src)
-            if src.isBool && src.literal.isEmpty && src.query.isEmpty &&
+            if src.isBool && src.literal.isEmpty && src.fetch.isEmpty &&
               !Dashboard.yieldsBool(src) =>
           s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
             "produce a bool — compare it (`on > 0`), or use a condition"
@@ -1873,9 +1873,9 @@ case class Dashboard(
     else Nil
   }
 
-  def allQueries: List[SlotRead] =
-    (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
-      queriesIn(s.content, scopeOf(s))
+  def allFetches: List[SlotRead] =
+    (fetchesIn(card) ++ surfaces.values.toList.flatMap(s =>
+      fetchesIn(s.content, scopeOf(s))
     )).distinct
 
   /** Node variables in scope at every node, by name (issue #209). A popup is
@@ -1998,22 +1998,22 @@ case class Dashboard(
   /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
     * act on it.
     */
-  lazy val queriedEntities: Set[String] =
-    allQueries
-      .flatMap(r => Queries.parse(r.query).toOption)
+  lazy val fetchedEntities: Set[String] =
+    allFetches
+      .flatMap(r => Fetches.parse(r.fetch).toOption)
       .flatMap(_.entities)
       .toSet
 
   /** At declared values. A clause that will not match still contributes: the
     * snapshot is resolved before the walk decides.
     */
-  def queriesIn(
+  def fetchesIn(
       n: LayoutNode,
       start: Map[String, String] = Map.empty
   ): List[SlotRead] =
     scopedSlots(n, start).flatMap { case (s, scope) =>
       s.shape match
-        case SlotShape.Query(ask) =>
+        case SlotShape.Fetch(ask) =>
           List(ask.resolve(scope))
         case SlotShape.State(_) => Nil
     }.distinct
@@ -2055,7 +2055,7 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(cl => initialKeys(cl.node))
 
-  /** [[validate]] plus the compiled transforms and parsed queries, so the
+  /** [[validate]] plus the compiled transforms and parsed fetches, so the
     * renderer never recompiles or defends against a bad expression.
     */
   def validated(
@@ -2063,12 +2063,12 @@ case class Dashboard(
   ): Either[List[String], Dashboard.Validated] =
     errors(locateTransform) match
       case Nil =>
-        Right(Dashboard.Validated(this, compileTransforms, parseQueries))
+        Right(Dashboard.Validated(this, compileTransforms, parseFetches))
       case errs => Left(errs)
 
   // Only after `validate` proved each parses, so a `Left` cannot occur.
-  private def parseQueries: Map[SlotRead, QueryRequest] =
-    allQueries.flatMap(r => Queries.parse(r.query).toOption.map(r -> _)).toMap
+  private def parseFetches: Map[SlotRead, FetchRequest] =
+    allFetches.flatMap(r => Fetches.parse(r.fetch).toOption.map(r -> _)).toMap
 
   // Only after `validate` proved each compiles, so a `Left` cannot occur.
   private def compileTransforms: Map[Transform.CelKey, Transform.Compiled] =
@@ -2172,7 +2172,7 @@ object Dashboard:
   case class Validated private[model] (
       dashboard: Dashboard,
       transforms: Map[Transform.CelKey, Transform.Compiled],
-      queries: Map[SlotRead, QueryRequest] = Map.empty,
+      fetches: Map[SlotRead, FetchRequest] = Map.empty,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.
       access: Access = Access.default
