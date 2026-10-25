@@ -1,99 +1,65 @@
 # Plan — a device's progress (#541, E3)
 
 Step E3 of #541. E1 has landed (#596): every entity in the dump carries
-`platform`, `translation_key` and `original_name`.
+`platform`, `translation_key` and `original_name`. This PR is stacked on #629,
+which gives the workspace a `components.pkl` with `defaults` (ADR 0015).
 
 The goal: `c.progress(dump.devices.washer)` shows how far along a device's job
 is. The author never has to know which sensor plays which part, and can teach
-the library about their own integrations in one place.
+the library about their own integrations in one place: `defaults.progress` in
+their `components.pkl`.
 
 The work, in order:
 
-1. **`site.c`**: the components, configured once in `site.pkl`. Proved first,
-   then the starter site, demos and docs move to it at once.
-2. **E3**: the rules, the heuristic and `c.progress(device)`.
-3. **E3b**: a total from history, for a device that reports only time left.
+1. **E3**: the rules, the heuristic and `c.progress(device)`.
+2. **E3b**: a total from history, for a device that reports only time left.
 
 Later, on #541: E2 (a client clock, start/end bars), E4 (vacuum, climate,
 media), E5 (several jobs per device), and running/idle.
 
-## 1. `site.c`: the components, configured in `site.pkl`
+## 1. The rules: `defaults.progress`
 
-Configuration that every card must see cannot live in the dump or in the
-library, because neither can import the workspace. So the components become a
-value that `site.pkl` amends:
-
-```pkl
-// @fh-dashboard/site.pkl
-hidden c: components = import("components.pkl")
-
-// site.pkl
-amends "@fh-dashboard/site.pkl"
-
-c { devices { progress { countdown { "finish in" } } } }
-dashboards {
-  ["home"] { card = c.progress(dump.devices.washer) }   // c is in scope
-  ["kitchen"] = import("kitchen.pkl")
-}
-
-// kitchen.pkl
-amends "@fh-dashboard/entry.pkl"
-import "site.pkl"
-local c = site.c
-```
-
-- `components.pkl` gains `devices: DeviceRules`, and its functions pass it to
-  the modules that read it (`progressMod.progress(x, devices)`). Pkl carries no
-  configuration into another module by itself.
-- Spiked on pkl-core 0.32.1:
-  - a function of the amended `c` sees the amended `devices`;
-  - `kitchen.pkl` importing the `site.pkl` that imports it evaluates.
-- **Still to prove**, before any E3 code:
-  - pkl-lsp completion and diagnostics through `site.c.` and a `local c`;
-  - the server's import graph (`Analyzer.importGraph`), the file watcher and
-    the editor all live with the cycle;
-  - `fh push --slug` and the laptop flow.
-- A dashboard that imports `@fh-dashboard/components.pkl` directly keeps
-  working, with the library's own rules. The starter site, the demo
-  dashboards and `writing-dashboards.md` move to `site.c` in the same change.
-
-## 2. The rules
-
-One section per role. Each line is a rule: words, a `new { … }` that narrows,
-or one entity.
+One section per role. Each element is a rule: words, a `new { … }` that
+narrows, or one entity.
 
 ```pkl
-c {
-  devices {
-    progress {
-      countdown {
-        "finish in"                                           // words, any integration
-        new { platform = "miele"; key = "program_remaining" }  // every field given must hold
-        dump.entities.washer_time_left                        // exactly this entity
-      }
-      ignore { dump.entities.car_service_inspection_days }
+// components.pkl
+amends "@fh-dashboard/components.pkl"
+
+defaults {
+  progress {
+    countdown {
+      "finish in"                                           // words, any integration
+      new { platform = "miele"; key = "program_remaining" }  // every field given must hold
+      dump.entities.washer_time_left                        // exactly this entity
     }
+    ignore { dump.entities.car_service_inspection_days }
   }
 }
 ```
 
 - The roles are `countdown`, `total`, `percent`, `phase`, `status` and
   `ignore`. A misspelt role fails at build time.
-- **Words** match when all of them appear in the entity's `translation_key` or
-  `original_name`; `_` counts as a space.
+- **Words** match when every word of the rule is among the entity's
+  `translation_key` and `original_name` words; `_` and `-` count as spaces.
 - **`new { … }`** takes `platform`, `key` (an exact `translation_key` or
-  `original_name`), `device_class` and `unit`.
-- **The most specific rule wins** on an entity: an entity, then a `new { … }`,
-  then words.
-- **A rule only narrows.** Each role keeps its shape:
+  `original_name`), `device_class` and `unit`. Each section's `default` is that
+  class, which is what lets a bare `new { … }` sit beside words and entities
+  (spiked: without it Pkl cannot tell what to build).
+- **The most specific rule wins**, both for which role an entity plays and
+  among an entity's rivals for one role: an entity, then a `new { … }`, then
+  words. At one level, `ignore` beats every other role.
+- **A rule only narrows.** Each role keeps its shape, and an entity rule that
+  names an entity of the wrong shape is a build error:
 
   | role | must be |
   |---|---|
-  | `countdown`, `total` | a sensor with a fixed-length time unit, not a running total |
+  | `countdown`, `total` | a sensor with a fixed-length time unit |
   | `percent` | a `%` sensor with no device class |
   | `phase`, `status` | a sensor with no unit |
 
-- Your sections add to the shipped ones, which are words only:
+- Your sections add to the shipped ones, which are words only. Assigning a
+  section (`countdown = new { … }`) replaces them.
 
   ```pkl
   countdown { "remaining" "left" "to end" }
@@ -107,7 +73,9 @@ c {
 - In code, the same for every integration:
   - a running total (`state_class` `total` or `total_increasing`) plays no
     role;
-  - a countdown about charging takes the device's battery level as its bar;
+  - a countdown about charging (named charge or charging) takes the device's
+    battery level as its bar, a battery not named target or limit; with
+    several countdowns and a battery, the charging one wins;
   - where two entities fit one role: the one sharing the most words with the
     countdown ("current program duration" over "auto-dose duration"), else
     the plainer name ("Cycle phase" over "Cycle sub phase"), else the one not
@@ -115,32 +83,35 @@ c {
 - `entity_category` is a tie-break, never a filter: the Electrolux's "Time to
   end" and every Roborock entity are diagnostic.
 
-## 3. The progress and the card
+## 2. The progress and the card
 
 ```pkl
 class Progress {
-  hidden device: Device? = null    // the label, and the build error
-  left: SensorEntity? = null       // the countdown
-  bar: Bar? = null                 // Percent | LeftOfTotal | LeftOfPeak (E3b)
-  text: SensorEntity? = null       // the phase, else the status
+  device: hass.Device
+  left: hass.SensorEntity?      // the countdown
+  percent: hass.SensorEntity?   // a percentage bar: the device's own, or the battery
+  total: hass.SensorEntity?     // a bar of `left` out of this; never with `percent`
+  status: hass.SensorEntity?    // what it is doing: the phase, else the status
 }
 ```
 
 - `c.progressOf(d): Progress?` is null unless it finds a countdown or a bar.
-  It is on `c`, not on the device, because the dump cannot see `site.pkl`.
+  It is on `c`, not on the device, because the dump cannot see the workspace.
   Filtering: `dump.devices.all.filter((d) -> c.progressOf(d) != null)`.
-- `c.progress(x: hass.Device|hass.SensorEntity|hass.Progress)`, like
-  `c.select` and `c.entitySlider`, which already take several kinds of input.
-  - A sensor is a `Progress` with only `left`. `c.progress(sensor)`, `.total`
-    and `.status` keep today's behaviour and tests.
-  - A device with no progress fails the build. The error names the device and
-    its sensors, and points at `.left(…)`.
-  - `.left(e)`, `.total(e)`, `.percent(e)` and `.text(e)` override one part.
-- `progressOf` picks the bar, so the card does not walk an order of preference.
-  The bar is the first of: a `percent`; `left` out of `total`, when both units
-  have a fixed length; the battery, for charging; `left` out of its peak (E3b).
-- The countdown is `left`. The second line is `text`. The label is the
-  device's name, else the sensor's.
+- `c.progress(x: hass.Device|hass.SensorEntity)`, like `c.select` and
+  `c.entitySlider`, which already take several kinds of input.
+  - A sensor is today's card: `c.progress(sensor)`, `.total` and `.status`
+    keep their behaviour and tests.
+  - A device: the card carries `device` and `defaults` (ADR 0015's pattern)
+    and works its parts out with `progressOf`. One with no progress fails the
+    build, naming the device and its sensors and pointing at `.left(…)`.
+  - Overrides: `.left(e)`, `.percent(e)`, `.total(e)` (which also drops a
+    found `percent`, so the bar is the one asked for) and `.status(e)`.
+- `progressOf` picks the one bar: a `percent`; else `left` out of `total`,
+  when both units have a fixed length; else the battery, for charging; else
+  `left` out of its peak (E3b). The card shows what it is given.
+- The tile's entity is `left`, else the percent sensor, whose reading then
+  shows. The second line is `status`. The label is the device's name.
 
 The heuristic run against this house's live registry (218 devices,
 2026-10-24):
@@ -157,7 +128,7 @@ The heuristic run against this house's live registry (218 devices,
 No other device matched. The VW's climatisation countdown is a second job
 (E5), and loses because only the charging one has a bar.
 
-## 4. E3b: a total from history
+## 3. E3b: a total from history
 
 The Electrolux reports only time left. Its last wash started at 101 minutes
 and counted down to 0, so the total is the highest value since the countdown
@@ -188,31 +159,24 @@ last read 0. HA's recorder already holds it.
 
 ## Docs
 
-- ADR 0021 (`site.pkl`) and ADR 0015 (the facade) gain `site.c`.
-- ADR 0013 records why device capabilities come from rules in `c` rather than
-  being narrowed onto the dump's device classes.
+- ADR 0013 records why device capabilities come from rules in `defaults`
+  rather than being narrowed onto the dump's device classes.
+- ADR 0015's defaults gain the `progress` group as the second example.
 - ADR 0027 (CEL) gains the stage over history, in E3b.
-- `docs/writing-dashboards.md` covers `site.c`, `c.progress(device)`, the
-  rules and the overrides.
+- `docs/writing-dashboards.md` covers `c.progress(device)`, `c.progressOf`,
+  the rules and the overrides.
 - `docs/terminology.md` gets "role".
 
 ## Tests
 
-- `site.c`: a dashboard in its own file sees a rule set in `site.pkl`; a
-  dashboard importing the library directly sees the shipped rules.
 - `components.test.pkl`, one fact per rule:
   - each kind of rule (words, `new { … }`, entity), and that the most specific
     wins;
   - a rule cannot loosen a role's shape;
   - running totals, the charging pair, each tie-break, and null for a device
     with nothing;
-  - the bar order, the overrides, and the build error.
+  - the bar order, the overrides, and the build error;
+  - a rule set in a workspace `components.pkl` reaches `c.progress(device)`.
 - The registry snapshot of the six devices above, as a fixture, reproduces
   the table.
 - The existing `c.progress` tests stay unchanged.
-
-## Questions
-
-11. **Is `site.c` its own PR, ahead of this one?** Recommend yes: it changes
-    how every dashboard imports the library, and it is worth reviewing on its
-    own.
