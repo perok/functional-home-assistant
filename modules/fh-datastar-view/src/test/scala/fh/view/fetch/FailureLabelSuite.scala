@@ -1,4 +1,4 @@
-package fh.view.query
+package fh.view.fetch
 
 import fh.view.model.Transform
 import fh.view.testkit.PklWorkspace

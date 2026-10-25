@@ -33,7 +33,7 @@ typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
 /// segment and a JS string.
 typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 
-/// The wire shape of a read (`fh.view.model.Ref.Var`), what a query parameter
+/// The wire shape of a read (`fh.view.model.Ref.Var`), what a fetch parameter
 /// holds. `var` is the wire key, hence the backticks; get one from
 /// [[Variable.ref]].
 class Ref {
@@ -45,7 +45,7 @@ class Ref {
 class Variable {
   name: Name
 
-  /// A read of it, for a query parameter, resolved up the ancestors at build
+  /// A read of it, for a fetch parameter, resolved up the ancestors at build
   /// time.
   fixed ref: Ref = let (n = name) new Ref { `var` = n }
 

@@ -1,11 +1,11 @@
-package fh.view.query
+package fh.view.fetch
 
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{NodeId, SlotAsk, SlotRead}
 
-/** Every query a render reads, answered — a second snapshot beside the
+/** Every fetch a render reads, answered — a second snapshot beside the
   * `Map[String, EntityState]` one, resolved BEFORE the walk because a render is
   * a synchronous string build and answering is `IO`.
   *
@@ -16,7 +16,7 @@ import fh.view.model.{NodeId, SlotAsk, SlotRead}
   * against the values its answers were fetched for. They are per render, not on
   * a `NodePlan`, which is shared across sessions.
   */
-final class QuerySnapshot private (
+final class FetchSnapshot private (
     private val answers: Map[SlotRead, Staged],
     private val vars: Map[NodeId, Map[String, String]]
 ) {
@@ -38,17 +38,17 @@ final class QuerySnapshot private (
       read,
       // A wiring bug (the caller resolved a different set), so loud.
       throw FHError.internal(
-        s"render reads ${QuerySnapshot.describe(read)} but it was " +
+        s"render reads ${FetchSnapshot.describe(read)} but it was " +
           "not resolved for this render — the caller resolved a different " +
           "set, or none at all"
       )
     )
 }
 
-object QuerySnapshot {
+object FetchSnapshot {
 
-  /** For a render that reads no query. Never a default argument. */
-  val empty: QuerySnapshot = new QuerySnapshot(Map.empty, Map.empty)
+  /** For a render that reads no fetch. Never a default argument. */
+  val empty: FetchSnapshot = new FetchSnapshot(Map.empty, Map.empty)
 
   /** Answers already in hand. The whole map at once: a snapshot is never grown
     * during a walk.
@@ -56,9 +56,9 @@ object QuerySnapshot {
   def of(
       answers: Map[SlotRead, Staged],
       vars: Map[NodeId, Map[String, String]] = Map.empty
-  ): QuerySnapshot = new QuerySnapshot(answers, vars)
+  ): FetchSnapshot = new FetchSnapshot(answers, vars)
 
-  /** Answer every query a render needs, in parallel. Only a read that does not
+  /** Answer every fetch a render needs, in parallel. Only a read that does not
     * parse raises, since that is a wiring bug.
     *
     * `requests` is a memo of what `validate` parsed at DECLARED values; a
@@ -66,17 +66,17 @@ object QuerySnapshot {
     * refused any value a reader could not parse, so failing both is a bug.
     */
   def resolve(
-      resolver: QueryResolver,
-      requests: Map[SlotRead, QueryRequest],
+      resolver: FetchResolver,
+      requests: Map[SlotRead, FetchRequest],
       reads: List[SlotRead],
       vars: Map[NodeId, Map[String, String]],
-      identity: QueryIdentity
-  ): IO[QuerySnapshot] = {
+      identity: FetchIdentity
+  ): IO[FetchSnapshot] = {
     val wanted = reads.distinct
-    def parsed(read: SlotRead): IO[QueryRequest] =
+    def parsed(read: SlotRead): IO[FetchRequest] =
       requests
         .get(read)
-        .orElse(Queries.parse(read.query).toOption)
+        .orElse(Fetches.parse(read.fetch).toOption)
         .liftTo[IO](
           FHError.internal(
             s"${describe(read)} reached a render and does not parse — the " +
@@ -85,27 +85,27 @@ object QuerySnapshot {
           )
         )
 
-    // Two levels: one fetch per QUERY, one drawing per (query, stage). A
+    // Two levels: one call per FETCH, one drawing per (fetch, stage). A
     // failure is that read's, not the render's; the caches bound each wait.
     for {
       plans <- wanted.traverse(r => parsed(r).map(r -> _)).map(_.toMap)
       answers <- plans.toList
-        .map { case (read, qr) => read.query -> qr }
+        .map { case (read, qr) => read.fetch -> qr }
         .distinctBy(_._1)
         .parTraverse { case (q, qr) =>
           resolver.answer(identity, qr).attempt.map(q -> _)
         }
         .map(_.toMap)
       staged <- wanted.parTraverse { read =>
-        answers(read.query)
+        answers(read.fetch)
           .liftTo[IO]
           .flatMap(resolver.stage(identity, plans(read), read.stage, _))
           .attempt
           .map(s => read -> s.getOrElse(Staged.failed(read.stage)))
       }
-    } yield new QuerySnapshot(staged.toMap, vars)
+    } yield new FetchSnapshot(staged.toMap, vars)
   }
 
   private def describe(read: SlotRead): String =
-    s"query '${read.query.provider} ${read.query.params}'"
+    s"fetch '${read.fetch.provider} ${read.fetch.params}'"
 }

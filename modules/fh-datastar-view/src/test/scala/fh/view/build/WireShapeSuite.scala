@@ -7,7 +7,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Predicate,
-  SlotQuery,
+  SlotFetch,
   SlotSource,
   Theme,
   Transform,
@@ -193,8 +193,8 @@ class WireShapeSuite extends munit.FunSuite {
     // encoding, not drift.
     check("Slot", SlotSource(), scalaOnly = Set("literal"))
     // `params` is untyped on the wire, so nothing else would notice the sides
-    // disagreeing on what a query is.
-    check("Query", SlotQuery("history", Map.empty))
+    // disagreeing on what a fetch is.
+    check("Fetch", SlotFetch("history", Map.empty))
   }
 
   test("each simple operator agrees with its case on both sides") {

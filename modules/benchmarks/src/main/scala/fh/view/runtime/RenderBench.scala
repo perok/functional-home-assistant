@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -393,7 +393,7 @@ class RenderBench {
       .renderPageTraced(st)
       .own
       .keys
-      .flatMap(signalled.renderNodeById(_, st, fragments = QuerySnapshot.empty))
+      .flatMap(signalled.renderNodeById(_, st, fragments = FetchSnapshot.empty))
       .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
@@ -822,7 +822,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       st,
-      fragments = QuerySnapshot.empty
+      fragments = FetchSnapshot.empty
     )
     w.flush()
     bh.consume(own.size)
@@ -858,7 +858,7 @@ class RenderBench {
       plain.renderPageInto(
         Sink.streaming(w),
         st,
-        fragments = QuerySnapshot.empty
+        fragments = FetchSnapshot.empty
       )
     w.flush()
     bh.consume(own.size)
@@ -885,7 +885,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       st,
-      fragments = QuerySnapshot.empty
+      fragments = FetchSnapshot.empty
     )
     w.flush()
     bh.consume(own.size)
@@ -917,7 +917,7 @@ class RenderBench {
           val own = signalled.renderPageInto(
             Sink.streaming(w),
             st,
-            fragments = QuerySnapshot.empty
+            fragments = FetchSnapshot.empty
           )
           w.flush()
           own.size
@@ -1065,7 +1065,7 @@ class RenderBench {
       clauseMember,
       states,
       Selections.none,
-      QuerySnapshot.empty
+      FetchSnapshot.empty
     )
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
@@ -1092,7 +1092,7 @@ class RenderBench {
           log,
           Map.empty,
           flipStates,
-          _ => IO.pure(QuerySnapshot.empty),
+          _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at
         )
@@ -1419,7 +1419,7 @@ class RenderBench {
           log,
           held,
           moved,
-          _ => IO.pure(QuerySnapshot.empty),
+          _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at,
           Set.empty,
@@ -1520,7 +1520,7 @@ class RenderBench {
           id,
           moved,
           Selections.none,
-          fragments = QuerySnapshot.empty
+          fragments = FetchSnapshot.empty
         )
       )
     )
@@ -1636,7 +1636,7 @@ class RenderBench {
           id,
           moved,
           Selections.none,
-          fragments = QuerySnapshot.empty
+          fragments = FetchSnapshot.empty
         )
       )
     }

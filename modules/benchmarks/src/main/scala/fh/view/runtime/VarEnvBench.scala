@@ -7,13 +7,13 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  QueryTemplate,
+  FetchTemplate,
   Reads,
   Ref,
   SlotSource,
   Transform
 }
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -72,10 +72,10 @@ class VarEnvBench {
         .resume(
           renderer,
           cache,
-          FragmentLog("bench").touched(QueryBench.PlainId, rot),
+          FragmentLog("bench").touched(FetchBench.PlainId, rot),
           Map.empty,
           st,
-          _ => IO.pure(QuerySnapshot.of(Map.empty)),
+          _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
           rot,
           Set.empty,
@@ -93,8 +93,8 @@ object VarEnvBench {
       "chart",
       Map(
         "chart" -> SlotSource(
-          query = Some(
-            QueryTemplate(
+          fetch = Some(
+            FetchTemplate(
               "history",
               Map(
                 "entity" -> Ref.Literal(entity),

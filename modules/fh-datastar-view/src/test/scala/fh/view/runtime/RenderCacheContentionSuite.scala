@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
@@ -125,7 +125,7 @@ class RenderCacheContentionSuite extends ServerHarness {
         states: Map[String, EntityState],
         selections: Selections,
         form: SlotForm,
-        fragments: QuerySnapshot
+        fragments: FetchSnapshot
     ): Option[String] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))

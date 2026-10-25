@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.query.{Queries, QuerySnapshot, QueryRequest}
+import fh.view.fetch.{Fetches, FetchSnapshot, FetchRequest}
 import fh.view.model.{
   CallReach,
   Access,
@@ -15,7 +15,7 @@ import fh.view.model.{
   NodeId,
   Reads,
   SlotAsk,
-  SlotQuery,
+  SlotFetch,
   SlotRead,
   SlotShape,
   SetId,
@@ -108,7 +108,7 @@ private[runtime] object WalkAt {
   */
 case class RenderInputs(
     entities: Map[String, Long],
-    queries: Map[SlotRead, Long] = Map.empty
+    fetches: Map[SlotRead, Long] = Map.empty
 ) derives CanEqual {
 
   /** The partial order [[RenderCache]] uses to refuse superseded bytes.
@@ -117,7 +117,7 @@ case class RenderInputs(
     */
   def isAtLeast(other: RenderInputs): Boolean =
     sameOrAhead(entities, other.entities) &&
-      sameOrAhead(queries, other.queries)
+      sameOrAhead(fetches, other.fetches)
 
   private def sameOrAhead[K](
       mine: Map[K, Long],
@@ -140,7 +140,7 @@ class Renderer(validated: Dashboard.Validated) {
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
   // value.
   val access: Access = validated.access
-  private val parsedQueries = validated.queries
+  private val parsedFetches = validated.fetches
 
   private val themeClasses = dashboard.theme.classes
   private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
@@ -181,8 +181,8 @@ class Renderer(validated: Dashboard.Validated) {
     // So a render's reads cost the charts, not the tree.
     val asks: List[(NodeId, List[SlotAsk])] =
       indexed.toList.sortBy(_._1).collect {
-        case (id, c: LayoutNode.Component) if c.queries.nonEmpty =>
-          id -> c.queries
+        case (id, c: LayoutNode.Component) if c.fetches.nonEmpty =>
+          id -> c.fetches
       }
     val setIds: List[NodeId] =
       indexed.toList.collect { case (id, _: LayoutNode.SetNode) => id }.sorted
@@ -253,7 +253,7 @@ class Renderer(validated: Dashboard.Validated) {
       panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
-      asksAt = queriesForNode
+      asksAt = fetchesForNode
     )
 
   /** Where a session opening on `states` opens each variable with an initial
@@ -288,7 +288,7 @@ class Renderer(validated: Dashboard.Validated) {
       val why = (vars
         .readersOf(key)
         .flatMap(readsAt(_, env))
-        .flatMap(r => refusal(r.query)) ++
+        .flatMap(r => refusal(r.fetch)) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
           Option.unless(surfaces.memberAt(gid, value).isDefined)(
             s"$gid takes ${Surface.membersText(surfaces.memberValues(gid))}"
@@ -318,12 +318,12 @@ class Renderer(validated: Dashboard.Validated) {
           }
       }
 
-  private def refusal(query: SlotQuery): Option[String] =
-    Queries.parse(query) match {
+  private def refusal(fetch: SlotFetch): Option[String] =
+    Fetches.parse(fetch) match {
       case Left(e)    => Some(e)
       case Right(req) =>
         req.entities
-          .find(e => !references(e) && !dashboard.queriedEntities(e))
+          .find(e => !references(e) && !dashboard.fetchedEntities(e))
           .map(e => s"$e is not on this dashboard")
     }
 
@@ -347,7 +347,7 @@ class Renderer(validated: Dashboard.Validated) {
               .resolveActiveByState(gid, states)
               .flatMap(surfaces.bakeGroup(gid).lift)
               .toList
-              .flatMap(queriesForSurface(_, states, selections, env))
+              .flatMap(fetchesForSurface(_, states, selections, env))
         }
       }).distinct
 
@@ -388,7 +388,7 @@ class Renderer(validated: Dashboard.Validated) {
     }.toMap
 
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
-    queriesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
+    fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -458,17 +458,17 @@ class Renderer(validated: Dashboard.Validated) {
   /** A member's are its whole subtree's ([[memberAsks]]); a node below one asks
     * its own in whichever clause holds it.
     */
-  private def queriesForNode(id: NodeId): List[SlotAsk] =
+  private def fetchesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
-        c.queries
+        c.fetches
       case _ => memberAsks.getOrElse(id, belowMemberAsks.getOrElse(id, Nil))
     }
 
   // Built once: a tick asks for every target it pulls.
   private lazy val belowMemberAsks: Map[NodeId, List[SlotAsk]] =
     members.memberIdsBelow.flatMap { id =>
-      val asks = members.clauseNodesAt(id).flatMap(_.queries).distinct
+      val asks = members.clauseNodesAt(id).flatMap(_.fetches).distinct
       Option.when(asks.nonEmpty)(id -> asks)
     }.toMap
 
@@ -567,7 +567,7 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] def renderBodyTraced(
       states: Map[String, EntityState],
       selections: Selections = Selections.none,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Traced =
     traced(
       dashboard.card,
@@ -590,7 +590,7 @@ class Renderer(validated: Dashboard.Validated) {
       out: Sink,
       states: Map[String, EntityState],
       selections: Selections = Selections.none,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Map[NodeId, Painted] =
     pageInto(out, states, selections, fragments).own.asScala.toMap
 
@@ -601,7 +601,7 @@ class Renderer(validated: Dashboard.Validated) {
       out: Sink,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Map[NodeId, Held] =
     pageInto(out, states, selections, fragments).holds
 
@@ -609,7 +609,7 @@ class Renderer(validated: Dashboard.Validated) {
       out: Sink,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Trace = {
     val own = new Trace
     // Writer holes, not Strings: building them first cost a full copy of the
@@ -646,7 +646,7 @@ class Renderer(validated: Dashboard.Validated) {
       surfaceId: String,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       trace: Trace
   ): Option[java.io.Writer => Unit] =
     // The writer is ignored: mustache's writer is `out`.
@@ -669,7 +669,7 @@ class Renderer(validated: Dashboard.Validated) {
       surfaceId: String,
       states: Map[String, EntityState],
       selections: Selections = Selections.none,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
       traced(
@@ -691,7 +691,7 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState],
       selections: Selections = Selections.none,
       form: SlotForm = SlotForm.Patch,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[String] =
     nodeAt(id, states)
       .filter((node, _) => ownRenderingOf(node))
@@ -713,7 +713,7 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[Traced] =
     members
       .memberAt(id, states)
@@ -723,7 +723,7 @@ class Renderer(validated: Dashboard.Validated) {
       m: Member,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Traced =
     traced(
       m.node,
@@ -741,7 +741,7 @@ class Renderer(validated: Dashboard.Validated) {
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
 
-  def queryRequests: Map[SlotRead, QueryRequest] = parsedQueries
+  def fetchRequests: Map[SlotRead, FetchRequest] = parsedFetches
 
   private def readsIn(idx: Index, env: VarEnv): List[SlotRead] =
     (idx.asks.flatMap { case (id, asks) =>
@@ -749,7 +749,7 @@ class Renderer(validated: Dashboard.Validated) {
     } ++ idx.setIds.flatMap(setReads(_, env))).distinct
 
   /** The surfaces shown inside it included. */
-  def queriesForSurface(
+  def fetchesForSurface(
       surfaceId: String,
       states: Map[String, EntityState],
       selections: Selections,
@@ -768,7 +768,7 @@ class Renderer(validated: Dashboard.Validated) {
   /** The body, this viewer's open surfaces and each state group's branch. An
     * unselected tab is fetched when switched to.
     */
-  def queriesForPage(
+  def fetchesForPage(
       open: Set[String],
       states: Map[String, EntityState],
       env: VarEnv
@@ -791,7 +791,7 @@ class Renderer(validated: Dashboard.Validated) {
       container: NodeId,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): HostContent =
     members.setContainer(container) match {
       case Some(setId) =>
@@ -920,7 +920,7 @@ class Renderer(validated: Dashboard.Validated) {
   def renderInputs(
       id: NodeId,
       states: Map[String, EntityState],
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[RenderInputs] =
     members.nodeAt(id, states) match {
       case Some((m, c)) =>
@@ -934,7 +934,7 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, c.queries)
+            fragments.versions(id, c.fetches)
           )
         )
       case None =>
@@ -942,7 +942,7 @@ class Renderer(validated: Dashboard.Validated) {
           case (c: LayoutNode.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, states),
-              fragments.versions(id, c.queries)
+              fragments.versions(id, c.fetches)
             )
         }
     }
@@ -962,7 +962,7 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] def byteSlotValues(
       id: NodeId,
       states: Map[String, EntityState],
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[Map[String, String]] =
     allIndexed.get(id).flatMap {
       case (c: LayoutNode.Component, _) if hasOwnRendering(id) =>
@@ -1013,7 +1013,7 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState],
       selections: Selections,
       form: SlotForm,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[String] = node match {
     case c: LayoutNode.Component if form.isPatch =>
       val plan = planOf(id, c, states)
@@ -1063,7 +1063,7 @@ class Renderer(validated: Dashboard.Validated) {
       idPrefix: String,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       within: WalkAt = WalkAt.Static
   ): Traced = {
     val trace = new Trace
@@ -1090,7 +1090,7 @@ class Renderer(validated: Dashboard.Validated) {
       idPrefix: String,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       trace: Trace,
       within: WalkAt
   ): String = {
@@ -1127,7 +1127,7 @@ class Renderer(validated: Dashboard.Validated) {
       idPrefix: String,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       trace: Trace,
       within: WalkAt = WalkAt.Static
   ): Unit =
@@ -1359,7 +1359,7 @@ class Renderer(validated: Dashboard.Validated) {
       setId: SetId,
       entityId: String,
       states: Map[String, EntityState],
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[String] =
     members
       .membersOf(setId, states)
@@ -1616,9 +1616,9 @@ class Renderer(validated: Dashboard.Validated) {
                 if (slot == Dashboard.SubjectSlot) source.entityId
                 else source.entityId.orElse(subject)
               // `once` reads only identity, so the plan holds it; the memo is
-              // keyed by entity, which is why a query slot never enters it.
+              // keyed by entity, which is why a fetch slot never enters it.
               source.shape match
-                case SlotShape.Query(_)  => dynB += ((slot, srcEntity, planned))
+                case SlotShape.Fetch(_)  => dynB += ((slot, srcEntity, planned))
                 case SlotShape.State(st) =>
                   if (st.reads == Reads.Once) {
                     val once = identityCache.computeIfAbsent(
@@ -1691,7 +1691,7 @@ class Renderer(validated: Dashboard.Validated) {
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Resolved = {
     if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex, fragments)
     else resolvePlannedSubject(plan, states, bakeIndex, fragments)
@@ -1701,7 +1701,7 @@ class Renderer(validated: Dashboard.Validated) {
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Resolved = {
     // The only map a paint builds.
     val paintB = Map.newBuilder[String, SlotValue]
@@ -1736,7 +1736,7 @@ class Renderer(validated: Dashboard.Validated) {
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Resolved = {
     val injected = plan.structural ++ bakeIndex
     val slots = plan.slots
@@ -1869,14 +1869,14 @@ class Renderer(validated: Dashboard.Validated) {
       srcEntity: Option[String],
       source: Planned,
       states: Map[String, EntityState],
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       node: NodeId
   ): String =
     SlotValue.text(
       resolveSlotValue(srcEntity, source, states, fragments, node)
     )
 
-  /** For sites that can never hold a query slot (subject, `once`, signal):
+  /** For sites that can never hold a fetch slot (subject, `once`, signal):
     * taking no snapshot means a site that gains one stops compiling.
     */
   private def resolveStateSlot(
@@ -1892,11 +1892,11 @@ class Renderer(validated: Dashboard.Validated) {
       srcEntity: Option[String],
       source: Planned,
       states: Map[String, EntityState],
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       node: NodeId
   ): SlotValue = source.source.shape match {
-    // Answered before the walk began; `QuerySnapshot` raises on a miss.
-    case SlotShape.Query(ask) => fragments.value(node, ask)
+    // Answered before the walk began; `FetchSnapshot` raises on a miss.
+    case SlotShape.Fetch(ask) => fragments.value(node, ask)
     case SlotShape.State(_) => resolveStateSlotValue(srcEntity, source, states)
   }
 
@@ -1957,7 +1957,7 @@ object Renderer {
   private[runtime] def subtreeAsks(node: LayoutNode): List[SlotAsk] =
     node match {
       case c: LayoutNode.Component =>
-        c.queries ++ c.allChildren.flatMap(subtreeAsks)
+        c.fetches ++ c.allChildren.flatMap(subtreeAsks)
       case _: LayoutNode.SetNode => Nil
     }
 

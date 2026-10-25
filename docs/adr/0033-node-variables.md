@@ -1,6 +1,6 @@
 # ADR 0033 — A node variable: declared by a node, read by name, chosen per viewer
 
-A node **declares** a named value, a descendant's query **reads** it by name, and a viewer's
+A node **declares** a named value, a descendant's fetch **reads** it by name, and a viewer's
 choice **writes** it for that viewer's session. Resolution is up the ancestor chain, at build time.
 Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it replaces the
 `settable` draft of [#210](https://github.com/perok/functional-home-assistant/issues/210).
@@ -20,10 +20,10 @@ own.
 
 The window is a per-viewer choice the SERVER must know before it renders: the first HTML is
 complete (architecture §0), so a chart cannot be a hole filled after load. The value has to reach
-`queriesForPage` before the walk starts.
+`fetchesForPage` before the walk starts.
 
-The property worth keeping is the one architecture §6's barrier leans on: `QuerySnapshot` is total
-over the queries a render reads, which is only expressible while that set is **known before the
+The property worth keeping is the one architecture §6's barrier leans on: `FetchSnapshot` is total
+over the fetches a render reads, which is only expressible while that set is **known before the
 walk**. A reference matched by string convention in the browser, or buried in a CEL string, could
 not be enumerated there. A declared reference can.
 
@@ -81,9 +81,9 @@ groups, a path only a write has. An initial value is not a choice: no `v.` param
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
 default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
-**Reference.** A query parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
+**Reference.** A fetch parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
 string is a literal and `{"var": "window"}` a reference, the rule `SlotSource`'s decoder already
-used, so slots that do not use this did not move. `QueryTemplate` is the authored query,
+used, so slots that do not use this did not move. `FetchTemplate` is the authored fetch,
 references unresolved; `SlotAsk` is a slot's ask as the TREE states it; `SlotRead` is that ask
 resolved for one render, and is still what every cache keys on.
 
@@ -124,7 +124,7 @@ a route or a signal name is a string inside a slot, which the renderer never par
 unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the DOM.
 
 **One typed value on each side, never a bare name.** A component holds a variable as a
-`varMod.Variable`: its `ref` for a query parameter, `declarer` for a node below, its signals and URL
+`varMod.Variable`: its `ref` for a fetch parameter, `declarer` for a node below, its signals and URL
 param spelled from the declarer's own template (`own`) or from below it (`below`), the `selects`
 activation of a panel, `defaultingTo(value)` for the node's `vars`, and `choose(value)` for a guarded
 tap. So a component writes the name once, and a misspelt signal cannot exist. The server's half
@@ -137,7 +137,7 @@ a write selects. `VarSignalNamesSuite` reads a real page's names and holds the t
 by declarer is what makes a shadow safe from the write side: choosing on an outer panel cannot
 move a chart that declares its own. The declared value fills everything not chosen, so the
 environment is total over declarations and no reader handles a missing one. It travels INSIDE
-`QuerySnapshot`, so the answers and the values they were fetched for are one value, and a lookup
+`FetchSnapshot`, so the answers and the values they were fetched for are one value, and a lookup
 against a different environment is not representable.
 
 **It arrives three ways and passes one check.** `POST /sse/var/:slug/:declarer/:name/:value` while
@@ -149,7 +149,7 @@ declared value. Each is adopted on its own, so one stale value costs only its ow
 session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
 `Renderer.refusals`: every declared reader must still parse what it would then ask, and read only
-an entity the dashboard names or one of its queries names at its declared values — ADR 0023's
+an entity the dashboard names or one of its fetches names at its declared values — ADR 0023's
 bound on the read side, because a `Ref` is legal on any parameter and a variable fed to `entity`
 would otherwise chart the lock from a `Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own
@@ -215,7 +215,7 @@ cannot say "a number in a range" or "an entity id".
 **Totality in the build.** The first cut enumerated each variable's values so the build's parsed
 request map would hold whatever a viewer later picked, which forced every author to list values
 they might not have. A value is untrusted input per session; the build now parses the DECLARED
-values, which it does decide, and the write refuses what would not parse. `Validated.queries` is a
+values, which it does decide, and the write refuses what would not parse. `Validated.fetches` is a
 memo, not a totality proof — a read it has not seen is parsed on the spot.
 
 **Doing it in the browser.** A client signal and a POST for a patched chart: no declaration, no
@@ -263,12 +263,12 @@ instead.
   value, and a session this process forgot adopts it as a choice, initial value or not.
 - **One place an initial transform does nothing.** Rows that are `.fromChooser()` follow the head, which starts
   from the group entity's state, not each bulb's.
-- **The render key gained nothing.** A query parameter reads a variable as a `SlotRead`, and a
+- **The render key gained nothing.** A fetch parameter reads a variable as a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
   already produce different `SlotRead`s, which the render key and both caches
   distinguish. Measured: two windows over one sensor are unordered in `RenderCache`, so
   alternating viewers re-render each time — a mustache splice of SVG already drawn, since
-  `renderNodeById` takes a `QuerySnapshot` and cannot fetch or draw. No bucketing; reopen only if
+  `renderNodeById` takes a `FetchSnapshot` and cannot fetch or draw. No bucketing; reopen only if
   a profile puts a chart node's paint somewhere it shows.
 - **A write is an update, not a first paint**, so a new chart may land after the press; ADR 0025's
   pending value keeps the press instant meanwhile.

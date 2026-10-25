@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -211,7 +211,7 @@ class LiveStreamSuite extends ServerHarness {
         .renderNodeById(
           "s_det__c_0",
           Map("sensor.a" -> es("sensor.a", "cold")),
-          fragments = QuerySnapshot.empty
+          fragments = FetchSnapshot.empty
         )
         .get
     )
@@ -333,7 +333,7 @@ class LiveStreamSuite extends ServerHarness {
           Some("then"),
           armed,
           Selections.none,
-          fragments = QuerySnapshot.empty
+          fragments = FetchSnapshot.empty
         )
         .get
 
@@ -342,12 +342,12 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed, fragments = QuerySnapshot.empty)
+      r.renderNodeById(leaf, armed, fragments = FetchSnapshot.empty)
         .map(Held.of)
     )
     val root = NodeId.derived("s_then__c")
     assertEquals(
-      r.renderNodeById(root, armed, fragments = QuerySnapshot.empty),
+      r.renderNodeById(root, armed, fragments = FetchSnapshot.empty),
       None
     )
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
@@ -371,7 +371,7 @@ class LiveStreamSuite extends ServerHarness {
     val holds: Map[NodeId, Held] =
       Map(
         host -> Held.of(
-          r.renderNodeById(host, states, fragments = QuerySnapshot.empty).get
+          r.renderNodeById(host, states, fragments = FetchSnapshot.empty).get
         )
       )
     val owed = resumeNow(
@@ -417,7 +417,7 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderNodeById(id, before, mine, fragments = QuerySnapshot.empty)
+      r.renderNodeById(id, before, mine, fragments = FetchSnapshot.empty)
         .map(h => id -> Held.of(h))
     }.toMap
 

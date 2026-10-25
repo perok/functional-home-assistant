@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -142,7 +142,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           log,
           holds,
           states,
-          _ => IO.pure(QuerySnapshot.empty),
+          _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           v,
           open,
@@ -624,7 +624,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           Tracer.noop,
           Logging.console,
           Meters.noop,
-          queries = None
+          fetches = None
         )
         .use(server =>
           // Scoped to `use`: its connect fibers must be gone before the

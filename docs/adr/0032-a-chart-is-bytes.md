@@ -149,7 +149,7 @@ to a base `--fh-*` token; text inherits the page's font. `ChartSuite` fails on a
 - **A chart is an ordinary leaf card.** It patches, caches, digests, resumes and survives a morph
   like any other node, needs nothing vendored into `AssetCache`, and works with JS off.
 - **The drawing is a transform STAGE, not the provider's job** — see
-  [ADR 0031](0031-a-query-is-a-second-shape-of-slot.md). This ADR owns *how* a chart is made; that
+  [ADR 0031](0031-a-fetch-is-a-second-shape-of-slot.md). This ADR owns *how* a chart is made; that
   one owns *whose job it is*.
 - **Open: a chart does not truly resize.** It is drawn once at a fixed size (400×160 by
   default, `c.historyChart(s).size(w, h)` to override) and the browser scales the whole
@@ -157,7 +157,7 @@ to a base `--fh-*` token; text inherits the page's font. `ChartSuite` fails on a
   the first HTML must be complete. Real resizing means laying the chart out at its real width,
   and the candidates are: several widths drawn into one card with a container query picking one
   (first-paint-correct, shared bytes, ~3× the SVG); the client reporting its width as a node
-  variable, bucketed, so a resize is a re-query (exact, but the first paint guesses); a
+  variable, bucketed, so a resize is a re-fetch (exact, but the first paint guesses); a
   stretching plot with HTML axis labels (one drawing, but we pick the ticks — what "why not
   hand-rolled SVG" rejects); or drawing in the browser as recorded below, which would make this
   server drawing the no-JS fallback rather than the chart. Not decided; explore before building.

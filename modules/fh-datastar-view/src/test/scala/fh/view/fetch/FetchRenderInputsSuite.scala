@@ -1,6 +1,6 @@
-package fh.view.query
+package fh.view.fetch
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
@@ -14,10 +14,10 @@ import fh.view.model.{
   Predicate,
   Reads,
   SignalBind,
-  QueryTemplate,
+  FetchTemplate,
   Ref as SlotRef,
   SlotAsk,
-  SlotQuery,
+  SlotFetch,
   SlotRead,
   Region,
   SlotShape,
@@ -36,16 +36,16 @@ import fh.view.testkit.DashboardBuilders.declared
 
 import java.time.Instant
 
-/** A node reading a query contributes nothing to candidacy and everything to
+/** A node reading a fetch contributes nothing to candidacy and everything to
   * the render key.
   */
-class QueryRenderInputsSuite extends munit.CatsEffectSuite {
+class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
   /** All-literal parameters resolve to themselves in any environment, so the
-    * assertions stay about the query slot, not variables.
+    * assertions stay about the fetch slot, not variables.
     */
   private def chart(window: String = "24h") =
-    QueryTemplate(
+    FetchTemplate(
       "history",
       Map(
         "entity" -> SlotRef.Literal("sensor.t"),
@@ -55,7 +55,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   /** What the caches and the render key see. */
   private def resolved(window: String = "24h") =
-    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window))
+    SlotFetch("history", Map("entity" -> "sensor.t", "window" -> window))
 
   private def ask(window: String = "24h", width: Int = 600) =
     SlotAsk(chart(window), drawn(width))
@@ -71,7 +71,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def chartSource(window: String = "24h", width: Int = 600) =
     SlotSource(
-      query = Some(chart(window)),
+      fetch = Some(chart(window)),
       transform = drawn(width),
       reads = Reads.OnRender
     )
@@ -86,10 +86,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       )
     )
 
-  test("a query slot does not make its node a live candidate") {
+  test("a fetch slot does not make its node a live candidate") {
     // A state tick does not re-render a chart, so a sensor moving every second
     // does not re-fetch its history every second. Both entity lists come from
-    // state slots, and a query slot is not one, even at `reads`'s `live`
+    // state slots, and a fetch slot is not one, even at `reads`'s `live`
     // default.
     assertEquals(chartNode().liveEntities, List("sensor.t")) // from `name`
     assertEquals(
@@ -106,14 +106,14 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  test("a query slot is not a signal slot, whatever it says") {
-    // A `SlotShape.Query` has no signal to read, so the signal path cannot
+  test("a fetch slot is not a signal slot, whatever it says") {
+    // A `SlotShape.Fetch` has no signal to read, so the signal path cannot
     // reach it; no rule is needed.
     val src = chartSource().copy(
       signal = Some(SignalBind.Text),
       reads = Reads.Live
     )
-    assertEquals(BoundSlot(src, Map.empty).shape, SlotShape.Query(ask()))
+    assertEquals(BoundSlot(src, Map.empty).shape, SlotShape.Fetch(ask()))
     assertEquals(
       LayoutNode
         .Component(card = "c", slots = Map("chart" -> src))
@@ -122,8 +122,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  test("a node's queries are its query slots, deduplicated") {
-    assertEquals(chartNode().queries, List(ask()))
+  test("a node's fetches are its fetch slots, deduplicated") {
+    assertEquals(chartNode().fetches, List(ask()))
     val two = LayoutNode.Component(
       card = "twoCharts",
       slots = Map(
@@ -132,18 +132,18 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         "c" -> chartSource("30d")
       )
     )
-    assertEquals(two.queries.toSet, Set(ask("1h"), ask("30d")))
+    assertEquals(two.fetches.toSet, Set(ask("1h"), ask("30d")))
   }
 
   test("the answers a render holds are total, and a miss is loud") {
     // A render has every answer or never starts (architecture §0), so an
-    // unresolved query is loud, not an empty hole.
+    // unresolved fetch is loud, not an empty hole.
     val q = read()
-    val f = QuerySnapshot.of(Map(q -> Staged(100L, "<svg/>")))
+    val f = FetchSnapshot.of(Map(q -> Staged(100L, "<svg/>")))
     assertEquals(f.versions("c_0", List(ask())), Map(q -> 100L))
     assertEquals(f.value("c_0", ask()), "<svg/>")
 
-    val miss = intercept[FHError](QuerySnapshot.empty.value("c_0", ask()))
+    val miss = intercept[FHError](FetchSnapshot.empty.value("c_0", ask()))
     assertEquals(miss.status, 500)
     assert(miss.getMessage.contains("not resolved for this render"))
   }
@@ -168,13 +168,13 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches: Ref[IO, Int],
       draws: Ref[IO, Int],
       failWidth: Option[Int] = None
-  ): IO[QueryResolver] =
+  ): IO[FetchResolver] =
     for {
       history <- History.create(
         source((_, _) => fetches.update(_ + 1).as(Nil)),
         now = IO.pure(Instant.EPOCH)
       )
-      r <- QueryResolver.create(
+      r <- FetchResolver.create(
         history,
         IO.pure((_, style) =>
           draws.update(_ + 1) *>
@@ -187,7 +187,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def plan(reads: SlotRead*) =
     reads
-      .map(r => r -> Queries.parse(r.query).fold(e => fail(e), identity))
+      .map(r => r -> Fetches.parse(r.fetch).fold(e => fail(e), identity))
       .toMap
 
   test("two sizes of one window are ONE fetch and TWO drawings") {
@@ -197,12 +197,12 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws)
-      f <- QuerySnapshot.resolve(
+      f <- FetchSnapshot.resolve(
         r,
         plan(wide, narrow),
         List(wide, narrow),
         Map.empty,
-        QueryIdentity.Instance
+        FetchIdentity.Instance
       )
       counts <- (fetches.get, draws.get).tupled
     } yield {
@@ -217,7 +217,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // drawings apart.
     def sensor(e: String) =
       SlotAsk(
-        QueryTemplate(
+        FetchTemplate(
           "history",
           Map(
             "entity" -> SlotRef.Literal(e),
@@ -237,16 +237,16 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         },
         now = IO.pure(Instant.EPOCH)
       )
-      r <- QueryResolver.create(
+      r <- FetchResolver.create(
         history,
         IO.pure((s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
       )
-      f <- QuerySnapshot.resolve(
+      f <- FetchSnapshot.resolve(
         r,
         plan(reads*),
         reads,
         Map.empty,
-        QueryIdentity.Instance
+        FetchIdentity.Instance
       )
     } yield {
       assertEquals(f.value("n", a), "<svg>1.0</svg>")
@@ -262,12 +262,12 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws)
-      f <- QuerySnapshot.resolve(
+      f <- FetchSnapshot.resolve(
         r,
         plan(raw),
         List(raw),
         Map.empty,
-        QueryIdentity.Instance
+        FetchIdentity.Instance
       )
       d <- draws.get
     } yield {
@@ -289,12 +289,12 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws, failWidth = Some(1))
-      f <- QuerySnapshot.resolve(
+      f <- FetchSnapshot.resolve(
         r,
         plan(ok, bad),
         List(ok, bad),
         Map.empty,
-        QueryIdentity.Instance
+        FetchIdentity.Instance
       )
     } yield {
       assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
@@ -307,8 +307,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  private def key(queries: (SlotRead, Long)*) =
-    RenderInputs(Map("sensor.t" -> 1L), queries.toMap)
+  private def key(fetches: (SlotRead, Long)*) =
+    RenderInputs(Map("sensor.t" -> 1L), fetches.toMap)
 
   test("a later version is ahead of an earlier one") {
     assert(key(read() -> 200L).isAtLeast(key(read() -> 100L)))
@@ -316,23 +316,23 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assert(key(read() -> 100L).isAtLeast(key(read() -> 100L)))
   }
 
-  test("different queries are not ordered, so neither overwrites the other") {
+  test("different fetches are not ordered, so neither overwrites the other") {
     // Unordered means separate generations; otherwise one viewer is served a
     // chart of the wrong span, silently.
     assert(!key(read("24h") -> 100L).isAtLeast(key(read("1h") -> 100L)))
     assert(!key(read("1h") -> 100L).isAtLeast(key(read("24h") -> 100L)))
   }
 
-  test("gaining a query is not being ahead") {
+  test("gaining a fetch is not being ahead") {
     assert(!key(read() -> 100L).isAtLeast(key()))
     assert(!key().isAtLeast(key(read() -> 100L)))
   }
 
-  test("a moved query alone moves the key, with state standing still") {
+  test("a moved fetch alone moves the key, with state standing still") {
     assertNotEquals(key(read() -> 100L), key(read() -> 200L))
   }
 
-  test("a surface's queries are found before it is rendered") {
+  test("a surface's fetches are found before it is rendered") {
     // More-info is a triggered surface, so what it reads must be answerable
     // from the static tree: a render is a synchronous string build, a provider
     // `IO`.
@@ -355,7 +355,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
                   card = "chart",
                   slots = Map(
                     "chart" -> SlotSource(
-                      query = Some(chart()),
+                      fetch = Some(chart()),
                       transform = drawn(),
                       reads = Reads.OnRender
                     )
@@ -369,11 +369,11 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     )
     val r = Renderer.create(d)
     assertEquals(
-      r.queriesForSurface("popup", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface("popup", Map.empty, Selections.none, Map.empty),
       List(read())
     )
     assertEquals(
-      r.queriesForSurface("nope", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface("nope", Map.empty, Selections.none, Map.empty),
       Nil
     )
   }
@@ -436,8 +436,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     def light(s: String) =
       Map("light.a" -> EntityState("light.a", s, Map.empty))
     def windows(selected: String, states: Map[String, EntityState]) =
-      r.queriesForPage(Set(selected), states, Map.empty)
-        .map(_.query.params("window"))
+      r.fetchesForPage(Set(selected), states, Map.empty)
+        .map(_.fetch.params("window"))
         .toSet
     assertEquals(windows("t0", light("on")), Set("1h", "24h"))
     assertEquals(windows("t1", light("off")), Set("7d", "30d"))
@@ -454,15 +454,15 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // blank chart with nothing saying why.
     val errs = dashboard(
       SlotSource(
-        query = Some(QueryTemplate("forecast", Map.empty)),
+        fetch = Some(FetchTemplate("forecast", Map.empty)),
         reads = Reads.OnRender
       )
     ).validate()
-    assert(errs.exists(_.contains("unknown query provider")), clue = errs)
+    assert(errs.exists(_.contains("unknown fetch provider")), clue = errs)
     assert(errs.exists(_.contains("history")), clue = errs)
   }
 
-  test("an ESCAPED hole for a query slot is a build error") {
+  test("an ESCAPED hole for a fetch slot is a build error") {
     // Otherwise `{{chart}}` renders `&lt;svg …` as text.
     def errsFor(hole: String) =
       Dashboard(
@@ -483,9 +483,9 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
-  test("a query slot whose wire says 'live' is rejected as untruthful") {
-    // Inert, since a `SlotShape.Query` never reads it: this keeps the wire from
-    // lying. The Pkl default derives `onRender` from the query.
+  test("a fetch slot whose wire says 'live' is rejected as untruthful") {
+    // Inert, since a `SlotShape.Fetch` never reads it: this keeps the wire from
+    // lying. The Pkl default derives `onRender` from the fetch.
     val errs = dashboard(
       chartSource().copy(reads = Reads.Live)
     ).validate()
@@ -496,7 +496,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // Parsing is pure, so a dashboard is checked wherever it is built.
     val errs = dashboard(
       SlotSource(
-        query = Some(QueryTemplate("history", Map())),
+        fetch = Some(FetchTemplate("history", Map())),
         reads = Reads.OnRender
       )
     )

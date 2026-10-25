@@ -22,8 +22,8 @@ typealias Window = "1h"|"24h"|"7d"|"30d"
 /// The `history` provider's question: one entity over one window. The window
 /// may be a read of a declared variable ([[varMod.Variable.ref]]); the entity may not, because
 /// substituting it is an access question (ADR 0023).
-const function historyQuery(entityId: String, w: Window|varMod.Ref): slotMod.Slot =
-  slotMod.querySlot("history", new Mapping {
+const function historyFetch(entityId: String, w: Window|varMod.Ref): slotMod.Slot =
+  slotMod.fetchSlot("history", new Mapping {
     ["entity"] = entityId
     ["window"] = w
   })
@@ -68,7 +68,7 @@ const function chartSlot(
   w: Window|varMod.Ref,
   unit: String?
 ): slotMod.Slot =
-  (historyQuery(entityId, w)) {
+  (historyFetch(entityId, w)) {
     transform = chartStage(null, null, unit)
   }
 
@@ -93,7 +93,7 @@ class HistoryChart extends nodes.Node {
 
   /// The window drawn, or a READ of a node variable holding one. A reference
   /// is not narrowed to [[Window]]: the write boundary checks it against
-  /// `HistoryQuery.parse`, the one list.
+  /// `HistoryFetch.parse`, the one list.
   hidden window: Window|varMod.Ref = "24h"
 
   /// The drawing's own size in SVG units; null for the backend's default. The
@@ -103,7 +103,7 @@ class HistoryChart extends nodes.Node {
   hidden chartHeight: Int(isPositive)? = null
 
   slots {
-    ["chart"] = (historyQuery(entity.entity_id, window)) {
+    ["chart"] = (historyFetch(entity.entity_id, window)) {
       transform = chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
     }
   }
@@ -122,9 +122,9 @@ class HistoryChart extends nodes.Node {
 /// The history answer as data rather than a drawing: now, low and high over
 /// the window — the worked example of the passthrough stage.
 ///
-/// A query slot is bytes, never a signal (ADR 0031), so the card lifts the
+/// A fetch slot is bytes, never a signal (ADR 0031), so the card lifts the
 /// JSON into a client-only signal itself, `data-signals:_hist_<id>` over an
-/// escaped hole. A re-query morphs the attribute, and Datastar re-applies a
+/// escaped hole. A re-fetch morphs the attribute, and Datastar re-applies a
 /// changed `data-*` attribute, so every reading re-runs. The JSON is the
 /// history provider's `{"points": [[epochMillis, value], …]}`.
 class HistoryReadings extends nodes.Node {
@@ -156,8 +156,8 @@ class HistoryReadings extends nodes.Node {
     ["entity_id"] = entity.entity_id
     ["label"] = slotMod.labelSlot(entity, null)
     ["unit"] = entity.unit_of_measurement ?? ""
-    // No `transform`: a query slot's default stage is passthrough.
-    ["readings"] = historyQuery(entity.entity_id, window)
+    // No `transform`: a fetch slot's default stage is passthrough.
+    ["readings"] = historyFetch(entity.entity_id, window)
   }
 
   function over(w: Window|varMod.Ref): HistoryReadings = let (self = this) (self) { window = w }

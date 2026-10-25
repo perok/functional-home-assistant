@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
 import fh.view.model.NodeId
@@ -64,7 +64,7 @@ class ResumePatchesSuite extends munit.FunSuite {
             log,
             Map.empty,
             states,
-            _ => IO.pure(QuerySnapshot.empty),
+            _ => IO.pure(FetchSnapshot.empty),
             Map.empty,
             v
           )

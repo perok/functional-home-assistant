@@ -91,7 +91,7 @@ open class Click extends TapAction {
   onclick: slotMod.Slot|String
 }
 
-/// Guarded like a [[Call]]: the open answers only once the surface's queries
+/// Guarded like a [[Call]]: the open answers only once the surface's fetches
 /// have resolved, and a chart's history fetch is a wait worth showing (#412).
 class OpenSurface extends Click {
   busy = true

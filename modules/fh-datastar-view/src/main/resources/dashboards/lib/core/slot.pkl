@@ -16,10 +16,10 @@ import "variable.pkl" as varMod
 /// The object form of a slot (`fh.view.model.SlotSource`).
 class Slot {
   entityId: String? = null
-  /// CEL, a [[simpleMod.Simple]], or on a query slot a [[stageMod.Stage]] over
+  /// CEL, a [[simpleMod.Simple]], or on a fetch slot a [[stageMod.Stage]] over
   /// the provider's answer.
   transform: (String|simpleMod.Simple|stageMod.Stage) =
-    if (query == null) "state" else stageMod.passthrough
+    if (fetch == null) "state" else stageMod.passthrough
   default: String? = null
   bypassUnavailable: Boolean = true
   /// When this value is read, and whether a change is a reason to re-render:
@@ -31,8 +31,8 @@ class Slot {
   ///     WHICH entity this is (a service from `domain`). A rename would not
   ///     show until the dashboard rebuilds.
   ///
-  /// A query slot is `onRender`: a provider's answer is never pushed.
-  reads: "live"|"onRender"|"once" = if (query == null) "live" else "onRender"
+  /// A fetch slot is `onRender`: a provider's answer is never pushed.
+  reads: "live"|"onRender"|"once" = if (fetch == null) "live" else "onRender"
   /// Carry the value as a Datastar signal rather than bytes, so a change costs a
   /// frame entry instead of a re-render (ADR 0017). The template must place
   /// [[signalBind]] for this slot; the backend rejects it otherwise.
@@ -41,25 +41,25 @@ class Slot {
   /// `"false"` would be truthy; the build refuses a reading that is not one.
   /// Null is text; a `class:` binding is a bool by kind.
   type: SlotType? = null
-  /// Makes this a query slot, read from a provider rather than live state
-  /// (`components/history.pkl`'s `chartSlot`, or [[querySlot]]).
-  query: Query? = null
+  /// Makes this a fetch slot, read from a provider rather than live state
+  /// (`components/history.pkl`'s `chartSlot`, or [[fetchSlot]]).
+  fetch: Fetch? = null
 }
 
-/// A read of a named provider, checked by the backend's `Queries.parse`.
-class Query {
+/// A read of a named provider, checked by the backend's `Fetches.parse`.
+class Fetch {
   provider: String
   /// A value, or a read of a node variable ([[varMod.Variable.ref]]). The backend
-  /// refuses a variable value that would make the query read an entity its
+  /// refuses a variable value that would make the fetch read an entity its
   /// dashboard does not show (ADR 0023).
   params: Mapping<String, String|varMod.Ref>
 }
 
-const function querySlot(
+const function fetchSlot(
   name: String,
   args: Mapping<String, String|varMod.Ref>
 ): Slot =
-  new Slot { query = new Query { provider = name; params = args } }
+  new Slot { fetch = new Fetch { provider = name; params = args } }
 
 typealias SlotType = "text"|"bool"
 
@@ -224,7 +224,7 @@ typealias Secondary = String|Expr|Slot
 /// `textMod.liveRun` under [[ifSlot]].
 const function secondarySlot(s: Secondary): String|Slot =
   if (s is Expr) new Slot { entityId = s.entityId; transform = s.transform; default = ""; signal = asText }
-  else if (s is Slot && s.query == null && s.reads == "live" && s.signal == null) (s) { signal = asText }
+  else if (s is Slot && s.fetch == null && s.reads == "live" && s.signal == null) (s) { signal = asText }
   else s
 
 /// One attribute of the card's entity, blank when absent:

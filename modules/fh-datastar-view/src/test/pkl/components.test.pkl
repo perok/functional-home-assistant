@@ -269,7 +269,7 @@ facts {
       == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
-    body.children[1].children[0].slots["chart"].query.params["window"].`var`
+    body.children[1].children[0].slots["chart"].fetch.params["window"].`var`
       == "window"
   }
 
@@ -281,10 +281,10 @@ facts {
     // name between them — which is the property, not the string: an author
     // cannot misspell one side of this pair because neither side is typed.
     defaults.apply(picked) == Map("window", "24h")
-    picked.children[0].slots["chart"].query.params["window"].`var` == "window"
+    picked.children[0].slots["chart"].fetch.params["window"].`var` == "window"
     // The entity is still written down beside it. Only a declared variable is
     // writable, so this chart's subject has nowhere for a write to land.
-    picked.children[0].slots["chart"].query.params["entity"] == "sensor.power"
+    picked.children[0].slots["chart"].fetch.params["entity"] == "sensor.power"
   }
 
   ["a chart's size is the author's to set, and unset leaves the backend's"] {
@@ -293,7 +293,7 @@ facts {
     wide.slots["chart"].transform.params.height == 200
     // A size is how the answer is DRAWN, so the question stays the same one:
     // two sizes of a chart share one fetch.
-    wide.slots["chart"].query == c.historyChart(power).slots["chart"].query
+    wide.slots["chart"].fetch == c.historyChart(power).slots["chart"].fetch
     c.historyChart(power).slots["chart"].transform.params.width == null
   }
 

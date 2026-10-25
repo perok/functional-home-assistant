@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.unsafe.implicits.global
@@ -212,14 +212,14 @@ class RenderInputsSuite extends munit.FunSuite {
       (a, i) <- line.zipWithIndex
       (b, j) <- line.zipWithIndex
       key <- renderer
-        .renderInputs(id, a, fragments = QuerySnapshot.empty)
+        .renderInputs(id, a, fragments = FetchSnapshot.empty)
         .toList
       if renderer
-        .renderInputs(id, b, fragments = QuerySnapshot.empty)
+        .renderInputs(id, b, fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
-      renderer.renderNodeById(id, a, fragments = QuerySnapshot.empty),
-      renderer.renderNodeById(id, b, fragments = QuerySnapshot.empty),
+      renderer.renderNodeById(id, a, fragments = FetchSnapshot.empty),
+      renderer.renderNodeById(id, b, fragments = FetchSnapshot.empty),
       clue =
         s"$id keyed identically at steps $i and $j but rendered differently"
     )
@@ -231,7 +231,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // property above covers soundness if this narrowing goes too far.
     val key =
       renderer
-        .renderInputs("c_4", line.head, fragments = QuerySnapshot.empty)
+        .renderInputs("c_4", line.head, fragments = FetchSnapshot.empty)
         .get
     assertEquals(key.entities.keySet, Set("sensor.t"))
   }
@@ -252,11 +252,11 @@ class RenderInputsSuite extends munit.FunSuite {
       ra = Renderer.create(dashboard)
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
-      key <- ra.renderInputs(id, a, fragments = QuerySnapshot.empty).toList
-      if rb.renderInputs(id, b, fragments = QuerySnapshot.empty).contains(key)
+      key <- ra.renderInputs(id, a, fragments = FetchSnapshot.empty).toList
+      if rb.renderInputs(id, b, fragments = FetchSnapshot.empty).contains(key)
     } assertEquals(
-      ra.renderNodeById(id, a, fragments = QuerySnapshot.empty),
-      rb.renderNodeById(id, b, fragments = QuerySnapshot.empty),
+      ra.renderNodeById(id, a, fragments = FetchSnapshot.empty),
+      rb.renderNodeById(id, b, fragments = FetchSnapshot.empty),
       clue =
         s"$entity keyed identically at steps $i and $j but rendered differently"
     )
@@ -264,7 +264,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   test("the key is not trivially discriminating — it hits where it must") {
     def key(id: NodeId, at: Int) =
-      renderer.renderInputs(id, line(at), fragments = QuerySnapshot.empty).get
+      renderer.renderInputs(id, line(at), fragments = FetchSnapshot.empty).get
 
     // Without this the cache would miss on every HA reconnect.
     assertEquals(key("c_0", 1), key("c_0", 2))
@@ -275,12 +275,12 @@ class RenderInputsSuite extends munit.FunSuite {
   test("an absent entity keys differently from any version it could hold") {
     val absent =
       renderer
-        .renderInputs("c_0", Map.empty, fragments = QuerySnapshot.empty)
+        .renderInputs("c_0", Map.empty, fragments = FetchSnapshot.empty)
         .get
     assertNotEquals(
       absent,
       renderer
-        .renderInputs("c_0", line.head, fragments = QuerySnapshot.empty)
+        .renderInputs("c_0", line.head, fragments = FetchSnapshot.empty)
         .get
     )
     // No entry at all, so no stamp can collide with it.
@@ -292,7 +292,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // excludes children, so it cannot be cached: `None`, not a key a caller
     // must know not to trust.
     assertEquals(
-      renderer.renderInputs("c", line.head, fragments = QuerySnapshot.empty),
+      renderer.renderInputs("c", line.head, fragments = FetchSnapshot.empty),
       None
     )
     assertNotEquals(
@@ -331,24 +331,24 @@ class RenderInputsSuite extends munit.FunSuite {
   test("a bake owner with a live signal of its own has no key either") {
     val tabs = Renderer.create(tabsOwner)
     assertEquals(
-      tabs.renderInputs("c", line.head, fragments = QuerySnapshot.empty),
+      tabs.renderInputs("c", line.head, fragments = FetchSnapshot.empty),
       None
     )
     // Its element contains what it holds, so patching it would re-send that.
     assertEquals(
-      tabs.renderNodeById("c", line.head, fragments = QuerySnapshot.empty),
+      tabs.renderNodeById("c", line.head, fragments = FetchSnapshot.empty),
       None
     )
   }
 
   test("a node that composes rather than renders has no key") {
     assertEquals(
-      renderer.renderInputs("c_3", line.head, fragments = QuerySnapshot.empty),
+      renderer.renderInputs("c_3", line.head, fragments = FetchSnapshot.empty),
       None
     )
     assertEquals(
       renderer
-        .renderNodeById("c_3", line.head, fragments = QuerySnapshot.empty),
+        .renderNodeById("c_3", line.head, fragments = FetchSnapshot.empty),
       None
     )
   }
@@ -365,7 +365,7 @@ class RenderInputsSuite extends munit.FunSuite {
       assert(owners.nonEmpty, s"$label exercises no bake group at all")
       owners.foreach(id =>
         assertEquals(
-          r.renderInputs(id, states, fragments = QuerySnapshot.empty),
+          r.renderInputs(id, states, fragments = FetchSnapshot.empty),
           None,
           s"$label: bake owner '$id' has a cache key, but its bytes can carry " +
             "the viewer's selection"

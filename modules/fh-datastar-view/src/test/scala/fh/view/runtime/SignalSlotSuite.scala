@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -105,7 +105,7 @@ class SignalSlotSuite extends ServerHarness {
   test("the patch form carries neither the value nor the seed") {
     val patch =
       renderer
-        .renderNodeById(leaf, at("21.4"), fragments = QuerySnapshot.empty)
+        .renderNodeById(leaf, at("21.4"), fragments = FetchSnapshot.empty)
         .get
     assertEquals(patch.contains("21.4"), false, clue = patch)
     assertEquals(patch.contains("data-signals"), false, clue = patch)
@@ -130,17 +130,17 @@ class SignalSlotSuite extends ServerHarness {
     // check for it.
     val freeR = Renderer.create(plain)
     val free =
-      freeR.renderBodyTraced(at("21.4"), fragments = QuerySnapshot.empty)
+      freeR.renderBodyTraced(at("21.4"), fragments = FetchSnapshot.empty)
     val freeId = free.own.keys.head
     assert(
       free.own(freeId).digest == Digest.of(free.html),
       clue = "a signal-free node rendered twice"
     )
     val signalled =
-      renderer.renderBodyTraced(at("21.4"), fragments = QuerySnapshot.empty)
+      renderer.renderBodyTraced(at("21.4"), fragments = FetchSnapshot.empty)
     val signalledId = signalled.own.keys.head
     val signalledPatch = renderer
-      .renderNodeById(signalledId, at("21.4"), fragments = QuerySnapshot.empty)
+      .renderNodeById(signalledId, at("21.4"), fragments = FetchSnapshot.empty)
       .get
     assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
     assert(signalled.own(signalledId).digest != Digest.of(signalled.html))
@@ -504,7 +504,7 @@ class SignalSlotSuite extends ServerHarness {
       Sink.buffer(r.pageBytesHint),
       lit(40),
       Selections.none,
-      QuerySnapshot.empty
+      FetchSnapshot.empty
     )
     val out = resumeNow(
       r,
@@ -790,7 +790,7 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     val fill = r
-      .renderSurfaceTraced("panel", states, fragments = QuerySnapshot.empty)
+      .renderSurfaceTraced("panel", states, fragments = FetchSnapshot.empty)
       .map(_.html)
       .get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
