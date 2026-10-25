@@ -10,7 +10,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  SlotQuery,
+  SlotFetch,
   SlotRead,
   Transform
 }
@@ -319,7 +319,7 @@ class RenderCacheSuite extends munit.FunSuite {
     */
   private def readOf(window: String): SlotRead =
     SlotRead(
-      SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window)),
+      SlotFetch("history", Map("entity" -> "sensor.t", "window" -> window)),
       Transform.Stage.Passthrough
     )
 
@@ -360,7 +360,7 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("viewers on the SAME window still share one render") {
-    // The control: otherwise "4 renders" could mean the query half of the key
+    // The control: otherwise "4 renders" could mean the fetch half of the key
     // broke sharing outright.
     val renders = new AtomicInteger(0)
     val (served, count) = (for {

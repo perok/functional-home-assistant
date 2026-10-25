@@ -14,7 +14,7 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -83,7 +83,7 @@ class MemberNodesSuite extends ServerHarness {
     val painted =
       """id="([^"]+)"""".r.findAllMatchIn(html).map(_.group(1)).toList
     val leaves = painted.filter(id =>
-      r.renderNodeById(id, allOn, fragments = QuerySnapshot.empty).isDefined
+      r.renderNodeById(id, allOn, fragments = FetchSnapshot.empty).isDefined
     )
     // Two leaves per member, each renderable on its own.
     assertEquals(leaves.size, 2 * lights.size, clue = painted)

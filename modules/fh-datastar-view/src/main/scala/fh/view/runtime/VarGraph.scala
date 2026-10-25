@@ -79,7 +79,7 @@ object VarKey:
 /** Who sees which node variable, beside [[SurfaceGraph]] and [[MemberGraph]]:
   * scopes, a viewer's environment, and what a write reaches (ADR 0033).
   * `Renderer` renders with what it says and holds the write's check
-  * ([[Renderer.refusals]]), which needs the queries' parse.
+  * ([[Renderer.refusals]]), which needs the fetches' parse.
   *
   * @param scopes
   *   the model's ([[Dashboard.varScopes]]), every node with one, each set
@@ -87,7 +87,7 @@ object VarKey:
   * @param panelsSelected
   *   each variable-selected bake group, by the variable choosing its member.
   * @param asksAt
-  *   a node's query asks, a member's whole subtree included.
+  *   a node's fetch asks, a member's whole subtree included.
   */
 private[runtime] final class VarGraph(
     scopes: Map[NodeId, Map[String, Dashboard.InScope]],
@@ -152,12 +152,12 @@ private[runtime] final class VarGraph(
     scopes.toList.collect {
       case (id, scope)
           if scope.get(key.name).exists(_.declarer == key.declarer) &&
-            asksAt(id).exists(_.query.references.contains(key.name)) =>
+            asksAt(id).exists(_.fetch.references.contains(key.name)) =>
         id
     }
 
   /** The panels a write moves, swapped as a tab press is. A reader as much as a
-    * query is, so a write reaching one is not refused for lacking a query.
+    * fetch is, so a write reaching one is not refused for lacking a fetch.
     */
   def panelsSelectedBy(key: VarKey): List[NodeId] =
     panelsSelected.toList.sortBy(_._1).collect {

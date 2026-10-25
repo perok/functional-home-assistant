@@ -8,7 +8,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  QueryTemplate,
+  FetchTemplate,
   Reads,
   Ref as SlotRef,
   Region,
@@ -17,7 +17,7 @@ import fh.view.model.{
   Surface,
   Transform
 }
-import fh.view.query.{QuerySnapshot, Staged}
+import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.declared
 
@@ -40,8 +40,8 @@ class PullReadsSuite extends munit.FunSuite {
       "chart",
       Map(
         "chart" -> SlotSource(
-          query = Some(
-            QueryTemplate(
+          fetch = Some(
+            FetchTemplate(
               "history",
               Map(
                 "entity" -> SlotRef.Literal(entity),
@@ -95,9 +95,9 @@ class PullReadsSuite extends munit.FunSuite {
 
   /** The entities of every read the pull asked for. */
   private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
-    val snapshot = QuerySnapshot.of(
+    val snapshot = FetchSnapshot.of(
       renderer
-        .queriesForPage(Set("withChart"), Map.empty, Map.empty)
+        .fetchesForPage(Set("withChart"), Map.empty, Map.empty)
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -116,7 +116,7 @@ class PullReadsSuite extends munit.FunSuite {
         open
       )
       reads <- seen.get
-    } yield reads.map(_.query.params("entity")).toSet).unsafeRunSync()
+    } yield reads.map(_.fetch.params("entity")).toSet).unsafeRunSync()
   }
 
   test("a pull that moves only a plain card asks for nothing") {

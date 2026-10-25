@@ -11,7 +11,7 @@ import io.circe.Json
 type ChartDraw = (Series, ChartStyle) => IO[String]
 
 /** The built-in drawing stage: a provider's answer in, SVG out. Uncached —
-  * `QueryResolver` caches every stage's output alike.
+  * `FetchResolver` caches every stage's output alike.
   */
 object ChartStage {
 

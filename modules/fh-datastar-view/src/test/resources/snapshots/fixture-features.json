@@ -151,7 +151,7 @@
                                   "slots" : {
                                     "chart" : {
                                       "bypassUnavailable" : true,
-                                      "query" : {
+                                      "fetch" : {
                                         "params" : {
                                           "entity" : "sensor.outside_temp",
                                           "window" : {
@@ -1196,7 +1196,7 @@
                                       "slots" : {
                                         "chart" : {
                                           "bypassUnavailable" : true,
-                                          "query" : {
+                                          "fetch" : {
                                             "params" : {
                                               "entity" : "sensor.outside_temp",
                                               "window" : {

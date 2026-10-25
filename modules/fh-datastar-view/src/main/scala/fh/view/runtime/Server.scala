@@ -20,7 +20,7 @@ import fh.view.build.{
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
-import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
+import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.model.{
   CallReach,
   ChromeColors,
@@ -80,7 +80,7 @@ class Server(
     tracer: Tracer[IO] = Tracer.noop,
     loggerFactory: LoggerFactory[IO] = Logging.console,
     meters: Meters = Meters.noop,
-    queries: Option[QueryResolver] = None,
+    fetches: Option[FetchResolver] = None,
     minifier: Minifier = Minifier.none
 ) {
 
@@ -995,10 +995,10 @@ class Server(
       _ <- session.reveal(open)
       store <- stateStore.current
       states = store.entities
-      // Only the arriving surface's queries, so an unopened popup costs
+      // Only the arriving surface's fetches, so an unopened popup costs
       // nothing.
       env = renderer.vars.env(s.values)
-      fragments <- resolveQueries(renderer, newSurface, states, selections, env)
+      fragments <- resolveFetches(renderer, newSurface, states, selections, env)
     } yield {
       val (holds, filled) = Patches.hostFill(
         renderer,
@@ -1037,17 +1037,17 @@ class Server(
     }
   }
 
-  private def resolveQueries(
+  private def resolveFetches(
       renderer: Renderer,
       arriving: Option[String],
       states: Map[String, EntityState],
       selections: Selections,
       env: VarEnv
-  ): IO[QuerySnapshot] =
+  ): IO[FetchSnapshot] =
     answer(
       renderer,
       arriving.toList.flatMap(
-        renderer.queriesForSurface(_, states, selections, env)
+        renderer.fetchesForSurface(_, states, selections, env)
       ),
       env
     )
@@ -1057,11 +1057,11 @@ class Server(
       open: Set[String],
       states: Map[String, EntityState],
       env: VarEnv
-  ): IO[QuerySnapshot] =
-    answer(renderer, renderer.queriesForPage(open, states, env), env)
+  ): IO[FetchSnapshot] =
+    answer(renderer, renderer.fetchesForPage(open, states, env), env)
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209): the queries that read it, and the tab panels it selects,
+    * (issue #209): the fetches that read it, and the tab panels it selects,
     * swapped as a tab press always was. Per session: no `Mutation`.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
@@ -1180,26 +1180,26 @@ class Server(
   ): Selections =
     renderer.surfaces.selections(requested, renderer.vars.env(vars))
 
-  /** With no resolver wired only a render that reads a query raises, so a
+  /** With no resolver wired only a render that reads a fetch raises, so a
     * dashboard without charts still works.
     */
   private def answer(
       renderer: Renderer,
       wanted: List[SlotRead],
       env: VarEnv
-  ): IO[QuerySnapshot] =
-    (queries, wanted) match {
+  ): IO[FetchSnapshot] =
+    (fetches, wanted) match {
       case (Some(resolver), qs) if qs.nonEmpty =>
-        QuerySnapshot
+        FetchSnapshot
           .resolve(
             resolver,
-            renderer.queryRequests,
+            renderer.fetchRequests,
             qs,
             env,
-            QueryIdentity.Instance
+            FetchIdentity.Instance
           )
-      // Keep the env: `QuerySnapshot.empty` would resolve declared values.
-      case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
+      // Keep the env: `FetchSnapshot.empty` would resolve declared values.
+      case _ => IO.pure(FetchSnapshot.of(Map.empty, env))
     }
 
   /** Resolve `conn` (from the signals body) to its session and renderer, and
@@ -1620,7 +1620,7 @@ class Server(
       // `CompletableFuture`, not a `Deferred`: the waiter is the synchronous
       // walk on a blocking thread. Cancelled with the body, or a walk parked
       // on it never wakes.
-      pending = new java.util.concurrent.CompletableFuture[QuerySnapshot]()
+      pending = new java.util.concurrent.CompletableFuture[FetchSnapshot]()
       fetch <- pageAnswers(renderer, open, store.entities, env).attempt
         .flatMap { r =>
           IO {
@@ -2227,7 +2227,7 @@ object Server {
       tracer: Tracer[IO],
       loggerFactory: LoggerFactory[IO],
       meters: Meters,
-      queries: Option[QueryResolver],
+      fetches: Option[FetchResolver],
       minifier: Minifier = Minifier.none
   ): Resource[IO, Server] =
     for {
@@ -2247,7 +2247,7 @@ object Server {
         tracer,
         loggerFactory,
         meters,
-        queries,
+        fetches,
         minifier
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
@@ -2272,7 +2272,7 @@ object Server {
       windows: SessionWindows,
       minifier: Minifier = Minifier.none
   ): Resource[IO, Server] =
-    historyQueries(feed.api, loggerFactory).flatMap(queries =>
+    historyFetches(feed.api, loggerFactory).flatMap(fetches =>
       withSite(
         actions(feed.api),
         feed.store,
@@ -2287,7 +2287,7 @@ object Server {
         tracer = tracer,
         loggerFactory = loggerFactory,
         meters = meters,
-        queries = Some(queries),
+        fetches = Some(fetches),
         minifier = minifier
       )
     )
@@ -2295,10 +2295,10 @@ object Server {
   /** `memoizedAcquire` makes the JavaScript engine lazy: an instance with no
     * chart never pays ECharts' ~300 ms or the isolate's heap.
     */
-  private def historyQueries(
+  private def historyFetches(
       api: HomeAssistantApi[IO],
       loggerFactory: LoggerFactory[IO]
-  ): Resource[IO, QueryResolver] =
+  ): Resource[IO, FetchResolver] =
     for {
       chart <- ChartRenderer.resource(loggerFactory).memoizedAcquire
       log = loggerFactory.getLoggerFromName("fh.view.history")
@@ -2312,7 +2312,7 @@ object Server {
             )
         )
         .toResource
-      resolver <- QueryResolver
+      resolver <- FetchResolver
         .create(
           history,
           chart.map(_.render),
@@ -2429,8 +2429,8 @@ object Server {
       .toMap
 
   private[runtime] def awaitAnswers(
-      pending: java.util.concurrent.CompletableFuture[QuerySnapshot]
-  ): QuerySnapshot =
+      pending: java.util.concurrent.CompletableFuture[FetchSnapshot]
+  ): FetchSnapshot =
     try pending.join()
     catch {
       case e: java.util.concurrent.CompletionException =>

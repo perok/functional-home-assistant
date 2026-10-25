@@ -9,7 +9,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  QueryTemplate,
+  FetchTemplate,
   Reads,
   Ref,
   Region,
@@ -47,8 +47,8 @@ class VarTapSuite extends ServerHarness {
     "chart",
     slots = Map(
       "chart" -> SlotSource(
-        query = Some(
-          QueryTemplate(
+        fetch = Some(
+          FetchTemplate(
             "history",
             Map(
               "entity" -> Ref.Literal("sensor.a"),
@@ -83,8 +83,8 @@ class VarTapSuite extends ServerHarness {
         chartNode.copy(slots =
           Map(
             "chart" -> SlotSource(
-              query = Some(
-                QueryTemplate(
+              fetch = Some(
+                FetchTemplate(
                   "history",
                   Map(
                     "entity" -> Ref.Var("e"),
@@ -169,7 +169,7 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("the head is sent before a slow chart is answered") {
-    // The head reads no query, so a cold fetch overlaps the stylesheet fetches
+    // The head reads no fetch, so a cold fetch overlaps the stylesheet fetches
     // rather than holding up the first byte.
     (Deferred[IO, Unit], CeRef[IO].of(false), CeRef[IO].of(false)).tupled
       .flatMap { (gate, fetched, headFirst) =>
@@ -214,7 +214,7 @@ class VarTapSuite extends ServerHarness {
           chose,
           Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
         )
-        // The week's series: the write moved the query, not just a signal.
+        // The week's series: the write moved the fetch, not just a signal.
         val painted = queued.flatMap(_.data).mkString
         assert(painted.contains(Week), clue = painted)
         assert(!painted.contains(Day), clue = painted)
@@ -280,8 +280,8 @@ class VarTapSuite extends ServerHarness {
           chartNode.copy(slots =
             Map(
               "chart" -> SlotSource(
-                query = Some(
-                  QueryTemplate(
+                fetch = Some(
+                  FetchTemplate(
                     "history",
                     Map(
                       "entity" -> Ref.Literal(entity),
@@ -342,7 +342,7 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("a value no reader can parse is refused, and nothing moves") {
-    // `HistoryQuery.parse` is the authority on what a window may be, so a list
+    // `HistoryFetch.parse` is the authority on what a window may be, so a list
     // beside the declaration could only copy it.
     served { ts =>
       for {

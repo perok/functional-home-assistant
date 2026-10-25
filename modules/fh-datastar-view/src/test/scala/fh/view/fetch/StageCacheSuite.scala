@@ -1,4 +1,4 @@
-package fh.view.query
+package fh.view.fetch
 
 import io.github.iltotore.iron.autoRefine
 import cats.effect.{IO, Ref}
@@ -15,8 +15,8 @@ import io.circe.syntax.*
   */
 class StageCacheSuite extends munit.CatsEffectSuite {
 
-  private def question(entity: String): QueryRequest =
-    QueryRequest.History(entity, Window.LastDay)
+  private def question(entity: String): FetchRequest =
+    FetchRequest.History(entity, Window.LastDay)
 
   private val q = question("sensor.t")
 
@@ -46,15 +46,15 @@ class StageCacheSuite extends munit.CatsEffectSuite {
       draw: (Series, ChartStyle) => IO[String],
       failureTtl: scala.concurrent.duration.FiniteDuration =
         SharedCache.FailureTtl
-  ): IO[QueryResolver] =
+  ): IO[FetchResolver] =
     History
       .create(unused)
-      .flatMap(QueryResolver.create(_, IO.pure(draw), failureTtl))
+      .flatMap(FetchResolver.create(_, IO.pure(draw), failureTtl))
 
   private def fixture(
       draw: (Series, ChartStyle) => IO[String] = (_, s) =>
         IO.pure(s"<svg>${s.width}</svg>")
-  ): IO[(QueryResolver, Ref[IO, Int])] =
+  ): IO[(FetchResolver, Ref[IO, Int])] =
     for {
       draws <- Ref[IO].of(0)
       r <- resolver((series, style) =>
@@ -63,17 +63,17 @@ class StageCacheSuite extends munit.CatsEffectSuite {
     } yield (r, draws)
 
   private def stage(
-      r: QueryResolver,
-      request: QueryRequest,
+      r: FetchResolver,
+      request: FetchRequest,
       st: Transform.Stage,
       version: Long,
       answer: Json = data
   ): IO[String] =
-    r.stage(QueryIdentity.Instance, request, st, Answer(version, answer))
+    r.stage(FetchIdentity.Instance, request, st, Answer(version, answer))
       .map(_.value)
 
   test("ten viewers of one version cost one drawing") {
-    // `QuerySnapshot.resolve` runs before the render cache, so without this
+    // `FetchSnapshot.resolve` runs before the render cache, so without this
     // every page open would redraw.
     fixture().flatMap { case (r, draws) =>
       List
@@ -90,7 +90,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
 
   test("two styles of one answer are two drawings") {
     // A tile and a popup at different sizes; their shared fetch is
-    // `QueryRenderInputsSuite`'s.
+    // `FetchRenderInputsSuite`'s.
     fixture().flatMap { case (r, draws) =>
       stage(r, q, chart(ChartStyle(width = 600)), 100L) *>
         stage(r, q, chart(ChartStyle(width = 320)), 100L) *>

@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
@@ -64,7 +64,7 @@ class SharedPassSuite extends ServerHarness {
         val renderer = Renderer.create(twoLeafDash)
         def rendered(id: NodeId) =
           renderer
-            .renderNodeById(id, now.entities, fragments = QuerySnapshot.empty)
+            .renderNodeById(id, now.entities, fragments = FetchSnapshot.empty)
             .map(Held.of)
         // The repaint claimed everything it painted, and the tick re-claimed
         // the one node that moved at its new bytes: a record of what this

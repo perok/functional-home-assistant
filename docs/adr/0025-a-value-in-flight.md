@@ -191,7 +191,7 @@ duplicated per signal.
 
 A tab is ALSO guarded, with ADR 0019's own `busy` (issue #412): pending says
 which tab is asked for, `busy` says the ask is still out. Pending adds nothing
-to the wait. The open POST answers only after the new panel's queries have
+to the wait. The open POST answers only after the new panel's fetches have
 resolved and its patch is queued, so the indicator covers the same span. A tab
 holds text rather than a glyph, so it takes `tap.pkl`'s `busyTextClass` (a ring
 after the label) where a card takes `busyShapeClass`; the delay is the same.

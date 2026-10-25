@@ -96,7 +96,7 @@ theme's to swap (`fh-busy-spin`) and it must sit on the element hosting the glyp
 only the template knows.
 
 **A popup open is guarded like a service call** (issue #412). The open POST
-answers only once the popup's queries have resolved, and a chart's history
+answers only once the popup's fetches have resolved, and a chart's history
 fetch is a wait, so the card that was tapped dims and then spins. A tab switch
 is guarded for the same reason; a tab has no glyph, so its spinner is
 `busyTextClass`, a ring after the label.

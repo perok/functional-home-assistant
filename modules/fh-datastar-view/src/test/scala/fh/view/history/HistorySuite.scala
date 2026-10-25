@@ -7,7 +7,7 @@ import api.homeassistant.ws.domain.{
 }
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import fh.view.query.{QueryIdentity, QueryRequest}
+import fh.view.fetch.{FetchIdentity, FetchRequest}
 import io.circe.syntax.*
 
 import java.time.Instant
@@ -72,7 +72,7 @@ class HistorySuite extends munit.CatsEffectSuite {
         w: Window,
         asOf: Instant = now,
         e: String = entity,
-        identity: QueryIdentity = QueryIdentity.Instance
+        identity: FetchIdentity = FetchIdentity.Instance
     ) = h.series(identity, e, w, asOf)
 
   test("an unproven window asks both; a window retention covers asks raw") {
@@ -159,7 +159,7 @@ class HistorySuite extends munit.CatsEffectSuite {
       h <- History.create(src)
       answers <- List
         .fill(10)(
-          h.answerAt(QueryIdentity.Instance, entity, Window.LastDay, now)
+          h.answerAt(FetchIdentity.Instance, entity, Window.LastDay, now)
         )
         .parSequence
       count <- src.fetches
@@ -174,7 +174,7 @@ class HistorySuite extends munit.CatsEffectSuite {
   ) {
     val later = now.plusSeconds(Window.LastDay.bucket.toSeconds)
     def version(h: History, at: Instant) =
-      h.answerAt(QueryIdentity.Instance, entity, Window.LastDay, at)
+      h.answerAt(FetchIdentity.Instance, entity, Window.LastDay, at)
         .map(_.version)
     for {
       src <- source()
@@ -220,7 +220,7 @@ class HistorySuite extends munit.CatsEffectSuite {
       src <- source()
       h <- History.create(src)
       _ <- h.ask(Window.LastDay)
-      _ <- h.ask(Window.LastDay, identity = QueryIdentity.user("alice"))
+      _ <- h.ask(Window.LastDay, identity = FetchIdentity.user("alice"))
       count <- src.fetches
     } yield assertEquals(count, 2)
   }
@@ -276,7 +276,7 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("an unknown window is a build error naming the ones that exist") {
-    val e = HistoryQuery
+    val e = HistoryFetch
       .parse(Map("entity" -> "sensor.t", "window" -> "last-week"))
       .swap
       .getOrElse(fail("expected a parse error"))
@@ -284,19 +284,19 @@ class HistorySuite extends munit.CatsEffectSuite {
     assert(e.contains("24h"), clue = e)
   }
 
-  test("a query with no entity or no window is a build error") {
-    assert(HistoryQuery.parse(Map("window" -> "24h")).isLeft)
-    assert(HistoryQuery.parse(Map("entity" -> "sensor.t")).isLeft)
+  test("a fetch with no entity or no window is a build error") {
+    assert(HistoryFetch.parse(Map("window" -> "24h")).isLeft)
+    assert(HistoryFetch.parse(Map("entity" -> "sensor.t")).isLeft)
   }
 
-  test("a size is not a query parameter, and is ignored here") {
+  test("a size is not a fetch parameter, and is ignored here") {
     // The question is entity and window; size is how the answer is drawn
     // (`ChartStyleSuite`).
     assertEquals(
-      HistoryQuery.parse(
+      HistoryFetch.parse(
         Map("entity" -> "sensor.t", "window" -> "24h", "width" -> "wide")
       ),
-      Right(QueryRequest.History("sensor.t", Window.LastDay))
+      Right(FetchRequest.History("sensor.t", Window.LastDay))
     )
   }
 }

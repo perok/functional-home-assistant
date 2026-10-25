@@ -1,4 +1,4 @@
-package fh.view.query
+package fh.view.fetch
 
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 
 /** One value per key, computed once however many callers ask — `History`'s
-  * series and [[QueryResolver]]'s staged values both.
+  * series and [[FetchResolver]]'s staged values both.
   *
   * The computation runs on a fiber of its own, never the first asker's. An
   * asker is cancelled whenever its page is abandoned, and a computation that
@@ -33,7 +33,7 @@ final class SharedCache[K, V] private (
   // A live entry needs no clock and no new slot: that is every warm render,
   // so it is kept to one map lookup. By-name, because building a drawing's
   // `compute` decodes its series — +45 µs a page when this was by-value
-  // (`QueryBench.pagePrepass`).
+  // (`FetchBench.pagePrepass`).
   def get(key: K)(compute: => IO[V]): IO[V] =
     entries.get.flatMap(_.get(key) match {
       case Some(Entry(result, None)) => result.get.rethrow

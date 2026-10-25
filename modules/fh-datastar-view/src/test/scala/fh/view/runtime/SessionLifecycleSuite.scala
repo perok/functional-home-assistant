@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import cats.effect.{IO, Resource}
 import cats.effect.std.Supervisor
 import cats.effect.kernel.{Deferred, Ref}
@@ -105,7 +105,7 @@ class SessionLifecycleSuite extends ServerHarness {
           .renderNodeById(
             "c_0",
             snapshot.entities,
-            fragments = QuerySnapshot.empty
+            fragments = FetchSnapshot.empty
           )
         assertEquals(
           held.flatMap(_.get("c_0")),

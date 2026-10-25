@@ -156,7 +156,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // no-signals POSTs keep it out of the request body.
       assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
       // A more-info tap is guarded too: the open answers once the popup's
-      // queries have resolved, and a chart's fetch is a wait (issue #412).
+      // fetches have resolved, and a chart's fetch is a wait (issue #412).
       assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
       assert(html.contains("data-on:click=\"$_c_1__busy"), clue = html)
       // Navigating is a document load: nothing to guard.
@@ -814,7 +814,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   test(
-    "passthrough JSON rides a signal attribute, and a new window re-queries it"
+    "passthrough JSON rides a signal attribute, and a new window re-fetches it"
   ) {
     // The provider's JSON is in the node's bytes, escaped, inside the attribute
     // that lifts it into a client-only signal.

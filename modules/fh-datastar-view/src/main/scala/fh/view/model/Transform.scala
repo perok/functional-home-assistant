@@ -237,7 +237,7 @@ object Transform {
   ): SlotValue =
     Cel.runValue(expr, entity, dashboardSlug, values)
 
-  /** How a query's answer becomes the hole's content. Not a [[Simple]]: a chart
+  /** How a fetch's answer becomes the hole's content. Not a [[Simple]]: a chart
     * is not a total static lookup.
     */
   enum Stage derives CanEqual {
@@ -245,7 +245,7 @@ object Transform {
     /** Spelled on the wire, because the Pkl default derives it. */
     case Passthrough
 
-    /** Typed on the wire, unlike a query's params (ADR 0031). */
+    /** Typed on the wire, unlike a fetch's params (ADR 0031). */
     case Chart(params: ChartStyle = ChartStyle())
   }
 

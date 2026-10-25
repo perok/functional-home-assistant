@@ -9,7 +9,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
-  QueryTemplate,
+  FetchTemplate,
   Reads,
   Ref,
   Region,
@@ -18,19 +18,19 @@ import fh.view.model.{
   Surface,
   Transform
 }
-import fh.view.query.{QuerySnapshot, Staged}
+import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.HouseFixture
 import fh.view.testkit.DashboardBuilders.declared
 import io.circe.Json
 import io.circe.parser.parse
 
 /** The reads a render is handed are decided BEFORE the walk, by code that is
-  * not the walk (`Renderer.queriesForPage`, `queriesForSurface`,
+  * not the walk (`Renderer.fetchesForPage`, `fetchesForSurface`,
   * `readsForPull`). If the two drift, a render misses an answer and raises.
   * This renders each dashboard in every shape a viewer can put it in, against
   * exactly what was decided, so a drift fails here instead.
   */
-class QueryDriftSuite extends munit.FunSuite {
+class FetchDriftSuite extends munit.FunSuite {
 
   private final case class Case(
       name: String,
@@ -71,8 +71,8 @@ class QueryDriftSuite extends munit.FunSuite {
       "chart",
       Map(
         "chart" -> SlotSource(
-          query = Some(
-            QueryTemplate(
+          fetch = Some(
+            FetchTemplate(
               "history",
               Map("entity" -> Ref.Literal(e), "window" -> Ref.Literal("24h"))
             )
@@ -188,13 +188,13 @@ class QueryDriftSuite extends munit.FunSuite {
   }
 
   private def answered(reads: List[SlotRead]) =
-    QuerySnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap)
+    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap)
 
   test("a page render reads only what the page resolved") {
     for (c <- cases; states <- c.houses; ui <- uiStates(c)) {
       val r = c.renderer
       val snapshot = answered(
-        r.queriesForPage(r.surfaces.selectedSurfaces(ui), states, Map.empty)
+        r.fetchesForPage(r.surfaces.selectedSurfaces(ui), states, Map.empty)
       )
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
@@ -215,7 +215,7 @@ class QueryDriftSuite extends munit.FunSuite {
         sid,
         states,
         ui,
-        answered(r.queriesForSurface(sid, states, ui, Map.empty))
+        answered(r.fetchesForSurface(sid, states, ui, Map.empty))
       )
     }
   }
@@ -232,7 +232,7 @@ class QueryDriftSuite extends munit.FunSuite {
               states,
               Selections.none,
               answered(
-                r.queriesForPage(
+                r.fetchesForPage(
                   r.surfaces.selectedSurfaces(),
                   states,
                   Map.empty

@@ -48,7 +48,7 @@ Two things already enforce it, and they are the shape a new render input should 
   the response body, so once it starts the status line and `<head>` are gone. **Resolving first is
   what keeps a failure expressible** — it raises while an error response is still possible, where a
   lazily-resolved input could only truncate a page already on the wire.
-  Query answers hold the same line with a narrower failure: a read that fails or times out is its
+  Fetch answers hold the same line with a narrower failure: a read that fails or times out is its
   chart's error label, never the page's, so they need no error status and are resolved WHILE the
   head is written (§6a) — the walk itself still starts with every answer in hand.
 
@@ -97,10 +97,10 @@ flowchart TB
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
-  subgraph QUERIES["GLOBAL — the query side, one for every dashboard"]
+  subgraph FETCHES["GLOBAL — the fetch side, one for every dashboard"]
     direction TB
-    QS["QuerySnapshot.resolve<br/>every query a render reads, resolved BEFORE the walk<br/>at THIS viewer's node-variable values<br/>a moved version does not wake a node yet (§8)"]
-    RES["QueryResolver · stage cache<br/>(question, stage, version) → SVG or JSON<br/>one drawing per version, for every viewer"]
+    QS["FetchSnapshot.resolve<br/>every fetch a render reads, resolved BEFORE the walk<br/>at THIS viewer's node-variable values<br/>a moved version does not wake a node yet (§8)"]
+    RES["FetchResolver · stage cache<br/>(question, stage, version) → SVG or JSON<br/>one drawing per version, for every viewer"]
     HIST["History · series cache<br/>(identity, entity, window, bucket)<br/>one fetch per bucket, single-flight,<br/>a failure remembered 30 s"]
     CHART["ChartRenderer<br/>ECharts SSR in a GraalJS isolate<br/>one context behind a Mutex (ADR 0032)"]
   end
@@ -147,8 +147,8 @@ flowchart TB
   class HA,ACT ext
   classDef gate fill:#fee2e2,stroke:#b91c1c,color:#0f172a
   class GATE,VAR gate
-  classDef query fill:#ccfbf1,stroke:#0f766e,color:#0f172a
-  class QS,RES,HIST,CHART query
+  classDef fetch fill:#ccfbf1,stroke:#0f766e,color:#0f172a
+  class QS,RES,HIST,CHART fetch
 ```
 
 **A route declares its own requirement; a route group declares one for all of it.** Only a PAGE
@@ -175,7 +175,7 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the query side: `QueryResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the fetch side: `FetchResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Membership` (held in its fold, reset per renderer), the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
 
@@ -918,7 +918,7 @@ flowchart LR
   RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash ·<br/>NOT BEHIND what we announced"}
   Q -->|no| REPAINT["full body repaint, and the open popup,<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
-  SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their queries answered first (§6, a query)"]
+  SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their fetches answered first (§6, a fetch)"]
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
   SINCE --> R["refill: containers whose history<br/>no longer reaches the cursor<br/>last resort"]
   Q -->|yes, or a session's own position| OPENN["…AND every node in a surface this<br/>client has OPEN — the cursor cannot name<br/>what nothing rendered while nobody looked"]
@@ -969,35 +969,35 @@ a moved count patches a slot. The slot's `valueKey` carries the values, so the w
 expression goes out as one display signal per distinct (subject, expression, values), and a
 tick that leaves the count alone sends nothing.
 
-### The second kind of input: a query
+### The second kind of input: a fetch
 
-A node may also read a **query** — a named PROVIDER answering with DATA, parameterised
+A node may also read a **fetch** — a named PROVIDER answering with DATA, parameterised
 (`docs/terminology.md`, "History"). `history` is the one provider that exists: one entity's recorded
 past over a window. It reaches a render the same way state does, as a snapshot resolved BEFORE the
-walk (`fh.view.query.QuerySnapshot`), because a render is a synchronous string build and answering a
-query is `IO` over a socket and a JavaScript engine.
+walk (`fh.view.fetch.FetchSnapshot`), because a render is a synchronous string build and answering a
+fetch is `IO` over a socket and a JavaScript engine.
 
 **A provider fetches; what its answer BECOMES is the slot's `transform`.** That split is the whole
 of the second kind of input. A provider answers `Answer(version, json)` and has no opinion about
 presentation; a STAGE — the third arm of `transform`, beside a CEL string and a `Transform.Simple` —
 turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `Stage.Passthrough` is
 the absence of a transform: the provider's JSON, which is the contract a third party reads against.
-It is BYTES, never a signal, like every query slot: a component that wants the data client-side
+It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
-re-applies that attribute when a re-query morphs it — `c.historyReadings` is the worked example,
+re-applies that attribute when a re-fetch morphs it — `c.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
-a bad query or stage fails the build with nothing wired: a stage's params are parsed as the wire
-is decoded (`Stage.Chart` carries a `ChartStyle`), a query's by `Queries.parse` in
-`Dashboard.validate`. Only `QueryResolver` holds the
+a bad fetch or stage fails the build with nothing wired: a stage's params are parsed as the wire
+is decoded (`Stage.Chart` carries a `ChartStyle`), a fetch's by `Fetches.parse` in
+`Dashboard.validate`. Only `FetchResolver` holds the
 running machinery.
 
 **The hole follows the stage, not the shape.** A stage that emits markup needs the raw
 `{{{chart}}}` — written `{{chart}}` the page shows `&lt;svg …` as text, with no error anywhere —
 and passthrough must NOT have one, because its value is an attribute payload and wants escaping.
-One rule over the pipeline rather than a property of query slots.
+One rule over the pipeline rather than a property of fetch slots.
 
 **The version is also the caching policy**, which is what keeps the pipeline out of it. It means
 something only per question — the same version is the same data, and it never goes back — and
@@ -1009,43 +1009,43 @@ WHEN it moves is the provider's call:
   serves from cache and is asked every render. Uncached by construction, with no opt-out flag; the
   failure mode is cost, and it is visible.
 
-Bucket expiry is a property of append-only-past data, not of queries — a forecast changes in the
+Bucket expiry is a property of append-only-past data, not of fetches — a forecast changes in the
 future, a camera still changes continuously — so an ANSWER is cached inside its provider, never
 here, and so is the clock: history reads its own, since a pushed provider would have no use for one.
 
-**Two caches, at two levels, with two owners.** `QuerySnapshot.resolve` deduplicates a FETCH per
-query and a STAGED value per `(query, stage)`, so two cards charting one sensor over one window at
+**Two caches, at two levels, with two owners.** `FetchSnapshot.resolve` deduplicates a CALL per
+fetch and a STAGED value per `(fetch, stage)`, so two cards charting one sensor over one window at
 different sizes cost one fetch and two drawings — which the keys say rather than a provider
 arranging it privately. The answer cache is the provider's, and history's expires by the bucket
 rolling, because a series has a shelf life. A staged value has none: it is a function of an
-answer, and a version names one, so `QueryResolver` keys every stage's output — a drawing and a
+answer, and a version names one, so `FetchResolver` keys every stage's output — a drawing and a
 passthrough alike, for any provider — by `(question, stage, version)` and replaces in place, and
 eviction is that replacement.
 
 **The render cache still keys a chart node, and earns it.** A node's bytes are the splice of its
 SVG plus that SVG's SHA-256 digest, so without the node cache every session re-renders a chart node
-each time it is pulled — measured at ~2 µs per kB of SVG (`QueryBench.pullChart`: 26 against
+each time it is pulled — measured at ~2 µs per kB of SVG (`FetchBench.pullChart`: 26 against
 13 µs at 5 kB, 48 against 19 at 15 kB). A warm hit costs the answer lookups and nothing more,
 since an answer is cached encoded.
 
 Three boxes move, and no others:
 
-- **`RenderInputs` gains a second map**, `SlotRead -> version` — a `SlotRead` being a query paired
+- **`RenderInputs` gains a second map**, `SlotRead -> version` — a `SlotRead` being a fetch paired
   with the stage applied to it, because the two deduplicate at different levels and the key has to
   say which. `isAtLeast` compares both halves, so
   two viewers on different windows have differently-SHAPED keys, are unordered, and get separate
   generations rather than one overwriting the other with a chart of the wrong span.
-- **`SlotShape`**, which is what a slot IS: `State` or `Query`. The wire keeps one `SlotSource`
+- **`SlotShape`**, which is what a slot IS: `State` or `Fetch`. The wire keeps one `SlotSource`
   (a discriminated sum would stamp a `"type"` tag onto every slot and churn every byte-identity
   snapshot), and this is where the two are told apart. Every site that CLASSIFIES slots matches on
-  it, so the combinations that would be wrong — a query that is `live`, `once`, or a signal — are
+  it, so the combinations that would be wrong — a fetch that is `live`, `once`, or a signal — are
   not rejected by rules, they are unreachable.
-- **`Component.queries`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
+- **`Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
   and separate for the same reason those two are: what makes a node a candidate and what makes its
   bytes stale are different questions.
 
 What does NOT move is candidate selection, and that falls out rather than being arranged: both
-entity lists are built from STATE slots, so a query slot has no entity to contribute and **a chart is
+entity lists are built from STATE slots, so a fetch slot has no entity to contribute and **a chart is
 not a candidate on a state tick**. Without that, a sensor moving every second would re-fetch its own
 history every second.
 
@@ -1060,17 +1060,17 @@ request knowable only after an earlier node resolves means the barrier stalls wh
 proceeded, and then has to gather again. It works here because that case does not arise, and it
 does not arise for three reasons that have to stay true:
 
-- the tree is walked for its queries before the render (`queriesForPage`, `queriesForSurface`);
+- the tree is walked for its fetches before the render (`fetchesForPage`, `fetchesForSurface`);
 - a candidate set carries a STATIC candidate list, and its conditions evaluate against the state
   snapshot already in hand, so which members render is computable before the walk;
 - nothing lets a node's input depend on a value produced DURING the walk.
 
-**A query parameter may be a REFERENCE, and it resolves PER VIEWER.** A node declares node
-variables (`Component.vars`); a query parameter is a literal or a read of one
-(`Ref.Literal`/`Ref.Var`); a node holds a static `SlotAsk`, and `queriesForPage` resolves each one
+**A fetch parameter may be a REFERENCE, and it resolves PER VIEWER.** A node declares node
+variables (`Component.vars`); a fetch parameter is a literal or a read of one
+(`Ref.Literal`/`Ref.Var`); a node holds a static `SlotAsk`, and `fetchesForPage` resolves each one
 against the values in scope at that node into the `SlotRead` everything keys on.
 
-**The values ride inside `QuerySnapshot`**, beside the answers they were fetched for, and that pairing
+**The values ride inside `FetchSnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
 fetched for another's, because the resolution happens from the snapshot's own values. They are
 NOT on a `NodePlan` — a plan is memoised per node and reused across sessions, so a
@@ -1085,7 +1085,7 @@ survives a refresh), and as `POST /sse/var/:slug/:declarer/:name/:value` while t
 A choice matching no declaration is inert rather than an error — the same treatment
 `SurfaceGraph.openPopup` gives a surface id this dashboard no longer has. A choice that does match
 one passes the same check either way (`Renderer.refusals`): every declared reader must still parse
-what it would then ask, and read only an entity the dashboard names or a query of it names at its
+what it would then ask, and read only an entity the dashboard names or a fetch of it names at its
 declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
 URL value is dropped with a warning (`Renderer.adopt`, as a reconnect's carry is), so the page
@@ -1142,7 +1142,7 @@ it reads through `@@VAR:window@@`, which the build splices with the nearest decl
 Two consequences worth stating, because neither is obvious:
 
 - **The build parses what the DASHBOARD asks — the declared values — and nothing else.** A
-  viewer's value is untrusted input arriving per session, so what keeps `Validated.queries` total
+  viewer's value is untrusted input arriving per session, so what keeps `Validated.fetches` total
   is the WRITE, not the build: the boundary that accepts a value resolves each declared reader's
   ask with it and refuses one that would not parse, so no session ever holds a value that cannot
   render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
@@ -1157,15 +1157,15 @@ reference can be topologically ordered before the walk, where a reference matche
 convention at evaluation time in the browser cannot. **Anything that lets one node read another's
 computed value must declare the edge**, or this barrier stops being correct — and it would stop
 silently, since the render would simply be missing an input nobody knew to resolve. It is also what
-lets `QuerySnapshot` be total at all: with the set unknown up front, no value could carry the proof
+lets `FetchSnapshot` be total at all: with the set unknown up front, no value could carry the proof
 that every input this render reads has an answer.
 
-**EVERY render path resolves what it reads**, and `QuerySnapshot` is total over it: a path that reads a
-query cannot be handed nothing, because there is no default argument left to hand it. What a render
-owes is read off the STATIC tree — `Renderer.queriesForPage` for a page, `readsForPull` for a pull,
-`queriesForSurface` for a surface fill (the surfaces shown inside it included) — because a render is
+**EVERY render path resolves what it reads**, and `FetchSnapshot` is total over it: a path that reads a
+fetch cannot be handed nothing, because there is no default argument left to hand it. What a render
+owes is read off the STATIC tree — `Renderer.fetchesForPage` for a page, `readsForPull` for a pull,
+`fetchesForSurface` for a surface fill (the surfaces shown inside it included) — because a render is
 a synchronous string build and the set has to be known before it starts. Deciding the set is code
-that is not the walk, so the two can drift; `QueryDriftSuite` renders the fixtures and a dashboard
+that is not the walk, so the two can drift; `FetchDriftSuite` renders the fixtures and a dashboard
 with a chart in every position against exactly the decided set, and fails on any miss.
 
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
@@ -1182,7 +1182,7 @@ in a chart's hole — `core/text.pkl`'s `label` structure, a base-CSS contract l
 offline classes, held equal to the library's copy by `FailureLabelSuite` — and leaves a data hole
 empty; the version is below any real one. The page and the live stream carry on.
 
-**A fetch and a drawing are each computed once, on a fiber of their own** (`query/SharedCache`),
+**A fetch and a drawing are each computed once, on a fiber of their own** (`fetch/SharedCache`),
 never on the fiber of whichever render asked first — a page abandoned mid-fetch cancels its asker,
 and a computation that died with it would leave every later asker waiting. Each is bounded by
 `SharedCache.Timeout`; a drawing is stopped by interrupting the JS context, since `IO.blocking`
@@ -1190,7 +1190,7 @@ alone ignores cancellation. A failure is logged once and REMEMBERED for `SharedC
 so a recorder that is down costs a render its error label rather than a fresh wait; the first
 render after that window waits on the retry.
 
-One thing is still missing, and it is deliberate. **Nothing wakes a node because a query's
+One thing is still missing, and it is deliberate. **Nothing wakes a node because a fetch's
 version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so
 a chart on an open page goes stale until something else that node reads happens to move. The key
 is correct — a render at the new bucket gets new bytes — but nothing asks for that render. The
@@ -1298,7 +1298,7 @@ Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
   onFinalize(Succeeded)  session.holds.set(own)
 ```
 
-The page's query answers are started before the response and awaited inside `bodyInto`, after the
+The page's fetch answers are started before the response and awaited inside `bodyInto`, after the
 head has been flushed, so a cold chart's fetch overlaps the browser fetching stylesheets.
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
@@ -1445,8 +1445,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
-- **Should the walk resolve queries itself, asynchronously?** Possible, and not needed yet: the
-  pre-walk set is decided per render (§6, checked by `QueryDriftSuite`) and answered while the head
+- **Should the walk resolve fetches itself, asynchronously?** Possible, and not needed yet: the
+  pre-walk set is decided per render (§6, checked by `FetchDriftSuite`) and answered while the head
   streams (§6a). What was established, for when it is:
   - **mustache.java supports it** (0.9.14, verified in `ValueCode.handleCallable`): with an
     `ExecutorService` on the factory, a `Callable` value is submitted and the rest of the template
@@ -1457,7 +1457,7 @@ Live list — delete an entry when it is answered, and say where the answer land
     a node's digest from its contiguous run (latched bytes bypass the sink, so digests and bytes
     desynchronise, and `holds` with them), the region code writes children straight into the sink,
     and `RenderInputs` needs each read's version before the render. A latch failure also surfaces
-    late, at close. So if built, do it in our `Sink` instead: a query hole hands the sink a deferred
+    late, at close. So if built, do it in our `Sink` instead: a fetch hole hands the sink a deferred
     segment, and the body is a segment stream evaluated with fs2's order-preserving `parEvalMap`;
     only the chart leaf's digest is computed late.
   - **Parallelism is the same either way**: the walk reaches every chart within ~1 ms (a page walk
@@ -1505,11 +1505,11 @@ Live list — delete an entry when it is answered, and say where the answer land
   element was in no DOM and offered its id as an insert anchor. Candidates now come from the dump,
   and an entity vanishing is a registry change that rebuilds the renderer — there is nothing left to
   go stale (ADR 0003).
-- ~~**The query path violates §0 on every route but one.**~~ *Closed by making `QuerySnapshot` total.*
-  `QuerySnapshot.resolve` had one caller and nine render entry points defaulted to "I have no answers",
+- ~~**The fetch path violates §0 on every route but one.**~~ *Closed by making `FetchSnapshot` total.*
+  `FetchSnapshot.resolve` had one caller and nine render entry points defaulted to "I have no answers",
   so a chart on a page shipped an empty hole. The DEFAULT was the mechanism — not typing anything
   got you the incomplete render, and it compiled. There is no default now, so a path that reads a
-  query cannot be handed nothing, and removing it is what found the paths: the compiler named six,
+  fetch cannot be handed nothing, and removing it is what found the paths: the compiler named six,
   of which the page path and the whole pull path had never resolved anything at all.
 
 - **Ordering across sessions is assumed, not stated.** Sessions render on their own fibers and can

@@ -1,4 +1,4 @@
-package fh.view.query
+package fh.view.fetch
 
 import cats.effect.testkit.TestControl
 import cats.effect.{Deferred, IO, Ref}

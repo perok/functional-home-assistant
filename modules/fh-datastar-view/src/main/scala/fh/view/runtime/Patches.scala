@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.query.QuerySnapshot
+import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   Dashboard,
   DomId,
@@ -309,7 +309,7 @@ private[runtime] object Patches {
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       // Asked only for this pull's reads; most ask none.
-      answers: List[SlotRead] => IO[QuerySnapshot],
+      answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
@@ -330,7 +330,7 @@ private[runtime] object Patches {
     }
     val gone = memberMoves.collect { case (nodeId, _: Mutation.Gone) => nodeId }
     // Without the replay, a client away across a flip sits on an empty host.
-    def branchFills(fragments: QuerySnapshot) = branch
+    def branchFills(fragments: FetchSnapshot) = branch
       .groupBy { case (_, m) => m.container }
       .toList
       .sortBy(_._1)
@@ -351,7 +351,7 @@ private[runtime] object Patches {
           )
         )
       }
-    def places(fragments: QuerySnapshot) = memberMoves
+    def places(fragments: FetchSnapshot) = memberMoves
       .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
       .groupBy { case (_, p) => p.container }
       .toList
@@ -392,7 +392,7 @@ private[runtime] object Patches {
       }
     // History no longer reaches this cursor: fill the host, still far cheaper
     // than a body repaint.
-    def refills(fragments: QuerySnapshot) = owed.refill.sorted.map { gid =>
+    def refills(fragments: FetchSnapshot) = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
       val content = renderer.renderHost(gid, states, selections, fragments)
       Addressed(
@@ -500,7 +500,7 @@ private[runtime] object Patches {
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot,
+      fragments: FetchSnapshot,
       id: NodeId
   ): IO[Option[Addressed]] =
     bytes(renderer, cache, id, states, selections, fragments).map(_.flatMap {
@@ -519,7 +519,7 @@ private[runtime] object Patches {
       id: NodeId,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, fragments) match {
       case Some(inputs) =>
@@ -559,7 +559,7 @@ private[runtime] object Patches {
       id: NodeId,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): IO[Option[(String, Map[NodeId, Held])]] =
     if (renderer.memberIsTarget(id))
       bytes(renderer, cache, id, states, selections, fragments).map(
@@ -604,7 +604,7 @@ private[runtime] object Patches {
       arriving: Option[String],
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): Option[(Addressed, String)] =
     arriving
       .flatMap(renderer.renderSurfaceTraced(_, states, selections, fragments))
@@ -629,7 +629,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       states: Map[String, EntityState],
       selections: Selections,
-      fragments: QuerySnapshot
+      fragments: FetchSnapshot
   ): (List[SseFrame], Map[NodeId, Held]) = {
     val body = renderer.renderBodyTraced(states, selections, fragments)
     val popup = hostFill(

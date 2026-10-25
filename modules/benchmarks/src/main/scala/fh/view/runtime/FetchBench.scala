@@ -10,7 +10,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  QueryTemplate,
+  FetchTemplate,
   Reads,
   Ref,
   Region,
@@ -19,7 +19,7 @@ import fh.view.model.{
   Surface,
   Transform
 }
-import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
+import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
   * dashboard plus four charts in the body and four in a selected tab.
   *
   * {{{
-  * sbt 'benchmarks/Jmh/run -f 1 -wi 5 -i 5 .*QueryBench.*'
+  * sbt 'benchmarks/Jmh/run -f 1 -wi 5 -i 5 .*FetchBench.*'
   * }}}
   *
   *   - `pullPlain` — a pull that moves one card, nothing open: asks nothing.
@@ -48,11 +48,11 @@ import java.util.concurrent.TimeUnit
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
-class QueryBench {
-  import QueryBench.*
+class FetchBench {
+  import FetchBench.*
 
   private var renderer: Renderer = null
-  private var resolver: QueryResolver = null
+  private var resolver: FetchResolver = null
   private var st: Map[String, EntityState] = null
   private var cache: RenderCache = null
   private val asOf = Instant.parse("2026-09-24T12:00:00Z")
@@ -81,24 +81,24 @@ class QueryBench {
         // Fixed, so a bucket never rolls mid-run and the warm stays warm.
         now = IO.pure(asOf)
       )
-      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure(Svg)))
+      r <- FetchResolver.create(history, IO.pure((_, _) => IO.pure(Svg)))
     } yield r).unsafeRunSync()
     cache = RenderCache.create.unsafeRunSync()
     // Warm: every read drawn once.
-    val _ = answer(renderer.queriesForPage(Set("t0"), st, Map.empty))
+    val _ = answer(renderer.fetchesForPage(Set("t0"), st, Map.empty))
       .unsafeRunSync()
   }
 
   // Server.answer's shape: an empty set asks nothing.
-  private def answer(reads: List[SlotRead]): IO[QuerySnapshot] =
-    if (reads.isEmpty) IO.pure(QuerySnapshot.of(Map.empty))
+  private def answer(reads: List[SlotRead]): IO[FetchSnapshot] =
+    if (reads.isEmpty) IO.pure(FetchSnapshot.of(Map.empty))
     else
-      QuerySnapshot.resolve(
+      FetchSnapshot.resolve(
         resolver,
-        renderer.queryRequests,
+        renderer.fetchRequests,
         reads,
         Map.empty,
-        QueryIdentity.Instance
+        FetchIdentity.Instance
       )
 
   private def pull(node: NodeId, open: Set[String]): List[Addressed] = {
@@ -134,13 +134,13 @@ class QueryBench {
   @Benchmark
   def pagePrepass(bh: Blackhole): Unit =
     bh.consume(
-      answer(renderer.queriesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
+      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
     )
 
   @Benchmark
   def pageWithCharts(bh: Blackhole): Unit = {
     val f =
-      answer(renderer.queriesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
+      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
     bh.consume(
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
@@ -152,7 +152,7 @@ class QueryBench {
   }
 }
 
-object QueryBench {
+object FetchBench {
 
   // About the size of a real ECharts drawing.
   val Svg: String = "<svg>" + ("<path d=\"M0 0L1 1\"/>" * 250) + "</svg>"
@@ -165,8 +165,8 @@ object QueryBench {
       "chart",
       Map(
         "chart" -> SlotSource(
-          query = Some(
-            QueryTemplate(
+          fetch = Some(
+            FetchTemplate(
               "history",
               Map(
                 "entity" -> Ref.Literal(entity),
