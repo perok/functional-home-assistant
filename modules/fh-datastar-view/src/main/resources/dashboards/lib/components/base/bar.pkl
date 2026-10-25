@@ -18,17 +18,22 @@ const local ofRef: String = "$" + slotMod.signalRef("of")
 const local fillSig: String = "_{{id}}__fill"
 const local fillExpr: String =
   "Math.min(100, Math.max(0, {{#down}}100 - {{/down}}{{#hasOf}}100 * \(valueRef)\(slotMod.ifSlot("scale")) * {{scale}}\(slotMod.endIfSlot("scale")) / \(ofRef){{/hasOf}}{{^hasOf}}+\(valueRef){{/hasOf}})) || 0"
+// Hidden while a reading has no value (`""`, a `valueWhile` that does not hold)
+// or is not a number (`unknown`). `isNaN('')` is false, hence both.
+const local readable: String =
+  "\(valueRef) !== '' && !isNaN(\(valueRef)){{#hasOf}} && \(ofRef) !== '' && !isNaN(\(ofRef)){{/hasOf}}"
 
 /// The fill is `value` as a percentage, or `value × scale ÷ of` with [[of]],
 /// reversed when [[down]]. Its readings are signals: a reading that moves costs
-/// its few bytes, never the bar.
+/// its few bytes, never the bar. The bar hides while either reading is `""` or
+/// not a number.
 class ProgressBar extends nodes.Node {
   card = "progressBar"
   cardDef = new nodes.CardDef {
     // Not a `<progress>`, whose parts need a vendor pseudo-element each; the
     // ARIA role carries its meaning.
     template = """
-      <div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-computed="{'\(fillSig)': () => \(fillExpr)}" data-attr:aria-valuenow="Math.round($\(fillSig))"><div class="fh-bar-fill" data-style:width="$\(fillSig) + '%'"></div></div>
+      <div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-show="\(readable)" data-computed="{'\(fillSig)': () => \(fillExpr)}" data-attr:aria-valuenow="Math.round($\(fillSig))"><div class="fh-bar-fill" data-style:width="$\(fillSig) + '%'"></div></div>
       """
     slots { "value" }
     css = """
