@@ -199,7 +199,7 @@ through `resolve(new Holder { entity = … })` before the base sees it, as
 ### Your components: the workspace's `components.pkl` and `defaults`
 
 A dashboard author reaches the facade through their own workspace's
-`components.pkl` (seeded once, then theirs: ADR 0010), which amends the library's
+`components.pkl` (seeded with the starter site, then theirs: ADR 0010), which amends the library's
 and sets `defaults`. Every file imports that one:
 
 ```pkl

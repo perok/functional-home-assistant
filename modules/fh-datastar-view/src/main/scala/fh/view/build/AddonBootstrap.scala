@@ -70,12 +70,12 @@ object AddonBootstrap {
           s"${loose.length} other *.pkl here are ordinary modules " +
             s"(${loose.mkString(", ")}) — serve one by naming it in " +
             s"${Site.EntryFile}: dashboards { [\"home\"] = import(\"${loose.head}\") }"
-    }
-
-    // After the site, whose boot message lists the other `*.pkl` as modules.
-    if (!os.exists(dashboardsDir / ComponentsFile)) {
-      os.write(dashboardsDir / ComponentsFile, starterComponents)
-      log += s"seeded $ComponentsFile: your components, with your defaults"
+      // With the starter only, which imports it: nothing else does, so an older
+      // workspace gets none and a deleted one stays deleted.
+      if (!os.exists(dashboardsDir / ComponentsFile)) {
+        os.write(dashboardsDir / ComponentsFile, starterComponents)
+        log += s"seeded $ComponentsFile: your components, with your defaults"
+      }
     }
 
     // A refreshed base does not move the consumer's mtime, which is all
@@ -138,8 +138,8 @@ object AddonBootstrap {
         )
     }
 
-  /** Seeded beside the site and never read by the server: only a dashboard's
-    * `import "components.pkl" as c` gives it meaning.
+  /** Seeded with the starter site and never read by the server: only a
+    * dashboard's `import "components.pkl" as c` gives it meaning.
     */
   val ComponentsFile: String = "components.pkl"
 

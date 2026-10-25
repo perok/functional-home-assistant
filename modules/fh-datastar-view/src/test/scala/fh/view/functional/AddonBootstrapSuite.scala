@@ -224,24 +224,25 @@ class AddonBootstrapSuite extends munit.FunSuite {
   }
 
   test(
-    "the user's components.pkl is never rewritten, and an older workspace gets one"
+    "components.pkl comes with the starter site only, and is never rewritten"
   ) {
     val (box, _) = boot()
-    val mine = "amends \"@fh-dashboard/components.pkl\"\n// mine\n"
-    os.write.over(box.ws / AddonBootstrap.ComponentsFile, mine)
-    val _ = AddonBootstrap.run(box.ws, bundled, box.cache)
-    assertEquals(os.read(box.ws / AddonBootstrap.ComponentsFile), mine)
-
-    // A workspace from before the file existed: its site stays as it was.
-    val site = os.read(box.ws / Site.EntryFile)
+    // A workspace whose site does not import it gets none, and a deleted one
+    // stays deleted.
     val _ = os.remove(box.ws / AddonBootstrap.ComponentsFile)
     val log = AddonBootstrap.run(box.ws, bundled, box.cache)
+    assert(!os.exists(box.ws / AddonBootstrap.ComponentsFile), clue = log)
+
+    // The starter is seeded again beside the user's own file, which stays.
+    val mine = "amends \"@fh-dashboard/components.pkl\"\n// mine\n"
+    os.write(box.ws / AddonBootstrap.ComponentsFile, mine)
+    val _ = os.remove(box.ws / Site.EntryFile)
+    val _ = AddonBootstrap.run(box.ws, bundled, box.cache)
     assertEquals(
-      os.read(box.ws / AddonBootstrap.ComponentsFile),
-      AddonBootstrap.starterComponents
+      os.read(box.ws / Site.EntryFile),
+      AddonBootstrap.starterSite
     )
-    assertEquals(os.read(box.ws / Site.EntryFile), site)
-    assert(log.exists(_.contains(AddonBootstrap.ComponentsFile)), clue = log)
+    assertEquals(os.read(box.ws / AddonBootstrap.ComponentsFile), mine)
   }
 
   test("second boot is quiet: no new backups, no re-seeding, cache untouched") {

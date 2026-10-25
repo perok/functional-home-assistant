@@ -67,8 +67,9 @@ Completion inside `defaults { }` lists what you can set. One card still
 overrides a default with its own builder, e.g. `.opensOn(List())`.
 
 `import "@fh-dashboard/components.pkl" as c` works too, and gets the library's
-defaults instead of yours. A workspace from before `components.pkl` existed
-gets the file on its next start; nothing changes until you import it.
+defaults instead of yours. A new workspace starts with `components.pkl`; an
+older one does not, so create it with the three lines above when you want
+defaults.
 
 ## Your entities
 

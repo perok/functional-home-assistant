@@ -29,8 +29,9 @@ To make your own kind of card,
 
 ### Re-seeding
 
-The starter `site.pkl` and `components.pkl` are each written only when there
-is none. To get a fresh copy, move yours elsewhere and restart. You never need to for an upgrade: the
+The starter `site.pkl` is written only when there is none, together with a
+`components.pkl` if that is missing too. To get a fresh copy, move yours
+elsewhere and restart. You never need to for an upgrade: the
 card library comes with the add-on, not in this folder.
 
 ## Options
