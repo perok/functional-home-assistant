@@ -4,4 +4,5 @@ amends "../../main/resources/dashboards/lib/components.pkl"
 
 defaults {
   light { opensOn = List("colourTemp", "colour") }
+  progress { countdown { "finish in" } }
 }

@@ -11,8 +11,10 @@ their `components.pkl`.
 
 The work, in order:
 
-1. **E3**: the rules, the heuristic and `c.progress(device)`.
+1. **E3**: the rules, the heuristic and `c.progress(device)`. Built: sections
+   1 and 2 below, with their docs and tests.
 2. **E3b**: a total from history, for a device that reports only time left.
+   Next.
 
 Later, on #541: E2 (a client clock, start/end bars), E4 (vacuum, climate,
 media), E5 (several jobs per device), and running/idle.

@@ -118,6 +118,16 @@ only when the registry does, so they cannot churn the content version. Each is n
 where the entity has no registry entry; `original_name` is English and moves if the
 integration renames the entity, so a card prefers `translation_key`.
 
+Which part each one plays is decided in Pkl at build, not by the generator:
+`c.progressOf(d)` reads these facts through the rules in the workspace's
+`defaults.progress` (ADR 0015) and a heuristic over their words, and the dump's
+`Device` stays untyped by role. Two reasons. The generator cannot see the
+workspace, so a user's rule for their own integration could never reach a role
+it narrowed; and a table per integration in the generator needed a release for
+every new appliance, where shipped words plus a user's rules cover the long
+tail. The cost is the narrowing: `progressOf` is `Progress?`, so a device with
+none fails at `c.progress(d)`, naming its sensors, rather than in the editor.
+
 ### Stage 1c — house-wide namespaces, declared rather than emitted
 
 The dump carries `entities` plus one NAMESPACE per selector — `lights`, `locks`,

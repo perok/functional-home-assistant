@@ -132,6 +132,53 @@ q.from(dump.lights.all)
 
 When a member changes, only its own card is redrawn.
 
+## A device's job
+
+`c.progress(dump.devices.washer)` shows how far along a washer, a printer, a
+car's charge or a vacuum's run is: the time left, what it is doing, and a bar
+when the device says enough for one. You never say which sensor is which: it
+reads them by their names in Home Assistant.
+
+```pkl
+c.progress(dump.devices.printer)
+
+// only the devices that report a job
+for (d in dump.devices.all.filter((d) -> c.progressOf(d) != null)) {
+  c.progress(d)
+}
+```
+
+- The bar is the device's own percentage, else the time left out of the
+  programme's length, else the battery while it charges. A washer that reports
+  only the time left gets no bar.
+- A device with nothing it can read fails the build, naming its sensors.
+- One part can be named by hand: `.left(…)`, `.percent(…)`, `.total(…)`,
+  `.status(…)`. `c.progress(sensor)` starts from a remaining-time sensor
+  alone.
+
+When yours is not found, teach it once in `components.pkl`. Each section is a
+part, and each line a rule: words in the sensor's name, a `new { … }` naming the
+integration or the key, or one sensor:
+
+```pkl
+defaults {
+  progress {
+    countdown {
+      "finish in"
+      new { platform = "miele"; key = "program_remaining" }
+      dump.entities.washer_time_left
+    }
+    ignore { dump.entities.car_service_inspection_days }
+  }
+}
+```
+
+The sections are `countdown`, `total`, `percent`, `phase`, `status` and
+`ignore`. A rule naming one sensor beats a `new { … }`, which beats words.
+A rule cannot make a countdown out of a sensor that is not a duration: naming
+one is an error that says so. `components.pkl` needs
+`import "@fh-home/dump.pkl" as dump` to name a sensor.
+
 ## What a button can act on
 
 A tap names its own target. `c.tap.call(service, target)` runs any HA service,

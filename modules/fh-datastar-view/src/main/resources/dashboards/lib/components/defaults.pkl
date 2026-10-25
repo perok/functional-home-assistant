@@ -22,6 +22,52 @@ import "../hass.pkl"
 class Defaults {
   /// A light's slider.
   light: Light = new {}
+  /// Which of a device's sensors play which part in its job, for
+  /// `c.progress(device)` and `c.progressOf(device)`.
+  progress: ProgressRules = new {}
+}
+
+/// One rule: words that must all be among the entity's `translation_key` and
+/// `original_name` words (`_` and `-` count as spaces), a [[Match]], or one
+/// entity. The most specific rule wins: an entity, then a [[Match]], then
+/// words.
+typealias Rule = String|Match|hass.SensorEntity
+
+/// Every field given must hold: `new { platform = "miele"; key = "program_remaining" }`.
+class Match {
+  platform: String? = null
+  /// An exact `translation_key` or `original_name`.
+  key: String? = null
+  device_class: String? = null
+  unit: String? = null
+}
+
+/// One section per role. Yours add to these, which are words only; assigning
+/// a section replaces it. A rule only narrows: a countdown or a total is still
+/// a sensor with a fixed-length time unit, a percent a `%` sensor with no
+/// device class, a phase or a status a sensor with no unit, and an entity rule
+/// naming anything else is a build error. A running total plays no role.
+///
+///     progress {
+///       countdown { "finish in"; dump.entities.washer_time_left }
+///       ignore { dump.entities.car_service_inspection_days }
+///     }
+///
+/// Each section's `default` is a [[Match]], which is what lets a bare
+/// `new { … }` sit beside words and entities.
+class ProgressRules {
+  /// The time left.
+  countdown: Listing<Rule> = new { default = (_) -> new Match {}; "remaining"; "left"; "to end" }
+  /// The whole job's length, for a bar of the countdown out of it.
+  total: Listing<Rule> = new { default = (_) -> new Match {}; "duration"; "length" }
+  /// How far along, as a percentage.
+  percent: Listing<Rule> = new { default = (_) -> new Match {}; "progress" }
+  /// What step the job is at; shown before [[status]].
+  phase: Listing<Rule> = new { default = (_) -> new Match {}; "phase"; "stage" }
+  /// What the device is doing.
+  status: Listing<Rule> = new { default = (_) -> new Match {}; "status"; "state" }
+  /// What plays no part, whatever else matches it at the same level.
+  ignore: Listing<Rule> = new { default = (_) -> new Match {}; "total"; "last"; "lifetime" }
 }
 
 class Light {

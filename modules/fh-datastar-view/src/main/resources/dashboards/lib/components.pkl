@@ -121,6 +121,8 @@ typealias Label = textMod.Label
 /// `"normal"`, `"dim"`, `"error"` or `"warning"`.
 typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
+typealias ProgressCard = progressMod.ProgressCard
+typealias Progress = progressMod.Progress
 typealias EntityInfo = moreinfo.EntityInfo
 typealias Button = buttonMod.Button
 typealias EntityButton = control.EntityButton
@@ -181,10 +183,16 @@ function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider =
   let (d = defaults) (sliderMod.entitySlider(a)) { defaults = d }
-/// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
-/// bar where it also reports a programme length.
-function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
-  progressMod.progress(remaining)
+/// A device mid-job: a countdown, what it is doing, and a bar where it says
+/// enough for one. `c.progress(dump.devices.washer)` finds its sensors by
+/// `defaults.progress`; `c.progress(sensor)` starts from the remaining-time
+/// sensor. `.left`, `.percent`, `.total` and `.status` override one part.
+function progress(x: hass.Device|hass.SensorEntity): progressMod.ProgressCard =
+  let (d = defaults) (progressMod.progress(x)) { defaults = d }
+/// What plays which part in `d`'s job, or null when it has no countdown and no
+/// bar: `dump.devices.all.filter((d) -> c.progressOf(d) != null)`.
+function progressOf(dev: hass.Device): progressMod.Progress? =
+  progressMod.progressOf(dev, defaults.progress)
 /// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
 /// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =

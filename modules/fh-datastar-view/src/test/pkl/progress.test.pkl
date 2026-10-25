@@ -1,0 +1,150 @@
+/// `c.progress(device)` and `c.progressOf`: which of a device's sensors play
+/// which part in its job, by `defaults.progress` (#541, E3).
+///
+/// Outside `lib/` for the usual reason — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
+import "../../main/resources/dashboards/lib/components/defaults.pkl" as defaultsMod
+import "../../main/resources/dashboards/lib/components/progress.pkl" as progressMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/hass.pkl"
+import "progress-devices.pkl" as house
+import "workspace-components.pkl" as ws
+
+local class Dev extends hass.Device {}
+
+local function dev(xs: List<hass.SensorEntity>): Dev =
+  new { device_id = "d"; device_name = "Appliance"; entities = xs }
+
+local function minutes(id: String, key: String): hass.SensorEntity =
+  new { entity_id = "sensor.\(id)"; translation_key = key; device_class = "duration"; unit_of_measurement = "min" }
+
+local function words(id: String, key: String): hass.SensorEntity =
+  new { entity_id = "sensor.\(id)"; translation_key = key }
+
+local function ids(p: c.Progress?): Map<String, String?> =
+  if (p == null) Map()
+  else Map("left", p.left?.entity_id, "percent", p.percent?.entity_id, "total", p.total?.entity_id, "status", p.status?.entity_id)
+
+local shipped = c.defaults.progress
+
+/// What `rules` find on a device of `xs`.
+local function using(rules: defaultsMod.ProgressRules, xs: List<hass.SensorEntity>): Map<String, String?> =
+  ids(progressMod.progressOf(dev(xs), rules))
+
+facts {
+  ["the heuristic finds what each device in a real house reports"] {
+    local found = house.devices.toMap().mapValues((_, d) -> ids(c.progressOf(d)))
+    found["dishwasher"] == Map(
+      "left", "sensor.dishwasher_current_program_remaining_time", "percent", null,
+      "total", "sensor.dishwasher_current_program_duration", "status", "sensor.dishwasher_current_program_phase")
+    found["printer"] == Map(
+      "left", "sensor.p1s_remaining_time", "percent", "sensor.p1s_print_progress",
+      "total", null, "status", "sensor.p1s_current_stage")
+    // No countdown: the bar alone is enough.
+    found["vacuum"] == Map(
+      "left", null, "percent", "sensor.roborock_s8_cleaning_progress",
+      "total", null, "status", "sensor.roborock_s8_status")
+    // Charging, so the battery is the bar, and of two countdowns the charging one.
+    found["car"] == Map(
+      "left", "sensor.car_id4gtx_charging_time_left", "percent", "sensor.car_id4gtx_battery_level",
+      "total", null, "status", "sensor.car_id4gtx_charging_state")
+    // Time left and nothing to divide it by: no bar until E3b.
+    found["washer"] == Map(
+      "left", "sensor.electrolux_washing_machine_timetoend_2", "percent", null,
+      "total", null, "status", "sensor.electrolux_washing_machine_cyclephase_2")
+    found["phone"] == Map(
+      "left", "sensor.le2123_remaining_charge_time", "percent", null,
+      "total", null, "status", "sensor.le2123_battery_state")
+    found["otherPhone"] == Map()
+  }
+
+  ["words, a match and an entity each name a role, and the most specific wins"] {
+    local finish = minutes("finish", "finish_in")
+    local tte = minutes("tte", "time_to_end")
+    // Words the library does not ship name nothing, until the workspace's
+    // defaults add them.
+    c.progressOf(dev(List(finish))) == null
+    ws.progressOf(dev(List(finish)))?.left == finish
+    // Both countdowns: `tte` by the shipped words, `finish` by a match, which
+    // is more specific...
+    using((shipped) { countdown { new { key = "finish_in"; unit = "min" } } }, List(tte, finish))["left"]
+      == "sensor.finish"
+    // ...and an entity more specific still.
+    using((shipped) { countdown { new { key = "finish_in" }; tte } }, List(tte, finish))["left"]
+      == "sensor.tte"
+    // An entity under `ignore` takes it out, whatever its words say.
+    using((shipped) { ignore { tte } }, List(tte)) == Map()
+  }
+
+  ["a rule cannot loosen a role's shape"] {
+    local phase = words("phase", "cycle_phase")
+    local remainingText = words("rem", "remaining_text")
+    // Words naming a sensor of the wrong shape: it plays no part.
+    c.progressOf(dev(List(remainingText, phase))) == null
+    // An entity rule naming one is an error, naming the sensor and the shape.
+    module.catch(() -> using((shipped) { countdown { remainingText } }, List(remainingText)))
+      .contains("sensor.rem, which is not a sensor with a fixed-length time unit")
+  }
+
+  ["a running total and an ignored word play no part"] {
+    local energy: hass.SensorEntity = (minutes("ontime", "remaining_time")) { state_class = "total_increasing" }
+    c.progressOf(dev(List(energy))) == null
+    c.progressOf(dev(List(minutes("last", "last_remaining_time")))) == null
+  }
+
+  ["two that fit one role: shared words, then the plainer name, then the primary one, else neither"] {
+    local left = minutes("rem", "program_remaining_time")
+    // Shared words with the countdown.
+    ids(c.progressOf(dev(List(left, minutes("dose", "auto_dose_duration"), minutes("prog", "program_duration")))))["total"]
+      == "sensor.prog"
+    // The plainer name.
+    ids(c.progressOf(dev(List(left, words("sub", "cycle_sub_phase"), words("ph", "cycle_phase")))))["status"]
+      == "sensor.ph"
+    // The one not marked diagnostic.
+    local diag: hass.SensorEntity = (words("a", "machine_state")) { entity_category = "diagnostic" }
+    ids(c.progressOf(dev(List(left, diag, words("b", "appliance_state")))))["status"] == "sensor.b"
+    // Else neither.
+    ids(c.progressOf(dev(List(left, words("a", "machine_state"), words("b", "appliance_state")))))["status"] == null
+  }
+
+  ["one bar: a percent, else left of total, else the battery while charging"] {
+    local left = minutes("rem", "remaining_time")
+    local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "print_progress"; unit_of_measurement = "%" }
+    local total = minutes("dur", "program_duration")
+    local battery: hass.SensorEntity = new { entity_id = "sensor.bat"; device_class = "battery"; unit_of_measurement = "%" }
+    ids(c.progressOf(dev(List(left, pct, total))))["percent"] == "sensor.pct"
+    ids(c.progressOf(dev(List(left, pct, total))))["total"] == null
+    ids(c.progressOf(dev(List(left, total))))["total"] == "sensor.dur"
+    // A battery is a bar only for a countdown about charging.
+    ids(c.progressOf(dev(List(left, battery))))["percent"] == null
+    ids(c.progressOf(dev(List(minutes("ch", "charging_time_left"), battery))))["percent"] == "sensor.bat"
+  }
+
+  ["the card shows what was found, and each builder overrides one part"] {
+    local left = minutes("rem", "remaining_time")
+    local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "progress"; unit_of_measurement = "%" }
+    local total = minutes("dur", "program_duration")
+    local card = c.progress(dev(List(left, pct, total, words("st", "status"))))
+    card.slots["label"] == "Appliance"
+    card.slots["entity_id"] == "sensor.rem"
+    (card.slots["secondary"] as slotMod.Slot).entityId == "sensor.st"
+    ((card.features[0] as barBaseMod.ProgressBar).slots["value"] as slotMod.Slot).entityId == "sensor.pct"
+    // `.total` asks for that bar, dropping the percent found.
+    ((card.total(total).features[0] as barBaseMod.ProgressBar).slots["of"] as slotMod.Slot).entityId == "sensor.dur"
+    card.left(total).slots["entity_id"] == "sensor.dur"
+    (card.status(left).slots["secondary"] as slotMod.Slot).entityId == "sensor.rem"
+    // A percent sensor standing in for the countdown reads as itself.
+    local vacuum = c.progress(dev(List(pct)))
+    vacuum.slots["entity_id"] == "sensor.pct"
+    (vacuum.slots["value"] as slotMod.Slot).transform != null
+  }
+
+  ["a device with no progress is a build error naming its sensors"] {
+    local firmwareOnly = dev(List(words("a", "firmware")))
+    module.catch(() -> c.progress(firmwareOnly).slots)
+      .contains("c.progress(Appliance) found no countdown and no bar among sensor.a")
+  }
+}
