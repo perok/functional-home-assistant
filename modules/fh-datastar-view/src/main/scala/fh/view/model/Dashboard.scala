@@ -1051,7 +1051,7 @@ case class Dashboard(
     def services(s: SlotSource): List[String] =
       s.literal.toList ++ (s.transform match {
         case Transform.Simple.Match(cases, otherwise, _, _) =>
-          (cases.values.toList ++ otherwise).collect { case v: String => v }
+          (otherwise :: cases.values.toList).collect { case v: String => v }
         case _ => Nil
       })
 
@@ -1182,9 +1182,9 @@ case class Dashboard(
                 )
               // CEL needs one type across the arms, so a mixed Match has no
               // CEL equivalent (ADR 0028).
-              // Without `otherwise` an unmatched read shows as itself: text.
+              // A read as `otherwise` is text.
               case m: Transform.Simple.Match
-                  if (m.otherwise.getOrElse("") :: m.cases.values.toList)
+                  if (m.otherwise :: m.cases.values.toList)
                     .map(_.isInstanceOf[Boolean])
                     .distinct
                     .sizeIs > 1 =>
@@ -2305,7 +2305,7 @@ object Dashboard:
     case _                         => false
 
   private def allBoolean(m: Transform.Simple.Match): Boolean =
-    m.otherwise.exists(_.isInstanceOf[Boolean]) &&
+    m.otherwise.isInstanceOf[Boolean] &&
       m.cases.values.forall(_.isInstanceOf[Boolean])
 
   /** Where Pkl puts a live cell class among a node's slots (`core/node.pkl`'s

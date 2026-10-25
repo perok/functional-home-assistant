@@ -120,14 +120,15 @@ object Transform {
       *
       * A map, so duplicate keys and first-match questions are unrepresentable.
       * Values may be booleans, the only thing that turns a boolean attribute
-      * off; CEL requires one type across them. Without `otherwise` an unmatched
-      * value shows as itself: the runtime does not know a domain's states, and
-      * HA adds new ones, so an unmatched one must degrade rather than blank a
-      * panel.
+      * off; CEL requires one type across them. `otherwise` is required: the
+      * runtime does not know a domain's states, and HA adds new ones, so an
+      * unmatched one must degrade rather than blank a panel. It may be a read
+      * of the match's entity (`c.select` shows an unlabelled option as itself),
+      * which is text.
       */
     final case class Match(
         cases: Map[String, SlotValue],
-        otherwise: Option[SlotValue] = None,
+        otherwise: SlotValue | Value,
         property: String = "state",
         entity: Option[String] = None
     ) extends Value
@@ -164,6 +165,15 @@ object Transform {
 
     // By hand only to pick the level: circe's derivation flattens a nested
     // sum to its innermost case, so it cannot read `kind` and then `op`.
+    private given Decoder[SlotValue | Value] =
+      Decoder[SlotValue]
+        .map(v => v: SlotValue | Value)
+        .or(Decoder[Simple].emap {
+          case v: Value     => Right(v)
+          case _: Predicate =>
+            Left("a match's otherwise is a read, not a condition")
+        })
+
     given Decoder[Simple] = Decoder[String].at("kind").flatMap {
       case "Op"    => Decoder[Op].map(o => o: Simple)
       case "Match" =>
@@ -208,13 +218,20 @@ object Transform {
         .map((k, v) => sized(k) + value(v))
         .mkString
       val read = if (m.property == "state") "" else s"@${sized(m.property)}"
-      s"match$read:${m.cases.size}:$body${m.otherwise.fold("r")(value)}"
+      val otherwise = m.otherwise match
+        case o: Value     => "r" + sized(key(o))
+        case v: SlotValue => value(v)
+      s"match$read:${m.cases.size}:$body$otherwise"
     }
 
     /** Every entity a read names: what wakes the slot besides its own. */
     def referencedEntities(s: Simple): List[String] = s match {
-      case p: Predicate => Predicate.referencedEntities(p)
-      case v: Value     => v.entity.toList
+      case p: Predicate    => Predicate.referencedEntities(p)
+      case m: Simple.Match =>
+        m.entity.toList ++ (m.otherwise match
+          case o: Value => referencedEntities(o)
+          case _        => Nil)
+      case v: Value => v.entity.toList
     }
   }
 
@@ -241,13 +258,21 @@ object Transform {
       // A match, not `fold`: closures on the hottest read of a page.
       case v: Simple.Value =>
         v.entity match {
-          case None     => read(v, subject)
+          case None     => read(v, subject, states)
           case Some(id) =>
-            read(v, states.getOrElse(id, EntityState(id, "", Map.empty)))
+            read(
+              v,
+              states.getOrElse(id, EntityState(id, "", Map.empty)),
+              states
+            )
         }
     }
 
-  private def read(v: Simple.Value, entity: EntityState): SlotValue =
+  private def read(
+      v: Simple.Value,
+      entity: EntityState,
+      states: Map[String, EntityState]
+  ): SlotValue =
     v match {
       case Simple.State(_)      => entity.state
       case Simple.Attr(name, _) =>
@@ -266,8 +291,12 @@ object Transform {
       case Simple.Prefix(lit, _)                       => lit + entity.state
       case Simple.Suffix(lit, _)                       => entity.state + lit
       case Simple.Match(cases, otherwise, property, _) =>
-        val at = Conditions.propertyOf(property, entity)
-        cases.getOrElse(at, otherwise.getOrElse(at))
+        cases.getOrElse(
+          Conditions.propertyOf(property, entity),
+          otherwise match
+            case o: Simple.Value => runSimpleValue(o, entity, states)
+            case v: SlotValue    => v
+        )
       case Simple.Percent(name, min, max, _) =>
         Simple.num(entity.javaAttributes.get(name)) match {
           case Some(v) =>

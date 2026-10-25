@@ -1,9 +1,8 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Part 1 is built on this PR, except Q32's `otherwise` (built as optional, to be reworked); part 2
-is built on #634 as a first version, to be reworked as below; 3 is not started.** The work lands
-in three PRs, in stack order:
+**Part 1 is built on this PR; part 2 is built on #634 as a first version, to be reworked as
+below; 3 is not started.** The work lands in three PRs, in stack order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not
    write.

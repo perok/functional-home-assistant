@@ -372,12 +372,12 @@ class TransformSuite extends munit.FunSuite {
     agree(Simple.Prefix("lit: "), "'lit: ' + state", probes)
     agree(Simple.Suffix(" W"), "state + ' W'", probes)
     agree(
-      Simple.Match(Map("on" -> "Open"), Some("Closed")),
+      Simple.Match(Map("on" -> "Open"), "Closed"),
       "cel.bind(m, {'on': 'Open'}, state in m ? m[state] : 'Closed')",
       probes
     )
     agree(
-      Simple.Match(Map("locked" -> "lock/unlock"), Some("lock/lock")),
+      Simple.Match(Map("locked" -> "lock/unlock"), "lock/lock"),
       "cel.bind(m, {'locked': 'lock/unlock'}, state in m ? m[state] : 'lock/lock')",
       probes
     )
@@ -386,7 +386,7 @@ class TransformSuite extends munit.FunSuite {
     agree(
       Simple.Match(
         Map("locking" -> "true", "unlocking" -> "true", "opening" -> "true"),
-        Some("")
+        ""
       ),
       "cel.bind(m, {'locking': 'true', 'unlocking': 'true', 'opening': 'true'}, " +
         "state in m ? m[state] : '')",
@@ -395,14 +395,14 @@ class TransformSuite extends munit.FunSuite {
     agree(
       Simple.Match(
         Map("locked" -> "mdi-lock", "unlocked" -> "mdi-lock-open"),
-        Some("mdi-lock-alert")
+        "mdi-lock-alert"
       ),
       "cel.bind(m, {'locked': 'mdi-lock', 'unlocked': 'mdi-lock-open'}, " +
         "state in m ? m[state] : 'mdi-lock-alert')",
       probes
     )
     agree(
-      Simple.Match(Map.empty, Some("n/a")),
+      Simple.Match(Map.empty, "n/a"),
       "cel.bind(m, {}, state in m ? m[state] : 'n/a')",
       probes
     )
@@ -411,12 +411,12 @@ class TransformSuite extends munit.FunSuite {
   test("key: a Match key cannot be forged by a separator inside a value") {
     // A Match's arity is not fixed, so its key is length-prefixed: a collision
     // would put two transforms on one signal.
-    val a = Simple.Match(Map("a" -> "b:c"), Some("z"))
-    val b = Simple.Match(Map("a:b" -> "c"), Some("z"))
+    val a = Simple.Match(Map("a" -> "b:c"), "z")
+    val b = Simple.Match(Map("a:b" -> "c"), "z")
     assertNotEquals(Simple.key(a), Simple.key(b))
     assertEquals(
-      Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), Some("z"))),
-      Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), Some("z")))
+      Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), "z")),
+      Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), "z"))
     )
   }
 
@@ -697,7 +697,7 @@ class TransformSuite extends munit.FunSuite {
     )
     assertEquals(
       decode("""{"kind":"Match","cases":{"on":"Open"},"otherwise":false}"""),
-      Right(Simple.Match(Map("on" -> "Open"), Some(false)))
+      Right(Simple.Match(Map("on" -> "Open"), false))
     )
     // `"false"` would be truthy as a Mustache section.
     assert(

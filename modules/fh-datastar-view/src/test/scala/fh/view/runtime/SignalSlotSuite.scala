@@ -377,7 +377,7 @@ class SignalSlotSuite extends ServerHarness {
   // `""` sets `disabled`, so only a real `false` turns it off. Both ends are
   // pinned, the seed and the no-JS bytes, because they fail independently.
   private val boolOff: Transform.Simple =
-    Transform.Simple.Match(Map("unavailable" -> true), otherwise = Some(false))
+    Transform.Simple.Match(Map("unavailable" -> true), otherwise = false)
 
   private val boolDash = Dashboard(
     Map(

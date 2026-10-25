@@ -378,7 +378,7 @@ class RenderBench {
     // no component has ever called — so the number this produced was for a
     // shape that does not ship.
     simpleProbes = List(
-      Transform.Simple.Match(Map("on" -> "lit"), Some("")),
+      Transform.Simple.Match(Map("on" -> "lit"), ""),
       Transform.Simple.State(),
       Transform.Simple.Attr("brightness"),
       Transform.Simple.SuffixUnit("unit_of_measurement"),
