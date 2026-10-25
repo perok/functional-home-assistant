@@ -136,38 +136,78 @@ No other device matched. The VW's climatisation countdown is a second job
 
 The Electrolux reports only time left. Its last wash started at 101 minutes
 and counted down to 0, so the total is the highest value since the countdown
-last read 0. HA's recorder already holds it.
+last read 0. HA's recorder already holds it. Builds on #632, which names a
+provider read a **fetch** (`docs/terminology.md`).
 
-- A new stage over a query's answer: **CEL over the history points**, for the
-  `history` provider that charts use. The CEL environment already loads the
-  math, lists and bindings extensions. The shipped recipe:
+**A fetch as a CEL input.** An expression value (ADR 0034) today is a literal, a
+tally or a condition. It gains a fourth kind, a fetch, read by name in CEL:
 
-  ```cel
-  cel.bind(since, math.greatest([0] + points.filter(p, p[1] == 0.0).map(p, p[0])),
-    math.greatest([0.0] + points.filter(p, p[0] > since).map(p, p[1])))
-  ```
+```pkl
+// the bar's `of`: a live CEL slot on the countdown, with its own input
+new Slot {
+  entityId = left.entity_id
+  transform = peakSinceZero                     // CEL, below
+  values { ["past"] = c.fetch.history(left) }  // `.over("7d")` for another window
+}
+```
 
-- The bar sits in `c.iff(left > 0)`. A page asks only for the queries of the
-  branches it shows, so an idle device never fetches history.
+- **`c.fetch`** is the namespace of provider reads, apart from `q.`'s candidate
+  queries: `c.fetch.history(e).over(w)`, a window of `1h`, `24h` (the default),
+  `7d` or `30d`, or a node variable. The default covers the longest jobs here
+  (a print, a car's charge); a shorter one breaks "since it last read 0".
+- **Two scopes.** A node's `expressionValues` are shared by its slots, as
+  today. A slot's own `values` are new: a slot brings its inputs, so a function
+  can hand out a finished slot. A name in both is a build error. Binding is per
+  slot already: a slot is connected only to the names its CEL reads.
+- **Its CEL type is the provider's**: history's is `list(list(double))`, the
+  `[epochMillis, value]` points, so `past.filter(p, p[1] == 0.0)` type-checks
+  and a misuse fails the build. The value is the answer the history provider
+  already caches per 5-minute period; the full series, not a chart's thinned
+  one, which can drop a peak.
+- **Read before CEL runs, in both paths.** A value fetch counts among the
+  node's fetches, so a render's pre-read (`FetchSnapshot`) and its render key
+  carry it unchanged. The signal-update path already pre-reads the fetches of
+  the nodes it updates (`readsForPull(touchedIds, …)`); `signalFrame` is now
+  handed them, and `signalsFor` passes them to the CEL.
+- **What wakes it** is the slot's own entity, the countdown, as any live slot.
+  A fetch wakes nothing, and nothing watches its cache: the next countdown
+  change reads the next period's answer.
+- A fetch value may not be read by a `once` slot, and its parameters are
+  bounded like a fetch slot's (ADR 0023: what it reads joins
+  `Dashboard.fetchedEntities`).
+
+**The bar.** `of` is the countdown's highest value since it last read 0, or
+its current value if higher, which covers a job whose first reading the
+recorder has not written yet:
+
+```cel
+cel.bind(zeros, past.filter(p, p[1] <= 0.0).map(p, p[0]),
+  cel.bind(since, size(zeros) == 0 ? 0.0 : math.greatest(zeros),
+    math.greatest(past.filter(p, p[0] > since).map(p, p[1]) + [double(num(state))])))
+```
+
+It is a signal like `value`, so the fill still runs in the browser and the bar
+never redraws. `progressOf` picks it after a percent, a total and the battery:
+the washer and the phone's charge get one.
+
 - Measured against this house with the server's exact call: a countdown's
-  history takes 15–30 ms for 24 h or 7 d (one row a minute while running). A
-  dense power sensor takes 0.5–3.4 s, so the cost is rows, not calls. Each
-  answer is cached for 5 minutes and shared by every viewer.
-- HA writes history in batches, so a fetch at a job's first moment can miss
-  the first reading. The bar then shows 0% until the 5-minute cache expires.
-- **To check first:** whether a query slot can feed the bar's `of` signal.
-  Query values are never pushed.
+  history takes 15–30 ms for 24 h or 7 d (one row a minute while running). An
+  idle countdown does not change, so it fetches only when a page draws it.
 - Not built: an elapsed-time bar. A pause keeps counting as elapsed, and
   telling paused from running takes each integration's own words. A user can
-  still write one as CEL over a status's history.
+  write one as CEL over a status's fetch.
+- Not built: pushing a fetch whose cache period ends with no entity change.
+  Designed when something needs it.
 
 ## Docs
 
 - ADR 0013 records why device capabilities come from rules in `defaults`
   rather than being narrowed onto the dump's device classes.
 - ADR 0015's defaults gain the `progress` group as the second example.
-- ADR 0027 (CEL) gains the stage over history, in E3b.
-- `docs/writing-dashboards.md` covers `c.progress(device)`, `c.progressOf`,
+- E3b: ADR 0034 (a fetch as an expression value, and slot-scoped values), ADR
+  0031 (a fetch is also a CEL input), the architecture doc (the signal path's
+  CEL reads fetches) and terminology (expression value).
+- `docs/writing-dashboards.md` covers `c.progress(device)`, `c.roles.progress`,
   the rules and the overrides.
 - `docs/terminology.md` gets "role".
 
