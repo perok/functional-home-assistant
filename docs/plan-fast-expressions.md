@@ -1,8 +1,9 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Built: part 1 on this PR, 2 on #634, 3 on #633.** The work lands in three PRs, in stack
-order:
+**Built: part 1 on this PR, except Q32's `otherwise` (built as optional, to be reworked); part 2
+on #634 as a first version, to be reworked as below; 3 on #633.** The work lands in three PRs, in
+stack order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not
    write.
@@ -27,9 +28,9 @@ that rejection was the mistake.
 The library also writes CEL for inputs that are not CEL: the slot's default `transform = "state"`,
 `.value("attr")`, `c.select`'s current option and its labels, and the slider's `"''"`.
 
-#634 decides `valueWhile` up to four times per update: in the pre-read, the render key, the paint
-and the signal path. It also finds the gating entity in two places (`Component.gated`,
-`Renderer.withheld`).
+#634, as first opened, decided `valueWhile` up to four times per update: in the pre-read, the
+render key, the paint and the signal path. It also found the gating entity in two places
+(`Component.gated`, `Renderer.withheld`).
 
 ## 1. This PR: one fast expression family
 
@@ -60,6 +61,10 @@ and the signal path. It also finds the gating entity in two places (`Component.g
   `true`/`false`, as a bool CEL result does.
 - **`Match` reads any property**, not only `state`: it takes the `Cmp` read (`property`, null
   meaning the state, plus an optional `entity`). That is what `c.select`'s labels need.
+- **`otherwise` stays required, and may be a read (Q32).** It is a literal or a value shape
+  (`Simple.Value`), so a match still says what an unmatched value shows. `c.select`'s `chosen`
+  passes the read of its current property (`simple.state()` or `simple.attr(name)`): an option
+  it has a label for shows the label, any other its raw value. The key covers the read.
 
 ### No CEL the author did not write
 
@@ -110,24 +115,87 @@ Merged onto this PR's branch first (merge, not rebase).
 - **Through the family.** A condition fills `valueWhileSlot` as a transform, like the other
   boolean inputs. `valueWhile = false` folds at build: the slot is the literal `""`. The
   free-subject refusal goes; a condition reads the slot's entity.
-- **One decision per gate per update.** While false, the slot has no value, written as `""`. Its
-  transform does not run and its fetches are not read.
-  - A slot that reads a fetch is decided in the pre-read (`fetchesForPage`, `fetchesForSurface`,
-    `readsForPull`), because a render is a synchronous string build and its fetches are answered
-    before it. Each ask already carries its slot's gate (`SlotAsk.gate`), and that is the only way
-    the pre-read reaches a member's subtree, so the gate stays on the ask. The pre-read decides
-    each distinct gate once and returns the decisions beside the reads (`Asked`), keyed by content
-    (`SlotAsk.Gate.key`: the entity and the condition), so two cards sharing a read with only one
-    gated still differ, and two gated alike share a decision. `FetchSnapshot` carries them.
-  - The render key, the paint and the signal path look the decision up and never evaluate the
-    condition again.
-  - A slot that reads no fetch, or whose subject only a paint knows, is decided once, where its
-    value is computed.
-  - One function resolves the entity a gate is decided over (`BoundSlot.gateEntity`), for the
-    pre-read and the paint.
-- **Docs written in #634** (ADR 0034's `valueWhile` section, the architecture doc, terminology,
-  `writing-components.md`) say this instead.
-- `ValueWhileSuite` checks that the walk keeps the pre-read's decision, and that CEL decides too.
+- **While false, the slot has no value**, written as `""`. Its transform does not run and its
+  fetches are not read.
+
+### What the first version got wrong
+
+It is built on #634, and it works, but it bolts the decision onto the fetch request instead of
+putting it where the other per-update decisions are:
+
+- **The condition rides on the ask** (`SlotAsk.gate`, `Component.gated`), because the pre-read
+  collects asks and an ask no longer knows its slot.
+- **A set is fetched for every candidate and every clause** (`memberAsks`, `setAsks`), present or
+  not, and only `valueWhile` filters that. A card that will not render can still fetch.
+- **The decisions are a third private record** (`Asked.gates`, carried by `FetchSnapshot`), beside
+  the pre-read's and the walk's own derivations of which surfaces show and which members are
+  present.
+
+### Three layers, and which one each piece belongs to
+
+The renderer is already layered like a compiler. The rework names the layers and puts each piece
+in one:
+
+1. **Build** (`Dashboard.Validated`, the build passes in `docs/terminology.md`): once per
+   evaluation. Unchanged.
+2. **Index**, once per renderer: what can be known from the tree alone. `Renderer`'s `Index` (ids,
+   parents, each node's asks, which nodes an entity wakes), `MemberGraph` (every member a
+   candidate can be, one per clause, with its nodes), `SurfaceGraph`, `VarGraph`. Nothing after
+   this walks the tree.
+3. **Decisions**, once per render: what the entity states and this viewer decide, derived from
+   the snapshot that render uses, before anything is read or painted. Today each reader derives
+   these itself. The rework gives them one value, `Decisions`, built once per render and handed to
+   the pre-read, the walk, the render key, the paint and the signal path.
+
+**What moves into the index:**
+
+- Each node's fetching slots, each with its asks and its `valueWhile` (the condition and the
+  entity it is decided over, `BoundSlot.gateEntity`), in place of the node's flat `fetches`.
+- A member's asks are read off the member a candidate is in one clause (`Member.nodes`, already
+  built per clause with the graph), not merged across clauses.
+
+**What `Decisions` holds**, each part computed on first use and kept for the rest of the render, so
+a pull that reaches one node does not decide the whole page:
+
+- **Which surfaces show** for this viewer: open popups, the selected tab, each state group's
+  branch (`SurfaceGraph`, as now).
+- **Which members are present, in which clause**, per set (`MemberGraph.membersOf`, as now). It is
+  derived from the render's own snapshot, never read from the recorder's `Membership`: §4b's
+  "readers derive, the recorder folds" stands, because a reader paired with the recorder's
+  members can claim a version whose members it does not show (`ResumeSuite`).
+- **Each distinct `valueWhile`**, keyed by content (the entity and the condition), so two cards
+  gated alike share one decision and two cards sharing a read with only one gated still differ.
+  A slot with no fetch, or whose subject only the paint knows, asks the same value, so every
+  `valueWhile` is decided once per render wherever it is first needed.
+
+**The pre-read then follows what will render:**
+
+- the body, and the surfaces `Decisions` shows;
+- for each set, the present members and only their current clause's nodes, and the nested sets in
+  that clause the same way;
+- for each fetching slot there, its asks only where its `valueWhile` holds.
+
+It returns reads only. `FetchSnapshot` goes back to holding answers.
+
+**What goes:** `SlotAsk.gate`, `Component.gated`, `SlotAsk.Gate`, `Asked`, `FetchSnapshot.gates`
+and `decided`, `memberAsks`, `setAsks` and `membersUnder`, and the fall-back deciding in
+`Renderer.withheld` and `Renderer.asked`.
+
+**Sharing across viewers is left out.** The state half of `Decisions` (membership and
+`valueWhile`) is the same for every viewer rendering the same store version, so it could be
+shared per slug, as `RenderCache` shares bytes. Add it if a benchmark says the per-render cost
+matters.
+
+### Checks and docs
+
+- `ValueWhileSuite`: an absent candidate and a clause that does not match ask for no fetch; the
+  walk and the pre-read agree on a set, a nested set and a state group; a `valueWhile` is decided
+  once per render.
+- `FetchDriftSuite` still holds: the pre-read asks for exactly what the walk reads.
+- `FetchBench` and `RenderBench` before and after. The pre-read now derives membership, which it
+  did not, and the walk reuses it, so a set is still derived once per render.
+- `docs/architecture-rendering-pipeline.md` §1a (the three layers) and §6's fetch section, ADR
+  0034's `valueWhile` section, `docs/terminology.md` (**Index**, **Decisions**).
 
 ## 3. #633: the progress bar in a `c.iff`
 
@@ -146,11 +214,3 @@ Merged onto this PR's branch first (merge, not rebase).
   card itself never hides; only its bar does.
 - **Docs:** ADR 0015's paragraph and `writing-dashboards.md` describe the `c.iff`, not the class.
   `SinceStartBarSuite`'s cell assertion moves to the empty `.fh-ifhost`.
-
-## Open questions
-
-- **Q32.** `c.select`'s `chosen` shows a value outside the options as itself, so a `Match`'s
-  `otherwise` there is "the property read", not a constant. Recommended, and built that way
-  pending a yes: `otherwise` becomes optional, and absent means the read itself. That still degrades on a state HA adds, which is
-  why ADR 0028 made it required, and it is not "the cases are exhaustive", which it rejected. The
-  alternative is to leave `chosen` as CEL.

@@ -185,6 +185,38 @@ never separate feeds.
 
 ---
 
+## 1a. Three layers: build, index, decisions
+
+The scopes above say WHO shares a piece of work. The layers say WHEN it is done, and they are
+arranged as a compiler's are: whatever can be known earlier is done earlier, once, and later
+layers only look it up.
+
+| Layer | Once per | Input | What it produces |
+|---|---|---|---|
+| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL compiled, fetches parsed |
+| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's asks (`Renderer`'s `Index`, one for the body and one per surface), which nodes an entity wakes, every member a candidate can be in each clause with its nodes (`MemberGraph`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
+| **Decisions** | render | the entity states, and this viewer's selections and variables | what is shown now: which surfaces (`SurfaceGraph.shownSurfaces`, `resolveActive`), which members are present and in which clause (`MemberGraph.membersOf`, `memberAt`), and whether each slot's `valueWhile` holds |
+
+Three rules keep the layers apart, and building on them is how new work stays cheap:
+
+- **Nothing after the index walks the tree.** A new static fact (what a node asks, what a slot
+  is gated on) belongs in the index, keyed by node id, so a render pays for the nodes it reaches
+  and not for the dashboard.
+- **A decision is derived from the snapshot the render uses**, never read from the recorder.
+  The recorder's `Membership` is the one folded value, and it exists for the recorder's own
+  "before" (§4b, "readers derive, the recorder folds").
+- **One render decides each thing once**, and its pre-read, walk, render key and paint agree
+  because they read the same decision. A decision derived twice can come out differently between
+  the pre-read and the walk, which is a fetch the walk needs and was not asked (§6).
+
+The third rule is not fully kept today. Each reader still derives decisions itself: the walk
+derives membership on its own, and the pre-read asks every clause of every candidate instead of
+the present ones. `valueWhile` is decided in the pre-read and passed to the walk through
+`FetchSnapshot`, with the paint deciding again where no pre-read did. §8 has the open entry;
+`docs/plan-fast-expressions.md` part 2 is the work.
+
+---
+
 ## 2. The setup, in pseudo-code
 
 The same thing as §1, in words, because the diagram cannot show ordering and lifetime.
@@ -1464,6 +1496,10 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
+- **The decisions layer has no one home yet** (§1a). Each reader derives which surfaces show and
+  which members are present, the pre-read asks for every clause of every candidate, and
+  `valueWhile` travels in `FetchSnapshot`. `docs/plan-fast-expressions.md` part 2 gives them one
+  value per render (`Decisions`) that the pre-read, walk, render key and paint share.
 - **Should the walk resolve fetches itself, asynchronously?** Possible, and not needed yet: the
   pre-walk set is decided per render (§6, checked by `FetchDriftSuite`) and answered while the head
   streams (§6a). What was established, for when it is:
