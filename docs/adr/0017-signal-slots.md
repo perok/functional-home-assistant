@@ -294,7 +294,8 @@ deleted the kind.
 frame DELETES the signal** and orphans every binding on it (the store proxy is
 `if (a == null) delete r[o]`; pinned by `DatastarMorphContractSuite`); reading the name afterwards
 re-creates it as `""`, which nothing is watching. A boolean has no such problem — only `null` is
-special to the store.
+special to the store. So **no value is `""`**: a CEL `null` stringifies to it, and so does a slot
+whose `valueWhile` does not hold (ADR 0034). What `""` means is the card's to say.
 
 Worth knowing why `false` is safe where it looks like it might not be: a display signal is keyed by
 `(entity, transform)` and **shared across binding kinds** (`Renderer.signalName` — only `bind` is

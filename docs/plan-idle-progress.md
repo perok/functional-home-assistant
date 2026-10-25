@@ -45,7 +45,8 @@ take, so it reuses what decides those and adds no engine of its own:
 It is lowered through `nodes.booleanSlot`, as `classWhen` lowers its condition: a condition becomes
 a slot-scoped expression value read by a `bool` slot.
 
-**On the wire** a slot carries `valueWhile` as that boolean slot, absent when true.
+**On the wire** a slot carries it as `valueWhileSlot`, that boolean slot, absent when true. A
+condition is the nested slot's own value `__while`.
 
 **At run time**, for every slot, render and signal path alike:
 
@@ -55,8 +56,9 @@ a slot-scoped expression value read by a `bool` slot.
 3. otherwise read the slot's fetches and run its transform, as today.
 
 So a frame reads only the fetches of slots whose condition holds, in one batch, with one CEL
-evaluation per slot. The render key (ADR 0034) carries the condition's result, and the fetch
-answers only of slots that read them.
+evaluation per slot. A fetch ask carries the condition (`SlotAsk.gate`); the page, surface and
+patch pre-reads and the render key keep only the asks whose condition holds. An ask over a subject
+only a paint knows stays ungated: asking too much is safe, too little raises.
 
 **Waking:** the entities `valueWhile` names wake the slot, like any condition a slot reads.
 
@@ -64,14 +66,16 @@ answers only of slots that read them.
 between cards (#134). A slot with a `valueWhile` reads more than that, so the condition is part of
 its name; otherwise a card without one would go blank with it.
 
-**Refused at build:** a `valueWhile` reading a fetch (it is decided before any fetch is read), and a
-reading that does not produce a `bool` (as for any boolean slot).
+**Refused at build:** a `valueWhile` reading a fetch (it is decided before any fetch is read), a
+reading that does not produce a `bool` (as for any boolean slot), one on a `once` slot, and a
+condition naming no entity.
 
 ## The bar hides on `""`
 
-`base/bar.pkl` hides itself while its `value` is `""`, both live (`data-show`) and in the first HTML
-the server sends, so a page does not flash an empty track before Datastar starts. An `unknown` or
-`unavailable` reading also has no fill, so it hides too, rather than showing today's empty track.
+`base/bar.pkl` hides itself (`data-show`) while its `value` or `of` is `""` or not a number, so an
+`unknown` or `unavailable` reading hides it too, rather than showing today's empty track. The first
+HTML still carries the track: hiding it there needs the value in the template, which the patch
+form withholds. Revisit if the moment before Datastar starts shows.
 
 ## The roles set it per bar
 
@@ -91,8 +95,9 @@ And, where a status was found and `idleStates` is not empty, `and` its state is 
 
 ## Still open
 
-- **Q27.** A car whose charging countdown is 0 loses its battery bar too. Recommended: yes, hide it;
-  the bar shows the job, and the battery has its own card.
+- **Q27.** "We should not hide the battery while it's charging": the table already shows it while
+  the charging countdown is above 0. Open: whether the battery bar should never hide, charging or
+  not.
 - **Q28.** While idle, the countdown reads "0s". Recommended: the reading's own `valueWhile`, so it is
   empty and the status line ("Ready") is what shows.
 - When cel-java ships async functions (cel-expr/cel-java#1240, merged after 0.14.0), a fetch can
@@ -102,13 +107,9 @@ And, where a status was found and `idleStates` is not empty, `and` its state is 
 
 ## Steps
 
-1. Runtime and model: `valueWhile` on the wire, its decision before the transform and before the
-   fetch read, waking, the signal name, the build refusals. `FetchValueSuite`-style tests: a failing
-   condition reads no fetch, a flip moves the value by a signal, a shared signal is not blanked.
-2. The bar hides on `""`.
+1. Done: runtime and model, `ValueWhileSuite`. Docs with it: ADR 0017, ADR 0034, the architecture
+   doc, `terminology.md`, `writing-components.md`.
+2. Done: the bar hides on `""`. Needs a look in the browser.
 3. Roles: `running` per option, `idleStates`, the bar's `valueWhile`; `.whileRunning()` removed.
    `SinceStartBarSuite`: idle at 0 reads no history and shows no bar; a start brings the bar.
-4. Docs, with the code: ADR 0017 (`""` as no value, per card), ADR 0034 (fetches after the
-   condition; async CEL), the architecture doc (the order of a slot's evaluation), `terminology.md`
-   (**Value while**), `writing-components.md` (`valueWhile`), `writing-dashboards.md` (the bar
-   while idle, `idleStates`).
+4. Docs: `writing-dashboards.md` (the bar while idle, `idleStates`).

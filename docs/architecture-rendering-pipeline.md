@@ -995,6 +995,15 @@ the node's `fetches`, so the page's pre-read and the render key carry it already
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.
 
+**A slot's `valueWhile` comes first** (ADR 0034). A slot's evaluation is: decide `valueWhile` over
+live state; if it does not hold, the value is `""` and nothing else runs; otherwise read the
+fetches and run the transform. The order reaches back into the pre-read: an ask carries its slot's
+`valueWhile` (`SlotAsk.gate`), and `fetchesForPage`, `fetchesForSurface`, `readsForPull` and the
+render key keep only the asks whose gate holds (`Renderer.asked`), so an idle washer's bar asks
+for no history. The paint decides the same thing over the same states (`Renderer.withheld`), so it
+never reads an ask the pre-read skipped. `readsAt`, which bounds a viewer's variable value, keeps
+every ask: what a node may read does not depend on what it reads now.
+
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
 a bad fetch or stage fails the build with nothing wired: a stage's params are parsed as the wire

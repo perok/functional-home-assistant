@@ -9,6 +9,7 @@ module core.slot
 
 import "../hass.pkl"
 import "../hass/active.pkl" as activeTables
+import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
 import "stage.pkl" as stageMod
 import "variable.pkl" as varMod
@@ -52,6 +53,20 @@ class Slot {
   hidden expressionValues: Mapping<String, nodes.ExpressionValue> = new {}
   values: Mapping<String, nodes.ExpressionValue>? =
     if (expressionValues.isEmpty) null else expressionValues
+  /// When this slot has a value at all; otherwise it is `""`, its transform does
+  /// not run and its fetches are not read:
+  ///
+  ///   valueWhile = q.entity(left).gt(q.prop("state"), 0)
+  ///
+  /// A constant, a condition, or a `bool` reading, which reads no fetch.
+  hidden valueWhile: nodes.BooleanInput = true
+  valueWhileSlot: Slot? =
+    if (valueWhile == true) null
+    else if (valueWhile == false)
+      new Slot { transform = "false"; type = "bool"; bypassUnavailable = false }
+    else if (valueWhile is predMod.Predicate)
+      (nodes.booleanSlot(valueWhile, "__while")) { expressionValues { ["__while"] = valueWhile } }
+    else nodes.booleanSlot(valueWhile as Slot|Expr, "")
 }
 
 /// A read of a named provider, checked by the backend's `Fetches.parse`.

@@ -76,6 +76,11 @@ is `bool`. The CARD sets the type where it binds the slot, beside `signal`, beca
 binding of its own; a `class:` binding (a live cell class) is a bool by kind. The build refuses a
 reading on a boolean slot that does not produce a bool.
 
+**Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
+all. While it does not hold the value is `""`, and the slot's transform and fetches are not run.
+Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hides a whole card.
+ADR 0034.
+
 **Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
 (`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
