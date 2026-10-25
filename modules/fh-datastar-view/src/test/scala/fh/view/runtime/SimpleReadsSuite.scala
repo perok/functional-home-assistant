@@ -10,7 +10,8 @@ import io.circe.parser.decode
   */
 class SimpleReadsSuite extends munit.FunSuite {
 
-  private val card = CardDef("""<b {{{v__bind}}}>{{v}}</b>""", slots = List("v"))
+  private val card =
+    CardDef("""<b {{{v__bind}}}>{{v}}</b>""", slots = List("v"))
 
   private def slot(t: Transform.Simple, bool: Boolean = false) = SlotSource(
     transform = t,
@@ -24,12 +25,19 @@ class SimpleReadsSuite extends munit.FunSuite {
     card = LayoutNode.Component(
       card = "c",
       slots = Map("v" -> v) ++
-        Option.when(subject)("entity_id" -> SlotSource(literal = Some("sensor.a")))
+        Option.when(subject)(
+          "entity_id" -> SlotSource(literal = Some("sensor.a"))
+        )
     )
   )
 
   private val doorOpen =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("binary_sensor.door"))
+    Predicate.Cmp(
+      "state",
+      Op.Eq,
+      Json.fromString("on"),
+      Some("binary_sensor.door")
+    )
 
   private def states(door: String, battery: Json = Json.fromInt(80)) = Map(
     "sensor.a" -> EntityState("sensor.a", "1", Map.empty),
@@ -83,7 +91,10 @@ class SimpleReadsSuite extends munit.FunSuite {
       Map.empty
     )
     val unit = "unit_of_measurement" -> Json.fromString("°C")
-    assertEquals(read("temperature" -> Json.fromDoubleOrNull(21.5), unit), "21.5 °C")
+    assertEquals(
+      read("temperature" -> Json.fromDoubleOrNull(21.5), unit),
+      "21.5 °C"
+    )
     assertEquals(read("temperature" -> Json.fromString("21"), unit), "21 °C")
     assertEquals(read("temperature" -> Json.fromInt(21)), "21")
     assertEquals(read(unit), "")
@@ -121,11 +132,16 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(keys.distinct.size, keys.size, clue = keys)
   }
 
-  test("the build refuses a once slot naming another entity, and a free condition with no entity") {
+  test(
+    "the build refuses a once slot naming another entity, and a free condition with no entity"
+  ) {
     val once = dashboard(
       slot(Transform.Simple.State(Some("sensor.b"))).copy(reads = Reads.Once)
     ).validate().mkString("\n")
-    assert(once.contains("reads another entity but is read 'once'"), clue = once)
+    assert(
+      once.contains("reads another entity but is read 'once'"),
+      clue = once
+    )
     val free = dashboard(
       slot(Predicate.Cmp("state", Op.Eq, Json.fromString("on")), bool = true),
       subject = false
