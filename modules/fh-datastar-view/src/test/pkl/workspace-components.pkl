@@ -1,0 +1,7 @@
+// A workspace's own `components.pkl`, for `components.test.pkl`: the library
+// facade amended with defaults.
+amends "../../main/resources/dashboards/lib/components.pkl"
+
+defaults {
+  light { opensOn = List("colourTemp", "colour") }
+}

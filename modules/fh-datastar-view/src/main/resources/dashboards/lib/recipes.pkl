@@ -8,22 +8,29 @@ module recipes
 import "hass.pkl"
 import "layout.pkl" as layout
 import "components/base/text.pkl" as textMod
+import "components/defaults.pkl" as defaultsMod
 import "components/slider.pkl" as sliderMod
 
-// ---- floor/area composition (typed-dump driven) ----
+/// A class, not module functions, so the facade can hand it the workspace's
+/// `defaults` for the cards it builds.
+class Recipes {
+  hidden defaults: defaultsMod.Defaults = new {}
 
-/// One column per area of `floor` that has lights: its name as a title, then a
-/// slider per light.
-function floorView(floor: hass.Floor): layout.Column = new layout.Column {
-  children {
-    for (area in floor.areas) {
-      // Not a `local`: a generator body may only generate entries and elements.
-      when (!hass.lights(area.all).isEmpty) {
-        new layout.Column {
-          children {
-            textMod.title(area.area_name)
-            for (light in hass.lights(area.all)) {
-              sliderMod.entitySlider(light)
+  // ---- floor/area composition (typed-dump driven) ----
+
+  /// One column per area of `floor` that has lights: its name as a title, then a
+  /// slider per light.
+  function floorView(floor: hass.Floor): layout.Column = let (d = defaults) new layout.Column {
+    children {
+      for (area in floor.areas) {
+        // Not a `local`: a generator body may only generate entries and elements.
+        when (!hass.lights(area.all).isEmpty) {
+          new layout.Column {
+            children {
+              textMod.title(area.area_name)
+              for (light in hass.lights(area.all)) {
+                (sliderMod.entitySlider(light)) { defaults = d }
+              }
             }
           }
         }

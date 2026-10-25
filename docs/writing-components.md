@@ -61,7 +61,7 @@ The `banner(...)` function at the bottom is just a friendlier way to write
 Add your module to `componentModules` in your entry file:
 
 ```pkl
-import "@fh-dashboard/components.pkl" as c
+import "components.pkl" as c
 import "mycards.pkl" as mine
 
 componentModules { mine }
@@ -80,6 +80,12 @@ when the dashboard builds — not a broken page later.
 Your cards must be in their own file, not written inline in the entry. Classes
 in an entry file have to be `local`, and `local` classes are invisible to the
 part of Pkl that collects cards.
+
+If your card should follow the workspace's `defaults` (set in its
+`components.pkl`), have your function take them: `mine.banner("Hello",
+c.defaults)`. Pkl has no way for a card to see them otherwise, which is also
+why the shipped cards are handed them by `c`. Your own defaults are just your
+function's parameters.
 
 ---
 
@@ -283,6 +289,12 @@ function make(xs: Listing)    = new Thing { items = xs }      // fine
 In the first one, `items` on the right refers to the object's own `items`, not
 to your parameter. Pkl recurses about ten thousand levels deep and the error
 message points at the wrong place entirely.
+
+**A name your file did not write is invisible in nested code.** A property your
+file only inherits (from the module it amends) works at the top level and fails
+inside `{ … }` with "Cannot find property", and the editor shows no error. Import
+what you use (`import "components.pkl" as c`) rather than relying on an inherited
+name.
 
 **Some words are reserved**: `case`, `out`, `is`, `import`, `else`, `when`.
 Pick another name rather than escaping them with backticks — backticks read

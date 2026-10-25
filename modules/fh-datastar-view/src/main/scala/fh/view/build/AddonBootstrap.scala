@@ -70,6 +70,12 @@ object AddonBootstrap {
           s"${loose.length} other *.pkl here are ordinary modules " +
             s"(${loose.mkString(", ")}) — serve one by naming it in " +
             s"${Site.EntryFile}: dashboards { [\"home\"] = import(\"${loose.head}\") }"
+      // With the starter only, which imports it: nothing else does, so an older
+      // workspace gets none and a deleted one stays deleted.
+      if (!os.exists(dashboardsDir / ComponentsFile)) {
+        os.write(dashboardsDir / ComponentsFile, starterComponents)
+        log += s"seeded $ComponentsFile: your components, with your defaults"
+      }
     }
 
     // A refreshed base does not move the consumer's mtime, which is all
@@ -132,18 +138,21 @@ object AddonBootstrap {
         )
     }
 
-  private val StarterSiteResource = "dashboards/site_default.pkl"
+  /** Seeded with the starter site and never read by the server: only a
+    * dashboard's `import "components.pkl" as c` gives it meaning.
+    */
+  val ComponentsFile: String = "components.pkl"
 
-  def starterSite: String = {
+  def starterSite: String = resource("dashboards/site_default.pkl")
+
+  def starterComponents: String = resource("dashboards/components_default.pkl")
+
+  private def resource(name: String): String = {
     val cl = Option(getClass.getClassLoader).getOrElse(
       ClassLoader.getSystemClassLoader
     )
-    val is = Option(cl.getResourceAsStream(StarterSiteResource))
-      .getOrElse(
-        sys.error(
-          s"starter site not on the classpath ($StarterSiteResource missing)"
-        )
-      )
+    val is = Option(cl.getResourceAsStream(name))
+      .getOrElse(sys.error(s"$name is not on the classpath"))
     try new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     finally is.close()
   }
@@ -289,7 +298,7 @@ object AddonBootstrap {
       |/// Entries in this directory import the library and this home's dump:
       |///
       |///   amends "@fh-dashboard/entry.pkl"
-      |///   import "@fh-dashboard/components.pkl" as c
+      |///   import "components.pkl" as c   // yours: the library's cards, your defaults
       |///   import "@fh-home/dump.pkl" as dump
       |///
       |/// By default your dashboards track the @fh-dashboard version the add-on
