@@ -168,7 +168,9 @@ variable's value is checked against is what a node MAY read.
 - `ValueWhileSuite`: a set asks only for its present members, in their clause; one snapshot
   decides each thing once, and an equal but different map decides afresh.
 - `FetchDriftSuite` still holds: the pre-read asks for exactly what the walk reads.
-- `FetchBench` and `RenderBench` before and after.
+- `FetchBench` and `RenderBench` before and after (3 iterations, so ±5% is noise): allocation
+  flat to slightly down for sets, `publishSetIfsFlip` −23% and `publishSetIfs` −8%, since the
+  recorder no longer evaluates each state branch twice. Nothing moved beyond noise the other way.
 - The pipeline doc's §1a, §4b, §6 and §7, ADR 0033's set reads, ADR 0034's `valueWhile`,
   `docs/terminology.md` (**Index**, **Decisions**).
 
