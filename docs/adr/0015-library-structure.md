@@ -277,6 +277,15 @@ and repro: `docs/issue-report-2-pkl-lsp-extends-completion.md`.
   comment, and a jump to the definition — identically through a namespace.
   `signatureHelp` is not implemented by pkl-lsp at all, so there is no hint while
   typing arguments. Keep arity low and doc-comment every exported function.
+- **Through the workspace's `components.pkl`** (an amending module, imported as
+  `c`): the whole facade completes after `c.` at any nesting depth, a namespace
+  that is a class INSTANCE (`c.recipes: recipesMod.Recipes`) completes like a
+  module re-export, and inside `defaults { }` completion offers the groups, then
+  a group's defaults; a misspelt default is "Unresolved property", a name
+  outside a union "Type mismatch". Class names after `new c.` do not complete,
+  through the library import either. Measured with the library imported by
+  path: pkl-lsp loads a package-form project through the `pkl` CLI, which the
+  environment that measured it did not have.
 
 Note that pkl-intellij is a **separate** implementation (a native PSI plugin, not
 an LSP client), so none of this transfers to IntelliJ automatically. The families

@@ -211,6 +211,11 @@ it, and where it sits. Tracked separately because reordering re-sends nothing.
 its attributes) as typed values, so `dump.entities.light_kitchen` dot-completes in an editor. Built
 from a live fetch, never committed. ADR 0013.
 
+**Defaults (`c.defaults`)** — what every card starts from: one `Defaults` object, grouped by card
+family (`defaults.light.opensOn`), set in the workspace's own `components.pkl` and overridden on one
+card by its builder. A card that reads one carries the whole object, handed over by `c`. Not a node
+variable's **default** (below), which is per declaration and per page. ADR 0015.
+
 **Entry** — the top-level Pkl module for one dashboard. `site.pkl` names every entry the instance
 serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR 0021.
 
