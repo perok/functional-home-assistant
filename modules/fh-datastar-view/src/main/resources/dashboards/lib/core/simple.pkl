@@ -77,13 +77,14 @@ class Duration extends SimpleValue {
 ///
 /// Arms may be Booleans, the only value that turns a boolean attribute off
 /// (`""` sets one). Mixing Strings and Booleans is a build error: CEL wants one
-/// type across a map's values. Without `otherwise` an unmatched value shows as
-/// itself: HA adds states to a domain after it ships, and an unmatched one must
-/// degrade, not blank.
+/// type across a map's values. `otherwise` is required because HA adds states
+/// to a domain after it ships, and an unmatched one must degrade, not blank. It
+/// may be a read of the same entity, `attr("effect")` to show an unlabelled
+/// value as itself, which is text.
 class SimpleMatch {
   kind: "Match" = "Match"
   cases: Mapping<String, String|Boolean>
-  otherwise: (String|Boolean)? = null
+  otherwise: String|Boolean|SimpleValue|SimpleMatch
   /// `"attr:<name>"`, or another property as a condition reads one; null is
   /// the state.
   property: String? = null

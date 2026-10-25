@@ -11,6 +11,7 @@ import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 import "../../main/resources/dashboards/lib/components/base/button.pkl" as buttonMod
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as predMod
+import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "pkl:reflect"
 
 local shade = c.variable("shade")
@@ -113,6 +114,12 @@ facts {
     local shown = c.select(mode).style("dropdown").slots["chosen"] as slotMod.Slot
     shown.entityId == "select.robot_mode"
     shown.signal == slotMod.asText
+    // An option it has no label for shows as itself.
+    (shown.transform as simpleMod.SimpleMatch).otherwise is simpleMod.State
+    local effect = (c.select(lamp.effects!!).style("dropdown").slots["chosen"] as slotMod.Slot)
+      .transform as simpleMod.SimpleMatch
+    effect.property == "attr:effect"
+    (effect.otherwise as simpleMod.Attr).attribute == "effect"
   }
 
   ["over a light's effects: turn_on with the effect, lit by its attribute"] {

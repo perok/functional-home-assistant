@@ -211,7 +211,7 @@ class WireShapeSuite extends munit.FunSuite {
     op("Percent", Simple.Percent("a", 0, 1))
     op("Fill", Simple.Fill("a", 0, 1))
     op("Duration", Simple.Duration(1))
-    check("SimpleMatch", Simple.Match(Map.empty, Some("")))
+    check("SimpleMatch", Simple.Match(Map.empty, ""))
   }
 
   test("every discriminator Pkl writes is a Scala case name, verbatim") {

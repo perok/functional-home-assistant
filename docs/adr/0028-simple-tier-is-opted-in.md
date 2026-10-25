@@ -108,12 +108,16 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    `Dashboard.validate` — CEL requires one type across a map's values and both ternary arms, so
    a mixed lookup has no idiomatic spelling to be equivalent to.
 
-   An absent `otherwise` means the read itself, not "the cases are exhaustive": `c.select`'s
-   label shows an option it does not know as itself. Nothing at this layer knows a domain's state
-   vocabulary — only the vendored Pkl module does — so an exhaustiveness check cannot live here;
-   and HA ADDS states (`open`/`opening` arrived in `lock` after the domain shipped), so an
-   unmatched state must degrade rather than blank a card months later. A helper that covers every
-   variant of a vendored state union belongs in the domain module, where the vocabulary is.
+   `otherwise` is required, and "the cases are exhaustive" is not an option: nothing at this
+   layer knows a domain's state vocabulary — only the vendored Pkl module does — so an
+   exhaustiveness check cannot live here; and HA ADDS states (`open`/`opening` arrived in `lock`
+   after the domain shipped), so an unmatched state must degrade rather than blank a card months
+   later. A helper that covers every variant of a vendored state union belongs in the domain
+   module, where the vocabulary is. `otherwise` may be a value shape rather than a literal, read
+   off the same entity: `c.select`'s label passes the read of its own property, so an option it
+   has no label for shows as itself. That is spelled, not implied — an absent `otherwise` meaning
+   "the read" was built and dropped, because forgetting one then showed raw states silently and
+   turned a boolean match into text. A read there is text, so it counts as a String arm.
 3. **`kind` names the shape, `op` the operator, and both levels are derived.** Pkl writes
    `{kind: "Op", op: "Percent", attribute, min, max}` and `{kind: "Match", cases, otherwise}`,
    each the Scala case name, as every discriminator on the wire is (ADR 0006); any other `kind`
