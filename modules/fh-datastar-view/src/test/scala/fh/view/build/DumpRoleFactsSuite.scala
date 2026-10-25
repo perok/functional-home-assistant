@@ -59,7 +59,7 @@ class DumpRoleFactsSuite extends munit.FunSuite {
     assert(c.downField("bareKey").focus.forall(_.isNull), clue = c.focus)
   }
 
-  test("c.progressOf finds a generated device's parts by those facts") {
+  test("c.roles.progress finds a generated device's parts by those facts") {
     def sensor(id: String, key: String, attrs: String) =
       s""""sensor_$id": { "entity_id": "sensor.$id", "domain": "sensor",
          |  "device_id": "p1", "platform": "bambu_lab", "translation_key": "$key",
@@ -88,7 +88,7 @@ class DumpRoleFactsSuite extends munit.FunSuite {
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-home/dump.pkl" as dump
         |
-        |local p = c.progressOf(dump.devices.printer)!!
+        |local p = c.roles.progress(dump.devices.printer)!!
         |found = List(p.left?.entity_id, p.percent?.entity_id, p.status?.entity_id)
         |label = c.progress(dump.devices.printer).slots["label"]
         |""".stripMargin

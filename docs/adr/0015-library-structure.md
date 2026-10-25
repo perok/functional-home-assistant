@@ -74,7 +74,7 @@ to remember.
 A recipe that is a familiar card with features is a subclass of that card, not
 a card of its own: `c.progress` is the remaining-time sensor's entity tile, its
 countdown the reading, with a bar in its `features` region. Given a device, it
-finds those sensors itself (`c.progressOf`, by `defaults.progress`). It registers no
+finds those sensors itself (`c.roles.progress`, by `defaults.progress`). It registers no
 template, so a page showing it beside other tiles carries one tile card.
 
 `secondary` is the one input both tiers share, under HA's own name for the line
@@ -226,7 +226,7 @@ over. The rules every default follows:
   each default named after the builder it feeds: `defaults.light.opensOn` is
   `.opensOn(…)`'s. A group may hold rules rather than one value:
   `defaults.progress` has a section per role, which `c.progress(device)` and
-  `c.progressOf` read. It imports
+  `c.roles.progress` read. It imports
   no card module, so they all can import it. A default takes names, never values
   about one entity, since it applies to every entity.
 - **A card that reads a default carries the whole object** (`hidden defaults:

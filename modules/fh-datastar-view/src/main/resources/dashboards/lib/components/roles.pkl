@@ -1,0 +1,18 @@
+/// Which part each of a device's entities plays, by the workspace's `defaults`
+/// rules: `c.roles.progress(d)`. Data, not cards: a card takes what this finds,
+/// and `c.progress(d)` finds it itself.
+module components.roles
+
+import "../hass.pkl"
+import "defaults.pkl" as defaultsMod
+import "progress.pkl" as progressMod
+
+/// A class, so the facade can hand it the workspace's `defaults` (ADR 0015).
+class Roles {
+  hidden defaults: defaultsMod.Defaults = new {}
+
+  /// The parts of `d`'s job, or null when it has no countdown and no bar:
+  /// `dump.devices.all.filter((d) -> c.roles.progress(d) != null)`.
+  function progress(d: hass.Device): progressMod.Progress? =
+    progressMod.progressOf(d, defaults.progress)
+}

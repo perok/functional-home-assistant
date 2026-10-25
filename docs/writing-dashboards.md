@@ -143,7 +143,7 @@ reads them by their names in Home Assistant.
 c.progress(dump.devices.printer)
 
 // only the devices that report a job
-for (d in dump.devices.all.filter((d) -> c.progressOf(d) != null)) {
+for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
   c.progress(d)
 }
 ```

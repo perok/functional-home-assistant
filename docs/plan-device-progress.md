@@ -97,19 +97,21 @@ class Progress {
 }
 ```
 
-- `c.progressOf(d): Progress?` is null unless it finds a countdown or a bar.
-  It is on `c`, not on the device, because the dump cannot see the workspace.
-  Filtering: `dump.devices.all.filter((d) -> c.progressOf(d) != null)`.
+- `c.roles.progress(d): Progress?` is null unless it finds a countdown or a
+  bar. It is on `c`, not on the device, because the dump cannot see the
+  workspace, and in the `c.roles` namespace because it is data, not a card
+  (E4 adds `c.roles.vacuum(d)` there). Filtering:
+  `dump.devices.all.filter((d) -> c.roles.progress(d) != null)`.
 - `c.progress(x: hass.Device|hass.SensorEntity)`, like `c.select` and
   `c.entitySlider`, which already take several kinds of input.
   - A sensor is today's card: `c.progress(sensor)`, `.total` and `.status`
     keep their behaviour and tests.
   - A device: the card carries `device` and `defaults` (ADR 0015's pattern)
-    and works its parts out with `progressOf`. One with no progress fails the
+    and works its parts out with `progressOf`, as `c.roles.progress` does. One with no progress fails the
     build, naming the device and its sensors and pointing at `.left(…)`.
   - Overrides: `.left(e)`, `.percent(e)`, `.total(e)` (which also drops a
     found `percent`, so the bar is the one asked for) and `.status(e)`.
-- `progressOf` picks the one bar: a `percent`; else `left` out of `total`,
+- `c.roles.progress` picks the one bar: a `percent`; else `left` out of `total`,
   when both units have a fixed length; else the battery, for charging; else
   `left` out of its peak (E3b). The card shows what it is given.
 - The tile's entity is `left`, else the percent sensor, whose reading then

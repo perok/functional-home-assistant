@@ -23,7 +23,7 @@ class Defaults {
   /// A light's slider.
   light: Light = new {}
   /// Which of a device's sensors play which part in its job, for
-  /// `c.progress(device)` and `c.progressOf(device)`.
+  /// `c.progress(device)` and `c.roles.progress(device)`.
   progress: ProgressRules = new {}
 }
 

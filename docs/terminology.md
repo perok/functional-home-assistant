@@ -217,7 +217,7 @@ card by its builder. A card that reads one carries the whole object, handed over
 variable's **default** (below), which is per declaration and per page. ADR 0015.
 
 **Role** — the part a device's sensor plays in its job: `countdown`, `total`, `percent`, `phase`,
-`status`, or `ignore` for none. Assigned at build by `c.progressOf` from the rules in
+`status`, or `ignore` for none. Assigned at build by `c.roles.progress` from the rules in
 `defaults.progress`, the most specific rule winning (an entity, then a match, then words); a rule
 only narrows the shape a role requires. ADR 0013.
 

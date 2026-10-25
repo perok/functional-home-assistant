@@ -49,6 +49,7 @@ import "components/wheel.pkl" as wheelMod
 import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
 import "components/defaults.pkl" as defaultsMod
+import "components/roles.pkl" as rolesMod
 
 // ---- namespaces ----
 
@@ -84,6 +85,10 @@ hidden lock: lockMod = lockMod
 /// Progress bars, for a tile's features: `c.bar.percent(e)`,
 /// `c.bar.remaining(left, total)`.
 hidden bar: barMod = barMod
+
+/// Which part each of a device's entities plays, by `defaults`:
+/// `c.roles.progress(d)`, null when the device has no job to show.
+hidden roles: rolesMod.Roles = new { defaults = module.defaults }
 
 /// Whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod.Recipes = new { defaults = module.defaults }
@@ -189,10 +194,6 @@ function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider =
 /// sensor. `.left`, `.percent`, `.total` and `.status` override one part.
 function progress(x: hass.Device|hass.SensorEntity): progressMod.ProgressCard =
   let (d = defaults) (progressMod.progress(x)) { defaults = d }
-/// What plays which part in `d`'s job, or null when it has no countdown and no
-/// bar: `dump.devices.all.filter((d) -> c.progressOf(d) != null)`.
-function progressOf(dev: hass.Device): progressMod.Progress? =
-  progressMod.progressOf(dev, defaults.progress)
 /// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
 /// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
