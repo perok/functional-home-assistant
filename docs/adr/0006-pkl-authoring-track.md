@@ -278,6 +278,19 @@ slot key remains `"class"`.
 - Amending a null-defaulted `Listing` is an error — assign `= new Listing {…}`.
 - A doc comment in an entry (no `module` clause) attaches to the first import,
   which Pkl rejects — use plain `//` comments in entries.
+- **Nested code can't see an inherited module property.** In a module that
+  amends another, a name in nested `{ … }` code resolves only through what the
+  file itself declares or imports, and the innermost `this`. So
+  `card = (c.grid) { children { c.title("x") } }` fails with "Cannot find
+  property `c`" when `c` only comes from the parent, though a top-level `c.x`
+  works. pkl-lsp 0.8.0 shows no error, only an empty completion list. This is
+  deliberate ([pkl#909](https://github.com/apple/pkl/issues/909),
+  [discussion #865](https://github.com/apple/pkl/discussions/865)). The fixes
+  are an import, `module.c`, or mentioning `c` in the file. It is why shared
+  settings live in an imported workspace `components.pkl`, not on `site.pkl`.
+- A class is named through a module import, never through a value:
+  `new c.Column` fails with "Expected `c` to be a module import" when `c` is a
+  property.
 - Alias an import whose name collides with a property being defined
   (`tokens = tokens.light` self-recurses).
 - A bare identifier inside a `new {}` amend binds to the object's OWN member,
