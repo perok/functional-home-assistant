@@ -1,7 +1,7 @@
 package fh.view.model
 
 import fh.view.history.ChartStyle
-import fh.view.runtime.{Cel, EntityState}
+import fh.view.runtime.{Cel, Conditions, EntityState}
 import io.circe.Decoder
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -19,9 +19,10 @@ object Transform {
 
   type Compiled = Cel.Program
 
-  /** The engine-free tier (ADR 0027, 0028), selected by form alone: a slot
-    * holding a `Simple` object is fast-path work, a CEL string engine work, and
-    * nothing infers one from the other.
+  /** The engine-free tier (ADR 0028), selected by form alone: a slot holding
+    * one of these objects is fast-path work, a CEL string engine work, and
+    * nothing infers one from the other. A [[Predicate]] is its bool half, so a
+    * condition fills a slot as directly as it decides a `c.iff`.
     *
     * A shape belongs here when it is a static lookup and TOTAL over every value
     * a live entity can produce — the load-bearing half, since
@@ -29,48 +30,71 @@ object Transform {
     * other: ~0.9 kB per CEL evaluation against ~45 B for a direct read
     * (`RenderBench.cel` vs `direct`).
     *
-    * Each case is defined by the idiomatic CEL below; TransformSuite holds
-    * [[runSimple]] byte-equal to it over a hostile sweep, and pins the few
+    * Every read is of the slot's entity unless it names another. Where a shape
+    * has a CEL spelling (documented on its case), TransformSuite holds
+    * [[runSimple]] byte-equal to it over a hostile sweep and pins the few
     * divergences where CEL would error. Closed: anything more is CEL.
-    *
-    * On the wire `kind` names the shape, `value` or `match`, and a value's `op`
-    * names its operator: the [[Simple.Op]] case, lower-camel.
     */
-  sealed trait Simple derives CanEqual
+  type Simple = Simple.Value | Predicate
 
   object Simple {
 
-    enum Op extends Simple {
+    /** On the wire `kind` is `Op` or `Match`, and an `Op`'s `op` names its
+      * case.
+      */
+    sealed trait Value derives CanEqual {
+
+      /** The entity read; None is the slot's. */
+      def entity: Option[String]
+    }
+
+    enum Op extends Value {
 
       /** CEL: `state`. */
-      case State
+      case State(entity: Option[String] = None)
 
       /** CEL: `attr[?'attribute']`. Absent renders `""`. */
-      case Attr(attribute: String)
+      case Attr(attribute: String, entity: Option[String] = None)
 
       /** CEL: `state + attr[?'attribute'].optMap(u, ' ' + u).orValue('')`. A
         * non-String unit counts as absent (CEL would error).
         */
-      case SuffixUnit(attribute: String)
+      case SuffixUnit(attribute: String, entity: Option[String] = None)
+
+      /** The attribute, then a space and the `unit_of_measurement` when that is
+        * a String. Absent renders `""`, so the slot's default applies; CEL has
+        * no total spelling, since a number plus a string errors.
+        */
+      case AttrUnit(attribute: String, entity: Option[String] = None)
 
       /** CEL: `'literal' + state`. */
-      case Prefix(literal: String)
+      case Prefix(literal: String, entity: Option[String] = None)
 
       /** CEL: `state + 'literal'`. */
-      case Suffix(literal: String)
+      case Suffix(literal: String, entity: Option[String] = None)
 
       /** CEL: `attr[?'attribute'].optMap(v, str(math.round((double(v) - min) *
         * 100.0 / (max - min))) + ' %').orValue('0 %')`, rounding half away from
         * zero like `math.round`. Numbers or numeric strings, as `double()`
         * takes; unparseable renders `0 %` (CEL would error).
         */
-      case Percent(attribute: String, min: Double, max: Double)
+      case Percent(
+          attribute: String,
+          min: Double,
+          max: Double,
+          entity: Option[String] = None
+      )
 
       /** CEL: `attr[?'attribute'].optMap(v, str(100.0 - ((double(v) - min) *
         * 100.0 / (max - min)))).orValue('100') + '%'`, for a right-anchored
         * track. Unparseable renders `100%`.
         */
-      case Fill(attribute: String, min: Double, max: Double)
+      case Fill(
+          attribute: String,
+          min: Double,
+          max: Double,
+          entity: Option[String] = None
+      )
 
       /** CEL:
         * {{{
@@ -87,21 +111,38 @@ object Transform {
         * dishwasher between programmes reports `unknown`, and `0s` would claim
         * it just finished.
         */
-      case Duration(scale: Double)
+      case Duration(scale: Double, entity: Option[String] = None)
     }
 
-    /** CEL: `cel.bind(m, {'k': 'v', …}, state in m ? m[state] : 'otherwise')`.
+    /** CEL: `cel.bind(m, {'k': 'v', …}, state in m ? m[state] : 'otherwise')`,
+      * over `property` (`state`, `attr:<name>`, as a [[Predicate.Cmp]] reads
+      * it).
       *
       * A map, so duplicate keys and first-match questions are unrepresentable.
       * Values may be booleans, the only thing that turns a boolean attribute
-      * off; CEL requires one type across them. `otherwise` is required: the
-      * runtime does not know a domain's states, and HA adds new ones, so an
-      * unmatched state must degrade rather than blank a panel.
+      * off; CEL requires one type across them. Without `otherwise` an unmatched
+      * value shows as itself: the runtime does not know a domain's states, and
+      * HA adds new ones, so an unmatched one must degrade rather than blank a
+      * panel.
       */
-    final case class Match(cases: Map[String, SlotValue], otherwise: SlotValue)
-        extends Simple
+    final case class Match(
+        cases: Map[String, SlotValue],
+        otherwise: Option[SlotValue] = None,
+        property: String = "state",
+        entity: Option[String] = None
+    ) extends Value
 
-    export Op.{State, Attr, SuffixUnit, Prefix, Suffix, Percent, Fill, Duration}
+    export Op.{
+      State,
+      Attr,
+      SuffixUnit,
+      AttrUnit,
+      Prefix,
+      Suffix,
+      Percent,
+      Fill,
+      Duration
+    }
 
     /** As CEL's `double()` accepts; anything else is the absent form. */
     private[Transform] def num(v: Any | Null): Option[Double] = v match {
@@ -127,22 +168,30 @@ object Transform {
       case "Op"    => Decoder[Op].map(o => o: Simple)
       case "Match" =>
         ConfiguredDecoder
-          .derived[Match](using Configuration.default)
+          .derived[Match](using Configuration.default.withDefaults)
           .map(m => m: Simple)
-      case other => Decoder.failedWithMessage(s"unknown simple kind `$other`")
+      case _ => Decoder[Predicate].map(p => p: Simple)
     }
 
-    /** Injective, for signal names and the once-cache. */
+    /** Injective, for signal names and the once-cache; none is valid CEL, so no
+      * key is a CEL transform's.
+      */
     def key(s: Simple): String = s match {
-      case Simple.State            => "state"
-      case Simple.Attr(n)          => s"attr:$n"
-      case Simple.SuffixUnit(n)    => s"unit:$n"
-      case Simple.Prefix(lit)      => s"prefix:$lit"
-      case Simple.Suffix(lit)      => s"suffix:$lit"
-      case m: Simple.Match         => matchKey(m)
-      case Simple.Percent(n, a, b) => s"percent:$n:$a:$b"
-      case Simple.Fill(n, a, b)    => s"fill:$n:$a:$b"
-      case Simple.Duration(scale)  => s"duration:$scale"
+      case p: Predicate => s"p:${Predicate.key(p)}"
+      case v: Value     => v.entity.fold("")(e => s"@$e:") + valueKey(v)
+    }
+
+    private def valueKey(v: Value): String = v match {
+      case Simple.State(_)            => "state"
+      case Simple.Attr(n, _)          => s"attr:$n"
+      case Simple.SuffixUnit(n, _)    => s"unit:$n"
+      case Simple.AttrUnit(n, _)      => s"attrunit:$n"
+      case Simple.Prefix(lit, _)      => s"prefix:$lit"
+      case Simple.Suffix(lit, _)      => s"suffix:$lit"
+      case m: Simple.Match            => matchKey(m)
+      case Simple.Percent(n, a, b, _) => s"percent:$n:$a:$b"
+      case Simple.Fill(n, a, b, _)    => s"fill:$n:$a:$b"
+      case Simple.Duration(scale, _)  => s"duration:$scale"
     }
 
     /** Length-prefixed: a match has variable arity, and a key holding the
@@ -158,44 +207,80 @@ object Transform {
         .sortBy(_._1)
         .map((k, v) => sized(k) + value(v))
         .mkString
-      s"match:${m.cases.size}:$body${value(m.otherwise)}"
+      val read = if (m.property == "state") "" else s"@${sized(m.property)}"
+      s"match$read:${m.cases.size}:$body${m.otherwise.fold("r")(value)}"
+    }
+
+    /** Every entity a read names: what wakes the slot besides its own. */
+    def referencedEntities(s: Simple): List[String] = s match {
+      case p: Predicate => Predicate.referencedEntities(p)
+      case v: Value     => v.entity.toList
     }
   }
 
-  /** Rendered exactly as [[run]] renders the equivalent CEL. No engine
-    * fallback.
+  /** Where a shape has a CEL spelling, rendered exactly as [[run]] renders it.
+    * No engine fallback.
     */
-  def runSimple(s: Simple, entity: EntityState): String =
-    SlotValue.text(runSimpleValue(s, entity))
+  def runSimple(
+      s: Simple,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): String =
+    SlotValue.text(runSimpleValue(s, subject, states))
 
-  /** Keeps a [[Simple.Match]] arm's boolean. */
-  def runSimpleValue(s: Simple, entity: EntityState): SlotValue =
+  /** Keeps a condition's or a [[Simple.Match]] arm's boolean. A named entity
+    * the store does not hold reads as an empty state: the shape's absent form.
+    */
+  def runSimpleValue(
+      s: Simple,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): SlotValue =
     s match {
-      case Simple.State      => entity.state
-      case Simple.Attr(name) =>
+      case p: Predicate => Conditions.matchesIn(p, subject, states)
+      // A match, not `fold`: closures on the hottest read of a page.
+      case v: Simple.Value =>
+        v.entity match {
+          case None     => read(v, subject)
+          case Some(id) =>
+            read(v, states.getOrElse(id, EntityState(id, "", Map.empty)))
+        }
+    }
+
+  private def read(v: Simple.Value, entity: EntityState): SlotValue =
+    v match {
+      case Simple.State(_)      => entity.state
+      case Simple.Attr(name, _) =>
         Cel.stringify(entity.javaAttributes.get(name))
-      case Simple.SuffixUnit(name) =>
+      case Simple.SuffixUnit(name, _) =>
         entity.javaAttributes.get(name) match {
           case u: String => entity.state + " " + u
           case _         => entity.state
         }
-      case Simple.Prefix(lit)             => lit + entity.state
-      case Simple.Suffix(lit)             => entity.state + lit
-      case Simple.Match(cases, otherwise) =>
-        cases.getOrElse(entity.state, otherwise)
-      case Simple.Percent(name, min, max) =>
+      case Simple.AttrUnit(name, _) =>
+        val value = Cel.stringify(entity.javaAttributes.get(name))
+        entity.javaAttributes.get("unit_of_measurement") match {
+          case u: String if value.nonEmpty => value + " " + u
+          case _                           => value
+        }
+      case Simple.Prefix(lit, _)                       => lit + entity.state
+      case Simple.Suffix(lit, _)                       => entity.state + lit
+      case Simple.Match(cases, otherwise, property, _) =>
+        val at = Conditions.propertyOf(property, entity)
+        cases.getOrElse(at, otherwise.getOrElse(at))
+      case Simple.Percent(name, min, max, _) =>
         Simple.num(entity.javaAttributes.get(name)) match {
           case Some(v) =>
             Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
           case None => "0 %"
         }
-      case Simple.Fill(name, min, max) =>
+      case Simple.Fill(name, min, max, _) =>
         Simple.num(entity.javaAttributes.get(name)) match {
           case Some(v) =>
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
           case None => "100%"
         }
-      case Simple.Duration(scale) =>
+      case Simple.Duration(scale, _) =>
         Simple.num(entity.state) match {
           case Some(v) =>
             val t = roundAway(v * scale).toLong

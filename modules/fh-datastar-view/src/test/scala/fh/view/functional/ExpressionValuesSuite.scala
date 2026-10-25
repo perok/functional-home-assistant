@@ -428,16 +428,6 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("an author's value may not take a name the boolean inputs use") {
-    val body =
-      """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["__active"] = 1 }
-        |    }).secondary(c.expr("string(__active)"))""".stripMargin
-    val err =
-      scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
-    assert(err.contains("""!startsWith("__")"""), clue = err)
-  }
-
   private val noneOn =
     """q.from(lights).where(q.eq(q.stateProp, "on")).none()"""
 

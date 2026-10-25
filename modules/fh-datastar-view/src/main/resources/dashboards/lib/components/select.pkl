@@ -21,6 +21,8 @@ module components.select
 
 import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodes
+import "../core/predicate.pkl" as predMod
+import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/surface.pkl" as surfaceMod
 import "../core/tap.pkl" as tapMod
@@ -51,11 +53,6 @@ class Choice {
 const function choiceOf(v: String|Choice): Choice =
   if (v is Choice) v else new Choice { value = v }
 
-// Inside a JS or CEL string literal, inside a double-quoted attribute that
-// Mustache's `{{…}}` HTML-escapes.
-const local function quoted(s: String): String =
-  "'" + s.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
-
 const local function targetName(t: Over): String =
   if (t is hass.Options) t.owner.entity_id + (if (t.name != null) " " + t.name!! else "")
   else t.name
@@ -64,17 +61,13 @@ const local function targetName(t: Over): String =
 const local function offered(t: Over): List<String> =
   if (t is hass.Options) t.list.toList() else List()
 
-/// `{'v': 'label', …}`, a JS or CEL map literal.
-const local function labelMap(cs: List<Choice>): String =
-  "{" + cs.map((ch) -> "\(quoted(ch.value)): \(quoted(ch.label))").join(", ") + "}"
-
-/// The entity's current value, as CEL.
+/// The property holding the entity's current value, as a condition reads it.
 const local function currentOf(o: hass.Options): String =
-  if (o.attr != null) "attr[?\(quoted(o.attr!!))].orValue('')" else "state"
+  if (o.attr != null) "attr:" + o.attr!! else "state"
 
 /// Whether `v` is the entity's current value.
-const local function entityChosen(o: hass.Options, v: String): slotMod.Expr =
-  slotMod.exprOf(o.owner, "\(currentOf(o)) == \(quoted(v))")
+const local function entityChosen(o: hass.Options, v: String): predMod.Predicate =
+  new predMod.Cmp { property = currentOf(o); op = "eq"; value = v; entity = o.owner.entity_id }
 
 const local function entityCall(o: hass.Options, v: String): tapMod.Call =
   tapMod.call(o.service, o.owner).with(o.key, v)
@@ -230,10 +223,13 @@ class SelectDropdown extends Select {
   // A class-level property: a nested body cannot see `target`, which `Select`
   // declares. A value outside the options shows as itself.
   hidden chosen: slotMod.Slot =
-    let (o = target) let (labels = labelMap(choices)) let (current = currentOf(o))
+    let (o = target) let (cs = choices)
       new slotMod.Slot {
         entityId = o.owner.entity_id
-        transform = "\(labels)[?\(current)].orValue(\(current))"
+        transform = new simpleMod.SimpleMatch {
+          cases { for (ch in cs) { [ch.value] = ch.label } }
+          property = currentOf(o)
+        }
         signal = slotMod.asText
         bypassUnavailable = false
       }

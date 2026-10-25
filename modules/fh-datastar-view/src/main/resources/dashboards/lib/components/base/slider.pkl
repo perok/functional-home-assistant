@@ -7,7 +7,6 @@ module components.base.slider
 import "../../core/badge.pkl" as badgeMod
 import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodes
-import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/tap.pkl" as tapMod
@@ -315,12 +314,7 @@ open class Slider extends nodes.Node {
           signal = slotMod.asStyle("background")
           reads = "live"
         }
-      else new slotMod.Slot {
-        transform = "''"
-        default = fillDefault
-        bypassUnavailable = false
-        reads = "once"
-      }
+      else fillDefault
     // Section flags, because one `cardDef` serves every slider on the page.
     when (readingFollowsDrag) {
       ["dragPercent"] = "1"
@@ -382,18 +376,13 @@ open class Slider extends nodes.Node {
     let (ownRead = nodes.valuesNamedIn(expressionValues, slots))
     let (own = expressionValues.toMap().filter((name, _) ->
         ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
-      if (own.isEmpty && derivedValues.isEmpty) null
-      else new Mapping { ...own; ...derivedValues }
+      if (own.isEmpty) null else own.toMapping()
   /// This slider's own row; a slider with [[controls]] shows one of theirs.
   hidden headNode: SliderHead =
     let (headActive = active) (new SliderHead {}) {
       active = headActive
       slots { ...headSlots }
       expressionValues = headValues.toMapping()
-      // On the head, the node whose slot reads it: values are local.
-      derivedValues {
-        when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
-      }
       children = new Mapping {
         ["text"] = new Listing { (new SliderText {}) { slots { ...textSlots }; expressionValues = textValues.toMapping() } }
         ["actions"] = pillsOf(shownButtons)

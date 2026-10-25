@@ -14,12 +14,11 @@ import fh.view.model.{
   Reads,
   Ref,
   Region,
-  SlotRead,
   SlotSource,
   Surface,
   Transform
 }
-import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
+import fh.view.fetch.{Asked, FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
@@ -90,13 +89,14 @@ class FetchBench {
   }
 
   // Server.answer's shape: an empty set asks nothing.
-  private def answer(reads: List[SlotRead]): IO[FetchSnapshot] =
-    if (reads.isEmpty) IO.pure(FetchSnapshot.of(Map.empty))
+  private def answer(asked: Asked): IO[FetchSnapshot] =
+    if (asked.reads.isEmpty)
+      IO.pure(FetchSnapshot.of(Map.empty, gates = asked.gates))
     else
       FetchSnapshot.resolve(
         resolver,
         renderer.fetchRequests,
-        reads,
+        asked,
         Map.empty,
         FetchIdentity.Instance
       )
@@ -134,13 +134,15 @@ class FetchBench {
   @Benchmark
   def pagePrepass(bh: Blackhole): Unit =
     bh.consume(
-      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
+      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty))
+        .unsafeRunSync()
     )
 
   @Benchmark
   def pageWithCharts(bh: Blackhole): Unit = {
     val f =
-      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
+      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty))
+        .unsafeRunSync()
     bh.consume(
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),

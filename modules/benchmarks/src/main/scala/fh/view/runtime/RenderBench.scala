@@ -281,6 +281,11 @@ class RenderBench {
   // the engine (fill colour, attribute comprehension) — the same 4-of-6 mix a
   // shipped page dispatches.
   private var simpleProbes: List[Transform.Simple] = null
+  // A boolean input's condition, as CEL reading it through a named value.
+  private var conditionViaCel: Transform.Compiled = null
+  private lazy val isOn =
+    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
+  private lazy val isOnValue = Map("on" -> ExprValue.Holds(isOn))
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -373,8 +378,8 @@ class RenderBench {
     // no component has ever called — so the number this produced was for a
     // shape that does not ship.
     simpleProbes = List(
-      Transform.Simple.Match(Map("on" -> "lit"), ""),
-      Transform.Simple.State,
+      Transform.Simple.Match(Map("on" -> "lit"), Some("")),
+      Transform.Simple.State(),
       Transform.Simple.Attr("brightness"),
       Transform.Simple.SuffixUnit("unit_of_measurement"),
       Transform.Simple.Fill("brightness", 1.0, 255.0),
@@ -384,6 +389,9 @@ class RenderBench {
       List(CelShapes.TransformFillColor, CelShapes.TransformAttrLines).map(
         cparse
       )
+    conditionViaCel = Transform
+      .parse(Transform.CelKey("on", List("on" -> ExprValue.Kind.Bool)))
+      .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
@@ -642,7 +650,9 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      simpleProbes.foreach(s => bh.consume(Transform.runSimple(s, e)))
+      simpleProbes.foreach(s =>
+        bh.consume(Transform.runSimple(s, e, Map.empty))
+      )
       engineShapes.foreach(t => bh.consume(Transform.run(t, e, "dashboard")))
       i += 1
     }
@@ -669,6 +679,36 @@ class RenderBench {
     }
   }
 
+  /** A condition filling a bool slot (`active`, `disabled`, `classWhen`), once
+    * per entity: decided directly, against [[conditionCel]]'s CEL reading the
+    * same decision through a named value.
+    */
+  @Benchmark
+  def condition(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(Transform.runSimpleValue(isOn, st(entityId(i)), st))
+      i += 1
+    }
+  }
+
+  @Benchmark
+  def conditionCel(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      val e = st(entityId(i))
+      bh.consume(
+        Transform.runValue(
+          conditionViaCel,
+          e,
+          "dashboard",
+          Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
+        )
+      )
+      i += 1
+    }
+  }
+
   @Benchmark
   def celComplex(bh: Blackhole): Unit = {
     var i = 0
@@ -691,11 +731,17 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(Transform.runSimple(Transform.Simple.State, e))
+      bh.consume(Transform.runSimple(Transform.Simple.State(), e, Map.empty))
       bh.consume(
-        Transform.runSimple(Transform.Simple.Attr("friendly_name"), e)
+        Transform.runSimple(
+          Transform.Simple.Attr("friendly_name"),
+          e,
+          Map.empty
+        )
       )
-      bh.consume(Transform.runSimple(Transform.Simple.Attr("brightness"), e))
+      bh.consume(
+        Transform.runSimple(Transform.Simple.Attr("brightness"), e, Map.empty)
+      )
       i += 1
     }
   }
@@ -1499,7 +1545,7 @@ class RenderBench {
     var i = 0
     while (i < tickEntities.size) {
       val e = moved(tickEntities(i))
-      bh.consume(Transform.runSimple(NameSlot, e))
+      bh.consume(Transform.runSimple(NameSlot, e, Map.empty))
       i += 1
     }
   }

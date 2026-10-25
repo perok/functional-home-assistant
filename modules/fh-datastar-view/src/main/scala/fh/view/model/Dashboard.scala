@@ -13,10 +13,11 @@ given Configuration =
 
 /** Where one mustache slot gets its value.
   *
-  *   - `transform`: a CEL string or a [[Transform.Simple]] object — the form is
-  *     the tier (ADR 0028) — or, on a fetch slot, a [[Transform.Stage]]. Only
-  *     the slot's own entity is reachable, beside the expression values it
-  *     names, the node's and its own ([[BoundSlot]]).
+  *   - `transform`: a CEL string or a [[Transform.Simple]] object, a condition
+  *     included — the form is the tier (ADR 0028) — or, on a fetch slot, a
+  *     [[Transform.Stage]]. CEL reaches the slot's own entity and the
+  *     expression values it names, the node's and its own ([[BoundSlot]]); a
+  *     `Simple` read may name any entity.
   *   - `default`: used when the transform yields `""`, which keeps a numeric
   *     initialiser like `{bri: {{x}}}` valid while a light is off.
   *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
@@ -33,7 +34,8 @@ given Configuration =
   */
 case class SlotSource(
     entityId: Option[String] = None,
-    transform: String | Transform.Simple | Transform.Stage = "state",
+    transform: String | Transform.Simple | Transform.Stage =
+      Transform.Simple.State(),
     default: Option[String] = None,
     bypassUnavailable: Boolean = true,
     literal: Option[String] = None,
@@ -107,11 +109,20 @@ final case class BoundSlot(
   def celKeys: List[Transform.CelKey] =
     celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
 
-  /** Every entity a live value this slot reads can be moved by, its
-    * [[valueWhile]] included.
+  /** The entity its [[valueWhile]] is decided over: its own, else the slot's.
+    * The one rule the pre-read and the paint share.
+    */
+  def gateEntity(slotEntity: Option[String]): Option[String] =
+    valueWhile.flatMap(_.entityId).orElse(slotEntity)
+
+  /** Every entity that can move this slot besides its own: those its transform
+    * names, those of the live values it reads, and its [[valueWhile]]'s.
     */
   def valueEntities: List[String] =
-    values.values.toList.flatMap(_.entities) ++
+    (transform match
+      case s: Transform.Simple => Transform.Simple.referencedEntities(s)
+      case _                   => Nil
+    ) ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
   def shape: SlotShape =
@@ -203,8 +214,8 @@ object ExprValue:
     case Whole(n)   => s"i:$n"
     case Real(d)    => s"d:$d"
     case Flag(b)    => s"b:$b"
-    case Count(t)   => s"t:${tallyKey(t)}"
-    case Holds(p)   => s"p:${predicateKey(p)}"
+    case Count(t)   => s"t:${Predicate.tallyKey(t)}"
+    case Holds(p)   => s"p:${Predicate.key(p)}"
     case Fetched(f) =>
       s"f:${f.provider}(" + f.params.toList
         .sortBy(_._1)
@@ -213,28 +224,6 @@ object ExprValue:
           case (k, Ref.Var(n))     => s"$k=$$$n"
         }
         .mkString(",") + ")"
-
-  private def tallyKey(t: Predicate.Tally): String =
-    t.candidates.mkString(",") + "/" +
-      t.when.toList
-        .sortBy(_._1)
-        .map((id, p) => s"$id=${predicateKey(p)}")
-        .mkString(";")
-
-  private def predicateKey(p: Predicate): String = p match
-    case Predicate.Cmp(prop, op, v, e) =>
-      s"cmp($prop,$op,${v.noSpaces},${e.getOrElse("")})"
-    case Predicate.And(xs)  => xs.map(predicateKey).mkString("and(", ",", ")")
-    case Predicate.Or(xs)   => xs.map(predicateKey).mkString("or(", ",", ")")
-    case Predicate.Not(x)   => s"not(${predicateKey(x)})"
-    case c: Predicate.Count =>
-      s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
-    case f: Predicate.First =>
-      s"first(${tallyKey(f.tally)},${f.orderBy.map(sortKey).mkString(";")},${f.entity})"
-
-  private def sortKey(t: LayoutNode.SortTerm): String = t.by match
-    case LayoutNode.SortKey.Prop(p)  => s"${t.dir}:prop($p)"
-    case LayoutNode.SortKey.Holds(p) => s"${t.dir}:holds(${predicateKey(p)})"
 
   given Decoder[ExprValue] = Decoder.instance { c =>
     c.value.fold(
@@ -321,7 +310,13 @@ case class SlotAsk(
     SlotRead(fetch.resolve(env), stage)
 
 object SlotAsk:
-  final case class Gate(slot: BoundSlot, entity: String) derives CanEqual
+  final case class Gate(slot: BoundSlot, entity: String) derives CanEqual:
+    lazy val key: String = Gate.key(Some(entity), slot)
+
+  object Gate:
+    /** By content, so two slots gated alike share one decision per update. */
+    def key(entity: Option[String], valueWhile: BoundSlot): String =
+      s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
 case class SlotRead(fetch: SlotFetch, stage: Transform.Stage) derives CanEqual
@@ -553,6 +548,29 @@ object Predicate:
     case c: Count        => c.tally.referencedEntities
     case f: First        => f.referencedEntities
 
+  def tallyKey(t: Predicate.Tally): String =
+    t.candidates.mkString(",") + "/" +
+      t.when.toList
+        .sortBy(_._1)
+        .map((id, p) => s"$id=${key(p)}")
+        .mkString(";")
+
+  /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
+  def key(p: Predicate): String = p match
+    case Predicate.Cmp(prop, op, v, e) =>
+      s"cmp($prop,$op,${v.noSpaces},${e.getOrElse("")})"
+    case Predicate.And(xs)  => xs.map(key).mkString("and(", ",", ")")
+    case Predicate.Or(xs)   => xs.map(key).mkString("or(", ",", ")")
+    case Predicate.Not(x)   => s"not(${key(x)})"
+    case c: Predicate.Count =>
+      s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
+    case f: Predicate.First =>
+      s"first(${tallyKey(f.tally)},${f.orderBy.map(sortKey).mkString(";")},${f.entity})"
+
+  private def sortKey(t: LayoutNode.SortTerm): String = t.by match
+    case LayoutNode.SortKey.Prop(p)  => s"${t.dir}:prop($p)"
+    case LayoutNode.SortKey.Holds(p) => s"${t.dir}:holds(${key(p)})"
+
   /** Rejected under an [[Activation.State]], which supplies no subject. The
     * guards of a count or a leader are bound to their own candidates, so they
     * do not count.
@@ -698,10 +716,11 @@ object LayoutNode:
     // Ungated without an entity to decide over: a dynamic subject is known
     // only per paint, and asking too much is safe where too little raises.
     private def gated(s: BoundSlot)(a: SlotAsk): SlotAsk =
-      s.valueWhile.fold(a) { w =>
-        val entity = w.entityId.orElse(s.entityId).orElse(subjectEntity)
-        a.copy(gate = entity.map(SlotAsk.Gate(w, _)))
-      }
+      s.valueWhile.fold(a)(w =>
+        a.copy(gate =
+          s.gateEntity(s.entityId.orElse(subjectEntity)).map(SlotAsk.Gate(w, _))
+        )
+      )
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
@@ -1031,8 +1050,8 @@ case class Dashboard(
   private lazy val declaredCalls: List[Dashboard.Declared] = {
     def services(s: SlotSource): List[String] =
       s.literal.toList ++ (s.transform match {
-        case Transform.Simple.Match(cases, otherwise) =>
-          (cases.values.toList :+ otherwise).collect { case v: String => v }
+        case Transform.Simple.Match(cases, otherwise, _, _) =>
+          (cases.values.toList ++ otherwise).collect { case v: String => v }
         case _ => Nil
       })
 
@@ -1163,8 +1182,9 @@ case class Dashboard(
                 )
               // CEL needs one type across the arms, so a mixed Match has no
               // CEL equivalent (ADR 0028).
+              // Without `otherwise` an unmatched read shows as itself: text.
               case m: Transform.Simple.Match
-                  if (m.cases.values.toList :+ m.otherwise)
+                  if (m.otherwise.getOrElse("") :: m.cases.values.toList)
                     .map(_.isInstanceOf[Boolean])
                     .distinct
                     .sizeIs > 1 =>
@@ -1337,11 +1357,25 @@ case class Dashboard(
           s"$nodeId: slot '$slot' reads a live count, condition or fetch but is " +
             s"read '${Reads.Once}' — it would show the first count forever; " +
             s"read it '${Reads.Live}'"
+        case (slot, src)
+            if src.reads == Reads.Once && src.valueEntities.nonEmpty =>
+          s"$nodeId: slot '$slot' reads another entity but is read " +
+            s"'${Reads.Once}' — it would show its first state forever; read " +
+            s"it '${Reads.Live}'"
+        case (slot, src)
+            if src.entityId.isEmpty &&
+              !c.slots.contains(Dashboard.SubjectSlot) &&
+              (src.transform match
+                case p: Predicate => Predicate.hasFreeSubject(p)
+                case _ => false) =>
+          s"$nodeId: slot '$slot' compares an entity it does not name, and " +
+            "has no entity of its own — name it with q.entity(e)"
       }
 
     def valueWhileErrors(
         nodeId: String,
-        slots: Map[String, BoundSlot]
+        slots: Map[String, BoundSlot],
+        hasSubject: Boolean
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { (name, src) =>
         src.valueWhile.toList.flatMap { w =>
@@ -1357,11 +1391,18 @@ case class Dashboard(
                   "valueWhile — it would keep its first answer forever"
               )
               .toList ++
-            w.values.values.collect {
-              case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
+            Option
+              .when(
+                src.gateEntity(src.entityId).isEmpty && !hasSubject &&
+                  (w.transform match
+                    case p: Predicate => Predicate.hasFreeSubject(p)
+                    case _            => false)
+              )(
                 s"$nodeId: slot '$name' has a valueWhile comparing an entity " +
-                  "it does not name — name it with q.entity(e)"
-            }
+                  "it does not name, and has no entity of its own — name it " +
+                  "with q.entity(e)"
+              )
+              .toList
         }
       }
 
@@ -1594,7 +1635,11 @@ case class Dashboard(
           ) ++ slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
             valueErrors(nodeId, c) ++
-            valueWhileErrors(nodeId, c.bound) ++
+            valueWhileErrors(
+              nodeId,
+              c.bound,
+              c.slots.contains(Dashboard.SubjectSlot)
+            ) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
@@ -2238,27 +2283,30 @@ object Dashboard:
   val ExpressionValueName: scala.util.matching.Regex =
     "[A-Za-z_][A-Za-z0-9_]*".r
 
-  /** Per tier: CEL by its checked type, `Simple` exactly — only a `match` whose
-    * every outcome is a Boolean is one; every other shape is text.
+  /** Per tier: CEL by its checked type, `Simple` exactly — a condition, or a
+    * `match` whose every outcome is a Boolean; every other shape is text.
     */
   def yieldsBool(src: BoundSlot): Boolean = src.transform match
     case _: String =>
       src.celKey.forall(Transform.yieldsBool)
     case m: Transform.Simple.Match => allBoolean(m)
+    case _: Predicate              => true
     case _: Transform.Simple       => false
     case _: Transform.Stage        => true
 
-  /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), or a
-    * `match` whose every outcome is a Boolean.
+  /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), a
+    * condition, or a `match` whose every outcome is a Boolean.
     */
   def onlyBool(src: BoundSlot): Boolean = src.transform match
     case _: String =>
       src.celKey.exists(Transform.isBoolTyped)
     case m: Transform.Simple.Match => allBoolean(m)
+    case _: Predicate              => true
     case _                         => false
 
   private def allBoolean(m: Transform.Simple.Match): Boolean =
-    (m.otherwise :: m.cases.values.toList).forall(_.isInstanceOf[Boolean])
+    m.otherwise.exists(_.isInstanceOf[Boolean]) &&
+      m.cases.values.forall(_.isInstanceOf[Boolean])
 
   /** Where Pkl puts a live cell class among a node's slots (`core/node.pkl`'s
     * `cellClassPrefix`). The `:` keeps it out of any name a card's template

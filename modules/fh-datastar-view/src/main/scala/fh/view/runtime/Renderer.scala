@@ -3,7 +3,7 @@ package fh.view.runtime
 import com.github.mustachejava.Mustache
 import fh.view.FHError
 import fh.view.build.LibPackage
-import fh.view.fetch.{Fetches, FetchSnapshot, FetchRequest}
+import fh.view.fetch.{Asked, Fetches, FetchSnapshot, FetchRequest}
 import fh.view.history.Series
 import fh.view.model.{
   CallReach,
@@ -339,43 +339,59 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState],
       selections: Selections,
       env: VarEnv
-  ): List[SlotRead] =
-    (targets.flatMap(id =>
-      askedAt(id, env, states) ++ setReadsAbove(id, env, states)
-    ) ++
-      hosts.flatMap { gid =>
-        members.setContainer(gid) match {
-          case Some(_) =>
-            setReads(gid, env, states) ++ setReadsAbove(gid, env, states)
-          case None =>
-            surfaces
-              .resolveActiveByState(gid, states)
-              .flatMap(surfaces.bakeGroup(gid).lift)
-              .toList
-              .flatMap(fetchesForSurface(_, states, selections, env))
-        }
-      }).distinct
+  ): Asked =
+    ask(
+      targets.flatMap(id => asksAt(id) ++ setAsksAbove(id)) ++
+        hosts.flatMap { gid =>
+          members.setContainer(gid) match {
+            case Some(_) => setAsks(gid) ++ setAsksAbove(gid)
+            case None    =>
+              surfaces
+                .resolveActiveByState(gid, states)
+                .flatMap(surfaces.bakeGroup(gid).lift)
+                .toList
+                .flatMap(surfaceAsks(_, states, selections))
+          }
+        },
+      states,
+      env
+    )
+
+  /** Each distinct `valueWhile` decided once, then every ask whose slot has a
+    * value now, at this viewer's values. The decisions travel with the answers
+    * ([[FetchSnapshot.decided]]), so the walk does not decide them again.
+    */
+  private def ask(
+      asks: List[(NodeId, SlotAsk)],
+      states: Map[String, EntityState],
+      env: VarEnv
+  ): Asked = {
+    val gates = asks
+      .flatMap(_._2.gate)
+      .distinctBy(_.key)
+      .map(g => g.key -> holds(planned(g.slot), Some(g.entity), states))
+      .toMap
+    Asked(
+      asks.collect {
+        case (id, a) if a.gate.forall(g => gates(g.key)) =>
+          a.resolve(env.getOrElse(id, Map.empty))
+      }.distinct,
+      gates
+    )
+  }
 
   // What the sets above a node read: a member's render reaches its nested
   // sets, whose members are asked under their own ids.
-  private def setReadsAbove(
-      id: NodeId,
-      env: VarEnv,
-      states: Map[String, EntityState]
-  ): List[SlotRead] =
+  private def setAsksAbove(id: NodeId): List[(NodeId, SlotAsk)] =
     if (membersUnder.isEmpty) Nil
-    else ancestry.ancestorsOf(id).toList.flatMap(setReads(_, env, states))
+    else ancestry.ancestorsOf(id).toList.flatMap(setAsks)
 
-  /** Every member's reads under set `gid`, nested sets' included, each at this
-    * viewer's values. Every clause, not the matching one: the snapshot is
-    * resolved before the walk decides which matches.
+  /** Every member's asks under set `gid`, nested sets' included. Every clause,
+    * not the matching one: the snapshot is resolved before the walk decides
+    * which matches.
     */
-  private def setReads(
-      gid: NodeId,
-      env: VarEnv,
-      states: Map[String, EntityState]
-  ): List[SlotRead] =
-    membersUnder.getOrElse(gid, Nil).flatMap(askedAt(_, env, states))
+  private def setAsks(gid: NodeId): List[(NodeId, SlotAsk)] =
+    membersUnder.getOrElse(gid, Nil).flatMap(asksAt)
 
   private lazy val membersUnder: Map[NodeId, List[NodeId]] =
     memberAsks.keys.toList
@@ -404,14 +420,8 @@ class Renderer(validated: Dashboard.Validated) {
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
     fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
 
-  private def askedAt(
-      id: NodeId,
-      env: VarEnv,
-      states: Map[String, EntityState]
-  ): List[SlotRead] =
-    asked(fetchesForNode(id), states).map(
-      _.resolve(env.getOrElse(id, Map.empty))
-    )
+  private def asksAt(id: NodeId): List[(NodeId, SlotAsk)] =
+    fetchesForNode(id).map(id -> _)
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -766,14 +776,9 @@ class Renderer(validated: Dashboard.Validated) {
 
   def fetchRequests: Map[SlotRead, FetchRequest] = parsedFetches
 
-  private def readsIn(
-      idx: Index,
-      env: VarEnv,
-      states: Map[String, EntityState]
-  ): List[SlotRead] =
-    (idx.asks.flatMap { case (id, asks) =>
-      asked(asks, states).map(_.resolve(env.getOrElse(id, Map.empty)))
-    } ++ idx.setIds.flatMap(setReads(_, env, states))).distinct
+  private def asksIn(idx: Index): List[(NodeId, SlotAsk)] =
+    idx.asks.flatMap((id, asks) => asks.map(id -> _)) ++
+      idx.setIds.flatMap(setAsks)
 
   /** The surfaces shown inside it included. */
   def fetchesForSurface(
@@ -781,20 +786,22 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState],
       selections: Selections,
       env: VarEnv
-  ): List[SlotRead] =
+  ): Asked =
+    ask(surfaceAsks(surfaceId, states, selections), states, env)
+
+  private def surfaceAsks(
+      surfaceId: String,
+      states: Map[String, EntityState],
+      selections: Selections
+  ): List[(NodeId, SlotAsk)] =
     surfaces
       .shownWithin(surfaceId, states, selections)
       .toList
       .sorted
-      .flatMap(readsOfSurface(_, env, states))
-      .distinct
+      .flatMap(asksOfSurface)
 
-  private def readsOfSurface(
-      surfaceId: String,
-      env: VarEnv,
-      states: Map[String, EntityState]
-  ): List[SlotRead] =
-    surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env, states))
+  private def asksOfSurface(surfaceId: String): List[(NodeId, SlotAsk)] =
+    surfaceIndexes.get(surfaceId).toList.flatMap(asksIn)
 
   /** The body, this viewer's open surfaces and each state group's branch. An
     * unselected tab is fetched when switched to.
@@ -803,11 +810,17 @@ class Renderer(validated: Dashboard.Validated) {
       open: Set[String],
       states: Map[String, EntityState],
       env: VarEnv
-  ): List[SlotRead] = {
-    val shown = surfaces.shownSurfaces(open, states)
-    (readsIn(mainIndex, env, states) ++
-      shown.toList.sorted.flatMap(readsOfSurface(_, env, states))).distinct
-  }
+  ): Asked =
+    ask(
+      asksIn(mainIndex) ++
+        surfaces
+          .shownSurfaces(open, states)
+          .toList
+          .sorted
+          .flatMap(asksOfSurface),
+      states,
+      env
+    )
 
   /** The resume's second candidate set: nothing may have recorded an open
     * surface while nobody viewed it, so only re-rendering can tell.
@@ -965,7 +978,7 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, asked(c.fetches, states))
+            fragments.versions(id, asked(c.fetches, fragments))
           )
         )
       case None =>
@@ -973,7 +986,7 @@ class Renderer(validated: Dashboard.Validated) {
           case (c: LayoutNode.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, states),
-              fragments.versions(id, asked(c.fetches, states))
+              fragments.versions(id, asked(c.fetches, fragments))
             )
         }
     }
@@ -1602,28 +1615,38 @@ class Renderer(validated: Dashboard.Validated) {
       entity: Option[String],
       states: Map[String, EntityState]
   ): Boolean =
-    resolveStateSlotValue(entity, valueWhile, states, noFetch) match
+    resolveStateSlotValue(
+      entity,
+      valueWhile,
+      states,
+      noFetch,
+      FetchSnapshot.empty
+    ) match
       case b: Boolean => b
       case _          => false
 
+  /** As the pre-read decided it; decided here only where it could not (no fetch
+    * to gate, or a subject known only now).
+    */
   private def withheld(
       planned: Planned,
       srcEntity: Option[String],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fragments: FetchSnapshot
   ): Boolean =
-    planned.valueWhile.exists(w =>
-      !holds(w, w.source.entityId.orElse(srcEntity), states)
-    )
+    planned.valueWhile.exists { w =>
+      val entity = planned.source.gateEntity(srcEntity)
+      !fragments
+        .decided(SlotAsk.Gate.key(entity, w.source))
+        .getOrElse(holds(w, entity, states))
+    }
 
-  /** The asks whose slot has a value now: what a render reads ([[withheld]]).
-    */
+  /** The asks whose slot has a value now, as the pre-read decided. */
   private def asked(
       asks: List[SlotAsk],
-      states: Map[String, EntityState]
+      fragments: FetchSnapshot
   ): List[SlotAsk] =
-    asks.filter(
-      _.gate.forall(g => holds(planned(g.slot), Some(g.entity), states))
-    )
+    asks.filter(_.gate.forall(g => fragments.decided(g.key).getOrElse(true)))
 
   /** One plan per node an id shows, matched by identity: bounded only because
     * every node is built once (a member's with the graph, see the pipeline
@@ -1693,7 +1716,8 @@ class Renderer(validated: Dashboard.Validated) {
                           srcEntity,
                           planned,
                           states,
-                          noFetch
+                          noFetch,
+                          FetchSnapshot.empty
                         )
                     )
                     constB += ((slot, once))
@@ -1828,7 +1852,14 @@ class Renderer(validated: Dashboard.Validated) {
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
-              _ => resolveStateSlotValue(srcEntity, planned, states, noFetch)
+              _ =>
+                resolveStateSlotValue(
+                  srcEntity,
+                  planned,
+                  states,
+                  noFetch,
+                  FetchSnapshot.empty
+                )
             )
           else
             resolveSlotValue(srcEntity, planned, states, fragments, plan.id)
@@ -1914,7 +1945,8 @@ class Renderer(validated: Dashboard.Validated) {
                   srcEntity,
                   source,
                   states,
-                  fetchedIn(fragments, id)
+                  fetchedIn(fragments, id),
+                  fragments
                 )
               ))
             )
@@ -1946,7 +1978,8 @@ class Renderer(validated: Dashboard.Validated) {
             entity,
             planned,
             states,
-            fetchedIn(fragments, id)
+            fetchedIn(fragments, id),
+            fragments
           )
     }
   }
@@ -1971,7 +2004,15 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned,
       states: Map[String, EntityState]
   ): String =
-    SlotValue.text(resolveStateSlotValue(srcEntity, source, states, noFetch))
+    SlotValue.text(
+      resolveStateSlotValue(
+        srcEntity,
+        source,
+        states,
+        noFetch,
+        FetchSnapshot.empty
+      )
+    )
 
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
     * `default`.
@@ -1983,7 +2024,8 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: FetchSnapshot,
       node: NodeId
   ): SlotValue = source.source.shape match {
-    case SlotShape.Fetch(_) if withheld(source, srcEntity, states) => ""
+    case SlotShape.Fetch(_) if withheld(source, srcEntity, states, fragments) =>
+      ""
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
     case SlotShape.Fetch(ask) => fragments.value(node, ask)
     case SlotShape.State(_)   =>
@@ -1991,7 +2033,8 @@ class Renderer(validated: Dashboard.Validated) {
         srcEntity,
         source,
         states,
-        fetchedIn(fragments, node)
+        fetchedIn(fragments, node),
+        fragments
       )
   }
 
@@ -2015,14 +2058,15 @@ class Renderer(validated: Dashboard.Validated) {
       srcEntity: Option[String],
       planned: Planned,
       states: Map[String, EntityState],
-      fetched: FetchTemplate => Object
+      fetched: FetchTemplate => Object,
+      fragments: FetchSnapshot
   ): SlotValue = {
     val source = planned.source
     val st =
       srcEntity
         .flatMap(states.get)
         .getOrElse(EntityState(srcEntity.getOrElse(""), "", Map.empty))
-    if (withheld(planned, srcEntity, states)) ""
+    if (withheld(planned, srcEntity, states, fragments)) ""
     // The bypass, not the transform, keeps an unavailable entity readable.
     else if (source.bypassUnavailable && st.unavailable) st.state
     else {
@@ -2038,7 +2082,8 @@ class Renderer(validated: Dashboard.Validated) {
           )
         case None =>
           source.transform match {
-            case sm: Transform.Simple => Transform.runSimpleValue(sm, st)
+            case sm: Transform.Simple =>
+              Transform.runSimpleValue(sm, st, states)
             // Rejected by `validate`; the raw state keeps a bypass readable.
             case _ => st.state
           }

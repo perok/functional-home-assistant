@@ -1964,7 +1964,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(slider).slots("max").literal, Some("100"))
     // Opted in: the guarded read as structure, presence implicit (ADR 0028).
     rowOf(slider).slots("value").transform match {
-      case Transform.Simple.Attr("current_position") => ()
+      case Transform.Simple.Attr("current_position", _) => ()
       case other => fail(s"expected the opted-in guarded read, got $other")
     }
   }
@@ -1991,7 +1991,7 @@ class PklBuildSuite extends munit.FunSuite {
     // The position stays live, since it reads state, but names the attribute
     // directly.
     slots("value").transform match {
-      case Transform.Simple.Attr("brightness") => ()
+      case Transform.Simple.Attr("brightness", _) => ()
       case other => fail(s"expected the opted-in guarded read, got $other")
     }
     assertEquals(slots("value").default, Some("0"))
@@ -2044,11 +2044,11 @@ class PklBuildSuite extends munit.FunSuite {
     )
     // It reads out its level, off its own range, not its state.
     rowOf(members.head).slots("state").transform match {
-      case Transform.Simple.Percent("brightness", 1.0, 255.0) => ()
+      case Transform.Simple.Percent("brightness", 1.0, 255.0, _) => ()
       case other => fail(s"expected the opted-in percent, got $other")
     }
     rowOf(members(1)).slots("state").transform match {
-      case Transform.Simple.Percent("current_position", 0.0, 100.0) => ()
+      case Transform.Simple.Percent("current_position", 0.0, 100.0, _) => ()
       case other => fail(s"expected the opted-in percent, got $other")
     }
     // That reading is the position, so a drag moves it locally. The head reads
@@ -2405,7 +2405,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
     // The handle tracks the value it writes, not brightness.
     rowOf(s).slots("value").transform match {
-      case Transform.Simple.Attr("color_temp_kelvin") => ()
+      case Transform.Simple.Attr("color_temp_kelvin", _) => ()
       case other => fail(s"expected the opted-in guarded read, got $other")
     }
   }

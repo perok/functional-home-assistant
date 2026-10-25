@@ -313,7 +313,7 @@ class TransformSuite extends munit.FunSuite {
     val compiled = compile(cel)
     probes.foreach { e =>
       assertEquals(
-        Transform.runSimple(shape, e),
+        Transform.runSimple(shape, e, Map.empty),
         Transform.run(compiled, e, "dashboard"),
         clue = s"[$cel] state=${e.state} attrs=${e.attributes}"
       )
@@ -349,7 +349,7 @@ class TransformSuite extends munit.FunSuite {
       ), // exotic value: both paths String.valueOf it
       es("off", "brightness" -> Json.fromInt(200))
     )
-    agree(Simple.State, "state", probes)
+    agree(Simple.State(), "state", probes)
     agree(Simple.Attr("brightness"), "attr[?'brightness']", probes)
   }
 
@@ -372,12 +372,12 @@ class TransformSuite extends munit.FunSuite {
     agree(Simple.Prefix("lit: "), "'lit: ' + state", probes)
     agree(Simple.Suffix(" W"), "state + ' W'", probes)
     agree(
-      Simple.Match(Map("on" -> "Open"), "Closed"),
+      Simple.Match(Map("on" -> "Open"), Some("Closed")),
       "cel.bind(m, {'on': 'Open'}, state in m ? m[state] : 'Closed')",
       probes
     )
     agree(
-      Simple.Match(Map("locked" -> "lock/unlock"), "lock/lock"),
+      Simple.Match(Map("locked" -> "lock/unlock"), Some("lock/lock")),
       "cel.bind(m, {'locked': 'lock/unlock'}, state in m ? m[state] : 'lock/lock')",
       probes
     )
@@ -386,7 +386,7 @@ class TransformSuite extends munit.FunSuite {
     agree(
       Simple.Match(
         Map("locking" -> "true", "unlocking" -> "true", "opening" -> "true"),
-        ""
+        Some("")
       ),
       "cel.bind(m, {'locking': 'true', 'unlocking': 'true', 'opening': 'true'}, " +
         "state in m ? m[state] : '')",
@@ -395,14 +395,14 @@ class TransformSuite extends munit.FunSuite {
     agree(
       Simple.Match(
         Map("locked" -> "mdi-lock", "unlocked" -> "mdi-lock-open"),
-        "mdi-lock-alert"
+        Some("mdi-lock-alert")
       ),
       "cel.bind(m, {'locked': 'mdi-lock', 'unlocked': 'mdi-lock-open'}, " +
         "state in m ? m[state] : 'mdi-lock-alert')",
       probes
     )
     agree(
-      Simple.Match(Map.empty, "n/a"),
+      Simple.Match(Map.empty, Some("n/a")),
       "cel.bind(m, {}, state in m ? m[state] : 'n/a')",
       probes
     )
@@ -411,12 +411,12 @@ class TransformSuite extends munit.FunSuite {
   test("key: a Match key cannot be forged by a separator inside a value") {
     // A Match's arity is not fixed, so its key is length-prefixed: a collision
     // would put two transforms on one signal.
-    val a = Simple.Match(Map("a" -> "b:c"), "z")
-    val b = Simple.Match(Map("a:b" -> "c"), "z")
+    val a = Simple.Match(Map("a" -> "b:c"), Some("z"))
+    val b = Simple.Match(Map("a:b" -> "c"), Some("z"))
     assertNotEquals(Simple.key(a), Simple.key(b))
     assertEquals(
-      Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), "z")),
-      Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), "z"))
+      Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), Some("z"))),
+      Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), Some("z")))
     )
   }
 
@@ -425,7 +425,8 @@ class TransformSuite extends munit.FunSuite {
     // the tier renders the state alone.
     val e = es("on", "unit_of_measurement" -> Json.fromInt(5))
     assertEquals(
-      Transform.runSimple(Simple.SuffixUnit("unit_of_measurement"), e),
+      Transform
+        .runSimple(Simple.SuffixUnit("unit_of_measurement"), e, Map.empty),
       "on"
     )
     assert(
@@ -512,7 +513,8 @@ class TransformSuite extends munit.FunSuite {
 
   test("a duration reads as a person would say it") {
     // Agreeing with CEL does not make either right; these are the readings.
-    def fmt(v: String) = Transform.runSimple(Simple.Duration(60.0), es(v))
+    def fmt(v: String) =
+      Transform.runSimple(Simple.Duration(60.0), es(v), Map.empty)
     assertEquals(fmt("253"), "4h 13m")
     assertEquals(fmt("60"), "1h 0m")
     assertEquals(fmt("59"), "59m")
@@ -526,12 +528,18 @@ class TransformSuite extends munit.FunSuite {
     // A dishwasher between programmes reports `unknown`. `0s` would claim it
     // just finished, so the absent form is empty and the slot default takes
     // over.
-    assertEquals(Transform.runSimple(Simple.Duration(60.0), es("unknown")), "")
     assertEquals(
-      Transform.runSimple(Simple.Duration(60.0), es("unavailable")),
+      Transform.runSimple(Simple.Duration(60.0), es("unknown"), Map.empty),
       ""
     )
-    assertEquals(Transform.runSimple(Simple.Duration(60.0), es("")), "")
+    assertEquals(
+      Transform.runSimple(Simple.Duration(60.0), es("unavailable"), Map.empty),
+      ""
+    )
+    assertEquals(
+      Transform.runSimple(Simple.Duration(60.0), es(""), Map.empty),
+      ""
+    )
     assert(
       Transform
         .run(compile(durationExpr), es("unknown"), "dashboard")
@@ -547,11 +555,13 @@ class TransformSuite extends munit.FunSuite {
     val empty = es("on", "brightness" -> Json.fromString(""))
     val text = es("on", "brightness" -> Json.fromString("on"))
     assertEquals(
-      Transform.runSimple(Simple.Percent("brightness", 1.0, 255.0), empty),
+      Transform
+        .runSimple(Simple.Percent("brightness", 1.0, 255.0), empty, Map.empty),
       "0 %"
     )
     assertEquals(
-      Transform.runSimple(Simple.Fill("brightness", 1.0, 255.0), text),
+      Transform
+        .runSimple(Simple.Fill("brightness", 1.0, 255.0), text, Map.empty),
       "100%"
     )
     assert(
@@ -573,7 +583,7 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("the simple key is injective across structures and stable") {
-    assertEquals(Transform.Simple.key(Simple.State), "state")
+    assertEquals(Transform.Simple.key(Simple.State()), "state")
     assertEquals(
       Transform.Simple.key(Simple.Attr("brightness")),
       "attr:brightness"
@@ -669,11 +679,11 @@ class TransformSuite extends munit.FunSuite {
   test("state takes no argument, and one it does not need is ignored") {
     assertEquals(
       decode("""{"kind":"Op","op":"State"}"""),
-      Right(Simple.State)
+      Right(Simple.State())
     )
     assertEquals(
       decode("""{"kind":"Op","op":"State","attribute":"brightness"}"""),
-      Right(Simple.State)
+      Right(Simple.State())
     )
   }
 
@@ -687,14 +697,14 @@ class TransformSuite extends munit.FunSuite {
     )
     assertEquals(
       decode("""{"kind":"Match","cases":{"on":"Open"},"otherwise":false}"""),
-      Right(Simple.Match(Map("on" -> "Open"), false))
+      Right(Simple.Match(Map("on" -> "Open"), Some(false)))
     )
     // `"false"` would be truthy as a Mustache section.
     assert(
       decode("""{"kind":"Match","cases":{"on":true},"otherwise":false}""")
         .exists {
-          case Simple.Match(cases, _) => cases("on") == (true: SlotValue)
-          case _                      => false
+          case Simple.Match(cases, _, _, _) => cases("on") == (true: SlotValue)
+          case _                            => false
         }
     )
     assert(decode("""{"kind":"Op","op":"nope"}""").isLeft)

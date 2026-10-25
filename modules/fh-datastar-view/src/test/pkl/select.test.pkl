@@ -10,6 +10,7 @@ import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 import "../../main/resources/dashboards/lib/components/base/button.pkl" as buttonMod
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/predicate.pkl" as predMod
 import "pkl:reflect"
 
 local shade = c.variable("shade")
@@ -43,7 +44,7 @@ facts {
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
     local carried = Set("cellClasses", "stateClasses", "liveClasses", "liveProperties", "id", "vars", "expressionValues")
-    local cards = Set("kind", "cell", "card", "cardDef", "slots", "children", "regions", "values", "inlineSurfaces", "derivedValues")
+    local cards = Set("kind", "cell", "card", "cardDef", "slots", "children", "regions", "values", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
 
@@ -106,7 +107,8 @@ facts {
     local tap = (opts[1] as selectMod.EntityOption).tapAction
     tap.service == "select/select_option"
     tap.dataKey == "option" && tap.dataValue == #""turbo""#
-    ((opts[2] as selectMod.EntityOption).active as slotMod.Expr).transform == #"state == 'it\'s max'"#
+    local lit = (opts[2] as selectMod.EntityOption).active as predMod.Cmp
+    lit.property == "state" && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
     // The dropdown's label is the server's, so the first HTML names it.
     local shown = c.select(mode).style("dropdown").slots["chosen"] as slotMod.Slot
     shown.entityId == "select.robot_mode"
@@ -120,7 +122,7 @@ facts {
     local tap = (cyc[0] as buttonMod.Pill).tapAction as tapMod.Call
     tap.service == "light/turn_on"
     tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
-    ((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].transform as String).contains("attr[?'effect']")
+    ((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].transform as predMod.Cmp).property == "attr:effect"
     (cyc[1] as buttonMod.Pill).active == false
   }
 

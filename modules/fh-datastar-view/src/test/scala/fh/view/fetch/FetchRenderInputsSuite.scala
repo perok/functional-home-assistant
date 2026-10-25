@@ -1,6 +1,6 @@
 package fh.view.fetch
 
-import fh.view.fetch.FetchSnapshot
+import fh.view.fetch.{Asked, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
@@ -200,7 +200,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       f <- FetchSnapshot.resolve(
         r,
         plan(wide, narrow),
-        List(wide, narrow),
+        Asked(List(wide, narrow), Map.empty),
         Map.empty,
         FetchIdentity.Instance
       )
@@ -244,7 +244,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       f <- FetchSnapshot.resolve(
         r,
         plan(reads*),
-        reads,
+        Asked(reads, Map.empty),
         Map.empty,
         FetchIdentity.Instance
       )
@@ -265,7 +265,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       f <- FetchSnapshot.resolve(
         r,
         plan(raw),
-        List(raw),
+        Asked(List(raw), Map.empty),
         Map.empty,
         FetchIdentity.Instance
       )
@@ -292,7 +292,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       f <- FetchSnapshot.resolve(
         r,
         plan(ok, bad),
-        List(ok, bad),
+        Asked(List(ok, bad), Map.empty),
         Map.empty,
         FetchIdentity.Instance
       )
@@ -369,11 +369,11 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     )
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForSurface("popup", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface("popup", Map.empty, Selections.none, Map.empty).reads,
       List(read())
     )
     assertEquals(
-      r.fetchesForSurface("nope", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface("nope", Map.empty, Selections.none, Map.empty).reads,
       Nil
     )
   }
@@ -437,6 +437,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       Map("light.a" -> EntityState("light.a", s, Map.empty))
     def windows(selected: String, states: Map[String, EntityState]) =
       r.fetchesForPage(Set(selected), states, Map.empty)
+        .reads
         .map(_.fetch.params("window"))
         .toSet
     assertEquals(windows("t0", light("on")), Set("1h", "24h"))

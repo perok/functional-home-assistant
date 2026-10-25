@@ -6,7 +6,6 @@
 module components.base.button
 
 import "../../core/node.pkl" as nodes
-import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -106,9 +105,6 @@ open class Button extends nodes.ActiveNode {
   /// for a reason of the button's own (a popup opener has no call to carry
   /// one): `lit.none()`.
   hidden disabled: nodes.BooleanInput? = null
-  derivedValues {
-    when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
-  }
   /// The entity a reading that names none reads. The HA layer sets it.
   hidden subject: String? = null
   // A navigating button is a link, which has no inert form, so `disabled` on

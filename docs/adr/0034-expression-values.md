@@ -39,12 +39,11 @@ A **slot** is where a result lands (text, a class, an attribute, a style propert
 node-level declaration, and each slot is bound to the ones its CEL reads (`BoundSlot`). Everything
 below builds on that one path, and nothing gains a second evaluator.
 
-**Declaration.** `Node.expressionValues: Mapping<String(!startsWith("__")), ExpressionValue>`, where
+**Declaration.** `Node.expressionValues: Mapping<String, ExpressionValue>`, where
 `ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate|slot.Fetch`, written as an amend or with
-the `expressionValues(m)` builder. On the wire it is `Component.values` (the author's values and
-the derived ones below, merged), absent when empty. Two properties, because a `Mapping?` defaulting
-to null can be neither amended nor `new {}`'d — both infer `Dynamic` (measured) — and an
-always-present `{}` would sit on every node's wire.
+the `expressionValues(m)` builder. On the wire it is `Component.values`, absent when empty. Two
+properties, because a `Mapping?` defaulting to null can be neither amended nor `new {}`'d — both
+infer `Dynamic` (measured) — and an always-present `{}` would sit on every node's wire.
 
 **A value is a typed CEL variable** of that node's expressions: String → `string`, Int → `int`,
 Float → `double`, Boolean → `bool`, a tally → `int`, a condition → `bool`, a fetch → its provider's
@@ -112,17 +111,15 @@ signal can carry a JSON number (a slot value is `String | Boolean` today).
 The build refuses a reading on a boolean slot that does not produce a bool, because the template
 reads it by truthiness and the string `"false"` is ON. Per tier: CEL by its checked result type
 (`dyn` passes, since `state` is `dyn` and refusing it would refuse `state == 'on'`); `Simple`
-exactly, since every shape's result is known at build time — only an all-Boolean `match` (what
-`c.isOn`/`c.stateIn` build) is a bool.
+exactly, since every shape's result is known at build time — a condition, or an all-Boolean
+`match` (what `c.isOn`/`c.stateIn` build), is a bool.
 
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
-`q.entity(l).stateIs("on")`). `active`, `disabled` and `classWhen` all take one. A condition is Pkl
-sugar onto the one path: the input declares a value named after itself (`__active`,
-`__disabled`, `__class_<hash>` — a class name is not an identifier) and a bool slot whose CEL is
-that name. The derived values live in `Node.derivedValues`, apart from the author's, because the
-`expressionValues(m)` builder assigns and would drop them; names starting `__` are refused in
-`expressionValues` so the two cannot collide. An aggregate the build can settle IS a `Boolean` —
+`q.entity(l).stateIs("on")`). `active`, `disabled` and `classWhen` all take one. A condition IS the
+bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by `Conditions` with
+no CEL and no name; a comparison that names no entity reads the slot's, and the build refuses one
+on a slot that has none. An aggregate the build can settle IS a `Boolean` —
 `any()` over a room with no lights is `false` — and then there is no live slot at all, and a
 `true` `disabled` is the bare attribute.
 
@@ -134,14 +131,17 @@ that places them honours it with nothing of its own.
 A slot's `valueWhile` is a boolean input too, `true` by default: while it does not hold, the slot's
 value is `""`, its transform does not run and **its fetches are not read**. A device's bar while
 the washer is idle reads no history. It is lowered as the others are, onto a bool slot nested in
-the slot (`valueWhileSlot` on the wire, absent when `true`), whose condition is a value of its own
-(`__while`); it reads the slot's entity when it names none.
+the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
+or a constant (`false` is an empty `Or`); it reads the slot's entity when it names none.
 
-It is decided first, on every path. A fetch ask carries it (`SlotAsk.gate`), so a render's pre-read
-and its render key skip the asks whose slot is empty now, and the paint, deciding the same thing
-over the same states, never reaches them. An ask over a subject only a paint knows (a transform
-subject) stays ungated, because asking too much is safe and asking too little raises. The
-condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
+It is decided first, and **once per update**. A fetch ask carries its slot's gate (`SlotAsk.gate`:
+the condition and the entity it is decided over, `BoundSlot.gateEntity` being the one rule). The
+pre-read decides each distinct gate once, keeps only the asks whose gate holds, and hands the
+decisions on with the answers (`Asked`, then `FetchSnapshot.decided`), keyed by content so two
+slots gated alike share one. The render key, the paint and the signal path look the decision up.
+A slot that reads no fetch is decided where its value is computed, as is one whose subject only a
+paint knows (a transform subject): that ask goes ungated, because asking too much is safe and
+asking too little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). The build refuses one that
 reads a fetch (it decides whether fetches are read), one that does not produce a bool, and one on
 a `once` slot, whose memo would keep its first answer.
@@ -187,10 +187,14 @@ alone sends nothing, because the frame is diffed against what each session holds
 - **A reading built from the count, with implicit names.** The first proposal,
   `q.from(…).where(…).reading("… count … total …")`, gave the expression `count`, `total` and
   `names` it never declared, fused WHICH set with WHAT text so two texts over one set could not
-  share, and built a slot behind the author's back. The condition sugar names its value too, but
-  after the INPUT, and a condition is the whole yes/no — no text is composed from it.
-- **A condition as a slot transform FORM** (beside CEL and `Simple`). No names, but a condition
-  would then be evaluated two ways: as a transform, and as a value inside CEL.
+  share, and built a slot behind the author's back. A boolean input builds a slot too, but from
+  the condition the author wrote, which is the whole yes/no — no text is composed from it.
+- **A condition read through a derived value** (`__active`, a bool slot whose CEL is that name).
+  It was the first lowering: every boolean input on a card ran `Conditions` and then a CEL call
+  that did nothing, at five times the allocation of deciding it directly (`RenderBench.condition`
+  vs `conditionCel`), and it needed a second mapping on every node and a reserved `__` prefix.
+  A condition is evaluated two ways now only where an author asks: as a transform, and as a
+  value an author's CEL reads by name.
 - **`CardDef.booleanSlots`, a list of a card's boolean slots.** A list per type where one field
   extends, and on the card rather than on the value it describes.
 - **Send the count, let the browser compose the text.** The same expression in CEL for the
@@ -208,19 +212,19 @@ alone sends nothing, because the frame is diffed against what each session holds
 
 ## Consequences
 
-- A slot can now reach other entities than its own, but only as values a node declared.
+- A slot can now reach other entities than its own: as values a node declared, or as a fast read
+  that names one.
 - A tally whose candidates the build settled has no residuals; the runtime counts an unguarded
   candidate as present, so no build-time fold is needed. Those candidates still wake the node —
   a recompute whose unchanged result the frame diff swallows — the same cost a settled `Count`
   has.
 - A condition value on a card with a subject is named under that entity's signal path, since the
   slot inherits the subject; its own `valueKey` keeps it distinct.
-- Values are node-local, so a STRUCTURAL card puts a condition's value on the child node whose slot
-  reads it — the slider's `disabled` declares `__disabled` on its head. An author's values go on
-  the card, and the card hands each part the ones that part's slots name (`nodes.valuesNamedIn`):
-  a slider's second line reads them on its text node, its readout on its head. It matches names
-  with a regex, since Pkl cannot run the CEL parser; a wrong match is caught by the build, which
-  binds by the parsed identifiers and refuses a value no expression reads.
+- Values are node-local. An author's values go on the card, and the card hands each part the ones
+  that part's slots name (`nodes.valuesNamedIn`): a slider's second line reads them on its text
+  node, its readout on its head. It matches names with a regex, since Pkl cannot run the CEL
+  parser; a wrong match is caught by the build, which binds by the parsed identifiers and refuses
+  a value no expression reads.
 - Not built, and why: a `names` value (the present members' names — a list, so a second CEL type
   and an order to decide); a `Simple` shape over values (a percent of two counts needs its own
   totality rule for `total = 0`); a `"number"` slot type (needs a numeric signal value); a

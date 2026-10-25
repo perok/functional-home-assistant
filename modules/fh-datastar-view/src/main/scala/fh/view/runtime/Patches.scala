@@ -3,16 +3,8 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.fetch.FetchSnapshot
-import fh.view.model.{
-  Dashboard,
-  DomId,
-  NodeId,
-  SetId,
-  SignalId,
-  SlotRead,
-  SlotValue
-}
+import fh.view.fetch.{Asked, FetchSnapshot}
+import fh.view.model.{Dashboard, DomId, NodeId, SetId, SignalId, SlotValue}
 import fh.view.model.DomId.selector
 import io.circe.Json
 
@@ -309,7 +301,7 @@ private[runtime] object Patches {
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       // Asked only for this pull's reads; most ask none.
-      answers: List[SlotRead] => IO[FetchSnapshot],
+      answers: Asked => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
