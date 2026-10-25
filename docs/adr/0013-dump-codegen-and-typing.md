@@ -126,7 +126,9 @@ workspace, so a user's rule for their own integration could never reach a role
 it narrowed; and a table per integration in the generator needed a release for
 every new appliance, where shipped words plus a user's rules cover the long
 tail. The cost is the narrowing: `c.roles.progress` is `Progress?`, so a device with
-none fails at `c.progress(d)`, naming its sensors, rather than in the editor.
+none fails at `c.progress(d)`, naming its sensors, rather than in the editor. `entity_category` is
+only a tie-break between two sensors fitting one role, never a filter: the Electrolux washer's time
+to end and every Roborock entity are `diagnostic`.
 
 ### Stage 1c — house-wide namespaces, declared rather than emitted
 

@@ -89,7 +89,10 @@ A fetch value (`c.fetch.history(e).over(w)`, ADR 0031) is a provider read by nam
 the countdown's highest reading since it last read 0, CEL over its history. It adds no wake: the
 slot is read when its own entity changes, or when its card is drawn, and the provider's answer is
 whatever its cache holds then (history's, per 5-minute period). Nothing watches the answer itself;
-a push when a period ends with no entity change is designed when something needs one.
+a push when a period ends with no entity change is designed when something needs one. Reading on
+every change is cheap because the cost is rows, not calls: with the server's exact call against a
+real house, a countdown's history took 15–30 ms for 24 h or 7 d (a row a minute while it runs, none
+while idle), where a dense power sensor took 0.5–3.4 s.
 
 The answer is read before the CEL runs, on both paths. A value fetch counts among the node's fetches
 (`BoundSlot.fetches`), so a render's pre-read and its render key carry it as a fetch slot's are

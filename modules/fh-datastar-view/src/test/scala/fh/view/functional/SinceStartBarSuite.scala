@@ -57,7 +57,9 @@ class SinceStartBarSuite extends CatsEffectSuite {
     }
   }
 
-  test("a tick moves the reading by a signal; the whole is read again, unmoved") {
+  test(
+    "a tick moves the reading by a signal; the whole is read again, unmoved"
+  ) {
     served { (ts, asked) =>
       for {
         client <- ts.connect()

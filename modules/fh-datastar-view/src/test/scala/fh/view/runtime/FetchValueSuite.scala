@@ -4,9 +4,9 @@ import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.model.*
 import io.circe.parser.decode
 
-/** A fetch as an expression value: a state slot's CEL reads a provider's
-  * answer by name, fetched before it runs, on the render path and on the signal
-  * path alike (#541 E3b).
+/** A fetch as an expression value: a state slot's CEL reads a provider's answer
+  * by name, fetched before it runs, on the render path and on the signal path
+  * alike (#541 E3b).
   */
 class FetchValueSuite extends munit.FunSuite {
 
@@ -26,7 +26,9 @@ class FetchValueSuite extends munit.FunSuite {
       "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))"
 
   private def of(
-      values: Map[String, ExprValue] = Map("past" -> ExprValue.Fetched(history)),
+      values: Map[String, ExprValue] = Map(
+        "past" -> ExprValue.Fetched(history)
+      ),
       reads: String = Reads.Live
   ) = SlotSource(
     transform = peak,
@@ -74,7 +76,9 @@ class FetchValueSuite extends munit.FunSuite {
     assert(html.contains("101"), clue = html)
   }
 
-  test("the signal path reads the fetch too, and a missing answer is no points") {
+  test(
+    "the signal path reads the fetch too, and a missing answer is no points"
+  ) {
     val d = dashboard()
     val r = Renderer.create(d)
     def ofNow(left: String, f: FetchSnapshot) =
@@ -135,14 +139,20 @@ class FetchValueSuite extends munit.FunSuite {
     )
     val unknown = history.copy(provider = "forecast")
     assert(
-      errs(dashboard(ofSlot = of(values = Map("past" -> ExprValue.Fetched(unknown)))))
+      errs(
+        dashboard(ofSlot =
+          of(values = Map("past" -> ExprValue.Fetched(unknown)))
+        )
+      )
         .contains("unknown fetch provider")
     )
     val undeclared =
       history.copy(params = history.params + ("window" -> Ref.Var("window")))
     assert(
       errs(
-        dashboard(ofSlot = of(values = Map("past" -> ExprValue.Fetched(undeclared))))
+        dashboard(ofSlot =
+          of(values = Map("past" -> ExprValue.Fetched(undeclared)))
+        )
       ).contains("reads the variable 'window', which no ancestor declares")
     )
   }

@@ -28,7 +28,8 @@ function remaining(left: hass.SensorEntity, total: hass.SensorEntity): barMod.Pr
 /// reading since it last read 0, from the recorder, or its reading now if
 /// higher (a job whose first reading is not written yet). For a device that
 /// reports no programme length; the start is read again each time `left`
-/// changes.
+/// changes. Not elapsed time since a start: a pause counts as elapsed, and
+/// telling paused from running takes each integration's own words.
 function remainingOfPeak(left: hass.SensorEntity): barMod.ProgressBar =
   (barMod.partOf(stateOf(left), peakOf(left))) { down = true }
 
