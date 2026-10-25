@@ -20,7 +20,7 @@ import fh.view.build.{
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
-import fh.view.fetch.{Asked, FetchIdentity, FetchResolver, FetchSnapshot}
+import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.model.{
   CallReach,
   ChromeColors,
@@ -30,6 +30,7 @@ import fh.view.model.{
   Permission,
   Predicate,
   SignalId,
+  SlotRead,
   TapCall,
   Transform
 }
@@ -1045,7 +1046,7 @@ class Server(
   ): IO[FetchSnapshot] =
     answer(
       renderer,
-      arriving.fold(Asked(Nil, Map.empty))(
+      arriving.toList.flatMap(
         renderer.fetchesForSurface(_, states, selections, env)
       ),
       env
@@ -1184,21 +1185,21 @@ class Server(
     */
   private def answer(
       renderer: Renderer,
-      wanted: Asked,
+      wanted: List[SlotRead],
       env: VarEnv
   ): IO[FetchSnapshot] =
-    fetches match {
-      case Some(resolver) if wanted.reads.nonEmpty =>
+    (fetches, wanted) match {
+      case (Some(resolver), qs) if qs.nonEmpty =>
         FetchSnapshot
           .resolve(
             resolver,
             renderer.fetchRequests,
-            wanted,
+            qs,
             env,
             FetchIdentity.Instance
           )
       // Keep the env: `FetchSnapshot.empty` would resolve declared values.
-      case _ => IO.pure(FetchSnapshot.of(Map.empty, env, wanted.gates))
+      case _ => IO.pure(FetchSnapshot.of(Map.empty, env))
     }
 
   /** Resolve `conn` (from the signals body) to its session and renderer, and

@@ -18,7 +18,7 @@ import fh.view.model.{
   Surface,
   Transform
 }
-import fh.view.fetch.{Asked, FetchSnapshot, Staged}
+import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.HouseFixture
 import fh.view.testkit.DashboardBuilders.declared
 import io.circe.Json
@@ -187,11 +187,8 @@ class FetchDriftSuite extends munit.FunSuite {
     Selections.none :: tabs ++ popups
   }
 
-  private def answered(asked: Asked) =
-    FetchSnapshot.of(
-      asked.reads.map(_ -> Staged(1L, "<svg/>")).toMap,
-      gates = asked.gates
-    )
+  private def answered(reads: List[SlotRead]) =
+    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap)
 
   test("a page render reads only what the page resolved") {
     for (c <- cases; states <- c.houses; ui <- uiStates(c)) {
@@ -263,7 +260,6 @@ class FetchDriftSuite extends munit.FunSuite {
       // Precise, not everything: a plain node asks nothing, a chart asks.
       val (quiet, loud) = nodes.partition(id =>
         r.readsForPull(List(id), Nil, c.houses.head, Selections.none, Map.empty)
-          .reads
           .isEmpty
       )
       assert(quiet.nonEmpty && loud.nonEmpty, clue = c.name)

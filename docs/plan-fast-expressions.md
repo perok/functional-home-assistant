@@ -1,8 +1,7 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Part 1 is built on this PR; part 2 is built on #634 as a first version, to be reworked as
-below; 3 is not started.** The work lands in three PRs, in stack order:
+**Part 1 is built on this PR, part 2 on #634; 3 is not started.** The work lands in three PRs, in stack order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not
    write.
@@ -29,7 +28,9 @@ The library also writes CEL for inputs that are not CEL: the slot's default `tra
 
 #634, as first opened, decided `valueWhile` up to four times per update: in the pre-read, the
 render key, the paint and the signal path. It also found the gating entity in two places
-(`Component.gated`, `Renderer.withheld`).
+(`Component.gated`, `Renderer.withheld`). Its first rework carried the condition on the fetch
+request and still asked every clause of every candidate, present or not, with the decisions in a
+record of their own beside the walk's own derivations.
 
 ## 1. This PR: one fast expression family
 
@@ -117,84 +118,59 @@ Merged onto this PR's branch first (merge, not rebase).
 - **While false, the slot has no value**, written as `""`. Its transform does not run and its
   fetches are not read.
 
-### What the first version got wrong
-
-It is built on #634, and it works, but it bolts the decision onto the fetch request instead of
-putting it where the other per-update decisions are:
-
-- **The condition rides on the ask** (`SlotAsk.gate`, `Component.gated`), because the pre-read
-  collects asks and an ask no longer knows its slot.
-- **A set is fetched for every candidate and every clause** (`memberAsks`, `setAsks`), present or
-  not, and only `valueWhile` filters that. A card that will not render can still fetch.
-- **The decisions are a third private record** (`Asked.gates`, carried by `FetchSnapshot`), beside
-  the pre-read's and the walk's own derivations of which surfaces show and which members are
-  present.
-
 ### Three layers, and which one each piece belongs to
 
-The renderer is already layered like a compiler. The rework names the layers and puts each piece
-in one:
+The renderer was already layered like a compiler. The rework names the layers (the pipeline doc's
+§1a) and puts each piece in one:
 
 1. **Build** (`Dashboard.Validated`, the build passes in `docs/terminology.md`): once per
    evaluation. Unchanged.
-2. **Index**, once per renderer: what can be known from the tree alone. `Renderer`'s `Index` (ids,
-   parents, each node's asks, which nodes an entity wakes), `MemberGraph` (every member a
-   candidate can be, one per clause, with its nodes), `SurfaceGraph`, `VarGraph`. Nothing after
-   this walks the tree.
-3. **Decisions**, once per render: what the entity states and this viewer decide, derived from
-   the snapshot that render uses, before anything is read or painted. Today each reader derives
-   these itself. The rework gives them one value, `Decisions`, built once per render and handed to
-   the pre-read, the walk, the render key, the paint and the signal path.
+2. **Index**, once per renderer: what can be known from the tree alone. Nothing after this walks
+   the tree.
+3. **Decisions**, once per state snapshot: what the entity states decide.
 
-**What moves into the index:**
+**Into the index:**
 
-- Each node's fetching slots, each with its asks and its `valueWhile` (the condition and the
-  entity it is decided over, `BoundSlot.gateEntity`), in place of the node's flat `fetches`.
-- A member's asks are read off the member a candidate is in one clause (`Member.nodes`, already
-  built per clause with the graph), not merged across clauses.
+- `Component.fetching`: each fetching slot's asks with the `valueWhile` they wait for
+  (`Fetching.Gate`: the condition and the entity it is decided over, `BoundSlot.gateEntity`).
+  `Index.fetching` lists them by node. `SlotAsk` is a fetch request again, nothing more.
+- `Member.fetching`: a member's, in the one clause that member instance is.
+- `MemberGraph.setsIn`: the sets directly inside a member, in its clause.
 
-**What `Decisions` holds**, each part computed on first use and kept for the rest of the render, so
-a pull that reaches one node does not decide the whole page:
+**`Decisions`** holds which members a set holds and in which clause, which branch a state group
+shows, and whether each `valueWhile` holds, each computed on first use. It is kept by the
+snapshot's IDENTITY (`Decided`, the last two snapshots), and `MemberGraph.membersOf`/`memberAt`,
+`SurfaceGraph.resolveActiveByState` and the renderer's `valueWhile` all ask it. So:
 
-- **Which surfaces show** for this viewer: open popups, the selected tab, each state group's
-  branch (`SurfaceGraph`, as now).
-- **Which members are present, in which clause**, per set (`MemberGraph.membersOf`, as now). It is
-  derived from the render's own snapshot, never read from the recorder's `Membership`: §4b's
-  "readers derive, the recorder folds" stands, because a reader paired with the recorder's
-  members can claim a version whose members it does not show (`ResumeSuite`).
-- **Each distinct `valueWhile`**, keyed by content (the entity and the condition), so two cards
-  gated alike share one decision and two cards sharing a read with only one gated still differ.
-  A slot with no fetch, or whose subject only the paint knows, asks the same value, so every
-  `valueWhile` is decided once per render wherever it is first needed.
+- no signature changes: the walk's 40-odd functions already take the snapshot;
+- the pre-read, the walk, the render key and the paint cannot disagree;
+- every viewer rendering one store version shares the decisions, since the store hands them the
+  same map. This was "left out" in the first draft of this plan; keying by identity gave it for
+  nothing.
 
-**The pre-read then follows what will render:**
+Membership is still derived from the reader's own snapshot, never the recorder's `Membership`
+(§4b's "readers derive, the recorder folds"). A viewer's own selection (a tab, a popup) is not a
+decision: it is a lookup in its `Selections`.
 
-- the body, and the surfaces `Decisions` shows;
-- for each set, the present members and only their current clause's nodes, and the nested sets in
-  that clause the same way;
-- for each fetching slot there, its asks only where its `valueWhile` holds.
+**The pre-read follows what will render:** the body and the surfaces shown; for each set, only its
+present members in their clause, and the sets inside that clause the same way; for each fetching
+slot, its fetches only where its `valueWhile` holds. A pull target asks its own; a member target
+its whole subtree, since a member is placed whole. It returns reads only, and `FetchSnapshot`
+holds answers again.
 
-It returns reads only. `FetchSnapshot` goes back to holding answers.
-
-**What goes:** `SlotAsk.gate`, `Component.gated`, `SlotAsk.Gate`, `Asked`, `FetchSnapshot.gates`
-and `decided`, `memberAsks`, `setAsks` and `membersUnder`, and the fall-back deciding in
-`Renderer.withheld` and `Renderer.asked`.
-
-**Sharing across viewers is left out.** The state half of `Decisions` (membership and
-`valueWhile`) is the same for every viewer rendering the same store version, so it could be
-shared per slug, as `RenderCache` shares bytes. Add it if a benchmark says the per-render cost
-matters.
+**Gone:** `SlotAsk.gate`, `SlotAsk.Gate`, `Component.gated`, `Asked`, `FetchSnapshot.gates` and
+`decided`, `setAsksAbove`, `membersUnder`, and the deciding fall-back in `Renderer.withheld` and
+`Renderer.asked`. The every-clause map (`everyClauseAsks`) stays for `readsAt` alone: what a
+variable's value is checked against is what a node MAY read.
 
 ### Checks and docs
 
-- `ValueWhileSuite`: an absent candidate and a clause that does not match ask for no fetch; the
-  walk and the pre-read agree on a set, a nested set and a state group; a `valueWhile` is decided
-  once per render.
+- `ValueWhileSuite`: a set asks only for its present members, in their clause; one snapshot
+  decides each thing once, and an equal but different map decides afresh.
 - `FetchDriftSuite` still holds: the pre-read asks for exactly what the walk reads.
-- `FetchBench` and `RenderBench` before and after. The pre-read now derives membership, which it
-  did not, and the walk reuses it, so a set is still derived once per render.
-- `docs/architecture-rendering-pipeline.md` §1a (the three layers) and §6's fetch section, ADR
-  0034's `valueWhile` section, `docs/terminology.md` (**Index**, **Decisions**).
+- `FetchBench` and `RenderBench` before and after.
+- The pipeline doc's §1a, §4b, §6 and §7, ADR 0033's set reads, ADR 0034's `valueWhile`,
+  `docs/terminology.md` (**Index**, **Decisions**).
 
 ## 3. #633: the progress bar in a `c.iff`
 

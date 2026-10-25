@@ -28,7 +28,8 @@ object Selections {
 private[runtime] final class SurfaceGraph(
     surfaces: Map[String, Surface],
     rootOfIndexed: Map[NodeId, String],
-    members: MemberGraph
+    members: MemberGraph,
+    decided: Decided = Decided()
 ) {
 
   /** A `val`: `hostId` asks for every node on every render. */
@@ -262,18 +263,19 @@ private[runtime] final class SurfaceGraph(
   private[runtime] def resolveActiveByState(
       gid: NodeId,
       states: Map[String, EntityState]
-  ): Option[Int] = {
-    val idx = bakeGroup(gid).indexWhere(sid =>
-      surfaces
-        .get(sid)
-        .exists(_.activation match {
-          case Activation.State(condition) =>
-            holds(condition, states)
-          case _ => false
-        })
-    )
-    Option.when(idx >= 0)(idx)
-  }
+  ): Option[Int] =
+    decided.at(states).branch(gid) {
+      val idx = bakeGroup(gid).indexWhere(sid =>
+        surfaces
+          .get(sid)
+          .exists(_.activation match {
+            case Activation.State(condition) =>
+              holds(condition, states)
+            case _ => false
+          })
+      )
+      Option.when(idx >= 0)(idx)
+    }
 
   /** The inverse of what each state group's conditions read. Exact, because
     * conditions are subject-free: nothing outside it can move a selection.
