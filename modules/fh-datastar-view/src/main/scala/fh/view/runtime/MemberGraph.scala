@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{LayoutNode, MemberId, NodeId, Predicate, SetId}
+import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, Predicate, SetId}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -54,6 +54,10 @@ private[runtime] case class Member(
   /** Its own node and every component below it, by id. */
   lazy val nodes: Map[NodeId, LayoutNode.Component] =
     Member.subtree(id, node).map((at, n, _) => at -> n).toMap
+
+  /** What its nodes read, each under its own id, in id order. */
+  lazy val fetching: List[(NodeId, Fetching)] =
+    nodes.toList.sortBy(_._1).flatMap((at, n) => n.fetching.map(at -> _))
 
   /** entity -> the nodes here binding it: what a tick on it re-renders. */
   lazy val byEntity: Map[String, List[NodeId]] =
@@ -155,9 +159,9 @@ private[runtime] final case class Synced(
 )
 
 /** Who is in every candidate set, and in what order: the graph decides presence
-  * and order, the renderer paints (ADR 0003). Holds no state: presence is a
-  * function of a snapshot, and the recorder's running [[Membership]] is a value
-  * it passes in.
+  * and order, the renderer paints (ADR 0003). Presence is a function of a
+  * snapshot, kept in that snapshot's [[Decisions]]; the recorder's running
+  * [[Membership]] is a value it passes in.
   *
   * @param setNodes
   *   the statically indexed sets; nested ones are discovered from these.
@@ -166,7 +170,8 @@ private[runtime] final case class Synced(
   */
 private[runtime] final class MemberGraph(
     setNodes: Map[NodeId, LayoutNode.SetNode],
-    rootOfIndexed: Map[NodeId, String]
+    rootOfIndexed: Map[NodeId, String],
+    decided: Decided = Decided()
 ) {
 
   private case class MemberSource(s: LayoutNode.SetNode) {
@@ -229,7 +234,9 @@ private[runtime] final class MemberGraph(
       val at: NodeId,
       val src: MemberSource,
       val owner: Option[NodeId],
-      val root: String
+      val root: String,
+      // The owner's clause it is inside; 0 for a set no member owns.
+      val clause: Int = 0
   ) {
     val gid: SetId = src.setId(at)
 
@@ -344,8 +351,13 @@ private[runtime] final class MemberGraph(
         }
       case inner: LayoutNode.SetNode =>
         val id = innerSetId(member, clauseIdx, path, inner)
-        val found =
-          Source(id, MemberSource(inner), Some(NodeId.derived(member)), root)
+        val found = Source(
+          id,
+          MemberSource(inner),
+          Some(NodeId.derived(member)),
+          root,
+          clauseIdx
+        )
         found :: nested(found)
     }
 
@@ -358,6 +370,15 @@ private[runtime] final class MemberGraph(
   // Keyed by the id the set is found at, which is also its `SetId`.
   private val sources: Map[NodeId, Source] =
     sourcesWithOwner.map(s => s.at -> s).toMap
+
+  private val setsByClause: Map[(NodeId, Int), List[SetId]] =
+    sourcesWithOwner
+      .flatMap(s => s.owner.map(o => (o, s.clause) -> s.gid))
+      .groupMap(_._1)(_._2)
+
+  /** The sets directly inside a member, in the clause it is in. */
+  def setsIn(m: Member): List[SetId] =
+    setsByClause.getOrElse((m.id, m.clause), Nil)
 
   /** The parent edges the static index cannot see, for [[NodeAncestry]].
     * Static: presence varies, the id space does not (ADR 0003). Every clause of
@@ -457,9 +478,13 @@ private[runtime] final class MemberGraph(
       gid: SetId,
       states: Map[String, EntityState]
   ): GroupMembers =
-    sources
-      .get(gid)
-      .fold(GroupMembers(Vector.empty, Nil))(_.materialise(states))
+    decided
+      .at(states)
+      .set(gid)(
+        sources
+          .get(gid)
+          .fold(GroupMembers(Vector.empty, Nil))(_.materialise(states))
+      )
 
   /** Only a set with a `limit` needs its neighbours: order alone never decides
     * presence.
@@ -468,10 +493,12 @@ private[runtime] final class MemberGraph(
       id: NodeId,
       states: Map[String, EntityState]
   ): Option[Member] =
-    memberSlot.get(id).flatMap { case (s, entityId) =>
-      if (s.src.s.limit.isEmpty) s.memberOf(entityId, states)
-      else s.materialise(states).members.find(_.id == id)
-    }
+    decided
+      .at(states)
+      .member(id)(memberSlot.get(id).flatMap { case (s, entityId) =>
+        if (s.src.s.limit.isEmpty) s.memberOf(entityId, states)
+        else groupOf(s.gid, states).members.find(_.id == id)
+      })
 
   /** Apply one frame to every set, visible or not: the recorder holds the
     * result as the next frame's "before". Only changed entities are looked at,

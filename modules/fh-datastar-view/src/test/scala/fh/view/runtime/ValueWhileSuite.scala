@@ -79,14 +79,14 @@ class ValueWhileSuite extends munit.FunSuite {
     val d = dashboard(node(peak(Some(above0(None)))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty).reads, Nil)
+    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
     // Unanswered, and still renders: the transform never ran.
     assertEquals(
       r.signalsFor(idOf(d, 0), states("0"), FetchSnapshot.empty).values.toList,
       List("")
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, states("46"), Map.empty).reads,
+      r.fetchesForPage(Set.empty, states("46"), Map.empty),
       List(read)
     )
     assertEquals(
@@ -95,23 +95,68 @@ class ValueWhileSuite extends munit.FunSuite {
     )
   }
 
-  test("the walk keeps the pre-read's decision rather than deciding again") {
-    val d = dashboard(node(peak(Some(above0(None)))))
-    val r = Renderer.create(d)
-    val asked = r.fetchesForPage(Set.empty, states("46"), Map.empty)
-    assertEquals(asked.gates.values.toList, List(true))
-    // The same states, but a record saying otherwise: the walk follows it.
-    val overruled = FetchSnapshot.of(
-      Map.empty,
-      gates = asked.gates.view.mapValues(!_).toMap
-    )
-    assertEquals(
-      r.signalsFor(idOf(d, 0), states("46"), overruled).values.toList,
-      List("")
-    )
+  test("one snapshot decides each thing once, for every reader of it") {
+    val decided = Decided()
+    val snapshot = states("46")
+    var runs = 0
+    def ask(at: Map[String, EntityState]) =
+      decided.at(at).holds("k") { runs += 1; true }
+    assert(ask(snapshot) && ask(snapshot))
+    assertEquals(runs, 1)
+    // Equal content, another map: decided afresh, never assumed.
+    assert(ask(states("46")))
+    assertEquals(runs, 2)
   }
 
-  test("CEL decides it as well, once, when an author writes CEL") {
+  test("a set asks only for its present members, in the clause they are in") {
+    def chart(e: String) = LayoutNode.Component(
+      "chart",
+      Map(
+        "chart" -> SlotSource(
+          fetch = Some(
+            FetchTemplate(
+              "history",
+              Map("entity" -> Ref.Literal(e), "window" -> Ref.Literal("24h"))
+            )
+          ),
+          transform = Transform.Stage.Passthrough,
+          reads = Reads.OnRender
+        )
+      )
+    )
+    val on = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
+    val d = Dashboard(
+      cards =
+        Map("chart" -> CardDef("<div>{{chart}}</div>", slots = List("chart"))),
+      card = LayoutNode.SetNode(
+        candidates = List("light.a", "light.b"),
+        members =
+          Map(
+            "light.a" -> clauses(
+              LayoutNode.SetClause(on, chart("sensor.a_on")),
+              LayoutNode.SetClause(None, chart("sensor.a_off"))
+            ),
+            // No clause matches while it is off: not a member.
+            "light.b" -> clauses(LayoutNode.SetClause(on, chart("sensor.b_on")))
+          )
+      )
+    )
+    val r = Renderer.create(d)
+    def asked(a: String, b: String) =
+      r.fetchesForPage(
+        Set.empty,
+        Map(
+          "light.a" -> EntityState("light.a", a, Map.empty),
+          "light.b" -> EntityState("light.b", b, Map.empty)
+        ),
+        Map.empty
+      ).map(_.fetch.params("entity"))
+    assertEquals(asked("on", "off"), List("sensor.a_on"))
+    assertEquals(asked("off", "on"), List("sensor.a_off", "sensor.b_on"))
+  }
+
+  test("CEL decides it as well, when an author writes CEL") {
     val cel = SlotSource(
       transform = "double(state) > 0.0",
       bypassUnavailable = false,
@@ -120,10 +165,11 @@ class ValueWhileSuite extends munit.FunSuite {
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty).reads, Nil)
-    val asked = r.fetchesForPage(Set.empty, states("46"), Map.empty)
-    assertEquals(asked.reads, List(read))
-    assertEquals(asked.gates.values.toList, List(true))
+    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
+    assertEquals(
+      r.fetchesForPage(Set.empty, states("46"), Map.empty),
+      List(read)
+    )
   }
 
   test("a condition on another entity wakes the slot") {

@@ -5,12 +5,6 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{NodeId, SlotAsk, SlotRead}
 
-/** What a render must answer before its walk, and each `valueWhile` the
-  * pre-read decided to get there, by [[SlotAsk.Gate.key]]: the walk looks those
-  * up rather than deciding again.
-  */
-final case class Asked(reads: List[SlotRead], gates: Map[String, Boolean])
-
 /** Every fetch a render reads, answered — a second snapshot beside the
   * `Map[String, EntityState]` one, resolved BEFORE the walk because a render is
   * a synchronous string build and answering is `IO`.
@@ -20,19 +14,12 @@ final case class Asked(reads: List[SlotRead], gates: Map[String, Boolean])
   *
   * It also carries this viewer's node variables, so a read is always resolved
   * against the values its answers were fetched for. They are per render, not on
-  * a `NodePlan`, which is shared across sessions. And the `valueWhile`s the
-  * pre-read decided ([[Asked]]), so an update decides each once.
+  * a `NodePlan`, which is shared across sessions.
   */
 final class FetchSnapshot private (
     private val answers: Map[SlotRead, Staged],
-    private val vars: Map[NodeId, Map[String, String]],
-    private val gates: Map[String, Boolean]
+    private val vars: Map[NodeId, Map[String, String]]
 ) {
-
-  /** None when the pre-read did not decide it: the slot reads no fetch, or its
-    * subject is known only to a paint.
-    */
-  def decided(gate: String): Option[Boolean] = gates.get(gate)
 
   def varsAt(node: NodeId): Map[String, String] =
     vars.getOrElse(node, Map.empty)
@@ -61,16 +48,15 @@ final class FetchSnapshot private (
 object FetchSnapshot {
 
   /** For a render that reads no fetch. Never a default argument. */
-  val empty: FetchSnapshot = new FetchSnapshot(Map.empty, Map.empty, Map.empty)
+  val empty: FetchSnapshot = new FetchSnapshot(Map.empty, Map.empty)
 
   /** Answers already in hand. The whole map at once: a snapshot is never grown
     * during a walk.
     */
   def of(
       answers: Map[SlotRead, Staged],
-      vars: Map[NodeId, Map[String, String]] = Map.empty,
-      gates: Map[String, Boolean] = Map.empty
-  ): FetchSnapshot = new FetchSnapshot(answers, vars, gates)
+      vars: Map[NodeId, Map[String, String]] = Map.empty
+  ): FetchSnapshot = new FetchSnapshot(answers, vars)
 
   /** Answer every fetch a render needs, in parallel. Only a read that does not
     * parse raises, since that is a wiring bug.
@@ -82,11 +68,11 @@ object FetchSnapshot {
   def resolve(
       resolver: FetchResolver,
       requests: Map[SlotRead, FetchRequest],
-      asked: Asked,
+      reads: List[SlotRead],
       vars: Map[NodeId, Map[String, String]],
       identity: FetchIdentity
   ): IO[FetchSnapshot] = {
-    val wanted = asked.reads.distinct
+    val wanted = reads.distinct
     def parsed(read: SlotRead): IO[FetchRequest] =
       requests
         .get(read)
@@ -117,7 +103,7 @@ object FetchSnapshot {
           .attempt
           .map(s => read -> s.getOrElse(Staged.failed(read.stage)))
       }
-    } yield new FetchSnapshot(staged.toMap, vars, asked.gates)
+    } yield new FetchSnapshot(staged.toMap, vars)
   }
 
   private def describe(read: SlotRead): String =

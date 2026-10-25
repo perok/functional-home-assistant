@@ -134,14 +134,13 @@ the washer is idle reads no history. It is lowered as the others are, onto a boo
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
 or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
 
-It is decided first, and **once per update**. A fetch ask carries its slot's gate (`SlotAsk.gate`:
-the condition and the entity it is decided over, `BoundSlot.gateEntity` being the one rule). The
-pre-read decides each distinct gate once, keeps only the asks whose gate holds, and hands the
-decisions on with the answers (`Asked`, then `FetchSnapshot.decided`), keyed by content so two
-slots gated alike share one. The render key, the paint and the signal path look the decision up.
-A slot that reads no fetch is decided where its value is computed, as is one whose subject only a
-paint knows (a transform subject): that ask goes ungated, because asking too much is safe and
-asking too little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
+It is decided first, and **once per state snapshot**, in that snapshot's decisions (the pipeline
+doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gateEntity` being the one
+rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
+their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
+render key, the paint and the signal path ask the same decisions, so none decides it again. A
+slot whose subject only a paint knows (a transform subject) is asked ungated, because asking too
+much is safe and asking too little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). The build refuses one that
 reads a fetch (it decides whether fetches are read), one that does not produce a bool, and one on
 a `once` slot, whose memo would keep its first answer.

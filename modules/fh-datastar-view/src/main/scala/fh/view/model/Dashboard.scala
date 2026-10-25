@@ -297,24 +297,23 @@ enum SlotShape derives CanEqual:
   case State(slot: BoundSlot)
   case Fetch(ask: SlotAsk)
 
-/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render.
-  * Asked only while `gate` holds: its slot's `valueWhile`, over `entity`.
-  */
-case class SlotAsk(
-    fetch: FetchTemplate,
-    stage: Transform.Stage,
-    gate: Option[SlotAsk.Gate] = None
-) derives CanEqual:
+/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render. */
+case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
+    derives CanEqual:
 
   def resolve(env: Map[String, String]): SlotRead =
     SlotRead(fetch.resolve(env), stage)
 
-object SlotAsk:
-  final case class Gate(slot: BoundSlot, entity: String) derives CanEqual:
-    lazy val key: String = Gate.key(Some(entity), slot)
+/** One slot's asks, read only while `gate` holds. */
+final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
+
+object Fetching:
+  /** A slot's `valueWhile` over `entity`. */
+  final case class Gate(valueWhile: BoundSlot, entity: String):
+    lazy val key: String = Gate.key(Some(entity), valueWhile)
 
   object Gate:
-    /** By content, so two slots gated alike share one decision per update. */
+    /** By content, so two slots gated alike share one decision. */
     def key(entity: Option[String], valueWhile: BoundSlot): String =
       s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
@@ -696,31 +695,35 @@ object LayoutNode:
         .distinct
 
     /** In the render key but not [[liveEntities]]: otherwise a sensor ticking
-      * every second would refetch its history every second.
+      * every second would refetch its history every second. Every ask, whatever
+      * the `valueWhile`s decide.
       */
-    lazy val fetches: List[SlotAsk] = shapes._2
+    lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
-    private def stateSlots: List[BoundSlot] = shapes._1
-
-    private lazy val shapes: (List[BoundSlot], List[SlotAsk]) =
-      bound.values.toList.foldRight(
-        (List.empty[BoundSlot], List.empty[SlotAsk])
-      ) { case (s, (states, fetches)) =>
-        s.shape match
-          case SlotShape.State(src) =>
-            (src :: states, src.fetches.map(gated(src)) ++ fetches)
-          case SlotShape.Fetch(q) => (states, gated(s)(q) :: fetches)
-      } match
-        case (states, fetches) => (states, fetches.distinct)
-
-    // Ungated without an entity to decide over: a dynamic subject is known
-    // only per paint, and asking too much is safe where too little raises.
-    private def gated(s: BoundSlot)(a: SlotAsk): SlotAsk =
-      s.valueWhile.fold(a)(w =>
-        a.copy(gate =
-          s.gateEntity(s.entityId.orElse(subjectEntity)).map(SlotAsk.Gate(w, _))
+    /** Per slot, each with the `valueWhile` it waits for. Ungated without an
+      * entity to decide over: a dynamic subject is known only per paint, and
+      * asking too much is safe where too little raises.
+      */
+    lazy val fetching: List[Fetching] =
+      bound.values.toList.flatMap { s =>
+        val asks = s.shape match
+          case SlotShape.State(src) => src.fetches
+          case SlotShape.Fetch(q)   => List(q)
+        Option.when(asks.nonEmpty)(
+          Fetching(
+            asks,
+            s.valueWhile.flatMap(w =>
+              s.gateEntity(s.entityId.orElse(subjectEntity))
+                .map(Fetching.Gate(w, _))
+            )
+          )
         )
-      )
+      }
+
+    private lazy val stateSlots: List[BoundSlot] =
+      bound.values.toList.flatMap(_.shape match
+        case SlotShape.State(src) => Some(src)
+        case SlotShape.Fetch(_)   => None)
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
@@ -1051,7 +1054,7 @@ case class Dashboard(
     def services(s: SlotSource): List[String] =
       s.literal.toList ++ (s.transform match {
         case Transform.Simple.Match(cases, otherwise, _, _) =>
-          (cases.values.toList ++ otherwise).collect { case v: String => v }
+          (otherwise :: cases.values.toList).collect { case v: String => v }
         case _ => Nil
       })
 
@@ -1182,9 +1185,9 @@ case class Dashboard(
                 )
               // CEL needs one type across the arms, so a mixed Match has no
               // CEL equivalent (ADR 0028).
-              // Without `otherwise` an unmatched read shows as itself: text.
+              // A read as `otherwise` is text.
               case m: Transform.Simple.Match
-                  if (m.otherwise.getOrElse("") :: m.cases.values.toList)
+                  if (m.otherwise :: m.cases.values.toList)
                     .map(_.isInstanceOf[Boolean])
                     .distinct
                     .sizeIs > 1 =>
@@ -2305,7 +2308,7 @@ object Dashboard:
     case _                         => false
 
   private def allBoolean(m: Transform.Simple.Match): Boolean =
-    m.otherwise.exists(_.isInstanceOf[Boolean]) &&
+    m.otherwise.isInstanceOf[Boolean] &&
       m.cases.values.forall(_.isInstanceOf[Boolean])
 
   /** Where Pkl puts a live cell class among a node's slots (`core/node.pkl`'s

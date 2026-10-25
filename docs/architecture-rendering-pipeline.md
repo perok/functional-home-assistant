@@ -194,8 +194,8 @@ layers only look it up.
 | Layer | Once per | Input | What it produces |
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL compiled, fetches parsed |
-| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's asks (`Renderer`'s `Index`, one for the body and one per surface), which nodes an entity wakes, every member a candidate can be in each clause with its nodes (`MemberGraph`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | render | the entity states, and this viewer's selections and variables | what is shown now: which surfaces (`SurfaceGraph.shownSurfaces`, `resolveActive`), which members are present and in which clause (`MemberGraph.membersOf`, `memberAt`), and whether each slot's `valueWhile` holds |
+| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
+| **Decisions** | state snapshot | the entity states | what they decide (`Decisions`): which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Kept by the snapshot's identity (`Decided`), so every viewer rendering one version shares them |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
@@ -205,15 +205,15 @@ Three rules keep the layers apart, and building on them is how new work stays ch
 - **A decision is derived from the snapshot the render uses**, never read from the recorder.
   The recorder's `Membership` is the one folded value, and it exists for the recorder's own
   "before" (§4b, "readers derive, the recorder folds").
-- **One render decides each thing once**, and its pre-read, walk, render key and paint agree
-  because they read the same decision. A decision derived twice can come out differently between
-  the pre-read and the walk, which is a fetch the walk needs and was not asked (§6).
+- **A snapshot decides each thing once**, and the pre-read, the walk, the render key and the
+  paint agree because they ask the same `Decisions`. A decision derived twice could come out
+  differently between the pre-read and the walk, which is a fetch the walk needs and was not
+  asked (§6). A new per-update decision joins `Decisions`; it does not get a record of its own.
 
-The third rule is not fully kept today. Each reader still derives decisions itself: the walk
-derives membership on its own, and the pre-read asks every clause of every candidate instead of
-the present ones. `valueWhile` is decided in the pre-read and passed to the walk through
-`FetchSnapshot`, with the paint deciding again where no pre-read did. §8 has the open entry;
-`docs/plan-fast-expressions.md` part 2 is the work.
+`Decided` keeps the last two snapshots' decisions, not one: the recorder asks of a frame's
+"before" and "after" in turn. A map that is neither decides afresh, so a straggler (§5) is
+correct and only unshared. The viewer's own choices (an open popup, a selected tab) are not
+decisions: they are a lookup in its `Selections`.
 
 ---
 
@@ -870,7 +870,8 @@ Three properties hold it up, and each fails silently if broken:
   has no arrivals — its candidates are static — so the invariant is not load-bearing there; keyed
   ids stay anyway, because `c_light_taklys` is readable in a patch log and `c_3_7` is not.
 - **Readers derive, the recorder folds.** A page, pull or resume computes membership from the
-  snapshot it renders (`membersOf`, `memberAt`); only the recorder holds a `Membership`, as the
+  snapshot it renders (`membersOf`, `memberAt`, kept in that snapshot's `Decisions`, §1a); only
+  the recorder holds a `Membership`, as the
   "before" of its next frame. A reader that read the recorder's instead would pair a store ahead
   of the recorder with members behind it: a page rendered between a store bump and that frame
   shows the old members while claiming the new version, and the recorder then logs the arrival at
@@ -890,8 +891,8 @@ exists to make cheap. It lives in the recorder's `evalMapAccumulate` for one ren
 so a swap starts it empty along with the fresh log, and nothing needs invalidating.
 
 What a reader pays for deriving: a member lookup evaluates that one candidate's clauses (the whole
-set only under a `limit`, where presence depends on neighbours), and a set render evaluates its
-candidates once. Every `Member` a candidate can be — one per clause — is built with the graph, so a
+set only under a `limit`, where presence depends on neighbours), and a set evaluates its
+candidates once per snapshot, however many readers and viewers ask (`Decisions`). Every `Member` a candidate can be — one per clause — is built with the graph, so a
 lookup allocates nothing and picks an instance; without that, `resumeMembers` cost 15% more
 allocation than reading a shared index did. The renderer's node plans lean on the same fact: an id
 keeps one plan per node it shows, matched by identity, so a clause switch picks a plan rather than
@@ -1027,16 +1028,20 @@ the node's `fetches`, so the page's pre-read and the render key carry it already
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.
 
-**A slot's `valueWhile` comes first, once per update** (ADR 0034). A slot's evaluation is: decide
-`valueWhile` over live state; if it does not hold, the value is `""` and nothing else runs;
-otherwise read the fetches and run the transform. The order reaches back into the pre-read: an ask
-carries its slot's gate (`SlotAsk.gate`), and `fetchesForPage`, `fetchesForSurface` and
-`readsForPull` decide each distinct gate once (`Renderer.ask`), keep only the asks whose gate
-holds, and return the decisions beside the reads (`Asked`), which `FetchSnapshot` carries. So an
-idle washer's bar asks for no history, and the render key (`Renderer.asked`) and the paint
-(`Renderer.withheld`) look the decision up rather than make it again; only a slot no pre-read
-gated (no fetch, or a subject known only to the paint) is decided at its paint. `readsAt`, which bounds a viewer's variable value, keeps
-every ask: what a node may read does not depend on what it reads now.
+**The pre-read follows what will render.** `fetchesForPage`, `fetchesForSurface` and
+`readsForPull` walk the index, not the tree: the body and the surfaces shown, and for each set
+only its present members, in the clause each is in, and the sets inside that clause the same way
+(`Renderer.setAsks`). A pull target asks its own; a member target asks its whole subtree, since a
+member is placed whole.
+
+**A slot's `valueWhile` comes first, once per snapshot** (ADR 0034). A slot's evaluation is:
+decide `valueWhile` over live state; if it does not hold, the value is `""` and nothing else
+runs; otherwise read the fetches and run the transform. The order reaches back into the
+pre-read: each fetching slot carries its `valueWhile` (`Fetching.Gate`), and the pre-read asks
+its fetches only where the snapshot's `Decisions` say it holds. So an idle washer's bar asks for
+no history, and the render key (`Renderer.asked`) and the paint (`Renderer.withheld`) ask the same
+decision rather than make it again. `readsAt`, which bounds a viewer's variable value, keeps every
+ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
@@ -1485,7 +1490,9 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
-| the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
+| the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `setsIn`, `innerSetId` |
+| what a snapshot decides, once | `runtime/Decisions.scala` · `Decisions` (members, state branches, `valueWhile`s), `Decided` (by snapshot identity); `runtime/Renderer.scala` · `gateHolds`, `withheld` |
+| what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating a guard / activation condition, or one filling a slot | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf` (a slot reaches it through `Transform.runSimpleValue`); ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
@@ -1496,10 +1503,6 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
-- **The decisions layer has no one home yet** (§1a). Each reader derives which surfaces show and
-  which members are present, the pre-read asks for every clause of every candidate, and
-  `valueWhile` travels in `FetchSnapshot`. `docs/plan-fast-expressions.md` part 2 gives them one
-  value per render (`Decisions`) that the pre-read, walk, render key and paint share.
 - **Should the walk resolve fetches itself, asynchronously?** Possible, and not needed yet: the
   pre-walk set is decided per render (§6, checked by `FetchDriftSuite`) and answered while the head
   streams (§6a). What was established, for when it is:

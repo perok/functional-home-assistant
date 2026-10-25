@@ -100,9 +100,10 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(read(unit), "")
   }
 
-  test("a match reads any property, and shows an unmatched read as itself") {
+  test("a match reads any property, and its otherwise may be a read") {
     val labels = Transform.Simple.Match(
       Map("rainbow" -> "Rainbow"),
+      otherwise = Transform.Simple.Attr("effect"),
       property = "attr:effect"
     )
     def read(effect: String) = Transform.runSimple(
@@ -118,7 +119,13 @@ class SimpleReadsSuite extends munit.FunSuite {
     )
     assertNotEquals(
       Transform.Simple.key(labels),
-      Transform.Simple.key(labels.copy(otherwise = Some("candle")))
+      Transform.Simple.key(labels.copy(otherwise = "candle"))
+    )
+    assertEquals(
+      Transform.Simple.referencedEntities(
+        labels.copy(otherwise = Transform.Simple.State(Some("sensor.b")))
+      ),
+      List("sensor.b")
     )
   }
 
@@ -161,6 +168,23 @@ class SimpleReadsSuite extends munit.FunSuite {
         """{"transform": {"kind": "Op", "op": "Attr", "attribute": "battery", "entity": "sensor.b"}}"""
       ).map(_.transform),
       Right(Transform.Simple.Attr("battery", Some("sensor.b")))
+    )
+    def matchWith(otherwise: String) = decode[SlotSource](
+      s"""{"transform": {"kind": "Match", "cases": {}, "otherwise": $otherwise}}"""
+    ).map(_.transform)
+    assertEquals(
+      matchWith("""{"kind": "Op", "op": "State"}"""),
+      Right(Transform.Simple.Match(Map.empty, Transform.Simple.State()))
+    )
+    assert(
+      matchWith(
+        """{"kind": "Cmp", "property": "state", "op": "eq", "value": "on"}"""
+      ).isLeft
+    )
+    assert(
+      decode[SlotSource](
+        """{"transform": {"kind": "Match", "cases": {}}}"""
+      ).isLeft
     )
   }
 }

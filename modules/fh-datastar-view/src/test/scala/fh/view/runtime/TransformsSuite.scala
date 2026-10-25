@@ -194,13 +194,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
     val mixed = withMatch(
       Transform.Simple
-        .Match(Map("on" -> "yes", "off" -> false), otherwise = Some("no"))
+        .Match(Map("on" -> "yes", "off" -> false), otherwise = "no")
     )
     assert(mixed.exists(_.contains("string and boolean arms")), clue = mixed)
 
     // `otherwise` is the value an unmatched state gets, so it counts as an arm.
     val mixedElse = withMatch(
-      Transform.Simple.Match(Map("on" -> true), otherwise = Some(""))
+      Transform.Simple.Match(Map("on" -> true), otherwise = "")
     )
     assert(
       mixedElse.exists(_.contains("string and boolean arms")),
@@ -209,13 +209,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
     assertEquals(
       withMatch(
-        Transform.Simple.Match(Map("on" -> true), otherwise = Some(false))
+        Transform.Simple.Match(Map("on" -> true), otherwise = false)
       ),
       Nil
     )
     assertEquals(
       withMatch(
-        Transform.Simple.Match(Map("on" -> "yes"), otherwise = Some("no"))
+        Transform.Simple.Match(Map("on" -> "yes"), otherwise = "no")
       ),
       Nil
     )

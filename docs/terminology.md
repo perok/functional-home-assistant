@@ -311,6 +311,16 @@ another group that flips, is in that placement instead. ADR 0007.
 **Node id** — a node's address, derived from its position in the tree (`c_2_0`). Not authored. ADR
 0022.
 
+**Index** — what a renderer knows from the tree alone, built once when it is created: ids,
+parents, each node's fetching slots, which nodes an entity wakes, every member a candidate can be.
+The second of three layers (build, index, decisions; the pipeline doc's §1a). Not the build's
+**bind** pass, which runs before any renderer exists.
+
+**Decisions** — what one state snapshot decides: which members a set holds and in which clause,
+which branch a state group shows, whether each `valueWhile` holds. Kept for that snapshot, so the
+pre-read, the walk and the paint ask rather than decide again, and every viewer of that version
+shares them. A viewer's own selection is not a decision, it is looked up.
+
 **Fragment** — one node's own HTML, as opposed to the composed HTML a parent embeds. What gets sent.
 
 **Patch** — one instruction to the browser: morph these bytes over that element, remove it, insert

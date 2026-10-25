@@ -65,6 +65,10 @@ const local function offered(t: Over): List<String> =
 const local function currentOf(o: hass.Options): String =
   if (o.attr != null) "attr:" + o.attr!! else "state"
 
+/// That value itself.
+const local function currentRead(o: hass.Options): simpleMod.SimpleValue =
+  if (o.attr != null) simpleMod.attr(o.attr!!) else simpleMod.state()
+
 /// Whether `v` is the entity's current value.
 const local function entityChosen(o: hass.Options, v: String): predMod.Predicate =
   new predMod.Cmp { property = currentOf(o); op = "eq"; value = v; entity = o.owner.entity_id }
@@ -228,6 +232,7 @@ class SelectDropdown extends Select {
         entityId = o.owner.entity_id
         transform = new simpleMod.SimpleMatch {
           cases { for (ch in cs) { [ch.value] = ch.label } }
+          otherwise = currentRead(o)
           property = currentOf(o)
         }
         signal = slotMod.asText

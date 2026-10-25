@@ -102,10 +102,11 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
 - **A candidate set's members read the scope at the set.** The candidates, each member's id
   (`LayoutNode.memberSegment`: set id plus entity id) and every id below a member are fixed at
   build time, so each is an ordinary reader: `Dashboard.varScopes` walks every member's clauses
-  from the set's scope, a set's reads are resolved per viewer for every clause (the snapshot is
-  built before the walk picks one), and a write re-renders the readers this viewer is shown and
-  swaps the panels it selects, a member's included. A set fill or a member's placement asks the
-  member's whole subtree's reads.
+  from the set's scope, a set's reads are resolved per viewer for its present members in the
+  clause each is in, and a write re-renders the readers this viewer is shown and swaps the panels
+  it selects, a member's included. A set fill or a member's placement asks the member's whole
+  subtree's reads, in that clause. What a variable's value is checked against is every clause's,
+  since what a node may read does not depend on what it reads now.
 - **A declaration inside a clause is each member's own** (#556). Its declarer is a node below the
   member, so its id is static too, and every clause of a candidate gives it the same one: their
   scopes merge, and a choice survives the member moving to another clause. A write moves only that

@@ -98,7 +98,6 @@ class PullReadsSuite extends munit.FunSuite {
     val snapshot = FetchSnapshot.of(
       renderer
         .fetchesForPage(Set("withChart"), Map.empty, Map.empty)
-        .reads
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -111,7 +110,7 @@ class PullReadsSuite extends munit.FunSuite {
         log,
         Map.empty,
         Map("light.a" -> EntityState("light.a", "on", Map.empty)),
-        asked => seen.update(_ ++ asked.reads).as(snapshot),
+        reads => seen.update(_ ++ reads).as(snapshot),
         Map.empty,
         0L,
         open
