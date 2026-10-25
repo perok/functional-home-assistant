@@ -40,21 +40,22 @@ node-level declaration, and each slot is bound to the ones its CEL reads (`Bound
 below builds on that one path, and nothing gains a second evaluator.
 
 **Declaration.** `Node.expressionValues: Mapping<String(!startsWith("__")), ExpressionValue>`, where
-`ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate`, written as an amend or with
+`ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate|slot.Fetch`, written as an amend or with
 the `expressionValues(m)` builder. On the wire it is `Component.values` (the author's values and
 the derived ones below, merged), absent when empty. Two properties, because a `Mapping?` defaulting
 to null can be neither amended nor `new {}`'d — both infer `Dynamic` (measured) — and an
 always-present `{}` would sit on every node's wire.
 
 **A value is a typed CEL variable** of that node's expressions: String → `string`, Int → `int`,
-Float → `double`, Boolean → `bool`, a tally → `int`, a condition → `bool`. Numbers decode by their
+Float → `double`, Boolean → `bool`, a tally → `int`, a condition → `bool`, a fetch → its provider's
+answer (history's points, `list(list(double))` of `[epochMillis, value]`). Numbers decode by their
 SPELLING, as Pkl wrote them, since a `Float` 2.0 and an `Int` 2 have one value; a condition is the
-object that carries a `kind`, a tally the one that does not. The expression compiles against the
+object that carries a `kind`, a fetch the one that carries a `provider`, a tally neither. The expression compiles against the
 fixed names plus the node's (`Transform.CelKey`: source and typed names), so a typo, an unknown
 name or `lights_on + ' on'` (no `int + string` overload) fails the BUILD. Refused too: a name that
 is not a CEL identifier, one hiding `state`/`attr`/`entity_id`/`domain`/`dashboard_slug`/`time_zone`, a value
 no slot reads, a slot read `once` that reads a count or a condition (the once-cache keys by what a
-value IS, so it would show the first answer forever), and a condition comparing an entity it does
+value IS, so it would show the first answer forever; a fetch too), and a condition comparing an entity it does
 not name — a value is shared by content across nodes, so it has no subject, as a state condition
 has none.
 
@@ -73,6 +74,29 @@ before it is bound, or bound twice, and the decoder only decodes. The bound slot
 reads: the compile key, the signal name and the watched entities all come off it, and no render
 path takes the node's values as an argument. The binding fixes each name's type, not its value,
 which `Conditions.resolve` computes on every render.
+
+### A slot's own values
+
+A slot may carry values of its own (`Slot.expressionValues`, `values` on the wire beside the
+node's), the same kinds. A function can then hand out a finished slot that brings its inputs —
+`c.bar.remainingOfPeak(left)`'s whole carries the countdown's history — with no node having to
+declare them, and two slots can use one name for different reads. Binding merges the node's and
+the slot's; a name in both is a build error, as is one the slot's own expression does not read.
+
+### A fetch is a value read on demand
+
+A fetch value (`c.fetch.history(e).over(w)`, ADR 0031) is a provider read by name: the bar's whole is
+the countdown's highest reading since it last read 0, CEL over its history. It adds no wake: the
+slot is read when its own entity changes, or when its card is drawn, and the provider's answer is
+whatever its cache holds then (history's, per 5-minute period). Nothing watches the answer itself;
+a push when a period ends with no entity change is designed when something needs one.
+
+The answer is read before the CEL runs, on both paths. A value fetch counts among the node's fetches
+(`BoundSlot.fetches`), so a render's pre-read and its render key carry it as a fetch slot's are
+carried, and the signal path, which already pre-reads the fetches of the nodes it updates, hands
+them to `signalsFor`. A site that reads no snapshot (a `once` slot, a subject) refuses a fetch at
+build time and raises if one ever reaches it. What a value's fetch reads joins
+`Dashboard.fetchedEntities`, so a viewer's value is bounded as a fetch slot's is (ADR 0023).
 
 ### Boolean slots, and what fills one
 

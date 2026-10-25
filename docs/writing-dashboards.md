@@ -150,7 +150,8 @@ for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
 
 - The bar is the device's own percentage, else the time left out of the
   programme's length, else the battery while it charges. A washer that reports
-  only the time left gets no bar.
+  only the time left fills out of where its countdown started, read from Home
+  Assistant's history.
 - A device with nothing it can read fails the build, naming its sensors.
 - One part can be named by hand: `.left(…)`, `.percent(…)`, `.total(…)`,
   `.status(…)`. `c.progress(sensor)` starts from a remaining-time sensor

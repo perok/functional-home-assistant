@@ -443,7 +443,7 @@ private[runtime] object Patches {
         morph(renderer, cache, holds, states, selections, fragments, _)
       )
       placed <- places(fragments)
-    } yield signalFrame(renderer, holds, states, touchedIds) ++
+    } yield signalFrame(renderer, holds, states, fragments, touchedIds) ++
       morphs ++ open ++
       gone.toList.sorted.map(id =>
         Addressed(Patch.Remove(renderer.elementId(id)))
@@ -459,6 +459,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
+      fragments: FetchSnapshot,
       ids: List[NodeId]
   ): List[Addressed] = {
     // One pass: a collections pipeline was 19% of a signals tick's allocation
@@ -471,7 +472,7 @@ private[runtime] object Patches {
       val held = holds.get(id).fold(Map.empty[SignalId, SlotValue])(_.signals)
       val nodeB = Map.newBuilder[SignalId, SlotValue]
       var nodeMoved = false
-      renderer.signalsFor(id, states).foreach { case (name, value) =>
+      renderer.signalsFor(id, states, fragments).foreach { case (name, value) =>
         if (!held.get(name).contains(value)) {
           // A JSON boolean: the string `"false"` is truthy in every binding.
           payload += ((

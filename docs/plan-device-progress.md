@@ -14,7 +14,7 @@ The work, in order:
 1. **E3**: the rules, the heuristic and `c.progress(device)`. Built: sections
    1 and 2 below, with their docs and tests.
 2. **E3b**: a total from history, for a device that reports only time left.
-   Next.
+   Built: section 3 below.
 
 Later, on #541: E2 (a client clock, start/end bars), E4 (vacuum, climate,
 media), E5 (several jobs per device), and running/idle.
@@ -160,10 +160,10 @@ new Slot {
   can hand out a finished slot. A name in both is a build error. Binding is per
   slot already: a slot is connected only to the names its CEL reads.
 - **Its CEL type is the provider's**: history's is `list(list(double))`, the
-  `[epochMillis, value]` points, so `past.filter(p, p[1] == 0.0)` type-checks
-  and a misuse fails the build. The value is the answer the history provider
-  already caches per 5-minute period; the full series, not a chart's thinned
-  one, which can drop a peak.
+  `[epochMillis, value]` points, so a misuse fails the build. The value is the
+  answer the history provider caches per 5-minute period, with every reading
+  (`points = "all"`): thinned to a chart's ~300, a day of minute rows kept 100
+  where a wash started at 101.
 - **Read before CEL runs, in both paths.** A value fetch counts among the
   node's fetches, so a render's pre-read (`FetchSnapshot`) and its render key
   carry it unchanged. The signal-update path already pre-reads the fetches of
@@ -181,14 +181,18 @@ its current value if higher, which covers a job whose first reading the
 recorder has not written yet:
 
 ```cel
-cel.bind(zeros, past.filter(p, p[1] <= 0.0).map(p, p[0]),
+cel.bind(zeros, past.transformList(i, p, p[1] <= 0.0, p[0]),
   cel.bind(since, size(zeros) == 0 ? 0.0 : math.greatest(zeros),
-    math.greatest(past.filter(p, p[0] > since).map(p, p[1]) + [double(num(state))])))
+    math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))
 ```
 
+(`transformList` filters and maps in one: this CEL has no `filter`/`map`
+macros.)
+
 It is a signal like `value`, so the fill still runs in the browser and the bar
-never redraws. `progressOf` picks it after a percent, a total and the battery:
-the washer and the phone's charge get one.
+never redraws. `c.roles.progress` marks it (`sinceStart`) after a percent, a
+total and the battery: the washer and the phone's charge get one. The sensor
+form, `c.progress(sensor)`, keeps no bar without `.total`.
 
 - Measured against this house with the server's exact call: a countdown's
   history takes 15–30 ms for 24 h or 7 d (one row a minute while running). An

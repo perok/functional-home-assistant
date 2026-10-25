@@ -124,6 +124,19 @@ None of this was designed separately; all of it fell out.
   `{{{x}}}`". It is now **the last stage decides the hole**: a drawing needs the raw one, and
   passthrough must NOT have one, because its value is an attribute payload and wants escaping.
 
+## Decision 3 — a fetch is also a CEL input
+
+A fetch can be read by name in a STATE slot's CEL, as an expression value (ADR 0034): the slot
+keeps its entity, its wake and its signal, and its expression gets the answer beside `state`. A
+fetch slot is the case with no entity, its answer staged into the hole; a value fetch is the case
+with one, its answer read as data. One fetch, one provider and one cache serve both. A value fetch
+is a `SlotAsk` with the passthrough stage, counted among the node's fetches, so the pre-read and
+the render key need nothing new.
+
+History answers a computation every reading (`points = "all"`), a chart about 300: thinning keeps
+the shape of a line and drops the single reading a computation wants. A day of minute rows thinned
+to 300 kept 100 where a countdown started at 101.
+
 ## Consequences
 
 - **A provider is a case in a closed sum**, not a registration: `FetchRequest`, `Fetches.parse`

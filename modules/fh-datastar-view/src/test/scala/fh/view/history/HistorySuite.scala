@@ -289,6 +289,38 @@ class HistorySuite extends munit.CatsEffectSuite {
     assert(HistoryFetch.parse(Map("entity" -> "sensor.t")).isLeft)
   }
 
+  test("points 'all' asks for every reading; anything else is a build error") {
+    assertEquals(
+      HistoryFetch.parse(
+        Map("entity" -> "sensor.t", "window" -> "24h", "points" -> "all")
+      ),
+      Right(FetchRequest.History("sensor.t", Window.LastDay, everyPoint = true))
+    )
+    assert(
+      HistoryFetch
+        .parse(Map("entity" -> "sensor.t", "window" -> "24h", "points" -> "9"))
+        .isLeft
+    )
+  }
+
+  test("every point is its own cache entry, and nothing is thinned out") {
+    // A countdown's start is one row: thinned to ~300, a day of minute rows
+    // kept 100 of a job that started at 101.
+    for {
+      src <- source((_, s) => IO.pure(rowsFrom(ago(1.day))(s)))
+      h <- History.create(src, target = 100)
+      thinned <- h.ask(Window.LastDay)
+      every <- h
+        .answerAt(FetchIdentity.Instance, entity, Window.LastDay, now, true)
+        .flatMap(_.data.as[Series].liftTo[IO])
+      count <- src.fetches
+    } yield {
+      assertEquals(thinned.points.length, 100)
+      assert(every.points.length > 1000, clue = every.points.length)
+      assertEquals(count, 2)
+    }
+  }
+
   test("a size is not a fetch parameter, and is ignored here") {
     // The question is entity and window; size is how the answer is drawn
     // (`ChartStyleSuite`).

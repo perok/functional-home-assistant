@@ -271,7 +271,7 @@ class SignalSlotSuite extends ServerHarness {
     val html = r.renderPage(states)
     assert(html.contains("data-text=\"$_e.light.a.state\""), clue = html)
     assertEquals(
-      r.signalsFor("c_light_a", states),
+      r.signalsFor("c_light_a", states, FetchSnapshot.empty),
       Map(sig("light.a") -> "on")
     )
   }

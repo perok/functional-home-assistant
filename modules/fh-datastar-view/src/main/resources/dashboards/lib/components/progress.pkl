@@ -26,6 +26,9 @@ class Progress {
   total: hass.SensorEntity? = null
   /// What the device is doing: its phase, else its status.
   status: hass.SensorEntity? = null
+  /// A bar of [[left]] out of where it started, from its history, when the
+  /// device reports no other ([[barMod.remainingOfPeak]]).
+  sinceStart: Boolean = false
 }
 
 /// The tile of the countdown, else of the percent sensor. A sensor, for its
@@ -55,6 +58,9 @@ class ProgressCard extends entityMod.EntityCard {
   /// interpreted: which state means "running" is the integration's.
   hidden status: hass.SensorEntity? = found?.status
 
+  /// A bar of the countdown out of where it started, read from its history.
+  hidden sinceStart: Boolean = found?.sinceStart ?? false
+
   /// Null where the reading is not a scalable duration, so the countdown drops
   /// out rather than show a guess.
   hidden scale: Number? = entity.durationSeconds
@@ -72,6 +78,7 @@ class ProgressCard extends entityMod.EntityCard {
   features =
     if (percent != null) new Listing { barMod.percent(percent!!) }
     else if (total != null && barMod.canCount(entity, total!!)) new Listing { barMod.remaining(entity, total!!) }
+    else if (sinceStart && scale != null) new Listing { barMod.remainingOfPeak(entity) }
     else new Listing {}
 
   function left(l: hass.SensorEntity): ProgressCard = let (self = this) (self) { entity = l }
@@ -117,6 +124,7 @@ const function progressOf(d: hass.Device, rules: defaultsMod.ProgressRules): Pro
       percent = bar?.s
       total = if (bar == null) tp?.s else null
       status = sp?.s
+      sinceStart = bar == null && tp == null
     }
 
 // ---- the heuristic ----

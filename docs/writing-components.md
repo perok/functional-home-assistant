@@ -153,6 +153,28 @@ Then place both the value and its binding in the template:
 The `{{temperature}}` part is what a browser sees on first load. The
 `{{{temperature__bind}}}` part is what keeps it fresh afterwards. You need both.
 
+### Reading an entity's history
+
+An expression can also read what a sensor (`hass.SensorEntity`) has recorded,
+by a name you give it:
+
+```pkl
+import "@fh-dashboard/components/fetch.pkl" as fetch
+
+["peak"] = new slotMod.Slot {
+  entityId = entity.entity_id
+  transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
+  expressionValues { ["past"] = fetch.history(entity).over("7d") }
+}
+```
+
+`past` is a list of `[time, value]` pairs, oldest first: time in milliseconds,
+value a number. It is fetched when the slot is read — when its entity changes,
+or when the card is drawn — and kept for a few minutes, so reading it on every
+change costs nothing. It does not change on its own: nothing redraws a card
+because new history was written. Use `transformList(i, p, keep, value)` to
+filter and map; this CEL has no `filter` or `map`.
+
 ---
 
 ## Making a card clickable

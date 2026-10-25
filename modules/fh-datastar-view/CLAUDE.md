@@ -365,8 +365,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   beneath it, its bar a `tab` node per option whose `choose` names the chooser by
   `Variable.declarer` (a build token); `c.windowChooser` and `c.controlChooser` are two, read by
   `.fromChooser()` on a chart or a light slider),
-  **expression values** (a node's `expressionValues`: literals, a live `q.from(…).where(…).count()`
-  or a live condition (`….any()`, a `bool`), read BY NAME as typed variables in that node's own
+  **expression values** (a node's or a slot's `expressionValues`: literals, a live `q.from(…).where(…).count()`,
+  a live condition (`….any()`, a `bool`), or a fetch (`c.fetch.history(e)`, the answer's points read on
+  demand, waking nothing — ADR 0034), read BY NAME as typed variables in that node's own
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on

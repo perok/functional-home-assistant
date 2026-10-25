@@ -1,8 +1,10 @@
 package fh.view.runtime
 
 import com.github.mustachejava.Mustache
+import fh.view.FHError
 import fh.view.build.LibPackage
 import fh.view.fetch.{Fetches, FetchSnapshot, FetchRequest}
+import fh.view.history.Series
 import fh.view.model.{
   CallReach,
   Access,
@@ -10,6 +12,7 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
+  FetchTemplate,
   LayoutNode,
   MemberId,
   NodeId,
@@ -1623,7 +1626,13 @@ class Renderer(validated: Dashboard.Validated) {
                   if (st.reads == Reads.Once) {
                     val once = identityCache.computeIfAbsent(
                       (srcEntity.getOrElse(""), st.valueKey),
-                      _ => resolveStateSlotValue(srcEntity, planned, states)
+                      _ =>
+                        resolveStateSlotValue(
+                          srcEntity,
+                          planned,
+                          states,
+                          noFetch
+                        )
                     )
                     constB += ((slot, once))
                     constB += ((slot + "__read", Datastar.jsValue(once)))
@@ -1757,7 +1766,7 @@ class Renderer(validated: Dashboard.Validated) {
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
-              _ => resolveStateSlotValue(srcEntity, planned, states)
+              _ => resolveStateSlotValue(srcEntity, planned, states, noFetch)
             )
           else
             resolveSlotValue(srcEntity, planned, states, fragments, plan.id)
@@ -1806,12 +1815,13 @@ class Renderer(validated: Dashboard.Validated) {
     */
   def signalsFor(
       id: NodeId,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fragments: FetchSnapshot
   ): Map[SignalId, SlotValue] =
     // Not gated on own rendering: structure's signal slots would be seeded
     // once and then never move.
     nodeAt(id, states)
-      .map((node, _) => signalsOfSlots(id, node, states))
+      .map((node, _) => signalsOfSlots(id, node, states, fragments))
       .getOrElse(Map.empty)
 
   /** Through the plan: re-deriving the names per tick was 9.4% of a signals
@@ -1820,13 +1830,14 @@ class Renderer(validated: Dashboard.Validated) {
   private def signalsOfSlots(
       id: NodeId,
       node: LayoutNode,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fragments: FetchSnapshot
   ): Map[SignalId, SlotValue] = node match {
     case c: LayoutNode.Component =>
       val plan = planOf(id, c, states)
       // A dynamic subject's plan holds no names, not because it has no
       // signals.
-      if (plan.subjectDynamic) directSignalsOfSlots(id, plan, states)
+      if (plan.subjectDynamic) directSignalsOfSlots(id, plan, states, fragments)
       else if (plan.signalNameBySlot.isEmpty) Map.empty
       else {
         val b = Map.newBuilder[SignalId, SlotValue]
@@ -1835,7 +1846,15 @@ class Renderer(validated: Dashboard.Validated) {
           plan.signalNameBySlot
             .get(slot)
             .foreach(sig =>
-              b += ((sig, resolveStateSlotValue(srcEntity, source, states)))
+              b += ((
+                sig,
+                resolveStateSlotValue(
+                  srcEntity,
+                  source,
+                  states,
+                  fetchedIn(fragments, id)
+                )
+              ))
             )
         }
         b.result()
@@ -1846,7 +1865,8 @@ class Renderer(validated: Dashboard.Validated) {
   private def directSignalsOfSlots(
       id: NodeId,
       plan: NodePlan,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fragments: FetchSnapshot
   ): Map[SignalId, SlotValue] = {
     val subject = plan.slots
       .get(Dashboard.SubjectSlot)
@@ -1860,7 +1880,12 @@ class Renderer(validated: Dashboard.Validated) {
         val entity = src.entityId.orElse(subject)
         val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
         Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
-          resolveStateSlotValue(entity, planned, states)
+          resolveStateSlotValue(
+            entity,
+            planned,
+            states,
+            fetchedIn(fragments, id)
+          )
     }
   }
 
@@ -1883,7 +1908,8 @@ class Renderer(validated: Dashboard.Validated) {
       srcEntity: Option[String],
       source: Planned,
       states: Map[String, EntityState]
-  ): String = SlotValue.text(resolveStateSlotValue(srcEntity, source, states))
+  ): String =
+    SlotValue.text(resolveStateSlotValue(srcEntity, source, states, noFetch))
 
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
     * `default`.
@@ -1897,13 +1923,36 @@ class Renderer(validated: Dashboard.Validated) {
   ): SlotValue = source.source.shape match {
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
     case SlotShape.Fetch(ask) => fragments.value(node, ask)
-    case SlotShape.State(_) => resolveStateSlotValue(srcEntity, source, states)
+    case SlotShape.State(_)   =>
+      resolveStateSlotValue(
+        srcEntity,
+        source,
+        states,
+        fetchedIn(fragments, node)
+      )
   }
+
+  /** A fetch value's answer, as CEL reads it. */
+  private def fetchedIn(fragments: FetchSnapshot, node: NodeId)(
+      f: FetchTemplate
+  ): Object =
+    Series.celPoints(
+      fragments.value(node, SlotAsk(f, Transform.Stage.Passthrough))
+    )
+
+  /** For sites `validate` keeps from reading a fetch (a `once` slot, a
+    * subject), so one that does is loud rather than an empty series.
+    */
+  private val noFetch: FetchTemplate => Object = f =>
+    throw FHError.internal(
+      s"a slot read the fetch '${f.provider}' where none is answered"
+    )
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
       planned: Planned,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fetched: FetchTemplate => Object
   ): SlotValue = {
     val source = planned.source
     val st =
@@ -1921,7 +1970,7 @@ class Renderer(validated: Dashboard.Validated) {
             program,
             st,
             dashboard.slug,
-            Conditions.resolve(source.values, states)
+            Conditions.resolve(source.values, states, fetched)
           )
         case None =>
           source.transform match {

@@ -84,10 +84,10 @@ no template places it. A button's `active` is one (`fh-active`).
 and kept live (`LayoutNode.cssProperty`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
-**Expression value** — a named input a node's OWN expressions read as a typed CEL variable
-(`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static candidate
-list and which of it is present, counted live, the same thing a state condition's `Count` compares
-— or a **condition**, decided live.
+**Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
+variable (`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static
+candidate list and which of it is present, counted live, the same thing a state condition's `Count`
+compares — a **condition**, decided live, or a **fetch**, its provider's answer read on demand.
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
 **Build passes** — what turns a dashboard's JSON into `Dashboard.Validated`, once per evaluation,
@@ -421,6 +421,7 @@ a lower bound taken as the MAXIMUM across every entity asked for. Per entity it 
 all — a sensor created yesterday and a daily purge give the same short answer.
 
 **Fetch** — a read of a **provider** with its parameters: `history` of one entity over one window.
+A fetch slot shows one; an expression value reads one in CEL (`c.fetch.history(e)`).
 Not a **query**, which is `query.pkl`'s `q.`: it picks CANDIDATES at build time, with presence and
 order decided live, and reaches no network. Two words because the two get discussed side by side.
 

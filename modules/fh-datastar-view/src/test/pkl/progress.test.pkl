@@ -51,7 +51,7 @@ facts {
     found["car"] == Map(
       "left", "sensor.car_id4gtx_charging_time_left", "percent", "sensor.car_id4gtx_battery_level",
       "total", null, "status", "sensor.car_id4gtx_charging_state")
-    // Time left and nothing to divide it by: no bar until E3b.
+    // Time left and nothing to divide it by: a bar out of where it started.
     found["washer"] == Map(
       "left", "sensor.electrolux_washing_machine_timetoend_2", "percent", null,
       "total", null, "status", "sensor.electrolux_washing_machine_cyclephase_2")
@@ -59,6 +59,32 @@ facts {
       "left", "sensor.le2123_remaining_charge_time", "percent", null,
       "total", null, "status", "sensor.le2123_battery_state")
     found["otherPhone"] == Map()
+    house.devices.toMap().filter((_, d) -> c.roles.progress(d)?.sinceStart == true).keys
+      == Set("washer", "phone")
+  }
+
+  ["a countdown with no other bar fills out of where it started, from its history"] {
+    local left = minutes("rem", "time_to_end")
+    local card = c.progress(dev(List(left, words("ph", "cycle_phase"))))
+    local bar = card.features[0] as barBaseMod.ProgressBar
+    (bar.slots["value"] as slotMod.Slot).entityId == "sensor.rem"
+    bar.slots["down"] == "1"
+    // The whole is a live CEL slot on the countdown, reading its history.
+    local whole = bar.slots["of"] as slotMod.Slot
+    whole.entityId == "sensor.rem"
+    whole.transform.toString().contains("past.transformList")
+    whole.values.toMap() == Map("past", c.fetch.history(left))
+    whole.values["past"].params.toMap() == Map("entity", "sensor.rem", "window", "24h", "points", "all")
+    // A sensor alone keeps today's card: no bar without a total.
+    c.progress(left).features.isEmpty
+  }
+
+  ["c.fetch.history reads one sensor over a window, and an unused slot input is not on the wire"] {
+    local left = minutes("rem", "time_to_end")
+    c.fetch.history(left).over("7d").params.toMap() == Map("entity", "sensor.rem", "window", "7d", "points", "all")
+    c.fetch.history(left).provider == "history"
+    // Without inputs a slot's wire is what it always was.
+    (new slotMod.Slot { transform = "state" }).values == null
   }
 
   ["words, a match and an entity each name a role, and the most specific wins"] {

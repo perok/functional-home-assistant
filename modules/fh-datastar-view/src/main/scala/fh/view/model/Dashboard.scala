@@ -15,8 +15,8 @@ given Configuration =
   *
   *   - `transform`: a CEL string or a [[Transform.Simple]] object — the form is
   *     the tier (ADR 0028) — or, on a fetch slot, a [[Transform.Stage]]. Only
-  *     the slot's own entity is reachable, beside the node's expression values
-  *     it names ([[BoundSlot]]).
+  *     the slot's own entity is reachable, beside the expression values it
+  *     names, the node's and its own ([[BoundSlot]]).
   *   - `default`: used when the transform yields `""`, which keeps a numeric
   *     initialiser like `{bri: {{x}}}` valid while a light is off.
   *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
@@ -28,6 +28,8 @@ given Configuration =
   *     `{{{<slot>__bind}}}` on the element beside its `{{<slot>}}` hole.
   *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
   *     ([[SlotShape]]).
+  *   - `values`: expression values of this slot alone, beside the node's
+  *     ([[BoundSlot]]); a name in both is a build error.
   */
 case class SlotSource(
     entityId: Option[String] = None,
@@ -40,7 +42,8 @@ case class SlotSource(
     // What the card reads the value AS, set where it binds the slot. Declared
     // where the binding cannot say it: a `class:` binding is a bool by kind.
     `type`: SlotType = SlotType.Text,
-    fetch: Option[FetchTemplate] = None
+    fetch: Option[FetchTemplate] = None,
+    values: Map[String, ExprValue] = Map.empty
 ) {
 
   def isBool: Boolean =
@@ -65,9 +68,10 @@ case class SlotSource(
   }
 }
 
-/** A slot with the node's expression values its CEL names: the build's bind
-  * pass, run lazily on the node ([[LayoutNode.Component.bound]]). It fixes each
-  * name's definition and type, not its value, which is resolved per render.
+/** A slot with the expression values its CEL names, the node's and its own: the
+  * build's bind pass, run lazily on the node ([[LayoutNode.Component.bound]]).
+  * It fixes each name's definition and type, not its value, which is resolved
+  * per render.
   */
 final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
   export source.{
@@ -99,6 +103,16 @@ final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
   def shape: SlotShape =
     fetch.fold(SlotShape.State(this))(q => SlotShape.Fetch(SlotAsk(q, stage)))
 
+  /** What a render must answer before it reads this slot: its own fetch, or the
+    * fetches among the values its CEL reads, as their raw answers.
+    */
+  def fetches: List[SlotAsk] = shape match
+    case SlotShape.Fetch(ask) => List(ask)
+    case SlotShape.State(_)   =>
+      values.values.toList.collect { case ExprValue.Fetched(f) =>
+        SlotAsk(f, Transform.Stage.Passthrough)
+      }
+
   /** What the renderer keys a value by (signal names, the once-cache): two
     * nodes saying the same thing over the same values share a signal.
     */
@@ -115,15 +129,18 @@ object BoundSlot:
     * literal is not a read.
     */
   def bind(values: Map[String, ExprValue])(s: SlotSource): BoundSlot =
+    // The slot's own win a clash, which `validate` refuses anyway.
+    val all = values ++ s.values
     s.transform match
-      case t: String if values.nonEmpty && s.literal.isEmpty =>
+      case t: String if all.nonEmpty && s.literal.isEmpty =>
         val read = Cel.identifiers(t)
-        BoundSlot(s, values.filter((n, _) => read.contains(n)))
+        BoundSlot(s, all.filter((n, _) => read.contains(n)))
       case _ => BoundSlot(s, Map.empty)
 
-/** A named input of a node's expressions (`expressionValues`): a literal the
-  * build wrote down, a [[Predicate.Tally]] counted live, or a condition decided
-  * live — `c.iff`'s, read as a `bool`.
+/** A named input of a node's or a slot's expressions (`expressionValues`): a
+  * literal the build wrote down, a [[Predicate.Tally]] counted live, a
+  * condition decided live — `c.iff`'s, read as a `bool` — or a fetch, read as
+  * its provider's answer.
   */
 enum ExprValue derives CanEqual:
   case Text(value: String)
@@ -133,17 +150,20 @@ enum ExprValue derives CanEqual:
   case Flag(value: Boolean)
   case Count(tally: Predicate.Tally)
   case Holds(condition: Predicate)
+  case Fetched(fetch: FetchTemplate)
 
   def kind: ExprValue.Kind = this match
     case _: Text             => ExprValue.Kind.Str
     case _: Whole | _: Count => ExprValue.Kind.Int
     case _: Real             => ExprValue.Kind.Dbl
     case _: Flag | _: Holds  => ExprValue.Kind.Bool
+    // `history` is the one provider (`Fetches.parse`).
+    case _: Fetched => ExprValue.Kind.Series
 
-  /** Live: what it answers moves with state, so a once-read cannot hold it. */
+  /** Live: what it answers moves, so a once-read cannot hold it. */
   def isLive: Boolean = this match
-    case _: Count | _: Holds => true
-    case _                   => false
+    case _: Count | _: Holds | _: Fetched => true
+    case _                                => false
 
   /** Every entity that can move it. */
   def entities: List[String] = this match
@@ -153,21 +173,31 @@ enum ExprValue derives CanEqual:
 
 object ExprValue:
 
-  /** The CEL type a value is declared as. */
+  /** The CEL type a value is declared as. `Series` is a history answer's
+    * points, `list(list(double))` of `[epochMillis, value]`.
+    */
   enum Kind derives CanEqual:
-    case Str, Int, Dbl, Bool
+    case Str, Int, Dbl, Bool, Series
 
   def env(values: Map[String, ExprValue]): List[(String, Kind)] =
     values.toList.sortBy(_._1).map((n, v) => n -> v.kind)
 
   /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
   def key(v: ExprValue): String = v match
-    case Text(s)  => s"s:$s"
-    case Whole(n) => s"i:$n"
-    case Real(d)  => s"d:$d"
-    case Flag(b)  => s"b:$b"
-    case Count(t) => s"t:${tallyKey(t)}"
-    case Holds(p) => s"p:${predicateKey(p)}"
+    case Text(s)    => s"s:$s"
+    case Whole(n)   => s"i:$n"
+    case Real(d)    => s"d:$d"
+    case Flag(b)    => s"b:$b"
+    case Count(t)   => s"t:${tallyKey(t)}"
+    case Holds(p)   => s"p:${predicateKey(p)}"
+    case Fetched(f) =>
+      s"f:${f.provider}(" + f.params.toList
+        .sortBy(_._1)
+        .map {
+          case (k, Ref.Literal(v)) => s"$k=$v"
+          case (k, Ref.Var(n))     => s"$k=$$$n"
+        }
+        .mkString(",") + ")"
 
   private def tallyKey(t: Predicate.Tally): String =
     t.candidates.mkString(",") + "/" +
@@ -208,9 +238,10 @@ object ExprValue:
         Left(
           DecodingFailure("an expression value cannot be a list", c.history)
         ),
-      // A condition carries its `kind`; a tally, which is not one, does not.
+      // A condition carries its `kind`, a fetch its `provider`; a tally neither.
       o =>
         if (o.contains("kind")) c.as[Predicate].map(Holds(_))
+        else if (o.contains("provider")) c.as[FetchTemplate].map(Fetched(_))
         else c.as[Predicate.Tally].map(Count(_))
     )
   }
@@ -633,7 +664,7 @@ object LayoutNode:
         (List.empty[BoundSlot], List.empty[SlotAsk])
       ) { case (s, (states, fetches)) =>
         s.shape match
-          case SlotShape.State(src) => (src :: states, fetches)
+          case SlotShape.State(src) => (src :: states, src.fetches ++ fetches)
           case SlotShape.Fetch(q)   => (states, q :: fetches)
       } match
         case (states, fetches) => (states, fetches.distinct)
@@ -1130,8 +1161,36 @@ case class Dashboard(
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
           readErrors(nodeId, cardName, name, src) ++
-          fetchErrors(nodeId, cardName, name, src, scope)
+          fetchErrors(nodeId, cardName, name, src, scope) ++
+          src.values.values.toList.collect { case ExprValue.Fetched(f) =>
+            askErrors(nodeId, name, f, scope)
+          }.flatten
       }
+
+    /** A fetch's references are declared above it, and it parses at their
+      * declared values; a viewer's value is checked at the write.
+      */
+    def askErrors(
+        nodeId: String,
+        name: String,
+        template: FetchTemplate,
+        scope: Map[String, String]
+    ): List[String] =
+      val refErrors = template.references.distinct.sorted
+        .filterNot(scope.contains)
+        .map(v =>
+          s"$nodeId: slot '$name' reads the variable '$v', which no " +
+            "ancestor declares — declare it on the node that owns the " +
+            "choice, or write the value down"
+        )
+      if (refErrors.nonEmpty) refErrors
+      else
+        Fetches
+          .parse(template.resolve(scope))
+          .left
+          .toOption
+          .map(e => s"$nodeId: slot '$name' $e")
+          .toList
 
     /** Otherwise a bad fetch renders blank forever with nothing saying why. */
     def fetchErrors(
@@ -1147,23 +1206,7 @@ case class Dashboard(
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
-        val refErrors = template.references.distinct.sorted
-          .filterNot(scope.contains)
-          .map(v =>
-            s"$nodeId: slot '$name' reads the variable '$v', which no " +
-              "ancestor declares — declare it on the node that owns the " +
-              "choice, or write the value down"
-          )
-        // At declared values; a viewer's value is checked at the write.
-        val parseError =
-          if (refErrors.nonEmpty) Nil
-          else
-            Fetches
-              .parse(template.resolve(scope))
-              .left
-              .toOption
-              .map(e => s"$nodeId: slot '$name' $e")
-              .toList
+        val parseErrors = askErrors(nodeId, name, template, scope)
         val stageError = src.transform match {
           case _: Transform.Stage => None
           case _                  =>
@@ -1194,8 +1237,8 @@ case class Dashboard(
               case _ => None
             }
           }
-        untruthfulReads.toList ++ refErrors ++
-          parseError ++ stageError.toList ++ rawHole.toList
+        untruthfulReads.toList ++ parseErrors ++ stageError.toList ++
+          rawHole.toList
       }
 
     /** At the declaration, so an unreferenced variable is still wrong loudly.
@@ -1229,11 +1272,35 @@ case class Dashboard(
                   "does not name — name it with q.entity(e)"
               )
             case _ => Nil
+      } ++ c.slots.toList.sortBy(_._1).flatMap { (slot, src) =>
+        val read = c.bound.get(slot).fold(Set.empty[String])(_.values.keySet)
+        src.values.keys.toList.sorted.flatMap { name =>
+          if (
+            !Dashboard.ExpressionValueName.matches(name) ||
+            Cel.fixedNames.contains(name)
+          )
+            List(
+              s"$nodeId: slot '$slot' has an expression value '$name' its " +
+                "expression cannot read — letters, digits and '_', and not " +
+                s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
+            )
+          else if (c.values.contains(name))
+            List(
+              s"$nodeId: slot '$slot' has an expression value '$name', and " +
+                "so does its node — rename one"
+            )
+          else if (!read.contains(name))
+            List(
+              s"$nodeId: slot '$slot' has an expression value '$name' its " +
+                "expression does not read"
+            )
+          else Nil
+        }
       } ++ c.bound.toList.sortBy(_._1).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
             if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
-          s"$nodeId: slot '$slot' reads a live count or condition but is " +
+          s"$nodeId: slot '$slot' reads a live count, condition or fetch but is " +
             s"read '${Reads.Once}' — it would show the first count forever; " +
             s"read it '${Reads.Live}'"
       }
@@ -2012,10 +2079,7 @@ case class Dashboard(
       start: Map[String, String] = Map.empty
   ): List[SlotRead] =
     scopedSlots(n, start).flatMap { case (s, scope) =>
-      s.shape match
-        case SlotShape.Fetch(ask) =>
-          List(ask.resolve(scope))
-        case SlotShape.State(_) => Nil
+      s.fetches.map(_.resolve(scope))
     }.distinct
 
   private def slotSources(n: LayoutNode): List[BoundSlot] =

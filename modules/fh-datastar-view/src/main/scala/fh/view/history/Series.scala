@@ -4,8 +4,10 @@ import api.homeassistant.ws.domain.{HistoryPoint, StatisticPoint}
 import io.circe.{Codec, Decoder, Encoder}
 
 import java.time.Instant
+import scala.jdk.CollectionConverters.*
 
-/** A numeric series ready to draw: ascending in time, already downsampled.
+/** A numeric series: ascending in time, and downsampled for drawing unless
+  * every point was asked for (`points = "all"`).
   *
   * No unit or name: those come from the entity's live state, and a copy here
   * could disagree with the card beside it.
@@ -59,6 +61,24 @@ object Series {
   }
 
   val empty: Series = Series(Vector.empty)
+
+  /** An answer as CEL reads it (`ExprValue.Kind.Series`): `[epochMillis,
+    * value]` doubles. One that does not decode, a failed read's `""` included,
+    * has no points.
+    */
+  def celPoints(
+      json: String
+  ): java.util.List[java.util.List[java.lang.Double]] =
+    io.circe.parser
+      .decode[Series](json)
+      .fold(_ => Vector.empty, _.points)
+      .map(p =>
+        java.util.List.of[java.lang.Double](
+          p.at.toEpochMilli.toDouble,
+          p.value
+        )
+      )
+      .asJava
 
   /** Sorted here: the WS contract does not promise row order. A `NaN` or
     * `Infinity` state parses as a double but is not a reading.
