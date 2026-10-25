@@ -611,12 +611,7 @@
                       "op" : "Fill"
                     }
                   },
-                  "fillColor" : {
-                    "bypassUnavailable" : false,
-                    "default" : "currentcolor",
-                    "reads" : "once",
-                    "transform" : "''"
-                  },
+                  "fillColor" : "currentcolor",
                   "icon" : "mdi-lightbulb",
                   "label" : "Kitchen",
                   "max" : "255",

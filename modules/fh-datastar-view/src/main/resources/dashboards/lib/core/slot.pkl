@@ -21,7 +21,7 @@ class Slot {
   /// CEL, a [[simpleMod.Simple]], or on a fetch slot a [[stageMod.Stage]] over
   /// the provider's answer.
   transform: (String|simpleMod.Simple|stageMod.Stage) =
-    if (fetch == null) "state" else stageMod.passthrough
+    if (fetch == null) simpleMod.state() else stageMod.passthrough
   default: String? = null
   bypassUnavailable: Boolean = true
   /// When this value is read, and whether a change is a reason to re-render:
@@ -58,15 +58,14 @@ class Slot {
   ///
   ///   valueWhile = q.entity(left).gt(q.prop("state"), 0)
   ///
-  /// A constant, a condition, or a `bool` reading, which reads no fetch.
+  /// A constant, a condition (decided without CEL, over the slot's entity
+  /// when it names none), or a `bool` reading; none may read a fetch.
   hidden valueWhile: nodes.BooleanInput = true
   valueWhileSlot: Slot? =
     if (valueWhile == true) null
-    else if (valueWhile == false)
-      new Slot { transform = "false"; type = "bool"; bypassUnavailable = false }
-    else if (valueWhile is predMod.Predicate)
-      (nodes.booleanSlot(valueWhile, "__while")) { expressionValues { ["__while"] = valueWhile } }
-    else nodes.booleanSlot(valueWhile as Slot|Expr, "")
+    // `Or` of nothing: false, still on the fast path.
+    else if (valueWhile == false) nodes.booleanSlot(new predMod.POr { items {} })
+    else nodes.booleanSlot(valueWhile as Slot|Expr|predMod.Predicate)
 }
 
 /// A read of a named provider, checked by the backend's `Fetches.parse`.
@@ -215,9 +214,6 @@ function expr(s: String): Expr = new { transform = s }
 /// [[expr]] over another entity than the card's.
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
-const UNIT_EXPR =
-  #"attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"#
-
 // Expr and Simple resolve even while unavailable, so a label shows the name;
 // null bakes the friendly name.
 const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Simple)?): Slot|String =
@@ -228,16 +224,12 @@ const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Sim
   else ""
 
 // null: the state plus the entity's unit. A String names an attribute, with the
-// unit — two reads, so CEL. An Expr or Simple is used as given, unit and all.
+// unit. An Expr or Simple is used as given, unit and all.
 const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
   else if (value is simpleMod.Simple) new Slot { transform = value }
   else if (value == null) new Slot { transform = simpleMod.suffixUnit("unit_of_measurement") }
-  else new Slot {
-    transform =
-      "attr[?'" + value + "'].orValue('')" +
-      " + (" + UNIT_EXPR + ")"
-  }
+  else new Slot { transform = simpleMod.attrUnit(value) }
 
 /// A card's second line. A String is the text itself, never an attribute name
 /// (that is [[attr]]).

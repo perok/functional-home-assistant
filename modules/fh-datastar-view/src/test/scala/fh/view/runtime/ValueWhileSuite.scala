@@ -22,15 +22,10 @@ class ValueWhileSuite extends munit.FunSuite {
     Map(read -> Staged(7L, """{"points":[[0,0.0],[60000,101.0]]}"""))
   )
 
-  private def above0(entity: String) = SlotSource(
-    transform = "__while",
+  private def above0(entity: Option[String]) = SlotSource(
+    transform = Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity),
     bypassUnavailable = false,
-    `type` = SlotType.Bool,
-    values = Map(
-      "__while" -> ExprValue.Holds(
-        Predicate.Cmp("state", Op.Gt, Json.fromInt(0), Some(entity))
-      )
-    )
+    `type` = SlotType.Bool
   )
 
   // The peak of the history: what the bar's whole reads.
@@ -81,17 +76,17 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   test("while it does not hold, no fetch is read and the slot is empty") {
-    val d = dashboard(node(peak(Some(above0("sensor.left")))))
+    val d = dashboard(node(peak(Some(above0(None)))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
+    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty).reads, Nil)
     // Unanswered, and still renders: the transform never ran.
     assertEquals(
       r.signalsFor(idOf(d, 0), states("0"), FetchSnapshot.empty).values.toList,
       List("")
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, states("46"), Map.empty),
+      r.fetchesForPage(Set.empty, states("46"), Map.empty).reads,
       List(read)
     )
     assertEquals(
@@ -100,15 +95,46 @@ class ValueWhileSuite extends munit.FunSuite {
     )
   }
 
+  test("the walk keeps the pre-read's decision rather than deciding again") {
+    val d = dashboard(node(peak(Some(above0(None)))))
+    val r = Renderer.create(d)
+    val asked = r.fetchesForPage(Set.empty, states("46"), Map.empty)
+    assertEquals(asked.gates.values.toList, List(true))
+    // The same states, but a record saying otherwise: the walk follows it.
+    val overruled = FetchSnapshot.of(
+      Map.empty,
+      gates = asked.gates.view.mapValues(!_).toMap
+    )
+    assertEquals(
+      r.signalsFor(idOf(d, 0), states("46"), overruled).values.toList,
+      List("")
+    )
+  }
+
+  test("CEL decides it as well, once, when an author writes CEL") {
+    val cel = SlotSource(
+      transform = "double(state) > 0.0",
+      bypassUnavailable = false,
+      `type` = SlotType.Bool
+    )
+    val d = dashboard(node(peak(Some(cel))))
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
+    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty).reads, Nil)
+    val asked = r.fetchesForPage(Set.empty, states("46"), Map.empty)
+    assertEquals(asked.reads, List(read))
+    assertEquals(asked.gates.values.toList, List(true))
+  }
+
   test("a condition on another entity wakes the slot") {
-    val d = dashboard(node(peak(Some(above0("binary_sensor.door")))))
+    val d = dashboard(node(peak(Some(above0(Some("binary_sensor.door"))))))
     assert(Renderer.create(d).componentsFor("binary_sensor.door").nonEmpty)
   }
 
   test("a slot without one keeps its own signal beside one that has it") {
     val d = dashboard(
       node(peak(None)),
-      node(peak(Some(above0("sensor.left"))))
+      node(peak(Some(above0(None))))
     )
     val r = Renderer.create(d)
     val plain = r.signalsFor(idOf(d, 0), states("0"), answered)
@@ -136,7 +162,7 @@ class ValueWhileSuite extends munit.FunSuite {
       errs(
         SlotSource(
           reads = Reads.Once,
-          valueWhileSlot = Some(above0("sensor.left"))
+          valueWhileSlot = Some(above0(None))
         )
       ).contains("has a valueWhile — it would keep its first answer")
     )

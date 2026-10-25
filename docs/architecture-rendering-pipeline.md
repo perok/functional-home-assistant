@@ -995,13 +995,15 @@ the node's `fetches`, so the page's pre-read and the render key carry it already
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.
 
-**A slot's `valueWhile` comes first** (ADR 0034). A slot's evaluation is: decide `valueWhile` over
-live state; if it does not hold, the value is `""` and nothing else runs; otherwise read the
-fetches and run the transform. The order reaches back into the pre-read: an ask carries its slot's
-`valueWhile` (`SlotAsk.gate`), and `fetchesForPage`, `fetchesForSurface`, `readsForPull` and the
-render key keep only the asks whose gate holds (`Renderer.asked`), so an idle washer's bar asks
-for no history. The paint decides the same thing over the same states (`Renderer.withheld`), so it
-never reads an ask the pre-read skipped. `readsAt`, which bounds a viewer's variable value, keeps
+**A slot's `valueWhile` comes first, once per update** (ADR 0034). A slot's evaluation is: decide
+`valueWhile` over live state; if it does not hold, the value is `""` and nothing else runs;
+otherwise read the fetches and run the transform. The order reaches back into the pre-read: an ask
+carries its slot's gate (`SlotAsk.gate`), and `fetchesForPage`, `fetchesForSurface` and
+`readsForPull` decide each distinct gate once (`Renderer.ask`), keep only the asks whose gate
+holds, and return the decisions beside the reads (`Asked`), which `FetchSnapshot` carries. So an
+idle washer's bar asks for no history, and the render key (`Renderer.asked`) and the paint
+(`Renderer.withheld`) look the decision up rather than make it again; only a slot no pre-read
+gated (no fetch, or a subject known only to the paint) is decided at its paint. `readsAt`, which bounds a viewer's variable value, keeps
 every ask: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
@@ -1454,7 +1456,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
-| evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
+| evaluating a guard / activation condition, or one filling a slot | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf` (a slot reaches it through `Transform.runSimpleValue`); ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |
 

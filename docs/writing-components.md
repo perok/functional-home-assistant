@@ -106,9 +106,15 @@ slots {
 }
 ```
 
-`transform` is a small expression (CEL) that turns the entity into the text you
-want. `"state"` is the default and means "whatever the entity's state is". You
-can do more:
+`transform` says what to show. Leave it out and the slot shows the entity's
+state. It can be a fast read from `core/simple.pkl`, which runs without an
+expression engine — `simpleMod.attr("battery")`, `simpleMod.attrUnit("temperature")`
+(the attribute with its unit), `simpleMod.duration(60)` — or, for a yes/no slot,
+a condition such as `q.entity(door).stateIs("on")`. Either may read another
+entity than the slot's: a condition names its own, and a fast read takes
+`entity`, as in `(simpleMod.attr("battery")) { entity = phone.entity_id }`.
+
+For anything more, `transform` is a small expression (CEL):
 
 ```pkl
 transform = "state + ' °C'"
@@ -191,7 +197,8 @@ is `""`, the expression does not run, and its history is not read:
 
 It takes what `active` and `disabled` take: `true`/`false`, a condition
 (`q.entity(e).gt(…)`, `.stateIs(…)`, `q.from(…).any()`), or a reading that is a
-`bool` (`slotMod.expr("int(state) > 0")`). A reading cannot use a fetch.
+`bool` (`slotMod.expr("int(state) > 0")`). A condition is the fast choice, and
+one that names no entity reads the slot's. A reading cannot use a fetch.
 Your template decides what `""` looks like; the progress bar hides.
 
 ---

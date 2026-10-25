@@ -43,7 +43,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
       assertEquals(
-        Transform.runSimple(Transform.Simple.State, entity),
+        Transform.runSimple(Transform.Simple.State(), entity, Map.empty),
         Transform.run(cel, entity, "dashboard"),
         clue = state
       )
@@ -129,13 +129,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
         case c: LayoutNode.Component =>
           // The transform is the union: no parallel field.
           c.slots("v").transform match {
-            case Transform.Simple.Suffix(" W") => ()
+            case Transform.Simple.Suffix(" W", _) => ()
             case other => fail(s"expected the opted-in suffix, got $other")
           }
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
-        Transform.runSimple(Transform.Simple.Suffix(" W"), state),
+        Transform.runSimple(Transform.Simple.Suffix(" W"), state, Map.empty),
         "on W"
       )
     }
@@ -194,13 +194,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
     val mixed = withMatch(
       Transform.Simple
-        .Match(Map("on" -> "yes", "off" -> false), otherwise = "no")
+        .Match(Map("on" -> "yes", "off" -> false), otherwise = Some("no"))
     )
     assert(mixed.exists(_.contains("string and boolean arms")), clue = mixed)
 
     // `otherwise` is the value an unmatched state gets, so it counts as an arm.
     val mixedElse = withMatch(
-      Transform.Simple.Match(Map("on" -> true), otherwise = "")
+      Transform.Simple.Match(Map("on" -> true), otherwise = Some(""))
     )
     assert(
       mixedElse.exists(_.contains("string and boolean arms")),
@@ -208,11 +208,15 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
 
     assertEquals(
-      withMatch(Transform.Simple.Match(Map("on" -> true), otherwise = false)),
+      withMatch(
+        Transform.Simple.Match(Map("on" -> true), otherwise = Some(false))
+      ),
       Nil
     )
     assertEquals(
-      withMatch(Transform.Simple.Match(Map("on" -> "yes"), otherwise = "no")),
+      withMatch(
+        Transform.Simple.Match(Map("on" -> "yes"), otherwise = Some("no"))
+      ),
       Nil
     )
   }

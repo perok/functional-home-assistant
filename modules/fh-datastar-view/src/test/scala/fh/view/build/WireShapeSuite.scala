@@ -202,15 +202,16 @@ class WireShapeSuite extends munit.FunSuite {
     import fh.view.model.Transform.Simple
     def op(pklClass: String, sample: Product) =
       check(pklClass, sample, pklOnly = Set("op"))
-    op("State", Simple.State)
+    op("State", Simple.State())
     op("Attr", Simple.Attr("a"))
     op("SuffixUnit", Simple.SuffixUnit("a"))
+    op("AttrUnit", Simple.AttrUnit("a"))
     op("Prefix", Simple.Prefix("x"))
     op("Suffix", Simple.Suffix("x"))
     op("Percent", Simple.Percent("a", 0, 1))
     op("Fill", Simple.Fill("a", 0, 1))
     op("Duration", Simple.Duration(1))
-    check("SimpleMatch", Simple.Match(Map.empty, ""))
+    check("SimpleMatch", Simple.Match(Map.empty, Some("")))
   }
 
   test("every discriminator Pkl writes is a Scala case name, verbatim") {
@@ -233,7 +234,7 @@ class WireShapeSuite extends munit.FunSuite {
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
       caseNames[Transform.Stage] -> Set("Passthrough", "ChartStage"),
-      caseNames[Transform.Simple] -> Set("SimpleValue", "SimpleMatch"),
+      caseNames[Transform.Simple.Value] -> Set("SimpleValue", "SimpleMatch"),
       caseNames[Transform.Simple.Op] -> ops
     )
     families.foreach { (scalaNames, pklClasses) =>
@@ -263,6 +264,7 @@ class WireShapeSuite extends munit.FunSuite {
     "State",
     "Attr",
     "SuffixUnit",
+    "AttrUnit",
     "Prefix",
     "Suffix",
     "Percent",
