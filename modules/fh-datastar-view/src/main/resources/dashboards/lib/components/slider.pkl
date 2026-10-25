@@ -11,6 +11,7 @@ import "base/slider.pkl" as sliderBase
 import "its.pkl" as itsMod
 import "select.pkl" as selectMod
 import "../hass.pkl"
+import "defaults.pkl" as defaultsMod
 
 /// What a slider on an entity given as itself drives, per domain, with the
 /// owner left for the slider to fill. A new domain is a row; a light's is its
@@ -252,10 +253,17 @@ class EntitySlider extends sliderBase.Slider {
       offeredControls.map((m) -> new sliderBase.ControlHead { value = m; head = controlHead(m, false, false) })
     else List()
   declaresControl = !following && controls.length > 1
+  /// What this slider starts from ([[defaultsMod.Defaults]]).
+  hidden defaults: defaultsMod.Defaults = new {}
   /// What the slider opens on, tried in order as the page opens: the first axis
   /// the light is on then wins, else its first control. Empty is the first
-  /// control alone: brightness, where the light dims.
-  hidden opensOnAxes: List<hass.Axis> = List()
+  /// control alone: brightness, where the light dims. From
+  /// `defaults.light.opensOn` unless [[opensOn]] says otherwise.
+  hidden opensOnAxes: List<hass.Axis> =
+    if (on is hass.LightEntity)
+      let (l = on)
+        defaults.light.opensOn.map((n) -> l.axes.findOrNull((a) -> a.name == n)).filterNonNull() as List<hass.Axis>
+    else List()
   /// The tries that can win, up to the first that always does.
   hidden openingTries: List<hass.Axis> =
     let (tries = opensOnAxes.filter((a) -> offeredControls.contains(a.name)))
@@ -301,8 +309,9 @@ class EntitySlider extends sliderBase.Slider {
   function fromChooser(): EntitySlider = let (self = this) (self) { chosenAbove = true }
   /// The order to try as the page opens: the first axis the light is on then,
   /// else the first control. Read once; an open page does not follow the
-  /// light. Without it the slider opens on brightness; this opens on the
-  /// mode the light is in:
+  /// light. Without it the slider follows `defaults.light.opensOn`, which
+  /// opens on brightness unless your `components.pkl` sets it; this opens on
+  /// the mode the light is in:
   ///
   ///   c.entitySlider(l).opensOn(List(l.colourTemp, l.colour))
   function opensOn(xs: List<hass.Axis?>): EntitySlider =
@@ -331,7 +340,8 @@ class EntitySlider extends sliderBase.Slider {
 hidden controlChooser: selectMod.Chooser = selectMod.chooser(itsMod.controlSelect(itsMod.allControls, "buttons"))
 
 /// `c.entitySlider(l)` switches between the main controls the light has, opening
-/// on brightness unless told otherwise ([[EntitySlider.opensOn]]); `c.entitySlider(l.brightness)`
+/// on brightness unless `defaults.light.opensOn` or [[EntitySlider.opensOn]]
+/// says otherwise; `c.entitySlider(l.brightness)`
 /// is brightness alone, `c.entitySlider(l.colourTemp)` colour temperature,
 /// `c.entitySlider(l.colour)` the hue.
 function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }

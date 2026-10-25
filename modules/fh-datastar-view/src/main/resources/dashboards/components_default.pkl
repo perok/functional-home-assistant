@@ -1,0 +1,19 @@
+// Your components: what every dashboard file imports as `c`,
+//
+//   import "components.pkl" as c
+//
+// seeded once into the workspace, and from then on YOURS to edit. It is the
+// library's `@fh-dashboard/components.pkl` with your `defaults`: what every card
+// starts from, which one card still overrides with its builder. Completion
+// inside `defaults { }` lists what you can set, e.g.
+//
+//   defaults {
+//     // A light's slider opens on the mode the light is in, not brightness.
+//     // One slider back on brightness: `c.entitySlider(l).opensOn(List())`.
+//     light { opensOn = List("colourTemp", "colour") }
+//   }
+//
+// Importing `@fh-dashboard/components.pkl` directly works too, with the
+// library's defaults.
+
+amends "@fh-dashboard/components.pkl"

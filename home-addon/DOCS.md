@@ -19,7 +19,8 @@ Install the add-on and start it, then open **FH Dashboard** in the sidebar.
 
 On first start the add-on puts a starter workspace in
 `<ha config>/fh-dashboards/`, where the Samba, SSH and File editor add-ons
-can reach it. `site.pkl` there lists every dashboard you serve.
+can reach it. `site.pkl` there lists every dashboard you serve, and
+`components.pkl` holds the defaults every card starts from.
 
 To write dashboards, read
 [Writing dashboards](https://github.com/perok/functional-home-assistant/blob/main/docs/writing-dashboards.md).
@@ -28,8 +29,9 @@ To make your own kind of card,
 
 ### Re-seeding
 
-The starter `site.pkl` is written only when there is none. To get a fresh
-copy, move yours elsewhere and restart. You never need to for an upgrade: the
+The starter `site.pkl` is written only when there is none, together with a
+`components.pkl` if that is missing too. To get a fresh copy, move yours
+elsewhere and restart. You never need to for an upgrade: the
 card library comes with the add-on, not in this folder.
 
 ## Options

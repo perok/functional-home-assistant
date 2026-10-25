@@ -11,7 +11,7 @@
 
 amends "@fh-dashboard/entry.pkl"
 
-import "@fh-dashboard/components.pkl" as c
+import "components.pkl" as c
 import "@fh-dashboard/query.pkl" as q
 import "@fh-home/dump.pkl" as dump
 

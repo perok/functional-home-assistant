@@ -147,3 +147,40 @@ the confirming comparison costs.
 
 **Worth asking again if** a profile attributes the time to `fhGet` itself, not to the template
 around it.
+
+## The components as a property of `site.pkl` (`site.c`)
+
+2026-10-25, on #629. **Not worth doing.** The workspace `components.pkl` replaced it.
+
+**Question.** Can `site.pkl` hold the components (`hidden c: components`), so that one amendment
+(`c { devices { … } }`) configures every card, and a dashboard in its own file takes the same `c`
+by importing `site.pkl`?
+
+**Measured** on pkl-core 0.32.1 and pkl-lsp 0.8.0, against a copy of the library and on the
+branch. These parts worked:
+
+- late binding reaches the facade's functions;
+- the `site.pkl` ↔ `kitchen.pkl` import cycle evaluates;
+- `Analyzer.importGraph` lists both files;
+- the server repaints a dashboard file on its edit;
+- an old `site.pkl` that imports `components.pkl` as `c` still builds, because the import shadows
+  the property.
+
+Two problems sank it:
+
+- **Nested code can't see the property.** The starter's `(c.grid) { children { c.title(…) } }`
+  fails with "Cannot find property `c`", because an inherited property resolves only at a file's
+  top level. pkl-lsp shows no error there, only an empty completion list. Every file would need
+  `c {}`, `c = site.c` or `module.c`. Giving each `entry` its own `c` fixed one level only.
+- **A class can't be named through a value.** `new c.Column` fails with "Expected `c` to be a
+  module import".
+
+Both are deliberate in Pkl. [pkl#909](https://github.com/apple/pkl/issues/909) calls the scoping
+"expected behavior and the intentional design". [Discussion
+#865](https://github.com/apple/pkl/discussions/865) gives the reason: an inherited name could
+silently change what a name in a child file means. [pkl#1150](https://github.com/apple/pkl/issues/1150)
+(inheriting imports through `amends`) is open. [pkl#289](https://github.com/apple/pkl/issues/289)
+got the same `module.` answer. No pkl-lsp or pkl-intellij issue covers the missing diagnostic.
+IntelliJ was not tested.
+
+**Worth asking again if** Pkl resolves inherited properties in nested scopes, or #1150 lands.

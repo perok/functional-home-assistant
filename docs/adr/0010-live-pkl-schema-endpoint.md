@@ -409,7 +409,7 @@ An entry reads:
 
 ```pkl
 amends "@fh-dashboard/entry.pkl"
-import "@fh-dashboard/components.pkl" as c
+import "components.pkl" as c            // the workspace's: amends @fh-dashboard/components.pkl
 import "@fh-home/dump.pkl" as dump
 ```
 
@@ -572,6 +572,12 @@ never is.
    off the jar's own classpath resources like the lib — no seed directory)
    only into a workspace with no `site.pkl` — other `*.pkl` are modules and
    do not stand in for one (ADR 0021); the boot log names them.
+5. **Seed `components.pkl`** (`AddonBootstrap.starterComponents`) WITH the
+   starter site, when absent: the library's components with the user's
+   `defaults`, which the starter imports as `c` (ADR 0015). Then the user's,
+   like `PklProject`. Only the starter needs it, so a workspace whose site does
+   not import it gets none, and a deleted one stays deleted; the user writes the
+   three lines when they want defaults. The server never reads it by name.
 
 `PklProject.deps.json` is no longer resolve-once: `PklBuild` re-resolves
 whenever a `PklProject` is newer than the lockfile (and boot deletes it

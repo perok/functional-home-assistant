@@ -3,7 +3,7 @@
 /// come from a loop, and adding one is an edit that hot-reloads.
 ///
 ///     amends "@fh-dashboard/site.pkl"
-///     import "@fh-dashboard/components.pkl" as c
+///     import "components.pkl" as c   // the workspace's, amending ours
 ///
 ///     default = "home"
 ///     dashboards {
