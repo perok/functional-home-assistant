@@ -102,6 +102,13 @@ class SinceStartBarSuite extends CatsEffectSuite {
         runningAsked <- asked
       } yield {
         assert(idle.contains("Vask"), clue = idle)
+        // The bar's cell is gone from the first paint, margins and all.
+        assert(
+          """<div class="[^"]*fh-cell[^"]*fh-bar-idle""".r
+            .findFirstIn(idle)
+            .isDefined,
+          clue = idle
+        )
         assertEquals(idleAsked, 0)
         val data = sent.flatMap(_.data).mkString
         assert(data.contains("101"), clue = data)

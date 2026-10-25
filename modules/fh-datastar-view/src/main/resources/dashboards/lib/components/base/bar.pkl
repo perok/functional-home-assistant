@@ -41,6 +41,7 @@ class ProgressBar extends nodes.Node {
       background:var(--fh-track,rgba(128,128,128,.25));overflow:hidden}
       .fh-bar-fill{block-size:100%;inline-size:0;border-radius:inherit;
       background:var(--fh-accent);transition:inline-size .3s linear}
+      .fh-cell.\(idleClass){display:none}
       """
   }
   hidden value: slotMod.Slot
@@ -63,6 +64,10 @@ class ProgressBar extends nodes.Node {
     }
   }
 }
+
+/// On a bar's cell while its job is not running, which removes the cell, so a
+/// card holding it is no taller than one without (`c.progress`).
+const idleClass: String = "fh-bar-idle"
 
 /// A bar filled to a percentage reading.
 function percent(v: slotMod.Slot): ProgressBar = new { value = v }

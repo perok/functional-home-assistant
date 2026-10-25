@@ -7,6 +7,7 @@
 /// `defaults.progress` rules; given a sensor, it is told the rest.
 module components.progress
 
+import "../core/node.pkl" as nodes
 import "../core/predicate.pkl" as pred
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
@@ -103,14 +104,15 @@ class ProgressCard extends entityMod.EntityCard {
   function tapAction(t: tapMod.TapAction): ProgressCard = let (self = this) (self) { tapAction = t }
 }
 
-/// A bar whose readings have values only while `w` holds, so it hides and
-/// reads no history while idle.
-const local function whileRunning(b: barBaseMod.ProgressBar, w: Boolean|pred.Predicate): barBaseMod.ProgressBar =
+/// A bar whose readings have values only while `w` holds, so it reads no
+/// history while idle, and whose cell, margins and all, is gone meanwhile.
+const local function whileRunning(b: barBaseMod.ProgressBar, w: Boolean|pred.Predicate): nodes.LayoutNode =
   if (w == true) b
-  else (b) {
-    value { valueWhile = w }
-    of = if (b.of == null) null else (b.of!!) { valueWhile = w }
-  }
+  else
+    ((b) {
+      value { valueWhile = w }
+      of = if (b.of == null) null else (b.of!!) { valueWhile = w }
+    }).classWhen(barBaseMod.idleClass, (w as pred.Predicate).not())
 
 /// Whether a job runs, live: `left` above 0, else `percent` between 0 and 100
 /// (never a battery's), and `status` in none of `idleStates`. Null when neither
