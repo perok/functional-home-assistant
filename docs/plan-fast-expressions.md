@@ -1,7 +1,7 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Part 1 is built on this PR, part 2 on #634; 3 is not started.** The work lands in three PRs, in stack
+**Built: part 1 on this PR, 2 on #634, 3 on #633.** The work lands in three PRs, in stack
 order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not

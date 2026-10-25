@@ -6,6 +6,7 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
+import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
 import "../../main/resources/dashboards/lib/components/defaults.pkl" as defaultsMod
 import "../../main/resources/dashboards/lib/components/progress.pkl" as progressMod
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
@@ -30,6 +31,11 @@ local function ids(p: c.Progress?): Map<String, String?> =
   else Map("left", p.left?.entity_id, "percent", p.percent?.entity_id, "total", p.total?.entity_id, "status", p.status?.entity_id)
 
 local shipped = c.defaults.progress
+
+/// The bar a progress card shows, inside the `c.iff` that shows it only while
+/// its job runs.
+local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
+  let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
 /// What `rules` find on a device of `xs`.
 local function using(rules: defaultsMod.ProgressRules, xs: List<hass.SensorEntity>): Map<String, String?> =
@@ -67,7 +73,7 @@ facts {
   ["a countdown with no other bar fills out of where it started, from its history"] {
     local left = minutes("rem", "time_to_end")
     local card = c.progress(dev(List(left, words("ph", "cycle_phase"))))
-    local bar = card.features[0] as barBaseMod.ProgressBar
+    local bar = barOf(card)
     (bar.slots["value"] as slotMod.Slot).entityId == "sensor.rem"
     bar.slots["down"] == "1"
     // The whole is a live CEL slot on the countdown, reading its history.
@@ -158,9 +164,9 @@ facts {
     card.slots["label"] == "Appliance"
     card.slots["entity_id"] == "sensor.rem"
     (card.slots["secondary"] as slotMod.Slot).entityId == "sensor.st"
-    ((card.features[0] as barBaseMod.ProgressBar).slots["value"] as slotMod.Slot).entityId == "sensor.pct"
+    (barOf(card).slots["value"] as slotMod.Slot).entityId == "sensor.pct"
     // `.total` asks for that bar, dropping the percent found.
-    ((card.total(total).features[0] as barBaseMod.ProgressBar).slots["of"] as slotMod.Slot).entityId == "sensor.dur"
+    (barOf(card.total(total)).slots["of"] as slotMod.Slot).entityId == "sensor.dur"
     card.left(total).slots["entity_id"] == "sensor.dur"
     (card.status(left).slots["secondary"] as slotMod.Slot).entityId == "sensor.rem"
     // A percent sensor standing in for the countdown reads as itself.
@@ -169,25 +175,26 @@ facts {
     (vacuum.slots["value"] as slotMod.Slot).transform != null
   }
 
-  ["the bar and the countdown have values only while the job runs; a battery's bar always"] {
+  ["the bar shows and the countdown has a value only while the job runs; a battery's bar always"] {
     local left = minutes("rem", "remaining_time")
     local total = minutes("dur", "program_duration")
     local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "progress"; unit_of_measurement = "%" }
     local battery: hass.SensorEntity = new { entity_id = "sensor.bat"; device_class = "battery"; unit_of_measurement = "%" }
     local function cmp(id: String, o: pred.PredicateOp, v: Int|String): pred.Cmp =
       new { entity = id; property = "state"; op = o; value = v }
-    local function bar(card: c.ProgressCard): barBaseMod.ProgressBar = card.features[0] as barBaseMod.ProgressBar
     local washer = c.progress(dev(List(left, total, words("st", "status"))))
     washer.running == cmp("sensor.rem", "gt", 0)
-    (bar(washer).slots["value"] as slotMod.Slot).valueWhile == washer.running
-    (bar(washer).slots["of"] as slotMod.Slot).valueWhile == washer.running
+    // The bar is structure, gone while idle; the countdown is a value, empty.
+    (washer.features[0] as surfacesMod.If).condition == washer.running
     (washer.slots["value"] as slotMod.Slot).valueWhile == washer.running
+    // An author hides the whole card on the same rule.
+    c.iff(washer.running).then(washer).condition == washer.running
     // With no countdown, the percentage short of 100.
     c.roles.progress(dev(List(pct)))?.running
       == cmp("sensor.pct", "gt", 0).and(cmp("sensor.pct", "lt", 100))
     // A battery's bar always shows; its countdown reads only while it charges.
     local car = c.progress(dev(List(minutes("ch", "charging_time_left"), battery)))
-    (bar(car).slots["value"] as slotMod.Slot).valueWhile == true
+    car.features[0] is barBaseMod.ProgressBar
     (car.slots["value"] as slotMod.Slot).valueWhile == cmp("sensor.ch", "gt", 0)
     // A status in an idle state means idle, whatever the numbers say.
     (washer) { defaults { progress { idleStates { "off" } } } }.running

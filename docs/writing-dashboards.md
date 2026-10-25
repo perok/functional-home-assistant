@@ -162,7 +162,7 @@ for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
   100. Between jobs the card shows its name and status, and a washer's history
   is not read. A car's battery bar always shows.
 - To hide the whole card between jobs, wrap it in a `c.iff` on the same rule:
-  `c.iff(c.roles.progress(d)!!.running!!).then(c.progress(d))`.
+  `local p = c.progress(d)` and then `c.iff(p.running).then(p)`.
 
 When yours is not found, teach it once in `components.pkl`. Each section is a
 part, and each line a rule: words in the sensor's name, a `new { … }` naming the

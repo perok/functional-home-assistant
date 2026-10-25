@@ -87,7 +87,9 @@ class SinceStartBarSuite extends CatsEffectSuite {
     }
   }
 
-  test("idle at 0, no history is read; a start reads it and fills the bar") {
+  test(
+    "idle at 0, no history is read; a start reads it and fills the bar; the end removes it"
+  ) {
     served(
       card = "((c.progress(left)) { sinceStart = true }).label(\"Vask\")",
       now = "0"
@@ -100,19 +102,27 @@ class SinceStartBarSuite extends CatsEffectSuite {
         _ <- ts.change(left.entityId, "46")
         sent <- client.drain
         runningAsked <- asked
+        _ <- ts.change(left.entityId, "0")
+        ended <- client.drain
       } yield {
         assert(idle.contains("Vask"), clue = idle)
-        // The bar's cell is gone from the first paint, margins and all.
+        // No bar on the first paint: its `c.iff` host is empty, which the
+        // base stylesheet collapses, margins and all.
         assert(
-          """<div class="[^"]*fh-cell[^"]*fh-bar-idle""".r
+          """<div class="fh-ifhost" id="[^"]*"></div>""".r
             .findFirstIn(idle)
             .isDefined,
           clue = idle
         )
+        assert(!idle.contains("""class="fh-bar""""), clue = idle)
         assertEquals(idleAsked, 0)
         val data = sent.flatMap(_.data).mkString
         assert(data.contains("101"), clue = data)
+        assert(data.contains("""class="fh-bar""""), clue = data)
         assert(runningAsked > 0)
+        // The job ends: the bar goes again.
+        val gone = ended.flatMap(_.data).mkString
+        assert(gone.contains("mode remove"), clue = gone)
       }
     }
   }

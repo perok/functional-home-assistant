@@ -77,9 +77,10 @@ countdown the reading, with a bar in its `features` region. Given a device, it
 finds those sensors itself (`c.roles.progress`, by `defaults.progress`). It registers no
 template, so a page showing it beside other tiles carries one tile card.
 
-Between jobs the card stays and its job leaves: the bar and the countdown have no value
-(`valueWhile`, ADR 0034), and the bar's cell takes a class that removes it, so the card is the size
-of a plain tile and reads no history. Whether a job runs (`Progress.running`) is decided by the
+Between jobs the card stays and its job leaves: the bar sits in a `c.iff` on whether the job runs,
+so it is gone (its empty host's cell collapses) and reads no history, and the countdown has no
+value (`valueWhile`, ADR 0034). The card is then the size of a plain tile. Whether a job runs
+(`running`, `true` when nothing can tell, so it is never null) is decided by the
 numbers, per role found: the countdown above 0, else a percentage between 0 and 100. A status
 overrules them only through `defaults.progress.idleStates`, a list of IDLE words, shipped empty:
 a missing idle word shows a bar at 0, where a missing running word would hide a running job, and

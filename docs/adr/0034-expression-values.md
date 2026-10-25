@@ -204,8 +204,8 @@ alone sends nothing, because the frame is diffed against what each session holds
   cycles. Values are flat: slots read values, values read only state.
 - **Resolving names up the ancestors.** Content addressing already shares the work, and inheritance
   would make a node's expression depend on where it is placed.
-- **Show/hide through a class.** Hiding a card is structure, which is `c.iff`'s. A card hiding
-  its own part while that part has no value (the bar on `""`) is the card reading its value.
+- **Show/hide through a class.** Hiding is structure, which is `c.iff`'s, a card's own part
+  included: the progress card's bar sits in one.
 - **"When it changes, do X" triggers.** That is an automation, and automations belong in HA.
 - **`cssVar` as the name.** "vars" already means three things here (`docs/terminology.md`), so the
   builder is `cssProperty`.
