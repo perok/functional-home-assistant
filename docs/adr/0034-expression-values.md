@@ -132,7 +132,7 @@ A slot's `valueWhile` is a boolean input too, `true` by default: while it does n
 value is `""`, its transform does not run and **its fetches are not read**. A device's bar while
 the washer is idle reads no history. It is lowered as the others are, onto a bool slot nested in
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
-or a constant (`false` is an empty `Or`); it reads the slot's entity when it names none.
+or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
 
 It is decided first, and **once per update**. A fetch ask carries its slot's gate (`SlotAsk.gate`:
 the condition and the entity it is decided over, `BoundSlot.gateEntity` being the one rule). The

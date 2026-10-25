@@ -63,8 +63,7 @@ class Slot {
   hidden valueWhile: nodes.BooleanInput = true
   valueWhileSlot: Slot? =
     if (valueWhile == true) null
-    // `Or` of nothing: false, still on the fast path.
-    else if (valueWhile == false) nodes.booleanSlot(new predMod.POr { items {} })
+    else if (valueWhile == false) nodes.booleanSlot(predMod.neverHolds)
     else nodes.booleanSlot(valueWhile as Slot|Expr|predMod.Predicate)
 }
 
