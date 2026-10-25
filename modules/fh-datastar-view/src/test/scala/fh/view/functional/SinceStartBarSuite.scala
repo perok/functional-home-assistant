@@ -16,23 +16,27 @@ class SinceStartBarSuite extends CatsEffectSuite {
 
   private val left = HouseFixture.washerRemaining
 
-  private val entry =
+  private def entry(card: String) =
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-home/dump.pkl" as dump
        |
-       |card = (c.column) { children { c.bar.remainingOfPeak(dump.entities.${left.dumpKey}) } }
+       |local left = dump.entities.${left.dumpKey}
+       |card = (c.column) { children { $card } }
        |""".stripMargin
 
   /** Idle at 0, then a wash that started at 101 minutes. */
-  private def served[A](f: (TestServer, IO[Int]) => IO[A]): IO[A] =
+  private def served[A](
+      card: String = "c.bar.remainingOfPeak(left)",
+      now: String = left.state
+  )(f: (TestServer, IO[Int]) => IO[A]): IO[A] =
     Ref[IO].of(0).flatMap { asked =>
       TestServer
         .fromWorkspace(
           "since-start",
-          entry,
-          List(left),
+          entry(card),
+          List(left.copy(state = now)),
           FakeConfig(recorder =
             Some((from, _, _) =>
               asked
@@ -52,7 +56,7 @@ class SinceStartBarSuite extends CatsEffectSuite {
     }
 
   test("the bar's whole is where the countdown started, from the recorder") {
-    served { (ts, _) =>
+    served() { (ts, _) =>
       ts.page().map(html => assert(html.contains("101"), clue = html))
     }
   }
@@ -60,7 +64,7 @@ class SinceStartBarSuite extends CatsEffectSuite {
   test(
     "a tick moves the reading by a signal; the whole is read again, unmoved"
   ) {
-    served { (ts, asked) =>
+    served() { (ts, asked) =>
       for {
         client <- ts.connect()
         _ <- client.drain
@@ -79,6 +83,26 @@ class SinceStartBarSuite extends CatsEffectSuite {
         // cache, and unmoved, so not re-sent.
         assert(!data.contains("101"), clue = data)
         assertEquals(after, before)
+      }
+    }
+  }
+
+  test("whileRunning: no card at 0; a start brings the card with its bar") {
+    served(
+      card =
+        "((c.progress(left)) { sinceStart = true }).label(\"Vask\").whileRunning()",
+      now = "0"
+    ) { (ts, _) =>
+      for {
+        idle <- ts.page()
+        client <- ts.connect()
+        _ <- client.drain
+        _ <- ts.change(left.entityId, "46")
+        sent <- client.drain
+      } yield {
+        assert(!idle.contains("Vask"), clue = idle)
+        val data = sent.flatMap(_.data).mkString
+        assert(data.contains("Vask") && data.contains("101"), clue = data)
       }
     }
   }

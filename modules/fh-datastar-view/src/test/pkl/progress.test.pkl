@@ -8,6 +8,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
 import "../../main/resources/dashboards/lib/components/defaults.pkl" as defaultsMod
 import "../../main/resources/dashboards/lib/components/progress.pkl" as progressMod
+import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/hass.pkl"
 import "progress-devices.pkl" as house
@@ -166,6 +167,21 @@ facts {
     local vacuum = c.progress(dev(List(pct)))
     vacuum.slots["entity_id"] == "sensor.pct"
     (vacuum.slots["value"] as slotMod.Slot).transform != null
+  }
+
+  ["whileRunning shows the card while its countdown is above 0, or its percentage short of 100"] {
+    local left = minutes("rem", "remaining_time")
+    local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "progress"; unit_of_measurement = "%" }
+    local function cmp(id: String, o: pred.PredicateOp, v: Int): pred.Cmp =
+      new { entity = id; property = "state"; op = o; value = v }
+    local washer = c.progress(dev(List(left, pct))).label("Washer").whileRunning()
+    washer.condition == cmp("sensor.rem", "gt", 0)
+    (washer.`then`[0] as c.ProgressCard).slots["label"] == "Washer"
+    // A percent bar beside a countdown does not decide it; a percent alone does.
+    c.progress(dev(List(pct))).whileRunning().condition
+      == cmp("sensor.pct", "gt", 0).and(cmp("sensor.pct", "lt", 100))
+    module.catch(() -> c.progress(words("st", "status")).whileRunning().condition)
+      .contains("sensor.st is neither a countdown nor a percentage")
   }
 
   ["a device with no progress is a build error naming its sensors"] {

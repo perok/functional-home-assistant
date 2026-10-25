@@ -141,6 +141,7 @@ reads them by their names in Home Assistant.
 
 ```pkl
 c.progress(dump.devices.printer)
+c.progress(dump.devices.washer).label("Washer").whileRunning()
 
 // only the devices that report a job
 for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
@@ -156,6 +157,11 @@ for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
 - One part can be named by hand: `.left(…)`, `.percent(…)`, `.total(…)`,
   `.status(…)`. `c.progress(sensor)` starts from a remaining-time sensor
   alone.
+- `.whileRunning()`, last in the chain, shows the card only while the job runs:
+  while the time left is above 0, or, with no countdown, while the percentage
+  is between 0 and 100. It appears when the job starts and leaves when it
+  ends, without a reload. The status is never read for this, because its words
+  differ between integrations. Like any `c.iff`, it takes its grid's whole row.
 
 When yours is not found, teach it once in `components.pkl`. Each section is a
 part, and each line a rule: words in the sensor's name, a `new { … }` naming the

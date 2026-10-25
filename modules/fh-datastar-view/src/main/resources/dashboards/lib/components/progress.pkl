@@ -7,10 +7,13 @@
 /// `defaults.progress` rules; given a sensor, it is told the rest.
 module components.progress
 
+import "../core/predicate.pkl" as pred
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
+import "../query.pkl" as q
+import "base/surface.pkl" as surfaces
 import "bar.pkl" as barMod
 import "defaults.pkl" as defaultsMod
 import "entity.pkl" as entityMod
@@ -65,6 +68,15 @@ class ProgressCard extends entityMod.EntityCard {
   /// out rather than show a guess.
   hidden scale: Number? = entity.durationSeconds
 
+  /// Whether the job is under way, live: the countdown above 0, else the
+  /// percentage between 0 and 100. Never [[status]], whose words are the
+  /// integration's. An unavailable sensor is not running.
+  hidden running: pred.Predicate =
+    let (r = q.entity(entity))
+      if (scale != null) r.gt(q.prop("state"), 0)
+      else if (entity == percent) r.gt(q.prop("state"), 0).and(r.lt(q.prop("state"), 100))
+      else throw("c.progress: \(entity.entity_id) is neither a countdown nor a percentage, so whileRunning cannot tell when it runs")
+
   label = if (device == null) null else device!!.device_name
   reading =
     if (value != null) slotMod.valueSlot(value)
@@ -89,6 +101,9 @@ class ProgressCard extends entityMod.EntityCard {
   function label(l: String|slotMod.Expr): ProgressCard = let (self = this) (self) { label = l }
   function icon(i: String): ProgressCard = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): ProgressCard = let (self = this) (self) { tapAction = t }
+  /// This card only while [[running]]; last in the chain, since it is a
+  /// `c.iff`, which spans its grid's row.
+  function whileRunning(): surfaces.If = let (self = this) surfaces.iff(self.running).then(self)
 }
 
 ///     c.progress(dump.devices.washer)
