@@ -286,8 +286,9 @@ slot key remains `"class"`.
   works. pkl-lsp 0.8.0 shows no error, only an empty completion list. This is
   deliberate ([pkl#909](https://github.com/apple/pkl/issues/909),
   [discussion #865](https://github.com/apple/pkl/discussions/865)). The fixes
-  are an import, `module.c`, or mentioning `c` in the file. It is why shared
-  settings live in an imported workspace `components.pkl`, not on `site.pkl`.
+  are an import, `module.c`, or mentioning `c` in the file. It is why the
+  shared `defaults` live in an imported workspace `components.pkl`, not on
+  `site.pkl`.
 - A class is named through a module import, never through a value:
   `new c.Column` fails with "Expected `c` to be a module import" when `c` is a
   property.
