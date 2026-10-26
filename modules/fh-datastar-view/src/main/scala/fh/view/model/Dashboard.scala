@@ -694,15 +694,17 @@ object LayoutNode:
         )
         .distinct
 
-    /** In the render key but not [[liveEntities]]: otherwise a sensor ticking
-      * every second would refetch its history every second. Every ask, whatever
-      * the `valueWhile`s decide.
+    /** Every ask, whatever the `valueWhile`s decide: what a variable's value is
+      * checked against (ADR 0023). The pre-read and the render key take
+      * [[fetching]] as the decisions filter it.
       */
     lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
-    /** Per slot, each with the `valueWhile` it waits for. Ungated without an
-      * entity to decide over: a dynamic subject is known only per paint, and
-      * asking too much is safe where too little raises.
+    /** Per slot, each with the `valueWhile` it waits for. In the render key but
+      * not [[liveEntities]]: otherwise a sensor ticking every second would
+      * refetch its history every second. Ungated without an entity to decide
+      * over: a dynamic subject is known only per paint, and asking too much is
+      * safe where too little raises.
       */
     lazy val fetching: List[Fetching] =
       bound.values.toList.flatMap { s =>
