@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -77,7 +78,11 @@ class SignalNamesFixedSuite extends munit.FunSuite {
     // Every node in the tree, asked for its own signals under each world.
     val ids = List("c", "c_0", "c_1", "c_2").map(NodeId.derived)
     val perWorld = worlds.map { states =>
-      ids.map(id => id -> renderer.signalsFor(id, states).keySet).toMap
+      ids
+        .map(id =>
+          id -> renderer.signalsFor(id, states, FetchSnapshot.empty).keySet
+        )
+        .toMap
     }
     val first = perWorld.head
     perWorld.tail.zipWithIndex.foreach { case (names, i) =>
@@ -98,7 +103,9 @@ class SignalNamesFixedSuite extends munit.FunSuite {
     worlds.foreach { states =>
       val html = renderer.renderBody(states)
       ids.foreach { id =>
-        val expected = Datastar.signalsAttr(renderer.signalsFor(id, states))
+        val expected = Datastar.signalsAttr(
+          renderer.signalsFor(id, states, FetchSnapshot.empty)
+        )
         if (expected.nonEmpty) {
           assert(
             html.contains(expected),

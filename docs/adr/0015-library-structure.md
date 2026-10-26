@@ -73,7 +73,8 @@ to remember.
 
 A recipe that is a familiar card with features is a subclass of that card, not
 a card of its own: `c.progress` is the remaining-time sensor's entity tile, its
-countdown the reading, with a bar in its `features` region. It registers no
+countdown the reading, with a bar in its `features` region. Given a device, it
+finds those sensors itself (`c.roles.progress`, by `defaults.progress`). It registers no
 template, so a page showing it beside other tiles carries one tile card.
 
 `secondary` is the one input both tiers share, under HA's own name for the line
@@ -221,8 +222,11 @@ only by late binding on the module the workspace amends, then by being handed
 over. The rules every default follows:
 
 - **One class, grouped by card family.** `components/defaults.pkl` declares
-  `Defaults` with a group per family (`light: Light`), each default named after
-  the builder it feeds: `defaults.light.opensOn` is `.opensOn(…)`'s. It imports
+  `Defaults` with a group per family (`light: Light`, `progress: ProgressRules`),
+  each default named after the builder it feeds: `defaults.light.opensOn` is
+  `.opensOn(…)`'s. A group may hold rules rather than one value:
+  `defaults.progress` has a section per role, which `c.progress(device)` and
+  `c.roles.progress` read. It imports
   no card module, so they all can import it. A default takes names, never values
   about one entity, since it applies to every entity.
 - **A card that reads a default carries the whole object** (`hidden defaults:
@@ -281,7 +285,8 @@ and repro: `docs/issue-report-2-pkl-lsp-extends-completion.md`.
   `c`): the whole facade completes after `c.` at any nesting depth, a namespace
   that is a class INSTANCE (`c.recipes: recipesMod.Recipes`) completes like a
   module re-export, and inside `defaults { }` completion offers the groups, then
-  a group's defaults; a misspelt default is "Unresolved property", a name
+  a group's defaults, down to the fields of a bare `new { … }` rule (a section's
+  `default` types it); a misspelt default is "Unresolved property", a name
   outside a union "Type mismatch". Class names after `new c.` do not complete,
   through the library import either. Measured with the library imported by
   path: pkl-lsp loads a package-form project through the `pkl` CLI, which the

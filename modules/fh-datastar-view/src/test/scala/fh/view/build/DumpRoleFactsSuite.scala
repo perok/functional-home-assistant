@@ -58,4 +58,50 @@ class DumpRoleFactsSuite extends munit.FunSuite {
     assertEquals(c.get[String]("original").toOption, Some("Remaining time"))
     assert(c.downField("bareKey").focus.forall(_.isNull), clue = c.focus)
   }
+
+  test("c.roles.progress finds a generated device's parts by those facts") {
+    def sensor(id: String, key: String, attrs: String) =
+      s""""sensor_$id": { "entity_id": "sensor.$id", "domain": "sensor",
+         |  "device_id": "p1", "platform": "bambu_lab", "translation_key": "$key",
+         |  "attributes": { $attrs } }""".stripMargin
+    val dump = io.circe.parser
+      .parse(s"""{
+        "areas": {}, "floors": {},
+        "devices": { "printer": { "device_id": "p1", "device_name": "P1S" } },
+        "entities": {
+          ${sensor(
+          "left",
+          "remaining_time",
+          """"device_class": "duration", "unit_of_measurement": "min""""
+        )},
+          ${sensor("pct", "print_progress", """"unit_of_measurement": "%"""")},
+          ${sensor("stage", "current_stage", """"device_class": "enum"""")}
+        }
+      }""")
+      .fold(e => fail(e.toString), identity)
+    val tmp = os.temp.dir()
+    val _ = PklWorkspace.bootstrap(tmp, PklDump.render(dump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |local p = c.roles.progress(dump.devices.printer)!!
+        |found = List(p.left?.entity_id, p.percent?.entity_id, p.status?.entity_id)
+        |label = c.progress(dump.devices.printer).slots["label"]
+        |""".stripMargin
+    )
+    val c = SourceEval
+      .eval(tmp, "probe.pkl")
+      .fold(e => fail(e), identity)
+      .value
+      .hcursor
+    assertEquals(
+      c.get[List[String]]("found").toOption,
+      Some(List("sensor.left", "sensor.pct", "sensor.stage"))
+    )
+    assertEquals(c.get[String]("label").toOption, Some("P1S"))
+  }
 }

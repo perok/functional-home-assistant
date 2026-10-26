@@ -49,6 +49,8 @@ import "components/wheel.pkl" as wheelMod
 import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
 import "components/defaults.pkl" as defaultsMod
+import "components/roles.pkl" as rolesMod
+import "components/fetch.pkl" as fetchMod
 
 // ---- namespaces ----
 
@@ -84,6 +86,15 @@ hidden lock: lockMod = lockMod
 /// Progress bars, for a tile's features: `c.bar.percent(e)`,
 /// `c.bar.remaining(left, total)`.
 hidden bar: barMod = barMod
+
+/// Reads of a provider, for an expression value's CEL:
+/// `expressionValues { ["past"] = c.fetch.history(sensor).over("7d") }`. Not
+/// `q.`, which picks entities.
+hidden fetch: fetchMod = fetchMod
+
+/// Which part each of a device's entities plays, by `defaults`:
+/// `c.roles.progress(d)`, null when the device has no job to show.
+hidden roles: rolesMod.Roles = new { defaults = module.defaults }
 
 /// Whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod.Recipes = new { defaults = module.defaults }
@@ -121,6 +132,8 @@ typealias Label = textMod.Label
 /// `"normal"`, `"dim"`, `"error"` or `"warning"`.
 typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
+typealias ProgressCard = progressMod.ProgressCard
+typealias Progress = progressMod.Progress
 typealias EntityInfo = moreinfo.EntityInfo
 typealias Button = buttonMod.Button
 typealias EntityButton = control.EntityButton
@@ -181,10 +194,12 @@ function pill(a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(a)
 /// axis: `c.entitySlider(l.colourTemp)`.
 function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider =
   let (d = defaults) (sliderMod.entitySlider(a)) { defaults = d }
-/// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
-/// bar where it also reports a programme length.
-function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
-  progressMod.progress(remaining)
+/// A device mid-job: a countdown, what it is doing, and a bar where it says
+/// enough for one. `c.progress(dump.devices.washer)` finds its sensors by
+/// `defaults.progress`; `c.progress(sensor)` starts from the remaining-time
+/// sensor. `.left`, `.percent`, `.total` and `.status` override one part.
+function progress(x: hass.Device|hass.SensorEntity): progressMod.ProgressCard =
+  let (d = defaults) (progressMod.progress(x)) { defaults = d }
 /// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
 /// window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =

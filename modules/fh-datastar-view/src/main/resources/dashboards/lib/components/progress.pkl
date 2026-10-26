@@ -2,10 +2,9 @@
 /// countdown for its reading, what it is doing on the second line, and a bar
 /// under it when the appliance says enough for one to be honest.
 ///
-/// HA models an appliance as a few `sensor` entities, so this takes the two or
-/// three that matter. The bar is optional because the data is: one washer
-/// reports a remaining time and no programme length, and a total guessed from
-/// history would be wrong on exactly the first paint after a reload.
+/// HA models an appliance as a few `sensor` entities. Given a device, the card
+/// finds the ones that matter with [[progressOf]], by the workspace's
+/// `defaults.progress` rules; given a sensor, it is told the rest.
 module components.progress
 
 import "../core/simple.pkl" as simpleMod
@@ -13,44 +12,222 @@ import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "bar.pkl" as barMod
+import "defaults.pkl" as defaultsMod
 import "entity.pkl" as entityMod
 
-/// The remaining-time sensor's tile. A sensor, for its
+/// What plays which part in a device's job ([[progressOf]]).
+class Progress {
+  device: hass.Device
+  /// The countdown.
+  left: hass.SensorEntity? = null
+  /// A percentage bar: the device's own, or its battery while it charges.
+  percent: hass.SensorEntity? = null
+  /// A bar of [[left]] out of this. Never set with [[percent]].
+  total: hass.SensorEntity? = null
+  /// What the device is doing: its phase, else its status.
+  status: hass.SensorEntity? = null
+  /// A bar of [[left]] out of where it started, from its history, when the
+  /// device reports no other ([[barMod.remainingOfPeak]]).
+  sinceStart: Boolean = false
+}
+
+/// The tile of the countdown, else of the percent sensor. A sensor, for its
 /// [[hass.SensorEntity.durationSeconds]].
 class ProgressCard extends entityMod.EntityCard {
-  hidden entity: hass.SensorEntity
+  /// Where the rules come from (`defaults.progress`).
+  hidden defaults: defaultsMod.Defaults = new {}
+
+  /// The device whose job this shows. Its parts are found once, by
+  /// [[progressOf]]; each builder overrides one.
+  hidden device: hass.Device? = null
+
+  hidden found: Progress? =
+    if (device == null) null else progressOf(device!!, defaults.progress)
+
+  hidden entity: hass.SensorEntity =
+    if (device == null) throw("c.progress takes a device or a sensor")
+    else found?.left ?? found?.percent ?? throw(noProgress(device!!))
+
+  /// A percentage bar's sensor. Wins over [[total]].
+  hidden percent: hass.SensorEntity? = found?.percent
 
   /// The programme-length sensor, where the appliance reports one.
-  hidden total: hass.SensorEntity? = null
+  hidden total: hass.SensorEntity? = found?.total
 
   /// What the appliance is doing, shown as its own words and never
   /// interpreted: which state means "running" is the integration's.
-  hidden status: hass.SensorEntity? = null
+  hidden status: hass.SensorEntity? = found?.status
+
+  /// A bar of the countdown out of where it started, read from its history.
+  hidden sinceStart: Boolean = found?.sinceStart ?? false
 
   /// Null where the reading is not a scalable duration, so the countdown drops
   /// out rather than show a guess.
   hidden scale: Number? = entity.durationSeconds
 
+  label = if (device == null) null else device!!.device_name
   reading =
     if (value != null) slotMod.valueSlot(value)
     else if (scale != null) new slotMod.Slot { transform = simpleMod.duration(scale!!) }
+    // A percent sensor standing in for a countdown reads as itself.
+    else if (!entity.isDuration) slotMod.valueSlot(slotMod.readingOf(entity))
     else ""
   secondary =
     if (status != null) new slotMod.Slot { entityId = status!!.entity_id; transform = simpleMod.state() }
     else null
   features =
-    if (total != null && barMod.canCount(entity, total!!)) new Listing { barMod.remaining(entity, total!!) }
+    if (percent != null) new Listing { barMod.percent(percent!!) }
+    else if (total != null && barMod.canCount(entity, total!!)) new Listing { barMod.remaining(entity, total!!) }
+    else if (sinceStart && scale != null) new Listing { barMod.remainingOfPeak(entity) }
     else new Listing {}
 
-  function total(t: hass.SensorEntity): ProgressCard = let (self = this) (self) { total = t }
+  function left(l: hass.SensorEntity): ProgressCard = let (self = this) (self) { entity = l }
+  function percent(p: hass.SensorEntity): ProgressCard = let (self = this) (self) { percent = p }
+  /// Also drops a found [[percent]], so the bar is the one asked for.
+  function total(t: hass.SensorEntity): ProgressCard = let (self = this) (self) { total = t; percent = null }
   function status(s: hass.SensorEntity): ProgressCard = let (self = this) (self) { status = s }
   function label(l: String|slotMod.Expr): ProgressCard = let (self = this) (self) { label = l }
   function icon(i: String): ProgressCard = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): ProgressCard = let (self = this) (self) { tapAction = t }
 }
 
+///     c.progress(dump.devices.washer)
 ///     c.progress(dump.entities.sensor_washer_timetoend)
 ///       .status(dump.entities.sensor_washer_appliancestate)
 ///       .label("Vaskemaskin")
-function progress(remaining: hass.SensorEntity): ProgressCard =
-  new { entity = remaining }
+function progress(x: hass.Device|hass.SensorEntity): ProgressCard =
+  if (x is hass.SensorEntity) new ProgressCard { entity = x }
+  else new ProgressCard { device = x as hass.Device }
+
+/// The parts of `d`'s job, or null when it has no countdown and no bar.
+const function progressOf(d: hass.Device, rules: defaultsMod.ProgressRules): Progress? =
+  let (ps = d.entities.filter((e) -> e is hass.SensorEntity).map((e) -> played(e as hass.SensorEntity, rules)))
+  let (lefts = candidates(ps, "countdown"))
+  let (battery = pick(ps.filter((p) -> p.s.device_class == "battery" && !p.words.any((w) -> w == "target" || w == "limit")), null))
+  // With several countdowns and a battery, the one about charging.
+  let (charging = lefts.filter((p) -> isCharging(p)))
+  // Not named after Progress's properties, which a `new Progress` body would
+  // read instead (ADR 0006).
+  let (lp = pick(if (battery != null && lefts.length > 1 && charging.length == 1) charging else lefts, null))
+  let (pp = pick(candidates(ps, "percent"), lp))
+  let (tp = if (lp == null) null else pick(candidates(ps, "total").filter((p) -> !lefts.contains(p)), lp))
+  let (anchor = lp ?? pp)
+  let (sp = pick(candidates(ps, "phase"), anchor) ?? pick(candidates(ps, "status"), anchor))
+  let (bar =
+    if (pp != null) pp
+    else if (lp != null && tp == null && isCharging(lp) && battery != null) battery
+    else null)
+    if (lp == null && bar == null) null
+    else new Progress {
+      device = d
+      left = lp?.s
+      percent = bar?.s
+      total = if (bar == null) tp?.s else null
+      status = sp?.s
+      sinceStart = bar == null && tp == null
+    }
+
+// ---- the heuristic ----
+
+/// A sensor, its words, and the roles it plays at the level of its most
+/// specific matching rule: 3 an entity, 2 a [[defaultsMod.Match]], 1 words.
+local class Played {
+  s: hass.SensorEntity
+  words: Set<String>
+  roles: Map<String, Int>
+}
+
+const local roleNames: List<String> = List("countdown", "total", "percent", "phase", "status")
+
+const local function wordsIn(text: String): Set<String> =
+  text.toLowerCase().replaceAll("_", " ").replaceAll("-", " ").split(" ").filter((w) -> !w.isEmpty).toSet()
+
+const local function played(sensor: hass.SensorEntity, rules: defaultsMod.ProgressRules): Played =
+  let (ws = wordsIn("\(sensor.translation_key ?? "") \(sensor.original_name ?? "")"))
+  let (levels = (roleNames + List("ignore")).toMap((r) -> r, (r) -> levelIn(rules.getProperty(r) as Listing<defaultsMod.Rule>, sensor, ws)))
+  let (best = levels.values.max)
+  let (runningTotal = sensor.state_class == "total" || sensor.state_class == "total_increasing")
+    new Played {
+      s = sensor
+      words = ws
+      roles =
+        if (best == 0 || levels["ignore"] == best || runningTotal) Map()
+        else levels.filter((r, l) -> l == best && r != "ignore")
+    }
+
+const local function levelIn(rules: Listing<defaultsMod.Rule>, sensor: hass.SensorEntity, ws: Set<String>): Int =
+  rules.toList().map((r) -> levelOf(r, sensor, ws)).fold(0, (a, b) -> if (b > a) b else a)
+
+const local function levelOf(r: defaultsMod.Rule, sensor: hass.SensorEntity, ws: Set<String>): Int =
+  if (r is String) (if (wordsIn(r).every((w) -> ws.contains(w))) 1 else 0)
+  else if (r is defaultsMod.Match) (if (matches(r, sensor)) 2 else 0)
+  else if ((r as hass.SensorEntity).entity_id == sensor.entity_id) 3
+  else 0
+
+const local function matches(m: defaultsMod.Match, sensor: hass.SensorEntity): Boolean =
+  (m.platform == null || m.platform == sensor.platform)
+    && (m.key == null || m.key == sensor.translation_key || m.key == sensor.original_name)
+    && (m.device_class == null || m.device_class == sensor.device_class)
+    && (m.unit == null || m.unit == sensor.unit_of_measurement)
+
+/// The shape each role keeps whatever a rule says.
+const local function fits(role: String, sensor: hass.SensorEntity): Boolean =
+  if (role == "countdown" || role == "total") sensor.durationSeconds != null
+  else if (role == "percent") sensor.unit_of_measurement == "%" && sensor.device_class == null
+  else sensor.unit_of_measurement == null
+
+const local shapes: Map<String, String> = Map(
+  "countdown", "a sensor with a fixed-length time unit",
+  "total", "a sensor with a fixed-length time unit",
+  "percent", "a % sensor with no device class",
+  "phase", "a sensor with no unit",
+  "status", "a sensor with no unit"
+)
+
+/// The sensors playing `role` that fit it, at the most specific level any of
+/// them was named.
+const local function candidates(ps: List<Played>, role: String): List<Played> =
+  let (xs = ps.filter((p) -> p.roles.containsKey(role) && fitsOrRefuse(role, p)))
+  let (top = xs.fold(0, (a, p) -> if (p.roles[role] > a) p.roles[role] else a))
+    xs.filter((p) -> p.roles[role] == top)
+
+const local function fitsOrRefuse(role: String, p: Played): Boolean =
+  if (fits(role, p.s)) true
+  else if (p.roles[role] == 3)
+    throw("defaults.progress.\(role) names \(p.s.entity_id), which is not \(shapes[role])")
+  else false
+
+const local function isCharging(p: Played): Boolean =
+  p.words.contains("charge") || p.words.contains("charging")
+
+/// Words that say what a role is rather than which job it belongs to.
+const local generic: Set<String> = Set(
+  "time", "the", "of", "to", "end", "remaining", "left", "duration", "progress",
+  "status", "state", "phase", "stage"
+)
+
+/// One of `cs`: the only one; else the one sharing the most words with
+/// `anchor`; else the one whose words no other's are a part of (the plainer
+/// name); else the one not marked config or diagnostic; else none.
+const local function pick(cs: List<Played>, anchor: Played?): Played? =
+  if (cs.length <= 1) cs.firstOrNull
+  else
+    let (near =
+      if (anchor == null) cs
+      else
+        let (aw = anchor.words.filter((w) -> !generic.contains(w)))
+        let (score = (p: Played) -> p.words.filter((w) -> aw.contains(w)).length)
+        let (best = cs.fold(0, (a, p) -> if (score.apply(p) > a) score.apply(p) else a))
+          cs.filter((p) -> score.apply(p) == best))
+    let (plain = near.filter((c) ->
+      !near.any((o) -> o.words.length < c.words.length && o.words.every((w) -> c.words.contains(w)))))
+    let (primary = near.filter((c) -> c.s.entity_category == null))
+      if (near.length == 1) near.first
+      else if (plain.length == 1) plain.first
+      else if (primary.length == 1) primary.first
+      else null
+
+const local function noProgress(d: hass.Device): String =
+  let (sensors = d.entities.filter((e) -> e is hass.SensorEntity).map((e) -> e.entity_id))
+    "c.progress(\(d.device_name)) found no countdown and no bar among \(if (sensors.isEmpty) "no sensors" else sensors.join(", ")). "
+      + "Name one with .left(dump.entities.…) or .percent(…), or add a rule to defaults.progress in your components.pkl."

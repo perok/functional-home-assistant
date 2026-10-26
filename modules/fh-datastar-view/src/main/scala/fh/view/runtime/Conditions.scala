@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{ExprValue, Op, Predicate}
+import fh.view.model.{ExprValue, FetchTemplate, Op, Predicate}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
   * conditions and counts.
@@ -35,11 +35,13 @@ private[runtime] object Conditions {
         compare(propertyOf(property, st), StateStore.jsonToString(value), op)
     }
 
-  /** Expression values as CEL reads them; a tally is how many are present now.
+  /** Expression values as CEL reads them; a tally is how many are present now,
+    * a fetch its answer (`fetched`).
     */
   def resolve(
       values: Map[String, ExprValue],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fetched: FetchTemplate => Object
   ): Map[String, Object] =
     if (values.isEmpty) Map.empty
     else
@@ -54,6 +56,7 @@ private[runtime] object Conditions {
           // Subject-free (`validate`), as a state condition is.
           case ExprValue.Holds(p) =>
             java.lang.Boolean.valueOf(matchesIn(p, EntityState.none, states))
+          case ExprValue.Fetched(f) => fetched(f)
         }
         .toMap
 

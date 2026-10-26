@@ -91,7 +91,7 @@ flowchart TB
     OPEN["openingPatches<br/>resume ▸ repaint ▸ reload<br/>narrowest that is still correct"]
     BEAT["keepAlive · every 25s<br/>a comment, or the CURSOR when position moved<br/>since this stream last said so"]
     PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds + open set"]
-    SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record<br/>— the CURSOR merges into it when no<br/>element patch separates them"]
+    SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record, their CEL<br/>reading the batch's pre-read fetches<br/>— the CURSOR merges into it when no<br/>element patch separates them"]
     APPL["Patches.applied<br/>forget the hosts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
     MERGE["the session's owner: one step at a time<br/>(opening, pulls, writes, repaints, keepAlive)<br/>into the stream's Outlet IN STEP ORDER<br/>▸ merged with haDown"]
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
@@ -986,6 +986,14 @@ It is BYTES, never a signal, like every fetch slot: a component that wants the d
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
 re-applies that attribute when a re-fetch morphs it — `c.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
+
+**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034): the slot
+keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
+pipeline one argument, not a box. A value's fetch is a `SlotAsk` with the passthrough stage among
+the node's `fetches`, so the page's pre-read and the render key carry it already; the patch step's
+`readsForPull(touchedIds, …)` already pre-reads the fetches of the nodes whose signals it updates,
+and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
+whole from the cache and sends it only if it moved.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so

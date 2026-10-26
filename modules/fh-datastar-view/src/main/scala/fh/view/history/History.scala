@@ -15,8 +15,10 @@ object HistoryFetch {
 
   val Name: String = "history"
 
-  /** `entity` and `window` only: size and unit are how the answer is drawn (the
-    * stage), so two sizes of one chart are one request and one fetch.
+  /** `entity`, `window`, and `points = "all"` for every reading rather than
+    * about 300: a chart wants few, a computation (a countdown's start) every
+    * one. Size and unit are how the answer is drawn (the stage), so two sizes
+    * of one chart are one request and one fetch.
     */
   def parse(params: Map[String, String]): Either[String, FetchRequest] =
     for {
@@ -32,7 +34,13 @@ object HistoryFetch {
           s"fetch '$Name' has unknown window '$name' — one of " +
             Window.values.map(_.name).mkString(", ")
         )
-    } yield FetchRequest.History(entityId, window)
+      everyPoint <- params.get("points") match {
+        case None        => Right(false)
+        case Some("all") => Right(true)
+        case Some(other) =>
+          Left(s"fetch '$Name' has points '$other' — 'all', or none for ~300")
+      }
+    } yield FetchRequest.History(entityId, window, everyPoint)
 }
 
 /** `bucket` is the window's floor of "now", so an entry expires by its bucket
@@ -43,7 +51,8 @@ final case class SeriesKey(
     identity: FetchIdentity,
     entityId: String,
     window: Window,
-    bucket: Instant
+    bucket: Instant,
+    everyPoint: Boolean = false
 ) {
   def expiresAt: Instant = bucket.plusSeconds(window.bucket.toSeconds)
 }
@@ -72,8 +81,10 @@ final class History private (
   def answer(
       identity: FetchIdentity,
       entityId: String,
-      window: Window
-  ): IO[Answer] = now.flatMap(answerAt(identity, entityId, window, _))
+      window: Window,
+      everyPoint: Boolean = false
+  ): IO[Answer] =
+    now.flatMap(answerAt(identity, entityId, window, _, everyPoint))
 
   // Encoded once, on the fetch: re-encoding per ask was 5 µs a read, all of a
   // warm chart pull's cost over a plain one (`FetchBench.pullChart`).
@@ -81,11 +92,12 @@ final class History private (
       identity: FetchIdentity,
       entityId: String,
       window: Window,
-      asOf: Instant
+      asOf: Instant,
+      everyPoint: Boolean = false
   ): IO[Answer] = {
     val bucket = window.bucketOf(asOf)
-    cache.get(SeriesKey(identity, entityId, window, bucket))(
-      fetch(entityId, window, asOf)
+    cache.get(SeriesKey(identity, entityId, window, bucket, everyPoint))(
+      fetch(entityId, window, asOf, everyPoint)
         .map(s => Answer(bucket.getEpochSecond, s.asJson))
     )
   }
@@ -104,7 +116,12 @@ final class History private (
   /** History alone once retention is known to cover the window; otherwise both
     * in parallel, keeping whichever covers more time.
     */
-  private def fetch(entityId: String, window: Window, asOf: Instant) = {
+  private def fetch(
+      entityId: String,
+      window: Window,
+      asOf: Instant,
+      everyPoint: Boolean
+  ) = {
     val start = window.startAt(asOf)
     val fromHistory =
       source
@@ -124,7 +141,8 @@ final class History private (
       .map(_.getSeconds >= window.span.toSeconds)
       .ifM(fromHistory, (fromHistory, fromStatistics).parMapN(History.widest))
       .map(s =>
-        s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))
+        if (everyPoint) s.heldUntil(asOf)
+        else s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))
       )
   }
 }

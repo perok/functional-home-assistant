@@ -5,7 +5,7 @@ import fh.view.model.{ExprValue, SlotValue}
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.ast.CelExpr
 import dev.cel.common.navigation.CelNavigableAst
-import dev.cel.common.types.{CelType, MapType, SimpleType}
+import dev.cel.common.types.{CelType, ListType, MapType, SimpleType}
 import dev.cel.compiler.{CelCompiler, CelCompilerFactory}
 import dev.cel.extensions.{CelExtensions, CelOptionalLibrary}
 import dev.cel.parser.CelParserFactory
@@ -219,10 +219,12 @@ object Cel {
         .build()
 
   private def celType(k: ExprValue.Kind): CelType = k match
-    case ExprValue.Kind.Str  => SimpleType.STRING
-    case ExprValue.Kind.Int  => SimpleType.INT
-    case ExprValue.Kind.Dbl  => SimpleType.DOUBLE
-    case ExprValue.Kind.Bool => SimpleType.BOOL
+    case ExprValue.Kind.Str    => SimpleType.STRING
+    case ExprValue.Kind.Int    => SimpleType.INT
+    case ExprValue.Kind.Dbl    => SimpleType.DOUBLE
+    case ExprValue.Kind.Bool   => SimpleType.BOOL
+    case ExprValue.Kind.Series =>
+      ListType.create(ListType.create(SimpleType.DOUBLE))
 
   private val parser = CelParserFactory.standardCelParserBuilder().build()
 

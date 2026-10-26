@@ -84,10 +84,10 @@ no template places it. A button's `active` is one (`fh-active`).
 and kept live (`LayoutNode.cssProperty`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
-**Expression value** — a named input a node's OWN expressions read as a typed CEL variable
-(`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static candidate
-list and which of it is present, counted live, the same thing a state condition's `Count` compares
-— or a **condition**, decided live.
+**Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
+variable (`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static
+candidate list and which of it is present, counted live, the same thing a state condition's `Count`
+compares — a **condition**, decided live, or a **fetch**, its provider's answer read on demand.
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
 **Build passes** — what turns a dashboard's JSON into `Dashboard.Validated`, once per evaluation,
@@ -215,6 +215,11 @@ from a live fetch, never committed. ADR 0013.
 family (`defaults.light.opensOn`), set in the workspace's own `components.pkl` and overridden on one
 card by its builder. A card that reads one carries the whole object, handed over by `c`. Not a node
 variable's **default** (below), which is per declaration and per page. ADR 0015.
+
+**Role** — the part a device's sensor plays in its job: `countdown`, `total`, `percent`, `phase`,
+`status`, or `ignore` for none. Assigned at build by `c.roles.progress` from the rules in
+`defaults.progress`, the most specific rule winning (an entity, then a match, then words); a rule
+only narrows the shape a role requires. ADR 0013.
 
 **Entry** — the top-level Pkl module for one dashboard. `site.pkl` names every entry the instance
 serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR 0021.
@@ -416,6 +421,7 @@ a lower bound taken as the MAXIMUM across every entity asked for. Per entity it 
 all — a sensor created yesterday and a daily purge give the same short answer.
 
 **Fetch** — a read of a **provider** with its parameters: `history` of one entity over one window.
+A fetch slot shows one; an expression value reads one in CEL (`c.fetch.history(e)`).
 Not a **query**, which is `query.pkl`'s `q.`: it picks CANDIDATES at build time, with presence and
 order decided live, and reaches no network. Two words because the two get discussed side by side.
 

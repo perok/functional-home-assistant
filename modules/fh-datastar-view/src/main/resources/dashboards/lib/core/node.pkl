@@ -11,7 +11,7 @@ import "surface.pkl" as surfaceMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate|slotMod.Fetch
 
 /// What fills a boolean slot: a `Boolean` the build knows, a reading
 /// (`c.isOn(l)`), an `Expr` (`c.expr("on > 2")`), or a condition

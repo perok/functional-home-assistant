@@ -68,13 +68,13 @@ object Staged {
   * and a typed helper in its component's Pkl module.
   */
 enum FetchRequest derives CanEqual {
-  case History(entityId: String, window: Window)
+  case History(entityId: String, window: Window, everyPoint: Boolean = false)
 
   /** What this reads, held to the dashboard's names when a viewer's value
     * resolved it (ADR 0023).
     */
   def entities: Set[String] = this match {
-    case History(entityId, _) => Set(entityId)
+    case History(entityId, _, _) => Set(entityId)
   }
 }
 
@@ -112,8 +112,8 @@ final class FetchResolver private (
 
   def answer(identity: FetchIdentity, request: FetchRequest): IO[Answer] =
     request match {
-      case FetchRequest.History(entityId, window) =>
-        history.answer(identity, entityId, window)
+      case FetchRequest.History(entityId, window, everyPoint) =>
+        history.answer(identity, entityId, window, everyPoint)
     }
 
   def stage(
