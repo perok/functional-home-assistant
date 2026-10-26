@@ -29,3 +29,12 @@ updates:
     schedule:
       interval: "weekly" # Options: daily, weekly, monthly
     open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      whole:
+        patterns:
+          - "*"
