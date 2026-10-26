@@ -22,8 +22,8 @@ import "../hass.pkl"
 class Defaults {
   /// A light's slider.
   light: Light = new {}
-  /// Which of a device's sensors play which part in its job, for
-  /// `c.progress(device)` and `c.roles.progress(device)`.
+  /// Which sensors beside a `c.progress` card's own, on its device, play which
+  /// part on it.
   progress: ProgressRules = new {}
 }
 
@@ -43,34 +43,32 @@ class Match {
 }
 
 /// One section per role. Yours add to these, which are words only; assigning
-/// a section replaces it. A rule only narrows: a countdown or a total is still
-/// a sensor with a fixed-length time unit, a percent a `%` sensor with no
-/// device class, a phase or a status a sensor with no unit, and an entity rule
-/// naming anything else is a build error. A running total plays no role.
+/// a section replaces it. A rule only narrows: a total is still a sensor with a
+/// fixed-length time unit, a percent a `%` sensor with no device class, a phase
+/// or a status a sensor with no unit, and an entity rule naming anything else
+/// is a build error. A running total plays no role.
 ///
 ///     progress {
-///       countdown { "finish in"; dump.entities.washer_time_left }
+///       status { "programme"; new { platform = "miele"; key = "status" } }
 ///       ignore { dump.entities.car_service_inspection_days }
 ///     }
 ///
 /// Each section's `default` is a [[Match]], which is what lets a bare
 /// `new { … }` sit beside words and entities.
 class ProgressRules {
-  /// The time left.
-  countdown: Listing<Rule> = new { default = (_) -> new Match {}; "remaining"; "left"; "to end" }
-  /// The whole job's length, for a bar of the countdown out of it.
+  /// The whole programme's length, for a bar of the countdown out of it.
   total: Listing<Rule> = new { default = (_) -> new Match {}; "duration"; "length" }
   /// How far along, as a percentage.
   percent: Listing<Rule> = new { default = (_) -> new Match {}; "progress" }
-  /// What step the job is at; shown before [[status]].
+  /// What step it is at; shown before [[status]].
   phase: Listing<Rule> = new { default = (_) -> new Match {}; "phase"; "stage" }
   /// What the device is doing.
   status: Listing<Rule> = new { default = (_) -> new Match {}; "status"; "state" }
   /// What plays no part, whatever else matches it at the same level.
   ignore: Listing<Rule> = new { default = (_) -> new Match {}; "total"; "last"; "lifetime" }
-  /// A status in one of these states means no job runs, whatever the numbers
-  /// say (a delayed start shows the programme's length as time left). Words
-  /// differ between integrations, so none are shipped.
+  /// A status in one of these states means it is not running, whatever the
+  /// numbers say (a delayed start shows the programme's length as time left).
+  /// Words differ between integrations, so none are shipped.
   idleStates: Listing<String> = new {}
 }
 

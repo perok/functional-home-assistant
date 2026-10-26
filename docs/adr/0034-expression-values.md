@@ -130,7 +130,7 @@ that places them honours it with nothing of its own.
 
 A slot's `valueWhile` is a boolean input too, `true` by default: while it does not hold, the slot's
 value is `""`, its transform does not run and **its fetches are not read**. The progress card's
-countdown has no value between jobs. It is the slot-sized case of what the pre-read does for
+countdown has no value while nothing runs. It is the slot-sized case of what the pre-read does for
 regions: a `c.iff` branch that does not show and a candidate that is not present are not asked
 either. It is lowered as the others are, onto a bool slot nested in
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL

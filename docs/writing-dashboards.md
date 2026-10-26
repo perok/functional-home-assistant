@@ -132,63 +132,61 @@ q.from(dump.lights.all)
 
 When a member changes, only its own card is redrawn.
 
-## A device's job
+## How far along something is
 
-`c.progress(dump.devices.washer)` shows how far along a washer, a printer or a
-vacuum's run is: the time left, what it is doing, and a bar
-when the device says enough for one. You never say which sensor is which: it
-reads them by their names in Home Assistant.
+`c.progress(sensor)` shows how far along a washer, a printer, a car's charge or
+a vacuum's run is, from its countdown or its percentage: the time left, what it
+is doing, and a bar. The rest it finds beside that sensor on its device, by
+their names in Home Assistant, and the device's name is the label.
 
 ```pkl
-c.progress(dump.devices.printer)
-c.progress(dump.devices.washer).label("Washer")
-
-// only the devices that report a job
-for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
-  c.progress(d)
-}
+c.progress(dump.entities.washer_time_to_end)
+c.progress(dump.entities.printer_print_progress).label("Printer")
+// a car charging and climatising: one card each
+c.progress(dump.entities.car_charging_time_left)
+c.progress(dump.entities.car_remaining_climatisation_time)
 ```
 
-- The bar is the device's own percentage, else the time left out of the
-  programme's length. A washer that reports only the time left fills out of
-  where its countdown started, read from Home Assistant's history.
-- When two sensors could be the same part and nothing tells them apart, neither
-  is picked. A car with a charging and a climatisation countdown is two jobs,
-  so start from the one you want: `c.progress(dump.entities.car_charging_time_left)`.
-- A device with nothing it can read fails the build, naming its sensors.
-- One part can be named by hand: `.left(…)`, `.percent(…)`, `.total(…)`,
-  `.status(…)`. `c.progress(sensor)` starts from a remaining-time sensor
-  alone.
-- The bar and the time left show only while the job runs: while the time left
-  is above 0, or, with no countdown, while the percentage is between 0 and
-  100. Between jobs the card shows its name and status, and a washer's history
-  is not read. A battery put on with `.percent(…)` always shows.
-- To hide the whole card between jobs, wrap it in a `c.iff` on the same rule:
-  `local p = c.progress(d)` and then `c.iff(p.running).then(p)`.
+- Give it the countdown (a sensor in minutes, hours or seconds) or the
+  percentage. Any other sensor fails the build.
+- The bar is a percentage, else the time left out of the programme's length,
+  else the time left out of where it started, read from Home Assistant's
+  history.
+- When two sensors beside it could be the same part and nothing tells them
+  apart, neither is picked; name that one by hand. The one sharing words with
+  the sensor you gave wins, so a car's charging countdown finds "Charging
+  state".
+- Name a part by hand with `.percent(…)`, `.total(…)` or `.status(…)`.
+- The bar and the time left show only while it runs: while the time left is
+  above 0, or, from a percentage, while it is between 0 and 100. In between
+  the card shows its name and status, and no history is read. A battery put on
+  with `.percent(…)` always shows.
+- To hide the whole card in between, wrap it in a `c.iff` on the same rule:
+  `local p = c.progress(s)` and then `c.iff(p.running).then(p)`.
 
-When yours is not found, teach it once in `components.pkl`. Each section is a
-part, and each line a rule: words in the sensor's name, a `new { … }` naming the
-integration or the key, or one sensor:
+When a part beside it is not found, teach it once in `components.pkl`. Each
+section is a part, and each line a rule: words in the sensor's name, a
+`new { … }` naming the integration or the key, or one sensor:
 
 ```pkl
 defaults {
   progress {
-    countdown {
-      "finish in"
-      new { platform = "miele"; key = "program_remaining" }
-      dump.entities.washer_time_left
+    status {
+      "programme"
+      new { platform = "miele"; key = "status" }
+      dump.entities.washer_appliance_state
     }
     ignore { dump.entities.car_service_inspection_days }
   }
 }
 ```
 
-The sections are `countdown`, `total`, `percent`, `phase`, `status` and
-`ignore`. `idleStates { "off"; "idle" }` lists the status words that mean no
-job runs, whatever the numbers say, for a device that shows its programme's
-length before it starts. A rule naming one sensor beats a `new { … }`, which beats words.
-A rule cannot make a countdown out of a sensor that is not a duration: naming
-one is an error that says so. `components.pkl` needs
+The sections are `total`, `percent`, `phase`, `status` and `ignore`.
+`idleStates { "off"; "idle" }` lists the status words that mean it is not
+running, whatever the numbers say, for an appliance that shows its programme's
+length before it starts. A rule naming one sensor beats a `new { … }`, which
+beats words. A rule cannot make a total out of a sensor that is not a duration:
+naming one is an error that says so. `components.pkl` needs
 `import "@fh-home/dump.pkl" as dump` to name a sensor.
 
 ## What a button can act on

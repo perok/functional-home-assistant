@@ -102,7 +102,7 @@ local firstNode = (s) -> s.members.values.first.clauses.first.node
 
 
 /// The bar a progress card shows, inside the `c.iff` that shows it only while
-/// its job runs.
+/// it runs.
 local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
   let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
@@ -1290,15 +1290,14 @@ facts {
     t.contains("$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})")
   }
 
-  ["an appliance with no programme length gets a countdown and NO bar"] {
+  ["an appliance with no programme length fills out of where its countdown started"] {
     // The washer's real shape, measured on the live instance: it reports
-    // `timetoend` and nothing to divide it BY. Inventing a denominator — the
-    // highest reading seen this cycle, say — needs history this layer does not
-    // have, and would be wrong on the first paint after a reload, which is
-    // exactly when someone is looking.
+    // `timetoend` and nothing to divide it BY. The whole is its highest reading
+    // since it last read 0, from the recorder, so it is right on the first
+    // paint after a reload too.
     local washer = c.progress(remainingMin).status(applianceState)
     (washer.slots["value"] as slotMod.Slot).transform is simpleMod.SimpleValue
-    washer.features.isEmpty
+    (barOf(washer).slots["of"] as slotMod.Slot).values.toMap() == Map("past", c.fetch.history(remainingMin))
     // The status renders as the integration's own words, never interpreted:
     // nothing here knows which of them means "running".
     (washer.slots["secondary"] as slotMod.Slot).entityId == "sensor.appliancestate"
@@ -1306,7 +1305,7 @@ facts {
     washer.card == "tile"
   }
 
-  ["a bar appears exactly when there is something to divide by"] {
+  ["a programme length is the bar's whole when there is one"] {
     local dishwasher = c.progress(remainingMin).total(programMin)
     dishwasher.features.length == 1
     local bar = barOf(dishwasher)

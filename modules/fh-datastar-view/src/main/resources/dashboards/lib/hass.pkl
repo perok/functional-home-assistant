@@ -28,6 +28,9 @@ abstract class Entity {
   id_hidden: Boolean = false
   /// The physical device this entity belongs to, if any (`dump.devices`).
   device_id: String? = null
+  /// That device, the object `dump.devices` holds. Hidden: the device lists
+  /// this entity, so rendering one would never end.
+  hidden device: Device? = null
   /// `"config"` or `"diagnostic"` for the entities HA keeps off its main
   /// dashboard (about half of a typical instance); null for a primary entity.
   entity_category: String? = null

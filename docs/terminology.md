@@ -223,11 +223,11 @@ family (`defaults.light.opensOn`), set in the workspace's own `components.pkl` a
 card by its builder. A card that reads one carries the whole object, handed over by `c`. Not a node
 variable's **default** (below), which is per declaration and per page. ADR 0015.
 
-**Role** — the part a device's sensor plays in its job: `countdown`, `total`, `percent`, `phase`,
-`status`, or `ignore` for none. Assigned at build by `c.roles.progress` from the rules in
-`defaults.progress`, one sensor per role by rank, the most specific rule first (an entity, then a
-match, then words); a tie at the top chooses none. A rule only narrows the shape a role requires.
-ADR 0013.
+**Role** — the part a sensor plays on a `c.progress` card beside the countdown or percentage the
+card was given: `total`, `percent`, `phase`, `status`, or `ignore` for none. Found at build on the
+given sensor's device from the rules in `defaults.progress`, one sensor per role by rank, the most
+specific rule first (an entity, then a match, then words); a tie at the top chooses none. A rule
+only narrows the shape a role requires. ADR 0013.
 
 **Entry** — the top-level Pkl module for one dashboard. `site.pkl` names every entry the instance
 serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR 0021.

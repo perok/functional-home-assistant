@@ -72,20 +72,21 @@ exception: a progress bar reads a part and a whole, often two entities, so
 to remember.
 
 A recipe that is a familiar card with features is a subclass of that card, not
-a card of its own: `c.progress` is the remaining-time sensor's entity tile, its
-countdown the reading, with a bar in its `features` region. Given a device, it
-finds those sensors itself (`c.roles.progress`, by `defaults.progress`). It registers no
-template, so a page showing it beside other tiles carries one tile card.
+a card of its own: `c.progress` is the entity tile of the countdown or the
+percentage it is given, with a bar in its `features` region. It finds the
+sensors beside it on that sensor's device itself, by `defaults.progress`
+(ADR 0013). It registers no template, so a page showing it beside other tiles
+carries one tile card.
 
-Between jobs the card stays and its job leaves: the bar sits in a `c.iff` on whether the job runs,
-so it is gone (its empty host's cell collapses) and reads no history, and the countdown has no
-value (`valueWhile`, ADR 0034). The card is then the size of a plain tile. Whether a job runs
+While nothing runs the card stays and its bar leaves: the bar sits in a `c.iff` on whether it
+runs, so it is gone (its empty host's cell collapses) and reads no history, and the countdown has
+no value (`valueWhile`, ADR 0034). The card is then the size of a plain tile. Whether it runs
 (`running`, `true` when nothing can tell, so it is never null) is decided by the
-numbers, per role found: the countdown above 0, else a percentage between 0 and 100. A status
+numbers: the countdown above 0, else a percentage between 0 and 100. A status
 overrules them only through `defaults.progress.idleStates`, a list of IDLE words, shipped empty:
-a missing idle word shows a bar at 0, where a missing running word would hide a running job, and
-the words differ per integration. A battery is never found as a bar; one put on the card with
-`.percent(battery)` always shows, charging or not.
+a missing idle word shows a bar at 0, where a missing running word would hide a running
+appliance, and the words differ per integration. A battery is never found as a bar; one put on
+the card with `.percent(battery)` always shows, charging or not.
 
 `secondary` is the one input both tiers share, under HA's own name for the line
 below a card's main text. It is the BASE's — a literal, an `Expr` or a reading
@@ -235,8 +236,7 @@ over. The rules every default follows:
   `Defaults` with a group per family (`light: Light`, `progress: ProgressRules`),
   each default named after the builder it feeds: `defaults.light.opensOn` is
   `.opensOn(…)`'s. A group may hold rules rather than one value:
-  `defaults.progress` has a section per role, which `c.progress(device)` and
-  `c.roles.progress` read. It imports
+  `defaults.progress` has a section per role, which `c.progress` reads. It imports
   no card module, so they all can import it. A default takes names, never values
   about one entity, since it applies to every entity.
 - **A card that reads a default carries the whole object** (`hidden defaults:
