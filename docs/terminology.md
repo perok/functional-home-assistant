@@ -77,6 +77,11 @@ is `bool`. The CARD sets the type where it binds the slot, beside `signal`, beca
 binding of its own; a `class:` binding (a live cell class) is a bool by kind. The build refuses a
 reading on a boolean slot that does not produce a bool.
 
+**Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
+all. While it does not hold the value is `""`, and the slot's transform and fetches are not run.
+Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hides a whole card.
+ADR 0034.
+
 **Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
 (`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
@@ -305,6 +310,16 @@ another group that flips, is in that placement instead. ADR 0007.
 
 **Node id** — a node's address, derived from its position in the tree (`c_2_0`). Not authored. ADR
 0022.
+
+**Index** — what a renderer knows from the tree alone, built once when it is created: ids,
+parents, each node's fetching slots, which nodes an entity wakes, every member a candidate can be.
+The second of three layers (build, index, decisions; the pipeline doc's §1a). Not the build's
+**bind** pass, which runs before any renderer exists.
+
+**Decisions** — what one state snapshot decides: which members a set holds and in which clause,
+which branch a state group shows, whether each `valueWhile` holds. Kept for that snapshot, so the
+pre-read, the walk and the paint ask rather than decide again, and every viewer of that version
+shares them. A viewer's own selection is not a decision, it is looked up.
 
 **Fragment** — one node's own HTML, as opposed to the composed HTML a parent embeds. What gets sent.
 

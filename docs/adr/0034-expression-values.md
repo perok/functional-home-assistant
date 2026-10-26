@@ -126,6 +126,33 @@ on a slot that has none. An aggregate the build can settle IS a `Boolean` —
 `disabled` is ORed with the tap's own refusal in the shared refusal helpers (ADR 0015), so a card
 that places them honours it with nothing of its own.
 
+### A slot's value only while a condition holds: `valueWhile`
+
+A slot's `valueWhile` is a boolean input too, `true` by default: while it does not hold, the slot's
+value is `""`, its transform does not run and **its fetches are not read**. A device's bar while
+the washer is idle reads no history. It is lowered as the others are, onto a bool slot nested in
+the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
+or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
+
+It is decided first, and **once per state snapshot**, in that snapshot's decisions (the pipeline
+doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gateEntity` being the one
+rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
+their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
+render key, the paint and the signal path ask the same decisions, so none decides it again. A
+slot whose subject only a paint knows (a transform subject) is asked ungated, because asking too
+much is safe and asking too little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
+with one sends is not the one a card without one shares (ADR 0017). The build refuses one that
+reads a fetch (it decides whether fetches are read), one that does not produce a bool, and one on
+a `once` slot, whose memo would keep its first answer.
+
+`""` is the empty value, as a CEL `null` already is: a `null` in a signals frame deletes the signal
+(ADR 0017). What it means is the card's to say; the progress bar hides itself on it.
+
+**What would reopen it:** cel-java's async functions (cel-expr/cel-java#1240, merged after 0.14.0)
+would let a fetch be a function the CEL calls only on the branch that reaches it, so a fetch would
+be read lazily without a gate. `valueWhile` stays even then: it is the condition a reader can see,
+and a slot behind it runs nothing.
+
 ### A live custom property on any node
 
 `.cssProperty(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
@@ -176,7 +203,8 @@ alone sends nothing, because the frame is diffed against what each session holds
   cycles. Values are flat: slots read values, values read only state.
 - **Resolving names up the ancestors.** Content addressing already shares the work, and inheritance
   would make a node's expression depend on where it is placed.
-- **Show/hide through a class.** Hiding is structure, which is `c.iff`'s.
+- **Show/hide through a class.** Hiding a card is structure, which is `c.iff`'s. A card hiding
+  its own part while that part has no value (the bar on `""`) is the card reading its value.
 - **"When it changes, do X" triggers.** That is an automation, and automations belong in HA.
 - **`cssVar` as the name.** "vars" already means three things here (`docs/terminology.md`), so the
   builder is `cssProperty`.

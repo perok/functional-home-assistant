@@ -45,7 +45,10 @@ case class SlotSource(
     // where the binding cannot say it: a `class:` binding is a bool by kind.
     `type`: SlotType = SlotType.Text,
     fetch: Option[FetchTemplate] = None,
-    values: Map[String, ExprValue] = Map.empty
+    values: Map[String, ExprValue] = Map.empty,
+    // A `bool` slot over the same subject: while it is not `true` this slot is
+    // `""`, decided before its transform runs or any of its fetches is read.
+    valueWhileSlot: Option[SlotSource] = None
 ) {
 
   def isBool: Boolean =
@@ -75,7 +78,11 @@ case class SlotSource(
   * It fixes each name's definition and type, not its value, which is resolved
   * per render.
   */
-final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
+final case class BoundSlot(
+    source: SlotSource,
+    values: Map[String, ExprValue],
+    valueWhile: Option[BoundSlot] = None
+):
   export source.{
     entityId,
     transform,
@@ -99,14 +106,24 @@ final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
       Some(Transform.CelKey(t, ExprValue.env(values)))
     case _ => None
 
+  def celKeys: List[Transform.CelKey] =
+    celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
+
+  /** The entity its [[valueWhile]] is decided over: its own, else the slot's.
+    * The one rule the pre-read and the paint share.
+    */
+  def gateEntity(slotEntity: Option[String]): Option[String] =
+    valueWhile.flatMap(_.entityId).orElse(slotEntity)
+
   /** Every entity that can move this slot besides its own: those its transform
-    * names and those of the live values it reads.
+    * names, those of the live values it reads, and its [[valueWhile]]'s.
     */
   def valueEntities: List[String] =
     (transform match
       case s: Transform.Simple => Transform.Simple.referencedEntities(s)
       case _                   => Nil
-    ) ++ values.values.toList.flatMap(_.entities)
+    ) ++ values.values.toList.flatMap(_.entities) ++
+      valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
   def shape: SlotShape =
     fetch.fold(SlotShape.State(this))(q => SlotShape.Fetch(SlotAsk(q, stage)))
@@ -125,12 +142,12 @@ final case class BoundSlot(source: SlotSource, values: Map[String, ExprValue]):
     * nodes saying the same thing over the same values share a signal.
     */
   lazy val valueKey: String =
-    if (values.isEmpty) source.valueKey
-    else
-      source.valueKey + values.toList
-        .sortBy(_._1)
-        .map((n, v) => s"|$n=${ExprValue.key(v)}")
-        .mkString
+    source.valueKey + values.toList
+      .sortBy(_._1)
+      .map((n, v) => s"|$n=${ExprValue.key(v)}")
+      .mkString + valueWhile.fold("")(w =>
+      s"|while=${w.entityId.getOrElse("")}:${w.valueKey}"
+    )
 
 object BoundSlot:
   /** By the identifiers the expression PARSES to, so a name inside a string
@@ -139,11 +156,12 @@ object BoundSlot:
   def bind(values: Map[String, ExprValue])(s: SlotSource): BoundSlot =
     // The slot's own win a clash, which `validate` refuses anyway.
     val all = values ++ s.values
+    val valueWhile = s.valueWhileSlot.map(bind(values))
     s.transform match
       case t: String if all.nonEmpty && s.literal.isEmpty =>
         val read = Cel.identifiers(t)
-        BoundSlot(s, all.filter((n, _) => read.contains(n)))
-      case _ => BoundSlot(s, Map.empty)
+        BoundSlot(s, all.filter((n, _) => read.contains(n)), valueWhile)
+      case _ => BoundSlot(s, Map.empty, valueWhile)
 
 /** A named input of a node's or a slot's expressions (`expressionValues`): a
   * literal the build wrote down, a [[Predicate.Tally]] counted live, a
@@ -286,6 +304,19 @@ case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
   def resolve(env: Map[String, String]): SlotRead =
     SlotRead(fetch.resolve(env), stage)
 
+/** One slot's asks, read only while `gate` holds. */
+final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
+
+object Fetching:
+  /** A slot's `valueWhile` over `entity`. */
+  final case class Gate(valueWhile: BoundSlot, entity: String):
+    lazy val key: String = Gate.key(Some(entity), valueWhile)
+
+  object Gate:
+    /** By content, so two slots gated alike share one decision. */
+    def key(entity: Option[String], valueWhile: BoundSlot): String =
+      s"${entity.getOrElse("")}|${valueWhile.valueKey}"
+
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
 case class SlotRead(fetch: SlotFetch, stage: Transform.Stage) derives CanEqual
 
@@ -309,10 +340,12 @@ object Reads:
   val All: Set[String] = Set(Live, OnRender, Once)
 
 object SlotSource:
-  private val objDecoder: Decoder[SlotSource] = ConfiguredDecoder.derived
+  // Lazy and by name: `valueWhileSlot` makes the derivation recursive.
+  private lazy val objDecoder: Decoder[SlotSource] = ConfiguredDecoder.derived
 
-  given Decoder[SlotSource] =
-    Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
+  given Decoder[SlotSource] = Decoder.instance(c =>
+    c.as[String].map(s => SlotSource(literal = Some(s))).orElse(objDecoder(c))
+  )
 
   /** Chosen by key, not by trying each arm, so a bad chart param reports the
     * stage's error rather than the last arm's.
@@ -661,22 +694,38 @@ object LayoutNode:
         )
         .distinct
 
-    /** In the render key but not [[liveEntities]]: otherwise a sensor ticking
-      * every second would refetch its history every second.
+    /** Every ask, whatever the `valueWhile`s decide: what a variable's value is
+      * checked against (ADR 0023). The pre-read and the render key take
+      * [[fetching]] as the decisions filter it.
       */
-    lazy val fetches: List[SlotAsk] = shapes._2
+    lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
-    private def stateSlots: List[BoundSlot] = shapes._1
+    /** Per slot, each with the `valueWhile` it waits for. In the render key but
+      * not [[liveEntities]]: otherwise a sensor ticking every second would
+      * refetch its history every second. Ungated without an entity to decide
+      * over: a dynamic subject is known only per paint, and asking too much is
+      * safe where too little raises.
+      */
+    lazy val fetching: List[Fetching] =
+      bound.values.toList.flatMap { s =>
+        val asks = s.shape match
+          case SlotShape.State(src) => src.fetches
+          case SlotShape.Fetch(q)   => List(q)
+        Option.when(asks.nonEmpty)(
+          Fetching(
+            asks,
+            s.valueWhile.flatMap(w =>
+              s.gateEntity(s.entityId.orElse(subjectEntity))
+                .map(Fetching.Gate(w, _))
+            )
+          )
+        )
+      }
 
-    private lazy val shapes: (List[BoundSlot], List[SlotAsk]) =
-      bound.values.toList.foldRight(
-        (List.empty[BoundSlot], List.empty[SlotAsk])
-      ) { case (s, (states, fetches)) =>
-        s.shape match
-          case SlotShape.State(src) => (src :: states, src.fetches ++ fetches)
-          case SlotShape.Fetch(q)   => (states, q :: fetches)
-      } match
-        case (states, fetches) => (states, fetches.distinct)
+    private lazy val stateSlots: List[BoundSlot] =
+      bound.values.toList.flatMap(_.shape match
+        case SlotShape.State(src) => Some(src)
+        case SlotShape.Fetch(_)   => None)
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
@@ -1328,6 +1377,40 @@ case class Dashboard(
             "has no entity of its own — name it with q.entity(e)"
       }
 
+    def valueWhileErrors(
+        nodeId: String,
+        slots: Map[String, BoundSlot],
+        hasSubject: Boolean
+    ): List[String] =
+      slots.toList.sortBy(_._1).flatMap { (name, src) =>
+        src.valueWhile.toList.flatMap { w =>
+          Option
+            .when(w.fetch.isDefined || w.fetches.nonEmpty)(
+              s"$nodeId: slot '$name' has a valueWhile that reads a fetch — " +
+                "it is decided before any fetch is read"
+            )
+            .toList ++
+            Option
+              .when(src.reads == Reads.Once)(
+                s"$nodeId: slot '$name' is read '${Reads.Once}' and has a " +
+                  "valueWhile — it would keep its first answer forever"
+              )
+              .toList ++
+            Option
+              .when(
+                src.gateEntity(src.entityId).isEmpty && !hasSubject &&
+                  (w.transform match
+                    case p: Predicate => Predicate.hasFreeSubject(p)
+                    case _            => false)
+              )(
+                s"$nodeId: slot '$name' has a valueWhile comparing an entity " +
+                  "it does not name, and has no entity of its own — name it " +
+                  "with q.entity(e)"
+              )
+              .toList
+        }
+      }
+
     def typeErrors(
         nodeId: String,
         slots: Map[String, BoundSlot]
@@ -1545,15 +1628,24 @@ case class Dashboard(
                   )
                   .toList
           val here = scope ++ c.defaults
+          // Each `valueWhile` is checked as the slot it is, under its own name.
+          val checked = c.bound ++ c.bound.flatMap((n, s) =>
+            s.valueWhile.map(s"$n.valueWhile" -> _)
+          )
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, card, c.bound, here) ++
+          ) ++ slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
             valueErrors(nodeId, c) ++
-            typeErrors(nodeId, c.bound) ++
+            valueWhileErrors(
+              nodeId,
+              c.bound,
+              c.slots.contains(Dashboard.SubjectSlot)
+            ) ++
+            typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
         // Clauses carry complete nodes, validated as ordinary ones.
@@ -2128,7 +2220,7 @@ case class Dashboard(
     ((slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList
-      .flatMap(_.celKey) ++
+      .flatMap(_.celKeys) ++
       (initialKeys(card) ++ surfaces.values.flatMap(s =>
         initialKeys(s.content)
       ))).distinct

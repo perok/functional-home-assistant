@@ -13,6 +13,7 @@ import fh.view.model.{
   Dashboard,
   DomId,
   FetchTemplate,
+  Fetching,
   LayoutNode,
   MemberId,
   NodeId,
@@ -182,10 +183,10 @@ class Renderer(validated: Dashboard.Validated) {
     }
 
     // So a render's reads cost the charts, not the tree.
-    val asks: List[(NodeId, List[SlotAsk])] =
-      indexed.toList.sortBy(_._1).collect {
-        case (id, c: LayoutNode.Component) if c.fetches.nonEmpty =>
-          id -> c.fetches
+    val fetching: List[(NodeId, Fetching)] =
+      indexed.toList.sortBy(_._1).flatMap {
+        case (id, c: LayoutNode.Component) => c.fetching.map(id -> _)
+        case _                             => Nil
       }
     val setIds: List[NodeId] =
       indexed.toList.collect { case (id, _: LayoutNode.SetNode) => id }.sorted
@@ -229,6 +230,9 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private val identityCache =
     new java.util.concurrent.ConcurrentHashMap[(String, String), SlotValue]()
+
+  // Before the graphs, which decide through it too.
+  private val decided = Decided()
 
   private val surfaceIndexes: Map[String, Index] =
     dashboard.surfaces.map { case (sid, s) =>
@@ -331,7 +335,7 @@ class Renderer(validated: Dashboard.Validated) {
     }
 
   /** A target has its own rendering ([[ownRenderingOf]]), so its descendants
-    * are not asked.
+    * are not asked, except a member's: a member is placed whole.
     */
   def readsForPull(
       targets: List[NodeId],
@@ -340,56 +344,85 @@ class Renderer(validated: Dashboard.Validated) {
       selections: Selections,
       env: VarEnv
   ): List[SlotRead] =
-    (targets.flatMap(id => readsAt(id, env) ++ setReadsAbove(id, env)) ++
-      hosts.flatMap { gid =>
-        members.setContainer(gid) match {
-          case Some(_) =>
-            setReads(gid, env) ++ setReadsAbove(gid, env)
-          case None =>
-            surfaces
-              .resolveActiveByState(gid, states)
-              .flatMap(surfaces.bakeGroup(gid).lift)
-              .toList
-              .flatMap(fetchesForSurface(_, states, selections, env))
+    ask(
+      targets.flatMap(presentAt(_, states)) ++
+        hosts.flatMap { gid =>
+          members.setContainer(gid) match {
+            case Some(setId) => setAsks(setId, states)
+            case None        =>
+              surfaces
+                .resolveActiveByState(gid, states)
+                .flatMap(surfaces.bakeGroup(gid).lift)
+                .toList
+                .flatMap(surfaceAsks(_, states, selections))
+          }
+        },
+      states,
+      env
+    )
+
+  /** Every ask whose slot has a value now, at this viewer's values. */
+  private def ask(
+      asks: List[(NodeId, Fetching)],
+      states: Map[String, EntityState],
+      env: VarEnv
+  ): List[SlotRead] =
+    asks.flatMap { (id, f) =>
+      if (f.gate.forall(gateHolds(_, states)))
+        f.asks.map(_.resolve(env.getOrElse(id, Map.empty)))
+      else Nil
+    }.distinct
+
+  private def gateHolds(
+      g: Fetching.Gate,
+      states: Map[String, EntityState]
+  ): Boolean =
+    decided
+      .at(states)
+      .holds(g.key)(holds(planned(g.valueWhile), Some(g.entity), states))
+
+  /** What renders at `id` now: a static node's own, a member's whole subtree in
+    * its current clause, a node below one in that clause, and nothing for a
+    * member that is not present.
+    */
+  private def presentAt(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): List[(NodeId, Fetching)] =
+    allIndexed.get(id) match {
+      case Some((c: LayoutNode.Component, _)) => c.fetching.map(id -> _)
+      case Some(_)                            => Nil
+      case None                               =>
+        members.nodeAt(id, states) match {
+          case Some((m, _)) if m.id == id => memberAsks(m, states)
+          case Some((_, c))               => c.fetching.map(id -> _)
+          case None                       => Nil
         }
-      }).distinct
+    }
 
-  // What the sets above a node read: a member's render reaches its nested
-  // sets, whose members are asked under their own ids.
-  private def setReadsAbove(id: NodeId, env: VarEnv): List[SlotRead] =
-    if (membersUnder.isEmpty) Nil
-    else ancestry.ancestorsOf(id).toList.flatMap(setReads(_, env))
+  /** A present member's nodes', and its nested sets' present members'. */
+  private def memberAsks(
+      m: Member,
+      states: Map[String, EntityState]
+  ): List[(NodeId, Fetching)] =
+    m.fetching ++ members.setsIn(m).flatMap(setAsks(_, states))
 
-  /** Every member's reads under set `gid`, nested sets' included, each at this
-    * viewer's values. Every clause, not the matching one: the snapshot is
-    * resolved before the walk decides which matches.
+  private def setAsks(
+      gid: SetId,
+      states: Map[String, EntityState]
+  ): List[(NodeId, Fetching)] =
+    members.membersOf(gid, states).toList.flatMap(memberAsks(_, states))
+
+  /** Everything a member's subtree can ask, every clause's: the bound a
+    * variable is held to, not what a render reads.
     */
-  private def setReads(gid: NodeId, env: VarEnv): List[SlotRead] =
-    membersUnder.getOrElse(gid, Nil).flatMap(readsAt(_, env))
-
-  private lazy val membersUnder: Map[NodeId, List[NodeId]] =
-    memberAsks.keys.toList
-      .flatMap(m =>
-        ancestry
-          .ancestorsOf(m)
-          .filter(members.setContainer(_).isDefined)
-          .map(_ -> m)
-      )
-      .groupMap(_._1)(_._2)
-      .view
-      .mapValues(_.sorted)
-      .toMap
-
-  /** Everything a member's subtree asks, under the member's id: what a fill or
-    * a placement renders, every clause's, since the snapshot is resolved before
-    * the walk decides which matches.
-    */
-  private lazy val memberAsks: Map[NodeId, List[SlotAsk]] =
+  private lazy val everyClauseAsks: Map[NodeId, List[SlotAsk]] =
     members.memberIds.toList.flatMap { m =>
       val asks = members.clauseNodesOf(m).flatMap(Renderer.subtreeAsks).distinct
       Option.when(asks.nonEmpty)(m -> asks)
     }.toMap
 
+  /** Every read a node can make, whatever its `valueWhile`s decide. */
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
     fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
 
@@ -425,7 +458,8 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
     allIndexed.collect { case (id, (s: LayoutNode.SetNode, _)) => id -> s },
-    rootOfIndexed
+    rootOfIndexed,
+    decided
   )
 
   /** From the id-minting walks plus the member graph's edges, not from how ids
@@ -440,7 +474,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** Selection and visibility, exposed on the same terms as [[members]]. */
   private[runtime] val surfaces: SurfaceGraph =
-    new SurfaceGraph(dashboard.surfaces, rootOfIndexed, members)
+    new SurfaceGraph(dashboard.surfaces, rootOfIndexed, members, decided)
 
   /** Static nodes only: which members bind an entity depends on the membership
     * the recorder holds ([[Membership.binding]]).
@@ -458,17 +492,18 @@ class Renderer(validated: Dashboard.Validated) {
       case _                                  => Nil
     }
 
-  /** A member's are its whole subtree's ([[memberAsks]]); a node below one asks
-    * its own in whichever clause holds it.
+  /** A member's are its whole subtree's ([[everyClauseAsks]]); a node below one
+    * asks its own in every clause.
     */
   private def fetchesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
         c.fetches
-      case _ => memberAsks.getOrElse(id, belowMemberAsks.getOrElse(id, Nil))
+      case _ =>
+        everyClauseAsks.getOrElse(id, belowMemberAsks.getOrElse(id, Nil))
     }
 
-  // Built once: a tick asks for every target it pulls.
+  // Built once: a variable's bound asks it of every reader.
   private lazy val belowMemberAsks: Map[NodeId, List[SlotAsk]] =
     members.memberIdsBelow.flatMap { id =>
       val asks = members.clauseNodesAt(id).flatMap(_.fetches).distinct
@@ -746,10 +781,13 @@ class Renderer(validated: Dashboard.Validated) {
 
   def fetchRequests: Map[SlotRead, FetchRequest] = parsedFetches
 
-  private def readsIn(idx: Index, env: VarEnv): List[SlotRead] =
-    (idx.asks.flatMap { case (id, asks) =>
-      asks.map(_.resolve(env.getOrElse(id, Map.empty)))
-    } ++ idx.setIds.flatMap(setReads(_, env))).distinct
+  private def asksIn(
+      idx: Index,
+      states: Map[String, EntityState]
+  ): List[(NodeId, Fetching)] =
+    idx.fetching ++ idx.setIds.flatMap(
+      members.setContainer(_).toList.flatMap(setAsks(_, states))
+    )
 
   /** The surfaces shown inside it included. */
   def fetchesForSurface(
@@ -758,15 +796,24 @@ class Renderer(validated: Dashboard.Validated) {
       selections: Selections,
       env: VarEnv
   ): List[SlotRead] =
+    ask(surfaceAsks(surfaceId, states, selections), states, env)
+
+  private def surfaceAsks(
+      surfaceId: String,
+      states: Map[String, EntityState],
+      selections: Selections
+  ): List[(NodeId, Fetching)] =
     surfaces
       .shownWithin(surfaceId, states, selections)
       .toList
       .sorted
-      .flatMap(readsOfSurface(_, env))
-      .distinct
+      .flatMap(asksOfSurface(_, states))
 
-  private def readsOfSurface(surfaceId: String, env: VarEnv): List[SlotRead] =
-    surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env))
+  private def asksOfSurface(
+      surfaceId: String,
+      states: Map[String, EntityState]
+  ): List[(NodeId, Fetching)] =
+    surfaceIndexes.get(surfaceId).toList.flatMap(asksIn(_, states))
 
   /** The body, this viewer's open surfaces and each state group's branch. An
     * unselected tab is fetched when switched to.
@@ -775,11 +822,17 @@ class Renderer(validated: Dashboard.Validated) {
       open: Set[String],
       states: Map[String, EntityState],
       env: VarEnv
-  ): List[SlotRead] = {
-    val shown = surfaces.shownSurfaces(open, states)
-    (readsIn(mainIndex, env) ++
-      shown.toList.sorted.flatMap(readsOfSurface(_, env))).distinct
-  }
+  ): List[SlotRead] =
+    ask(
+      asksIn(mainIndex, states) ++
+        surfaces
+          .shownSurfaces(open, states)
+          .toList
+          .sorted
+          .flatMap(asksOfSurface(_, states)),
+      states,
+      env
+    )
 
   /** The resume's second candidate set: nothing may have recorded an open
     * surface while nobody viewed it, so only re-rendering can tell.
@@ -937,7 +990,7 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, c.fetches)
+            fragments.versions(id, asked(c, states))
           )
         )
       case None =>
@@ -945,7 +998,7 @@ class Renderer(validated: Dashboard.Validated) {
           case (c: LayoutNode.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, states),
-              fragments.versions(id, c.fetches)
+              fragments.versions(id, asked(c, states))
             )
         }
     }
@@ -1557,11 +1610,55 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private final case class Planned(
       source: BoundSlot,
-      program: Option[Transform.Compiled]
+      program: Option[Transform.Compiled],
+      valueWhile: Option[Planned]
   )
 
   private def planned(source: BoundSlot): Planned =
-    Planned(source, source.celKey.map(programs))
+    Planned(
+      source,
+      source.celKey.map(programs),
+      source.valueWhile.map(planned)
+    )
+
+  /** A slot's `valueWhile` over `entity`; only a real `true` holds. */
+  private def holds(
+      valueWhile: Planned,
+      entity: Option[String],
+      states: Map[String, EntityState]
+  ): Boolean =
+    resolveStateSlotValue(
+      entity,
+      valueWhile,
+      states,
+      noFetch
+    ) match
+      case b: Boolean => b
+      case _          => false
+
+  /** Under the key the pre-read decides it by, so a slot it gated is not
+    * decided again.
+    */
+  private def withheld(
+      planned: Planned,
+      srcEntity: Option[String],
+      states: Map[String, EntityState]
+  ): Boolean =
+    planned.valueWhile.exists { w =>
+      val entity = planned.source.gateEntity(srcEntity)
+      !decided
+        .at(states)
+        .holds(Fetching.Gate.key(entity, w.source))(holds(w, entity, states))
+    }
+
+  /** The asks whose slot has a value now. */
+  private def asked(
+      c: LayoutNode.Component,
+      states: Map[String, EntityState]
+  ): List[SlotAsk] =
+    c.fetching
+      .flatMap(f => if (f.gate.forall(gateHolds(_, states))) f.asks else Nil)
+      .distinct
 
   /** One plan per node an id shows, matched by identity: bounded only because
     * every node is built once (a member's with the graph, see the pipeline
@@ -1766,7 +1863,13 @@ class Renderer(validated: Dashboard.Validated) {
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
-              _ => resolveStateSlotValue(srcEntity, planned, states, noFetch)
+              _ =>
+                resolveStateSlotValue(
+                  srcEntity,
+                  planned,
+                  states,
+                  noFetch
+                )
             )
           else
             resolveSlotValue(srcEntity, planned, states, fragments, plan.id)
@@ -1909,7 +2012,14 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned,
       states: Map[String, EntityState]
   ): String =
-    SlotValue.text(resolveStateSlotValue(srcEntity, source, states, noFetch))
+    SlotValue.text(
+      resolveStateSlotValue(
+        srcEntity,
+        source,
+        states,
+        noFetch
+      )
+    )
 
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
     * `default`.
@@ -1921,6 +2031,8 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: FetchSnapshot,
       node: NodeId
   ): SlotValue = source.source.shape match {
+    case SlotShape.Fetch(_) if withheld(source, srcEntity, states) =>
+      ""
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
     case SlotShape.Fetch(ask) => fragments.value(node, ask)
     case SlotShape.State(_)   =>
@@ -1959,8 +2071,9 @@ class Renderer(validated: Dashboard.Validated) {
       srcEntity
         .flatMap(states.get)
         .getOrElse(EntityState(srcEntity.getOrElse(""), "", Map.empty))
+    if (withheld(planned, srcEntity, states)) ""
     // The bypass, not the transform, keeps an unavailable entity readable.
-    if (source.bypassUnavailable && st.unavailable) st.state
+    else if (source.bypassUnavailable && st.unavailable) st.state
     else {
       // The form is the tier (ADR 0028): a CEL transform is the one with a
       // program.

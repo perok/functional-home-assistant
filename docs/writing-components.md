@@ -181,6 +181,26 @@ change costs nothing. It does not change on its own: nothing redraws a card
 because new history was written. Use `transformList(i, p, keep, value)` to
 filter and map; this CEL has no `filter` or `map`.
 
+### A value only while something holds
+
+`valueWhile` on a slot says when it has a value at all. Until then the value
+is `""`, the expression does not run, and its history is not read:
+
+```pkl
+["peak"] = new slotMod.Slot {
+  entityId = entity.entity_id
+  valueWhile = q.entity(entity).gt(q.prop("state"), 0)
+  transform = "…"
+  expressionValues { ["past"] = fetch.history(entity) }
+}
+```
+
+It takes what `active` and `disabled` take: `true`/`false`, a condition
+(`q.entity(e).gt(…)`, `.stateIs(…)`, `q.from(…).any()`), or a reading that is a
+`bool` (`slotMod.expr("int(state) > 0")`). A condition is the fast choice, and
+one that names no entity reads the slot's. A reading cannot use a fetch.
+Your template decides what `""` looks like; the progress bar hides.
+
 ---
 
 ## Making a card clickable

@@ -1,8 +1,7 @@
 # Plan: one fast expression family, and `valueWhile` decided once (#541)
 
 Agreed in chat on 2026-10-25 after reviewing #634 (`valueWhile`) and #633 (the progress bar).
-**Part 1 is built on this PR; 2 and 3 are not started.** The work lands in three PRs, in stack
-order:
+**Part 1 is built on this PR, part 2 on #634; 3 is not started.** The work lands in three PRs, in stack order:
 
 1. **This PR** (between #627 and #634): one fast expression family, and no CEL the author did not
    write.
@@ -27,9 +26,11 @@ that rejection was the mistake.
 The library also writes CEL for inputs that are not CEL: the slot's default `transform = "state"`,
 `.value("attr")`, `c.select`'s current option and its labels, and the slider's `"''"`.
 
-#634 decides `valueWhile` up to four times per update: in the pre-read, the render key, the paint
-and the signal path. It also finds the gating entity in two places (`Component.gated`,
-`Renderer.withheld`).
+#634, as first opened, decided `valueWhile` up to four times per update: in the pre-read, the
+render key, the paint and the signal path. It also found the gating entity in two places
+(`Component.gated`, `Renderer.withheld`). Its first rework carried the condition on the fetch
+request and still asked every clause of every candidate, present or not, with the decisions in a
+record of their own beside the walk's own derivations.
 
 ## 1. This PR: one fast expression family
 
@@ -114,21 +115,64 @@ Merged onto this PR's branch first (merge, not rebase).
 - **Through the family.** A condition fills `valueWhileSlot` as a transform, like the other
   boolean inputs. `valueWhile = false` folds at build: the slot is the literal `""`. The
   free-subject refusal goes; a condition reads the slot's entity.
-- **One decision per slot per update.** While false, the slot has no value, written as `""`. Its
-  transform does not run and its fetches are not read.
-  - A slot that reads a fetch decides in the pre-read (`fetchesForPage`, `fetchesForSurface`,
-    `readsForPull`), because a render is a synchronous string build and its fetches are answered
-    before it. The pre-read records which (node, slot) has no value, beside the fetch answers
-    in `FetchSnapshot`. The record is per slot, not per read: two cards can share a read with
-    only one of them gated.
-  - Paint, the signal path and the render key look the record up and never evaluate the
-    condition again.
-  - A slot that reads no fetch decides once, where its value is computed.
-  - One function resolves the slot's entity for the pre-read and the paint.
-  - `SlotAsk.gate`, `Component.gated` and `Renderer.withheld` go.
-- **Docs written in #634** (ADR 0034's `valueWhile` section, the architecture doc, terminology,
-  `writing-components.md`) say this instead.
-- `ValueWhileSuite` gains a check that the condition is evaluated once per update.
+- **While false, the slot has no value**, written as `""`. Its transform does not run and its
+  fetches are not read.
+
+### Three layers, and which one each piece belongs to
+
+The renderer was already layered like a compiler. The rework names the layers (the pipeline doc's
+§1a) and puts each piece in one:
+
+1. **Build** (`Dashboard.Validated`, the build passes in `docs/terminology.md`): once per
+   evaluation. Unchanged.
+2. **Index**, once per renderer: what can be known from the tree alone. Nothing after this walks
+   the tree.
+3. **Decisions**, once per state snapshot: what the entity states decide.
+
+**Into the index:**
+
+- `Component.fetching`: each fetching slot's asks with the `valueWhile` they wait for
+  (`Fetching.Gate`: the condition and the entity it is decided over, `BoundSlot.gateEntity`).
+  `Index.fetching` lists them by node. `SlotAsk` is a fetch request again, nothing more.
+- `Member.fetching`: a member's, in the one clause that member instance is.
+- `MemberGraph.setsIn`: the sets directly inside a member, in its clause.
+
+**`Decisions`** holds which members a set holds and in which clause, which branch a state group
+shows, and whether each `valueWhile` holds, each computed on first use. It is kept by the
+snapshot's IDENTITY (`Decided`, the last two snapshots), and `MemberGraph.membersOf`/`memberAt`,
+`SurfaceGraph.resolveActiveByState` and the renderer's `valueWhile` all ask it. So:
+
+- no signature changes: the walk's 40-odd functions already take the snapshot;
+- the pre-read, the walk, the render key and the paint cannot disagree;
+- every viewer rendering one store version shares the decisions, since the store hands them the
+  same map. This was "left out" in the first draft of this plan; keying by identity gave it for
+  nothing.
+
+Membership is still derived from the reader's own snapshot, never the recorder's `Membership`
+(§4b's "readers derive, the recorder folds"). A viewer's own selection (a tab, a popup) is not a
+decision: it is a lookup in its `Selections`.
+
+**The pre-read follows what will render:** the body and the surfaces shown; for each set, only its
+present members in their clause, and the sets inside that clause the same way; for each fetching
+slot, its fetches only where its `valueWhile` holds. A pull target asks its own; a member target
+its whole subtree, since a member is placed whole. It returns reads only, and `FetchSnapshot`
+holds answers again.
+
+**Gone:** `SlotAsk.gate`, `SlotAsk.Gate`, `Component.gated`, `Asked`, `FetchSnapshot.gates` and
+`decided`, `setAsksAbove`, `membersUnder`, and the deciding fall-back in `Renderer.withheld` and
+`Renderer.asked`. The every-clause map (`everyClauseAsks`) stays for `readsAt` alone: what a
+variable's value is checked against is what a node MAY read.
+
+### Checks and docs
+
+- `ValueWhileSuite`: a set asks only for its present members, in their clause; one snapshot
+  decides each thing once, and an equal but different map decides afresh.
+- `FetchDriftSuite` still holds: the pre-read asks for exactly what the walk reads.
+- `FetchBench` and `RenderBench` before and after (3 iterations, so ±5% is noise): allocation
+  flat to slightly down for sets, `publishSetIfsFlip` −23% and `publishSetIfs` −8%, since the
+  recorder no longer evaluates each state branch twice. Nothing moved beyond noise the other way.
+- The pipeline doc's §1a, §4b, §6 and §7, ADR 0033's set reads, ADR 0034's `valueWhile`,
+  `docs/terminology.md` (**Index**, **Decisions**).
 
 ## 3. #633: the progress bar in a `c.iff`
 
