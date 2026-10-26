@@ -3,7 +3,7 @@
 /// chosen, and where the options come from:
 ///
 ///     c.select(shade).options(List("pale", "deep")).style("dropdown")  // a node variable
-///     c.select(dump.entities.robot_mode)                               // a select entity's options
+///     c.select(dump.entities.select_robot_mode)                        // a select entity's options
 ///     c.select(lamp.effects!!).style("cycle")                          // a light's effects
 ///     c.select(heater.hvacModes)                                       // any other hass.Options
 ///
