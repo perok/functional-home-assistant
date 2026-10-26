@@ -1038,9 +1038,9 @@ member is placed whole.
 decide `valueWhile` over live state; if it does not hold, the value is `""` and nothing else
 runs; otherwise read the fetches and run the transform. The order reaches back into the
 pre-read: each fetching slot carries its `valueWhile` (`Fetching.Gate`), and the pre-read asks
-its fetches only where the snapshot's `Decisions` say it holds. So an idle washer's bar asks for
-no history, and the render key (`Renderer.asked`) and the paint (`Renderer.withheld`) ask the same
-decision rather than make it again. `readsAt`, which bounds a viewer's variable value, keeps every
+its fetches only where the snapshot's `Decisions` say it holds. So a slot whose `valueWhile` does
+not hold asks for no history, and the pre-read, the render key (`Renderer.asked`) and the paint
+(`Renderer.withheld`) all go through one `gateHolds`, over the gate `BoundSlot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
 ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a

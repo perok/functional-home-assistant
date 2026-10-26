@@ -22,55 +22,37 @@ import "../hass.pkl"
 class Defaults {
   /// A light's slider.
   light: Light = new {}
-  /// Which of a device's sensors play which part in its job, for
-  /// `c.progress(device)` and `c.roles.progress(device)`.
+  /// Which sensors beside a `c.progress` card's own, on its device, play which
+  /// part on it.
   progress: ProgressRules = new {}
 }
 
-/// One rule: words that must all be among the entity's `translation_key` and
-/// `original_name` words (`_` and `-` count as spaces), a [[Match]], or one
-/// entity. The most specific rule wins: an entity, then a [[Match]], then
-/// words.
-typealias Rule = String|Match|hass.SensorEntity
-
-/// Every field given must hold: `new { platform = "miele"; key = "program_remaining" }`.
-class Match {
-  platform: String? = null
-  /// An exact `translation_key` or `original_name`.
-  key: String? = null
-  device_class: String? = null
-  unit: String? = null
-}
-
-/// One section per role. Yours add to these, which are words only; assigning
-/// a section replaces it. A rule only narrows: a countdown or a total is still
-/// a sensor with a fixed-length time unit, a percent a `%` sensor with no
-/// device class, a phase or a status a sensor with no unit, and an entity rule
-/// naming anything else is a build error. A running total plays no role.
+/// One section per role, each a list of names: a name's words must all be
+/// among a sensor's `translation_key` and `original_name` words (`_` and `-`
+/// count as spaces). Yours add to these; assigning a section replaces it. A
+/// name only narrows: a total is still a sensor with a fixed-length time unit,
+/// a percent a `%` sensor with no device class, a phase or a status a sensor
+/// with no unit. A running total plays no role. One card's exact sensor is its
+/// builder's (`.status(…)`), not a rule.
 ///
 ///     progress {
-///       countdown { "finish in"; dump.entities.washer_time_left }
-///       ignore { dump.entities.car_service_inspection_days }
+///       status { "programme" }
+///       ignore { "service" }
 ///     }
-///
-/// Each section's `default` is a [[Match]], which is what lets a bare
-/// `new { … }` sit beside words and entities.
 class ProgressRules {
-  /// The time left.
-  countdown: Listing<Rule> = new { default = (_) -> new Match {}; "remaining"; "left"; "to end" }
-  /// The whole job's length, for a bar of the countdown out of it.
-  total: Listing<Rule> = new { default = (_) -> new Match {}; "duration"; "length" }
+  /// The whole programme's length, for a bar of the countdown out of it.
+  total: Listing<String> = new { "duration"; "length" }
   /// How far along, as a percentage.
-  percent: Listing<Rule> = new { default = (_) -> new Match {}; "progress" }
-  /// What step the job is at; shown before [[status]].
-  phase: Listing<Rule> = new { default = (_) -> new Match {}; "phase"; "stage" }
+  percent: Listing<String> = new { "progress" }
+  /// What step it is at; shown before [[status]].
+  phase: Listing<String> = new { "phase"; "stage" }
   /// What the device is doing.
-  status: Listing<Rule> = new { default = (_) -> new Match {}; "status"; "state" }
-  /// What plays no part, whatever else matches it at the same level.
-  ignore: Listing<Rule> = new { default = (_) -> new Match {}; "total"; "last"; "lifetime" }
-  /// A status in one of these states means no job runs, whatever the numbers
-  /// say (a delayed start shows the programme's length as time left). Words
-  /// differ between integrations, so none are shipped.
+  status: Listing<String> = new { "status"; "state" }
+  /// What plays no part, whatever else names it.
+  ignore: Listing<String> = new { "total"; "last"; "lifetime" }
+  /// A status in one of these states means it is not running, whatever the
+  /// numbers say (a delayed start shows the programme's length as time left).
+  /// Words differ between integrations, so none are shipped.
   idleStates: Listing<String> = new {}
 }
 

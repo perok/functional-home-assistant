@@ -130,14 +130,14 @@ that places them honours it with nothing of its own.
 
 A slot's `valueWhile` is a boolean input too, `true` by default: while it does not hold, the slot's
 value is `""`, its transform does not run and **its fetches are not read**. The progress card's
-countdown has no value between jobs. It is the slot-sized case of what the pre-read does for
+countdown has no value while nothing runs. It is the slot-sized case of what the pre-read does for
 regions: a `c.iff` branch that does not show and a candidate that is not present are not asked
 either. It is lowered as the others are, onto a bool slot nested in
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
 or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
 
 It is decided first, and **once per state snapshot**, in that snapshot's decisions (the pipeline
-doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gateEntity` being the one
+doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gate` being the one
 rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
 their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
 render key, the paint and the signal path ask the same decisions, so none decides it again. A

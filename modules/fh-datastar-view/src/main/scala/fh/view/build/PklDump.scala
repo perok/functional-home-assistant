@@ -32,6 +32,11 @@ object PklDump {
     // entity would otherwise dangle and fail every dashboard's eval.
     val known = entities.map(_._1).toSet
 
+    val deviceSlugs: Map[String, String] =
+      devices.flatMap { case (slug, dvo) =>
+        str(dvo, "device_id").map(_ -> slug)
+      }.toMap
+
     // One class per entity, carrying exactly its capabilities: reading one it
     // lacks is a Pkl error, not a null.
     val entityDecls = entities.map { case (key, eo) =>
@@ -42,7 +47,7 @@ object PklDump {
          |
          |const hidden ${tick(s"e_$key")}: ${entityClass(
           key
-        )} = ${entityLiteral(eo, known)}""".stripMargin
+        )} = ${entityLiteral(eo, known, deviceSlugs)}""".stripMargin
     }
 
     // Each subclasses its `internal/dump-base.pkl` namespace, which declares the
@@ -188,9 +193,15 @@ object PklDump {
         str(dvo, "manufacturer").map(v => s"  manufacturer = ${pklString(v)}"),
         str(dvo, "model").map(v => s"  model = ${pklString(v)}")
       ).flatten
+      // A const like the `e_*` it lists: a const entity's `device` can name
+      // nothing else, and the namespace below holds this same object.
       s"""class ${tick(s"Device_$slug")} extends hass.Device {
          |${(fields ++ memberProps ++ entityList).mkString("\n")}
-         |}""".stripMargin
+         |}
+         |
+         |const hidden ${tick(s"d_$slug")}: ${tick(
+          s"Device_$slug"
+        )} = new {}""".stripMargin
     }
 
     val devicesClass = Option.when(devices.nonEmpty)(
@@ -199,7 +210,7 @@ object PklDump {
         "device",
         "hass.Device",
         devices.map { case (slug, _) =>
-          slug -> s"${tick(s"Device_$slug")} = new {}"
+          slug -> s"${tick(s"Device_$slug")} = ${tick(s"d_$slug")}"
         }
       )
     )
@@ -680,7 +691,11 @@ object PklDump {
       }
   }
 
-  private def entityLiteral(eo: JsonObject, known: Set[String]): String = {
+  private def entityLiteral(
+      eo: JsonObject,
+      known: Set[String],
+      deviceSlugs: Map[String, String]
+  ): String = {
     val memberRefs = eo("members")
       .flatMap(_.asArray)
       .getOrElse(Vector.empty)
@@ -699,6 +714,9 @@ object PklDump {
       str(eo, "area_id").map(v => s"  area_id = ${pklString(v)}"),
       str(eo, "floor_id").map(v => s"  floor_id = ${pklString(v)}"),
       str(eo, "device_id").map(v => s"  device_id = ${pklString(v)}"),
+      str(eo, "device_id")
+        .flatMap(deviceSlugs.get)
+        .map(slug => s"  device = ${tick(s"d_$slug")}"),
       str(eo, "entity_category").map(v =>
         s"  entity_category = ${pklString(v)}"
       ),

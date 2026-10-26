@@ -91,7 +91,7 @@ class SinceStartBarSuite extends CatsEffectSuite {
     "idle at 0, no history is read; a start reads it and fills the bar; the end removes it"
   ) {
     served(
-      card = "((c.progress(left)) { sinceStart = true }).label(\"Vask\")",
+      card = "c.progress(left).label(\"Vask\")",
       now = "0"
     ) { (ts, asked) =>
       for {
