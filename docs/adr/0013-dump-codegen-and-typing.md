@@ -126,9 +126,18 @@ workspace, so a user's rule for their own integration could never reach a role
 it narrowed; and a table per integration in the generator needed a release for
 every new appliance, where shipped words plus a user's rules cover the long
 tail. The cost is the narrowing: `c.roles.progress` is `Progress?`, so a device with
-none fails at `c.progress(d)`, naming its sensors, rather than in the editor. `entity_category` is
-only a tie-break between two sensors fitting one role, never a filter: the Electrolux washer's time
-to end and every Roborock entity are `diagnostic`.
+none fails at `c.progress(d)`, naming its sensors, rather than in the editor.
+
+Each role is chosen by rank (`progress.pkl`'s `choose`): of the sensors that fit the role's
+shape and that a rule names, the one named by the most specific rule, then sharing the most words
+with the job's countdown, then with the plainer name, then primary. **A tie at the top chooses
+none**, and the author names that part: the library never guesses between two sensors it cannot
+tell apart, and keeps no words of its own outside `defaults.progress` to break the tie. A car
+charging and climatising has two countdowns with unrelated names, so it gets no job by itself;
+several jobs per device is E5 on #541, which needs E4's consumables role first, since a vacuum's
+"Filter time left" looks like a job's countdown too. `entity_category` is only that last
+tie-break, never a filter: the Electrolux washer's time to end and every Roborock entity are
+`diagnostic`.
 
 ### Stage 1c — house-wide namespaces, declared rather than emitted
 

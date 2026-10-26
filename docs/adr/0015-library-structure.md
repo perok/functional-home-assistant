@@ -84,7 +84,8 @@ value (`valueWhile`, ADR 0034). The card is then the size of a plain tile. Wheth
 numbers, per role found: the countdown above 0, else a percentage between 0 and 100. A status
 overrules them only through `defaults.progress.idleStates`, a list of IDLE words, shipped empty:
 a missing idle word shows a bar at 0, where a missing running word would hide a running job, and
-the words differ per integration. A battery bar always shows, charging or not.
+the words differ per integration. A battery is never found as a bar; one put on the card with
+`.percent(battery)` always shows, charging or not.
 
 `secondary` is the one input both tiers share, under HA's own name for the line
 below a card's main text. It is the BASE's — a literal, an `Expr` or a reading
