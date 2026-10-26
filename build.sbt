@@ -505,7 +505,7 @@ lazy val `fh-datastar-view` = project
       "org.pkl-lang" % "pkl-core" % "0.32.1",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
-      "org.pkl-lang" % "pkl-parser" % "0.32.1",
+      "org.pkl-lang" % "pkl-parser" % "0.32.2",
       // mustache templating for runtime value injection (pure Java)
       "com.github.spullara.mustache.java" % "compiler" % "0.9.14",
       // CEL for per-slot value transforms (compile-once/eval-many planner
