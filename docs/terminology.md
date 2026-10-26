@@ -225,9 +225,8 @@ variable's **default** (below), which is per declaration and per page. ADR 0015.
 
 **Role** — the part a sensor plays on a `c.progress` card beside the countdown or percentage the
 card was given: `total`, `percent`, `phase`, `status`, or `ignore` for none. Found at build on the
-given sensor's device from the rules in `defaults.progress`, one sensor per role by rank, the most
-specific rule first (an entity, then a match, then words); a tie at the top chooses none. A rule
-only narrows the shape a role requires. ADR 0013.
+given sensor's device by the names in `defaults.progress`, one sensor per role by rank; a tie at
+the top chooses none. A name only narrows the shape a role requires. ADR 0013.
 
 **Entry** — the top-level Pkl module for one dashboard. `site.pkl` names every entry the instance
 serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR 0021.

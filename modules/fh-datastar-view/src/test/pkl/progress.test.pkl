@@ -98,40 +98,28 @@ facts {
     (new slotMod.Slot { transform = "state" }).values == null
   }
 
-  ["words, a match and an entity each name a role, and the most specific wins"] {
+  ["the workspace's names add to the shipped ones, and an ignored name takes a sensor out"] {
     local left = minutes("rem", "time_to_end")
-    local st = words("st", "appliance_state")
     local prog = words("prog", "programme")
-    // Words the library does not ship name nothing, until the workspace's
-    // defaults add them.
+    // A name the library does not ship finds nothing, until the workspace's
+    // defaults add it.
     parts(c.progress(onDevice(left, List(prog))))["status"] == null
     parts(ws.progress(onDevice(left, List(prog))))["status"] == "sensor.prog"
-    // `st` by the shipped words, `prog` by a match, which is more specific...
-    using((shipped) { status { new { key = "programme" } } }, left, List(st, prog))["status"] == "sensor.prog"
-    // ...and an entity more specific still.
-    using((shipped) { status { new { key = "programme" }; st } }, left, List(st, prog))["status"] == "sensor.st"
-    // An entity under `ignore` takes it out, whatever its words say.
-    using((shipped) { ignore { st } }, left, List(st))["status"] == null
+    // `ignore` takes it out, whatever else names it.
+    using((shipped) { ignore { "appliance" } }, left, List(words("st", "appliance_state")))["status"] == null
   }
 
-  ["a rule cannot loosen a role's shape"] {
+  ["a name cannot loosen a part's shape"] {
     local left = minutes("rem", "time_to_end")
-    local durationText = words("dur", "program_duration")
-    // Words naming a sensor of the wrong shape: it plays no part.
-    using(shipped, left, List(durationText))["total"] == null
-    // An entity rule naming one is an error, naming the sensor and the shape.
-    module.catch(() -> using((shipped) { total { durationText } }, left, List(durationText)))
-      .contains("sensor.dur, which is not a sensor with a fixed-length time unit")
+    // A programme length that is text: it plays no part.
+    using(shipped, left, List(words("dur", "program_duration")))["total"] == null
   }
 
   ["a running total and an ignored word play no part"] {
     local left = minutes("rem", "time_to_end")
     local counter: hass.SensorEntity = (minutes("all", "program_duration")) { state_class = "total_increasing" }
     using(shipped, left, List(counter))["total"] == null
-    local last = minutes("last", "last_program_duration")
-    using(shipped, left, List(last))["total"] == null
-    // An `ignore` rule wins at its own level and below, not over an entity.
-    using((shipped) { total { last } }, left, List(last))["total"] == "sensor.last"
+    using(shipped, left, List(minutes("last", "last_program_duration")))["total"] == null
   }
 
   ["two that fit one role: shared words, then the plainer name, then the primary one, else neither"] {

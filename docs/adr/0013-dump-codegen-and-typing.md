@@ -130,20 +130,22 @@ countdowns are both primary minutes, a vacuum's four consumables ("Filter time l
 diagnostic seconds, and the washer's own time to end is diagnostic minutes. A card given a device
 would guess which; given the sensor, nothing is ambiguous. What the sensor alone cannot say comes
 from its device: `c.progress(sensor)` finds the parts beside it, decided in Pkl at build rather
-than by the generator, by these facts read through the workspace's `defaults.progress` rules
-(ADR 0015). Two reasons for Pkl: the generator cannot see the workspace, so a user's rule for
-their own integration could never reach a role it narrowed; and a table per integration in the
-generator needed a release for every new appliance, where shipped words plus a user's rules cover
-the long tail.
+than by the generator, by these facts read against the names in the workspace's
+`defaults.progress` (ADR 0015). Two reasons for Pkl: the generator cannot see the workspace, so a
+user's name for their own integration could never reach a role it narrowed; and a table per
+integration in the generator needed a release for every new appliance, where shipped names plus a
+user's cover the long tail. The rules are names only: the one sensor a card needs exactly is the
+card's builder's (`.status(…)`), so a per-integration `platform`/`key` match or a named entity in
+the workspace's defaults would be a second way to say it.
 
 Each part is chosen by rank (`progress.pkl`'s `choose`): of the sensors that fit the part's shape
-and that a rule names, the one named by the most specific rule, then sharing the most words with
-the sensor given, then with the plainer name, then primary. **A tie at the top chooses none**, and
-the author names that part: the library never guesses between two sensors it cannot tell apart,
-and keeps no words of its own outside `defaults.progress` to break the tie. Sharing words is what
-pairs a car's charging countdown with "Charging state" rather than "Climatisation state".
-`entity_category` is only that last tie-break, never a filter: the Electrolux washer's time to end
-and every Roborock entity are `diagnostic`.
+and that a name names, the one sharing the most words with the sensor given, then with the plainer
+name, then primary. **A tie at the top chooses none**, and the card leaves that part out: the
+library never guesses between two sensors it cannot tell apart, and keeps no words of its own
+outside `defaults.progress` to break the tie. Sharing words is what pairs a car's charging
+countdown with "Charging state" rather than "Climatisation state". `entity_category` is only that
+last tie-break, never a filter: the Electrolux washer's time to end and every Roborock entity are
+`diagnostic`.
 
 ### Stage 1c — house-wide namespaces, declared rather than emitted
 

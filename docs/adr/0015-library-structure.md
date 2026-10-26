@@ -295,8 +295,7 @@ and repro: `docs/issue-report-2-pkl-lsp-extends-completion.md`.
   `c`): the whole facade completes after `c.` at any nesting depth, a namespace
   that is a class INSTANCE (`c.recipes: recipesMod.Recipes`) completes like a
   module re-export, and inside `defaults { }` completion offers the groups, then
-  a group's defaults, down to the fields of a bare `new { … }` rule (a section's
-  `default` types it); a misspelt default is "Unresolved property", a name
+  a group's defaults; a misspelt default is "Unresolved property", a name
   outside a union "Type mismatch". Class names after `new c.` do not complete,
   through the library import either. Measured with the library imported by
   path: pkl-lsp loads a package-form project through the `pkl` CLI, which the

@@ -140,11 +140,11 @@ is doing, and a bar. The rest it finds beside that sensor on its device, by
 their names in Home Assistant, and the device's name is the label.
 
 ```pkl
-c.progress(dump.entities.washer_time_to_end)
-c.progress(dump.entities.printer_print_progress).label("Printer")
+c.progress(dump.entities.sensor_washer_time_to_end)
+c.progress(dump.entities.sensor_printer_print_progress).label("Printer")
 // a car charging and climatising: one card each
-c.progress(dump.entities.car_charging_time_left)
-c.progress(dump.entities.car_remaining_climatisation_time)
+c.progress(dump.entities.sensor_car_charging_time_left)
+c.progress(dump.entities.sensor_car_remaining_climatisation_time)
 ```
 
 - Give it the countdown (a sensor in minutes, hours or seconds) or the
@@ -164,30 +164,25 @@ c.progress(dump.entities.car_remaining_climatisation_time)
 - To hide the whole card in between, wrap it in a `c.iff` on the same rule:
   `local p = c.progress(s)` and then `c.iff(p.running).then(p)`.
 
-When a part beside it is not found, teach it once in `components.pkl`. Each
-section is a part, and each line a rule: words in the sensor's name, a
-`new { … }` naming the integration or the key, or one sensor:
+When nothing is found the card simply leaves that part out. If your
+integration calls a part something the library does not know, teach the name
+once in `components.pkl`; a name matches a sensor when all its words are in
+the sensor's name:
 
 ```pkl
 defaults {
   progress {
-    status {
-      "programme"
-      new { platform = "miele"; key = "status" }
-      dump.entities.washer_appliance_state
-    }
-    ignore { dump.entities.car_service_inspection_days }
+    status { "programme" }
+    ignore { "service" }
   }
 }
 ```
 
-The sections are `total`, `percent`, `phase`, `status` and `ignore`.
-`idleStates { "off"; "idle" }` lists the status words that mean it is not
-running, whatever the numbers say, for an appliance that shows its programme's
-length before it starts. A rule naming one sensor beats a `new { … }`, which
-beats words. A rule cannot make a total out of a sensor that is not a duration:
-naming one is an error that says so. `components.pkl` needs
-`import "@fh-home/dump.pkl" as dump` to name a sensor.
+The sections are `total`, `percent`, `phase`, `status` and `ignore`, and yours
+add to the shipped names. A name cannot make a total out of a sensor that is
+not a duration. `idleStates { "off"; "idle" }` lists the status words that mean
+it is not running, whatever the numbers say, for an appliance that shows its
+programme's length before it starts.
 
 ## What a button can act on
 
