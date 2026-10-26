@@ -7,10 +7,14 @@
 /// `defaults.progress` rules; given a sensor, it is told the rest.
 module components.progress
 
+import "../core/node.pkl" as nodes
+import "../core/predicate.pkl" as pred
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
+import "../query.pkl" as q
+import "base/surface.pkl" as surfaces
 import "bar.pkl" as barMod
 import "defaults.pkl" as defaultsMod
 import "entity.pkl" as entityMod
@@ -29,6 +33,9 @@ class Progress {
   /// A bar of [[left]] out of where it started, from its history, when the
   /// device reports no other ([[barMod.remainingOfPeak]]).
   sinceStart: Boolean = false
+  /// Whether the job runs, live ([[runningOf]]), for a card of your own:
+  /// `c.iff(p.running).then(…)`. `true` when nothing can tell.
+  running: Boolean|pred.Predicate = true
 }
 
 /// The tile of the countdown, else of the percent sensor. A sensor, for its
@@ -65,21 +72,32 @@ class ProgressCard extends entityMod.EntityCard {
   /// out rather than show a guess.
   hidden scale: Number? = entity.durationSeconds
 
+  /// Whether the job runs ([[runningOf]]), `true` when nothing can tell. The
+  /// countdown reads empty and the bar is gone while it does not; a battery
+  /// bar always shows. `c.iff(p.running).then(p)` hides the whole card.
+  hidden running: Boolean|pred.Predicate =
+    runningOf(if (scale != null) entity else null, percent, status, defaults.progress.idleStates) ?? true
+
   label = if (device == null) null else device!!.device_name
   reading =
     if (value != null) slotMod.valueSlot(value)
-    else if (scale != null) new slotMod.Slot { transform = simpleMod.duration(scale!!) }
+    else if (scale != null) new slotMod.Slot { transform = simpleMod.duration(scale!!); valueWhile = running }
     // A percent sensor standing in for a countdown reads as itself.
     else if (!entity.isDuration) slotMod.valueSlot(slotMod.readingOf(entity))
     else ""
   secondary =
     if (status != null) new slotMod.Slot { entityId = status!!.entity_id; transform = simpleMod.state() }
     else null
+  // A bar that is gone reads no history, and its empty cell collapses.
   features =
-    if (percent != null) new Listing { barMod.percent(percent!!) }
-    else if (total != null && barMod.canCount(entity, total!!)) new Listing { barMod.remaining(entity, total!!) }
-    else if (sinceStart && scale != null) new Listing { barMod.remainingOfPeak(entity) }
-    else new Listing {}
+    let (bar: nodes.LayoutNode? =
+      if (percent != null) barMod.percent(percent!!)
+      else if (total != null && barMod.canCount(entity, total!!)) barMod.remaining(entity, total!!)
+      else if (sinceStart && scale != null) barMod.remainingOfPeak(entity)
+      else null)
+      if (bar == null) new Listing {}
+      else if (percent?.device_class == "battery" || running == true) new Listing { bar }
+      else new Listing { surfaces.iff(running).then(bar!!) }
 
   function left(l: hass.SensorEntity): ProgressCard = let (self = this) (self) { entity = l }
   function percent(p: hass.SensorEntity): ProgressCard = let (self = this) (self) { percent = p }
@@ -90,6 +108,23 @@ class ProgressCard extends entityMod.EntityCard {
   function icon(i: String): ProgressCard = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): ProgressCard = let (self = this) (self) { tapAction = t }
 }
+
+/// Whether a job runs, live: `left` above 0, else `percent` between 0 and 100
+/// (never a battery's), and `status` in none of `idleStates`. Null when neither
+/// number can tell. An unavailable sensor is not running.
+const function runningOf(
+  left: hass.SensorEntity?,
+  percent: hass.SensorEntity?,
+  status: hass.SensorEntity?,
+  idleStates: Listing<String>
+): pred.Predicate? =
+  let (byNumbers: pred.Predicate? =
+    if (left != null) q.entity(left).gt(q.prop("state"), 0)
+    else if (percent != null && percent.device_class != "battery")
+      q.entity(percent).gt(q.prop("state"), 0).and(q.entity(percent).lt(q.prop("state"), 100))
+    else null)
+    if (byNumbers == null || status == null) byNumbers
+    else idleStates.toList().fold(byNumbers!!, (acc: pred.Predicate, w: String) -> acc.and(q.entity(status).stateIsNot(w)))
 
 ///     c.progress(dump.devices.washer)
 ///     c.progress(dump.entities.sensor_washer_timetoend)
@@ -125,6 +160,7 @@ const function progressOf(d: hass.Device, rules: defaultsMod.ProgressRules): Pro
       total = if (bar == null) tp?.s else null
       status = sp?.s
       sinceStart = bar == null && tp == null
+      running = runningOf(lp?.s, bar?.s, sp?.s, rules.idleStates) ?? true
     }
 
 // ---- the heuristic ----

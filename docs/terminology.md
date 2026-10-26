@@ -79,7 +79,8 @@ reading on a boolean slot that does not produce a bool.
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
 all. While it does not hold the value is `""`, and the slot's transform and fetches are not run.
-Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hides a whole card.
+Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hides a region's
+content, a card's own part included.
 ADR 0034.
 
 **Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds

@@ -77,6 +77,15 @@ countdown the reading, with a bar in its `features` region. Given a device, it
 finds those sensors itself (`c.roles.progress`, by `defaults.progress`). It registers no
 template, so a page showing it beside other tiles carries one tile card.
 
+Between jobs the card stays and its job leaves: the bar sits in a `c.iff` on whether the job runs,
+so it is gone (its empty host's cell collapses) and reads no history, and the countdown has no
+value (`valueWhile`, ADR 0034). The card is then the size of a plain tile. Whether a job runs
+(`running`, `true` when nothing can tell, so it is never null) is decided by the
+numbers, per role found: the countdown above 0, else a percentage between 0 and 100. A status
+overrules them only through `defaults.progress.idleStates`, a list of IDLE words, shipped empty:
+a missing idle word shows a bar at 0, where a missing running word would hide a running job, and
+the words differ per integration. A battery bar always shows, charging or not.
+
 `secondary` is the one input both tiers share, under HA's own name for the line
 below a card's main text. It is the BASE's — a literal, an `Expr` or a reading
 — and the HA cards inherit it rather than shadowing it, so a String is the text

@@ -141,6 +141,7 @@ reads them by their names in Home Assistant.
 
 ```pkl
 c.progress(dump.devices.printer)
+c.progress(dump.devices.washer).label("Washer")
 
 // only the devices that report a job
 for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
@@ -156,6 +157,12 @@ for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
 - One part can be named by hand: `.left(…)`, `.percent(…)`, `.total(…)`,
   `.status(…)`. `c.progress(sensor)` starts from a remaining-time sensor
   alone.
+- The bar and the time left show only while the job runs: while the time left
+  is above 0, or, with no countdown, while the percentage is between 0 and
+  100. Between jobs the card shows its name and status, and a washer's history
+  is not read. A car's battery bar always shows.
+- To hide the whole card between jobs, wrap it in a `c.iff` on the same rule:
+  `local p = c.progress(d)` and then `c.iff(p.running).then(p)`.
 
 When yours is not found, teach it once in `components.pkl`. Each section is a
 part, and each line a rule: words in the sensor's name, a `new { … }` naming the
@@ -175,7 +182,9 @@ defaults {
 ```
 
 The sections are `countdown`, `total`, `percent`, `phase`, `status` and
-`ignore`. A rule naming one sensor beats a `new { … }`, which beats words.
+`ignore`. `idleStates { "off"; "idle" }` lists the status words that mean no
+job runs, whatever the numbers say, for a device that shows its programme's
+length before it starts. A rule naming one sensor beats a `new { … }`, which beats words.
 A rule cannot make a countdown out of a sensor that is not a duration: naming
 one is an error that says so. `components.pkl` needs
 `import "@fh-home/dump.pkl" as dump` to name a sensor.

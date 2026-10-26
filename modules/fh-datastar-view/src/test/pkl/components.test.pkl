@@ -19,6 +19,7 @@ import "../../main/resources/dashboards/lib/components/history.pkl" as historyMo
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
+import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -98,6 +99,12 @@ local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
 local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
 local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
 local firstNode = (s) -> s.members.values.first.clauses.first.node
+
+
+/// The bar a progress card shows, inside the `c.iff` that shows it only while
+/// its job runs.
+local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
+  let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
 facts {
   // The predicate vocabulary lives in `query.pkl` now: there are no free
@@ -1302,7 +1309,7 @@ facts {
   ["a bar appears exactly when there is something to divide by"] {
     local dishwasher = c.progress(remainingMin).total(programMin)
     dishwasher.features.length == 1
-    local bar = dishwasher.features[0] as barBaseMod.ProgressBar
+    local bar = barOf(dishwasher)
     (bar.slots["value"] as slotMod.Slot).entityId == "sensor.timetoend"
     (bar.slots["of"] as slotMod.Slot).entityId == "sensor.programduration"
     bar.slots["down"] == "1"
