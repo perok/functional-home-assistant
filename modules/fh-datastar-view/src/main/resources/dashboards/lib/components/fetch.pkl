@@ -21,7 +21,9 @@ import "history.pkl" as historyMod
 /// One sensor's recorded readings over a window, read in CEL as its points:
 /// `list(list(double))` of `[epochMillis, value]`, oldest first. Every
 /// reading, not a chart's ~300: thinning can drop the one a computation wants,
-/// such as where a countdown started.
+/// such as where a countdown started. Every reading is a raw row, so a window
+/// longer than HA's recorder keeps them (`purge_keep_days`, 10 by default)
+/// holds only the days it still has.
 class History extends slotMod.Fetch {
   hidden entity: hass.SensorEntity
   /// How far back, or a read of a node variable holding one.

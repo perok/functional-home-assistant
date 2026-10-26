@@ -11,19 +11,20 @@ import scala.concurrent.duration.*
   * one bucket share one fetch and one drawing. An arbitrary duration would give
   * each viewer their own key.
   *
-  * `statistics` is finer than `bucket` for short windows because `hour` on a
-  * one-hour window returns nothing (measured).
+  * `statistics` is the HA period a window reads first. None for the hour: five
+  * minutes would draw twelve points.
   */
 enum Window(
     val span: FiniteDuration,
     val bucket: FiniteDuration,
-    val statistics: StatisticsPeriod
+    val statistics: Option[StatisticsPeriod]
 ) derives CanEqual {
 
-  case LastHour extends Window(1.hour, 1.minute, StatisticsPeriod.FiveMinute)
-  case LastDay extends Window(24.hours, 5.minutes, StatisticsPeriod.FiveMinute)
-  case LastWeek extends Window(7.days, 1.hour, StatisticsPeriod.Hour)
-  case LastMonth extends Window(30.days, 1.hour, StatisticsPeriod.Hour)
+  case LastHour extends Window(1.hour, 1.minute, None)
+  case LastDay
+      extends Window(24.hours, 5.minutes, Some(StatisticsPeriod.FiveMinute))
+  case LastWeek extends Window(7.days, 1.hour, Some(StatisticsPeriod.Hour))
+  case LastMonth extends Window(30.days, 1.hour, Some(StatisticsPeriod.Hour))
 
   def startAt(asOf: Instant): Instant = asOf.minusSeconds(span.toSeconds)
 

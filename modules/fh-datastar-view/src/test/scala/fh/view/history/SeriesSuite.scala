@@ -33,18 +33,20 @@ class SeriesSuite extends munit.FunSuite {
     // one-hour window at `hour` period is empty. So the period has to be finer
     // than the span, for every window.
     Window.values.foreach { w =>
-      val periodSeconds = w.statistics match {
-        case StatisticsPeriod.FiveMinute => 300L
-        case StatisticsPeriod.Hour       => 3600L
-        case StatisticsPeriod.Day        => 86400L
-        case StatisticsPeriod.Week       => 604800L
-        case StatisticsPeriod.Month      => 2592000L
-        case StatisticsPeriod.Year       => 31536000L
+      w.statistics.foreach { period =>
+        val periodSeconds = period match {
+          case StatisticsPeriod.FiveMinute => 300L
+          case StatisticsPeriod.Hour       => 3600L
+          case StatisticsPeriod.Day        => 86400L
+          case StatisticsPeriod.Week       => 604800L
+          case StatisticsPeriod.Month      => 2592000L
+          case StatisticsPeriod.Year       => 31536000L
+        }
+        assert(
+          periodSeconds < w.span.toSeconds,
+          clue = (w, period, periodSeconds, w.span.toSeconds)
+        )
       }
-      assert(
-        periodSeconds < w.span.toSeconds,
-        clue = (w, w.statistics, periodSeconds, w.span.toSeconds)
-      )
     }
   }
 
@@ -127,15 +129,6 @@ class SeriesSuite extends munit.FunSuite {
     // Nothing to carry, and nothing past the end.
     assertEquals(Series.empty.heldUntil(at(3600)), Series.empty)
     assertEquals(held.heldUntil(at(3600)), held)
-  }
-
-  test("span is what the data covers, not what was asked for") {
-    val s = Series.fromHistory(
-      List(HistoryPoint("1", at(0)), HistoryPoint("2", at(600)))
-    )
-    assertEquals(s.span.map(_.toSeconds), Some(600L))
-    assertEquals(Series.empty.span, None)
-    assertEquals(s.oldest, Some(at(0)))
   }
 
   private def ramp(n: Int): Vector[Series.Point] =

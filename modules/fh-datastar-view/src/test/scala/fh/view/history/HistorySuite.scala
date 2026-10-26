@@ -52,8 +52,11 @@ class HistorySuite extends munit.CatsEffectSuite {
       .toList
   }
 
-  private def hourlyStats(from: Instant): List[StatisticPoint] = {
-    val hours = java.time.Duration.between(from, now).toHours
+  private def hourlyStats(
+      from: Instant,
+      to: Instant = now
+  ): List[StatisticPoint] = {
+    val hours = java.time.Duration.between(from, to).toHours
     (0L until hours).map { h =>
       val s = from.plusSeconds(h * 3600)
       StatisticPoint(
@@ -75,56 +78,63 @@ class HistorySuite extends munit.CatsEffectSuite {
         identity: FetchIdentity = FetchIdentity.Instance
     ) = h.series(identity, e, w, asOf)
 
-  test("an unproven window asks both; a window retention covers asks raw") {
-    // Ten days of rows for a thirty-day question is what the recorder holds,
-    // known from then on with no configuration.
+  test(
+    "a day or longer reads statistics, then raw; the hour and every point raw"
+  ) {
+    def made(w: Window, everyPoint: Boolean = false) =
+      for {
+        src <- source(statRows = hourlyStats(ago(30.days)))
+        h <- History.create(src)
+        _ <- h.answerAt(FetchIdentity.Instance, entity, w, now, everyPoint)
+        calls <- src.calls.get
+      } yield calls
     for {
-      src <- source((_, s) => IO.pure(rowsFrom(ago(10.days))(s)))
-      h <- History.create(src)
-      _ <- h.ask(Window.LastMonth)
-      first <- src.calls.get
-      _ <- src.reset
-      _ <- h.ask(Window.LastWeek)
-      covered <- src.calls.get
-      _ <- src.reset
-      _ <- h.ask(Window.LastMonth, e = "sensor.other")
-      uncovered <- src.calls.get
+      hour <- made(Window.LastHour)
+      day <- made(Window.LastDay)
+      week <- made(Window.LastWeek)
+      month <- made(Window.LastMonth)
+      every <- made(Window.LastDay, everyPoint = true)
     } yield {
-      assertEquals(first.sorted, Vector("raw", "statistics:hour"))
-      assertEquals(covered, Vector("raw"))
-      assertEquals(uncovered.sorted, Vector("raw", "statistics:hour"))
+      assertEquals(hour, Vector("raw"))
+      assertEquals(day, Vector("statistics:5minute", "raw"))
+      assertEquals(week, Vector("statistics:hour", "raw"))
+      assertEquals(month, Vector("statistics:hour", "raw"))
+      assertEquals(every, Vector("raw"))
     }
   }
 
-  test("retention is the greatest age seen, not the latest one") {
-    // A new sensor's short answer must not retract what an old row proved: they
-    // are indistinguishable per entity.
+  test("raw rows after the newest bucket carry the line to now") {
+    // A bucket is written after its period ends, so the newest lags by minutes.
+    val lastEnd = ago(1.hour)
     for {
-      src <- source {
-        case ("sensor.new", s) => IO.pure(rowsFrom(ago(1.hour))(s))
-        case (_, s)            => IO.pure(rowsFrom(ago(10.days))(s))
-      }
+      starts <- Ref[IO].of(Vector.empty[Instant])
+      src <- source(
+        (_, s) => starts.update(_ :+ s).as(rowsFrom(s)(s)),
+        hourlyStats(ago(7.days), lastEnd)
+      )
       h <- History.create(src)
-      _ <- h.ask(Window.LastMonth)
-      _ <- h.ask(Window.LastMonth, e = "sensor.new")
-      _ <- src.reset
-      _ <- h.ask(Window.LastWeek, e = "sensor.third")
-      made <- src.calls.get
-    } yield assertEquals(made, Vector("raw"))
+      s <- h.ask(Window.LastWeek)
+      asked <- starts.get
+    } yield {
+      assertEquals(asked, Vector(lastEnd))
+      val times = s.points.map(_.at)
+      assertEquals(times, times.sorted)
+      assertEquals(times.lastOption, Some(now))
+      assert(times.count(_ == lastEnd) == 1, clue = times)
+    }
   }
 
-  test("an empty answer proves nothing") {
+  test("an entity with no statistics reads its whole window raw") {
     for {
-      src <- source()
+      starts <- Ref[IO].of(Vector.empty[Instant])
+      src <- source((_, s) => starts.update(_ :+ s).as(Nil))
       h <- History.create(src)
-      _ <- h.ask(Window.LastHour)
-      _ <- src.reset
-      _ <- h.ask(Window.LastHour, e = "sensor.other")
-      made <- src.calls.get
-    } yield assertEquals(made.sorted, Vector("raw", "statistics:5minute"))
+      _ <- h.ask(Window.LastWeek)
+      asked <- starts.get
+    } yield assertEquals(asked, Vector(ago(7.days)))
   }
 
-  test("the wider answer wins, which is how a purged window still draws") {
+  test("a month past the recorder's purge still draws, from its buckets") {
     for {
       src <- source(
         (_, s) => IO.pure(rowsFrom(ago(10.days))(s)),
@@ -132,17 +142,10 @@ class HistorySuite extends munit.CatsEffectSuite {
       )
       h <- History.create(src)
       s <- h.ask(Window.LastMonth)
-    } yield assert(s.span.exists(_.toDays >= 29), clue = s.span.map(_.toDays))
-  }
-
-  test("history wins a tie, because its resolution is finer") {
-    // Statistics are plotted at bucket ends, so they start an hour later.
-    val from = ago(7.days)
-    for {
-      src <- source((_, s) => IO.pure(rowsFrom(from)(s)), hourlyStats(from))
-      h <- History.create(src)
-      s <- h.ask(Window.LastWeek)
-    } yield assertEquals(s.points.headOption.map(_.at), Some(from))
+    } yield assert(
+      s.points.headOption.exists(_.at.isBefore(ago(29.days))),
+      clue = s.points.headOption
+    )
   }
 
   test("the result is downsampled before anyone sees it") {

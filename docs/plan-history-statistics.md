@@ -1,7 +1,7 @@
 # Plan: a chart of a day or longer reads HA's statistics, not every raw row
 
 Agreed in chat on 2026-10-26, after measuring why the more-info history popup opens slowly.
-**Not started.** One PR, `fh/view/history` only.
+**In progress.** One PR, `fh/view/history` only.
 
 ## Why
 
@@ -57,7 +57,9 @@ against reading them first.
   countdown answered 0 rows). An empty statistics answer falls back to the raw read of the whole
   window, which is what such an entity gets today.
 - **`points = "all"` stays raw.** It is a computation's input (the progress bar's peak), and a
-  5-minute mean is not a reading.
+  5-minute mean is not a reading. So a `c.fetch.history(e).over("30d")` holds only the days HA's
+  recorder still keeps (`purge_keep_days`, 10 by default), where today the statistics fill the
+  rest. Accepted, and said in `fetch.pkl`'s doc.
 - **The value is the bucket's `mean`**, else a total sensor's `state`, as `Series.fromStatistics`
   does today, plotted at the bucket's end.
 
@@ -90,8 +92,8 @@ is possible later. It is not part of this change.
 - "the wider answer wins, which is how a purged window still draws";
 - "history wins a tie, because its resolution is finer".
 
-They are deleted or rewritten with the change. **This needs the maintainer's OK before it is
-done.**
+They are replaced (agreed), and so is `SeriesSuite`'s test of `Series.span`/`oldest`, which only
+the retention mechanism used.
 
 New tests:
 
@@ -107,13 +109,7 @@ New tests:
   available.
 - ADR check: no ADR owns the provider's source choice. ADR 0031 owns the fetch/draw split, which
   doesn't move, and ADR 0032 mentions LTTB only as a cap on what is drawn. The architecture doc's
-  `history_during_period · statistics_during_period` edge stays true. Expected doc changes are
-  `docs/terminology.md` (Retention) and the scaladoc on `History`.
+  `history_during_period · statistics_during_period` edge stays true. Doc changes are
+  `docs/terminology.md` (Retention removed), the scaladoc on `History` and `Window`, and
+  `fetch.pkl`'s doc.
 
-## Open questions
-
-1. **`points = "all"` past retention.** Today a `30d` window with `points = "all"` still draws
-   past the purge horizon (default 10 days), because the wider answer wins. With this plan it
-   answers only the raw rows that are left. Every `c.fetch.history(e)` (an expression value) asks
-   `points = "all"`, at `24h` unless `.over(…)` names another window; the library's one user, the
-   progress peak, keeps the default. Recommendation: accept this, and say so in `fetch.pkl`'s doc.

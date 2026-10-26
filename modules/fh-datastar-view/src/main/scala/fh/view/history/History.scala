@@ -1,11 +1,11 @@
 package fh.view.history
 
-import cats.effect.{IO, Ref}
+import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.fetch.{Answer, FetchIdentity, FetchRequest, SharedCache}
 import io.circe.syntax.*
 
-import java.time.{Duration as JDuration, Instant}
+import java.time.Instant
 import scala.concurrent.duration.FiniteDuration
 
 /** Parsing a history fetch — pure, so `Dashboard.validate` can reject a bad one
@@ -59,16 +59,10 @@ final case class SeriesKey(
 
 /** The `history` provider: one entity's readings over one window, fetched once
   * per bucket and shared by everyone who asks, answered as DATA.
-  *
-  * `retention` is how far back HA's recorder holds raw rows, learned from
-  * answers because `purge_keep_days` is reported nowhere. It is the maximum row
-  * age seen across ALL entities — a sensor created two days ago also answers
-  * two days — and only grows.
   */
 final class History private (
     source: SeriesSource,
     cache: SharedCache[SeriesKey, Answer],
-    retention: Ref[IO, JDuration],
     target: Int,
     now: IO[Instant]
 ) {
@@ -113,8 +107,11 @@ final class History private (
 
   private[history] def keys: IO[Set[SeriesKey]] = cache.keys
 
-  /** History alone once retention is known to cover the window; otherwise both
-    * in parallel, keeping whichever covers more time.
+  /** Statistics first, where the window has a period and every reading was not
+    * asked for: a day of a meter's raw rows is 850 KB to draw 300 points. The
+    * newest bucket lags its period by minutes, so raw rows after it carry the
+    * line to now. In sequence, because the tail starts where the buckets end.
+    * An entity with no `state_class` has no statistics and reads raw.
     */
   private def fetch(
       entityId: String,
@@ -122,24 +119,25 @@ final class History private (
       asOf: Instant,
       everyPoint: Boolean
   ) = {
+    def raw(from: Instant) =
+      source.raw(from, asOf, entityId).map(Series.fromHistory)
     val start = window.startAt(asOf)
-    val fromHistory =
-      source
-        .raw(start, asOf, entityId)
-        .map(Series.fromHistory)
-        .flatTap(s =>
-          s.oldest.traverse_ { at =>
-            val age = JDuration.between(at, asOf)
-            retention.update(r => if (age.compareTo(r) > 0) age else r)
-          }
-        )
-    val fromStatistics =
-      source
-        .statistics(start, asOf, entityId, window.statistics)
-        .map(Series.fromStatistics)
-    retention.get
-      .map(_.getSeconds >= window.span.toSeconds)
-      .ifM(fromHistory, (fromHistory, fromStatistics).parMapN(History.widest))
+    window.statistics
+      .filterNot(_ => everyPoint)
+      .fold(raw(start))(period =>
+        source
+          .statistics(start, asOf, entityId, period)
+          .map(Series.fromStatistics)
+          .flatMap(buckets =>
+            buckets.points.lastOption.fold(raw(start))(last =>
+              raw(last.at).map(tail =>
+                Series(
+                  buckets.points ++ tail.points.filter(_.at.isAfter(last.at))
+                )
+              )
+            )
+          )
+      )
       .map(s =>
         if (everyPoint) s.heldUntil(asOf)
         else s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))
@@ -156,25 +154,14 @@ object History {
       onFailure: SharedCache.OnFailure[SeriesKey] = SharedCache.ignore,
       now: IO[Instant] = IO.realTimeInstant
   ): IO[History] =
-    (
-      // Expiry is asked PER KEY: windows bucket at different sizes, and
-      // sweeping by the newest key's bucket evicted live 30 d entries whenever
-      // a 1 h one landed.
-      SharedCache.create[SeriesKey, Answer](
+    // Expiry is asked PER KEY: windows bucket at different sizes, and sweeping
+    // by the newest key's bucket evicted live 30 d entries whenever a 1 h one
+    // landed.
+    SharedCache
+      .create[SeriesKey, Answer](
         (added, other) => other.expiresAt.isAfter(added.bucket),
         failureTtl,
         onFailure
-      ),
-      Ref[IO].of(JDuration.ZERO)
-    ).mapN(new History(source, _, _, target, now))
-
-  // By time covered, not point count: statistics is coarser by design, so
-  // counting points would always pick history. History wins a tie.
-  private def widest(history: Series, statistics: Series): Series =
-    (history.span, statistics.span) match {
-      case (Some(h), Some(s)) => if (s.compareTo(h) > 0) statistics else history
-      case (Some(_), None)    => history
-      case (None, Some(_))    => statistics
-      case (None, None)       => history
-    }
+      )
+      .map(new History(source, _, target, now))
 }

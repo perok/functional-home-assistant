@@ -23,8 +23,6 @@ import scala.jdk.CollectionConverters.*
 final case class Series(points: Vector[Series.Point]) derives Codec.AsObject {
   def isEmpty: Boolean = points.isEmpty
 
-  def oldest: Option[Instant] = points.headOption.map(_.at)
-
   /** The last reading carried to `at`. The recorder writes a row only when a
     * value moves, so a sensor that held one value for the whole window answers
     * ONE row — the state at its start — and a line through one point draws
@@ -36,11 +34,6 @@ final case class Series(points: Vector[Series.Point]) derives Codec.AsObject {
         copy(points = points :+ Series.Point(at, last.value))
       case _ => this
     }
-
-  def span: Option[java.time.Duration] =
-    for {
-      a <- points.headOption; b <- points.lastOption
-    } yield java.time.Duration.between(a.at, b.at)
 }
 
 object Series {

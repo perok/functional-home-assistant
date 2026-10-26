@@ -432,11 +432,6 @@ their own key and the sharing would stop.
 step, and is what makes a series expire by time moving rather than by a timer. A **statistics
 bucket** is one pre-aggregated interval in HA's own table.
 
-**Retention** — how far back HA's recorder still holds raw rows. Learned, never configured: HA
-answers a too-long window with whatever survives rather than an error, so the only sound reading is
-a lower bound taken as the MAXIMUM across every entity asked for. Per entity it cannot be read at
-all — a sensor created yesterday and a daily purge give the same short answer.
-
 **Fetch** — a read of a **provider** with its parameters: `history` of one entity over one window.
 A fetch slot shows one; an expression value reads one in CEL (`c.fetch.history(e)`).
 Not a **query**, which is `query.pkl`'s `q.`: it picks CANDIDATES at build time, with presence and
