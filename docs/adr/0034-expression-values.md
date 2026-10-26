@@ -129,8 +129,10 @@ that places them honours it with nothing of its own.
 ### A slot's value only while a condition holds: `valueWhile`
 
 A slot's `valueWhile` is a boolean input too, `true` by default: while it does not hold, the slot's
-value is `""`, its transform does not run and **its fetches are not read**. A device's bar while
-the washer is idle reads no history. It is lowered as the others are, onto a bool slot nested in
+value is `""`, its transform does not run and **its fetches are not read**. The progress card's
+countdown has no value between jobs. It is the slot-sized case of what the pre-read does for
+regions: a `c.iff` branch that does not show and a candidate that is not present are not asked
+either. It is lowered as the others are, onto a bool slot nested in
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
 or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
 
