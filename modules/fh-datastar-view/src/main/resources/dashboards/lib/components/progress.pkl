@@ -24,7 +24,7 @@ class Progress {
   device: hass.Device
   /// The countdown.
   left: hass.SensorEntity? = null
-  /// A percentage bar: the device's own, or its battery while it charges.
+  /// How far along, as a percentage bar.
   percent: hass.SensorEntity? = null
   /// A bar of [[left]] out of this. Never set with [[percent]].
   total: hass.SensorEntity? = null
@@ -134,134 +134,139 @@ function progress(x: hass.Device|hass.SensorEntity): ProgressCard =
   if (x is hass.SensorEntity) new ProgressCard { entity = x }
   else new ProgressCard { device = x as hass.Device }
 
-/// The parts of `d`'s job, or null when it has no countdown and no bar.
+/// The parts of `d`'s job, or null when it has no countdown and no bar: the
+/// job at its countdown, else at its percentage.
 const function progressOf(d: hass.Device, rules: defaultsMod.ProgressRules): Progress? =
-  let (ps = d.entities.filter((e) -> e is hass.SensorEntity).map((e) -> played(e as hass.SensorEntity, rules)))
-  let (lefts = candidates(ps, "countdown"))
-  let (battery = pick(ps.filter((p) -> p.s.device_class == "battery" && !p.words.any((w) -> w == "target" || w == "limit")), null))
-  // With several countdowns and a battery, the one about charging.
-  let (charging = lefts.filter((p) -> isCharging(p)))
-  // Not named after Progress's properties, which a `new Progress` body would
-  // read instead (ADR 0006).
-  let (lp = pick(if (battery != null && lefts.length > 1 && charging.length == 1) charging else lefts, null))
-  let (pp = pick(candidates(ps, "percent"), lp))
-  let (tp = if (lp == null) null else pick(candidates(ps, "total").filter((p) -> !lefts.contains(p)), lp))
-  let (anchor = lp ?? pp)
-  let (sp = pick(candidates(ps, "phase"), anchor) ?? pick(candidates(ps, "status"), anchor))
-  let (bar =
-    if (pp != null) pp
-    else if (lp != null && tp == null && isCharging(lp) && battery != null) battery
-    else null)
-    if (lp == null && bar == null) null
-    else new Progress {
+  let (ss = d.entities.filter((e) -> e is hass.SensorEntity).map((e) -> e as hass.SensorEntity))
+  let (lp = choose(ss, countdownRole(rules), null))
+  let (anchor = lp ?? choose(ss, percentRole(rules), null))
+    if (anchor == null) null else jobAt(d, ss, rules, lp, anchor!!)
+
+/// The job around `anchor`, its countdown `lp` or else its percentage: the
+/// other parts are ranked by the words they share with it, so they are the
+/// same job's. Names are not Progress's properties, which a `new Progress`
+/// body would read instead (ADR 0006).
+const local function jobAt(
+  d: hass.Device,
+  ss: List<hass.SensorEntity>,
+  rules: defaultsMod.ProgressRules,
+  lp: hass.SensorEntity?,
+  anchor: hass.SensorEntity
+): Progress =
+  let (pp = if (lp == null) anchor else choose(ss, percentRole(rules), anchor))
+  let (tp = if (lp == null || pp != null) null else choose(ss.filter((s) -> s != lp), totalRole(rules), anchor))
+  let (sp = choose(ss, phaseRole(rules), anchor) ?? choose(ss, statusRole(rules), anchor))
+    new Progress {
       device = d
-      left = lp?.s
-      percent = bar?.s
-      total = if (bar == null) tp?.s else null
-      status = sp?.s
-      sinceStart = bar == null && tp == null
-      running = runningOf(lp?.s, bar?.s, sp?.s, rules.idleStates) ?? true
+      left = lp
+      percent = pp
+      total = tp
+      status = sp
+      sinceStart = pp == null && tp == null
+      running = runningOf(lp, pp, sp, rules.idleStates) ?? true
     }
 
-// ---- the heuristic ----
+// ---- roles ----
 
-/// A sensor, its words, and the roles it plays at the level of its most
-/// specific matching rule: 3 an entity, 2 a [[defaultsMod.Match]], 1 words.
-local class Played {
-  s: hass.SensorEntity
-  words: Set<String>
-  roles: Map<String, Int>
+/// A part a sensor plays in a job: the shape every sensor in it has, whatever
+/// a rule says, the rules naming it, and those taking a sensor out of it.
+local class Role {
+  name: String
+  shape: String
+  fits: (hass.SensorEntity) -> Boolean
+  rules: Listing<defaultsMod.Rule>
+  ignore: Listing<defaultsMod.Rule>
 }
 
-const local roleNames: List<String> = List("countdown", "total", "percent", "phase", "status")
+const local function timed(n: String, named: Listing<defaultsMod.Rule>, r: defaultsMod.ProgressRules): Role = new {
+  name = n
+  shape = "a sensor with a fixed-length time unit"
+  fits = (s) -> s.durationSeconds != null
+  rules = named
+  ignore = r.ignore
+}
+
+const local function worded(n: String, named: Listing<defaultsMod.Rule>, r: defaultsMod.ProgressRules): Role = new {
+  name = n
+  shape = "a sensor with no unit"
+  fits = (s) -> s.unit_of_measurement == null
+  rules = named
+  ignore = r.ignore
+}
+
+const local function countdownRole(r: defaultsMod.ProgressRules): Role = timed("countdown", r.countdown, r)
+const local function totalRole(r: defaultsMod.ProgressRules): Role = timed("total", r.total, r)
+const local function phaseRole(r: defaultsMod.ProgressRules): Role = worded("phase", r.phase, r)
+const local function statusRole(r: defaultsMod.ProgressRules): Role = worded("status", r.status, r)
+const local function percentRole(r: defaultsMod.ProgressRules): Role = new {
+  name = "percent"
+  shape = "a % sensor with no device class"
+  fits = (s) -> s.unit_of_measurement == "%" && s.device_class == null
+  rules = r.percent
+  ignore = r.ignore
+}
+
+// ---- choosing ----
+
+/// The one sensor playing `role`, else null. The candidates are the sensors
+/// that fit its shape and that a rule names more specifically than an
+/// `ignore` rule does; a running total is never one. They are narrowed by
+/// each of these in turn, keeping the best:
+///
+/// 1. how specific the rule naming it is: an entity, a [[defaultsMod.Match]], words;
+/// 2. how many words it shares with `anchor`;
+/// 3. the plainer name: none of the others' words are a part of its own
+///    ("Cycle phase" over "Cycle sub phase"; unrelated names tie);
+/// 4. a primary sensor over a config or diagnostic one.
+///
+/// Two still left is a tie, and chooses none: the author names that part.
+/// An entity rule naming a sensor that does not fit is a build error.
+const local function choose(ss: List<hass.SensorEntity>, role: Role, anchor: hass.SensorEntity?): hass.SensorEntity? =
+  let (named = ss.filter((s) -> !isRunningTotal(s) && specificity(role.rules, s) > specificity(role.ignore, s)))
+  let (misfit = named.findOrNull((s) -> specificity(role.rules, s) == 3 && !role.fits.apply(s)))
+    if (misfit != null) throw("defaults.progress.\(role.name) names \(misfit.entity_id), which is not \(role.shape)")
+    else
+      let (byRule = best(named.filter((s) -> role.fits.apply(s)), (s) -> specificity(role.rules, s)))
+      let (byJob = best(byRule, (s) -> if (anchor == null) 0 else wordsOf(s).filter((w) -> wordsOf(anchor).contains(w)).length))
+      let (byName = best(byJob, (s) -> if (byJob.any((o) -> lengthens(s, o))) 0 else 1))
+      let (byCategory = best(byName, (s) -> if (s.entity_category == null) 1 else 0))
+        if (byCategory.length == 1) byCategory.first else null
+
+/// Those of `ss` scoring highest.
+const local function best(ss: List<hass.SensorEntity>, score: (hass.SensorEntity) -> Int): List<hass.SensorEntity> =
+  if (ss.isEmpty) ss
+  else
+    let (top = ss.map((s) -> score.apply(s)).max)
+      ss.filter((s) -> score.apply(s) == top)
+
+/// Whether `s`'s name is `o`'s with more words.
+const local function lengthens(s: hass.SensorEntity, o: hass.SensorEntity): Boolean =
+  wordsOf(o).length < wordsOf(s).length && wordsOf(o).every((w) -> wordsOf(s).contains(w))
+
+/// The most specific of `rules` naming `s`: 3 an entity, 2 a Match, 1 words, 0 none.
+const local function specificity(rules: Listing<defaultsMod.Rule>, s: hass.SensorEntity): Int =
+  rules.toList().map((r) ->
+    if (r is String) (if (wordsIn(r).every((w) -> wordsOf(s).contains(w))) 1 else 0)
+    else if (r is defaultsMod.Match) (if (matches(r, s)) 2 else 0)
+    else if ((r as hass.SensorEntity).entity_id == s.entity_id) 3
+    else 0
+  ).fold(0, (a, b) -> if (b > a) b else a)
+
+const local function matches(m: defaultsMod.Match, s: hass.SensorEntity): Boolean =
+  (m.platform == null || m.platform == s.platform)
+    && (m.key == null || m.key == s.translation_key || m.key == s.original_name)
+    && (m.device_class == null || m.device_class == s.device_class)
+    && (m.unit == null || m.unit == s.unit_of_measurement)
+
+const local function isRunningTotal(s: hass.SensorEntity): Boolean =
+  s.state_class == "total" || s.state_class == "total_increasing"
 
 const local function wordsIn(text: String): Set<String> =
   text.toLowerCase().replaceAll("_", " ").replaceAll("-", " ").split(" ").filter((w) -> !w.isEmpty).toSet()
 
-const local function played(sensor: hass.SensorEntity, rules: defaultsMod.ProgressRules): Played =
-  let (ws = wordsIn("\(sensor.translation_key ?? "") \(sensor.original_name ?? "")"))
-  let (levels = (roleNames + List("ignore")).toMap((r) -> r, (r) -> levelIn(rules.getProperty(r) as Listing<defaultsMod.Rule>, sensor, ws)))
-  let (best = levels.values.max)
-  let (runningTotal = sensor.state_class == "total" || sensor.state_class == "total_increasing")
-    new Played {
-      s = sensor
-      words = ws
-      roles =
-        if (best == 0 || levels["ignore"] == best || runningTotal) Map()
-        else levels.filter((r, l) -> l == best && r != "ignore")
-    }
-
-const local function levelIn(rules: Listing<defaultsMod.Rule>, sensor: hass.SensorEntity, ws: Set<String>): Int =
-  rules.toList().map((r) -> levelOf(r, sensor, ws)).fold(0, (a, b) -> if (b > a) b else a)
-
-const local function levelOf(r: defaultsMod.Rule, sensor: hass.SensorEntity, ws: Set<String>): Int =
-  if (r is String) (if (wordsIn(r).every((w) -> ws.contains(w))) 1 else 0)
-  else if (r is defaultsMod.Match) (if (matches(r, sensor)) 2 else 0)
-  else if ((r as hass.SensorEntity).entity_id == sensor.entity_id) 3
-  else 0
-
-const local function matches(m: defaultsMod.Match, sensor: hass.SensorEntity): Boolean =
-  (m.platform == null || m.platform == sensor.platform)
-    && (m.key == null || m.key == sensor.translation_key || m.key == sensor.original_name)
-    && (m.device_class == null || m.device_class == sensor.device_class)
-    && (m.unit == null || m.unit == sensor.unit_of_measurement)
-
-/// The shape each role keeps whatever a rule says.
-const local function fits(role: String, sensor: hass.SensorEntity): Boolean =
-  if (role == "countdown" || role == "total") sensor.durationSeconds != null
-  else if (role == "percent") sensor.unit_of_measurement == "%" && sensor.device_class == null
-  else sensor.unit_of_measurement == null
-
-const local shapes: Map<String, String> = Map(
-  "countdown", "a sensor with a fixed-length time unit",
-  "total", "a sensor with a fixed-length time unit",
-  "percent", "a % sensor with no device class",
-  "phase", "a sensor with no unit",
-  "status", "a sensor with no unit"
-)
-
-/// The sensors playing `role` that fit it, at the most specific level any of
-/// them was named.
-const local function candidates(ps: List<Played>, role: String): List<Played> =
-  let (xs = ps.filter((p) -> p.roles.containsKey(role) && fitsOrRefuse(role, p)))
-  let (top = xs.fold(0, (a, p) -> if (p.roles[role] > a) p.roles[role] else a))
-    xs.filter((p) -> p.roles[role] == top)
-
-const local function fitsOrRefuse(role: String, p: Played): Boolean =
-  if (fits(role, p.s)) true
-  else if (p.roles[role] == 3)
-    throw("defaults.progress.\(role) names \(p.s.entity_id), which is not \(shapes[role])")
-  else false
-
-const local function isCharging(p: Played): Boolean =
-  p.words.contains("charge") || p.words.contains("charging")
-
-/// Words that say what a role is rather than which job it belongs to.
-const local generic: Set<String> = Set(
-  "time", "the", "of", "to", "end", "remaining", "left", "duration", "progress",
-  "status", "state", "phase", "stage"
-)
-
-/// One of `cs`: the only one; else the one sharing the most words with
-/// `anchor`; else the one whose words no other's are a part of (the plainer
-/// name); else the one not marked config or diagnostic; else none.
-const local function pick(cs: List<Played>, anchor: Played?): Played? =
-  if (cs.length <= 1) cs.firstOrNull
-  else
-    let (near =
-      if (anchor == null) cs
-      else
-        let (aw = anchor.words.filter((w) -> !generic.contains(w)))
-        let (score = (p: Played) -> p.words.filter((w) -> aw.contains(w)).length)
-        let (best = cs.fold(0, (a, p) -> if (score.apply(p) > a) score.apply(p) else a))
-          cs.filter((p) -> score.apply(p) == best))
-    let (plain = near.filter((c) ->
-      !near.any((o) -> o.words.length < c.words.length && o.words.every((w) -> c.words.contains(w)))))
-    let (primary = near.filter((c) -> c.s.entity_category == null))
-      if (near.length == 1) near.first
-      else if (plain.length == 1) plain.first
-      else if (primary.length == 1) primary.first
-      else null
+/// Its `translation_key` and `original_name` words.
+const local function wordsOf(s: hass.SensorEntity): Set<String> =
+  wordsIn("\(s.translation_key ?? "") \(s.original_name ?? "")")
 
 const local function noProgress(d: hass.Device): String =
   let (sensors = d.entities.filter((e) -> e is hass.SensorEntity).map((e) -> e.entity_id))

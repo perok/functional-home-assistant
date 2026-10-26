@@ -54,10 +54,9 @@ facts {
     found["vacuum"] == Map(
       "left", null, "percent", "sensor.roborock_s8_cleaning_progress",
       "total", null, "status", "sensor.roborock_s8_status")
-    // Charging, so the battery is the bar, and of two countdowns the charging one.
-    found["car"] == Map(
-      "left", "sensor.car_id4gtx_charging_time_left", "percent", "sensor.car_id4gtx_battery_level",
-      "total", null, "status", "sensor.car_id4gtx_charging_state")
+    // Two jobs' countdowns, charging and climatisation: unrelated names tie,
+    // so none is chosen, and the author names one.
+    found["car"] == Map()
     // Time left and nothing to divide it by: a bar out of where it started.
     found["washer"] == Map(
       "left", "sensor.electrolux_washing_machine_timetoend_2", "percent", null,
@@ -125,7 +124,10 @@ facts {
   ["a running total and an ignored word play no part"] {
     local energy: hass.SensorEntity = (minutes("ontime", "remaining_time")) { state_class = "total_increasing" }
     c.roles.progress(dev(List(energy))) == null
-    c.roles.progress(dev(List(minutes("last", "last_remaining_time")))) == null
+    local last = minutes("last", "last_remaining_time")
+    c.roles.progress(dev(List(last))) == null
+    // An `ignore` rule wins at its own level and below, not over an entity.
+    using((shipped) { countdown { last } }, List(last))["left"] == "sensor.last"
   }
 
   ["two that fit one role: shared words, then the plainer name, then the primary one, else neither"] {
@@ -141,9 +143,11 @@ facts {
     ids(c.roles.progress(dev(List(left, diag, words("b", "appliance_state")))))["status"] == "sensor.b"
     // Else neither.
     ids(c.roles.progress(dev(List(left, words("a", "machine_state"), words("b", "appliance_state")))))["status"] == null
+    // Unrelated names tie whatever their length.
+    c.roles.progress(dev(List(minutes("a", "charging_time_left"), minutes("b", "remaining_climatisation_time")))) == null
   }
 
-  ["one bar: a percent, else left of total, else the battery while charging"] {
+  ["one bar: a percent, else left of total; never a battery on its own"] {
     local left = minutes("rem", "remaining_time")
     local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "print_progress"; unit_of_measurement = "%" }
     local total = minutes("dur", "program_duration")
@@ -151,9 +155,11 @@ facts {
     ids(c.roles.progress(dev(List(left, pct, total))))["percent"] == "sensor.pct"
     ids(c.roles.progress(dev(List(left, pct, total))))["total"] == null
     ids(c.roles.progress(dev(List(left, total))))["total"] == "sensor.dur"
-    // A battery is a bar only for a countdown about charging.
+    // Charging or not: a charge fills out of where its countdown started.
     ids(c.roles.progress(dev(List(left, battery))))["percent"] == null
-    ids(c.roles.progress(dev(List(minutes("ch", "charging_time_left"), battery))))["percent"] == "sensor.bat"
+    local charging = c.roles.progress(dev(List(minutes("ch", "charging_time_left"), battery)))
+    charging?.percent == null
+    charging?.sinceStart == true
   }
 
   ["the card shows what was found, and each builder overrides one part"] {
@@ -192,8 +198,9 @@ facts {
     // With no countdown, the percentage short of 100.
     c.roles.progress(dev(List(pct)))?.running
       == cmp("sensor.pct", "gt", 0).and(cmp("sensor.pct", "lt", 100))
-    // A battery's bar always shows; its countdown reads only while it charges.
-    local car = c.progress(dev(List(minutes("ch", "charging_time_left"), battery)))
+    // A battery's bar, named by hand, always shows; its countdown reads only
+    // while it charges.
+    local car = c.progress(dev(List(minutes("ch", "charging_time_left"), battery))).percent(battery)
     car.features[0] is barBaseMod.ProgressBar
     (car.slots["value"] as slotMod.Slot).valueWhile == cmp("sensor.ch", "gt", 0)
     // A status in an idle state means idle, whatever the numbers say.

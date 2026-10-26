@@ -134,8 +134,8 @@ When a member changes, only its own card is redrawn.
 
 ## A device's job
 
-`c.progress(dump.devices.washer)` shows how far along a washer, a printer, a
-car's charge or a vacuum's run is: the time left, what it is doing, and a bar
+`c.progress(dump.devices.washer)` shows how far along a washer, a printer or a
+vacuum's run is: the time left, what it is doing, and a bar
 when the device says enough for one. You never say which sensor is which: it
 reads them by their names in Home Assistant.
 
@@ -150,9 +150,11 @@ for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
 ```
 
 - The bar is the device's own percentage, else the time left out of the
-  programme's length, else the battery while it charges. A washer that reports
-  only the time left fills out of where its countdown started, read from Home
-  Assistant's history.
+  programme's length. A washer that reports only the time left fills out of
+  where its countdown started, read from Home Assistant's history.
+- When two sensors could be the same part and nothing tells them apart, neither
+  is picked. A car with a charging and a climatisation countdown is two jobs,
+  so start from the one you want: `c.progress(dump.entities.car_charging_time_left)`.
 - A device with nothing it can read fails the build, naming its sensors.
 - One part can be named by hand: `.left(…)`, `.percent(…)`, `.total(…)`,
   `.status(…)`. `c.progress(sensor)` starts from a remaining-time sensor
@@ -160,7 +162,7 @@ for (d in dump.devices.all.filter((d) -> c.roles.progress(d) != null)) {
 - The bar and the time left show only while the job runs: while the time left
   is above 0, or, with no countdown, while the percentage is between 0 and
   100. Between jobs the card shows its name and status, and a washer's history
-  is not read. A car's battery bar always shows.
+  is not read. A battery put on with `.percent(…)` always shows.
 - To hide the whole card between jobs, wrap it in a `c.iff` on the same rule:
   `local p = c.progress(d)` and then `c.iff(p.running).then(p)`.
 
