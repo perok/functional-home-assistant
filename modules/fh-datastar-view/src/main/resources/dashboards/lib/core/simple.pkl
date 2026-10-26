@@ -1,17 +1,20 @@
 /// The simple tier: the explicit fast path for slot values (ADR 0028). A slot's
-/// value is CEL (a String) or one of these structures; the form is the tier.
+/// value is CEL (a String) or one of these structures, a condition
+/// (`q.entity(e).stateIs("on")`, `lit.any()`) included; the form is the tier.
 ///
 /// A shape joins when it is a static lookup and TOTAL over every value a live
 /// entity can produce. Totality is the part that matters: CEL's
 /// `double(state)` errors on `unknown`, and an error renders as its own message
-/// on a wall panel. Anything needing a second operator, a cross-entity read or
-/// a live decision is CEL.
+/// on a wall panel. Every read is of the slot's entity unless it names another
+/// in `entity`. Anything more is CEL.
 ///
-/// Each operator is defined by the CEL documented on its constructor, and
+/// Where a shape has a CEL spelling, its constructor documents it and
 /// `TransformSuite`'s parity sweep pins the rendered bytes equal to it. Where
 /// the engine would error, the structure renders its absent form instead — the
 /// documented divergence, pinned too. The constructors are the only door.
 module core.simple
+
+import "predicate.pkl" as predMod
 
 /// An operator over one read: one class per `Transform.Simple.Op` case, of the
 /// same name and with the same fields, which `WireShapeSuite` checks. `kind`
@@ -19,6 +22,8 @@ module core.simple
 abstract class SimpleValue {
   kind: "Op" = "Op"
   op: String
+  /// The entity read; null is the slot's. Another one wakes the slot too.
+  entity: String? = null
 }
 
 class State extends SimpleValue { op: "State" = "State" }
@@ -30,6 +35,11 @@ class Attr extends SimpleValue {
 
 class SuffixUnit extends SimpleValue {
   op: "SuffixUnit" = "SuffixUnit"
+  attribute: String
+}
+
+class AttrUnit extends SimpleValue {
+  op: "AttrUnit" = "AttrUnit"
   attribute: String
 }
 
@@ -62,20 +72,26 @@ class Duration extends SimpleValue {
   scale: Number
 }
 
-/// The state as a lookup:
+/// A read as a lookup:
 /// `cel.bind(m, {'k': 'v', ...}, state in m ? m[state] : 'otherwise')`.
 ///
 /// Arms may be Booleans, the only value that turns a boolean attribute off
 /// (`""` sets one). Mixing Strings and Booleans is a build error: CEL wants one
 /// type across a map's values. `otherwise` is required because HA adds states
-/// to a domain after it ships, and an unmatched one must degrade, not blank.
+/// to a domain after it ships, and an unmatched one must degrade, not blank. It
+/// may be a read of the same entity, `attr("effect")` to show an unlabelled
+/// value as itself, which is text.
 class SimpleMatch {
   kind: "Match" = "Match"
   cases: Mapping<String, String|Boolean>
-  otherwise: String|Boolean
+  otherwise: String|Boolean|SimpleValue|SimpleMatch
+  /// `"attr:<name>"`, or another property as a condition reads one; null is
+  /// the state.
+  property: String? = null
+  entity: String? = null
 }
 
-typealias Simple = SimpleValue|SimpleMatch
+typealias Simple = SimpleValue|SimpleMatch|predMod.Predicate
 
 // `const`, because components call them from class bodies.
 
@@ -90,6 +106,11 @@ const function attr(attrName: String): Simple =
 /// String renders the state alone.
 const function suffixUnit(attrName: String): Simple =
   new SuffixUnit { attribute = attrName }
+
+/// The attribute, a space and its `unit_of_measurement` when it has one;
+/// absent renders `""` and the slot's default applies.
+const function attrUnit(attrName: String): Simple =
+  new AttrUnit { attribute = attrName }
 
 /// `'literal' + state`.
 const function prefix(lit: String): Simple =

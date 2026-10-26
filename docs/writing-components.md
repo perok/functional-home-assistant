@@ -106,9 +106,15 @@ slots {
 }
 ```
 
-`transform` is a small expression (CEL) that turns the entity into the text you
-want. `"state"` is the default and means "whatever the entity's state is". You
-can do more:
+`transform` says what to show. Leave it out and the slot shows the entity's
+state. It can be a fast read from `core/simple.pkl`, which runs without an
+expression engine — `simpleMod.attr("battery")`, `simpleMod.attrUnit("temperature")`
+(the attribute with its unit), `simpleMod.duration(60)` — or, for a yes/no slot,
+a condition such as `q.entity(door).stateIs("on")`. Either may read another
+entity than the slot's: a condition names its own, and a fast read takes
+`entity`, as in `(simpleMod.attr("battery")) { entity = phone.entity_id }`.
+
+For anything more, `transform` is a small expression (CEL):
 
 ```pkl
 transform = "state + ' °C'"

@@ -52,16 +52,17 @@ hue. HA's own name (`more-info-light.ts`), switched by `c.its.mainControl` throu
 controls are derived from.
 
 **Reading** — a slot used as an INPUT: a live read (`entityId` + transform) with no binding yet,
-which the card it is handed to binds where it belongs. It reads one entity's state, or the node's
-own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
+which the card it is handed to binds where it belongs. It reads its entity's state (a fast read may
+name another), or the node's own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
 readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
 component a reading that names its entity, since a base card has no subject to fall back on.
 
 **Condition** — the yes/no thing `c.iff` takes (`pred.Predicate`: `q.from(xs).where(…).any()`,
 `q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
 which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no transform.
-It can be an expression value (a CEL `bool`), and every boolean input (`active`, `disabled`,
-`classWhen`) takes one directly. An aggregate the build can settle is a plain `Boolean` instead.
+It is the fast tier's bool half (ADR 0028), so it can be a slot's transform, decided with no CEL,
+which is how every boolean input (`active`, `disabled`, `classWhen`) takes one directly. It can
+also be an expression value, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
 
 **Base component** vs **HA component** — `components/base/` cards know nothing of Home Assistant:

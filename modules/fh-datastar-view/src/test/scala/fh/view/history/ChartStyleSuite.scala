@@ -60,7 +60,7 @@ class ChartStyleSuite extends munit.FunSuite {
     assertEquals(transformOf(""""state""""), Right("state"))
     assertEquals(
       transformOf("""{"kind": "Op", "op": "State"}"""),
-      Right(Transform.Simple.State)
+      Right(Transform.Simple.State())
     )
   }
 }

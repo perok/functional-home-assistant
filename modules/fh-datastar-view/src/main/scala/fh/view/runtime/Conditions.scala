@@ -3,9 +3,9 @@ package fh.view.runtime
 import fh.view.model.{ExprValue, FetchTemplate, Op, Predicate}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
-  * conditions and counts.
+  * conditions, counts and a condition filling a slot (`Transform.runSimple`).
   */
-private[runtime] object Conditions {
+private[view] object Conditions {
 
   /** A `Cmp` naming another entity is false here; use [[matchesIn]]. */
   def matches(p: Predicate, st: EntityState): Boolean =

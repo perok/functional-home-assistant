@@ -5,7 +5,6 @@ module components.base.tile
 
 import "../../core/badge.pkl" as badgeMod
 import "../../core/node.pkl" as nodes
-import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -68,9 +67,6 @@ open class Tile extends nodes.ActiveNode {
   /// Refuses the tap and wears `fh-disabled` while it holds, ORed with the
   /// tap's own refusal, as `Button.disabled`.
   hidden disabled: nodes.BooleanInput? = null
-  derivedValues {
-    when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
-  }
   slots {
     when (subject != null) {
       ["entity_id"] = subject!!
