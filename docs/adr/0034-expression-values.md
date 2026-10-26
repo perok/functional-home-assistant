@@ -137,7 +137,7 @@ the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is t
 or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
 
 It is decided first, and **once per state snapshot**, in that snapshot's decisions (the pipeline
-doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gateEntity` being the one
+doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gate` being the one
 rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
 their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
 render key, the paint and the signal path ask the same decisions, so none decides it again. A

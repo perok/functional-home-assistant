@@ -373,13 +373,23 @@ class Renderer(validated: Dashboard.Validated) {
       else Nil
     }.distinct
 
+  /** Whether a `valueWhile` holds, decided once per snapshot by the pre-read,
+    * the render key and the paint alike; only a real `true` holds.
+    */
   private def gateHolds(
       g: Fetching.Gate,
       states: Map[String, EntityState]
   ): Boolean =
-    decided
-      .at(states)
-      .holds(g.key)(holds(planned(g.valueWhile), Some(g.entity), states))
+    decided.at(states).holds(g.key) {
+      resolveStateSlotValue(
+        g.entity,
+        planned(g.valueWhile),
+        states,
+        noFetch
+      ) match
+        case b: Boolean => b
+        case _          => false
+    }
 
   /** What renders at `id` now: a static node's own, a member's whole subtree in
     * its current clause, a node below one in that clause, and nothing for a
@@ -1610,46 +1620,18 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private final case class Planned(
       source: BoundSlot,
-      program: Option[Transform.Compiled],
-      valueWhile: Option[Planned]
+      program: Option[Transform.Compiled]
   )
 
   private def planned(source: BoundSlot): Planned =
-    Planned(
-      source,
-      source.celKey.map(programs),
-      source.valueWhile.map(planned)
-    )
+    Planned(source, source.celKey.map(programs))
 
-  /** A slot's `valueWhile` over `entity`; only a real `true` holds. */
-  private def holds(
-      valueWhile: Planned,
-      entity: Option[String],
-      states: Map[String, EntityState]
-  ): Boolean =
-    resolveStateSlotValue(
-      entity,
-      valueWhile,
-      states,
-      noFetch
-    ) match
-      case b: Boolean => b
-      case _          => false
-
-  /** Under the key the pre-read decides it by, so a slot it gated is not
-    * decided again.
-    */
   private def withheld(
       planned: Planned,
       srcEntity: Option[String],
       states: Map[String, EntityState]
   ): Boolean =
-    planned.valueWhile.exists { w =>
-      val entity = planned.source.gateEntity(srcEntity)
-      !decided
-        .at(states)
-        .holds(Fetching.Gate.key(entity, w.source))(holds(w, entity, states))
-    }
+    planned.source.gate(srcEntity).exists(!gateHolds(_, states))
 
   /** The asks whose slot has a value now. */
   private def asked(

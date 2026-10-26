@@ -109,11 +109,11 @@ final case class BoundSlot(
   def celKeys: List[Transform.CelKey] =
     celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
 
-  /** The entity its [[valueWhile]] is decided over: its own, else the slot's.
-    * The one rule the pre-read and the paint share.
+  /** Its [[valueWhile]] over the entity it is decided over: its own, else the
+    * slot's. The one rule the pre-read and the paint share.
     */
-  def gateEntity(slotEntity: Option[String]): Option[String] =
-    valueWhile.flatMap(_.entityId).orElse(slotEntity)
+  def gate(slotEntity: Option[String]): Option[Fetching.Gate] =
+    valueWhile.map(w => Fetching.Gate(w, w.entityId.orElse(slotEntity)))
 
   /** Every entity that can move this slot besides its own: those its transform
     * names, those of the live values it reads, and its [[valueWhile]]'s.
@@ -308,14 +308,10 @@ case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
 
 object Fetching:
-  /** A slot's `valueWhile` over `entity`. */
-  final case class Gate(valueWhile: BoundSlot, entity: String):
-    lazy val key: String = Gate.key(Some(entity), valueWhile)
-
-  object Gate:
+  /** A slot's `valueWhile` over `entity` ([[BoundSlot.gate]]). */
+  final case class Gate(valueWhile: BoundSlot, entity: Option[String]):
     /** By content, so two slots gated alike share one decision. */
-    def key(entity: Option[String], valueWhile: BoundSlot): String =
-      s"${entity.getOrElse("")}|${valueWhile.valueKey}"
+    lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
 case class SlotRead(fetch: SlotFetch, stage: Transform.Stage) derives CanEqual
@@ -714,10 +710,7 @@ object LayoutNode:
         Option.when(asks.nonEmpty)(
           Fetching(
             asks,
-            s.valueWhile.flatMap(w =>
-              s.gateEntity(s.entityId.orElse(subjectEntity))
-                .map(Fetching.Gate(w, _))
-            )
+            s.gate(s.entityId.orElse(subjectEntity)).filter(_.entity.isDefined)
           )
         )
       }
@@ -1398,7 +1391,9 @@ case class Dashboard(
               .toList ++
             Option
               .when(
-                src.gateEntity(src.entityId).isEmpty && !hasSubject &&
+                src
+                  .gate(src.entityId)
+                  .exists(_.entity.isEmpty) && !hasSubject &&
                   (w.transform match
                     case p: Predicate => Predicate.hasFreeSubject(p)
                     case _            => false)
