@@ -441,7 +441,7 @@ const function pendingSignal(groupId: String): String = "_\(groupId)__pending"
 const function pendingOrCommittedOf(groupId: String, committed: String): String =
   "($" + pendingSignal(groupId) + " || $" + committed + ")"
 
-/// `call("scene/turn_on", dump.entities.kveld)`. An area or floor target
+/// `call("scene/turn_on", dump.entities.scene_kveld)`. An area or floor target
 /// reaches entities the dashboard never names, so the server allows only the
 /// exact (service, target) pairs the dashboard declares (ADR 0023).
 ///

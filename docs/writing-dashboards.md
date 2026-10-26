@@ -122,7 +122,7 @@ q.from(dump.lights.all)
   ```pkl
   .render((t) -> (c.column) { children {
     c.entityCard(t)
-    c.iff(q.entity(dump.entities.vindu).stateIs("on")).then(c.title("Window open"))
+    c.iff(q.entity(dump.entities.binary_sensor_vindu).stateIs("on")).then(c.title("Window open"))
   } })
   ```
 - `.orderBy(q.asc(q.prop("friendly_name")))` orders them and `.limit(n)` caps
@@ -217,7 +217,7 @@ when you built it.
 what has the values:
 
 ```pkl
-c.select(dump.entities.robot_mode)               // a select entity
+c.select(dump.entities.select_robot_mode)        // a select entity
 c.select(dump.lights.stue.effects)               // a light's effects
 c.select(dump.climates.bad.hvacModes)            // a climate's HVAC modes
 c.select(dump.climates.bad.presets)              // its presets

@@ -1,10 +1,10 @@
 /// What a click does in Home Assistant — `c.tap`. Every verb names what it acts
 /// on, after HA's `tap_action` variants, so a tap means the same on any card:
 ///
-///     c.button("Kjøkken", c.tap.toggle(dump.entities.kjokken))
+///     c.button("Kjøkken", c.tap.toggle(dump.entities.light_kjokken))
 ///     c.button("Stue av", c.tap.lights.off(dump.areas.stue))
-///     c.pill(c.tap.activate(dump.entities.kveld))
-///     c.button("Stue", c.tap(dump.entities.stue))
+///     c.pill(c.tap.activate(dump.entities.scene_kveld))
+///     c.button("Stue", c.tap(dump.entities.light_stue))
 ///
 /// What only changes the screen — more-info, popups, navigation — is `c.view`.
 /// A dashboard-tier module because [[default]] can be more-info, a component;
