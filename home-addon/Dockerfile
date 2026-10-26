@@ -61,7 +61,7 @@ RUN $JAVA_HOME/bin/jlink \
 # re-import). The DEBIAN variant, for the glibc reason above; it is the same
 # single multi-arch manifest as the alpine one, so buildx still builds both
 # platforms from this one Dockerfile.
-FROM ghcr.io/hassio-addons/debian-base:9.4.0
+FROM ghcr.io/hassio-addons/debian-base:9.5.1
 
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
