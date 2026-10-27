@@ -17,12 +17,12 @@ picture of why the types look as they do.
 
 ## Decision 1 — the wire keeps one `SlotSource`; validation produces two shapes
 
-`SlotSource` gains `fetch: Option[SlotFetch]`. `Dashboard.validate` turns that into
+`SlotSource` gains `fetch: Option[FetchTemplate]`. `Dashboard.validate` turns that into
 
 ```scala
 enum SlotShape:
-  case State(source: SlotSource)
-  case Fetch(read: SlotRead)
+  case State(slot: BoundSlot)
+  case Fetch(ask: SlotAsk)
 ```
 
 and every site that classifies a slot matches on it.
@@ -68,8 +68,8 @@ The first build had the provider answer with markup: `Fragment(version, html)`, 
 style riding in the fetch's params. That put the presentation of a fetched value inside the thing
 that fetches it.
 
-`HistoryFetch.parse`'s own doc had already written the division down without the types being able
-to act on it: *"`entity` and `window` are the question; the rest is how it is drawn."*
+The division was already written down without the types being able to act on it: *`entity` and
+`window` are the question; the rest is how it is drawn.*
 
 So: `FetchResolver.answer` returns `Answer(version, json)`, `FetchRequest.History` is
 `(entityId, window)`, and `width`/`height`/`unit` moved to the slot's `transform`.
@@ -133,32 +133,71 @@ with one, its answer read as data. One fetch, one provider and one cache serve b
 is a `SlotAsk` with the passthrough stage, counted among the node's fetches, so the pre-read and
 the render key need nothing new.
 
-History answers a computation every reading (`points = "all"`), a chart about 300: thinning keeps
-the shape of a line and drops the single reading a computation wants. A day of minute rows thinned
-to 300 kept 100 where a countdown started at 101.
+History answers every reading, and the chart stage thins to about 300 before it draws. Thinning
+keeps the shape of a line and drops the single reading a computation wants (a day of minute rows
+thinned to 300 kept 100 where a countdown started at 101), and how many points a drawing needs is
+the drawing's: so a chart and a computation over one window are one fetch. Thinning that is
+cached at the provider, for a data card's payload, would be a stage of its own when one needs it.
+
+## Decision 4 — what history reads is the author's, typed on the wire
+
+A history fetch reads a **window**: `Raw(span)`, the recorder's rows, or `Statistics(span, period,
+fallback)`, HA's long-term statistics. The author picks (`p.history.raw(1.h)`,
+`p.history.statistics(7.d, "hour")`, with `providers.pkl` imported as `p`); the server picks
+nothing. The four windows a chart used to be limited to (`1h`/`24h`/`7d`/`30d`) are now only
+more-info's presets (`p.history.presets`). HA takes
+any span, and statistics at `5minute` up to `year`.
+
+- **Why statistics are worth asking for.** A power meter's 24 h of raw rows was 23,691 rows and
+  847 KB in 439 ms over WS, all to draw 300 points; its 5-minute statistics were 287 rows and 27 KB
+  in 43 ms. A popup waits for its fetches, so that read was most of a cold popup open.
+- **`fallback` is off unless asked for.** Only an entity with a `state_class` has statistics, so
+  without it such a chart draws nothing. More-info turns it on, because it shows any sensor.
+- **No raw tail.** The newest bucket ends minutes before now (1–5 minutes at `5minute`, measured),
+  and `Series.heldUntil` carries it there. HA's own more-info chart draws statistics the same way.
+  Its cost: a sudden change appears at the next bucket, not at once.
+- **The bucket is derived, not a knob:** the period for statistics, and a 720th of the span (at
+  least a minute) for raw rows, which gives the presets 1 min, 5 min, 1 h and 1 h. Cache entries
+  are the distinct windows on screen, and only an author adds one. A statistics bucket rolls a
+  minute after its period ends (`Window.StatisticsLag`): HA writes the period's row seconds after
+  the boundary, and a fetch in between would miss it for a whole period.
+- **Only the types a line reads.** A statistics call names its `types`
+  (`HomeAssistantApi.LineTypes`: `mean` for a measurement, `state` for a total); HA answers every
+  type when none is named. So `StatisticPoint` holds each type as its own option rather than as a
+  `min`/`mean`/`max` band, which a call asking for a subset would answer half of. A min/max band
+  around the line asks for those two as well.
+- **Typed on the wire, decoded straight into the request.** The fetch's `entity` and `window` are
+  fields, decoded by circe into `FetchTemplate`, as the fast expressions decode
+  (ADR 0028 point 3). The string `params` map parsed by its provider afterwards was dropped: a
+  window would have needed a string grammar (`"7d@hour"`) parsed back out again.
+- **A node variable picks a window by key.** A variable lives in a URL and a signal, so it holds a
+  string; a `Chosen` window carries the table (`{"kind": "Chosen", "by": {"var": "window"},
+  "options": {…}}`), and `Renderer.refusals` refuses a key the table lacks. Simple's `Match` was
+  considered and rejected: it maps a live entity's state, which nobody controls, so it must be
+  total, and its `otherwise` would hide a bad key instead of refusing it.
+- **A period no shorter than the span is a build error.** HA answers `hour` over one hour with
+  nothing (measured), so the chart would be blank forever.
 
 ## Consequences
 
-- **A provider is a case in a closed sum**, not a registration: `FetchRequest`, `Fetches.parse`
-  and `FetchResolver`, all pointed at by the compiler. Same for a stage. There is no plugin story
+- **A provider is a case in a closed sum**, not a registration: `FetchRequest`, `FetchTemplate`'s
+  decoder and `FetchResolver`, all pointed at by the compiler. Same for a stage. There is no plugin story
   to pay for, and one `match` says in code what exists where a name→instance map says only what
   somebody remembered.
-- **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Fetch.provider` is a
-  plain String and `core/stage.pkl` knows only `passthrough`; the provider's name, its parameters
-  and the chart stage are typed in the component that offers them (`components/history.pkl`). An
-  unknown provider is still a build error — from `Fetches.parse`, not the Pkl typechecker.
-- **A provider is untyped in the model; a stage is typed.** `fh.view.model` does not know what a
-  window is: a fetch's `params` are strings on the wire, parsed by their provider in
-  `Fetches.parse`, so a second provider adds a case there and nothing in the model changes. A
-  stage is the other way round — `Stage.Chart` carries a `ChartStyle`, typed at both ends
-  (`components/history.pkl`'s `ChartParams`) and decoded with the wire. The model already had to
-  name each stage to check its hole, so typing its settings adds no new dependency, and it
-  removes a second parse of the same value.
-- **Parsing is pure and separate from resolving**, which removes the wiring hazard entirely.
-  Checking a chart needs no store, no HA connection and no JavaScript engine, so
-  a bad fetch or a bad chart size fails wherever a dashboard is built (the size as the wire is
-  decoded, the fetch in `Dashboard.validate`), rather than wherever somebody remembered to pass a
-  provider in.
+- **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Fetch` holds only
+  a `provider` String and `core/stage.pkl` knows only `passthrough`; the provider's question
+  (`HistoryFetch`) and its windows are typed in the provider's module (`providers/history.pkl`, a
+  tier of its own: ADR 0015), and the chart stage beside the cards
+  that draw with it (`components/base/chart.pkl`). An unknown provider is a decode failure naming the known ones.
+- **A provider is typed in the model, as a stage is.** `FetchTemplate` is history's question, and
+  a second provider makes it a sum, as `FetchRequest` is. `Stage.Chart` carries a `ChartStyle`,
+  typed at both ends (`components/base/chart.pkl`'s `ChartParams`). Each is decoded with the wire, so
+  no value is parsed twice.
+- **Decoding and validating are pure and separate from resolving**, which removes the wiring
+  hazard entirely. Checking a chart needs no store, no HA connection and no JavaScript engine, so a
+  bad fetch or a bad chart size fails wherever a dashboard is built (both as the wire is decoded;
+  a window's period against its span, and a chosen window's declared key, in
+  `Dashboard.validate`), rather than wherever somebody remembered to pass a provider in.
 - **Identity is the first component of every cache key**, before any per-user provider exists.
   Recorder data is permission-scoped, so a key that omits it is a permission leak rather than a
   performance bug — and retrofitting one is how that leak gets written. Today every read is the
@@ -205,7 +244,7 @@ to 300 kept 100 where a countdown started at 101.
     `StateChange` — and the recorder records the frame at it. "One version per HA event-loop tick"
     becomes "one version per recorded frame", which is what the version was for.
   - **It touches every node whose ask CAN resolve to a moved question**, not the exact set: with a
-    variable in a parameter (#209) the exact set is per session. Over-touching is the safe
+    window chosen by a variable (#209) the exact set is per session. Over-touching is the safe
     direction — a session whose values resolve elsewhere re-renders to the same key, hits the
     render cache, and sends nothing.
   - The standing cost: every open dashboard holding a 1 h chart re-renders once a minute. Correct,
@@ -236,7 +275,7 @@ to 300 kept 100 where a countdown started at 101.
   so the next good answer moves the render key. A chart's hole gets the runtime's error LABEL — the
   same structure as the library's `label`, styled by the base CSS every dashboard carries, so no
   card has to remember to handle it; a data hole is left empty, since it is escaped. The page and
-  the live stream carry on; only a read that does not parse — a wiring bug — raises. A failure is
+  the live stream carry on; only a read that does not resolve — a wiring bug — raises. A failure is
   remembered for a short window rather than retried by every render, which would otherwise each
   wait out the timeout again.
 

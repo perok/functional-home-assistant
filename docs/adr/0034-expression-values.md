@@ -84,11 +84,11 @@ the slot's; a name in both is a build error, as is one the slot's own expression
 
 ### A fetch is a value read on demand
 
-A fetch value (`c.fetch.history(e).over(w)`, ADR 0031) is a provider read by name: the bar's whole is
+A fetch value (`p.history.of(e, w)`, ADR 0031) is a provider read by name: the bar's whole is
 the countdown's highest reading since it last read 0, CEL over its history. It adds no wake: the
 slot is read when its own entity changes, or when its card is drawn, and the provider's answer is
-whatever its cache holds then (history's, per 5-minute period). Nothing watches the answer itself;
-a push when a period ends with no entity change is designed when something needs one. Reading on
+whatever its cache holds then (history's, per bucket: two minutes for the bar's raw day). Nothing
+watches the answer itself; a push when a bucket ends with no entity change is designed when something needs one. Reading on
 every change is cheap because the cost is rows, not calls: with the server's exact call against a
 real house, a countdown's history took 15–30 ms for 24 h or 7 d (a row a minute while it runs, none
 while idle), where a dense power sensor took 0.5–3.4 s.
@@ -97,8 +97,8 @@ The answer is read before the CEL runs, on both paths. A value fetch counts amon
 (`BoundSlot.fetches`), so a render's pre-read and its render key carry it as a fetch slot's are
 carried, and the signal path, which already pre-reads the fetches of the nodes it updates, hands
 them to `signalsFor`. A site that reads no snapshot (a `once` slot, a subject) refuses a fetch at
-build time and raises if one ever reaches it. What a value's fetch reads joins
-`Dashboard.fetchedEntities`, so a viewer's value is bounded as a fetch slot's is (ADR 0023).
+build time and raises if one ever reaches it. Its entity is written down at build time, as a
+fetch slot's is, so no viewer's value can move it (ADR 0023).
 
 ### Boolean slots, and what fills one
 

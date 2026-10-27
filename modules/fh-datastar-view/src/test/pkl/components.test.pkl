@@ -16,6 +16,8 @@ import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/core/variable.pkl" as varMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
+import "../../main/resources/dashboards/lib/providers.pkl" as p
+import "../../main/resources/dashboards/lib/components/base/chart.pkl" as chartMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
@@ -276,36 +278,50 @@ facts {
       == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
-    body.children[1].children[0].slots["chart"].fetch.params["window"].`var`
+    body.children[1].children[0].slots["chart"].fetch.window.by.`var`
       == "window"
   }
 
   ["a chooser declares the window its charts read, and nothing spells it twice"] {
-    local picked = (c.windowChooser) {
-      children { c.historyChart(power).fromChooser() }
+    local picked = (c.history.chooser) {
+      children { c.history.chart(power).fromChooser() }
     }
     // The DECLARATION and the REFERENCE, produced by two calls that take no
     // name between them — which is the property, not the string: an author
     // cannot misspell one side of this pair because neither side is typed.
     defaults.apply(picked) == Map("window", "24h")
-    picked.children[0].slots["chart"].fetch.params["window"].`var` == "window"
+    picked.children[0].slots["chart"].fetch.window.by.`var` == "window"
+    // Each key the bar offers is a window the chart has: the bar and the
+    // table are one mapping, so neither can offer what the other lacks.
+    picked.children[0].slots["chart"].fetch.window.options.keys
+      == p.history.presets.keys
     // The entity is still written down beside it. Only a declared variable is
     // writable, so this chart's subject has nowhere for a write to land.
-    picked.children[0].slots["chart"].fetch.params["entity"] == "sensor.power"
+    picked.children[0].slots["chart"].fetch.entity == "sensor.power"
+  }
+
+  ["a chart's window is picked with the providers imported or handed in, alike"] {
+    local imported = c.history.chart(power).over(p.history.statistics(7.d, "hour"))
+    local handed = c.history.chart(power).over((pr) -> pr.history.statistics(7.d, "hour"))
+    imported.slots["chart"].fetch == handed.slots["chart"].fetch
+    imported.slots["chart"].fetch.window == p.history.statistics(7.d, "hour")
+    // A function answering anything but a window is a type error, not a chart.
+    module.catch(() -> c.history.chart(power).over((pr) -> "7d").slots["chart"].fetch.window)
+      .contains("Window")
   }
 
   ["a chart's size is the author's to set, and unset leaves the backend's"] {
-    local wide = c.historyChart(power).size(720, 200)
+    local wide = c.history.chart(power).size(720, 200)
     wide.slots["chart"].transform.params.width == 720
     wide.slots["chart"].transform.params.height == 200
     // A size is how the answer is DRAWN, so the question stays the same one:
     // two sizes of a chart share one fetch.
-    wide.slots["chart"].fetch == c.historyChart(power).slots["chart"].fetch
-    c.historyChart(power).slots["chart"].transform.params.width == null
+    wide.slots["chart"].fetch == c.history.chart(power).slots["chart"].fetch
+    c.history.chart(power).slots["chart"].transform.params.width == null
   }
 
   ["each window is a tab node of its own, guarded by its own tap"] {
-    local bar = (c.windowChooser).regions["bar"][0].children.toList()
+    local bar = (c.history.chooser).regions["bar"][0].children.toList()
     bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
     bar.map((n) -> (n as nodes.Node).slots["label"]) == List("1h", "24h", "7d", "30d")
     // Per node, so one window's answer never clears another's guard (ADR 0019).
@@ -340,7 +356,7 @@ facts {
   }
 
   ["the declared window moves with `defaultingTo`"] {
-    local week = (c.windowChooser).defaultingTo("7d")
+    local week = (c.history.chooser).defaultingTo("7d")
     defaults.apply(week) == Map("window", "7d")
     // The page seeds the highlight from the viewer's value, and the cell's URL
     // mirror takes the declared one from `vars`, so the template carries no
@@ -1297,7 +1313,7 @@ facts {
     // paint after a reload too.
     local washer = c.progress(remainingMin).status(applianceState)
     (washer.slots["value"] as slotMod.Slot).transform is simpleMod.SimpleValue
-    (barOf(washer).slots["of"] as slotMod.Slot).values.toMap() == Map("past", c.fetch.history(remainingMin))
+    (barOf(washer).slots["of"] as slotMod.Slot).values.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
     // The status renders as the integration's own words, never interpreted:
     // nothing here knows which of them means "running".
     (washer.slots["secondary"] as slotMod.Slot).entityId == "sensor.appliancestate"
@@ -1835,7 +1851,7 @@ facts {
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {
     // The JSON `ChartStyleSuite` decodes: a number, not a string, and no null.
     new JsonRenderer { omitNullProperties = true; indent = "" }
-      .renderValue(historyMod.chartStage(320, null, "°C"))
+      .renderValue(chartMod.chartStage(320, null, "°C"))
       == #"{"stage":"Chart","params":{"width":320,"unit":"°C"}}"#
   }
 }

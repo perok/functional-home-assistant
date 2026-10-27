@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.history.Windows
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.{
   CardDef,
@@ -7,29 +8,25 @@ import fh.view.model.{
   LayoutNode,
   FetchTemplate,
   Reads,
-  Ref,
-  SlotFetch,
+  Choice,
   SlotRead,
   SlotSource,
   Transform
 }
 import fh.view.history.ChartStyle
-import fh.view.fetch.{Staged, FetchSnapshot}
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
   * render key moves with them.
   */
 class ChartSlotSuite extends munit.FunSuite {
 
-  private val chartFetch = FetchTemplate(
-    "history",
-    Map("entity" -> Ref.Literal("sensor.t"), "window" -> Ref.Literal("24h"))
-  )
+  private val chartFetch = FetchTemplate("sensor.t", Choice.Fixed(Windows.day))
   private val stage = Transform.Stage.Chart(ChartStyle(width = 600))
   // Every parameter is written down, so the ask resolves to this whatever the
   // environment — which is what keeps this suite about the chart slot.
   private val read = SlotRead(
-    SlotFetch("history", Map("entity" -> "sensor.t", "window" -> "24h")),
+    FetchRequest.History("sensor.t", Windows.day),
     stage
   )
   private val svg = """<svg width="600"><path d="M0 0"/></svg>"""

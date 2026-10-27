@@ -10,10 +10,11 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  SlotFetch,
   SlotRead,
   Transform
 }
+import fh.view.fetch.FetchRequest
+import fh.view.history.Windows
 import fh.view.testkit.TestIds.given
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -319,7 +320,7 @@ class RenderCacheSuite extends munit.FunSuite {
     */
   private def readOf(window: String): SlotRead =
     SlotRead(
-      SlotFetch("history", Map("entity" -> "sensor.t", "window" -> window)),
+      FetchRequest.History("sensor.t", Windows.presets(window)),
       Transform.Stage.Passthrough
     )
 

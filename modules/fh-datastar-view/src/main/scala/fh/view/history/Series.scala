@@ -6,8 +6,8 @@ import io.circe.{Codec, Decoder, Encoder}
 import java.time.Instant
 import scala.jdk.CollectionConverters.*
 
-/** A numeric series: ascending in time, and downsampled for drawing unless
-  * every point was asked for (`points = "all"`).
+/** A numeric series: ascending in time, every point the provider answered; the
+  * chart stage thins it for drawing.
   *
   * No unit or name: those come from the entity's live state, and a copy here
   * could disagree with the card beside it.
@@ -23,8 +23,6 @@ import scala.jdk.CollectionConverters.*
 final case class Series(points: Vector[Series.Point]) derives Codec.AsObject {
   def isEmpty: Boolean = points.isEmpty
 
-  def oldest: Option[Instant] = points.headOption.map(_.at)
-
   /** The last reading carried to `at`. The recorder writes a row only when a
     * value moves, so a sensor that held one value for the whole window answers
     * ONE row — the state at its start — and a line through one point draws
@@ -36,11 +34,6 @@ final case class Series(points: Vector[Series.Point]) derives Codec.AsObject {
         copy(points = points :+ Series.Point(at, last.value))
       case _ => this
     }
-
-  def span: Option[java.time.Duration] =
-    for {
-      a <- points.headOption; b <- points.lastOption
-    } yield java.time.Duration.between(a.at, b.at)
 }
 
 object Series {
@@ -102,9 +95,7 @@ object Series {
   def fromStatistics(buckets: List[StatisticPoint]): Series =
     Series(
       buckets
-        .flatMap(b =>
-          b.mean.map(_.mean).orElse(b.sum.map(_.state)).map(Point(b.end, _))
-        )
+        .flatMap(b => b.mean.orElse(b.state).map(Point(b.end, _)))
         .sortBy(p => (p.at.getEpochSecond, p.at.getNano))
         .toVector
     )

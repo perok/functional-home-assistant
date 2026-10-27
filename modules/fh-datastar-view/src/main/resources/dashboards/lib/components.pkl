@@ -49,7 +49,7 @@ import "components/wheel.pkl" as wheelMod
 import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
 import "components/defaults.pkl" as defaultsMod
-import "components/fetch.pkl" as fetchMod
+import "components/examples.pkl" as examplesMod
 
 // ---- namespaces ----
 
@@ -86,10 +86,14 @@ hidden lock: lockMod = lockMod
 /// `c.bar.remaining(left, total)`.
 hidden bar: barMod = barMod
 
-/// Reads of a provider, for an expression value's CEL:
-/// `expressionValues { ["past"] = c.fetch.history(sensor).over("7d") }`. Not
-/// `q.`, which picks entities.
-hidden fetch: fetchMod = fetchMod
+/// History cards: `c.history.chart(s)`, and a window bar over charts,
+/// `(c.history.chooser) { children { c.history.chart(s).fromChooser() } }`.
+/// What a chart reads is a provider's (`providers.pkl`).
+hidden history: historyMod = historyMod
+
+/// Cards kept as worked examples of one mechanism each:
+/// `c.examples.historyReadings(s)`.
+hidden examples: examplesMod = examplesMod
 
 /// Whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod.Recipes = new { defaults = module.defaults }
@@ -194,17 +198,6 @@ function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider =
 /// one part.
 function progress(sensor: hass.SensorEntity): progressMod.ProgressCard =
   let (d = defaults) (progressMod.progress(sensor)) { defaults = d }
-/// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
-/// window. Numeric sensors only (`e.isNumeric`).
-function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
-  historyMod.historyChart(e)
-/// Now, low and high over the last 24 hours; `.over(…)` and `.fromChooser()` as
-/// [[historyChart]].
-function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
-  historyMod.historyReadings(e)
-/// A window bar over the charts beneath it:
-/// `(c.windowChooser) { children { c.historyChart(s).fromChooser() } }`.
-hidden windowChooser: selectMod.Chooser = historyMod.windowChooser
 /// One main-control switch over the light sliders beneath it:
 /// `(c.controlChooser) { children { c.entitySlider(l).fromChooser() } }`.
 hidden controlChooser: selectMod.Chooser = sliderMod.controlChooser
@@ -267,6 +260,7 @@ const modules: List<Module> = List(
   surfaceMod,
   moreinfo,
   historyMod,
+  examplesMod,
   selectMod,
   wheelMod
 )

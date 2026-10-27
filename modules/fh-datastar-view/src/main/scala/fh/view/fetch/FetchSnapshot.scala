@@ -58,54 +58,32 @@ object FetchSnapshot {
       vars: Map[NodeId, Map[String, String]] = Map.empty
   ): FetchSnapshot = new FetchSnapshot(answers, vars)
 
-  /** Answer every fetch a render needs, in parallel. Only a read that does not
-    * parse raises, since that is a wiring bug.
-    *
-    * `requests` is a memo of what `validate` parsed at DECLARED values; a
-    * viewer's chosen value is parsed here instead. The write boundary already
-    * refused any value a reader could not parse, so failing both is a bug.
+  /** Answer every fetch a render needs, in parallel. A failure is that read's,
+    * not the render's; the caches bound each wait.
     */
   def resolve(
       resolver: FetchResolver,
-      requests: Map[SlotRead, FetchRequest],
       reads: List[SlotRead],
       vars: Map[NodeId, Map[String, String]],
       identity: FetchIdentity
   ): IO[FetchSnapshot] = {
     val wanted = reads.distinct
-    def parsed(read: SlotRead): IO[FetchRequest] =
-      requests
-        .get(read)
-        .orElse(Fetches.parse(read.fetch).toOption)
-        .liftTo[IO](
-          FHError.internal(
-            s"${describe(read)} reached a render and does not parse — the " +
-              "build did not see it (a chosen value) and it is not a request " +
-              "either, so something wrote a value the write path never checked"
-          )
-        )
-
-    // Two levels: one call per FETCH, one drawing per (fetch, stage). A
-    // failure is that read's, not the render's; the caches bound each wait.
+    // Two levels: one call per FETCH, one drawing per (fetch, stage).
     for {
-      plans <- wanted.traverse(r => parsed(r).map(r -> _)).map(_.toMap)
-      answers <- plans.toList
-        .map { case (read, qr) => read.fetch -> qr }
-        .distinctBy(_._1)
-        .parTraverse { case (q, qr) =>
-          resolver.answer(identity, qr).attempt.map(q -> _)
-        }
+      answers <- wanted
+        .map(_.fetch)
+        .distinct
+        .parTraverse(q => resolver.answer(identity, q).attempt.map(q -> _))
         .map(_.toMap)
       staged <- wanted.parTraverse { read =>
         answers(read.fetch)
           .liftTo[IO]
-          .flatMap(resolver.stage(identity, plans(read), read.stage, _))
+          .flatMap(resolver.stage(identity, read.fetch, read.stage, _))
           .attempt
           .map(s => read -> s.getOrElse(Staged.failed(read.stage)))
       }
     } yield new FetchSnapshot(staged.toMap, vars)
   }
 
-  private def describe(read: SlotRead): String =
-    s"fetch '${read.fetch.provider} ${read.fetch.params}'"
+  private def describe(read: SlotRead): String = s"fetch '${read.fetch}'"
 }

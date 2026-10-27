@@ -7,8 +7,9 @@ import api.homeassistant.ws.domain.{
 }
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import fh.view.fetch.{FetchIdentity, FetchRequest}
+import fh.view.fetch.FetchIdentity
 import io.circe.syntax.*
+import io.github.iltotore.iron.*
 
 import java.time.Instant
 import scala.concurrent.duration.*
@@ -52,20 +53,23 @@ class HistorySuite extends munit.CatsEffectSuite {
       .toList
   }
 
-  private def hourlyStats(from: Instant): List[StatisticPoint] = {
-    val hours = java.time.Duration.between(from, now).toHours
+  private def hourlyStats(
+      from: Instant,
+      to: Instant = now
+  ): List[StatisticPoint] = {
+    val hours = java.time.Duration.between(from, to).toHours
     (0L until hours).map { h =>
       val s = from.plusSeconds(h * 3600)
-      StatisticPoint(
-        s,
-        s.plusSeconds(3600),
-        Some(StatisticPoint.Mean(1.0, 1.0, 1.0)),
-        None
-      )
+      StatisticPoint(s, s.plusSeconds(3600), mean = Some(1.0))
     }.toList
   }
 
   private def ago(d: FiniteDuration) = now.minusSeconds(d.toSeconds)
+
+  /** The cache tests read raw, so what they count is the fetch itself, never a
+    * statistics read falling back.
+    */
+  private val rawDay: Window = Window.Raw(86400L)
 
   extension (h: History)
     private def ask(
@@ -75,82 +79,101 @@ class HistorySuite extends munit.CatsEffectSuite {
         identity: FetchIdentity = FetchIdentity.Instance
     ) = h.series(identity, e, w, asOf)
 
-  test("an unproven window asks both; a window retention covers asks raw") {
-    // Ten days of rows for a thirty-day question is what the recorder holds,
-    // known from then on with no configuration.
+  test("a window reads what it says, and only that") {
+    def made(w: Window) =
+      for {
+        src <- source(statRows = hourlyStats(ago(30.days)))
+        h <- History.create(src)
+        _ <- h.answerAt(FetchIdentity.Instance, entity, w, now)
+        calls <- src.calls.get
+      } yield calls
     for {
-      src <- source((_, s) => IO.pure(rowsFrom(ago(10.days))(s)))
-      h <- History.create(src)
-      _ <- h.ask(Window.LastMonth)
-      first <- src.calls.get
-      _ <- src.reset
-      _ <- h.ask(Window.LastWeek)
-      covered <- src.calls.get
-      _ <- src.reset
-      _ <- h.ask(Window.LastMonth, e = "sensor.other")
-      uncovered <- src.calls.get
+      hour <- made(Windows.hour)
+      day <- made(Windows.day)
+      week <- made(Windows.week)
     } yield {
-      assertEquals(first.sorted, Vector("raw", "statistics:hour"))
-      assertEquals(covered, Vector("raw"))
-      assertEquals(uncovered.sorted, Vector("raw", "statistics:hour"))
+      assertEquals(hour, Vector("raw"))
+      assertEquals(day, Vector("statistics:5minute"))
+      assertEquals(week, Vector("statistics:hour"))
     }
   }
 
-  test("retention is the greatest age seen, not the latest one") {
-    // A new sensor's short answer must not retract what an old row proved: they
-    // are indistinguishable per entity.
+  test("the newest bucket is carried to now, as HA's own chart does") {
+    // A bucket is written after its period ends, so the newest lags by minutes.
     for {
-      src <- source {
-        case ("sensor.new", s) => IO.pure(rowsFrom(ago(1.hour))(s))
-        case (_, s)            => IO.pure(rowsFrom(ago(10.days))(s))
-      }
+      src <- source(statRows = hourlyStats(ago(7.days), ago(1.hour)))
       h <- History.create(src)
-      _ <- h.ask(Window.LastMonth)
-      _ <- h.ask(Window.LastMonth, e = "sensor.new")
-      _ <- src.reset
-      _ <- h.ask(Window.LastWeek, e = "sensor.third")
-      made <- src.calls.get
-    } yield assertEquals(made, Vector("raw"))
+      s <- h.ask(Windows.week)
+      calls <- src.calls.get
+    } yield {
+      assertEquals(calls, Vector("statistics:hour"))
+      assertEquals(s.points.lastOption.map(_.at), Some(now))
+      assertEquals(
+        s.points.map(_.at).filter(_.isAfter(ago(1.hour))),
+        Vector(now)
+      )
+    }
   }
 
-  test("an empty answer proves nothing") {
+  test("no statistics draw nothing, unless the window falls back to raw") {
+    // Only an entity with a `state_class` has statistics.
+    val strict = Window.Statistics(604800L, StatisticsPeriod.Hour)
     for {
-      src <- source()
+      starts <- Ref[IO].of(Vector.empty[Instant])
+      src <- source((_, s) => starts.update(_ :+ s).as(rowsFrom(ago(1.day))(s)))
       h <- History.create(src)
-      _ <- h.ask(Window.LastHour)
-      _ <- src.reset
-      _ <- h.ask(Window.LastHour, e = "sensor.other")
-      made <- src.calls.get
-    } yield assertEquals(made.sorted, Vector("raw", "statistics:5minute"))
+      none <- h.ask(strict)
+      fellBack <- h.ask(Windows.week)
+      asked <- starts.get
+    } yield {
+      assertEquals(none, Series.empty)
+      assert(fellBack.points.nonEmpty, clue = fellBack)
+      assertEquals(asked, Vector(ago(7.days)))
+    }
   }
 
-  test("the wider answer wins, which is how a purged window still draws") {
+  test("a month past the recorder's purge still draws, from its buckets") {
     for {
       src <- source(
         (_, s) => IO.pure(rowsFrom(ago(10.days))(s)),
         hourlyStats(ago(30.days))
       )
       h <- History.create(src)
-      s <- h.ask(Window.LastMonth)
-    } yield assert(s.span.exists(_.toDays >= 29), clue = s.span.map(_.toDays))
+      s <- h.ask(Windows.month)
+    } yield assert(
+      s.points.headOption.exists(_.at.isBefore(ago(29.days))),
+      clue = s.points.headOption
+    )
   }
 
-  test("history wins a tie, because its resolution is finer") {
-    // Statistics are plotted at bucket ends, so they start an hour later.
-    val from = ago(7.days)
+  test("the answer is every bucket of a statistics read, none thinned") {
     for {
-      src <- source((_, s) => IO.pure(rowsFrom(from)(s)), hourlyStats(from))
+      src <- source(statRows = hourlyStats(ago(30.days)))
       h <- History.create(src)
-      s <- h.ask(Window.LastWeek)
-    } yield assertEquals(s.points.headOption.map(_.at), Some(from))
+      s <- h.ask(Windows.month)
+    } yield assertEquals(s.points.length, 30 * 24)
   }
 
-  test("the result is downsampled before anyone sees it") {
-    for {
-      src <- source((_, s) => IO.pure(rowsFrom(ago(30.days))(s)))
-      h <- History.create(src, target = 100)
-      s <- h.ask(Window.LastMonth)
-    } yield assertEquals(s.points.length, 100)
+  test(
+    "the bucket is the period, or a 720th of a raw span, at least a minute"
+  ) {
+    assertEquals(Windows.hour.bucket, 1.minute)
+    assertEquals(Windows.day.bucket, 5.minutes)
+    assertEquals(Windows.week.bucket, 1.hour)
+    assertEquals(Windows.month.bucket, 1.hour)
+    assertEquals(Window.Raw(604800L).bucket, 14.minutes)
+  }
+
+  test("the chart stage thins what it draws; the answer keeps every point") {
+    // How many points a drawing needs is the drawing's, so a chart and a
+    // computation over one window share one fetch.
+    val every = Series(
+      Vector.tabulate(5000)(i => Series.Point(now.plusSeconds(i.toLong), 1.0))
+    )
+    val counted: ChartDraw = (s, _) => IO.pure(s.points.length.toString)
+    ChartStage
+      .draw(IO.pure(counted), ChartStyle(), every.asJson)
+      .map(drawn => assertEquals(drawn, Downsample.DefaultTarget.toString))
   }
 
   test("ten viewers in one bucket cost one fetch and share a version") {
@@ -159,7 +182,7 @@ class HistorySuite extends munit.CatsEffectSuite {
       h <- History.create(src)
       answers <- List
         .fill(10)(
-          h.answerAt(FetchIdentity.Instance, entity, Window.LastDay, now)
+          h.answerAt(FetchIdentity.Instance, entity, rawDay, now)
         )
         .parSequence
       count <- src.fetches
@@ -172,9 +195,9 @@ class HistorySuite extends munit.CatsEffectSuite {
   test(
     "a rolled bucket is a new fetch and a new version, and retires the key"
   ) {
-    val later = now.plusSeconds(Window.LastDay.bucket.toSeconds)
+    val later = now.plusSeconds(rawDay.bucket.toSeconds)
     def version(h: History, at: Instant) =
-      h.answerAt(FetchIdentity.Instance, entity, Window.LastDay, at)
+      h.answerAt(FetchIdentity.Instance, entity, rawDay, at)
         .map(_.version)
     for {
       src <- source()
@@ -198,7 +221,12 @@ class HistorySuite extends munit.CatsEffectSuite {
     // the 1h while both are current. Longest first, so each shorter miss sweeps
     // over a longer window's live entry.
     val midHour = now.plusSeconds(25 * 60)
-    val windows = Window.values.toList.sortBy(-_.span.toSeconds)
+    val windows: List[Window] = List(
+      Window.Raw(2592000L),
+      Window.Raw(604800L),
+      Window.Raw(86400L),
+      Window.Raw(3600L)
+    )
     for {
       src <- source()
       h <- History.create(src)
@@ -219,8 +247,8 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source()
       h <- History.create(src)
-      _ <- h.ask(Window.LastDay)
-      _ <- h.ask(Window.LastDay, identity = FetchIdentity.user("alice"))
+      _ <- h.ask(rawDay)
+      _ <- h.ask(rawDay, identity = FetchIdentity.user("alice"))
       count <- src.fetches
     } yield assertEquals(count, 2)
   }
@@ -236,8 +264,8 @@ class HistorySuite extends munit.CatsEffectSuite {
         }
       )
       h <- History.create(src, failureTtl = Duration.Zero)
-      first <- h.ask(Window.LastDay).attempt
-      second <- h.ask(Window.LastDay)
+      first <- h.ask(rawDay).attempt
+      second <- h.ask(rawDay)
       count <- attempts.get
     } yield {
       assert(first.isLeft)
@@ -252,8 +280,8 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source((_, _) => IO.raiseError(new RuntimeException("HA is down")))
       h <- History.create(src)
-      first <- h.ask(Window.LastDay).attempt
-      second <- h.ask(Window.LastDay).attempt
+      first <- h.ask(rawDay).attempt
+      second <- h.ask(rawDay).attempt
       count <- src.fetches
     } yield {
       assert(first.isLeft && second.isLeft, clue = (first, second))
@@ -275,60 +303,30 @@ class HistorySuite extends munit.CatsEffectSuite {
     assertEquals(json.as[Series], Right(s))
   }
 
-  test("an unknown window is a build error naming the ones that exist") {
-    val e = HistoryFetch
-      .parse(Map("entity" -> "sensor.t", "window" -> "last-week"))
-      .swap
-      .getOrElse(fail("expected a parse error"))
-    assert(e.contains("last-week"), clue = e)
-    assert(e.contains("24h"), clue = e)
+  test("a window that does not decode names what would") {
+    def err(json: String) =
+      io.circe.parser
+        .decode[Window](json)
+        .fold(_.getMessage, w => fail(s"decoded $w"))
+    assert(err("""{"kind":"Weekly","span":60}""").contains("Weekly"))
+    val period = err("""{"kind":"Statistics","span":60,"period":"minute"}""")
+    assert(period.contains("5minute"), clue = period)
+    assert(err("""{"kind":"Raw","span":0}""").contains("positive"))
   }
 
-  test("a fetch with no entity or no window is a build error") {
-    assert(HistoryFetch.parse(Map("window" -> "24h")).isLeft)
-    assert(HistoryFetch.parse(Map("entity" -> "sensor.t")).isLeft)
+  test("statistics at a period no shorter than the span answer nothing") {
+    // Measured: `hour` over one hour is empty.
+    assert(Window.Statistics(3600L, StatisticsPeriod.Hour).problem.isDefined)
+    assertEquals(Windows.presets.values.flatMap(_.problem).toList, Nil)
   }
 
-  test("points 'all' asks for every reading; anything else is a build error") {
-    assertEquals(
-      HistoryFetch.parse(
-        Map("entity" -> "sensor.t", "window" -> "24h", "points" -> "all")
-      ),
-      Right(FetchRequest.History("sensor.t", Window.LastDay, everyPoint = true))
-    )
-    assert(
-      HistoryFetch
-        .parse(Map("entity" -> "sensor.t", "window" -> "24h", "points" -> "9"))
-        .isLeft
-    )
-  }
-
-  test("every point is its own cache entry, and nothing is thinned out") {
+  test("a raw answer keeps every row, which a computation wants") {
     // A countdown's start is one row: thinned to ~300, a day of minute rows
     // kept 100 of a job that started at 101.
     for {
       src <- source((_, s) => IO.pure(rowsFrom(ago(1.day))(s)))
-      h <- History.create(src, target = 100)
-      thinned <- h.ask(Window.LastDay)
-      every <- h
-        .answerAt(FetchIdentity.Instance, entity, Window.LastDay, now, true)
-        .flatMap(_.data.as[Series].liftTo[IO])
-      count <- src.fetches
-    } yield {
-      assertEquals(thinned.points.length, 100)
-      assert(every.points.length > 1000, clue = every.points.length)
-      assertEquals(count, 2)
-    }
-  }
-
-  test("a size is not a fetch parameter, and is ignored here") {
-    // The question is entity and window; size is how the answer is drawn
-    // (`ChartStyleSuite`).
-    assertEquals(
-      HistoryFetch.parse(
-        Map("entity" -> "sensor.t", "window" -> "24h", "width" -> "wide")
-      ),
-      Right(FetchRequest.History("sensor.t", Window.LastDay))
-    )
+      h <- History.create(src)
+      every <- h.ask(Window.Raw(86400L))
+    } yield assertEquals(every.points.length, 24 * 60 + 1)
   }
 }

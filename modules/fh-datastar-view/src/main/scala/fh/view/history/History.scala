@@ -1,47 +1,12 @@
 package fh.view.history
 
-import cats.effect.{IO, Ref}
+import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.fetch.{Answer, FetchIdentity, FetchRequest, SharedCache}
+import fh.view.fetch.{Answer, FetchIdentity, SharedCache}
 import io.circe.syntax.*
 
-import java.time.{Duration as JDuration, Instant}
+import java.time.Instant
 import scala.concurrent.duration.FiniteDuration
-
-/** Parsing a history fetch — pure, so `Dashboard.validate` can reject a bad one
-  * with nothing wired.
-  */
-object HistoryFetch {
-
-  val Name: String = "history"
-
-  /** `entity`, `window`, and `points = "all"` for every reading rather than
-    * about 300: a chart wants few, a computation (a countdown's start) every
-    * one. Size and unit are how the answer is drawn (the stage), so two sizes
-    * of one chart are one request and one fetch.
-    */
-  def parse(params: Map[String, String]): Either[String, FetchRequest] =
-    for {
-      entityId <- params
-        .get("entity")
-        .toRight(s"fetch '$Name' needs an 'entity' parameter")
-      name <- params
-        .get("window")
-        .toRight(s"fetch '$Name' needs a 'window' parameter")
-      window <- Window
-        .byName(name)
-        .toRight(
-          s"fetch '$Name' has unknown window '$name' — one of " +
-            Window.values.map(_.name).mkString(", ")
-        )
-      everyPoint <- params.get("points") match {
-        case None        => Right(false)
-        case Some("all") => Right(true)
-        case Some(other) =>
-          Left(s"fetch '$Name' has points '$other' — 'all', or none for ~300")
-      }
-    } yield FetchRequest.History(entityId, window, everyPoint)
-}
 
 /** `bucket` is the window's floor of "now", so an entry expires by its bucket
   * rolling rather than by a timer. Identity is in the key because HA scopes
@@ -51,25 +16,18 @@ final case class SeriesKey(
     identity: FetchIdentity,
     entityId: String,
     window: Window,
-    bucket: Instant,
-    everyPoint: Boolean = false
+    bucket: Instant
 ) {
   def expiresAt: Instant = bucket.plusSeconds(window.bucket.toSeconds)
 }
 
 /** The `history` provider: one entity's readings over one window, fetched once
-  * per bucket and shared by everyone who asks, answered as DATA.
-  *
-  * `retention` is how far back HA's recorder holds raw rows, learned from
-  * answers because `purge_keep_days` is reported nowhere. It is the maximum row
-  * age seen across ALL entities — a sensor created two days ago also answers
-  * two days — and only grows.
+  * per bucket and shared by everyone who asks, answered as DATA — every row of
+  * a raw read, every bucket of a statistics one. Thinning is the chart stage's.
   */
 final class History private (
     source: SeriesSource,
     cache: SharedCache[SeriesKey, Answer],
-    retention: Ref[IO, JDuration],
-    target: Int,
     now: IO[Instant]
 ) {
 
@@ -81,10 +39,9 @@ final class History private (
   def answer(
       identity: FetchIdentity,
       entityId: String,
-      window: Window,
-      everyPoint: Boolean = false
+      window: Window
   ): IO[Answer] =
-    now.flatMap(answerAt(identity, entityId, window, _, everyPoint))
+    now.flatMap(answerAt(identity, entityId, window, _))
 
   // Encoded once, on the fetch: re-encoding per ask was 5 µs a read, all of a
   // warm chart pull's cost over a plain one (`FetchBench.pullChart`).
@@ -92,12 +49,11 @@ final class History private (
       identity: FetchIdentity,
       entityId: String,
       window: Window,
-      asOf: Instant,
-      everyPoint: Boolean = false
+      asOf: Instant
   ): IO[Answer] = {
     val bucket = window.bucketOf(asOf)
-    cache.get(SeriesKey(identity, entityId, window, bucket, everyPoint))(
-      fetch(entityId, window, asOf, everyPoint)
+    cache.get(SeriesKey(identity, entityId, window, bucket))(
+      fetch(entityId, window, asOf)
         .map(s => Answer(bucket.getEpochSecond, s.asJson))
     )
   }
@@ -113,37 +69,21 @@ final class History private (
 
   private[history] def keys: IO[Set[SeriesKey]] = cache.keys
 
-  /** History alone once retention is known to cover the window; otherwise both
-    * in parallel, keeping whichever covers more time.
+  /** The newest bucket ends minutes before now, and `heldUntil` carries it
+    * there, as HA's own chart does.
     */
-  private def fetch(
-      entityId: String,
-      window: Window,
-      asOf: Instant,
-      everyPoint: Boolean
-  ) = {
+  private def fetch(entityId: String, window: Window, asOf: Instant) = {
     val start = window.startAt(asOf)
-    val fromHistory =
-      source
-        .raw(start, asOf, entityId)
-        .map(Series.fromHistory)
-        .flatTap(s =>
-          s.oldest.traverse_ { at =>
-            val age = JDuration.between(at, asOf)
-            retention.update(r => if (age.compareTo(r) > 0) age else r)
-          }
-        )
-    val fromStatistics =
-      source
-        .statistics(start, asOf, entityId, window.statistics)
-        .map(Series.fromStatistics)
-    retention.get
-      .map(_.getSeconds >= window.span.toSeconds)
-      .ifM(fromHistory, (fromHistory, fromStatistics).parMapN(History.widest))
-      .map(s =>
-        if (everyPoint) s.heldUntil(asOf)
-        else s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))
-      )
+    val raw = source.raw(start, asOf, entityId).map(Series.fromHistory)
+    (window match {
+      case Window.Raw(_)                          => raw
+      case Window.Statistics(_, period, fallback) =>
+        source
+          .statistics(start, asOf, entityId, period)
+          .map(Series.fromStatistics)
+          .flatMap(s => if (s.isEmpty && fallback) raw else IO.pure(s))
+    })
+      .map(_.heldUntil(asOf))
   }
 }
 
@@ -151,30 +91,18 @@ object History {
 
   def create(
       source: SeriesSource,
-      target: Int = Downsample.DefaultTarget,
       failureTtl: FiniteDuration = SharedCache.FailureTtl,
       onFailure: SharedCache.OnFailure[SeriesKey] = SharedCache.ignore,
       now: IO[Instant] = IO.realTimeInstant
   ): IO[History] =
-    (
-      // Expiry is asked PER KEY: windows bucket at different sizes, and
-      // sweeping by the newest key's bucket evicted live 30 d entries whenever
-      // a 1 h one landed.
-      SharedCache.create[SeriesKey, Answer](
+    // Expiry is asked PER KEY: windows bucket at different sizes, and sweeping
+    // by the newest key's bucket evicted live 30 d entries whenever a 1 h one
+    // landed.
+    SharedCache
+      .create[SeriesKey, Answer](
         (added, other) => other.expiresAt.isAfter(added.bucket),
         failureTtl,
         onFailure
-      ),
-      Ref[IO].of(JDuration.ZERO)
-    ).mapN(new History(source, _, _, target, now))
-
-  // By time covered, not point count: statistics is coarser by design, so
-  // counting points would always pick history. History wins a tie.
-  private def widest(history: Series, statistics: Series): Series =
-    (history.span, statistics.span) match {
-      case (Some(h), Some(s)) => if (s.compareTo(h) > 0) statistics else history
-      case (Some(_), None)    => history
-      case (None, Some(_))    => statistics
-      case (None, None)       => history
-    }
+      )
+      .map(new History(source, _, now))
 }

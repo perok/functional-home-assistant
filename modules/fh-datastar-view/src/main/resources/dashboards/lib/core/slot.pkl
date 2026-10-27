@@ -12,7 +12,6 @@ import "../hass/active.pkl" as activeTables
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
 import "stage.pkl" as stageMod
-import "variable.pkl" as varMod
 import "node.pkl" as nodes
 
 /// The object form of a slot (`fh.view.model.SlotSource`).
@@ -44,11 +43,11 @@ class Slot {
   /// Null is text; a `class:` binding is a bool by kind.
   type: SlotType? = null
   /// Makes this a fetch slot, read from a provider rather than live state
-  /// (`components/history.pkl`'s `chartSlot`, or [[fetchSlot]]).
+  /// (`providers/history.pkl`'s `HistoryFetch`).
   fetch: Fetch? = null
   /// Named inputs this slot's CEL reads, beside its node's
   /// ([[nodes.Node.expressionValues]]): the same kinds, a fetch included
-  /// (`c.fetch.history(e)`), so a slot can carry what it reads. A name in both
+  /// (`p.history.of(e, w)`), so a slot can carry what it reads. A name in both
   /// is a build error.
   hidden expressionValues: Mapping<String, nodes.ExpressionValue> = new {}
   values: Mapping<String, nodes.ExpressionValue>? =
@@ -67,20 +66,11 @@ class Slot {
     else nodes.booleanSlot(valueWhile as Slot|Expr|predMod.Predicate)
 }
 
-/// A read of a named provider, checked by the backend's `Fetches.parse`.
-open class Fetch {
+/// A read of a named provider. Each provider's component module declares its
+/// typed question as a subclass, which the backend decodes by `provider`.
+abstract class Fetch {
   provider: String
-  /// A value, or a read of a node variable ([[varMod.Variable.ref]]). The backend
-  /// refuses a variable value that would make the fetch read an entity its
-  /// dashboard does not show (ADR 0023).
-  params: Mapping<String, String|varMod.Ref>
 }
-
-const function fetchSlot(
-  name: String,
-  args: Mapping<String, String|varMod.Ref>
-): Slot =
-  new Slot { fetch = new Fetch { provider = name; params = args } }
 
 typealias SlotType = "text"|"bool"
 

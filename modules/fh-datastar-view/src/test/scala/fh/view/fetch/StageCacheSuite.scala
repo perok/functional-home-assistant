@@ -4,7 +4,7 @@ import io.github.iltotore.iron.autoRefine
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.history.{ChartStyle, History, Series, SeriesSource, Window}
+import fh.view.history.{ChartStyle, History, Series, SeriesSource, Windows}
 import fh.view.model.Transform
 import io.circe.Json
 import io.circe.syntax.*
@@ -16,7 +16,7 @@ import io.circe.syntax.*
 class StageCacheSuite extends munit.CatsEffectSuite {
 
   private def question(entity: String): FetchRequest =
-    FetchRequest.History(entity, Window.LastDay)
+    FetchRequest.History(entity, Windows.day)
 
   private val q = question("sensor.t")
 

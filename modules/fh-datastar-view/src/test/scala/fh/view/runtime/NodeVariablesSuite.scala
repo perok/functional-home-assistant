@@ -2,8 +2,8 @@ package fh.view.runtime
 
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
-import fh.view.history.ChartStyle
-import fh.view.fetch.{Staged, FetchSnapshot}
+import fh.view.history.{ChartStyle, Window, Windows}
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.declared
@@ -26,19 +26,16 @@ class NodeVariablesSuite extends munit.FunSuite {
     regions = Map("children" -> Region())
   )
 
-  private def chartSlot(param: Ref = Ref.Var("window")) =
+  private val chosen: Choice[Window] = Choice.Chosen("window", Windows.presets)
+
+  private def chartSlot(param: Choice[Window] = chosen) =
     SlotSource(
-      fetch = Some(
-        FetchTemplate(
-          "history",
-          Map("entity" -> Ref.Literal("sensor.t"), "window" -> param)
-        )
-      ),
+      fetch = Some(FetchTemplate("sensor.t", param)),
       transform = Transform.Stage.Chart(ChartStyle(width = 600)),
       reads = Reads.OnRender
     )
 
-  private def chartNode(param: Ref = Ref.Var("window")) =
+  private def chartNode(param: Choice[Window] = chosen) =
     LayoutNode.Component("chart", slots = Map("chart" -> chartSlot(param)))
 
   private def box(
@@ -69,8 +66,15 @@ class NodeVariablesSuite extends munit.FunSuite {
       surfaces = surfaces
     )
 
+  /** Each read's preset key, so a test reads as the values a viewer picks. */
   private def windowOf(reads: List[SlotRead]): List[String] =
-    reads.flatMap(_.fetch.params.get("window"))
+    reads.map(r =>
+      Windows.presets
+        .collectFirst {
+          case (k, w) if r.fetch == FetchRequest.History("sensor.t", w) => k
+        }
+        .getOrElse(fail(s"not a preset: ${r.fetch}"))
+    )
 
   test("a reference resolves to the nearest declaring ancestor's value") {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
@@ -117,13 +121,14 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(windowOf(d.fetchesIn(d.card)), List("7d"))
   }
 
-  test("a written-down parameter reads no variable at all") {
-    // A literal has nowhere for a write to land, so `entity` is not
-    // substitutable and nothing has to refuse it.
-    val t = chartSlot(Ref.Literal("24h")).fetch.get
+  test("a written-down window reads no variable at all") {
+    // It has nowhere for a write to land, so nothing has to refuse one.
+    val t = chartSlot(Choice.Fixed(Windows.day)).fetch.get
     assertEquals(t.references, Nil)
-    assertEquals(t.resolve(Map("window" -> "7d")).params("window"), "24h")
-    assertEquals(t.resolve(Map.empty).params("entity"), "sensor.t")
+    assertEquals(
+      t.resolve(Map("window" -> "7d")),
+      Right(FetchRequest.History("sensor.t", Windows.day))
+    )
   }
 
   test("a reference with no declarer is a build error naming both") {
@@ -148,18 +153,20 @@ class NodeVariablesSuite extends munit.FunSuite {
     // referenced. A token, since it is spelled into signal names and the URL
     // mirror.
     val errs =
-      dash(box(Map("my window" -> "24h"), chartNode(Ref.Literal("1h"))))
+      dash(
+        box(Map("my window" -> "24h"), chartNode(Choice.Fixed(Windows.hour)))
+      )
         .validate()
     assertEquals(errs.size, 1, clue = errs)
     assert(errs.head.contains("'my window'"), clue = errs.head)
     assert(errs.head.contains("plain name"), clue = errs.head)
   }
 
-  test("a declared value the provider cannot parse is a build error") {
+  test("a declared value the table has no option for is a build error") {
     // The build checks what the dashboard asks before anybody chooses; every
     // later value is untrusted input, refused at the write.
     val errs = dash(box(Map("window" -> "4h"), chartNode())).validate()
-    assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
+    assert(errs.exists(_.contains("'4h' is not one of")), clue = errs)
   }
 
   private def setOf(clause: LayoutNode) = LayoutNode.SetNode(
@@ -258,16 +265,13 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(windowOf(d.fetchesIn(d.card)), List("7d"))
     assertEquals(windowOf(d.allFetches), List("7d"))
-
-    val v = d.validated().fold(e => fail(e.mkString("; ")), identity)
-    assertEquals(v.fetches.size, 1)
   }
 
   private val states =
     Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
 
   private def readAt(window: String) = SlotRead(
-    SlotFetch("history", Map("entity" -> "sensor.t", "window" -> window)),
+    FetchRequest.History("sensor.t", Windows.presets(window)),
     Transform.Stage.Chart(ChartStyle(width = 600))
   )
 
@@ -403,15 +407,23 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(d.fetchesIn(d.card).size, 2)
   }
 
-  test("a bare string decodes as a literal, an object as a reference") {
-    // The slot decoder's own rule, so params making no reference carry no tag
-    // and the byte-identity snapshots stay still.
-    assertEquals(decode[Ref](""""24h""""), Right(Ref.Literal("24h")))
+  test("a window decodes as written, a `Chosen` object as a table") {
     assertEquals(
-      decode[Ref]("""{"var":"window"}"""),
-      Right(Ref.Var("window"))
+      decode[Choice[Window]]("""{"kind":"Raw","span":3600}"""),
+      Right(Choice.Fixed(Windows.hour))
     )
-    assert(decode[Ref]("""{"nope":"window"}""").isLeft)
+    assertEquals(
+      decode[Choice[Window]](
+        """{"kind":"Chosen","by":{"var":"window"},
+          |"options":{"1h":{"kind":"Raw","span":3600}}}""".stripMargin
+      ),
+      Right(Choice.Chosen("window", Map("1h" -> Windows.hour)))
+    )
+    assert(
+      decode[Choice[Window]](
+        """{"kind":"Chosen","by":{"nope":"window"},"options":{}}"""
+      ).isLeft
+    )
   }
 
   test("a node with no declaration carries none on the wire") {

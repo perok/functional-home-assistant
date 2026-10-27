@@ -5,8 +5,8 @@ choice **writes** it for that viewer's session. Resolution is up the ancestor ch
 Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it replaces the
 `settable` draft of [#210](https://github.com/perok/functional-home-assistant/issues/210).
 
-Two users: a chart's window — `c.windowChooser` declares `window`, and every
-`c.historyChart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
+Two users: a chart's window — `c.history.chooser` declares `window`, and every
+`c.history.chart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
 bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
 A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
 declares `control` the same way, valued by the control's name: its head is a bake group, one head
@@ -81,13 +81,16 @@ groups, a path only a write has. An initial value is not a choice: no `v.` param
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
 default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
-**Reference.** A fetch parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare
-string is a literal and `{"var": "window"}` a reference, the rule `SlotSource`'s decoder already
-used, so slots that do not use this did not move. `FetchTemplate` is the authored fetch,
-references unresolved; `SlotAsk` is a slot's ask as the TREE states it; `SlotRead` is that ask
-resolved for one render, and is still what every cache keys on.
+**Reference.** A fetch reads a variable by choosing: a `Choice` is `Fixed(value)` or
+`Chosen(by, options)`, the variable's value a key into a table of typed values (a history window,
+ADR 0031). The value is a string, since it lives in a URL and a signal, so it picks a typed value
+rather than being one, and a key the table lacks is refused at the write. On the wire
+`{"kind": "Chosen", "by": {"var": "window"}, "options": {…}}`; anything else is the value written
+down. `FetchTemplate` is the authored fetch, its choice unmade; `SlotAsk` is a slot's ask as the
+TREE states it; `SlotRead` is that ask resolved for one render, and is still what every cache keys
+on.
 
-**Resolution** is one walk at validate time carrying a scope stack. A `Var` resolves to the nearest
+**Resolution** is one walk at validate time carrying a scope stack. A reference resolves to the nearest
 declaring ancestor; a container that declares nothing is transparent; a nested declaration of the
 same name shadows. No declarer is a **build error** naming the node and the variable. The walk
 yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set a write re-renders.
@@ -125,7 +128,7 @@ a route or a signal name is a string inside a slot, which the renderer never par
 unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the DOM.
 
 **One typed value on each side, never a bare name.** A component holds a variable as a
-`varMod.Variable`: its `ref` for a fetch parameter, `declarer` for a node below, its signals and URL
+`varMod.Variable`: its `ref` for a chosen window's `by`, `declarer` for a node below, its signals and URL
 param spelled from the declarer's own template (`own`) or from below it (`below`), the `selects`
 activation of a panel, `defaultingTo(value)` for the node's `vars`, and `choose(value)` for a guarded
 tap. So a component writes the name once, and a misspelt signal cannot exist. The server's half
@@ -149,10 +152,10 @@ process forgot (a restart, a reap) adopts them, where it would otherwise reset e
 declared value. Each is adopted on its own, so one stale value costs only its own variable. A live
 session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
-`Renderer.refusals`: every declared reader must still parse what it would then ask, and read only
-an entity the dashboard names or one of its fetches names at its declared values — ADR 0023's
-bound on the read side, because a `Ref` is legal on any parameter and a variable fed to `entity`
-would otherwise chart the lock from a `Public` dashboard. A refused write is ADR 0024's 200 of
+`Renderer.refusals`: every declared reader must still take it — a fetch must find it among its
+options, a panel must have a member for it. ADR 0023's bound on the read side holds by
+construction: a fetch's entity is written down, so no value can move a chart to the lock on a
+`Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own
 (`Renderer.adopt`), leaving the declared values. A link is not refused whole: it outlives the
 layout it was copied from, and a card inserted above can move an id onto a node that cannot take
@@ -173,7 +176,7 @@ life. The renderer puts the URL mirror on the declarer's `.fh-cell`, one keyed
 Any node can declare, and a control choosing from below it needs no host.
 
 **The control is a node per value.** A `c.chooser(c.select(v))` declares `v` at the select's first
-option and puts the select above the cards beneath it; `c.windowChooser` is one over the windows,
+option and puts the select above the cards beneath it; `c.history.chooser` is one over the windows,
 `c.controlChooser` one over the main controls. Each option is a `tab` node whose tap is
 `Variable.choose`: a guarded `Click` naming the declarer by token in its route and its pending
 signal. Its name and value are typed as plain tokens, since they travel in a route segment and a JS
@@ -215,9 +218,9 @@ cannot say "a number in a range" or "an entity id".
 
 **Totality in the build.** The first cut enumerated each variable's values so the build's parsed
 request map would hold whatever a viewer later picked, which forced every author to list values
-they might not have. A value is untrusted input per session; the build now parses the DECLARED
-values, which it does decide, and the write refuses what would not parse. `Validated.fetches` is a
-memo, not a totality proof — a read it has not seen is parsed on the spot.
+they might not have. A value is untrusted input per session; the build checks the DECLARED
+values and every option a reader lists, which it does decide, and the write refuses a key no
+reader has.
 
 **Doing it in the browser.** A client signal and a POST for a patched chart: no declaration, no
 render-key change. It fails on the first paint — the default wins on every refresh, or the page
@@ -264,7 +267,7 @@ instead.
   value, and a session this process forgot adopts it as a choice, initial value or not.
 - **One place an initial transform does nothing.** Rows that are `.fromChooser()` follow the head, which starts
   from the group entity's state, not each bulb's.
-- **The render key gained nothing.** A fetch parameter reads a variable as a `SlotRead`, and a
+- **The render key gained nothing.** A fetch's choice resolves into a `SlotRead`, and a
   bake group's selection is structure, which is never cached. Two viewers on different windows
   already produce different `SlotRead`s, which the render key and both caches
   distinguish. Measured: two windows over one sensor are unordered in `RenderCache`, so

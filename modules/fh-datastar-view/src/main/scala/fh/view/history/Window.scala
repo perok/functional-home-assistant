@@ -1,48 +1,104 @@
 package fh.view.history
 
 import api.homeassistant.ws.domain.StatisticsPeriod
+import io.circe.Decoder
+import io.circe.derivation.{Configuration, ConfiguredDecoder}
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.circe.given
+import io.github.iltotore.iron.constraint.numeric.Positive
 
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** How far back a chart looks, and how stale it may go.
+/** What a history fetch reads over its span: the recorder's raw rows, or HA's
+  * statistics at one period. The author picks; nothing here picks for them.
   *
-  * A closed set because `bucket` is the cache key's time part: viewers inside
-  * one bucket share one fetch and one drawing. An arbitrary duration would give
-  * each viewer their own key.
-  *
-  * `statistics` is finer than `bucket` for short windows because `hour` on a
-  * one-hour window returns nothing (measured).
+  * `fallback` reads raw when there are no statistics: only an entity with a
+  * `state_class` has any, and without it such a chart draws nothing.
   */
-enum Window(
-    val span: FiniteDuration,
-    val bucket: FiniteDuration,
-    val statistics: StatisticsPeriod
-) derives CanEqual {
+enum Window derives CanEqual {
+  case Raw(span: Window.Span)
+  case Statistics(
+      span: Window.Span,
+      period: StatisticsPeriod,
+      fallback: Boolean = false
+  )
 
-  case LastHour extends Window(1.hour, 1.minute, StatisticsPeriod.FiveMinute)
-  case LastDay extends Window(24.hours, 5.minutes, StatisticsPeriod.FiveMinute)
-  case LastWeek extends Window(7.days, 1.hour, StatisticsPeriod.Hour)
-  case LastMonth extends Window(30.days, 1.hour, StatisticsPeriod.Hour)
+  def span: Window.Span
 
-  def startAt(asOf: Instant): Instant = asOf.minusSeconds(span.toSeconds)
+  def length: FiniteDuration = (span: Long).seconds
 
+  /** How long one answer is current: its version and its expiry, so viewers
+    * inside one bucket share one fetch. A statistics answer moves by its
+    * period; a raw one by a 720th of its span, at least a minute.
+    */
+  def bucket: FiniteDuration = this match {
+    case Statistics(_, period, _) => Window.lengthOf(period)
+    case Raw(_)                   => (length / 720).max(1.minute)
+  }
+
+  def startAt(asOf: Instant): Instant = asOf.minusSeconds(length.toSeconds)
+
+  /** A statistics bucket rolls a minute after its period ends: HA writes the
+    * period's row seconds after the boundary, and a fetch in between would miss
+    * it for a whole period.
+    */
   def bucketOf(asOf: Instant): Instant = {
     val step = bucket.toSeconds
-    Instant.ofEpochSecond(Math.floorDiv(asOf.getEpochSecond, step) * step)
+    val late = this match {
+      case Statistics(_, _, _) => Window.StatisticsLag.toSeconds
+      case Raw(_)              => 0L
+    }
+    Instant.ofEpochSecond(
+      Math.floorDiv(asOf.getEpochSecond - late, step) * step + late
+    )
+  }
+
+  /** A rule across two fields, so `validate`'s rather than the decoder's. */
+  def problem: Option[String] = this match {
+    case Statistics(_, period, _) if Window.lengthOf(period) >= length =>
+      Some(
+        s"reads statistics at '${period.wire}' over $length, which answers " +
+          "nothing: the period must be shorter than the span"
+      )
+    case _ => None
+  }
+
+  def key: String = this match {
+    case Raw(span)                     => s"raw:$span"
+    case Statistics(span, p, fallback) =>
+      s"statistics:$span:${p.wire}:$fallback"
   }
 }
 
 object Window {
 
-  def byName(name: String): Option[Window] =
-    values.find(_.name == name)
+  val StatisticsLag: FiniteDuration = 1.minute
 
-  extension (w: Window)
-    def name: String = w match {
-      case LastHour  => "1h"
-      case LastDay   => "24h"
-      case LastWeek  => "7d"
-      case LastMonth => "30d"
-    }
+  /** Seconds. Pkl already refuses a span under a second. */
+  type Span = Long :| DescribedAs[Positive, "a window's span must be positive"]
+
+  // A month is a bucket length here, not a calendar month: it only sets how
+  // long an answer stays current.
+  def lengthOf(period: StatisticsPeriod): FiniteDuration = period match {
+    case StatisticsPeriod.FiveMinute => 5.minutes
+    case StatisticsPeriod.Hour       => 1.hour
+    case StatisticsPeriod.Day        => 1.day
+    case StatisticsPeriod.Week       => 7.days
+    case StatisticsPeriod.Month      => 30.days
+    case StatisticsPeriod.Year       => 365.days
+  }
+
+  given Decoder[StatisticsPeriod] = Decoder[String].emap(w =>
+    StatisticsPeriod.values
+      .find(_.wire == w)
+      .toRight(
+        s"unknown statistics period '$w' — one of " +
+          StatisticsPeriod.values.map(_.wire).mkString(", ")
+      )
+  )
+
+  given Decoder[Window] = ConfiguredDecoder.derived[Window](using
+    Configuration.default.withDefaults.withDiscriminator("kind")
+  )
 }

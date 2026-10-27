@@ -11,7 +11,7 @@ import fh.view.testkit.{FakeConfig, HouseFixture}
 import java.util.regex.Pattern
 import scala.concurrent.duration.*
 
-/** `c.windowChooser` over a chart, as the Pkl library writes it, against the
+/** `c.history.chooser` over a chart, as the Pkl library writes it, against the
   * real history provider and chart isolate. Only the recorder is the fake's.
   */
 class WindowChooserSmokeSuite extends SmokeSuite {
@@ -28,8 +28,8 @@ class WindowChooserSmokeSuite extends SmokeSuite {
        |
        |card = (c.column) {
        |  children {
-       |    (c.windowChooser) {
-       |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
+       |    (c.history.chooser) {
+       |      children { c.history.chart(dump.entities.${sensor.dumpKey}).fromChooser() }
        |    }
        |  }
        |}
@@ -86,13 +86,13 @@ class WindowChooserSmokeSuite extends SmokeSuite {
   }
 
   test("passthrough readings re-run when a window press re-fetches them") {
-    // The client half of `c.historyReadings`: the JSON arrives in a
+    // The client half of `c.examples.historyReadings`: the JSON arrives in a
     // `data-signals` attribute, and a morph that changes it has to re-run the
     // expressions reading the signal. The fake recorder answers the same
     // values for every window, so the span is the reading that moves.
     val readings = TestServer.servedWorkspace(
       "readings",
-      entry.replace("c.historyChart(", "c.historyReadings("),
+      entry.replace("c.history.chart(", "c.examples.historyReadings("),
       List(sensor)
     )
     def span(page: Page): IO[String] =
@@ -138,13 +138,13 @@ class WindowChooserSmokeSuite extends SmokeSuite {
 
   test("a tab whose panel charts slowly spins until the panel lands") {
     val tabbed = entry.replace(
-      s"""(c.windowChooser) {
-         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
+      s"""(c.history.chooser) {
+         |      children { c.history.chart(dump.entities.${sensor.dumpKey}).fromChooser() }
          |    }""".stripMargin,
       s"""(c.tabs) {
          |      tabs {
          |        ["Now"] { c.title("now") }
-         |        ["History"] { c.historyChart(dump.entities.${sensor.dumpKey}) }
+         |        ["History"] { c.history.chart(dump.entities.${sensor.dumpKey}) }
          |      }
          |    }""".stripMargin
     )
@@ -194,8 +194,8 @@ class WindowChooserSmokeSuite extends SmokeSuite {
 
   test("a more-info whose chart is slow spins on the card that opened it") {
     val moreInfo = entry.replace(
-      s"""(c.windowChooser) {
-         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
+      s"""(c.history.chooser) {
+         |      children { c.history.chart(dump.entities.${sensor.dumpKey}).fromChooser() }
          |    }""".stripMargin,
       s"c.entityCard(dump.entities.${sensor.dumpKey})"
     )
@@ -228,8 +228,8 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     val moreInfo = TestServer.servedWorkspace(
       "moreinfo-url",
       entry.replace(
-        s"""(c.windowChooser) {
-           |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
+        s"""(c.history.chooser) {
+           |      children { c.history.chart(dump.entities.${sensor.dumpKey}).fromChooser() }
            |    }""".stripMargin,
         s"c.entityCard(dump.entities.${sensor.dumpKey})"
       ),

@@ -1017,7 +1017,7 @@ turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `St
 the absence of a transform: the provider's JSON, which is the contract a third party reads against.
 It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
-re-applies that attribute when a re-fetch morphs it — `c.historyReadings` is the worked example,
+re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
 **A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034): the slot
@@ -1044,10 +1044,10 @@ not hold asks for no history, and the pre-read, the render key (`Renderer.asked`
 ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
-name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
-a bad fetch or stage fails the build with nothing wired: a stage's params are parsed as the wire
-is decoded (`Stage.Chart` carries a `ChartStyle`), a fetch's by `Fetches.parse` in
-`Dashboard.validate`. Only `FetchResolver` holds the
+name→instance map would say only what somebody remembered to wire up. Both decode PURE, so
+a bad fetch or stage fails the build with nothing wired: each is typed as the wire is decoded
+(`Stage.Chart` carries a `ChartStyle`, `FetchTemplate` its window), and `Dashboard.validate`
+checks what spans fields (a window's period against its span, a chosen window's declared key). Only `FetchResolver` holds the
 running machinery.
 
 **The hole follows the stage, not the shape.** A stage that emits markup needs the raw
@@ -1121,10 +1121,11 @@ does not arise for three reasons that have to stay true:
   snapshot already in hand, so which members render is computable before the walk;
 - nothing lets a node's input depend on a value produced DURING the walk.
 
-**A fetch parameter may be a REFERENCE, and it resolves PER VIEWER.** A node declares node
-variables (`Component.vars`); a fetch parameter is a literal or a read of one
-(`Ref.Literal`/`Ref.Var`); a node holds a static `SlotAsk`, and `fetchesForPage` resolves each one
-against the values in scope at that node into the `SlotRead` everything keys on.
+**A fetch's window may be CHOSEN, and it resolves PER VIEWER.** A node declares node variables
+(`Component.vars`); a fetch's window is written down or chosen by one from a table
+(`Choice.Fixed`/`Choice.Chosen`, ADR 0031); a node holds a static `SlotAsk`, and `fetchesForPage`
+resolves each one against the values in scope at that node into the `SlotRead` everything keys
+on.
 
 **The values ride inside `FetchSnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
@@ -1190,18 +1191,18 @@ hand the renderer: the popup's surface id and each chosen bake group's member in
 `SurfaceGraph.memberAt` finds from the variable's value, falling back to the group's
 member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
 
-The authoring side is one component (`c.chooser(c.select(v))`, `c.windowChooser` for the window): it
+The authoring side is one component (`c.chooser(c.select(v))`, `c.history.chooser` for the window): it
 declares the variable, and its bar is a `tab` node per option. A button names the declaring node in the route it posts to and the signal
 it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR
 0033), so each button is a node with its own busy guard.
 
 Two consequences worth stating, because neither is obvious:
 
-- **The build parses what the DASHBOARD asks — the declared values — and nothing else.** A
-  viewer's value is untrusted input arriving per session, so what keeps `Validated.fetches` total
-  is the WRITE, not the build: the boundary that accepts a value resolves each declared reader's
-  ask with it and refuses one that would not parse, so no session ever holds a value that cannot
-  render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
+- **The build checks what the DASHBOARD declares — the declared values and every window in a
+  reader's table — and nothing else.** A viewer's value is untrusted input arriving per session,
+  so what keeps every read resolvable is the WRITE, not the build: the boundary that accepts a
+  value resolves each declared reader's ask with it (`Renderer.refusals`) and refuses a key the
+  table lacks, so no session ever holds a value that cannot render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
   over. A declaration carries no list of allowed values for this reason — the reader already
   decides, and a second copy could only disagree with it.
 - **No topological ordering is needed, and none is built.** A variable's value never comes from

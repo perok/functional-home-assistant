@@ -1,0 +1,38 @@
+/// How a chart is drawn: the chart stage a fetch slot's answer goes through,
+/// SVG out (ADR 0032). Knows no provider and no HA.
+module components.base.chart
+
+import "../../core/stage.pkl" as stageMod
+
+/// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
+/// asked, so two sizes of one chart share one fetch.
+const function chartStage(
+  chartWidth: Int?,
+  chartHeight: Int?,
+  chartUnit: String?
+): ChartStage = new ChartStage {
+  params {
+    width = chartWidth
+    height = chartHeight
+    unit = chartUnit
+  }
+}
+
+/// How a chart is drawn (`fh.view.history.ChartStyle`). A null is left off the
+/// wire, so the backend's default applies.
+class ChartParams {
+  width: Int(isPositive)?
+  height: Int(isPositive)?
+  /// A CSS colour for this chart's line. Unset, the theme's `--fh-chart-line`,
+  /// else `--fh-accent`.
+  line: String?
+  /// A CSS colour under this chart's line. Unset, the theme's
+  /// `--fh-chart-fill`, else none.
+  fill: String?
+  unit: String?
+}
+
+class ChartStage extends stageMod.Stage {
+  stage: "Chart" = "Chart"
+  params: ChartParams = new ChartParams {}
+}

@@ -8,6 +8,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
 import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
 import "../../main/resources/dashboards/lib/components/defaults.pkl" as defaultsMod
+import "../../main/resources/dashboards/lib/providers.pkl" as p
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/hass.pkl"
@@ -84,16 +85,18 @@ facts {
     local whole = bar.slots["of"] as slotMod.Slot
     whole.entityId == "sensor.rem"
     whole.transform.toString().contains("past.transformList")
-    whole.values.toMap() == Map("past", c.fetch.history(left))
-    whole.values["past"].params.toMap() == Map("entity", "sensor.rem", "window", "24h", "points", "all")
+    whole.values.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
     // A countdown on no device gets the same bar.
-    (barOf(c.progress(left)).slots["of"] as slotMod.Slot).values.toMap() == Map("past", c.fetch.history(left))
+    (barOf(c.progress(left)).slots["of"] as slotMod.Slot).values.toMap()
+      == Map("past", p.history.of(left, p.history.raw(24.h)))
   }
 
-  ["c.fetch.history reads one sensor over a window, and an unused slot input is not on the wire"] {
+  ["p.history.of reads one sensor over a window, and an unused slot input is not on the wire"] {
     local left = minutes("rem", "time_to_end")
-    c.fetch.history(left).over("7d").params.toMap() == Map("entity", "sensor.rem", "window", "7d", "points", "all")
-    c.fetch.history(left).provider == "history"
+    local week = p.history.of(left, p.history.raw(7.d))
+    week.entity == "sensor.rem"
+    week.window == p.history.raw(7.d)
+    week.provider == "history"
     // Without inputs a slot's wire is what it always was.
     (new slotMod.Slot { transform = "state" }).values == null
   }

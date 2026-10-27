@@ -294,14 +294,16 @@ object client {
         start_time: Instant,
         end_time: Option[Instant],
         statistic_ids: List[String],
-        period: StatisticsPeriod
+        period: StatisticsPeriod,
+        types: Option[List[StatisticType]] = None
     ) extends CommandPhase
         with CommandResponse.AsResult[Map[String, List[StatisticPoint]]]
 
     object `recorder/statistics_during_period` {
 
       /** Omit `end_time` rather than send null: HA answers `invalid_format:
-        * expected str at 'end_time'. Got None`.
+        * expected str at 'end_time'. Got None`. An absent `types` asks for
+        * every type.
         */
       given Encoder.AsObject[`recorder/statistics_during_period`] =
         ConfiguredEncoder

@@ -35,29 +35,24 @@ object HistoryPoint {
   }
 }
 
-/** One long-term-statistics bucket.
-  *
-  * Two options rather than a sum type: HA derives them from independent flags
-  * (`has_mean`, `has_sum`). They never overlapped on the instance measured, but
-  * the wire format does not promise that.
+/** One long-term-statistics bucket. A value is present when the call asked for
+  * its type ([[StatisticType]]) and the statistic has it: a measurement has
+  * `mean`/`min`/`max`, a total `state`/`sum`/`change`. Each is its own option,
+  * because a call may ask for any subset.
   */
 case class StatisticPoint(
     start: Instant,
     end: Instant,
-    mean: Option[StatisticPoint.Mean],
-    sum: Option[StatisticPoint.Sum]
+    mean: Option[Double] = None,
+    min: Option[Double] = None,
+    max: Option[Double] = None,
+    state: Option[Double] = None,
+    sum: Option[Double] = None,
+    change: Option[Double] = None,
+    lastReset: Option[Instant] = None
 )
 
 object StatisticPoint {
-
-  case class Mean(min: Double, mean: Double, max: Double)
-
-  case class Sum(
-      state: Double,
-      sum: Double,
-      change: Option[Double],
-      lastReset: Option[Instant]
-  )
 
   private def epochMillis(c: io.circe.ACursor, key: String) =
     c.get[Long](key).map(Instant.ofEpochMilli)
@@ -66,32 +61,42 @@ object StatisticPoint {
     for {
       start <- epochMillis(c, "start")
       end <- epochMillis(c, "end")
-      min <- c.get[Option[Double]]("min")
       mean <- c.get[Option[Double]]("mean")
+      min <- c.get[Option[Double]]("min")
       max <- c.get[Option[Double]]("max")
       state <- c.get[Option[Double]]("state")
-      total <- c.get[Option[Double]]("sum")
+      sum <- c.get[Option[Double]]("sum")
       change <- c.get[Option[Double]]("change")
       reset <- c.get[Option[Long]]("last_reset")
-      meanGroup =
-        for { lo <- min; mid <- mean; hi <- max } yield Mean(lo, mid, hi)
-      sumGroup =
-        for { s <- state; t <- total } yield Sum(
-          s,
-          t,
-          change,
-          reset.map(Instant.ofEpochMilli)
-        )
-      point <- Either.cond(
-        meanGroup.isDefined || sumGroup.isDefined,
-        StatisticPoint(start, end, meanGroup, sumGroup),
-        io.circe.DecodingFailure(
-          "statistics bucket carries neither a mean band nor a sum",
-          c.history
-        )
-      )
-    } yield point
+    } yield StatisticPoint(
+      start,
+      end,
+      mean,
+      min,
+      max,
+      state,
+      sum,
+      change,
+      reset.map(Instant.ofEpochMilli)
+    )
   }
+}
+
+/** What a statistics call asks for, spelled HA's way. HA answers every type
+  * when none is named.
+  */
+enum StatisticType(val wire: String) {
+  case Change extends StatisticType("change")
+  case LastReset extends StatisticType("last_reset")
+  case Max extends StatisticType("max")
+  case Mean extends StatisticType("mean")
+  case Min extends StatisticType("min")
+  case State extends StatisticType("state")
+  case Sum extends StatisticType("sum")
+}
+
+object StatisticType {
+  given Encoder[StatisticType] = Encoder.instance(t => Json.fromString(t.wire))
 }
 
 /** A bare string on the wire: the module's `Configuration` would otherwise put

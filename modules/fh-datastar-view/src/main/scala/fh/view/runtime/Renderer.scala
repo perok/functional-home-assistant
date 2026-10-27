@@ -3,7 +3,7 @@ package fh.view.runtime
 import com.github.mustachejava.Mustache
 import fh.view.FHError
 import fh.view.build.LibPackage
-import fh.view.fetch.{Fetches, FetchSnapshot, FetchRequest}
+import fh.view.fetch.FetchSnapshot
 import fh.view.history.Series
 import fh.view.model.{
   CallReach,
@@ -19,7 +19,6 @@ import fh.view.model.{
   NodeId,
   Reads,
   SlotAsk,
-  SlotFetch,
   SlotRead,
   SlotShape,
   SetId,
@@ -144,7 +143,6 @@ class Renderer(validated: Dashboard.Validated) {
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
   // value.
   val access: Access = validated.access
-  private val parsedFetches = validated.fetches
 
   private val themeClasses = dashboard.theme.classes
   private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
@@ -285,17 +283,20 @@ class Renderer(validated: Dashboard.Validated) {
         .map(key -> _)
     }.toMap
 
-  /** One line per refused choice. Every reader must still parse and read only
-    * an entity this dashboard shows — the read-side twin of an action's bound
-    * (ADR 0023), without which a variable fed to `entity` charts any sensor.
+  /** One line per refused choice: every fetch reading the variable must find
+    * the value among its options, and every panel it selects must have a member
+    * for it.
     */
   def refusals(choices: Map[VarKey, String]): List[String] = {
     val env = vars.env(choices)
     choices.toList.flatMap { (key, value) =>
       val why = (vars
         .readersOf(key)
-        .flatMap(readsAt(_, env))
-        .flatMap(r => refusal(r.fetch)) ++
+        .flatMap(id =>
+          fetchesForNode(id).flatMap(
+            _.fetch.resolve(env.getOrElse(id, Map.empty)).left.toOption
+          )
+        ) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
           Option.unless(surfaces.memberAt(gid, value).isDefined)(
             s"$gid takes ${Surface.membersText(surfaces.memberValues(gid))}"
@@ -324,15 +325,6 @@ class Renderer(validated: Dashboard.Validated) {
             case more => (acc, refused ++ more)
           }
       }
-
-  private def refusal(fetch: SlotFetch): Option[String] =
-    Fetches.parse(fetch) match {
-      case Left(e)    => Some(e)
-      case Right(req) =>
-        req.entities
-          .find(e => !references(e) && !dashboard.fetchedEntities(e))
-          .map(e => s"$e is not on this dashboard")
-    }
 
   /** A target has its own rendering ([[ownRenderingOf]]), so its descendants
     * are not asked, except a member's: a member is placed whole.
@@ -433,7 +425,7 @@ class Renderer(validated: Dashboard.Validated) {
     }.toMap
 
   /** Every read a node can make, whatever its `valueWhile`s decide. */
-  def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
+  private[runtime] def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
     fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
 
   private val prefixToRoot: Map[String, String] =
@@ -788,8 +780,6 @@ class Renderer(validated: Dashboard.Validated) {
     */
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
-
-  def fetchRequests: Map[SlotRead, FetchRequest] = parsedFetches
 
   private def asksIn(
       idx: Index,
@@ -2039,7 +2029,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private val noFetch: FetchTemplate => Object = f =>
     throw FHError.internal(
-      s"a slot read the fetch '${f.provider}' where none is answered"
+      s"a slot read the fetch '${f.key}' where none is answered"
     )
 
   private def resolveStateSlotValue(

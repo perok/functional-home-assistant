@@ -7,7 +7,7 @@ import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../hass.pkl"
 import "base/bar.pkl" as barMod
-import "fetch.pkl" as fetchMod
+import "../providers/history.pkl" as historyProv
 
 /// A bar filled to `e`'s state, read as a percentage.
 function percent(e: hass.Entity): barMod.ProgressBar = barMod.percent(stateOf(e))
@@ -46,7 +46,7 @@ const local peakSinceZero: String =
 local function peakOf(left: hass.SensorEntity): slotMod.Slot = new {
   entityId = left.entity_id
   transform = peakSinceZero
-  expressionValues { ["past"] = fetchMod.history(left) }
+  expressionValues { ["past"] = historyProv.of(left, historyProv.raw(24.h)) }
 }
 
 /// Whether [[remaining]] takes these two.

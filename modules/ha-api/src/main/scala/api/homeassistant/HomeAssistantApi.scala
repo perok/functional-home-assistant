@@ -93,7 +93,8 @@ trait HomeAssistantApi[F[_]] {
       start: Instant,
       end: Option[Instant],
       statisticIds: List[String],
-      period: StatisticsPeriod
+      period: StatisticsPeriod,
+      types: Set[StatisticType] = HomeAssistantApi.LineTypes
   ): F[Map[String, List[StatisticPoint]]]
 
   // Assumes | to_json as the end
@@ -101,6 +102,12 @@ trait HomeAssistantApi[F[_]] {
 }
 
 object HomeAssistantApi {
+
+  /** What a line over statistics reads: a measurement's mean, a total's
+    * reading. The rest of a bucket is a third of its bytes for nothing.
+    */
+  val LineTypes: Set[StatisticType] =
+    Set(StatisticType.Mean, StatisticType.State)
 
   /** WS only: it covers everything REST did, so there is one connection to
     * supervise and one place for a reconnecting facade.
@@ -207,10 +214,17 @@ object HomeAssistantApi {
           start: Instant,
           end: Option[Instant],
           statisticIds: List[String],
-          period: StatisticsPeriod
+          period: StatisticsPeriod,
+          types: Set[StatisticType]
       ): IO[Map[String, List[StatisticPoint]]] =
         in.sendCommand(
-          `recorder/statistics_during_period`(start, end, statisticIds, period)
+          `recorder/statistics_during_period`(
+            start,
+            end,
+            statisticIds,
+            period,
+            Some(types.toList.sortBy(_.ordinal))
+          )
         )
 
       def getConfigWS: IO[Json] =

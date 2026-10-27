@@ -165,21 +165,32 @@ An expression can also read what a sensor (`hass.SensorEntity`) has recorded,
 by a name you give it:
 
 ```pkl
-import "@fh-dashboard/components/fetch.pkl" as fetch
+import "@fh-dashboard/providers.pkl" as p
 
 ["peak"] = new slotMod.Slot {
   entityId = entity.entity_id
   transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-  expressionValues { ["past"] = fetch.history(entity).over("7d") }
+  expressionValues { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
 }
 ```
 
 `past` is a list of `[time, value]` pairs, oldest first: time in milliseconds,
-value a number. It is fetched when the slot is read — when its entity changes,
-or when the card is drawn — and kept for a few minutes, so reading it on every
-change costs nothing. It does not change on its own: nothing redraws a card
-because new history was written. Use `transformList(i, p, keep, value)` to
-filter and map; this CEL has no `filter` or `map`.
+value a number. `p.history.raw(…)` is every recorded reading, and HA deletes
+those after `purge_keep_days` (10 by default).
+`p.history.statistics(30.d, "hour")` is HA's hourly averages instead, kept for
+good, one point per hour; add `.orRaw()` to read the recorded readings of a
+sensor that has no statistics, or `past` is empty.
+
+It is fetched when the slot is read — when its entity changes, or when the
+card is drawn — and kept a while (a 720th of the span for readings, at least
+a minute; one period for statistics), so reading it on every change costs
+nothing. It does not change on its own: nothing redraws a card because
+new history was written. Use `transformList(i, p, keep, value)` to filter and
+map; this CEL has no `filter` or `map`.
+
+A card of your own that takes a window the way `c.history.chart` does takes
+`p.HistoryWindow` and resolves it with `p.historyWindow(w)`: either a window,
+or a function handed the providers, so its users need no import.
 
 ### A value only while something holds
 
@@ -191,7 +202,7 @@ is `""`, the expression does not run, and its history is not read:
   entityId = entity.entity_id
   valueWhile = q.entity(entity).gt(q.prop("state"), 0)
   transform = "…"
-  expressionValues { ["past"] = fetch.history(entity) }
+  expressionValues { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
 }
 ```
 

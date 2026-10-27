@@ -13,12 +13,12 @@
 ///
 ///     (c.column) {
 ///       vars { window.defaultingTo("24h") }
-///       children { c.historyChart(sensor).over(window.ref) }
+///       children { c.history.chart(sensor).over((p) -> p.history.chosen(window, p.history.presets)) }
 ///     }
 ///
 /// No list of allowed values: the write boundary refuses a value no declared
-/// reader can parse, or one naming an entity the dashboard does not show. For
-/// a closed set, emit the declaration and its control from one select
+/// reader takes, such as a key a chosen window's table lacks. For a closed
+/// set, emit the declaration and its control from one select
 /// (`components/select.pkl`'s `Chooser`).
 module core.variable
 
@@ -33,9 +33,9 @@ typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
 /// segment and a JS string.
 typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 
-/// The wire shape of a read (`fh.view.model.Ref.Var`), what a fetch parameter
-/// holds. `var` is the wire key, hence the backticks; get one from
-/// [[Variable.ref]].
+/// The wire shape of a read: what a chosen window is chosen `by`
+/// (`fh.view.model.Choice.Chosen`). `var` is the wire key, hence the backticks;
+/// get one from [[Variable.ref]].
 class Ref {
   `var`: String
 }
@@ -45,8 +45,7 @@ class Ref {
 class Variable {
   name: Name
 
-  /// A read of it, for a fetch parameter, resolved up the ancestors at build
-  /// time.
+  /// A read of it, resolved up the ancestors at build time.
   fixed ref: Ref = let (n = name) new Ref { `var` = n }
 
   /// The declaring node's id, written from a node below it: a token the build

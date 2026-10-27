@@ -12,7 +12,7 @@ import fh.view.model.{
   NodeId,
   FetchTemplate,
   Reads,
-  Ref,
+  Choice,
   Region,
   SlotRead,
   SlotSource,
@@ -21,6 +21,7 @@ import fh.view.model.{
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
+import fh.view.history.Windows
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -95,7 +96,6 @@ class FetchBench {
     else
       FetchSnapshot.resolve(
         resolver,
-        renderer.fetchRequests,
         reads,
         Map.empty,
         FetchIdentity.Instance
@@ -166,13 +166,7 @@ object FetchBench {
       Map(
         "chart" -> SlotSource(
           fetch = Some(
-            FetchTemplate(
-              "history",
-              Map(
-                "entity" -> Ref.Literal(entity),
-                "window" -> Ref.Literal("24h")
-              )
-            )
+            FetchTemplate(entity, Choice.Fixed(Windows.day))
           ),
           transform = Transform.Stage.Chart(),
           reads = Reads.OnRender
