@@ -1017,7 +1017,7 @@ turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `St
 the absence of a transform: the provider's JSON, which is the contract a third party reads against.
 It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
-re-applies that attribute when a re-fetch morphs it — `c.historyReadings` is the worked example,
+re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
 **A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034): the slot
@@ -1191,7 +1191,7 @@ hand the renderer: the popup's surface id and each chosen bake group's member in
 `SurfaceGraph.memberAt` finds from the variable's value, falling back to the group's
 member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
 
-The authoring side is one component (`c.chooser(c.select(v))`, `c.windowChooser` for the window): it
+The authoring side is one component (`c.chooser(c.select(v))`, `c.history.chooser` for the window): it
 declares the variable, and its bar is a `tab` node per option. A button names the declaring node in the route it posts to and the signal
 it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR
 0033), so each button is a node with its own busy guard.

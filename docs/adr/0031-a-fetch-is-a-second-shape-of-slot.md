@@ -142,9 +142,10 @@ cached at the provider, for a data card's payload, would be a stage of its own w
 ## Decision 4 — what history reads is the author's, typed on the wire
 
 A history fetch reads a **window**: `Raw(span)`, the recorder's rows, or `Statistics(span, period,
-fallback)`, HA's long-term statistics. The author picks (`c.window.raw(1.h)`,
-`c.window.statistics(7.d, "hour")`); the server picks nothing. The four windows a chart used to be
-limited to (`1h`/`24h`/`7d`/`30d`) are now only more-info's presets (`c.window.presets`). HA takes
+fallback)`, HA's long-term statistics. The author picks (`p.history.raw(1.h)`,
+`p.history.statistics(7.d, "hour")`, with `providers.pkl` imported as `p`); the server picks
+nothing. The four windows a chart used to be limited to (`1h`/`24h`/`7d`/`30d`) are now only
+more-info's presets (`p.history.presets`). HA takes
 any span, and statistics at `5minute` up to `year`.
 
 - **Why statistics are worth asking for.** A power meter's 24 h of raw rows was 23,691 rows and
@@ -178,8 +179,9 @@ any span, and statistics at `5minute` up to `year`.
   somebody remembered.
 - **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Fetch` holds only
   a `provider` String and `core/stage.pkl` knows only `passthrough`; the provider's question
-  (`HistoryFetch`), its windows (`components/window.pkl`) and the chart stage are typed in the
-  components that offer them. An unknown provider is a decode failure naming the known ones.
+  (`HistoryFetch`) and its windows are typed in the provider's module (`providers/history.pkl`, a
+  tier of its own: ADR 0015), and the chart stage in the card that draws it
+  (`components/history.pkl`). An unknown provider is a decode failure naming the known ones.
 - **A provider is typed in the model, as a stage is.** `FetchTemplate` is history's question, and
   a second provider makes it a sum, as `FetchRequest` is. `Stage.Chart` carries a `ChartStyle`,
   typed at both ends (`components/history.pkl`'s `ChartParams`). Each is decoded with the wire, so

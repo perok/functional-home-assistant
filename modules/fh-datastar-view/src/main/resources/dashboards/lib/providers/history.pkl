@@ -1,15 +1,36 @@
-/// What a history fetch reads, as `c.window`: raw recorder rows or HA's
-/// statistics over a span, or one a node variable chooses.
+/// The `history` provider, as `p.history`: one sensor's recorded past over a
+/// window. A chart draws it (`c.history.chart`); a component's CEL reads it as
+/// an expression value, `list(list(double))` of `[epochMillis, value]`, oldest
+/// first:
 ///
-///     c.historyChart(power).over(c.window.statistics(7.d, "hour"))
-///     c.fetch.history(left).over(c.window.raw(7.d))
+///     expressionValues { ["past"] = p.history.of(left, p.history.raw(7.d)) }
 ///
-/// The author picks; the server picks nothing (`fh.view.history.Window`).
-module components.window
+/// The answer is every reading of a raw window and every bucket of a statistics
+/// one; a chart thins what it draws. The author picks the window; the server
+/// picks nothing (ADR 0031).
+module providers.history
 
+import "../core/slot.pkl" as slotMod
 import "../core/variable.pkl" as varMod
+import "../hass.pkl"
 
-/// Build with [[raw]] or [[statistics]].
+/// The question: one sensor over one window. The entity is never a variable,
+/// because substituting it is an access question (ADR 0023).
+class HistoryFetch extends slotMod.Fetch {
+  provider = "history"
+  hidden sensor: hass.SensorEntity
+  entity: String = sensor.entity_id
+  window: Over
+}
+
+/// `e` over `w`.
+const function of(e: hass.SensorEntity, w: Over): HistoryFetch =
+  new HistoryFetch { sensor = e; window = w }
+
+/// A window written down, or one a node variable chooses.
+typealias Over = Window|Chosen
+
+/// Build with [[raw]] or [[statistics]] (`fh.view.history.Window`).
 abstract class Window {
   kind: String
   /// Seconds; [[raw]] and [[statistics]] take a `Duration`.
@@ -40,8 +61,8 @@ class Chosen {
   options: Mapping<String, Window>
 }
 
-/// `d` of the recorder's raw rows: every reading, which a chart thins to about
-/// 300 points. HA keeps them `purge_keep_days` (10 by default).
+/// `d` of the recorder's raw rows: every reading. HA keeps them
+/// `purge_keep_days` (10 by default).
 const function raw(d: Duration): Raw = new Raw { span = seconds(d) }
 
 /// `d` of HA's statistics at `p`: each bucket's mean, else a total sensor's
@@ -54,7 +75,7 @@ const function statistics(d: Duration, p: Period): Statistics =
 const function chosen(v: varMod.Variable, table: Mapping<String, Window>): Chosen =
   new Chosen { by = v.ref; options = table }
 
-/// More-info's windows, and `c.windowChooser`'s: an hour of raw rows, then
+/// More-info's windows, and `c.history.chooser`'s: an hour of raw rows, then
 /// statistics, falling back to raw rows for a sensor without any.
 const presets: Mapping<String, Window> = new {
   ["1h"] = raw(1.h)

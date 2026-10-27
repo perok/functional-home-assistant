@@ -510,12 +510,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |        ["X"] {
        |          (c.tabs) {
        |            tabs {
-       |              ["X1"] { c.historyChart(dump.entities.${nestedX1.dumpKey}) }
-       |              ["X2"] { c.historyChart(dump.entities.${nestedX2.dumpKey}) }
+       |              ["X1"] { c.history.chart(dump.entities.${nestedX1.dumpKey}) }
+       |              ["X2"] { c.history.chart(dump.entities.${nestedX2.dumpKey}) }
        |            }
        |          }
        |        }
-       |        ["Y"] { c.historyChart(dump.entities.${nestedY.dumpKey}) }
+       |        ["Y"] { c.history.chart(dump.entities.${nestedY.dumpKey}) }
        |      }
        |    }
        |  }
@@ -605,12 +605,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    (c.windowChooser) {
+         |    (c.history.chooser) {
          |      children {
          |        (c.tabs) {
          |          tabs {
-         |            ["T"] { c.historyChart(dump.entities.${nestedX1.dumpKey}).fromChooser() }
-         |            ["H"] { c.historyChart(dump.entities.${nestedX2.dumpKey}).fromChooser() }
+         |            ["T"] { c.history.chart(dump.entities.${nestedX1.dumpKey}).fromChooser() }
+         |            ["H"] { c.history.chart(dump.entities.${nestedX2.dumpKey}).fromChooser() }
          |          }
          |        }
          |      }
@@ -826,9 +826,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    (c.windowChooser) {
+         |    (c.history.chooser) {
          |      children {
-         |        c.historyReadings(dump.entities.${HouseFixture.outsideTemp.dumpKey}).fromChooser()
+         |        c.examples.historyReadings(dump.entities.${HouseFixture.outsideTemp.dumpKey}).fromChooser()
          |      }
          |    }
          |  }
@@ -871,7 +871,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    ((c.windowChooser).defaultingTo("7d")) {
+         |    ((c.history.chooser).defaultingTo("7d")) {
          |      children {
          |        c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
          |      }
@@ -926,9 +926,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    (c.windowChooser) {
+         |    (c.history.chooser) {
          |      children {
-         |        c.historyChart(dump.entities.${HouseFixture.outsideTemp.dumpKey}).fromChooser()
+         |        c.history.chart(dump.entities.${HouseFixture.outsideTemp.dumpKey}).fromChooser()
          |      }
          |    }
          |  }

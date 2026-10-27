@@ -165,13 +165,12 @@ An expression can also read what a sensor (`hass.SensorEntity`) has recorded,
 by a name you give it:
 
 ```pkl
-import "@fh-dashboard/components/fetch.pkl" as fetch
-import "@fh-dashboard/components/window.pkl" as window
+import "@fh-dashboard/providers.pkl" as p
 
 ["peak"] = new slotMod.Slot {
   entityId = entity.entity_id
   transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-  expressionValues { ["past"] = fetch.history(entity).over(window.raw(7.d)) }
+  expressionValues { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
 }
 ```
 
@@ -195,7 +194,7 @@ is `""`, the expression does not run, and its history is not read:
   entityId = entity.entity_id
   valueWhile = q.entity(entity).gt(q.prop("state"), 0)
   transform = "…"
-  expressionValues { ["past"] = fetch.history(entity) }
+  expressionValues { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
 }
 ```
 

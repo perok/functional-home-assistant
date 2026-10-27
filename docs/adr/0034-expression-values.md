@@ -84,7 +84,7 @@ the slot's; a name in both is a build error, as is one the slot's own expression
 
 ### A fetch is a value read on demand
 
-A fetch value (`c.fetch.history(e).over(w)`, ADR 0031) is a provider read by name: the bar's whole is
+A fetch value (`p.history.of(e, w)`, ADR 0031) is a provider read by name: the bar's whole is
 the countdown's highest reading since it last read 0, CEL over its history. It adds no wake: the
 slot is read when its own entity changes, or when its card is drawn, and the provider's answer is
 whatever its cache holds then (history's, per 5-minute period). Nothing watches the answer itself;

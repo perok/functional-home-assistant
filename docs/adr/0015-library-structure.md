@@ -31,16 +31,24 @@ Three tiers, by AUDIENCE rather than by kind:
 core/       node · slot · icon · tap · surface · predicate · — writing a COMPONENT
             badge
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
+providers.pkl + providers/  history                          — what a component READS beyond state
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
             light · lock · moreinfo · history · bar · progress · tap ·
-            defaults
+            defaults · examples
   components/base/  button · onoff · tile · bar · slider ·   — the same, knowing no HA
                     text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
 ```
+
+`providers.pkl` is the provider tier's facade, one namespace per provider (`p.history`): the
+question a fetch asks and what it may be asked over (a history window). A component author asks
+with it; a dashboard author meets it only to pick what a card reads, which a card's own method may
+also take as a function handed the facade (`.over((p) -> p.history.raw(1.h))`), so no import is
+needed. The core still names no provider (ADR 0031). `c.examples` holds cards kept only as worked
+examples of one mechanism each.
 
 `components.pkl` is a **facade**: it declares no cards, re-exporting the everyday
 names from the family modules. Its `modules` list and the reflected `cards`

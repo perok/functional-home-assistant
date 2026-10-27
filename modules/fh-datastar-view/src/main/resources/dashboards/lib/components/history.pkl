@@ -1,34 +1,26 @@
-/// A chart of one entity's recorded past, drawn on the server.
+/// History cards, as `c.history`: a chart of one sensor's recorded past drawn on
+/// the server, and a window chooser over charts. What a chart reads is the
+/// `history` provider's (`providers/history.pkl`, as `p.history`).
 ///
 /// The chart arrives as SVG in the card's bytes, so it morphs, caches and
-/// resumes like any other leaf. This module owns the provider's question, its
-/// cards and the chart stage; what a fetch reads over is `window.pkl`'s.
+/// resumes like any other leaf.
 module components.history
 
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/stage.pkl" as stageMod
-import "../core/tap.pkl" as tapMod
-import "../core/text.pkl" as textMod
 import "../core/variable.pkl" as varMod
+import "../providers.pkl" as providersMod
+import "../providers/history.pkl" as historyProv
 import "select.pkl" as selectMod
-import "window.pkl" as windowMod
 import "../hass.pkl"
 
-/// The `history` provider's question: one entity over one window. The window
-/// may be chosen by a node variable ([[windowMod.chosen]]); the entity may not,
-/// because substituting it is an access question (ADR 0023).
-open class HistoryFetch extends slotMod.Fetch {
-  provider = "history"
-  entity: String
-  window: windowMod.Window|windowMod.Chosen
-}
+/// A window, or a function picking one from the providers, so a dashboard
+/// needs no import of its own: `.over((p) -> p.history.raw(1.h))`.
+typealias Pick = historyProv.Over|((providersMod) -> historyProv.Over)
 
-const function historyFetch(
-  entityId: String,
-  w: windowMod.Window|windowMod.Chosen
-): slotMod.Slot =
-  new slotMod.Slot { fetch = new HistoryFetch { entity = entityId; window = w } }
+const function picked(w: Pick): historyProv.Over =
+  if (w is Function1) w.apply(providersMod) else w
 
 /// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
 /// asked, so two sizes of one chart share one fetch.
@@ -83,7 +75,7 @@ class HistoryChart extends nodes.Node {
   hidden entity: hass.SensorEntity
 
   /// The window drawn, written down or chosen by a node variable.
-  hidden window: windowMod.Window|windowMod.Chosen = windowMod.presets["24h"]
+  hidden window: historyProv.Over = historyProv.presets["24h"]
 
   /// The drawing's own size in SVG units; null for the backend's default. The
   /// SVG scales to its cell, so this sets the proportions and how large the
@@ -92,104 +84,40 @@ class HistoryChart extends nodes.Node {
   hidden chartHeight: Int(isPositive)? = null
 
   slots {
-    ["chart"] = (historyFetch(entity.entity_id, window)) {
+    ["chart"] = new slotMod.Slot {
+      fetch = historyProv.of(entity, window)
       transform = chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
     }
   }
 
-  function over(w: windowMod.Window|windowMod.Chosen): HistoryChart =
-    let (self = this) (self) { window = w }
+  function over(w: Pick): HistoryChart = let (self = this) (self) { window = picked(w) }
 
   /// Draw at `w`×`h` instead of the default — wider for a full-width panel,
   /// narrower so labels read larger on a small cell.
   function size(w: Int(isPositive), h: Int(isPositive)): HistoryChart =
     let (self = this) (self) { chartWidth = w; chartHeight = h }
 
-  /// Read the window from the nearest [[windowChooser]] above this chart.
-  function fromChooser(): HistoryChart = over(windowMod.chosen(windowVar, windowMod.presets))
+  /// Read the window from the nearest [[chooser]] above this chart.
+  function fromChooser(): HistoryChart =
+    over(historyProv.chosen(windowVar, historyProv.presets))
 }
 
-/// The history answer as data rather than a drawing: now, low and high over
-/// the window — the worked example of the passthrough stage.
-///
-/// A fetch slot is bytes, never a signal (ADR 0031), so the card lifts the
-/// JSON into a client-only signal itself, `data-signals:_hist_<id>` over an
-/// escaped hole. A re-fetch morphs the attribute, and Datastar re-applies a
-/// changed `data-*` attribute, so every reading re-runs. The JSON is the
-/// history provider's `{"points": [[epochMillis, value], …]}`.
-class HistoryReadings extends nodes.Node {
-  card = "historyReadings"
-  cardDef = new nodes.CardDef {
-    template = """
-      <article class="fh-card fh-readings" data-signals:\(readingsSignal)="{{readings}}">
-        <header>\(textMod.hole("label"))</header>
-        <dl>
-          <div><dt>Now</dt><dd data-text="\(stat("p[p.length - 1]"))"></dd></div>
-          <div><dt>Low</dt><dd data-text="\(stat("Math.min(...p)"))"></dd></div>
-          <div><dt>High</dt><dd data-text="\(stat("Math.max(...p)"))"></dd></div>
-          <div><dt>Covers</dt><dd class="fh-readings-span" data-text="\(covers)"></dd></div>
-        </dl>
-      </article>
-      """
-    slots { "label"; "readings"; "unit"; "entity_id" }
-    css = """
-      .fh-readings dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;margin:0}
-      .fh-readings dt{color:var(--fh-text-dim);font-size:.75rem}
-      .fh-readings dd{margin:0;font-variant-numeric:tabular-nums}
-      """
-  }
+/// A chart of `e`'s last 24 hours — `.over((p) -> p.history.statistics(7.d,
+/// "hour"))` for any other window. A [[hass.SensorEntity]] because only a
+/// numeric one charts; [[hass.SensorEntity.isNumeric]] lets a composition ask
+/// before it draws.
+function chart(e: hass.SensorEntity): HistoryChart = new HistoryChart { entity = e }
 
-  hidden entity: hass.SensorEntity
-  hidden window: windowMod.Window|windowMod.Chosen = windowMod.presets["24h"]
-
-  slots {
-    ["entity_id"] = entity.entity_id
-    ["label"] = slotMod.labelSlot(entity, null)
-    ["unit"] = entity.unit_of_measurement ?? ""
-    // No `transform`: a fetch slot's default stage is passthrough.
-    ["readings"] = historyFetch(entity.entity_id, window)
-  }
-
-  function over(w: windowMod.Window|windowMod.Chosen): HistoryReadings =
-    let (self = this) (self) { window = w }
-  function fromChooser(): HistoryReadings = over(windowMod.chosen(windowVar, windowMod.presets))
-}
-
-// Named by the node, so two readings cards never share one signal.
-const local readingsSignal: String = "_hist_{{id}}"
-
-// One reading over the signal's values, rounded, with the unit; a dash when the
-// window holds nothing. `p` is the values, nulls dropped.
-const local function stat(of: String): String =
-  "(p => p.length ? Math.round(\(of) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')" +
-    "($\(readingsSignal).points.map(x => x[1]).filter(v => v !== null))"
-
-// How many hours the answer spans, from the timestamps.
-const local covers: String =
-  "(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')" +
-    "($\(readingsSignal).points)"
-
-/// Now, low and high of `e` over the last 24 hours; `.fromChooser()` under a
-/// [[windowChooser]].
-function historyReadings(e: hass.SensorEntity): HistoryReadings =
-  new HistoryReadings { entity = e }
-
-/// A chart of `e`'s last 24 hours — `.over(c.window.statistics(7.d, "hour"))`
-/// for any other window. A [[hass.SensorEntity]] because only a numeric one charts;
-/// [[hass.SensorEntity.isNumeric]] lets a composition ask before it draws.
-function historyChart(e: hass.SensorEntity): HistoryChart =
-  new HistoryChart { entity = e }
-
-/// The node variable [[windowChooser]] declares and [[HistoryChart.fromChooser]]
+/// The node variable [[chooser]] declares and [[HistoryChart.fromChooser]]
 /// reads. Fixed rather than an argument on either, so the pair cannot drift.
 const windowVar: varMod.Variable = new { name = "window" }
 
 /// A window bar over the charts beneath it: press `7d` and every
 /// [[HistoryChart.fromChooser]] in this subtree redraws at a week.
 ///
-///     (c.windowChooser) {
-///       children { c.historyChart(sensor).fromChooser() }
+///     (c.history.chooser) {
+///       children { c.history.chart(sensor).fromChooser() }
 ///     }
-hidden windowChooser: selectMod.Chooser =
-  selectMod.chooser(selectMod.select(windowVar).options(windowMod.presets.keys.toList()))
+hidden chooser: selectMod.Chooser =
+  selectMod.chooser(selectMod.select(windowVar).options(historyProv.presets.keys.toList()))
     .defaultingTo("24h")

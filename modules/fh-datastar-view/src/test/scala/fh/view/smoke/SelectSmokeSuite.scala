@@ -31,7 +31,7 @@ class SelectSmokeSuite extends SmokeSuite {
        |    c.select(shade).options(List("24h", "7d", "30d")).style("dropdown")
        |    c.select(shade).options(List("24h", "7d", "30d")).style("cycle")
        |    // A reader: the server refuses a choice nothing on the page reads.
-       |    c.historyChart(dump.entities.${sensor.dumpKey}).over(c.window.chosen(shade, c.window.presets))
+       |    c.history.chart(dump.entities.${sensor.dumpKey}).over((p) -> p.history.chosen(shade, p.history.presets))
        |  }
        |}
        |""".stripMargin

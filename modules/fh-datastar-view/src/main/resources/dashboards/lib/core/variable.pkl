@@ -13,7 +13,7 @@
 ///
 ///     (c.column) {
 ///       vars { window.defaultingTo("24h") }
-///       children { c.historyChart(sensor).over(c.window.chosen(window, c.window.presets)) }
+///       children { c.history.chart(sensor).over((p) -> p.history.chosen(window, p.history.presets)) }
 ///     }
 ///
 /// No list of allowed values: the write boundary refuses a value no declared

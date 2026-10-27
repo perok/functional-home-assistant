@@ -425,7 +425,7 @@ unit and no name (those belong to the entity's live state, and a copy here could
 card beside it).
 
 **Window** — what a history fetch reads over a span: `Raw`, the recorder's rows, or `Statistics` at
-one period (`c.window`, ADR 0031). The author picks; `1h`/`24h`/`7d`/`30d` are only more-info's
+one period (`p.history.raw`/`p.history.statistics`, ADR 0031). The author picks; `1h`/`24h`/`7d`/`30d` are only more-info's
 **presets**. Each window derives the **cache bucket** its answers key on, and only an author adds a
 window, so viewers share.
 
@@ -435,7 +435,7 @@ moving rather than by a timer. A **statistics bucket** is one pre-aggregated int
 table.
 
 **Fetch** — a read of a **provider** with its parameters: `history` of one entity over one window.
-A fetch slot shows one; an expression value reads one in CEL (`c.fetch.history(e)`).
+A fetch slot shows one; an expression value reads one in CEL (`p.history.of(e, w)`).
 Not a **query**, which is `query.pkl`'s `q.`: it picks CANDIDATES at build time, with presence and
 order decided live, and reaches no network. Two words because the two get discussed side by side.
 

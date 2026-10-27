@@ -5,8 +5,8 @@ choice **writes** it for that viewer's session. Resolution is up the ancestor ch
 Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it replaces the
 `settable` draft of [#210](https://github.com/perok/functional-home-assistant/issues/210).
 
-Two users: a chart's window — `c.windowChooser` declares `window`, and every
-`c.historyChart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
+Two users: a chart's window — `c.history.chooser` declares `window`, and every
+`c.history.chart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
 bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
 A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
 declares `control` the same way, valued by the control's name: its head is a bake group, one head
@@ -176,7 +176,7 @@ life. The renderer puts the URL mirror on the declarer's `.fh-cell`, one keyed
 Any node can declare, and a control choosing from below it needs no host.
 
 **The control is a node per value.** A `c.chooser(c.select(v))` declares `v` at the select's first
-option and puts the select above the cards beneath it; `c.windowChooser` is one over the windows,
+option and puts the select above the cards beneath it; `c.history.chooser` is one over the windows,
 `c.controlChooser` one over the main controls. Each option is a `tab` node whose tap is
 `Variable.choose`: a guarded `Click` naming the declarer by token in its route and its pending
 signal. Its name and value are typed as plain tokens, since they travel in a route segment and a JS

@@ -1,0 +1,11 @@
+/// What a component reads from beyond live state, by provider:
+/// `import "@fh-dashboard/providers.pkl" as p`. A component author asks with
+/// it; a dashboard author picks a chart's window with it, or through the
+/// function form `.over((p) -> p.history.statistics(7.d, "hour"))`, which needs
+/// no import.
+module providers
+
+import "providers/history.pkl" as historyMod
+
+/// A sensor's recorded past: `p.history.of(e, p.history.raw(7.d))`.
+hidden history: historyMod = historyMod

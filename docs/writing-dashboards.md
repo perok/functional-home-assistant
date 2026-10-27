@@ -250,7 +250,7 @@ Each is a *variable*:
   ready-made, each with the cards that follow it:
 
   ```pkl
-  (c.windowChooser) { children { c.historyChart(s).fromChooser() } }
+  (c.history.chooser) { children { c.history.chart(s).fromChooser() } }
 
   (c.controlChooser) { children {
     q.from(dump.lights.all).render((l) -> c.entitySlider(l).fromChooser()).build()
@@ -261,9 +261,11 @@ Each is a *variable*:
   shows its colour, or its brightness, greyed, if it has none.
   `.defaultingTo("7d")` picks where a chooser starts.
 
-  On its own, `c.historyChart(s)` draws the last 24 hours. `.over(…)` picks
-  another window: `c.window.raw(1.h)` is every recorded reading, and
-  `c.window.statistics(7.d, "hour")` is HA's hourly averages, much quicker to
+  On its own, `c.history.chart(s)` draws the last 24 hours. `.over(…)` picks
+  another window, from the providers (`import "@fh-dashboard/providers.pkl" as
+  p`), or handed them with no import: `.over((p) -> p.history.raw(1.h))`.
+  `p.history.raw(1.h)` is every recorded reading, and
+  `p.history.statistics(7.d, "hour")` is HA's hourly averages, much quicker to
   load over a day or more. Only a sensor with a state class has averages; add
   `.orRaw()` to draw its readings when it has none, or the chart stays empty.
 - **A light group** works the same way: `c.entitySlider(group)` has its own
@@ -277,7 +279,7 @@ Each is a *variable*:
 
   (c.chooser(c.select(view).options(List("simple", "detail")))) {
     children {
-      c.iff(view.valueIs("detail")).then(c.historyChart(dump.sensors.ute)).`else`(c.title("Ute"))
+      c.iff(view.valueIs("detail")).then(c.history.chart(dump.sensors.ute)).`else`(c.title("Ute"))
     }
   }
   ```

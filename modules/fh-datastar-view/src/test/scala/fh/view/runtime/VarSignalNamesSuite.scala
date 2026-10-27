@@ -24,8 +24,8 @@ class VarSignalNamesSuite extends CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
-       |    (c.windowChooser) {
-       |      children { c.historyChart(dump.entities.${sensor.dumpKey}).fromChooser() }
+       |    (c.history.chooser) {
+       |      children { c.history.chart(dump.entities.${sensor.dumpKey}).fromChooser() }
        |    }
        |    (c.tabs) { tabs { ["A"] { c.title("a") } ["B"] { c.title("b") } } }
        |  }

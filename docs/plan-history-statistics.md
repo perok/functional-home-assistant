@@ -40,14 +40,14 @@ takes any start and end time, and statistics at `5minute`, `hour`, `day`, `week`
 
 ### A window is typed, and the author picks it
 
-`components/window.pkl`, as `c.window`. The word stays **window**: it was already the fetch's field
-and the glossary's term, and `read` is a reserved word in Pkl.
+`providers/history.pkl`, as `p.history`. The type stays **Window**: it was already the fetch's
+field and the glossary's term, and `read` is a reserved word in Pkl.
 
 ```pkl
-c.historyChart(e).over(c.window.raw(1.h))                          // every row, thinned to ~300
-c.historyChart(e).over(c.window.statistics(7.d, "hour"))           // hourly means
-c.historyChart(e).over(c.window.statistics(30.d, "hour").orRaw())  // raw when there are none
-c.fetch.history(e).over(c.window.raw(7.d))                         // every reading, for a computation
+c.history.chart(e).over(p.history.raw(1.h))                          // every row, thinned to ~300
+c.history.chart(e).over(p.history.statistics(7.d, "hour"))           // hourly means
+c.history.chart(e).over(p.history.statistics(30.d, "hour").orRaw())  // raw when there are none
+p.history.of(e, p.history.raw(7.d))                                  // every reading, for a computation
 ```
 
 - **`Raw(span)`**: `history_during_period` over the span.
@@ -64,8 +64,8 @@ c.fetch.history(e).over(c.window.raw(7.d))                         // every read
   gone from the question, the wire and the cache key. Cost: the cache holds whole answers, and a
   data card gets every point; with statistics that is at most 720. Thinning cached at the provider
   would be a designed API of its own, later, if a case needs it.
-- **The defaults:** a window has no default fallback. `c.fetch.history(e)` keeps 24 hours, now
-  `c.window.raw(24.h)`. `c.historyChart(e)` defaults to more-info's `24h` preset.
+- **The defaults:** a window has no default fallback, and `p.history.of(e, w)` has no default
+  window. `c.history.chart(e)` defaults to more-info's `24h` preset.
 - **The span is a Pkl `Duration`**, sent as whole seconds. `period` is a string-literal union.
   A period not shorter than the span is a build error: `hour` on one hour returns nothing (measured).
 
@@ -103,7 +103,7 @@ window can't ride in it, so the fetch carries the table (`Choice.Chosen`, beside
   take, so a key the table lacks is refused at the write, with no new check.
 - **The entity is never a variable.** Pkl already forbade it; the typed fetch makes it
   unrepresentable, so ADR 0023's read-side bound (`fetchedEntities`) is structural and goes.
-- **More-info's presets are one Pkl mapping**, used by both `c.windowChooser` (its options) and
+- **More-info's presets are one Pkl mapping**, used by both `c.history.chooser` (its options) and
   `fromChooser()` (the table), so the two can't drift:
 
   | Key | Window |
@@ -153,23 +153,22 @@ a viewer can't add variants.
 - **A bucket may roll just before HA writes its newest statistic**, which leaves that bucket out
   for one more period.
 
-## Open: where the history API lives (2026-10-27)
+## Where the history API lives
 
-Being discussed, not built; the code still has `c.window`, `c.fetch.history`, `c.historyChart`.
-
-- "Window" is a bad namespace name: in a house it means a real window (`binary_sensor.vindu`).
-- Providers are a tier of their own, for component authors (ADR 0015's audiences):
-  `providers.pkl` + `providers/history.pkl`, holding the question, its windows and the presets. The
-  core still names no provider (ADR 0031). `c.fetch` and `components/window.pkl` go.
-- The expression value is the same query as a chart's fetch, so there is one call: one
-  `HistoryFetch`, taking the sensor, with its window required. Whether `fetch.pkl`'s `History`
-  subclass (its 24-hour default) survives is open.
-- A dashboard author picks a chart's window by (c) importing `providers.pkl`, or (d) a function
-  `.over((providers) -> providers.history.statistics(7.d, "hour"))`. Both evaluate (spiked with
-  the Pkl CLI 0.32.1), and a function returning the wrong type is a clear type error. **pkl-lsp
-  0.8.0 offers no completion inside d's function** (0 items after `providers.`); it does with
-  the parameter annotated, which needs the import, so d gains nothing in the editor over c.
-- Whether `c.historyReadings` (the passthrough example card) stays.
+- **`providers.pkl` + `providers/history.pkl`**, a tier of its own for what a component reads
+  (ADR 0015), as `p.history`: `HistoryFetch` (typed sensor, required window), `of(e, w)`, the
+  windows (`raw`, `statistics`, `chosen`, `presets`). The core still names no provider (ADR 0031).
+  "Window" stopped being a namespace: in a house it means a real window (`binary_sensor.vindu`).
+- **`c.history`** holds only cards: `chart(e)` and `chooser`. **`c.examples.historyReadings(e)`**
+  is the passthrough example, kept out of the everyday set.
+- **A chart's window, two ways:** (c) import the providers, `.over(p.history.statistics(7.d,
+  "hour"))`; (d) a function handed them, `.over((p) -> p.history.statistics(7.d, "hour"))`. Both
+  evaluate alike, and a function answering anything but a window is a type error (pinned in
+  `components.test.pkl`). pkl-lsp 0.8.0 offers no completion inside d's function (0 items after
+  `p.`, measured headless); the maintainer will try it in IntelliJ, and d is one `typealias` and
+  one `if` to remove.
+- Gone: `c.fetch`, `c.window`, `c.historyChart`, `c.historyReadings`, `c.windowChooser`, and
+  `fetch.pkl`'s `History` subclass with its 24-hour default.
 
 ## For later: `history/stream`
 
@@ -206,7 +205,7 @@ version moves on each row. It is not part of this change.
 - **ADR 0033:** a fetch reads a variable by choosing a window by key.
 - **ADR 0023 and ADR 0034:** the read-side bound holds by construction.
 - **`docs/terminology.md`:** **Window**, **Bucket**, **Reference**.
-- **`docs/writing-dashboards.md` and `docs/writing-components.md`:** `.over(…)` with `c.window`.
+- **`docs/writing-dashboards.md` and `docs/writing-components.md`:** `.over(…)` with `p.history`, imported or handed in.
 - **The architecture doc:** a fetch's window may be chosen; both halves decode pure.
 
 ## Checks
