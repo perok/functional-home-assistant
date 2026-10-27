@@ -187,11 +187,11 @@ any span, and statistics at `5minute` up to `year`.
 - **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Fetch` holds only
   a `provider` String and `core/stage.pkl` knows only `passthrough`; the provider's question
   (`HistoryFetch`) and its windows are typed in the provider's module (`providers/history.pkl`, a
-  tier of its own: ADR 0015), and the chart stage in the card that draws it
-  (`components/history.pkl`). An unknown provider is a decode failure naming the known ones.
+  tier of its own: ADR 0015), and the chart stage beside the cards
+  that draw with it (`components/base/chart.pkl`). An unknown provider is a decode failure naming the known ones.
 - **A provider is typed in the model, as a stage is.** `FetchTemplate` is history's question, and
   a second provider makes it a sum, as `FetchRequest` is. `Stage.Chart` carries a `ChartStyle`,
-  typed at both ends (`components/history.pkl`'s `ChartParams`). Each is decoded with the wire, so
+  typed at both ends (`components/base/chart.pkl`'s `ChartParams`). Each is decoded with the wire, so
   no value is parsed twice.
 - **Decoding and validating are pure and separate from resolving**, which removes the wiring
   hazard entirely. Checking a chart needs no store, no HA connection and no JavaScript engine, so a

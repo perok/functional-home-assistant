@@ -1198,11 +1198,11 @@ it reads through `@@VAR:window@@`, which the build splices with the nearest decl
 
 Two consequences worth stating, because neither is obvious:
 
-- **The build parses what the DASHBOARD asks — the declared values — and nothing else.** A
-  viewer's value is untrusted input arriving per session, so what keeps `Validated.fetches` total
-  is the WRITE, not the build: the boundary that accepts a value resolves each declared reader's
-  ask with it and refuses one that would not parse, so no session ever holds a value that cannot
-  render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
+- **The build checks what the DASHBOARD declares — the declared values and every window in a
+  reader's table — and nothing else.** A viewer's value is untrusted input arriving per session,
+  so what keeps every read resolvable is the WRITE, not the build: the boundary that accepts a
+  value resolves each declared reader's ask with it (`Renderer.refusals`) and refuses a key the
+  table lacks, so no session ever holds a value that cannot render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
   over. A declaration carries no list of allowed values for this reason — the reader already
   decides, and a second copy could only disagree with it.
 - **No topological ordering is needed, and none is built.** A variable's value never comes from

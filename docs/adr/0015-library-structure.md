@@ -37,7 +37,7 @@ components.pkl + components/   entity · control · slider ·   — writing a DA
             light · lock · moreinfo · history · bar · progress · tap ·
             defaults · examples
   components/base/  button · onoff · tile · bar · slider ·   — the same, knowing no HA
-                    text · surface
+                    text · surface · chart
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
