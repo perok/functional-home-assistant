@@ -341,7 +341,7 @@ object DashboardBuild {
     )
 
   /** `scope` is variable name -> declarer id, as `Dashboard.varScopes` resolves
-    * a `Ref.Var`: nearest declarer wins. `prefix` is the tree's, which an
+    * a variable read: nearest declarer wins. `prefix` is the tree's, which an
     * authored id below still carries. `clause` is set below a set member.
     */
   private def walk(

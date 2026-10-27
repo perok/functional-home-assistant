@@ -715,7 +715,7 @@ class Server(
               log,
               s.holds,
               store.entities,
-              answer(renderer, _, env),
+              answer(_, env),
               env,
               s.position + 1,
               s.open,
@@ -803,7 +803,7 @@ class Server(
               log,
               s.holds,
               store.entities,
-              answer(renderer, _, env),
+              answer(_, env),
               env,
               Server.resumeFrom(req, c),
               s.open,
@@ -1045,7 +1045,6 @@ class Server(
       env: VarEnv
   ): IO[FetchSnapshot] =
     answer(
-      renderer,
       arriving.toList.flatMap(
         renderer.fetchesForSurface(_, states, selections, env)
       ),
@@ -1058,7 +1057,7 @@ class Server(
       states: Map[String, EntityState],
       env: VarEnv
   ): IO[FetchSnapshot] =
-    answer(renderer, renderer.fetchesForPage(open, states, env), env)
+    answer(renderer.fetchesForPage(open, states, env), env)
 
   /** Set a node variable for this viewer and re-render the readers it is shown
     * (issue #209): the fetches that read it, and the tab panels it selects,
@@ -1116,7 +1115,6 @@ class Server(
         }
       targets = readers.filter(shown)
       snapshot <- answer(
-        renderer,
         renderer.readsForPull(targets, Nil, store.entities, after, env),
         env
       )
@@ -1184,7 +1182,6 @@ class Server(
     * dashboard without charts still works.
     */
   private def answer(
-      renderer: Renderer,
       wanted: List[SlotRead],
       env: VarEnv
   ): IO[FetchSnapshot] =
@@ -1193,7 +1190,6 @@ class Server(
         FetchSnapshot
           .resolve(
             resolver,
-            renderer.fetchRequests,
             qs,
             env,
             FetchIdentity.Instance
@@ -2307,7 +2303,7 @@ object Server {
           SeriesSource.fromApi(api),
           onFailure = (k, e) =>
             log.warn(e)(
-              s"history of ${k.entityId} over ${k.window.name} could not " +
+              s"history of ${k.entityId} over ${k.window.key} could not " +
                 "be fetched; its charts show their error until a retry"
             )
         )

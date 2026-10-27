@@ -109,7 +109,7 @@ named as a compiler names them:
   so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
   where a value lands (`signalBind`, `{{{slot__bind}}}`).
 - **check**: the rules across fields and nodes (`validate`).
-- **compile**: CEL against the names and types binding gave it, and fetches parsed.
+- **compile**: CEL against the names and types binding gave it.
 
 Bind and compile fix CEL's **environment**, the names and their types. The values are its
 **activation**, computed on every render (`Conditions.resolve`).
@@ -122,9 +122,9 @@ Three words go with it, and they are not interchangeable:
 
 - **Declarer** — the node whose `vars` a reference resolved to. Resolution is by NAME up the
   ancestor chain, so a node declaring nothing is transparent and the NEAREST declarer wins.
-- **Reference** (`Ref.Var`) — a read of one, as opposed to a **literal** (`Ref.Literal`, a value
-  written down). The distinction is the access story rather than a convenience: only a declared
-  variable is writable, so a literal parameter has nowhere for a write to land.
+- **Reference** (`varMod.Ref`, a `Choice.Chosen`'s `by`) — a read of one, as opposed to a value
+  written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
+  only a declared variable is writable, so a value written down has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
 - **Variable** vs **declaration** — a variable (`varMod.Variable`) is only the name, which a
@@ -424,13 +424,15 @@ session has already been sent. Nothing here interacts with **horizon**, **floor*
 unit and no name (those belong to the entity's live state, and a copy here could disagree with the
 card beside it).
 
-**Window** — how far back a chart looks, from a closed set (`1h`/`24h`/`7d`/`30d`). Closed because
-each window carries the **bucket** its cache keys on; an arbitrary duration would give every viewer
-their own key and the sharing would stop.
+**Window** — what a history fetch reads over a span: `Raw`, the recorder's rows, or `Statistics` at
+one period (`c.window`, ADR 0031). The author picks; `1h`/`24h`/`7d`/`30d` are only more-info's
+**presets**. Each window derives the **cache bucket** its answers key on, and only an author adds a
+window, so viewers share.
 
 **Bucket** — two unrelated uses, so say which. A **cache bucket** is "now" floored to a window's
-step, and is what makes a series expire by time moving rather than by a timer. A **statistics
-bucket** is one pre-aggregated interval in HA's own table.
+step (its statistics period, or a 720th of a raw span), and is what makes a series expire by time
+moving rather than by a timer. A **statistics bucket** is one pre-aggregated interval in HA's own
+table.
 
 **Fetch** — a read of a **provider** with its parameters: `history` of one entity over one window.
 A fetch slot shows one; an expression value reads one in CEL (`c.fetch.history(e)`).

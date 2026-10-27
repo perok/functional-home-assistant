@@ -3,9 +3,10 @@
 Agreed in chat on 2026-10-26 and 2026-10-27, after measuring why the more-info history popup
 opens slowly. One PR (#652).
 
-**State:** the first cut is on the branch (2e628b66): statistics first for `24h`/`7d`/`30d`, a raw
-tail to now, and the learned `retention` deleted. This plan replaces its fixed windows with a read
-the author spells out, and drops the raw tail.
+**State:** built. The first cut (2e628b66) read statistics first for `24h`/`7d`/`30d` with a raw
+tail, and deleted the learned `retention`; the second replaced its fixed windows with a window the
+author spells out, and dropped the tail. The decision now lives in ADR 0031 (Decision 4). What is
+left is review, then deleting this file.
 
 ## Why
 
@@ -37,13 +38,16 @@ takes any start and end time, and statistics at `5minute`, `hour`, `day`, `week`
 
 ## The design
 
-### A read is typed, and the author picks it
+### A window is typed, and the author picks it
+
+`components/window.pkl`, as `c.window`. The word stays **window**: it was already the fetch's field
+and the glossary's term, and `read` is a reserved word in Pkl.
 
 ```pkl
-c.historyChart(e).over(h.raw(1.h))                           // every row, thinned to ~300
-c.historyChart(e).over(h.statistics(7.d, "hour"))            // hourly means
-c.historyChart(e).over(h.statistics(30.d, "hour").orRaw())   // raw when there are no statistics
-c.fetch.history(e).over(h.raw(7.d))                          // every reading, for a computation
+c.historyChart(e).over(c.window.raw(1.h))                          // every row, thinned to ~300
+c.historyChart(e).over(c.window.statistics(7.d, "hour"))           // hourly means
+c.historyChart(e).over(c.window.statistics(30.d, "hour").orRaw())  // raw when there are none
+c.fetch.history(e).over(c.window.raw(7.d))                         // every reading, for a computation
 ```
 
 - **`Raw(span)`**: `history_during_period` over the span.
@@ -56,8 +60,8 @@ c.fetch.history(e).over(h.raw(7.d))                          // every reading, f
   same: statistics only, no tail (`ha-more-info-history.ts`). The 2e628b66 tail goes.
 - **Every point** (`c.fetch.history`'s answer) is every row of a raw read, and every bucket of a
   statistics read. Nothing is thinned.
-- **The defaults:** the API's default read is `Raw` with no fallback. `c.fetch.history(e)` keeps
-  24 hours, now `h.raw(24.h)`. `c.historyChart(e)` defaults to more-info's `24h` preset.
+- **The defaults:** a window has no default fallback. `c.fetch.history(e)` keeps 24 hours, now
+  `c.window.raw(24.h)`. `c.historyChart(e)` defaults to more-info's `24h` preset.
 - **The span is a Pkl `Duration`**, sent as whole seconds. `period` is a string-literal union.
   A period not shorter than the span is a build error: `hour` on one hour returns nothing (measured).
 
@@ -69,19 +73,21 @@ decodes them into `FetchRequest.History`, as the fast expressions decode into `T
 
 ```json
 {"provider": "history", "entity": "sensor.p", "everyPoint": false,
- "read": {"kind": "Statistics", "span": 604800, "period": "hour", "fallback": false}}
+ "window": {"kind": "Statistics", "span": 604800, "period": "hour", "fallback": false}}
 ```
 
 `Fetch` in `core/slot.pkl` stays provider-agnostic, holding only `provider`. The typed history
-class lives in `components/`, and the Scala side picks the decoder by `provider`.
+class (`HistoryFetch`) lives in `components/history.pkl`, and `FetchTemplate`'s decoder checks
+`provider`. A resolved read carries its `FetchRequest`, so the build's "parsed at declared values"
+memo (`Validated.fetches`, `Renderer.fetchRequests`) is gone.
 
-### A chooser picks a read by key
+### A chooser picks a window by key
 
 A node variable holds a string, because it lives in the URL (`v.window=…`) and in a signal. A
-read can't ride in it, so the fetch carries the table:
+window can't ride in it, so the fetch carries the table (`Choice.Chosen`, beside `Choice.Fixed`):
 
 ```json
-"read": {"kind": "Chosen", "by": {"var": "window"},
+"window": {"kind": "Chosen", "by": {"var": "window"},
          "options": {"1h":  {"kind": "Raw", "span": 3600},
                      "24h": {"kind": "Statistics", "span": 86400, "period": "5minute", "fallback": true}}}
 ```
@@ -90,11 +96,13 @@ read can't ride in it, so the fetch carries the table:
   `@@VAR:` token is involved: that token names a declarer inside strings (a tap's route), not a
   fetch's read.
 - **A viewer's value must be a key.** `Renderer.refusals` already refuses a value no reader can
-  read, so a key the table lacks is refused at the write, with no new check.
+  take, so a key the table lacks is refused at the write, with no new check.
+- **The entity is never a variable.** Pkl already forbade it; the typed fetch makes it
+  unrepresentable, so ADR 0023's read-side bound (`fetchedEntities`) is structural and goes.
 - **More-info's presets are one Pkl mapping**, used by both `c.windowChooser` (its options) and
   `fromChooser()` (the table), so the two can't drift:
 
-  | Key | Read |
+  | Key | Window |
   |---|---|
   | `1h` | `raw(1.h)` |
   | `24h` | `statistics(24.h, "5minute").orRaw()` |
@@ -107,7 +115,7 @@ read can't ride in it, so the fetch carries the table:
 - **Considered: Simple's `Match`.** It is the same idea, a lookup table, under a different
   contract. `Match` maps a live entity's property, which we don't control, so it must be total
   (`otherwise` is required), and its arms are `String | Boolean`. A chooser's value is controlled
-  at the write, so a missing key is refused rather than defaulted, and its arms are reads. Reusing
+  at the write, so a missing key is refused rather than defaulted, and its arms are windows. Reusing
   `Match` would widen both its input and its arms, and its `otherwise` would hide a bad value
   instead of refusing it.
 
@@ -125,10 +133,13 @@ a viewer can't add variants.
 
 ### What goes
 
-- `Window` (the closed enum), `historyMod.Window`, `HistoryFetch.parse` and its string grammar
-  (`"24h"`, `points = "all"`).
-- The generic fetch params: `FetchTemplate.params: Map[String, Ref]` and `SlotFetch`'s string map.
-  The history window was their only variable reader.
+- The closed `Window` enum, Pkl's `Window` string union, `HistoryFetch.parse` and its string
+  grammar (`"24h"`, `points = "all"`), and `Fetches.parse`.
+- The generic fetch params: `FetchTemplate.params: Map[String, Ref]`, `Ref`, `SlotFetch`,
+  `core/slot.pkl`'s `fetchSlot` and history's unused `chartSlot`. The history window was their
+  only variable reader.
+- `Dashboard.fetchedEntities` and `FetchRequest.entities`: the entity check in
+  `Renderer.refusals` they fed can no longer fail.
 - Already gone in 2e628b66: `retention`, `History.widest`, `Series.span`/`oldest`.
 
 ### Known costs
@@ -147,28 +158,34 @@ version moves on each row. It is not part of this change.
 
 ## Tests
 
-- **`HistorySuite`:** the window-parse tests become decode tests: a bad `kind`, a period not
-  shorter than the span, and a `Chosen` key the table lacks. The rest (sharing, buckets, failures,
-  identities) move to the typed read unchanged in what they assert.
-- **New:**
-  - each read asks its source;
-  - `fallback` off draws nothing for an entity with no statistics, and on reads raw;
-  - a statistics read with every point keeps every bucket;
-  - the derived bucket gives the presets' buckets;
-  - a viewer's key the table lacks is refused.
-- **Pkl:** `progress.test.pkl` asserts today's params map, and is rewritten to the typed read. The
-  wire snapshots are regenerated with `sbt dashboardSnapshotsUpdate`, and the diff read.
+- **`HistorySuite`:** the window-parse tests became decode tests (an unknown `kind`, an unknown
+  period, a span of 0) and a validate rule (a period not shorter than the span). Sharing,
+  buckets, failures and identities run on the presets, unchanged in what they assert. New: each
+  window asks its source and nothing else; the newest bucket is carried to now; no statistics
+  draw nothing unless the window falls back; every point of a statistics read is every bucket;
+  the derived bucket.
+- **Moved:** "an unknown provider is a build error" is a decode test now
+  (`FetchRenderInputsSuite`), and "the provider's own parse error" became the period rule.
+- **Removed, because the shape is unrepresentable:** `VarTapSuite`'s "a variable moves a chart
+  only to an entity its dashboard shows" and `FetchValueSuite`'s `fetchedEntities` assertion. Two
+  `VarTapSuite` tests that used an entity variable only as a second variable now use a second
+  window variable, so what they assert (two writes landing together; one refused carry not
+  costing another) is unchanged.
+- **`FetchDriftSuite`** renders at the declared values (`vars.env`), as `Server` does; it passed
+  an empty environment, which a chosen window cannot resolve.
+- **Pkl:** `components.test.pkl` and `progress.test.pkl` assert the typed fetch; the chooser fact
+  also checks that the bar's keys are the chart's table. The wire snapshots were regenerated
+  with `sbt dashboardSnapshotsUpdate` and the diff read: only the fetch's shape moved.
 
 ## Docs
 
-- **ADR 0031:** a fetch is a typed shape per provider, not provider plus string params.
-- **ADR 0033:** a fetch reads a variable by selecting its read by key.
-- **`docs/terminology.md`:** **Window** (no longer a closed set), **Bucket**, and **Read** if the
-  word is kept.
-- **`docs/writing-dashboards.md` and `docs/writing-components.md`:** `.over("7d")` becomes
-  `.over(h.raw(7.d))` or a preset.
-- **The architecture doc:** the `history_during_period · statistics_during_period` edge stays
-  true. A fetch's shape is ADR 0031's.
+- **ADR 0031:** Decision 4 (the window is the author's, typed on the wire), and its consequences
+  rewritten for a typed provider.
+- **ADR 0033:** a fetch reads a variable by choosing a window by key.
+- **ADR 0023 and ADR 0034:** the read-side bound holds by construction.
+- **`docs/terminology.md`:** **Window**, **Bucket**, **Reference**.
+- **`docs/writing-dashboards.md` and `docs/writing-components.md`:** `.over(…)` with `c.window`.
+- **The architecture doc:** a fetch's window may be chosen; both halves decode pure.
 
 ## Checks
 

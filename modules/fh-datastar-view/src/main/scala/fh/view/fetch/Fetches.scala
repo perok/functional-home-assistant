@@ -1,8 +1,8 @@
 package fh.view.fetch
 
 import cats.effect.IO
-import fh.view.history.{ChartDraw, ChartStage, History, HistoryFetch, Window}
-import fh.view.model.{SlotFetch, Transform}
+import fh.view.history.{ChartDraw, ChartStage, History, Window}
+import fh.view.model.Transform
 
 import io.circe.Json
 
@@ -63,39 +63,18 @@ object Staged {
     s"""<span class="fh-label fh-label-$tone fh-text"><span class="fh-text-run">$text</span></span>"""
 }
 
-/** A fetch with its parameters parsed. A closed sum, not a registry: adding a
-  * provider is a case here, an arm in [[Fetches.parse]] and [[FetchResolver]],
-  * and a typed helper in its component's Pkl module.
+/** A fetch as a provider answers it: decoded typed, with any node variable's
+  * choice already made. A closed sum, not a registry: adding a provider is a
+  * case here, an arm in [[FetchResolver]], a decoder on
+  * `fh.view.model.FetchTemplate`, and a typed class in its component's Pkl
+  * module.
   */
 enum FetchRequest derives CanEqual {
   case History(entityId: String, window: Window, everyPoint: Boolean = false)
-
-  /** What this reads, held to the dashboard's names when a viewer's value
-    * resolved it (ADR 0023).
-    */
-  def entities: Set[String] = this match {
-    case History(entityId, _, _) => Set(entityId)
-  }
 }
 
-object Fetches {
-
-  /** Pure, so `Dashboard.validate` makes a bad fetch a build error with nothing
-    * wired.
-    */
-  def parse(fetch: SlotFetch): Either[String, FetchRequest] =
-    fetch.provider match {
-      case HistoryFetch.Name => HistoryFetch.parse(fetch.params)
-      case other             =>
-        Left(
-          s"unknown fetch provider '$other' — one of ${HistoryFetch.Name}"
-        )
-    }
-}
-
-/** Answers parsed fetches and runs parsed stages. Two methods because they
-  * dedupe at different levels: one call per fetch, one staged value per (fetch,
-  * stage).
+/** Answers fetches and runs stages. Two methods because they dedupe at
+  * different levels: one call per fetch, one staged value per (fetch, stage).
   *
   * The two levels are cached by different owners. An answer is cached by its
   * PROVIDER, since when one moves is the provider's policy (a bucket, a push,

@@ -11,11 +11,12 @@ import fh.view.model.{
   NodeId,
   FetchTemplate,
   Reads,
-  Ref,
+  Choice,
   Region,
   SlotSource,
   Transform
 }
+import fh.view.history.Windows
 import fh.view.testkit.{FakeConfig, FixtureEntity}
 import fh.view.testkit.DashboardBuilders.declared
 import org.http4s.*
@@ -48,13 +49,7 @@ class VarTapSuite extends ServerHarness {
     slots = Map(
       "chart" -> SlotSource(
         fetch = Some(
-          FetchTemplate(
-            "history",
-            Map(
-              "entity" -> Ref.Literal("sensor.a"),
-              "window" -> Ref.Var("window")
-            )
-          )
+          FetchTemplate("sensor.a", Choice.Chosen("window", Windows.presets))
         ),
         transform = Transform.Stage.Passthrough,
         reads = Reads.OnRender
@@ -72,10 +67,8 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
-  /** The chart's entity is the variable, beside a card naming `sensor.b`: the
-    * dashboard ADR 0023's bound is drawn around.
-    */
-  private val entityDash = Dashboard(
+  /** Two variables, each read by its own chart. */
+  private val twoVarDash = Dashboard(
     cards = Map("chart" -> chartCard, "panel" -> panelCard),
     card = LayoutNode.Component(
       "panel",
@@ -84,26 +77,17 @@ class VarTapSuite extends ServerHarness {
           Map(
             "chart" -> SlotSource(
               fetch = Some(
-                FetchTemplate(
-                  "history",
-                  Map(
-                    "entity" -> Ref.Var("e"),
-                    "window" -> Ref.Var("window")
-                  )
-                )
+                FetchTemplate("sensor.b", Choice.Chosen("w", Windows.presets))
               ),
               transform = Transform.Stage.Passthrough,
               reads = Reads.OnRender
             )
           )
         ),
-        LayoutNode.Component(
-          "chart",
-          slots = Map("chart" -> SlotSource(entityId = Some("sensor.b")))
-        )
+        chartNode
       ),
       id = Some("panel"),
-      vars = declared("e" -> "sensor.a", "window" -> "24h")
+      vars = declared("w" -> "24h", "window" -> "24h")
     )
   )
 
@@ -282,11 +266,8 @@ class VarTapSuite extends ServerHarness {
               "chart" -> SlotSource(
                 fetch = Some(
                   FetchTemplate(
-                    "history",
-                    Map(
-                      "entity" -> Ref.Literal(entity),
-                      "window" -> Ref.Var("window")
-                    )
+                    entity,
+                    Choice.Chosen("window", Windows.presets)
                   )
                 ),
                 transform = Transform.Stage.Passthrough,
@@ -341,8 +322,8 @@ class VarTapSuite extends ServerHarness {
     )
   }
 
-  test("a value no reader can parse is refused, and nothing moves") {
-    // `HistoryFetch.parse` is the authority on what a window may be, so a list
+  test("a value no reader takes is refused, and nothing moves") {
+    // The chart's table is the authority on what a window may be, so a list
     // beside the declaration could only copy it.
     served { ts =>
       for {
@@ -412,41 +393,6 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
-  test("a variable moves a chart only to an entity its dashboard shows") {
-    // ADR 0023's bound on reads, at a write and at a page URL: the lock is not
-    // on the dashboard, so the recorder must never be asked for it.
-    CeRef[IO].of(Set.empty[String]).flatMap { asked =>
-      served(
-        ts =>
-          for {
-            conn <- ts.load().map(_.conn)
-            named <- post(ts, conn, varPath(ts, "e/sensor.b"))
-            refused <- post(ts, conn, varPath(ts, "e/lock.front_door"))
-            chose <- ts.sessions
-              .get(conn)
-              .flatMap(_.traverse(_.state.map(_.vars)))
-            linked <- ts.pageResponse("?v.panel.e=lock.front_door")
-            linkedPage <- linked.bodyText.compile.string
-            entities <- asked.get
-          } yield {
-            assertEquals(named._1, Status.NoContent)
-            assertEquals(refused._1, Status.Ok)
-            assertEquals(
-              chose,
-              Some(Map(VarKey(NodeId.derived("panel"), "e") -> "sensor.b"))
-            )
-            // The link's value is dropped: the page opens on the declared one.
-            assertEquals(linked.status, Status.Ok)
-            assert(linkedPage.contains("_var_panel__e: 'sensor.a'"), linkedPage)
-            assertEquals(entities, Set("sensor.a", "sensor.b"))
-          },
-        recorder = (_, end, entityId) =>
-          asked.update(_ + entityId).as(List(HistoryPoint("1.0", end))),
-        dashboard = entityDash
-      )
-    }
-  }
-
   test(
     "a link carrying a value no reader can parse opens on the declared value"
   ) {
@@ -481,7 +427,7 @@ class VarTapSuite extends ServerHarness {
         for {
           conn <- ts.load().map(_.conn)
           _ <- (
-            post(ts, conn, varPath(ts, "e/sensor.b")),
+            post(ts, conn, varPath(ts, "w/1h")),
             post(ts, conn, varPath(ts, "window/7d"))
           ).parTupled
           chose <- ts.sessions
@@ -489,9 +435,9 @@ class VarTapSuite extends ServerHarness {
             .flatMap(_.traverse(_.state.map(_.vars)))
         } yield assertEquals(
           chose.map(_.keySet.map(_.name)),
-          Some(Set("e", "window"))
+          Some(Set("w", "window"))
         ),
-      dashboard = entityDash
+      dashboard = twoVarDash
     )
   }
 
@@ -538,14 +484,13 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("a reconnect keeps each carried value its readers take, not none") {
-    // A value naming an entity this dashboard does not show must not cost the
-    // window carried beside it.
+    // A value one reader refuses must not cost the value carried beside it.
     served(
       ts =>
         for {
           client <- ts.connect(
             "?datastar=" + java.net.URLEncoder.encode(
-              s"""{"${Server.ConnSignal}":"forgotten","_var_panel__window":"7d","_var_panel__e":"lock.front_door"}""",
+              s"""{"${Server.ConnSignal}":"forgotten","_var_panel__window":"7d","_var_panel__w":"4h"}""",
               "UTF-8"
             )
           )
@@ -557,7 +502,7 @@ class VarTapSuite extends ServerHarness {
           chose,
           Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
         ),
-      dashboard = entityDash
+      dashboard = twoVarDash
     )
   }
 

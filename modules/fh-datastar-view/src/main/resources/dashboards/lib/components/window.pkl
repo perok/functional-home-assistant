@@ -1,0 +1,66 @@
+/// What a history fetch reads, as `c.window`: raw recorder rows or HA's
+/// statistics over a span, or one a node variable chooses.
+///
+///     c.historyChart(power).over(c.window.statistics(7.d, "hour"))
+///     c.fetch.history(left).over(c.window.raw(7.d))
+///
+/// The author picks; the server picks nothing (`fh.view.history.Window`).
+module components.window
+
+import "../core/variable.pkl" as varMod
+
+/// Build with [[raw]] or [[statistics]].
+abstract class Window {
+  kind: String
+  /// Seconds; [[raw]] and [[statistics]] take a `Duration`.
+  span: Int(isPositive)
+}
+
+class Raw extends Window {
+  kind: "Raw" = "Raw"
+}
+
+typealias Period = "5minute"|"hour"|"day"|"week"|"month"|"year"
+
+class Statistics extends Window {
+  kind: "Statistics" = "Statistics"
+  period: Period
+  /// Read raw rows instead when there are no statistics: only an entity with a
+  /// `state_class` has any, and without this such a chart draws nothing.
+  fallback: Boolean = false
+
+  function orRaw(): Statistics = let (self = this) (self) { fallback = true }
+}
+
+/// A window chosen by a node variable's value from `options`. The variable
+/// holds a key, and the server refuses a key the table lacks.
+class Chosen {
+  kind: "Chosen" = "Chosen"
+  by: varMod.Ref
+  options: Mapping<String, Window>
+}
+
+/// `d` of the recorder's raw rows: every reading, which a chart thins to about
+/// 300 points. HA keeps them `purge_keep_days` (10 by default).
+const function raw(d: Duration): Raw = new Raw { span = seconds(d) }
+
+/// `d` of HA's statistics at `p`: each bucket's mean, else a total sensor's
+/// reading, at the bucket's end. Hourly and longer are kept forever; the
+/// period must be shorter than `d`.
+const function statistics(d: Duration, p: Period): Statistics =
+  new Statistics { span = seconds(d); period = p }
+
+/// `v`'s value picks one of `table`.
+const function chosen(v: varMod.Variable, table: Mapping<String, Window>): Chosen =
+  new Chosen { by = v.ref; options = table }
+
+/// More-info's windows, and `c.windowChooser`'s: an hour of raw rows, then
+/// statistics, falling back to raw rows for a sensor without any.
+const presets: Mapping<String, Window> = new {
+  ["1h"] = raw(1.h)
+  ["24h"] = statistics(24.h, "5minute").orRaw()
+  ["7d"] = statistics(7.d, "hour").orRaw()
+  ["30d"] = statistics(30.d, "hour").orRaw()
+}
+
+const local function seconds(d: Duration): Int = d.toUnit("s").value.toInt()

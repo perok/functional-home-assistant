@@ -166,16 +166,20 @@ by a name you give it:
 
 ```pkl
 import "@fh-dashboard/components/fetch.pkl" as fetch
+import "@fh-dashboard/components/window.pkl" as window
 
 ["peak"] = new slotMod.Slot {
   entityId = entity.entity_id
   transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-  expressionValues { ["past"] = fetch.history(entity).over("7d") }
+  expressionValues { ["past"] = fetch.history(entity).over(window.raw(7.d)) }
 }
 ```
 
 `past` is a list of `[time, value]` pairs, oldest first: time in milliseconds,
-value a number. It is fetched when the slot is read — when its entity changes,
+value a number. Without `.over(…)` it is the last 24 hours. `window.raw(…)` is
+every recorded reading, and HA deletes those after `purge_keep_days` (10 by
+default). `window.statistics(30.d, "hour")` is HA's hourly averages instead,
+kept for good, one point per hour. It is fetched when the slot is read — when its entity changes,
 or when the card is drawn — and kept for a few minutes, so reading it on every
 change costs nothing. It does not change on its own: nothing redraws a card
 because new history was written. Use `transformList(i, p, keep, value)` to

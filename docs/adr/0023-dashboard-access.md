@@ -279,12 +279,12 @@ place a future per-user or per-dashboard list of allowed entities would live, so
 an owner can keep an area call from reaching an entity. Until then, what an area
 call reaches is what HA says is in the area.
 
-**A viewer's value may only make a fetch read an entity its dashboard shows.** A
-node variable can feed any fetch parameter (issue #209), `entity` included, and
-its value arrives from a path or a `v.` URL param, so without a bound it would
-chart the lock's history from a `Public` dashboard. `Renderer.refusals` holds
-every value, from a write and from a URL alike, to `referencedEntities` plus
-`Dashboard.fetchedEntities` — what the fetches read at their declared values.
+**A viewer's value cannot make a fetch read another entity.** A node variable's
+value arrives from a path or a `v.` URL param, so if it could name a fetch's
+entity it would chart the lock's history from a `Public` dashboard. It can't: a
+fetch's entity is written down at build time, and a variable only picks one of
+the windows its fetch lists (issue #209). `Renderer.refusals` holds every value,
+from a write and from a URL alike, to those keys.
 
 **`referencedEntities` is that bound, and it is not the same set as
 `watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA

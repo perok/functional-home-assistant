@@ -152,13 +152,39 @@
                                     "chart" : {
                                       "bypassUnavailable" : true,
                                       "fetch" : {
-                                        "params" : {
-                                          "entity" : "sensor.outside_temp",
-                                          "window" : {
+                                        "entity" : "sensor.outside_temp",
+                                        "everyPoint" : false,
+                                        "provider" : "history",
+                                        "window" : {
+                                          "by" : {
                                             "var" : "window"
+                                          },
+                                          "kind" : "Chosen",
+                                          "options" : {
+                                            "1h" : {
+                                              "kind" : "Raw",
+                                              "span" : 3600
+                                            },
+                                            "24h" : {
+                                              "fallback" : true,
+                                              "kind" : "Statistics",
+                                              "period" : "5minute",
+                                              "span" : 86400
+                                            },
+                                            "30d" : {
+                                              "fallback" : true,
+                                              "kind" : "Statistics",
+                                              "period" : "hour",
+                                              "span" : 2592000
+                                            },
+                                            "7d" : {
+                                              "fallback" : true,
+                                              "kind" : "Statistics",
+                                              "period" : "hour",
+                                              "span" : 604800
+                                            }
                                           }
-                                        },
-                                        "provider" : "history"
+                                        }
                                       },
                                       "reads" : "onRender",
                                       "transform" : {
@@ -1192,13 +1218,39 @@
                                         "chart" : {
                                           "bypassUnavailable" : true,
                                           "fetch" : {
-                                            "params" : {
-                                              "entity" : "sensor.outside_temp",
-                                              "window" : {
+                                            "entity" : "sensor.outside_temp",
+                                            "everyPoint" : false,
+                                            "provider" : "history",
+                                            "window" : {
+                                              "by" : {
                                                 "var" : "window"
+                                              },
+                                              "kind" : "Chosen",
+                                              "options" : {
+                                                "1h" : {
+                                                  "kind" : "Raw",
+                                                  "span" : 3600
+                                                },
+                                                "24h" : {
+                                                  "fallback" : true,
+                                                  "kind" : "Statistics",
+                                                  "period" : "5minute",
+                                                  "span" : 86400
+                                                },
+                                                "30d" : {
+                                                  "fallback" : true,
+                                                  "kind" : "Statistics",
+                                                  "period" : "hour",
+                                                  "span" : 2592000
+                                                },
+                                                "7d" : {
+                                                  "fallback" : true,
+                                                  "kind" : "Statistics",
+                                                  "period" : "hour",
+                                                  "span" : 604800
+                                                }
                                               }
-                                            },
-                                            "provider" : "history"
+                                            }
                                           },
                                           "reads" : "onRender",
                                           "transform" : {

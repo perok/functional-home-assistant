@@ -1,6 +1,7 @@
 package fh.view.runtime
 
-import fh.view.fetch.{FetchSnapshot, Staged}
+import fh.view.history.Windows
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
 import io.circe.parser.decode
 
@@ -10,12 +11,9 @@ import io.circe.parser.decode
   */
 class FetchValueSuite extends munit.FunSuite {
 
-  private val history = FetchTemplate(
-    "history",
-    Map("entity" -> Ref.Literal("sensor.left"), "window" -> Ref.Literal("24h"))
-  )
+  private val history = FetchTemplate("sensor.left", Choice.Fixed(Windows.day))
   private val read = SlotRead(
-    SlotFetch("history", Map("entity" -> "sensor.left", "window" -> "24h")),
+    FetchRequest.History("sensor.left", Windows.day),
     Transform.Stage.Passthrough
   )
   // A wash that started at 101 after an idle 0.
@@ -95,8 +93,6 @@ class FetchValueSuite extends munit.FunSuite {
       case other                   => fail(s"not a component: $other")
     assertEquals(fetches, List(SlotAsk(history, Transform.Stage.Passthrough)))
     assertEquals(d.allFetches, List(read))
-    // What it reads is bounded like a fetch slot's (ADR 0023).
-    assert(d.fetchedEntities.contains("sensor.left"))
   }
 
   test("a node's fetch value reaches the slot that reads it") {
@@ -137,17 +133,8 @@ class FetchValueSuite extends munit.FunSuite {
       errs(dashboard(ofSlot = of(reads = Reads.Once)))
         .contains("reads a live count, condition or fetch")
     )
-    val unknown = history.copy(provider = "forecast")
-    assert(
-      errs(
-        dashboard(ofSlot =
-          of(values = Map("past" -> ExprValue.Fetched(unknown)))
-        )
-      )
-        .contains("unknown fetch provider")
-    )
     val undeclared =
-      history.copy(params = history.params + ("window" -> Ref.Var("window")))
+      history.copy(window = Choice.Chosen("window", Windows.presets))
     assert(
       errs(
         dashboard(ofSlot =
@@ -160,7 +147,8 @@ class FetchValueSuite extends munit.FunSuite {
   test("the wire spells a fetch value by its provider") {
     val slot = decode[SlotSource](
       """{"transform": "size(past)", "values": {"past": {"provider": "history",
-        |  "params": {"entity": "sensor.left", "window": "24h"}}}}""".stripMargin
+        |  "entity": "sensor.left", "window": {"kind": "Statistics",
+        |  "span": 86400, "period": "5minute", "fallback": true}}}}""".stripMargin
     )
     assertEquals(
       slot.map(_.values),

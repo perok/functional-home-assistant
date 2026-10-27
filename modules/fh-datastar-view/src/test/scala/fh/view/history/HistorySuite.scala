@@ -7,8 +7,9 @@ import api.homeassistant.ws.domain.{
 }
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import fh.view.fetch.{FetchIdentity, FetchRequest}
+import fh.view.fetch.FetchIdentity
 import io.circe.syntax.*
+import io.github.iltotore.iron.*
 
 import java.time.Instant
 import scala.concurrent.duration.*
@@ -78,9 +79,7 @@ class HistorySuite extends munit.CatsEffectSuite {
         identity: FetchIdentity = FetchIdentity.Instance
     ) = h.series(identity, e, w, asOf)
 
-  test(
-    "a day or longer reads statistics, then raw; the hour and every point raw"
-  ) {
+  test("a window reads what it says, and only that") {
     def made(w: Window, everyPoint: Boolean = false) =
       for {
         src <- source(statRows = hourlyStats(ago(30.days)))
@@ -89,49 +88,50 @@ class HistorySuite extends munit.CatsEffectSuite {
         calls <- src.calls.get
       } yield calls
     for {
-      hour <- made(Window.LastHour)
-      day <- made(Window.LastDay)
-      week <- made(Window.LastWeek)
-      month <- made(Window.LastMonth)
-      every <- made(Window.LastDay, everyPoint = true)
+      hour <- made(Windows.hour)
+      day <- made(Windows.day)
+      week <- made(Windows.week)
+      every <- made(Windows.week, everyPoint = true)
     } yield {
       assertEquals(hour, Vector("raw"))
-      assertEquals(day, Vector("statistics:5minute", "raw"))
-      assertEquals(week, Vector("statistics:hour", "raw"))
-      assertEquals(month, Vector("statistics:hour", "raw"))
-      assertEquals(every, Vector("raw"))
+      assertEquals(day, Vector("statistics:5minute"))
+      assertEquals(week, Vector("statistics:hour"))
+      assertEquals(every, Vector("statistics:hour"))
     }
   }
 
-  test("raw rows after the newest bucket carry the line to now") {
+  test("the newest bucket is carried to now, as HA's own chart does") {
     // A bucket is written after its period ends, so the newest lags by minutes.
-    val lastEnd = ago(1.hour)
+    for {
+      src <- source(statRows = hourlyStats(ago(7.days), ago(1.hour)))
+      h <- History.create(src)
+      s <- h.ask(Windows.week)
+      calls <- src.calls.get
+    } yield {
+      assertEquals(calls, Vector("statistics:hour"))
+      assertEquals(s.points.lastOption.map(_.at), Some(now))
+      assertEquals(
+        s.points.map(_.at).filter(_.isAfter(ago(1.hour))),
+        Vector(now)
+      )
+    }
+  }
+
+  test("no statistics draw nothing, unless the window falls back to raw") {
+    // Only an entity with a `state_class` has statistics.
+    val strict = Window.Statistics(604800L, StatisticsPeriod.Hour)
     for {
       starts <- Ref[IO].of(Vector.empty[Instant])
-      src <- source(
-        (_, s) => starts.update(_ :+ s).as(rowsFrom(s)(s)),
-        hourlyStats(ago(7.days), lastEnd)
-      )
+      src <- source((_, s) => starts.update(_ :+ s).as(rowsFrom(ago(1.day))(s)))
       h <- History.create(src)
-      s <- h.ask(Window.LastWeek)
+      none <- h.ask(strict)
+      fellBack <- h.ask(Windows.week)
       asked <- starts.get
     } yield {
-      assertEquals(asked, Vector(lastEnd))
-      val times = s.points.map(_.at)
-      assertEquals(times, times.sorted)
-      assertEquals(times.lastOption, Some(now))
-      assert(times.count(_ == lastEnd) == 1, clue = times)
+      assertEquals(none, Series.empty)
+      assert(fellBack.points.nonEmpty, clue = fellBack)
+      assertEquals(asked, Vector(ago(7.days)))
     }
-  }
-
-  test("an entity with no statistics reads its whole window raw") {
-    for {
-      starts <- Ref[IO].of(Vector.empty[Instant])
-      src <- source((_, s) => starts.update(_ :+ s).as(Nil))
-      h <- History.create(src)
-      _ <- h.ask(Window.LastWeek)
-      asked <- starts.get
-    } yield assertEquals(asked, Vector(ago(7.days)))
   }
 
   test("a month past the recorder's purge still draws, from its buckets") {
@@ -141,18 +141,42 @@ class HistorySuite extends munit.CatsEffectSuite {
         hourlyStats(ago(30.days))
       )
       h <- History.create(src)
-      s <- h.ask(Window.LastMonth)
+      s <- h.ask(Windows.month)
     } yield assert(
       s.points.headOption.exists(_.at.isBefore(ago(29.days))),
       clue = s.points.headOption
     )
   }
 
+  test("every point of a statistics read is every bucket, none thinned") {
+    for {
+      src <- source(statRows = hourlyStats(ago(30.days)))
+      h <- History.create(src, target = 100)
+      thinned <- h.ask(Windows.month)
+      every <- h
+        .answerAt(FetchIdentity.Instance, entity, Windows.month, now, true)
+        .flatMap(_.data.as[Series].liftTo[IO])
+    } yield {
+      assertEquals(thinned.points.length, 100)
+      assertEquals(every.points.length, 30 * 24)
+    }
+  }
+
+  test(
+    "the bucket is the period, or a 720th of a raw span, at least a minute"
+  ) {
+    assertEquals(Windows.hour.bucket, 1.minute)
+    assertEquals(Windows.day.bucket, 5.minutes)
+    assertEquals(Windows.week.bucket, 1.hour)
+    assertEquals(Windows.month.bucket, 1.hour)
+    assertEquals(Window.Raw(604800L).bucket, 14.minutes)
+  }
+
   test("the result is downsampled before anyone sees it") {
     for {
       src <- source((_, s) => IO.pure(rowsFrom(ago(30.days))(s)))
       h <- History.create(src, target = 100)
-      s <- h.ask(Window.LastMonth)
+      s <- h.ask(Windows.month)
     } yield assertEquals(s.points.length, 100)
   }
 
@@ -162,7 +186,7 @@ class HistorySuite extends munit.CatsEffectSuite {
       h <- History.create(src)
       answers <- List
         .fill(10)(
-          h.answerAt(FetchIdentity.Instance, entity, Window.LastDay, now)
+          h.answerAt(FetchIdentity.Instance, entity, Windows.day, now)
         )
         .parSequence
       count <- src.fetches
@@ -175,9 +199,9 @@ class HistorySuite extends munit.CatsEffectSuite {
   test(
     "a rolled bucket is a new fetch and a new version, and retires the key"
   ) {
-    val later = now.plusSeconds(Window.LastDay.bucket.toSeconds)
+    val later = now.plusSeconds(Windows.day.bucket.toSeconds)
     def version(h: History, at: Instant) =
-      h.answerAt(FetchIdentity.Instance, entity, Window.LastDay, at)
+      h.answerAt(FetchIdentity.Instance, entity, Windows.day, at)
         .map(_.version)
     for {
       src <- source()
@@ -201,7 +225,7 @@ class HistorySuite extends munit.CatsEffectSuite {
     // the 1h while both are current. Longest first, so each shorter miss sweeps
     // over a longer window's live entry.
     val midHour = now.plusSeconds(25 * 60)
-    val windows = Window.values.toList.sortBy(-_.span.toSeconds)
+    val windows = Windows.presets.values.toList.sortBy(-_.length.toSeconds)
     for {
       src <- source()
       h <- History.create(src)
@@ -222,8 +246,8 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source()
       h <- History.create(src)
-      _ <- h.ask(Window.LastDay)
-      _ <- h.ask(Window.LastDay, identity = FetchIdentity.user("alice"))
+      _ <- h.ask(Windows.day)
+      _ <- h.ask(Windows.day, identity = FetchIdentity.user("alice"))
       count <- src.fetches
     } yield assertEquals(count, 2)
   }
@@ -239,8 +263,8 @@ class HistorySuite extends munit.CatsEffectSuite {
         }
       )
       h <- History.create(src, failureTtl = Duration.Zero)
-      first <- h.ask(Window.LastDay).attempt
-      second <- h.ask(Window.LastDay)
+      first <- h.ask(Windows.day).attempt
+      second <- h.ask(Windows.day)
       count <- attempts.get
     } yield {
       assert(first.isLeft)
@@ -255,8 +279,8 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source((_, _) => IO.raiseError(new RuntimeException("HA is down")))
       h <- History.create(src)
-      first <- h.ask(Window.LastDay).attempt
-      second <- h.ask(Window.LastDay).attempt
+      first <- h.ask(Windows.day).attempt
+      second <- h.ask(Windows.day).attempt
       count <- src.fetches
     } yield {
       assert(first.isLeft && second.isLeft, clue = (first, second))
@@ -278,32 +302,21 @@ class HistorySuite extends munit.CatsEffectSuite {
     assertEquals(json.as[Series], Right(s))
   }
 
-  test("an unknown window is a build error naming the ones that exist") {
-    val e = HistoryFetch
-      .parse(Map("entity" -> "sensor.t", "window" -> "last-week"))
-      .swap
-      .getOrElse(fail("expected a parse error"))
-    assert(e.contains("last-week"), clue = e)
-    assert(e.contains("24h"), clue = e)
+  test("a window that does not decode names what would") {
+    def err(json: String) =
+      io.circe.parser
+        .decode[Window](json)
+        .fold(_.getMessage, w => fail(s"decoded $w"))
+    assert(err("""{"kind":"Weekly","span":60}""").contains("Weekly"))
+    val period = err("""{"kind":"Statistics","span":60,"period":"minute"}""")
+    assert(period.contains("5minute"), clue = period)
+    assert(err("""{"kind":"Raw","span":0}""").contains("positive"))
   }
 
-  test("a fetch with no entity or no window is a build error") {
-    assert(HistoryFetch.parse(Map("window" -> "24h")).isLeft)
-    assert(HistoryFetch.parse(Map("entity" -> "sensor.t")).isLeft)
-  }
-
-  test("points 'all' asks for every reading; anything else is a build error") {
-    assertEquals(
-      HistoryFetch.parse(
-        Map("entity" -> "sensor.t", "window" -> "24h", "points" -> "all")
-      ),
-      Right(FetchRequest.History("sensor.t", Window.LastDay, everyPoint = true))
-    )
-    assert(
-      HistoryFetch
-        .parse(Map("entity" -> "sensor.t", "window" -> "24h", "points" -> "9"))
-        .isLeft
-    )
+  test("statistics at a period no shorter than the span answer nothing") {
+    // Measured: `hour` over one hour is empty.
+    assert(Window.Statistics(3600L, StatisticsPeriod.Hour).problem.isDefined)
+    assertEquals(Windows.presets.values.flatMap(_.problem).toList, Nil)
   }
 
   test("every point is its own cache entry, and nothing is thinned out") {
@@ -312,9 +325,9 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source((_, s) => IO.pure(rowsFrom(ago(1.day))(s)))
       h <- History.create(src, target = 100)
-      thinned <- h.ask(Window.LastDay)
+      thinned <- h.ask(Windows.day)
       every <- h
-        .answerAt(FetchIdentity.Instance, entity, Window.LastDay, now, true)
+        .answerAt(FetchIdentity.Instance, entity, Windows.day, now, true)
         .flatMap(_.data.as[Series].liftTo[IO])
       count <- src.fetches
     } yield {
@@ -322,16 +335,5 @@ class HistorySuite extends munit.CatsEffectSuite {
       assert(every.points.length > 1000, clue = every.points.length)
       assertEquals(count, 2)
     }
-  }
-
-  test("a size is not a fetch parameter, and is ignored here") {
-    // The question is entity and window; size is how the answer is drawn
-    // (`ChartStyleSuite`).
-    assertEquals(
-      HistoryFetch.parse(
-        Map("entity" -> "sensor.t", "window" -> "24h", "width" -> "wide")
-      ),
-      Right(FetchRequest.History("sensor.t", Window.LastDay))
-    )
   }
 }

@@ -9,11 +9,12 @@ import fh.view.model.{
   NodeId,
   FetchTemplate,
   Reads,
-  Ref,
+  Choice,
   SlotSource,
   Transform
 }
 import fh.view.fetch.FetchSnapshot
+import fh.view.history.Windows
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -94,13 +95,7 @@ object VarEnvBench {
       Map(
         "chart" -> SlotSource(
           fetch = Some(
-            FetchTemplate(
-              "history",
-              Map(
-                "entity" -> Ref.Literal(entity),
-                "window" -> Ref.Var("window")
-              )
-            )
+            FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
           ),
           transform = Transform.Stage.Passthrough,
           reads = Reads.OnRender

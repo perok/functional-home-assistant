@@ -97,8 +97,8 @@ The answer is read before the CEL runs, on both paths. A value fetch counts amon
 (`BoundSlot.fetches`), so a render's pre-read and its render key carry it as a fetch slot's are
 carried, and the signal path, which already pre-reads the fetches of the nodes it updates, hands
 them to `signalsFor`. A site that reads no snapshot (a `once` slot, a subject) refuses a fetch at
-build time and raises if one ever reaches it. What a value's fetch reads joins
-`Dashboard.fetchedEntities`, so a viewer's value is bounded as a fetch slot's is (ADR 0023).
+build time and raises if one ever reaches it. Its entity is written down at build time, as a
+fetch slot's is, so no viewer's value can move it (ADR 0023).
 
 ### Boolean slots, and what fills one
 

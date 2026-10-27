@@ -50,6 +50,7 @@ import "core/variable.pkl" as varMod
 import "recipes.pkl" as recipesMod
 import "components/defaults.pkl" as defaultsMod
 import "components/fetch.pkl" as fetchMod
+import "components/window.pkl" as windowMod
 
 // ---- namespaces ----
 
@@ -87,9 +88,14 @@ hidden lock: lockMod = lockMod
 hidden bar: barMod = barMod
 
 /// Reads of a provider, for an expression value's CEL:
-/// `expressionValues { ["past"] = c.fetch.history(sensor).over("7d") }`. Not
-/// `q.`, which picks entities.
+/// `expressionValues { ["past"] = c.fetch.history(sensor).over(c.window.raw(7.d)) }`.
+/// Not `q.`, which picks entities.
 hidden fetch: fetchMod = fetchMod
+
+/// What a history fetch reads over: `c.window.raw(1.h)`,
+/// `c.window.statistics(7.d, "hour").orRaw()`, or more-info's
+/// `c.window.presets`.
+hidden window: windowMod = windowMod
 
 /// Whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod.Recipes = new { defaults = module.defaults }
@@ -194,8 +200,8 @@ function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider =
 /// one part.
 function progress(sensor: hass.SensorEntity): progressMod.ProgressCard =
   let (d = defaults) (progressMod.progress(sensor)) { defaults = d }
-/// A sensor's last 24 hours, drawn on the server; `.over("7d")` for another
-/// window. Numeric sensors only (`e.isNumeric`).
+/// A sensor's last 24 hours, drawn on the server;
+/// `.over(c.window.statistics(7.d, "hour"))` for another window. Numeric sensors only (`e.isNumeric`).
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
   historyMod.historyChart(e)
 /// Now, low and high over the last 24 hours; `.over(…)` and `.fromChooser()` as

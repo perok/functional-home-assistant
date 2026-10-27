@@ -1,6 +1,6 @@
 package fh.view.fetch
 
-import fh.view.fetch.FetchSnapshot
+import fh.view.fetch.{FetchRequest, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
@@ -14,10 +14,9 @@ import fh.view.model.{
   Predicate,
   Reads,
   SignalBind,
+  Choice,
   FetchTemplate,
-  Ref as SlotRef,
   SlotAsk,
-  SlotFetch,
   SlotRead,
   Region,
   SlotShape,
@@ -26,10 +25,10 @@ import fh.view.model.{
   Transform
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
-import fh.view.history.{ChartStyle, History, SeriesSource}
+import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
 import fh.view.runtime.{EntityState, RenderInputs, Renderer, Selections}
 import io.circe.Json
-import io.github.iltotore.iron.refineUnsafe
+import io.github.iltotore.iron.*
 import fh.view.testkit.TestIds.given
 import fh.view.FHError
 import fh.view.testkit.DashboardBuilders.declared
@@ -41,21 +40,15 @@ import java.time.Instant
   */
 class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
-  /** All-literal parameters resolve to themselves in any environment, so the
-    * assertions stay about the fetch slot, not variables.
+  /** A window written down resolves to itself in any environment, so the
+    * assertions stay about the fetch slot, not variables. Named by preset.
     */
   private def chart(window: String = "24h") =
-    FetchTemplate(
-      "history",
-      Map(
-        "entity" -> SlotRef.Literal("sensor.t"),
-        "window" -> SlotRef.Literal(window)
-      )
-    )
+    FetchTemplate("sensor.t", Choice.Fixed(Windows.presets(window)))
 
   /** What the caches and the render key see. */
   private def resolved(window: String = "24h") =
-    SlotFetch("history", Map("entity" -> "sensor.t", "window" -> window))
+    FetchRequest.History("sensor.t", Windows.presets(window))
 
   private def ask(window: String = "24h", width: Int = 600) =
     SlotAsk(chart(window), drawn(width))
@@ -185,11 +178,6 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       )
     } yield r
 
-  private def plan(reads: SlotRead*) =
-    reads
-      .map(r => r -> Fetches.parse(r.fetch).fold(e => fail(e), identity))
-      .toMap
-
   test("two sizes of one window are ONE fetch and TWO drawings") {
     val wide = read(width = 600)
     val narrow = read(width = 320)
@@ -199,7 +187,6 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       r <- resolver(fetches, draws)
       f <- FetchSnapshot.resolve(
         r,
-        plan(wide, narrow),
         List(wide, narrow),
         Map.empty,
         FetchIdentity.Instance
@@ -217,13 +204,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // drawings apart.
     def sensor(e: String) =
       SlotAsk(
-        FetchTemplate(
-          "history",
-          Map(
-            "entity" -> SlotRef.Literal(e),
-            "window" -> SlotRef.Literal("24h")
-          )
-        ),
+        FetchTemplate(e, Choice.Fixed(Windows.day)),
         drawn()
       )
     val a = sensor("sensor.a")
@@ -243,7 +224,6 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       )
       f <- FetchSnapshot.resolve(
         r,
-        plan(reads*),
         reads,
         Map.empty,
         FetchIdentity.Instance
@@ -264,7 +244,6 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       r <- resolver(fetches, draws)
       f <- FetchSnapshot.resolve(
         r,
-        plan(raw),
         List(raw),
         Map.empty,
         FetchIdentity.Instance
@@ -291,7 +270,6 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       r <- resolver(fetches, draws, failWidth = Some(1))
       f <- FetchSnapshot.resolve(
         r,
-        plan(ok, bad),
         List(ok, bad),
         Map.empty,
         FetchIdentity.Instance
@@ -437,7 +415,13 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       Map("light.a" -> EntityState("light.a", s, Map.empty))
     def windows(selected: String, states: Map[String, EntityState]) =
       r.fetchesForPage(Set(selected), states, Map.empty)
-        .map(_.fetch.params("window"))
+        .map(r =>
+          Windows.presets
+            .collectFirst {
+              case (k, w) if r.fetch == FetchRequest.History("sensor.t", w) => k
+            }
+            .getOrElse(fail(s"not a preset: ${r.fetch}"))
+        )
         .toSet
     assertEquals(windows("t0", light("on")), Set("1h", "24h"))
     assertEquals(windows("t1", light("off")), Set("7d", "30d"))
@@ -449,17 +433,14 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       card = LayoutNode.Component(card = "chart", slots = Map("chart" -> src))
     )
 
-  test("an unknown provider is a build error naming the ones that exist") {
+  test("an unknown provider fails the decode, naming the ones that exist") {
     // Otherwise the slot renders empty forever and never enters the key: a
     // blank chart with nothing saying why.
-    val errs = dashboard(
-      SlotSource(
-        fetch = Some(FetchTemplate("forecast", Map.empty)),
-        reads = Reads.OnRender
-      )
-    ).validate()
-    assert(errs.exists(_.contains("unknown fetch provider")), clue = errs)
-    assert(errs.exists(_.contains("history")), clue = errs)
+    val err = io.circe.parser
+      .decode[FetchTemplate]("""{"provider": "forecast"}""")
+      .fold(_.getMessage, t => fail(s"decoded $t"))
+    assert(err.contains("unknown fetch provider"), clue = err)
+    assert(err.contains("history"), clue = err)
   }
 
   test("an ESCAPED hole for a fetch slot is a build error") {
@@ -492,15 +473,21 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assert(errs.exists(_.contains("never pushed")), clue = errs)
   }
 
-  test("the provider's own parse error is the build error") {
-    // Parsing is pure, so a dashboard is checked wherever it is built.
+  test("statistics at a period no shorter than the span is a build error") {
+    // HA answers `hour` over one hour with nothing (measured), so the chart
+    // would be blank forever.
     val errs = dashboard(
       SlotSource(
-        fetch = Some(FetchTemplate("history", Map())),
+        fetch = Some(
+          FetchTemplate(
+            "sensor.t",
+            Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
+          )
+        ),
+        transform = drawn(),
         reads = Reads.OnRender
       )
-    )
-      .validate()
-    assert(errs.exists(_.contains("'entity' parameter")), clue = errs)
+    ).validate()
+    assert(errs.exists(_.contains("shorter than the span")), clue = errs)
   }
 }

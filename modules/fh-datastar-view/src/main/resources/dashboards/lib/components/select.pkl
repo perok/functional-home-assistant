@@ -16,7 +16,7 @@
 /// by its value, so the first HTML shows the chosen option; the buttons are lit
 /// by the client, as a tab bar's are. The server refuses a choice nothing on the
 /// page reads, so `buttons` over a variable needs a reader: a chart's
-/// `.over(v.ref)`, a bake group.
+/// `.over(c.window.chosen(v, table))`, a bake group.
 module components.select
 
 import "../core/icon.pkl" as icons

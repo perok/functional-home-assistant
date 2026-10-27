@@ -260,6 +260,12 @@ Each is a *variable*:
   Press `7d` and every chart redraws at a week; press colour and every light
   shows its colour, or its brightness, greyed, if it has none.
   `.defaultingTo("7d")` picks where a chooser starts.
+
+  On its own, `c.historyChart(s)` draws the last 24 hours. `.over(…)` picks
+  another window: `c.window.raw(1.h)` is every recorded reading, and
+  `c.window.statistics(7.d, "hour")` is HA's hourly averages, much quicker to
+  load over a day or more. Only a sensor with a state class has averages; add
+  `.orRaw()` to draw its readings when it has none, or the chart stays empty.
 - **A light group** works the same way: `c.entitySlider(group)` has its own
   switch, and rows that are `.fromChooser()` follow it instead of having one
   each.

@@ -2,46 +2,11 @@ package fh.view.history
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.fetch.{Answer, FetchIdentity, FetchRequest, SharedCache}
+import fh.view.fetch.{Answer, FetchIdentity, SharedCache}
 import io.circe.syntax.*
 
 import java.time.Instant
 import scala.concurrent.duration.FiniteDuration
-
-/** Parsing a history fetch — pure, so `Dashboard.validate` can reject a bad one
-  * with nothing wired.
-  */
-object HistoryFetch {
-
-  val Name: String = "history"
-
-  /** `entity`, `window`, and `points = "all"` for every reading rather than
-    * about 300: a chart wants few, a computation (a countdown's start) every
-    * one. Size and unit are how the answer is drawn (the stage), so two sizes
-    * of one chart are one request and one fetch.
-    */
-  def parse(params: Map[String, String]): Either[String, FetchRequest] =
-    for {
-      entityId <- params
-        .get("entity")
-        .toRight(s"fetch '$Name' needs an 'entity' parameter")
-      name <- params
-        .get("window")
-        .toRight(s"fetch '$Name' needs a 'window' parameter")
-      window <- Window
-        .byName(name)
-        .toRight(
-          s"fetch '$Name' has unknown window '$name' — one of " +
-            Window.values.map(_.name).mkString(", ")
-        )
-      everyPoint <- params.get("points") match {
-        case None        => Right(false)
-        case Some("all") => Right(true)
-        case Some(other) =>
-          Left(s"fetch '$Name' has points '$other' — 'all', or none for ~300")
-      }
-    } yield FetchRequest.History(entityId, window, everyPoint)
-}
 
 /** `bucket` is the window's floor of "now", so an entry expires by its bucket
   * rolling rather than by a timer. Identity is in the key because HA scopes
@@ -107,11 +72,9 @@ final class History private (
 
   private[history] def keys: IO[Set[SeriesKey]] = cache.keys
 
-  /** Statistics first, where the window has a period and every reading was not
-    * asked for: a day of a meter's raw rows is 850 KB to draw 300 points. The
-    * newest bucket lags its period by minutes, so raw rows after it carry the
-    * line to now. In sequence, because the tail starts where the buckets end.
-    * An entity with no `state_class` has no statistics and reads raw.
+  /** Every point is every row of a raw read and every bucket of a statistics
+    * one. The newest bucket ends minutes before now, and `heldUntil` carries it
+    * there, as HA's own chart does.
     */
   private def fetch(
       entityId: String,
@@ -119,25 +82,16 @@ final class History private (
       asOf: Instant,
       everyPoint: Boolean
   ) = {
-    def raw(from: Instant) =
-      source.raw(from, asOf, entityId).map(Series.fromHistory)
     val start = window.startAt(asOf)
-    window.statistics
-      .filterNot(_ => everyPoint)
-      .fold(raw(start))(period =>
+    val raw = source.raw(start, asOf, entityId).map(Series.fromHistory)
+    (window match {
+      case Window.Raw(_)                          => raw
+      case Window.Statistics(_, period, fallback) =>
         source
           .statistics(start, asOf, entityId, period)
           .map(Series.fromStatistics)
-          .flatMap(buckets =>
-            buckets.points.lastOption.fold(raw(start))(last =>
-              raw(last.at).map(tail =>
-                Series(
-                  buckets.points ++ tail.points.filter(_.at.isAfter(last.at))
-                )
-              )
-            )
-          )
-      )
+          .flatMap(s => if (s.isEmpty && fallback) raw else IO.pure(s))
+    })
       .map(s =>
         if (everyPoint) s.heldUntil(asOf)
         else s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))

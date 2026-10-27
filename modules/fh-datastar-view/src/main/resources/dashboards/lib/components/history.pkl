@@ -1,9 +1,8 @@
 /// A chart of one entity's recorded past, drawn on the server.
 ///
 /// The chart arrives as SVG in the card's bytes, so it morphs, caches and
-/// resumes like any other leaf. This module owns everything history-specific
-/// the authoring side knows: the provider's name and parameters, the windows,
-/// and the chart stage.
+/// resumes like any other leaf. This module owns the provider's question, its
+/// cards and the chart stage; what a fetch reads over is `window.pkl`'s.
 module components.history
 
 import "../core/node.pkl" as nodes
@@ -13,20 +12,25 @@ import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
 import "../core/variable.pkl" as varMod
 import "select.pkl" as selectMod
+import "window.pkl" as windowMod
 import "../hass.pkl"
 
-/// How far back a chart looks. Closed because the server's cache keys on it
-/// (`fh.view.history.Window`).
-typealias Window = "1h"|"24h"|"7d"|"30d"
-
 /// The `history` provider's question: one entity over one window. The window
-/// may be a read of a declared variable ([[varMod.Variable.ref]]); the entity may not, because
-/// substituting it is an access question (ADR 0023).
-const function historyFetch(entityId: String, w: Window|varMod.Ref): slotMod.Slot =
-  slotMod.fetchSlot("history", new Mapping {
-    ["entity"] = entityId
-    ["window"] = w
-  })
+/// may be chosen by a node variable ([[windowMod.chosen]]); the entity may not,
+/// because substituting it is an access question (ADR 0023).
+open class HistoryFetch extends slotMod.Fetch {
+  provider = "history"
+  entity: String
+  window: windowMod.Window|windowMod.Chosen
+  /// Every row, or every bucket, rather than a chart's ~300 points.
+  everyPoint: Boolean = false
+}
+
+const function historyFetch(
+  entityId: String,
+  w: windowMod.Window|windowMod.Chosen
+): slotMod.Slot =
+  new slotMod.Slot { fetch = new HistoryFetch { entity = entityId; window = w } }
 
 /// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
 /// asked, so two sizes of one chart share one fetch.
@@ -61,17 +65,6 @@ class ChartStage extends stageMod.Stage {
   params: ChartParams = new ChartParams {}
 }
 
-/// A chart of one entity over one window. `unit` should be the entity's own
-/// `unit_of_measurement`, so the chart agrees with the card beside it.
-const function chartSlot(
-  entityId: String,
-  w: Window|varMod.Ref,
-  unit: String?
-): slotMod.Slot =
-  (historyFetch(entityId, w)) {
-    transform = chartStage(null, null, unit)
-  }
-
 /// One entity's readings over one window. The SVG goes in a RAW hole
 /// (`{{{chart}}}`); the backend rejects an escaped one at build time.
 class HistoryChart extends nodes.Node {
@@ -91,10 +84,8 @@ class HistoryChart extends nodes.Node {
 
   hidden entity: hass.SensorEntity
 
-  /// The window drawn, or a READ of a node variable holding one. A reference
-  /// is not narrowed to [[Window]]: the write boundary checks it against
-  /// `HistoryFetch.parse`, the one list.
-  hidden window: Window|varMod.Ref = "24h"
+  /// The window drawn, written down or chosen by a node variable.
+  hidden window: windowMod.Window|windowMod.Chosen = windowMod.presets["24h"]
 
   /// The drawing's own size in SVG units; null for the backend's default. The
   /// SVG scales to its cell, so this sets the proportions and how large the
@@ -108,7 +99,8 @@ class HistoryChart extends nodes.Node {
     }
   }
 
-  function over(w: Window|varMod.Ref): HistoryChart = let (self = this) (self) { window = w }
+  function over(w: windowMod.Window|windowMod.Chosen): HistoryChart =
+    let (self = this) (self) { window = w }
 
   /// Draw at `w`×`h` instead of the default — wider for a full-width panel,
   /// narrower so labels read larger on a small cell.
@@ -116,7 +108,7 @@ class HistoryChart extends nodes.Node {
     let (self = this) (self) { chartWidth = w; chartHeight = h }
 
   /// Read the window from the nearest [[windowChooser]] above this chart.
-  function fromChooser(): HistoryChart = over(windowVar.ref)
+  function fromChooser(): HistoryChart = over(windowMod.chosen(windowVar, windowMod.presets))
 }
 
 /// The history answer as data rather than a drawing: now, low and high over
@@ -150,7 +142,7 @@ class HistoryReadings extends nodes.Node {
   }
 
   hidden entity: hass.SensorEntity
-  hidden window: Window|varMod.Ref = "24h"
+  hidden window: windowMod.Window|windowMod.Chosen = windowMod.presets["24h"]
 
   slots {
     ["entity_id"] = entity.entity_id
@@ -160,8 +152,9 @@ class HistoryReadings extends nodes.Node {
     ["readings"] = historyFetch(entity.entity_id, window)
   }
 
-  function over(w: Window|varMod.Ref): HistoryReadings = let (self = this) (self) { window = w }
-  function fromChooser(): HistoryReadings = over(windowVar.ref)
+  function over(w: windowMod.Window|windowMod.Chosen): HistoryReadings =
+    let (self = this) (self) { window = w }
+  function fromChooser(): HistoryReadings = over(windowMod.chosen(windowVar, windowMod.presets))
 }
 
 // Named by the node, so two readings cards never share one signal.
@@ -183,8 +176,8 @@ const local covers: String =
 function historyReadings(e: hass.SensorEntity): HistoryReadings =
   new HistoryReadings { entity = e }
 
-/// A chart of `e`'s last 24 hours — `c.historyChart(sensor).over("7d")` for any
-/// other window. A [[hass.SensorEntity]] because only a numeric one charts;
+/// A chart of `e`'s last 24 hours — `.over(c.window.statistics(7.d, "hour"))`
+/// for any other window. A [[hass.SensorEntity]] because only a numeric one charts;
 /// [[hass.SensorEntity.isNumeric]] lets a composition ask before it draws.
 function historyChart(e: hass.SensorEntity): HistoryChart =
   new HistoryChart { entity = e }
@@ -193,10 +186,6 @@ function historyChart(e: hass.SensorEntity): HistoryChart =
 /// reads. Fixed rather than an argument on either, so the pair cannot drift.
 const windowVar: varMod.Variable = new { name = "window" }
 
-/// The windows the bar offers. A second list beside the typealias, but typed
-/// by it, so the only possible drift is an omission — visible on the bar.
-const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
-
 /// A window bar over the charts beneath it: press `7d` and every
 /// [[HistoryChart.fromChooser]] in this subtree redraws at a week.
 ///
@@ -204,4 +193,5 @@ const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
 ///       children { c.historyChart(sensor).fromChooser() }
 ///     }
 hidden windowChooser: selectMod.Chooser =
-  selectMod.chooser(selectMod.select(windowVar).options(windows.toList())).defaultingTo("24h")
+  selectMod.chooser(selectMod.select(windowVar).options(windowMod.presets.keys.toList()))
+    .defaultingTo("24h")

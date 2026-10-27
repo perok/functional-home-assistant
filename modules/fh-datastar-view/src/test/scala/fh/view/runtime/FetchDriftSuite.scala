@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.history.Windows
 import fh.view.build.DashboardBuild
 import fh.view.model.{
   Activation,
@@ -11,7 +12,7 @@ import fh.view.model.{
   Predicate,
   FetchTemplate,
   Reads,
-  Ref,
+  Choice,
   Region,
   SlotRead,
   SlotSource,
@@ -72,10 +73,7 @@ class FetchDriftSuite extends munit.FunSuite {
       Map(
         "chart" -> SlotSource(
           fetch = Some(
-            FetchTemplate(
-              "history",
-              Map("entity" -> Ref.Literal(e), "window" -> Ref.Literal("24h"))
-            )
+            FetchTemplate(e, Choice.Fixed(Windows.day))
           ),
           transform = Transform.Stage.Chart(),
           reads = Reads.OnRender
@@ -187,14 +185,18 @@ class FetchDriftSuite extends munit.FunSuite {
     Selections.none :: tabs ++ popups
   }
 
-  private def answered(reads: List[SlotRead]) =
-    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap)
+  /** At the declared values, as `Server` hands every render its viewer's. */
+  private def defaults(r: Renderer): VarEnv = r.vars.env(Map.empty)
+
+  private def answered(r: Renderer, reads: List[SlotRead]) =
+    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, defaults(r))
 
   test("a page render reads only what the page resolved") {
     for (c <- cases; states <- c.houses; ui <- uiStates(c)) {
       val r = c.renderer
       val snapshot = answered(
-        r.fetchesForPage(r.surfaces.selectedSurfaces(ui), states, Map.empty)
+        r,
+        r.fetchesForPage(r.surfaces.selectedSurfaces(ui), states, defaults(r))
       )
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
@@ -215,7 +217,7 @@ class FetchDriftSuite extends munit.FunSuite {
         sid,
         states,
         ui,
-        answered(r.fetchesForSurface(sid, states, ui, Map.empty))
+        answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
       )
     }
   }
@@ -232,10 +234,11 @@ class FetchDriftSuite extends munit.FunSuite {
               states,
               Selections.none,
               answered(
+                r,
                 r.fetchesForPage(
                   r.surfaces.selectedSurfaces(),
                   states,
-                  Map.empty
+                  defaults(r)
                 )
               )
             ).keys
@@ -247,7 +250,7 @@ class FetchDriftSuite extends munit.FunSuite {
       )
       for (states <- c.houses; ui <- uiStates(c)) {
         def asked(targets: List[NodeId], hs: List[NodeId]) =
-          answered(r.readsForPull(targets, hs, states, ui, Map.empty))
+          answered(r, r.readsForPull(targets, hs, states, ui, defaults(r)))
         nodes.foreach { id =>
           val f = asked(List(id), Nil)
           val _ = (
@@ -259,8 +262,13 @@ class FetchDriftSuite extends munit.FunSuite {
       }
       // Precise, not everything: a plain node asks nothing, a chart asks.
       val (quiet, loud) = nodes.partition(id =>
-        r.readsForPull(List(id), Nil, c.houses.head, Selections.none, Map.empty)
-          .isEmpty
+        r.readsForPull(
+          List(id),
+          Nil,
+          c.houses.head,
+          Selections.none,
+          defaults(r)
+        ).isEmpty
       )
       assert(quiet.nonEmpty && loud.nonEmpty, clue = c.name)
     }

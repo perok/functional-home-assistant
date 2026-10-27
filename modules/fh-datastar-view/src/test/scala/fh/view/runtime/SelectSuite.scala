@@ -32,7 +32,7 @@ class SelectSuite extends CatsEffectSuite {
        |    c.select(shade).options(List("24h", "7d")).style("dropdown")
        |    c.select(shade).options(List("24h", "7d")).style("cycle")
        |    // A reader: the server refuses a choice nothing on the page reads.
-       |    c.historyChart(dump.entities.${sensor.dumpKey}).over(shade.ref)
+       |    c.historyChart(dump.entities.${sensor.dumpKey}).over(c.window.chosen(shade, c.window.presets))
        |  }
        |}
        |""".stripMargin

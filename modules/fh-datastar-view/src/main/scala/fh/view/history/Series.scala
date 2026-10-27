@@ -7,7 +7,7 @@ import java.time.Instant
 import scala.jdk.CollectionConverters.*
 
 /** A numeric series: ascending in time, and downsampled for drawing unless
-  * every point was asked for (`points = "all"`).
+  * every point was asked for (`everyPoint`).
   *
   * No unit or name: those come from the entity's live state, and a copy here
   * could disagree with the card beside it.

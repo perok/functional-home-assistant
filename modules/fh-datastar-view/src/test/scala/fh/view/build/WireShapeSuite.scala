@@ -6,15 +6,18 @@ import fh.view.model.{
   Cell,
   Dashboard,
   LayoutNode,
+  Choice,
+  FetchTemplate,
   Predicate,
-  SlotFetch,
   SlotSource,
   Theme,
   Transform,
   VarAt
 }
+import fh.view.history.Window
 import fh.view.testkit.PklWorkspace
 import io.circe.Json
+import io.github.iltotore.iron.*
 
 import scala.compiletime.constValueTuple
 import scala.deriving.Mirror
@@ -52,6 +55,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/access.pkl" as accessMod
         |import "@fh-dashboard/core/stage.pkl" as stageMod
         |import "@fh-dashboard/core/variable.pkl" as varMod
+        |import "@fh-dashboard/components/window.pkl" as windowMod
         |import "@fh-dashboard/theme.pkl" as themeMod
         |
         |// The wire shape is spread across the library's modules, and reflection
@@ -60,7 +64,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, stageMod, varMod, themeMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, stageMod, varMod, windowMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -192,9 +196,24 @@ class WireShapeSuite extends munit.FunSuite {
     // as a bare string (`Slot|String`) that the decoder maps into it: an
     // encoding, not drift.
     check("Slot", SlotSource(), scalaOnly = Set("literal"))
-    // `params` is untyped on the wire, so nothing else would notice the sides
-    // disagreeing on what a fetch is.
-    check("Fetch", SlotFetch("history", Map.empty))
+    // `provider` picks the decoder rather than filling a field.
+    check(
+      "HistoryFetch",
+      FetchTemplate("sensor.t", Choice.Fixed(Window.Raw(1L))),
+      pklOnly = Set("provider")
+    )
+  }
+
+  test("each history window agrees with its case on both sides") {
+    // `kind` is the discriminator, explicit in Pkl.
+    import api.homeassistant.ws.domain.StatisticsPeriod
+    check("Raw", Window.Raw(1L), pklOnly = Set("kind"))
+    check(
+      "Statistics",
+      Window.Statistics(1L, StatisticsPeriod.Hour),
+      pklOnly = Set("kind")
+    )
+    check("Chosen", Choice.Chosen("w", Map.empty), pklOnly = Set("kind"))
   }
 
   test("each simple operator agrees with its case on both sides") {
@@ -235,7 +254,9 @@ class WireShapeSuite extends munit.FunSuite {
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
       caseNames[Transform.Stage] -> Set("Passthrough", "ChartStage"),
       caseNames[Transform.Simple.Value] -> Set("SimpleValue", "SimpleMatch"),
-      caseNames[Transform.Simple.Op] -> ops
+      caseNames[Transform.Simple.Op] -> ops,
+      caseNames[Window] -> Set("Raw", "Statistics"),
+      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen")
     )
     families.foreach { (scalaNames, pklClasses) =>
       pklClasses.foreach { cls =>

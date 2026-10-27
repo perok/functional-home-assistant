@@ -1,10 +1,6 @@
 package fh.view.history
 
-import api.homeassistant.ws.domain.{
-  HistoryPoint,
-  StatisticPoint,
-  StatisticsPeriod
-}
+import api.homeassistant.ws.domain.{HistoryPoint, StatisticPoint}
 
 import java.time.Instant
 
@@ -17,7 +13,7 @@ class SeriesSuite extends munit.FunSuite {
   private def at(secs: Long) = t0.plusSeconds(secs)
 
   test("a bucket is floored, so the key does not move under a request") {
-    val w = Window.LastDay // 5-minute bucket
+    val w = Windows.day // 5-minute bucket
     assertEquals(
       w.bucketOf(Instant.parse("2026-09-19T12:04:59Z")),
       Instant.parse("2026-09-19T12:00:00Z")
@@ -26,28 +22,6 @@ class SeriesSuite extends munit.FunSuite {
       w.bucketOf(Instant.parse("2026-09-19T12:05:00Z")),
       Instant.parse("2026-09-19T12:05:00Z")
     )
-  }
-
-  test("every window asks for a statistics period it can actually get") {
-    // A bucket coarser than the window returns nothing at all — measured: a
-    // one-hour window at `hour` period is empty. So the period has to be finer
-    // than the span, for every window.
-    Window.values.foreach { w =>
-      w.statistics.foreach { period =>
-        val periodSeconds = period match {
-          case StatisticsPeriod.FiveMinute => 300L
-          case StatisticsPeriod.Hour       => 3600L
-          case StatisticsPeriod.Day        => 86400L
-          case StatisticsPeriod.Week       => 604800L
-          case StatisticsPeriod.Month      => 2592000L
-          case StatisticsPeriod.Year       => 31536000L
-        }
-        assert(
-          periodSeconds < w.span.toSeconds,
-          clue = (w, period, periodSeconds, w.span.toSeconds)
-        )
-      }
-    }
   }
 
   test("a non-numeric row is dropped, not charted as zero") {

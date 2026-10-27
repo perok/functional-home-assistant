@@ -276,7 +276,7 @@ facts {
       == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
-    body.children[1].children[0].slots["chart"].fetch.params["window"].`var`
+    body.children[1].children[0].slots["chart"].fetch.window.by.`var`
       == "window"
   }
 
@@ -288,10 +288,14 @@ facts {
     // name between them — which is the property, not the string: an author
     // cannot misspell one side of this pair because neither side is typed.
     defaults.apply(picked) == Map("window", "24h")
-    picked.children[0].slots["chart"].fetch.params["window"].`var` == "window"
+    picked.children[0].slots["chart"].fetch.window.by.`var` == "window"
+    // Each key the bar offers is a window the chart has: the bar and the
+    // table are one mapping, so neither can offer what the other lacks.
+    picked.children[0].slots["chart"].fetch.window.options.keys
+      == c.window.presets.keys
     // The entity is still written down beside it. Only a declared variable is
     // writable, so this chart's subject has nowhere for a write to land.
-    picked.children[0].slots["chart"].fetch.params["entity"] == "sensor.power"
+    picked.children[0].slots["chart"].fetch.entity == "sensor.power"
   }
 
   ["a chart's size is the author's to set, and unset leaves the backend's"] {

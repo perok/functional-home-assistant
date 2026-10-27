@@ -1,6 +1,7 @@
 package fh.view.runtime
 
-import fh.view.fetch.{FetchSnapshot, Staged}
+import fh.view.history.Windows
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
 import io.circe.Json
 import io.circe.parser.decode
@@ -10,12 +11,9 @@ import io.circe.parser.decode
   */
 class ValueWhileSuite extends munit.FunSuite {
 
-  private val history = FetchTemplate(
-    "history",
-    Map("entity" -> Ref.Literal("sensor.left"), "window" -> Ref.Literal("24h"))
-  )
+  private val history = FetchTemplate("sensor.left", Choice.Fixed(Windows.day))
   private val read = SlotRead(
-    SlotFetch("history", Map("entity" -> "sensor.left", "window" -> "24h")),
+    FetchRequest.History("sensor.left", Windows.day),
     Transform.Stage.Passthrough
   )
   private val answered = FetchSnapshot.of(
@@ -114,10 +112,7 @@ class ValueWhileSuite extends munit.FunSuite {
       Map(
         "chart" -> SlotSource(
           fetch = Some(
-            FetchTemplate(
-              "history",
-              Map("entity" -> Ref.Literal(e), "window" -> Ref.Literal("24h"))
-            )
+            FetchTemplate(e, Choice.Fixed(Windows.day))
           ),
           transform = Transform.Stage.Passthrough,
           reads = Reads.OnRender
@@ -151,7 +146,7 @@ class ValueWhileSuite extends munit.FunSuite {
           "light.b" -> EntityState("light.b", b, Map.empty)
         ),
         Map.empty
-      ).map(_.fetch.params("entity"))
+      ).map { case SlotRead(FetchRequest.History(e, _, _), _) => e }
     assertEquals(asked("on", "off"), List("sensor.a_on"))
     assertEquals(asked("off", "on"), List("sensor.a_off", "sensor.b_on"))
   }

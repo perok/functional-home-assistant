@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.history.Windows
 import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
@@ -10,14 +11,14 @@ import fh.view.model.{
   NodeId,
   FetchTemplate,
   Reads,
-  Ref as SlotRef,
+  Choice,
   Region,
   SlotRead,
   SlotSource,
   Surface,
   Transform
 }
-import fh.view.fetch.{FetchSnapshot, Staged}
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.declared
 
@@ -41,13 +42,7 @@ class PullReadsSuite extends munit.FunSuite {
       Map(
         "chart" -> SlotSource(
           fetch = Some(
-            FetchTemplate(
-              "history",
-              Map(
-                "entity" -> SlotRef.Literal(entity),
-                "window" -> SlotRef.Literal("24h")
-              )
-            )
+            FetchTemplate(entity, Choice.Fixed(Windows.day))
           ),
           transform = Transform.Stage.Chart(),
           reads = Reads.OnRender
@@ -116,7 +111,9 @@ class PullReadsSuite extends munit.FunSuite {
         open
       )
       reads <- seen.get
-    } yield reads.map(_.fetch.params("entity")).toSet).unsafeRunSync()
+    } yield reads.map { case SlotRead(FetchRequest.History(e, _, _), _) =>
+      e
+    }.toSet).unsafeRunSync()
   }
 
   test("a pull that moves only a plain card asks for nothing") {

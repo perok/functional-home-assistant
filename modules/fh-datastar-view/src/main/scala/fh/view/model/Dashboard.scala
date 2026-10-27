@@ -1,7 +1,10 @@
 package fh.view.model
 
 import api.homeassistant.ServiceTarget
-import fh.view.fetch.{Fetches, FetchRequest}
+import cats.syntax.all.*
+import fh.view.FHError
+import fh.view.fetch.FetchRequest
+import fh.view.history.Window
 import fh.view.runtime.Cel
 import io.circe.{Decoder, DecodingFailure, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
@@ -183,7 +186,7 @@ enum ExprValue derives CanEqual:
     case _: Whole | _: Count => ExprValue.Kind.Int
     case _: Real             => ExprValue.Kind.Dbl
     case _: Flag | _: Holds  => ExprValue.Kind.Bool
-    // `history` is the one provider (`Fetches.parse`).
+    // `history` is the one provider (`FetchTemplate`).
     case _: Fetched => ExprValue.Kind.Series
 
   /** Live: what it answers moves, so a once-read cannot hold it. */
@@ -216,14 +219,7 @@ object ExprValue:
     case Flag(b)    => s"b:$b"
     case Count(t)   => s"t:${Predicate.tallyKey(t)}"
     case Holds(p)   => s"p:${Predicate.key(p)}"
-    case Fetched(f) =>
-      s"f:${f.provider}(" + f.params.toList
-        .sortBy(_._1)
-        .map {
-          case (k, Ref.Literal(v)) => s"$k=$v"
-          case (k, Ref.Var(n))     => s"$k=$$$n"
-        }
-        .mkString(",") + ")"
+    case Fetched(f) => s"f:${f.key}"
 
   given Decoder[ExprValue] = Decoder.instance { c =>
     c.value.fold(
@@ -250,45 +246,90 @@ object ExprValue:
     )
   }
 
-/** Untyped params, so the model knows no provider (`Fetches.parse` types them).
+/** A value written down, or picked by a node variable from a table the build
+  * checked whole (issue #209). A variable's value lives in a URL and a signal,
+  * so it is a key rather than the value: a key the table lacks is refused at
+  * the write ([[fh.view.runtime.Renderer.refusals]]), never defaulted.
   */
-case class SlotFetch(provider: String, params: Map[String, String])
-    derives CanEqual
+enum Choice[+A] derives CanEqual:
+  case Fixed(value: A)
+  case Chosen(by: String, options: Map[String, A])
 
-/** A literal, or a node variable from this node or an ancestor (issue #209),
-  * bounded at the write ([[fh.view.runtime.Renderer.refusals]]).
-  */
-enum Ref derives CanEqual:
-  case Literal(value: String)
-  case Var(name: String)
+  def variable: Option[String] = this match
+    case Fixed(_)      => None
+    case Chosen(by, _) => Some(by)
 
-object Ref:
+  def all: List[A] = this match
+    case Fixed(a)           => List(a)
+    case Chosen(_, options) => options.values.toList
 
-  /** A bare string is a literal, `{"var": …}` a reference. */
-  given Decoder[Ref] =
-    Decoder[String]
-      .map[Ref](Ref.Literal.apply)
-      .or(Decoder.instance(_.get[String]("var").map(Ref.Var.apply)))
+  def resolve(env: Map[String, String]): Either[String, A] = this match
+    case Fixed(a)            => Right(a)
+    case Chosen(by, options) =>
+      val value = env.getOrElse(by, "")
+      options
+        .get(value)
+        .toRight(
+          s"'$value' is not one of ${options.keys.toList.sorted.mkString(", ")}"
+        )
 
-/** A fetch as authored; [[SlotFetch]] is the resolved form. */
-case class FetchTemplate(provider: String, params: Map[String, Ref])
-    derives CanEqual,
-      ConfiguredDecoder:
+  def key(of: A => String): String = this match
+    case Fixed(a)            => of(a)
+    case Chosen(by, options) =>
+      s"$$$by{" + options.toList
+        .sortBy(_._1)
+        .map((k, a) => s"${k.length}:$k=${of(a)}")
+        .mkString(";") + "}"
 
-  def references: List[String] = params.values.toList.collect {
-    case Ref.Var(n) => n
+object Choice:
+
+  /** `{"kind": "Chosen", "by": {"var": …}, "options": {…}}`, else the value. */
+  given [A: Decoder]: Decoder[Choice[A]] = Decoder.instance { c =>
+    c.get[String]("kind") match
+      case Right("Chosen") =>
+        (c.downField("by").get[String]("var"), c.get[Map[String, A]]("options"))
+          .mapN(Chosen(_, _))
+      case _ => c.as[A].map(Fixed(_))
   }
 
-  def resolve(env: Map[String, String]): SlotFetch =
-    SlotFetch(
-      provider,
-      params.view.mapValues {
-        case Ref.Literal(v) => v
-        // Unresolved only if validation was bypassed; the name then fails the
-        // provider's parse rather than passing as empty.
-        case Ref.Var(n) => env.getOrElse(n, n)
-      }.toMap
-    )
+/** A history fetch as authored, its window written down or chosen. `history` is
+  * the one provider; a second makes this a sum, as [[FetchRequest]] is.
+  */
+case class FetchTemplate(
+    entity: String,
+    window: Choice[Window],
+    everyPoint: Boolean = false
+) derives CanEqual:
+
+  def references: List[String] = window.variable.toList
+
+  def resolve(env: Map[String, String]): Either[String, FetchRequest] =
+    window.resolve(env).map(FetchRequest.History(entity, _, everyPoint))
+
+  def key: String =
+    s"${FetchTemplate.Provider}($entity,${window.key(_.key)},$everyPoint)"
+
+object FetchTemplate:
+
+  val Provider: String = "history"
+
+  given Decoder[FetchTemplate] = Decoder.instance { c =>
+    c.get[String]("provider").flatMap {
+      case Provider =>
+        (
+          c.get[String]("entity"),
+          c.get[Choice[Window]]("window"),
+          c.getOrElse[Boolean]("everyPoint")(false)
+        ).mapN(FetchTemplate(_, _, _))
+      case other =>
+        Left(
+          DecodingFailure(
+            s"unknown fetch provider '$other' — one of $Provider",
+            c.history
+          )
+        )
+    }
+  }
 
 /** Decided once from the wire form, which keeps one `SlotSource` so snapshots
   * do not churn. The match makes a `live`, `once` or signal fetch unreachable.
@@ -301,8 +342,19 @@ enum SlotShape derives CanEqual:
 case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
     derives CanEqual:
 
+  /** `validate` proved the declared values resolve, and the write refuses a
+    * chosen one that does not, so a `Left` here is a bug.
+    */
   def resolve(env: Map[String, String]): SlotRead =
-    SlotRead(fetch.resolve(env), stage)
+    SlotRead(
+      fetch
+        .resolve(env)
+        .fold(
+          e => throw FHError.internal(s"${fetch.key} reached a render: $e"),
+          identity
+        ),
+      stage
+    )
 
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
@@ -314,7 +366,8 @@ object Fetching:
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
-case class SlotRead(fetch: SlotFetch, stage: Transform.Stage) derives CanEqual
+case class SlotRead(fetch: FetchRequest, stage: Transform.Stage)
+    derives CanEqual
 
 /** When a slot is read, and whether that is a reason to re-render:
   *
@@ -1219,8 +1272,9 @@ case class Dashboard(
           }.flatten
       }
 
-    /** A fetch's references are declared above it, and it parses at their
-      * declared values; a viewer's value is checked at the write.
+    /** A fetch's references are declared above it, its declared values pick an
+      * option, and every option it could pick is a window HA answers; a
+      * viewer's value is checked at the write.
       */
     def askErrors(
         nodeId: String,
@@ -1237,12 +1291,17 @@ case class Dashboard(
         )
       if (refErrors.nonEmpty) refErrors
       else
-        Fetches
-          .parse(template.resolve(scope))
+        (template
+          .resolve(scope)
           .left
           .toOption
-          .map(e => s"$nodeId: slot '$name' $e")
-          .toList
+          .map(e =>
+            s"$nodeId: slot '$name' reads the variable " +
+              s"'${template.references.mkString}' at its declared value: $e"
+          ) ++ template.window.all
+          .flatMap(_.problem)
+          .distinct
+          .map(p => s"$nodeId: slot '$name' $p")).toList
 
     /** Otherwise a bad fetch renders blank forever with nothing saying why. */
     def fetchErrors(
@@ -2172,15 +2231,6 @@ case class Dashboard(
       .flatMap(varScopes.get)
       .fold(Map.empty)(_.view.mapValues(_.declaration.default).toMap)
 
-  /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
-    * act on it.
-    */
-  lazy val fetchedEntities: Set[String] =
-    allFetches
-      .flatMap(r => Fetches.parse(r.fetch).toOption)
-      .flatMap(_.entities)
-      .toSet
-
   /** At declared values. A clause that will not match still contributes: the
     * snapshot is resolved before the walk decides.
     */
@@ -2237,12 +2287,8 @@ case class Dashboard(
   ): Either[List[String], Dashboard.Validated] =
     errors(locateTransform) match
       case Nil =>
-        Right(Dashboard.Validated(this, compileTransforms, parseFetches))
+        Right(Dashboard.Validated(this, compileTransforms))
       case errs => Left(errs)
-
-  // Only after `validate` proved each parses, so a `Left` cannot occur.
-  private def parseFetches: Map[SlotRead, FetchRequest] =
-    allFetches.flatMap(r => Fetches.parse(r.fetch).toOption.map(r -> _)).toMap
 
   // Only after `validate` proved each compiles, so a `Left` cannot occur.
   private def compileTransforms: Map[Transform.CelKey, Transform.Compiled] =
@@ -2349,7 +2395,6 @@ object Dashboard:
   case class Validated private[model] (
       dashboard: Dashboard,
       transforms: Map[Transform.CelKey, Transform.Compiled],
-      fetches: Map[SlotRead, FetchRequest] = Map.empty,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.
       access: Access = Access.default
