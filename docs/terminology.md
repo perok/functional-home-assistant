@@ -420,7 +420,7 @@ baselines behind their own gate.
 Separate from the log/cursor vocabulary above, which is also about "history" in the sense of what a
 session has already been sent. Nothing here interacts with **horizon**, **floor** or **position**.
 
-**Series** — a numeric line ready to draw: points in time order, already downsampled, carrying no
+**Series** — a numeric line: every point a provider answered, in time order (the chart stage thins it to draw), carrying no
 unit and no name (those belong to the entity's live state, and a copy here could disagree with the
 card beside it).
 

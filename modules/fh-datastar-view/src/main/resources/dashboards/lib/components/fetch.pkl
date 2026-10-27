@@ -20,12 +20,12 @@ import "window.pkl" as windowMod
 /// One sensor's recorded readings over a window, read in CEL as its points:
 /// `list(list(double))` of `[epochMillis, value]`, oldest first. Every
 /// reading, not a chart's ~300: thinning can drop the one a computation wants,
-/// such as where a countdown started. Over a statistics window, every bucket.
+/// such as where a countdown started. Over a statistics window, every bucket:
+/// a chart's thinning is its drawing's, never the answer's.
 class History extends historyMod.HistoryFetch {
   hidden sensor: hass.SensorEntity
   entity = sensor.entity_id
   window = windowMod.raw(24.h)
-  everyPoint = true
 
   function over(w: windowMod.Window|windowMod.Chosen): History =
     let (self = this) (self) { window = w }

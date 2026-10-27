@@ -70,7 +70,7 @@ object Staged {
   * module.
   */
 enum FetchRequest derives CanEqual {
-  case History(entityId: String, window: Window, everyPoint: Boolean = false)
+  case History(entityId: String, window: Window)
 }
 
 /** Answers fetches and runs stages. Two methods because they dedupe at
@@ -91,8 +91,8 @@ final class FetchResolver private (
 
   def answer(identity: FetchIdentity, request: FetchRequest): IO[Answer] =
     request match {
-      case FetchRequest.History(entityId, window, everyPoint) =>
-        history.answer(identity, entityId, window, everyPoint)
+      case FetchRequest.History(entityId, window) =>
+        history.answer(identity, entityId, window)
     }
 
   def stage(

@@ -16,19 +16,18 @@ final case class SeriesKey(
     identity: FetchIdentity,
     entityId: String,
     window: Window,
-    bucket: Instant,
-    everyPoint: Boolean = false
+    bucket: Instant
 ) {
   def expiresAt: Instant = bucket.plusSeconds(window.bucket.toSeconds)
 }
 
 /** The `history` provider: one entity's readings over one window, fetched once
-  * per bucket and shared by everyone who asks, answered as DATA.
+  * per bucket and shared by everyone who asks, answered as DATA — every row of
+  * a raw read, every bucket of a statistics one. Thinning is the chart stage's.
   */
 final class History private (
     source: SeriesSource,
     cache: SharedCache[SeriesKey, Answer],
-    target: Int,
     now: IO[Instant]
 ) {
 
@@ -40,10 +39,9 @@ final class History private (
   def answer(
       identity: FetchIdentity,
       entityId: String,
-      window: Window,
-      everyPoint: Boolean = false
+      window: Window
   ): IO[Answer] =
-    now.flatMap(answerAt(identity, entityId, window, _, everyPoint))
+    now.flatMap(answerAt(identity, entityId, window, _))
 
   // Encoded once, on the fetch: re-encoding per ask was 5 µs a read, all of a
   // warm chart pull's cost over a plain one (`FetchBench.pullChart`).
@@ -51,12 +49,11 @@ final class History private (
       identity: FetchIdentity,
       entityId: String,
       window: Window,
-      asOf: Instant,
-      everyPoint: Boolean = false
+      asOf: Instant
   ): IO[Answer] = {
     val bucket = window.bucketOf(asOf)
-    cache.get(SeriesKey(identity, entityId, window, bucket, everyPoint))(
-      fetch(entityId, window, asOf, everyPoint)
+    cache.get(SeriesKey(identity, entityId, window, bucket))(
+      fetch(entityId, window, asOf)
         .map(s => Answer(bucket.getEpochSecond, s.asJson))
     )
   }
@@ -72,16 +69,10 @@ final class History private (
 
   private[history] def keys: IO[Set[SeriesKey]] = cache.keys
 
-  /** Every point is every row of a raw read and every bucket of a statistics
-    * one. The newest bucket ends minutes before now, and `heldUntil` carries it
+  /** The newest bucket ends minutes before now, and `heldUntil` carries it
     * there, as HA's own chart does.
     */
-  private def fetch(
-      entityId: String,
-      window: Window,
-      asOf: Instant,
-      everyPoint: Boolean
-  ) = {
+  private def fetch(entityId: String, window: Window, asOf: Instant) = {
     val start = window.startAt(asOf)
     val raw = source.raw(start, asOf, entityId).map(Series.fromHistory)
     (window match {
@@ -92,10 +83,7 @@ final class History private (
           .map(Series.fromStatistics)
           .flatMap(s => if (s.isEmpty && fallback) raw else IO.pure(s))
     })
-      .map(s =>
-        if (everyPoint) s.heldUntil(asOf)
-        else s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))
-      )
+      .map(_.heldUntil(asOf))
   }
 }
 
@@ -103,7 +91,6 @@ object History {
 
   def create(
       source: SeriesSource,
-      target: Int = Downsample.DefaultTarget,
       failureTtl: FiniteDuration = SharedCache.FailureTtl,
       onFailure: SharedCache.OnFailure[SeriesKey] = SharedCache.ignore,
       now: IO[Instant] = IO.realTimeInstant
@@ -117,5 +104,5 @@ object History {
         failureTtl,
         onFailure
       )
-      .map(new History(source, _, target, now))
+      .map(new History(source, _, now))
 }

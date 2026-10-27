@@ -168,7 +168,6 @@
                                                   "bypassUnavailable" : true,
                                                   "fetch" : {
                                                     "entity" : "sensor.outside_temp",
-                                                    "everyPoint" : false,
                                                     "provider" : "history",
                                                     "window" : {
                                                       "by" : {
@@ -606,7 +605,6 @@
                                                   "bypassUnavailable" : true,
                                                   "fetch" : {
                                                     "entity" : "sensor.outside_temp",
-                                                    "everyPoint" : false,
                                                     "provider" : "history",
                                                     "window" : {
                                                       "by" : {

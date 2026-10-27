@@ -22,8 +22,6 @@ open class HistoryFetch extends slotMod.Fetch {
   provider = "history"
   entity: String
   window: windowMod.Window|windowMod.Chosen
-  /// Every row, or every bucket, rather than a chart's ~300 points.
-  everyPoint: Boolean = false
 }
 
 const function historyFetch(

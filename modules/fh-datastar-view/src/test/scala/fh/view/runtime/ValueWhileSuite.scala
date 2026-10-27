@@ -146,7 +146,7 @@ class ValueWhileSuite extends munit.FunSuite {
           "light.b" -> EntityState("light.b", b, Map.empty)
         ),
         Map.empty
-      ).map { case SlotRead(FetchRequest.History(e, _, _), _) => e }
+      ).map { case SlotRead(FetchRequest.History(e, _), _) => e }
     assertEquals(asked("on", "off"), List("sensor.a_on"))
     assertEquals(asked("off", "on"), List("sensor.a_off", "sensor.b_on"))
   }

@@ -4,8 +4,8 @@ import com.ggalmazor.downsampling.{Downsampling, Point as LtPoint}
 
 import scala.jdk.CollectionConverters.*
 
-/** LTTB, applied before the series is cached and handed to the chart, so a
-  * render never carries thousands of points into the JavaScript isolate.
+/** LTTB, applied by the chart stage, so a drawing never carries thousands of
+  * points into the JavaScript isolate while the provider's answer keeps them.
   */
 object Downsample {
 

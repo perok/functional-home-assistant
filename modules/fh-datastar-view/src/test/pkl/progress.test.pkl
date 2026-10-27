@@ -89,7 +89,6 @@ facts {
     local past = whole.values["past"] as fetchMod.History
     past.entity == "sensor.rem"
     past.window == c.window.raw(24.h)
-    past.everyPoint
     // A countdown on no device gets the same bar.
     (barOf(c.progress(left)).slots["of"] as slotMod.Slot).values.toMap() == Map("past", c.fetch.history(left))
   }
@@ -99,7 +98,6 @@ facts {
     local week = c.fetch.history(left).over(c.window.raw(7.d))
     week.entity == "sensor.rem"
     week.window == c.window.raw(7.d)
-    week.everyPoint
     week.provider == "history"
     // Without inputs a slot's wire is what it always was.
     (new slotMod.Slot { transform = "state" }).values == null

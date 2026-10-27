@@ -6,8 +6,8 @@ import io.circe.{Codec, Decoder, Encoder}
 import java.time.Instant
 import scala.jdk.CollectionConverters.*
 
-/** A numeric series: ascending in time, and downsampled for drawing unless
-  * every point was asked for (`everyPoint`).
+/** A numeric series: ascending in time, every point the provider answered; the
+  * chart stage thins it for drawing.
   *
   * No unit or name: those come from the entity's live state, and a copy here
   * could disagree with the card beside it.

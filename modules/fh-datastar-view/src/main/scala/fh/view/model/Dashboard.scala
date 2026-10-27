@@ -295,19 +295,16 @@ object Choice:
 /** A history fetch as authored, its window written down or chosen. `history` is
   * the one provider; a second makes this a sum, as [[FetchRequest]] is.
   */
-case class FetchTemplate(
-    entity: String,
-    window: Choice[Window],
-    everyPoint: Boolean = false
-) derives CanEqual:
+case class FetchTemplate(entity: String, window: Choice[Window])
+    derives CanEqual:
 
   def references: List[String] = window.variable.toList
 
   def resolve(env: Map[String, String]): Either[String, FetchRequest] =
-    window.resolve(env).map(FetchRequest.History(entity, _, everyPoint))
+    window.resolve(env).map(FetchRequest.History(entity, _))
 
   def key: String =
-    s"${FetchTemplate.Provider}($entity,${window.key(_.key)},$everyPoint)"
+    s"${FetchTemplate.Provider}($entity,${window.key(_.key)})"
 
 object FetchTemplate:
 
@@ -316,11 +313,8 @@ object FetchTemplate:
   given Decoder[FetchTemplate] = Decoder.instance { c =>
     c.get[String]("provider").flatMap {
       case Provider =>
-        (
-          c.get[String]("entity"),
-          c.get[Choice[Window]]("window"),
-          c.getOrElse[Boolean]("everyPoint")(false)
-        ).mapN(FetchTemplate(_, _, _))
+        (c.get[String]("entity"), c.get[Choice[Window]]("window"))
+          .mapN(FetchTemplate(_, _))
       case other =>
         Left(
           DecodingFailure(

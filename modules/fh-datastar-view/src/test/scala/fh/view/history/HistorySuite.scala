@@ -80,23 +80,21 @@ class HistorySuite extends munit.CatsEffectSuite {
     ) = h.series(identity, e, w, asOf)
 
   test("a window reads what it says, and only that") {
-    def made(w: Window, everyPoint: Boolean = false) =
+    def made(w: Window) =
       for {
         src <- source(statRows = hourlyStats(ago(30.days)))
         h <- History.create(src)
-        _ <- h.answerAt(FetchIdentity.Instance, entity, w, now, everyPoint)
+        _ <- h.answerAt(FetchIdentity.Instance, entity, w, now)
         calls <- src.calls.get
       } yield calls
     for {
       hour <- made(Windows.hour)
       day <- made(Windows.day)
       week <- made(Windows.week)
-      every <- made(Windows.week, everyPoint = true)
     } yield {
       assertEquals(hour, Vector("raw"))
       assertEquals(day, Vector("statistics:5minute"))
       assertEquals(week, Vector("statistics:hour"))
-      assertEquals(every, Vector("statistics:hour"))
     }
   }
 
@@ -148,18 +146,12 @@ class HistorySuite extends munit.CatsEffectSuite {
     )
   }
 
-  test("every point of a statistics read is every bucket, none thinned") {
+  test("the answer is every bucket of a statistics read, none thinned") {
     for {
       src <- source(statRows = hourlyStats(ago(30.days)))
-      h <- History.create(src, target = 100)
-      thinned <- h.ask(Windows.month)
-      every <- h
-        .answerAt(FetchIdentity.Instance, entity, Windows.month, now, true)
-        .flatMap(_.data.as[Series].liftTo[IO])
-    } yield {
-      assertEquals(thinned.points.length, 100)
-      assertEquals(every.points.length, 30 * 24)
-    }
+      h <- History.create(src)
+      s <- h.ask(Windows.month)
+    } yield assertEquals(s.points.length, 30 * 24)
   }
 
   test(
@@ -172,12 +164,16 @@ class HistorySuite extends munit.CatsEffectSuite {
     assertEquals(Window.Raw(604800L).bucket, 14.minutes)
   }
 
-  test("the result is downsampled before anyone sees it") {
-    for {
-      src <- source((_, s) => IO.pure(rowsFrom(ago(30.days))(s)))
-      h <- History.create(src, target = 100)
-      s <- h.ask(Windows.month)
-    } yield assertEquals(s.points.length, 100)
+  test("the chart stage thins what it draws; the answer keeps every point") {
+    // How many points a drawing needs is the drawing's, so a chart and a
+    // computation over one window share one fetch.
+    val every = Series(
+      Vector.tabulate(5000)(i => Series.Point(now.plusSeconds(i.toLong), 1.0))
+    )
+    val counted: ChartDraw = (s, _) => IO.pure(s.points.length.toString)
+    ChartStage
+      .draw(IO.pure(counted), ChartStyle(), every.asJson)
+      .map(drawn => assertEquals(drawn, Downsample.DefaultTarget.toString))
   }
 
   test("ten viewers in one bucket cost one fetch and share a version") {
@@ -319,21 +315,13 @@ class HistorySuite extends munit.CatsEffectSuite {
     assertEquals(Windows.presets.values.flatMap(_.problem).toList, Nil)
   }
 
-  test("every point is its own cache entry, and nothing is thinned out") {
+  test("a raw answer keeps every row, which a computation wants") {
     // A countdown's start is one row: thinned to ~300, a day of minute rows
     // kept 100 of a job that started at 101.
     for {
       src <- source((_, s) => IO.pure(rowsFrom(ago(1.day))(s)))
-      h <- History.create(src, target = 100)
-      thinned <- h.ask(Windows.day)
-      every <- h
-        .answerAt(FetchIdentity.Instance, entity, Windows.day, now, true)
-        .flatMap(_.data.as[Series].liftTo[IO])
-      count <- src.fetches
-    } yield {
-      assertEquals(thinned.points.length, 100)
-      assert(every.points.length > 1000, clue = every.points.length)
-      assertEquals(count, 2)
-    }
+      h <- History.create(src)
+      every <- h.ask(Window.Raw(86400L))
+    } yield assertEquals(every.points.length, 24 * 60 + 1)
   }
 }

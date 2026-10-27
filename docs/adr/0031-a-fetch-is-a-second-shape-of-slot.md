@@ -72,7 +72,7 @@ The division was already written down without the types being able to act on it:
 `window` are the question; the rest is how it is drawn.*
 
 So: `FetchResolver.answer` returns `Answer(version, json)`, `FetchRequest.History` is
-`(entityId, window, everyPoint)`, and `width`/`height`/`unit` moved to the slot's `transform`.
+`(entityId, window)`, and `width`/`height`/`unit` moved to the slot's `transform`.
 
 ### Why the same field, and not a new one
 
@@ -133,9 +133,11 @@ with one, its answer read as data. One fetch, one provider and one cache serve b
 is a `SlotAsk` with the passthrough stage, counted among the node's fetches, so the pre-read and
 the render key need nothing new.
 
-History answers a computation every reading (`everyPoint`), a chart about 300: thinning keeps
-the shape of a line and drops the single reading a computation wants. A day of minute rows thinned
-to 300 kept 100 where a countdown started at 101.
+History answers every reading, and the chart stage thins to about 300 before it draws. Thinning
+keeps the shape of a line and drops the single reading a computation wants (a day of minute rows
+thinned to 300 kept 100 where a countdown started at 101), and how many points a drawing needs is
+the drawing's: so a chart and a computation over one window are one fetch. Thinning that is
+cached at the provider, for a data card's payload, would be a stage of its own when one needs it.
 
 ## Decision 4 — what history reads is the author's, typed on the wire
 
@@ -156,8 +158,8 @@ any span, and statistics at `5minute` up to `year`.
 - **The bucket is derived, not a knob:** the period for statistics, and a 720th of the span (at
   least a minute) for raw rows, which gives the presets 1 min, 5 min, 1 h and 1 h. Cache entries
   are the distinct windows on screen, and only an author adds one.
-- **Typed on the wire, decoded straight into the request.** The fetch's `entity`, `window` and
-  `everyPoint` are fields, decoded by circe into `FetchTemplate`, as the fast expressions decode
+- **Typed on the wire, decoded straight into the request.** The fetch's `entity` and `window` are
+  fields, decoded by circe into `FetchTemplate`, as the fast expressions decode
   (ADR 0028 point 3). The string `params` map parsed by its provider afterwards was dropped: a
   window would have needed a string grammar (`"7d@hour"`) parsed back out again.
 - **A node variable picks a window by key.** A variable lives in a URL and a signal, so it holds a
@@ -218,7 +220,7 @@ any span, and statistics at `5minute` up to `year`.
   ```
 
   A predicate rather than a list of questions, so history needs no idea who is watching: at a
-  window's bucket boundary it emits `{ case (_, History(_, w, _)) => w == rolled }`, and a node
+  window's bucket boundary it emits `{ case (_, History(_, w)) => w == rolled }`, and a node
   nobody can see costs nothing, since a pull renders only what its session can see. It fires AFTER the
   answer has moved — for history, at the boundary by the clock `answer` reads — for the same reason
   the state doorbell rings after the log is written. A static provider's stream is empty. The wake

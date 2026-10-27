@@ -111,7 +111,7 @@ class PullReadsSuite extends munit.FunSuite {
         open
       )
       reads <- seen.get
-    } yield reads.map { case SlotRead(FetchRequest.History(e, _, _), _) =>
+    } yield reads.map { case SlotRead(FetchRequest.History(e, _), _) =>
       e
     }.toSet).unsafeRunSync()
   }

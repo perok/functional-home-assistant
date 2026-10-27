@@ -58,8 +58,12 @@ c.fetch.history(e).over(c.window.raw(7.d))                         // every read
 - **No raw tail.** The newest bucket ends minutes before now (1–5 minutes at `5minute`, up to an
   hour at `hour`), and `heldUntil` carries its value to now. HA's own more-info chart does the
   same: statistics only, no tail (`ha-more-info-history.ts`). The 2e628b66 tail goes.
-- **Every point** (`c.fetch.history`'s answer) is every row of a raw read, and every bucket of a
-  statistics read. Nothing is thinned.
+- **The answer is every point:** every row of a raw read, every bucket of a statistics read. The
+  chart stage thins to ~300 before drawing (ADR 0031: how many points a drawing needs is the
+  drawing's), so a chart and a computation over one window are one fetch, and `everyPoint` is
+  gone from the question, the wire and the cache key. Cost: the cache holds whole answers, and a
+  data card gets every point; with statistics that is at most 720. Thinning cached at the provider
+  would be a designed API of its own, later, if a case needs it.
 - **The defaults:** a window has no default fallback. `c.fetch.history(e)` keeps 24 hours, now
   `c.window.raw(24.h)`. `c.historyChart(e)` defaults to more-info's `24h` preset.
 - **The span is a Pkl `Duration`**, sent as whole seconds. `period` is a string-literal union.
@@ -72,7 +76,7 @@ decodes them into `FetchRequest.History`, as the fast expressions decode into `T
 (ADR 0028 point 3). Nothing is parsed after the decode.
 
 ```json
-{"provider": "history", "entity": "sensor.p", "everyPoint": false,
+{"provider": "history", "entity": "sensor.p",
  "window": {"kind": "Statistics", "span": 604800, "period": "hour", "fallback": false}}
 ```
 
@@ -148,6 +152,24 @@ a viewer can't add variants.
   HA's more-info chart draws `min`/`max` as a band for this. Not part of this change.
 - **A bucket may roll just before HA writes its newest statistic**, which leaves that bucket out
   for one more period.
+
+## Open: where the history API lives (2026-10-27)
+
+Being discussed, not built; the code still has `c.window`, `c.fetch.history`, `c.historyChart`.
+
+- "Window" is a bad namespace name: in a house it means a real window (`binary_sensor.vindu`).
+- Providers are a tier of their own, for component authors (ADR 0015's audiences):
+  `providers.pkl` + `providers/history.pkl`, holding the question, its windows and the presets. The
+  core still names no provider (ADR 0031). `c.fetch` and `components/window.pkl` go.
+- The expression value is the same query as a chart's fetch, so there is one call: one
+  `HistoryFetch`, taking the sensor, with its window required. Whether `fetch.pkl`'s `History`
+  subclass (its 24-hour default) survives is open.
+- A dashboard author picks a chart's window by (c) importing `providers.pkl`, or (d) a function
+  `.over((providers) -> providers.history.statistics(7.d, "hour"))`. Both evaluate (spiked with
+  the Pkl CLI 0.32.1), and a function returning the wrong type is a clear type error. **pkl-lsp
+  0.8.0 offers no completion inside d's function** (0 items after `providers.`); it does with
+  the parameter annotated, which needs the import, so d gains nothing in the editor over c.
+- Whether `c.historyReadings` (the passthrough example card) stays.
 
 ## For later: `history/stream`
 
