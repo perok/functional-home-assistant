@@ -34,7 +34,6 @@ class Banner extends nodes.Node {
     template = """
       <div class="banner">{{message}}</div>
       """
-    slots { "message" }
   }
   hidden text: String
   slots {
@@ -49,9 +48,16 @@ Three things are going on:
 
 - `card = "banner"` is the name. It has to be unique across every component
   module the dashboard loads.
-- `cardDef` is the shared half: the HTML and the list of slot names it uses.
+- `cardDef` is the shared half: the HTML, shared by every banner.
 - `slots { ["message"] = text }` is the per-copy half: what this particular
   banner says.
+
+The build holds the two halves to each other. A name written outside every
+`{{#…}}` section, like `{{message}}` here, must be a slot the banner sets;
+inside a section it may be left out, so wrap anything optional:
+`{{#unit}} {{unit}}{{/unit}}` shows the unit only when there is one. And every
+slot you set must be named somewhere in the template, so a misspelt
+`{{#mesage}}` fails the build instead of showing nothing.
 
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
@@ -121,6 +127,11 @@ transform = "state + ' °C'"
 transform = "attr['friendly_name']"
 transform = "state == 'on' ? 'Running' : 'Idle'"
 ```
+
+It is checked when the dashboard is built, names and types both, so
+`state + 1` fails there rather than on the page. What it gives back must be
+something a card can show: text, a number or a true/false. A list or a map
+fails the build; `str(…)` turns one into text.
 
 ### How often should it be read?
 

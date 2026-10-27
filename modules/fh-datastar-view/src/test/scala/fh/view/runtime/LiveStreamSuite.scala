@@ -97,7 +97,7 @@ class LiveStreamSuite extends ServerHarness {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "card" -> CardDef("<span>{{state}}</span>"),
       "ifhost" -> CardDef(
         template =
           """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
@@ -154,7 +154,7 @@ class LiveStreamSuite extends ServerHarness {
         template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
           """<div>bar</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
@@ -193,7 +193,7 @@ class LiveStreamSuite extends ServerHarness {
           template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
           regions = Map("children" -> Region())
         ),
-        "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+        "card" -> CardDef("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component("col"),
       surfaces = Map(
@@ -529,13 +529,13 @@ class LiveStreamSuite extends ServerHarness {
         template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
           """<div class="active-{{bakeIndex}}">{{#bar}}{{{html}}}{{/bar}}</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       ),
-      "bar" -> CardDef("""<div>{{title}}</div>""", slots = List("title"))
+      "bar" -> CardDef("""<div>{{title}}</div>""")
     ),
     card = LayoutNode.Component(
       "col",
@@ -746,7 +746,7 @@ class LiveStreamSuite extends ServerHarness {
           "<div>{{#children}}{{{html}}}{{/children}}</div>",
           regions = Map("children" -> Region())
         ),
-        "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+        "card" -> CardDef("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component(
         "col",

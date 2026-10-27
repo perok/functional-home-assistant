@@ -190,6 +190,101 @@ object Templates {
 
   private val compileCounter = new java.util.concurrent.atomic.AtomicLong
 
+  /** What a template reads, off its code tree.
+    *
+    * @param names
+    *   every name read outside a region's section, `{{x}}` and `{{#x}}` alike;
+    *   a slot's value is a string, so inside an ordinary section a name is
+    *   still the node's
+    * @param required
+    *   the `{{x}}`/`{{{x}}}` outside every section, which a node must set
+    * @param regionBodies
+    *   each declared region's section, and whether its body is exactly
+    *   `{{{html}}}`; inside it `html` is the region's, so it is not descended
+    * @param strayHtml
+    *   the sections placing `{{{html}}}` outside a declared region, `""` for
+    *   the top level
+    */
+  final case class Reads(
+      names: Set[String],
+      required: Set[String],
+      regionBodies: Map[String, Boolean],
+      strayHtml: Set[String]
+  )
+
+  /** A fresh plain factory: what is read does not depend on the render seams,
+    * and nothing is cached.
+    */
+  def reads(template: String, regions: Set[String]): Either[String, Reads] =
+    try
+      val tpl = new DefaultMustacheFactory()
+        .compile(stringReader(template), "template")
+      Right(
+        readCodes(
+          tpl.getCodes(),
+          regions,
+          Nil,
+          Reads(Set.empty, Set.empty, Map.empty, Set.empty)
+        )
+      )
+    catch
+      case e: com.github.mustachejava.MustacheException =>
+        Left(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+
+  private def readCodes(
+      codes: Array[com.github.mustachejava.Code],
+      regions: Set[String],
+      guards: List[String],
+      acc: Reads
+  ): Reads =
+    import com.github.mustachejava.codes.{
+      IterableCode,
+      NotIterableCode,
+      ValueCode
+    }
+    if codes == null then acc
+    else
+      codes.foldLeft(acc) { (acc, code) =>
+        code match
+          case r: IterableCode
+              if regions.contains(r.getName) && !r
+                .isInstanceOf[NotIterableCode] =>
+            val body = r.getCodes()
+            val exact = body != null && body.length == 1 && {
+              val sw = new java.io.StringWriter()
+              body(0).identity(sw)
+              sw.toString == "{{{html}}}"
+            }
+            acc.copy(regionBodies =
+              acc.regionBodies.updatedWith(r.getName)(was =>
+                Some(was.forall(identity) && exact)
+              )
+            )
+          case s: IterableCode =>
+            readCodes(
+              s.getCodes(),
+              regions,
+              s.getName :: guards,
+              acc.copy(names = acc.names ++ nameOf(s.getName))
+            )
+          case v: ValueCode if v.getName == "html" =>
+            acc.copy(strayHtml =
+              acc.strayHtml + guards.headOption.getOrElse("")
+            )
+          case v: ValueCode =>
+            val n = nameOf(v.getName)
+            acc.copy(
+              names = acc.names ++ n,
+              required =
+                if guards.isEmpty then acc.required ++ n else acc.required
+            )
+          case other => readCodes(other.getCodes(), regions, guards, acc)
+      }
+
+  // `{{a.b}}` reads `a`; `{{.}}` is the section's own value.
+  private def nameOf(tag: String): Option[String] =
+    Option(tag.takeWhile(_ != '.')).filter(_.nonEmpty)
+
   private def collectInline(
       codes: Array[com.github.mustachejava.Code],
       acc: Set[String]

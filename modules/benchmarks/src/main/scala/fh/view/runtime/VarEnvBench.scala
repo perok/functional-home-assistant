@@ -105,7 +105,7 @@ object VarEnvBench {
 
   def dashboard: Dashboard = Dashboard(
     cards = RenderBench.cards ++ Map(
-      "chart" -> CardDef("<div>{{chart}}</div>", slots = List("chart"))
+      "chart" -> CardDef("<div>{{chart}}</div>")
     ),
     card = LayoutNode.Component(
       "col",

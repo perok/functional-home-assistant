@@ -220,7 +220,6 @@ class SelectDropdown extends Select {
   cardDef = new nodes.CardDef {
     regions = optionsRegion
     template = menuTemplate(#"<span \#(slotMod.signalBind("chosen"))>{{chosen}}</span>"#)
-    slots { "chosen" }
     css = menuCss
   }
   hidden target: hass.Options
@@ -292,7 +291,6 @@ class ChoiceLabel extends nodes.Node {
   card = "selectChoice"
   cardDef = new nodes.CardDef {
     template = #"{{#glyph}}<i class="{{glyph}}" title="{{label}}"></i>{{/glyph}}{{^glyph}}<span>{{label}}</span>{{/glyph}}"#
-    slots { "label" }
   }
   hidden label: String
   hidden icon: String? = null
@@ -310,7 +308,6 @@ class EntityOption extends nodes.ActiveNode {
   card = "selectEntityOption"
   cardDef = new nodes.CardDef {
     template = #"<a class="fh-select-opt" title="{{label}}" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>{{#glyph}}<i class="{{glyph}}"></i>{{/glyph}}{{^glyph}}{{label}}{{/glyph}}</a>"#
-    slots { "label" }
     css = """
       .fh-select .fh-active>.fh-select-opt{font-weight:600}
       """
@@ -323,7 +320,10 @@ class EntityOption extends nodes.ActiveNode {
     when (icon != null) {
       ["glyph"] = "mdi " + icons.mdiClass(icon!!)
     }
-    for (k, v in tapMod.tapSlots(tapAction)) {
+    for (k, v in tapMod.tapRoute(tapAction)) {
+      [k] = v
+    }
+    for (k, v in tapMod.guardSlots(tapAction)) {
       [k] = v
     }
   }

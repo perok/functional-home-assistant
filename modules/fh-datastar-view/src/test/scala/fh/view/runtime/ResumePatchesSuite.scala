@@ -19,8 +19,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   // One set at the root, so members are `c_<sanitized entity>`.
   private val renderer = Renderer.create(
     Dashboard(
-      cards =
-        Map("dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
+      cards = Map("dot" -> CardDef("<span>{{state}}</span>")),
       card = LayoutNode.SetNode(
         candidates = List("light.a", "light.b", "light.c", "light.d"),
         members = List("light.a", "light.b", "light.c", "light.d").map { id =>

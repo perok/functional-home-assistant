@@ -11,7 +11,7 @@ import io.circe.parser.decode
 class SimpleReadsSuite extends munit.FunSuite {
 
   private val card =
-    CardDef("""<b {{{v__bind}}}>{{v}}</b>""", slots = List("v"))
+    CardDef("""<b {{{v__bind}}}>{{v}}</b>""")
 
   private def slot(t: Transform.Simple, bool: Boolean = false) = SlotSource(
     transform = t,

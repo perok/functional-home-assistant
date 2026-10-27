@@ -1141,68 +1141,48 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val cards = result.toOption.get.value.hcursor.downField("cards")
 
-    val expectedSlots = Map(
-      "fhrow" -> Nil,
-      "fhcol" -> Nil,
-      "fhgrid" -> Nil,
-      "sectionTitle" -> List("label"),
-      "label" -> List("label", "tone"),
-      // The base tile; only the HA layer adds a subject.
-      "tile" -> List("label", "value"),
-      "entityInfo" -> List("entity_id", "attributes"),
-      // A declared slot is one every node of the card carries, so optional ones
-      // (`href`/`onclick`, `icon`, `group`, `secondary`) are not listed.
-      "button" -> List("label"),
-      "pill" -> List("label"),
-      "switch" -> List("label"),
-      "tab" -> List("label", "onclick", "active"),
-      "slider" -> Nil,
-      // `label` is only the toggle variant's `aria-label`; the visible one is
-      // `sliderText`'s (#151). No `entity_id`: a base slider may have no
-      // subject, so only the HA one carries it.
-      "sliderHead" -> List(
-        "label",
-        "value",
-        "service",
-        "targetKind",
-        "targetId",
-        "min",
-        "max"
-      ),
-      "sliderText" -> List("label"),
-      "sliderControls" -> Nil,
-      "sliderPill" -> Nil,
-      "popup" -> Nil,
-      "tabs" -> Nil,
-      "ifhost" -> Nil,
-      "progressBar" -> List("value"),
-      // The chart's entity rides in the fetch's params, so no `entity_id`.
-      "historyChart" -> List("chart"),
-      "chooser" -> Nil,
-      "historyReadings" -> List("label", "readings", "unit", "entity_id"),
-      "selectButtons" -> Nil,
-      "selectDropdown" -> List("chosen"),
-      "selectCycle" -> Nil,
-      "selectVarDropdown" -> Nil,
-      "selectVarCycle" -> Nil,
-      "selectChoice" -> List("label"),
-      "selectEntityOption" -> List("label"),
-      "colourWheel" -> List("hue", "sat", "paint")
+    val expectedCards = Set(
+      "fhrow",
+      "fhcol",
+      "fhgrid",
+      "sectionTitle",
+      "label",
+      "tile",
+      "entityInfo",
+      "button",
+      "pill",
+      "switch",
+      "tab",
+      "slider",
+      "sliderHead",
+      "sliderText",
+      "sliderControls",
+      "sliderPill",
+      "popup",
+      "tabs",
+      "ifhost",
+      "progressBar",
+      "historyChart",
+      "chooser",
+      "historyReadings",
+      "selectButtons",
+      "selectDropdown",
+      "selectCycle",
+      "selectVarDropdown",
+      "selectVarCycle",
+      "selectChoice",
+      "selectEntityOption",
+      "colourWheel"
     )
     assertEquals(
       cards.keys.map(_.toSet),
-      Some(expectedSlots.keySet),
+      Some(expectedCards),
       clue = cards.keys
     )
-    expectedSlots.foreach { case (name, slots) =>
+    expectedCards.foreach { name =>
       val card = cards.downField(name)
       assert(
         card.get[String]("template").toOption.exists(_.nonEmpty),
-        clue = name
-      )
-      assertEquals(
-        card.get[List[String]]("slots").toOption,
-        Some(slots),
         clue = name
       )
       // `tab` is the one wrapAsCell opt-out (the `.fh-tabs > a` selector); every
@@ -1626,8 +1606,10 @@ class PklBuildSuite extends munit.FunSuite {
         // `validate` rejects a card that declares one without placing its
         // binding — or, for a handler, its read (ADR 0017).
         "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>" +
-          "<u data-on:click=\"{{tapDisabled__signal}}\"></u>",
-        slots = List("label", "value")
+          "<u data-on:click=\"{{tapDisabled__signal}}\"></u>" +
+          // The rest of what the library tile reads, so every slot is read.
+          "{{#icon}}{{#onoff}}{{#tappable}}{{#busy}}{{#busyVisual}}" +
+          "{{/busyVisual}}{{/busy}}{{/tappable}}{{/onoff}}{{/icon}}"
       )
     )
     assertEquals(Dashboard(cards = cards, card = set).validate(), Nil)
@@ -2166,7 +2148,6 @@ class PklBuildSuite extends munit.FunSuite {
        |  cardDef = new nodes.CardDef {
        |    regions = new Mapping { ["children"] = new nodes.Region {} }
        |    template = #"<div>{{temp}}{{#children}}{{{html}}}{{/children}}</div>"#
-       |    slots { "temp" }
        |  }
        |  slots { ["temp"] = $slot }
        |}

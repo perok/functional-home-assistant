@@ -379,8 +379,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       Dashboard(
         cards = Map(
           "chart" -> CardDef(
-            """<div>{{{chart}}}</div>""",
-            slots = List("chart")
+            """<div>{{{chart}}}</div>"""
           ),
           "col" -> CardDef(
             """<div>{{#children}}{{{html}}}{{/children}}</div>""",

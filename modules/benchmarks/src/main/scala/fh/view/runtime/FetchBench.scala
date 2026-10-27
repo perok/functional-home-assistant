@@ -177,7 +177,7 @@ object FetchBench {
 
   def dashboard: Dashboard = Dashboard(
     cards = RenderBench.cards ++ Map(
-      "chart" -> CardDef("<div>{{{chart}}}</div>", slots = List("chart")),
+      "chart" -> CardDef("<div>{{{chart}}}</div>"),
       "host" -> CardDef(
         """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))

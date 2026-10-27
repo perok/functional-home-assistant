@@ -234,7 +234,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
   private def dashboard(slug: String) =
     Dashboard(
       cards = Map(
-        "c" -> CardDef(template = "<b>{{onclick}}</b>", slots = List("onclick"))
+        "c" -> CardDef(template = "<b>{{onclick}}</b>")
       ),
       card = LayoutNode.Component(
         card = "c",

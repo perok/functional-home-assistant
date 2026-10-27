@@ -238,7 +238,7 @@ class ResumeSuite extends ServerHarness {
   test("a page read ahead of the recorder shows the store's members") {
     val off = Map("light.a" -> es("light.a", "off"))
     val dash = Dashboard(
-      cards = Map("pill" -> CardDef("<b>{{state}}</b>", slots = List("state"))),
+      cards = Map("pill" -> CardDef("<b>{{state}}</b>")),
       card = LayoutNode.SetNode(
         candidates = List("light.a"),
         members = Map(
@@ -426,8 +426,7 @@ class ResumeSuite extends ServerHarness {
 
   private def popupDash(template: String) = liveLeafDash.copy(
     cards = liveLeafDash.cards + ("detail" -> CardDef(
-      template,
-      slots = List("state")
+      template
     )),
     surfaces = Map(
       "det" -> Surface(
@@ -521,7 +520,7 @@ class ResumeSuite extends ServerHarness {
 
   test("a dashboard edit repaints the tab selected now, not at connect") {
     def twoTabs(card: String) = mixedTabsDash.copy(
-      cards = mixedTabsDash.cards.updated("card", CardDef(card, List("state"))),
+      cards = mixedTabsDash.cards.updated("card", CardDef(card)),
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
@@ -607,7 +606,7 @@ class ResumeSuite extends ServerHarness {
     // The repaint re-sends a changed body in full, so no reload.
     val editedCard = liveLeafDash.copy(
       cards = liveLeafDash.cards
-        .updated("card", CardDef("<b>{{state}}</b>", slots = List("state")))
+        .updated("card", CardDef("<b>{{state}}</b>"))
     )
     assertEquals(Renderer.create(editedCard).headHash, base)
     // Nothing can un-apply a stylesheet.

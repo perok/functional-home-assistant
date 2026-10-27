@@ -104,8 +104,8 @@ class FetchDriftSuite extends munit.FunSuite {
     )
     val d = Dashboard(
       cards = Map(
-        "chart" -> CardDef("<div>{{{chart}}}</div>", slots = List("chart")),
-        "dot" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+        "chart" -> CardDef("<div>{{{chart}}}</div>"),
+        "dot" -> CardDef("<span>{{state}}</span>"),
         "col" -> CardDef(
           "<div>{{#children}}{{{html}}}{{/children}}</div>",
           regions = Map("children" -> Region())

@@ -231,9 +231,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
   every tab bar.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `tile`, `switch`,
-  `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
-  declared slots), and the emitted `cards` registry is the cards the tree uses, read off its nodes; slots are checked
-  by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
+  `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (its Mustache
+  template), and the emitted `cards` registry is the cards the tree uses, read off its nodes. `Dashboard.validate` holds
+  each node to its template's names (`Templates.reads`): a name outside every section must be a slot, injected var or
+  region; every slot must be named, unless the server reads it itself (`Dashboard.readByRenderer`). Call-style factories / classes return layout nodes referencing a card
   by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
   **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness

@@ -42,8 +42,7 @@ class RenderInputsSuite extends munit.FunSuite {
       regions = Map("children" -> Region())
     ),
     "card" -> CardDef(
-      """<div><span>{{state}}</span> {{unit}}</div>""",
-      slots = List("state", "unit")
+      """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
     // A bake owner beside a live leaf: an owner holds regions, so it is
     // structure and never cached, and the leaf cannot see the selection. The
@@ -53,13 +52,12 @@ class RenderInputsSuite extends munit.FunSuite {
         """<div><i>{{bakeIndex}}</i>{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div></div>""",
       regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
     ),
-    "bannerBar" -> CardDef("""<b>{{title}}</b>""", slots = List("title")),
-    "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
+    "bannerBar" -> CardDef("""<b>{{title}}</b>"""),
+    "btn" -> CardDef("""<button>{{label}}</button>"""),
     // The signal's entity reaches the patch form only as a binding (ADR 0017),
     // the asymmetry the key must reflect.
     "gauge" -> CardDef(
-      """<div><span>{{state}}</span><em {{{live__bind}}}>{{live}}</em></div>""",
-      slots = List("state", "live")
+      """<div><span>{{state}}</span><em {{{live__bind}}}>{{live}}</em></div>"""
     )
   )
 
@@ -308,8 +306,7 @@ class RenderInputsSuite extends munit.FunSuite {
     Dashboard(
       cards + ("signalBanner" -> cards("banner").copy(
         template = cards("banner").template
-          .replace("<i>", "<b {{{title__bind}}}></b><i>"),
-        slots = List("title")
+          .replace("<i>", "<b {{{title__bind}}}></b><i>")
       )),
       LayoutNode.Component(
         "signalBanner",
@@ -319,8 +316,8 @@ class RenderInputsSuite extends munit.FunSuite {
             signal = Some(SignalBind.Text)
           )
         ),
-        regions = LayoutNode.kids(
-          LayoutNode.Component("btn", Map("label" -> lit("A")))
+        regions = Map(
+          "bar" -> List(LayoutNode.Component("btn", Map("label" -> lit("A"))))
         )
       ),
       surfaces = dashboard.surfaces.map { case (sid, s) =>

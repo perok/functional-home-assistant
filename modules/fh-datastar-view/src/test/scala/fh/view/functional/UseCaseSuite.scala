@@ -485,7 +485,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       |  card = "gauge"
       |  cardDef = new nodes.CardDef {
       |    template = "<article class=\"mine\">{{label}}</article>"
-      |    slots { "label" }
       |  }
       |  label: String
       |  slots { ["label"] = label }

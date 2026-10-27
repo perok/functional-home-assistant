@@ -48,8 +48,7 @@ class DigestPropertySuite extends HedgehogSuite {
   private def card(signal: Boolean): CardDef =
     CardDef(
       if signal then """<b {{{v__bind}}} data-t="{{v}}">{{v}}</b>"""
-      else """<b data-t="{{v}}">{{v}}</b>""",
-      slots = List("v")
+      else """<b data-t="{{v}}">{{v}}</b>"""
     )
 
   private def dashboard(signal: Boolean): Dashboard =

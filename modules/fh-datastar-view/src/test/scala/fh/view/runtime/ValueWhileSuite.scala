@@ -35,8 +35,7 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   private val bar = CardDef(
-    """<b {{{of__bind}}}>{{of}}</b>""",
-    slots = List("of")
+    """<b {{{of__bind}}}>{{of}}</b>"""
   )
 
   private def node(of: SlotSource) = LayoutNode.Component(
@@ -122,8 +121,7 @@ class ValueWhileSuite extends munit.FunSuite {
     val on = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
     def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
     val d = Dashboard(
-      cards =
-        Map("chart" -> CardDef("<div>{{chart}}</div>", slots = List("chart"))),
+      cards = Map("chart" -> CardDef("<div>{{chart}}</div>")),
       card = LayoutNode.SetNode(
         candidates = List("light.a", "light.b"),
         members =

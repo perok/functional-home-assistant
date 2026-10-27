@@ -27,22 +27,18 @@ object FixtureDashboard {
       regions = Map("children" -> Region())
     ),
     "reading" -> CardDef(
-      """<div class="reading"><span>{{state}}</span> {{unit}}</div>""",
-      slots = List("state")
+      """<div class="reading"><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
     "light" -> CardDef(
-      """<div class="light">{{name}}: <span>{{state}}</span></div>""",
-      slots = List("state")
+      """<div class="light">{{name}}: <span>{{state}}</span></div>"""
     ),
     // Name and state come from the member's own entity, so one card serves
     // every member.
     "member" -> CardDef(
-      """<div class="member">{{name}}: <span>{{state}}</span></div>""",
-      slots = List("state")
+      """<div class="member">{{name}}: <span>{{state}}</span></div>"""
     ),
     "call" -> CardDef(
-      """<button>{{service}}</button>""",
-      slots = List(Dashboard.ServiceSlot)
+      """<button>{{service}}</button>"""
     )
   )
 

@@ -32,7 +32,6 @@ open class Tile extends nodes.ActiveNode {
         <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>{{#features}}{{{html}}}{{/features}}
       </article>
       """
-    slots { "label"; "value" }
     // The row and its on look are `core/css.pkl`'s, shared with the switch. The
     // card's padding is on the row, so the whole card still answers a press;
     // each feature is a full-width cell under it, the card resetting what a

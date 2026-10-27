@@ -107,9 +107,17 @@ finished, and are deleted (issue #23).
    Containers (`Row`/`Column`/`Tabs`/`Popup`) keep the `new` + `children {}`
    style.
 7. **A card class also owns its template**: each concrete `Node` subclass
-   carries a `hidden cardDef: CardDef` (Mustache template + declared slots),
-   co-located with the logic that fills them. Because `cardDef` is hidden it
-   never emits into node JSON; the top-level `cards` is the backend contract.
+   carries a `hidden cardDef: CardDef` (its Mustache template), co-located with
+   the logic that fills its slots. Because `cardDef` is hidden it never emits
+   into node JSON; the top-level `cards` is the backend contract.
+
+   **The template is the card's list of inputs.** The build reads its names off
+   mustache.java's compiled tree and holds every node to them: a name outside
+   every section must be set (inside one it may be absent, which is how a
+   template says "optional"), and every slot set must be named. A second,
+   hand-written list of names was dropped: it was checked only against the
+   node, never the template, so it caught neither a placeholder nobody fills
+   nor a slot nobody reads.
 
    **A dashboard's `cards` is the cards its tree uses**, read off the nodes
    (`core/node.pkl`'s `cardsIn`, over `card` and `surfaces`): every node

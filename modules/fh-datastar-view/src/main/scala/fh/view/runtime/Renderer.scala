@@ -937,7 +937,7 @@ class Renderer(validated: Dashboard.Validated) {
     ): (Map[String, String], Option[(String, String)]) = {
       val sid = group(idx)
       (
-        Map("bakeIndex" -> idx.toString),
+        Map(Dashboard.BakeIndexVar -> idx.toString),
         dashboard.surfaces(sid).bakeAs.map(as => as -> sid)
       )
     }

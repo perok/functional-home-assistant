@@ -35,8 +35,7 @@ class ChartSlotSuite extends munit.FunSuite {
     Dashboard(
       cards = Map(
         "chart" -> CardDef(
-          s"""<div>$hole<b>{{name}}</b></div>""",
-          slots = List("chart", "name")
+          s"""<div>$hole<b>{{name}}</b></div>"""
         )
       ),
       card = LayoutNode.Component(

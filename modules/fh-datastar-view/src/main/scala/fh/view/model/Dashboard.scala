@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.fetch.FetchRequest
 import fh.view.history.Window
-import fh.view.runtime.Cel
+import fh.view.runtime.{Cel, Templates}
 import io.circe.{Decoder, DecodingFailure, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -460,11 +460,10 @@ object SignalBind:
   given Decoder[SignalBind] =
     Decoder[String].emap(s => parse(s).toRight(s"unknown signal binding: $s"))
 
-/** A card in the shared library.
+/** A card in the shared library. What it reads is its `template`'s names
+  * ([[fh.view.runtime.Templates.reads]]), which `validate` holds every node of
+  * it to.
   *
-  *   - `slots`: the required template vars; [[Dashboard.validate]] flags only
-  *     missing required ones. The injected `id`, `hostId` and `dashboardSlug`
-  *     need no entry.
   *   - `wrapAsCell`: off only for a card whose root must stay a direct child of
   *     a structural parent (the tab anchors under `.tabs`). Such a card is
   *     never its own morph target, so `validate` rejects live slots, `cell` and
@@ -482,7 +481,6 @@ object SignalBind:
   */
 case class CardDef(
     template: String,
-    slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
     css: String = "",
@@ -1181,24 +1179,63 @@ case class Dashboard(
   ): List[String] = errors(locateTransform)
 
   private def errors(locateTransform: String => Option[String]): List[String] =
-    // A required var is satisfied by a slot or [[Dashboard.injectedStatic]].
-    def checkRef(
+    val cardReads: Map[String, Either[String, Templates.Reads]] =
+      cards.map((name, cd) =>
+        name -> Templates.reads(cd.template, cd.regions.keySet)
+      )
+
+    // A section marks its names optional, and the library guards one name by
+    // another's section (`{{#service}}…{{targetId}}`), so only a name outside
+    // every section must be set; a misspelt section shows as its slot unread.
+    def templateErrors(
         nodeId: String,
         cardName: String,
-        injected: Set[String],
-        slotNames: Set[String]
+        slotNames: Set[String],
+        filled: Set[String]
     ): List[String] =
       cards.get(cardName) match
         case None =>
           List(s"$nodeId: references unknown card '$cardName'")
         case Some(cd) =>
-          val missingSlots = cd.slots.toSet -- slotNames -- injected
-          Option
-            .when(missingSlots.nonEmpty)(
-              s"$nodeId: card '$cardName' missing slots: " +
-                missingSlots.toList.sorted.mkString(", ")
+          val undeclared = (filled -- cd.regions.keySet).toList.sorted.map(r =>
+            s"$nodeId: fills region '$r', which card '$cardName' does not " +
+              "declare — its children would never render"
+          )
+          val names = cardReads.get(cardName).flatMap(_.toOption)
+          val known = slotNames ++ Dashboard.injectedStatic ++
+            cd.regions.keySet ++
+            Option.when(cd.bakedRegions.nonEmpty)(Dashboard.BakeIndexVar)
+          val unset = names.toList
+            .flatMap(_.required)
+            .filterNot(n =>
+              known(n) || Dashboard.derivedFrom(n).exists(slotNames)
             )
-            .toList
+            .sorted
+          val read =
+            names.toList
+              .flatMap(_.names)
+              .map(n => Dashboard.derivedFrom(n).getOrElse(n))
+              .toSet
+          val unread = names.toList.flatMap(_ =>
+            slotNames.toList.sorted.filterNot(s =>
+              read(s) || Dashboard.readByRenderer(s)
+            )
+          )
+          undeclared ++
+            Option
+              .when(unset.nonEmpty)(
+                s"$nodeId: card '$cardName' missing slots: " +
+                  unset.mkString(", ") +
+                  " — its template reads them; set \"\" for nothing"
+              )
+              .toList ++
+            Option
+              .when(unread.nonEmpty)(
+                s"$nodeId: card '$cardName' never reads slots: " +
+                  unread.mkString(", ") +
+                  " — its template names none of them; drop them"
+              )
+              .toList
 
     def slotErrors(
         nodeId: String,
@@ -1473,6 +1510,16 @@ case class Dashboard(
               !Dashboard.yieldsBool(src) =>
           s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
             "produce a bool — compare it (`on > 0`), or use a condition"
+      } ++ slots.toList.sortBy(_._1).flatMap { case (name, src) =>
+        Option
+          .when(!src.isBool && src.literal.isEmpty && src.fetch.isEmpty)(
+            src.celKey.flatMap(Transform.nonTextType)
+          )
+          .flatten
+          .map(t =>
+            s"$nodeId: slot '$name' yields a $t, which a card cannot show — " +
+              "make it text, `str(…)` or `string(…)`"
+          )
       }
 
     def varErrors(
@@ -1684,11 +1731,11 @@ case class Dashboard(
           val checked = c.bound ++ c.bound.flatMap((n, s) =>
             s.valueWhile.map(s"$n.valueWhile" -> _)
           )
-          checkRef(
+          templateErrors(
             nodeId,
             card,
-            Dashboard.injectedStatic,
-            slots.keySet
+            slots.keySet,
+            c.regions.keySet
           ) ++ slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
             valueErrors(nodeId, c) ++
@@ -1763,37 +1810,40 @@ case class Dashboard(
         .flatMap(s => walk(s._2.content))).distinct
     }
 
-    // A section splicing `{{{html}}}` must be a declared region, or the card
-    // reads as a leaf while its bytes carry its children, and a patch re-sends
-    // them.
-    val undeclaredHoleErrors: List[String] = {
-      val section =
-        """\{\{#([A-Za-z0-9_]+)\}\}(?:(?!\{\{/\1\}\}).)*\{\{\{html\}\}\}""".r
-      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        section
-          .findAllMatchIn(cd.template.replaceAll("\n", " "))
-          .map(_.group(1))
-          .toList
-          .distinct
-          .sorted
-          .filterNot(cd.regions.contains)
-          .map(r =>
-            s"card '$name': its template splices children into '$r' but " +
-              s"declares no region '$r' — the card would read as a leaf while " +
-              "its bytes carry its children, so a patch would re-send them"
-          )
-      }
-    }
-
-    // The other side of the same defect; both are silent.
+    // `{{{html}}}` outside a declared region reads as a leaf while its bytes
+    // carry children, so a patch re-sends them; a region with no hole shows
+    // nothing. Both are silent.
     val regionHoleErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        cd.regions.toList.sortBy(_._1).collect {
-          case (r, region) if !cd.template.contains(cd.holeOf(r)) =>
-            s"card '$name': declares region '$r' (${region.fill}) but its " +
-              s"`template` places no ${cd.holeOf(r)} hole for it — " +
-              "nothing would ever appear there"
-        }
+        cardReads(name) match
+          case Left(e) =>
+            List(s"card '$name': its template does not compile: $e")
+          case Right(reads) =>
+            reads.strayHtml.toList.sorted.map {
+              case "" =>
+                s"card '$name': its template places {{{html}}} outside any " +
+                  "region — only a region's section has children to splice"
+              case r =>
+                s"card '$name': its template splices children into '$r' but " +
+                  s"declares no region '$r' — the card would read as a leaf " +
+                  "while its bytes carry its children, so a patch would " +
+                  "re-send them"
+            } ++ cd.regions.toList.sortBy(_._1).flatMap { case (r, region) =>
+              reads.regionBodies.get(r) match
+                case None =>
+                  List(
+                    s"card '$name': declares region '$r' (${region.fill}) but " +
+                      s"its `template` places no ${cd.holeOf(r)} hole for " +
+                      "it — nothing would ever appear there"
+                  )
+                case Some(false) =>
+                  List(
+                    s"card '$name': region '$r''s section holds more than " +
+                      s"{{{html}}} — write it as ${cd.holeOf(r)}, and put " +
+                      "markup around the section or in the child"
+                  )
+                case Some(true) => Nil
+            }
       }
 
     // Keeps the id grammar's two shapes apart ([[LayoutNode.segment]]): an
@@ -2066,7 +2116,6 @@ case class Dashboard(
     authoredIdErrors ++
       callSetErrors ++
       structureLiveSlotErrors ++
-      undeclaredHoleErrors ++
       regionHoleErrors ++
       regionNameErrors ++
       chromeErrors ++
@@ -2421,8 +2470,30 @@ object Dashboard:
       "dashboardSlug" -> slug
     )
 
-  /** The backend-injected vars a card may list in its `slots` without the node
-    * authoring them.
+  /** The backend-injected vars a template may read without the node setting
+    * them.
     */
   val injectedStatic: Set[String] =
     structuralVars(NodeId.derived(""), DomId.derived(""), "").keySet
+
+  /** The chosen member's index, which the renderer gives a bake owner. */
+  val BakeIndexVar: String = "bakeIndex"
+
+  private val derivedSuffixes = List("__bind", "__has", "__read", "__signal")
+
+  /** The slot a renderer-derived name (`label__bind`) is read from. */
+  def derivedFrom(name: String): Option[String] =
+    derivedSuffixes.collectFirst {
+      case s if name.endsWith(s) && name.length > s.length =>
+        name.dropRight(s.length)
+    }
+
+  /** Slots the server reads itself, so no template need name them: the subject,
+    * the live cell, and a tap's route ([[calls]]).
+    */
+  def readByRenderer(slot: String): Boolean =
+    slot == SubjectSlot || slot.startsWith(CellClassPrefix) ||
+      slot.startsWith(CellStylePrefix) || routeSlots(slot)
+
+  private val routeSlots: Set[String] =
+    Set(ServiceSlot, TargetKindSlot, TargetIdSlot, DataKeySlot, TargetSetSlot)

@@ -29,7 +29,7 @@ class SinkStreamingSuite extends munit.FunSuite {
   }
 
   private val cards = Map(
-    "leaf" -> CardDef("""<div class="leaf">{{v}}</div>""", slots = List("v")),
+    "leaf" -> CardDef("""<div class="leaf">{{v}}</div>"""),
     "col" -> CardDef(
       """<div>{{#children}}{{{html}}}{{/children}}</div>""",
       regions = Map("children" -> Region())

@@ -1792,9 +1792,7 @@ object RenderBench {
         """<div class="fh-bar" {{{fill__bind}}}></div>""" +
         """<span class="fh-fillcolor" {{{fillColor__bind}}}></span>""" +
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
-        """</div>""",
-      slots =
-        List("cls", "icon", "name", "state", "fill", "fillColor", "action")
+        """</div>"""
     ),
     "col" -> CardDef(
       template =
