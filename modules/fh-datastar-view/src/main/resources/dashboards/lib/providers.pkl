@@ -9,3 +9,11 @@ import "providers/history.pkl" as historyMod
 
 /// A sensor's recorded past: `p.history.of(e, p.history.raw(7.d))`.
 hidden history: historyMod = historyMod
+
+/// A history window, or a function picking one from these providers, which is
+/// what lets a card's `.over(…)` need no import of its own.
+typealias HistoryWindow = historyMod.Over|((module) -> historyMod.Over)
+
+/// The window `w` names.
+function historyWindow(w: HistoryWindow): historyMod.Over =
+  if (w is Function1) w.apply(module) else w

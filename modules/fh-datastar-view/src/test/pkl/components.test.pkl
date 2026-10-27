@@ -17,6 +17,7 @@ import "../../main/resources/dashboards/lib/core/variable.pkl" as varMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
 import "../../main/resources/dashboards/lib/providers.pkl" as p
+import "../../main/resources/dashboards/lib/components/base/chart.pkl" as chartMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
@@ -1850,7 +1851,7 @@ facts {
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {
     // The JSON `ChartStyleSuite` decodes: a number, not a string, and no null.
     new JsonRenderer { omitNullProperties = true; indent = "" }
-      .renderValue(historyMod.chartStage(320, null, "°C"))
+      .renderValue(chartMod.chartStage(320, null, "°C"))
       == #"{"stage":"Chart","params":{"width":320,"unit":"°C"}}"#
   }
 }

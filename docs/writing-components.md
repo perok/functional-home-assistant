@@ -178,7 +178,11 @@ import "@fh-dashboard/providers.pkl" as p
 value a number. Without `.over(…)` it is the last 24 hours. `window.raw(…)` is
 every recorded reading, and HA deletes those after `purge_keep_days` (10 by
 default). `window.statistics(30.d, "hour")` is HA's hourly averages instead,
-kept for good, one point per hour. It is fetched when the slot is read — when its entity changes,
+kept for good, one point per hour.
+
+A card of your own that takes a window the way `c.history.chart` does takes
+`p.HistoryWindow` and resolves it with `p.historyWindow(w)`: either a window,
+or a function handed the providers, so its users need no import. It is fetched when the slot is read — when its entity changes,
 or when the card is drawn — and kept for a few minutes, so reading it on every
 change costs nothing. It does not change on its own: nothing redraws a card
 because new history was written. Use `transformList(i, p, keep, value)` to

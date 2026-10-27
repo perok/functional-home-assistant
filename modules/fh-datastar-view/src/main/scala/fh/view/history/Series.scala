@@ -95,9 +95,7 @@ object Series {
   def fromStatistics(buckets: List[StatisticPoint]): Series =
     Series(
       buckets
-        .flatMap(b =>
-          b.mean.map(_.mean).orElse(b.sum.map(_.state)).map(Point(b.end, _))
-        )
+        .flatMap(b => b.mean.orElse(b.state).map(Point(b.end, _)))
         .sortBy(p => (p.at.getEpochSecond, p.at.getNano))
         .toVector
     )

@@ -158,7 +158,14 @@ any span, and statistics at `5minute` up to `year`.
   Its cost: a sudden change appears at the next bucket, not at once.
 - **The bucket is derived, not a knob:** the period for statistics, and a 720th of the span (at
   least a minute) for raw rows, which gives the presets 1 min, 5 min, 1 h and 1 h. Cache entries
-  are the distinct windows on screen, and only an author adds one.
+  are the distinct windows on screen, and only an author adds one. A statistics bucket rolls a
+  minute after its period ends (`Window.StatisticsLag`): HA writes the period's row seconds after
+  the boundary, and a fetch in between would miss it for a whole period.
+- **Only the types a line reads.** A statistics call names its `types`
+  (`HomeAssistantApi.LineTypes`: `mean` for a measurement, `state` for a total); HA answers every
+  type when none is named. So `StatisticPoint` holds each type as its own option rather than as a
+  `min`/`mean`/`max` band, which a call asking for a subset would answer half of. A min/max band
+  around the line asks for those two as well.
 - **Typed on the wire, decoded straight into the request.** The fetch's `entity` and `window` are
   fields, decoded by circe into `FetchTemplate`, as the fast expressions decode
   (ADR 0028 point 3). The string `params` map parsed by its provider afterwards was dropped: a

@@ -39,9 +39,19 @@ enum Window derives CanEqual {
 
   def startAt(asOf: Instant): Instant = asOf.minusSeconds(length.toSeconds)
 
+  /** A statistics bucket rolls a minute after its period ends: HA writes the
+    * period's row seconds after the boundary, and a fetch in between would miss
+    * it for a whole period.
+    */
   def bucketOf(asOf: Instant): Instant = {
     val step = bucket.toSeconds
-    Instant.ofEpochSecond(Math.floorDiv(asOf.getEpochSecond, step) * step)
+    val late = this match {
+      case Statistics(_, _, _) => Window.StatisticsLag.toSeconds
+      case Raw(_)              => 0L
+    }
+    Instant.ofEpochSecond(
+      Math.floorDiv(asOf.getEpochSecond - late, step) * step + late
+    )
   }
 
   /** A rule across two fields, so `validate`'s rather than the decoder's. */
@@ -62,6 +72,8 @@ enum Window derives CanEqual {
 }
 
 object Window {
+
+  val StatisticsLag: FiniteDuration = 1.minute
 
   /** Seconds. Pkl already refuses a span under a second. */
   type Span = Long :| DescribedAs[Positive, "a window's span must be positive"]

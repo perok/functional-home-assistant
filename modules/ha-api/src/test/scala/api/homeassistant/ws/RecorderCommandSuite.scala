@@ -3,6 +3,7 @@ package api.homeassistant.ws
 import api.homeassistant.ws.domain.{
   HistoryPoint,
   StatisticPoint,
+  StatisticType,
   StatisticsPeriod
 }
 import api.homeassistant.HomeAssistantApi
@@ -124,8 +125,9 @@ class RecorderCommandSuite extends munit.FunSuite {
         StatisticPoint(
           Instant.ofEpochMilli(1789758000000L),
           Instant.ofEpochMilli(1789761600000L),
-          Some(StatisticPoint.Mean(22.6, 22.949893353694446, 23.4)),
-          None
+          mean = Some(22.949893353694446),
+          min = Some(22.6),
+          max = Some(23.4)
         )
       )
     )
@@ -136,37 +138,57 @@ class RecorderCommandSuite extends munit.FunSuite {
       """{"start":1789758000000,"end":1789761600000,"state":6.876,
          |"last_reset":1789754413449,"sum":77770.16,"change":2.865}""".stripMargin
     assertEquals(
-      decode[StatisticPoint](json).map(p => (p.mean, p.sum)),
+      decode[StatisticPoint](json).map(p =>
+        (p.mean, p.state, p.sum, p.change, p.lastReset)
+      ),
       Right(
         (
           None,
-          Some(
-            StatisticPoint.Sum(
-              6.876,
-              77770.16,
-              Some(2.865),
-              Some(Instant.ofEpochMilli(1789754413449L))
-            )
-          )
+          Some(6.876),
+          Some(77770.16),
+          Some(2.865),
+          Some(Instant.ofEpochMilli(1789754413449L))
         )
       )
     )
   }
 
-  test("the two groups are independent, so a bucket may carry both") {
-    // Observed never to overlap (205 mean-only, 134 sum-only, 0 both), but that
-    // is not a promise, and a sum type could silently drop half an external
-    // statistic.
-    val json =
-      """{"start":0,"end":1,"min":1.0,"mean":2.0,"max":3.0,
-         |"state":4.0,"sum":5.0}""".stripMargin
-    val point = decode[StatisticPoint](json)
-    assertEquals(point.map(_.mean.isDefined), Right(true))
-    assertEquals(point.map(_.sum.isDefined), Right(true))
+  test("each type decodes on its own, as a call may ask for any subset") {
+    // Measured never to overlap (205 mean-only, 134 sum-only, 0 both), but the
+    // wire does not promise that, and asking only `mean` and `state` answers
+    // half a band.
+    val json = """{"start":0,"end":1,"mean":2.0,"state":4.0}"""
+    assertEquals(
+      decode[StatisticPoint](json).map(p => (p.mean, p.min, p.state, p.sum)),
+      Right((Some(2.0), None, Some(4.0), None))
+    )
   }
 
-  test("a bucket carrying neither is rejected rather than kept empty") {
-    assert(decode[StatisticPoint]("""{"start":0,"end":1}""").isLeft)
+  test("a call names the types it asks for, spelled HA's way") {
+    // HA's own list, and its default when none is named is every one of them.
+    assertEquals(
+      StatisticType.values.map(_.wire).toList,
+      List("change", "last_reset", "max", "mean", "min", "state", "sum")
+    )
+    val json = wire(
+      CommandPhase.`recorder/statistics_during_period`(
+        start,
+        None,
+        List("sensor.t"),
+        StatisticsPeriod.Hour,
+        Some(List(StatisticType.Mean, StatisticType.State))
+      )
+    )
+    assert(json.contains(""""types":["mean","state"]"""), clue = json)
+    val all = wire(
+      CommandPhase.`recorder/statistics_during_period`(
+        start,
+        None,
+        List("sensor.t"),
+        StatisticsPeriod.Hour
+      )
+    )
+    assert(!all.contains("types"), clue = all)
   }
 
   test("a rejected recorder command raises HA's own error") {
@@ -253,18 +275,6 @@ class RecorderCommandSuite extends munit.FunSuite {
           HistoryPoint("1.5", Instant.ofEpochSecond(1789755910, 543000000))
         )
       )
-    )
-  }
-
-  test("an incomplete band is not half a band") {
-    // Two of three bounds is no drawable band; grouping makes it
-    // unrepresentable.
-    assertEquals(
-      decode[StatisticPoint](
-        """{"start":0,"end":1,"min":1.0,"mean":2.0,"sum":9.0,"state":8.0}"""
-      )
-        .map(_.mean),
-      Right(None)
     )
   }
 }

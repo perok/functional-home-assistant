@@ -60,16 +60,16 @@ class HistorySuite extends munit.CatsEffectSuite {
     val hours = java.time.Duration.between(from, to).toHours
     (0L until hours).map { h =>
       val s = from.plusSeconds(h * 3600)
-      StatisticPoint(
-        s,
-        s.plusSeconds(3600),
-        Some(StatisticPoint.Mean(1.0, 1.0, 1.0)),
-        None
-      )
+      StatisticPoint(s, s.plusSeconds(3600), mean = Some(1.0))
     }.toList
   }
 
   private def ago(d: FiniteDuration) = now.minusSeconds(d.toSeconds)
+
+  /** The cache tests read raw, so what they count is the fetch itself, never a
+    * statistics read falling back.
+    */
+  private val rawDay: Window = Window.Raw(86400L)
 
   extension (h: History)
     private def ask(
@@ -182,7 +182,7 @@ class HistorySuite extends munit.CatsEffectSuite {
       h <- History.create(src)
       answers <- List
         .fill(10)(
-          h.answerAt(FetchIdentity.Instance, entity, Windows.day, now)
+          h.answerAt(FetchIdentity.Instance, entity, rawDay, now)
         )
         .parSequence
       count <- src.fetches
@@ -195,9 +195,9 @@ class HistorySuite extends munit.CatsEffectSuite {
   test(
     "a rolled bucket is a new fetch and a new version, and retires the key"
   ) {
-    val later = now.plusSeconds(Windows.day.bucket.toSeconds)
+    val later = now.plusSeconds(rawDay.bucket.toSeconds)
     def version(h: History, at: Instant) =
-      h.answerAt(FetchIdentity.Instance, entity, Windows.day, at)
+      h.answerAt(FetchIdentity.Instance, entity, rawDay, at)
         .map(_.version)
     for {
       src <- source()
@@ -221,7 +221,12 @@ class HistorySuite extends munit.CatsEffectSuite {
     // the 1h while both are current. Longest first, so each shorter miss sweeps
     // over a longer window's live entry.
     val midHour = now.plusSeconds(25 * 60)
-    val windows = Windows.presets.values.toList.sortBy(-_.length.toSeconds)
+    val windows: List[Window] = List(
+      Window.Raw(2592000L),
+      Window.Raw(604800L),
+      Window.Raw(86400L),
+      Window.Raw(3600L)
+    )
     for {
       src <- source()
       h <- History.create(src)
@@ -242,8 +247,8 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source()
       h <- History.create(src)
-      _ <- h.ask(Windows.day)
-      _ <- h.ask(Windows.day, identity = FetchIdentity.user("alice"))
+      _ <- h.ask(rawDay)
+      _ <- h.ask(rawDay, identity = FetchIdentity.user("alice"))
       count <- src.fetches
     } yield assertEquals(count, 2)
   }
@@ -259,8 +264,8 @@ class HistorySuite extends munit.CatsEffectSuite {
         }
       )
       h <- History.create(src, failureTtl = Duration.Zero)
-      first <- h.ask(Windows.day).attempt
-      second <- h.ask(Windows.day)
+      first <- h.ask(rawDay).attempt
+      second <- h.ask(rawDay)
       count <- attempts.get
     } yield {
       assert(first.isLeft)
@@ -275,8 +280,8 @@ class HistorySuite extends munit.CatsEffectSuite {
     for {
       src <- source((_, _) => IO.raiseError(new RuntimeException("HA is down")))
       h <- History.create(src)
-      first <- h.ask(Windows.day).attempt
-      second <- h.ask(Windows.day).attempt
+      first <- h.ask(rawDay).attempt
+      second <- h.ask(rawDay).attempt
       count <- src.fetches
     } yield {
       assert(first.isLeft && second.isLeft, clue = (first, second))

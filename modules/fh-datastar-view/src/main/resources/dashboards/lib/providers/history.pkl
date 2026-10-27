@@ -19,7 +19,7 @@ import "../hass.pkl"
 class HistoryFetch extends slotMod.Fetch {
   provider = "history"
   hidden sensor: hass.SensorEntity
-  entity: String = sensor.entity_id
+  fixed entity: String = sensor.entity_id
   window: Over
 }
 

@@ -5,6 +5,7 @@ module components.examples
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/text.pkl" as textMod
+import "../providers.pkl" as providersMod
 import "../providers/history.pkl" as historyProv
 import "history.pkl" as historyMod
 import "../hass.pkl"
@@ -50,8 +51,8 @@ class HistoryReadings extends nodes.Node {
     ["readings"] = new slotMod.Slot { fetch = historyProv.of(entity, window) }
   }
 
-  function over(w: historyMod.Pick): HistoryReadings =
-    let (self = this) (self) { window = historyMod.picked(w) }
+  function over(w: providersMod.HistoryWindow): HistoryReadings =
+    let (self = this) (self) { window = providersMod.historyWindow(w) }
   function fromChooser(): HistoryReadings =
     over(historyProv.chosen(historyMod.windowVar, historyProv.presets))
 }

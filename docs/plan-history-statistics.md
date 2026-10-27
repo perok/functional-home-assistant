@@ -170,6 +170,21 @@ a viewer can't add variants.
 - Gone: `c.fetch`, `c.window`, `c.historyChart`, `c.historyReadings`, `c.windowChooser`, and
   `fetch.pkl`'s `History` subclass with its 24-hour default.
 
+## Review follow-ups (2026-10-27)
+
+- `c.history` holds only `chart`, `chooser` and `windowVar` (the chooser's variable). The drawing
+  stage moved to `components/base/chart.pkl`; the window-or-function helper is the providers
+  facade's own (`p.HistoryWindow`, `p.historyWindow`), where a component author writing a card of
+  their own finds it too. Pkl takes a type alias over the module's own type (spiked).
+- `HistoryFetch.entity` is `fixed`, so an object body cannot point a sensor-typed fetch elsewhere.
+- `HistorySuite`'s cache tests read raw windows, so what they count is the fetch itself.
+- Statistics calls name their `types` (`mean`, `state`); `StatisticPoint` is flat options. The
+  ha-api decode tests that pinned the old `min`/`mean`/`max` grouping were rewritten or removed
+  with it ("an incomplete band is not half a band", "a bucket carrying neither is rejected").
+- A statistics bucket rolls a minute after its period (`Window.StatisticsLag`). This is our
+  cache's timing; HA's API has no such parameter.
+- A missing variable reads "the variable 'window' has no value here".
+
 ## For later: `history/stream`
 
 HA's WS `history/stream` subscribes to an entity's rows: it answers the history over a window,

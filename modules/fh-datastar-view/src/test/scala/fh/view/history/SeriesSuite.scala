@@ -2,6 +2,8 @@ package fh.view.history
 
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticPoint}
 
+import io.github.iltotore.iron.*
+
 import java.time.Instant
 
 /** The pure half of the series pipeline: what a window means, what a recorder
@@ -13,14 +15,28 @@ class SeriesSuite extends munit.FunSuite {
   private def at(secs: Long) = t0.plusSeconds(secs)
 
   test("a bucket is floored, so the key does not move under a request") {
-    val w = Windows.day // 5-minute bucket
+    val w = Window.Raw(86400L) // 2-minute bucket
     assertEquals(
-      w.bucketOf(Instant.parse("2026-09-19T12:04:59Z")),
-      Instant.parse("2026-09-19T12:00:00Z")
+      w.bucketOf(Instant.parse("2026-09-19T12:03:59Z")),
+      Instant.parse("2026-09-19T12:02:00Z")
     )
     assertEquals(
-      w.bucketOf(Instant.parse("2026-09-19T12:05:00Z")),
-      Instant.parse("2026-09-19T12:05:00Z")
+      w.bucketOf(Instant.parse("2026-09-19T12:04:00Z")),
+      Instant.parse("2026-09-19T12:04:00Z")
+    )
+  }
+
+  test("a statistics bucket rolls a minute after its period ends") {
+    // HA writes the 12:00–12:05 row seconds after 12:05; a bucket rolling at
+    // 12:05 sharp would cache a series without it until 12:10.
+    val w = Windows.day // 5-minute statistics
+    assertEquals(
+      w.bucketOf(Instant.parse("2026-09-19T12:05:59Z")),
+      Instant.parse("2026-09-19T12:01:00Z")
+    )
+    assertEquals(
+      w.bucketOf(Instant.parse("2026-09-19T12:06:00Z")),
+      Instant.parse("2026-09-19T12:06:00Z")
     )
   }
 
@@ -62,12 +78,7 @@ class SeriesSuite extends munit.FunSuite {
     // which is invisible on its own and obvious next to a raw series.
     val s = Series.fromStatistics(
       List(
-        StatisticPoint(
-          at(0),
-          at(3600),
-          Some(StatisticPoint.Mean(1.0, 2.0, 3.0)),
-          None
-        )
+        StatisticPoint(at(0), at(3600), mean = Some(2.0))
       )
     )
     assertEquals(s.points, Vector(Series.Point(at(3600), 2.0)))
@@ -83,8 +94,9 @@ class SeriesSuite extends munit.FunSuite {
         StatisticPoint(
           at(0),
           at(3600),
-          None,
-          Some(StatisticPoint.Sum(6.87, 77770.16, Some(2.86), None))
+          state = Some(6.87),
+          sum = Some(77770.16),
+          change = Some(2.86)
         )
       )
     )

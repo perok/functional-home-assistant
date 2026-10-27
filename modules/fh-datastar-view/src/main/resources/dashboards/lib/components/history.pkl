@@ -8,52 +8,12 @@ module components.history
 
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
-import "../core/stage.pkl" as stageMod
 import "../core/variable.pkl" as varMod
 import "../providers.pkl" as providersMod
 import "../providers/history.pkl" as historyProv
+import "base/chart.pkl" as chartMod
 import "select.pkl" as selectMod
 import "../hass.pkl"
-
-/// A window, or a function picking one from the providers, so a dashboard
-/// needs no import of its own: `.over((p) -> p.history.raw(1.h))`.
-typealias Pick = historyProv.Over|((providersMod) -> historyProv.Over)
-
-const function picked(w: Pick): historyProv.Over =
-  if (w is Function1) w.apply(providersMod) else w
-
-/// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
-/// asked, so two sizes of one chart share one fetch.
-const function chartStage(
-  chartWidth: Int?,
-  chartHeight: Int?,
-  chartUnit: String?
-): ChartStage = new ChartStage {
-  params {
-    width = chartWidth
-    height = chartHeight
-    unit = chartUnit
-  }
-}
-
-/// How a chart is drawn (`fh.view.history.ChartStyle`). A null is left off the
-/// wire, so the backend's default applies.
-class ChartParams {
-  width: Int(isPositive)?
-  height: Int(isPositive)?
-  /// A CSS colour for this chart's line. Unset, the theme's `--fh-chart-line`,
-  /// else `--fh-accent`.
-  line: String?
-  /// A CSS colour under this chart's line. Unset, the theme's
-  /// `--fh-chart-fill`, else none.
-  fill: String?
-  unit: String?
-}
-
-class ChartStage extends stageMod.Stage {
-  stage: "Chart" = "Chart"
-  params: ChartParams = new ChartParams {}
-}
 
 /// One entity's readings over one window. The SVG goes in a RAW hole
 /// (`{{{chart}}}`); the backend rejects an escaped one at build time.
@@ -86,11 +46,14 @@ class HistoryChart extends nodes.Node {
   slots {
     ["chart"] = new slotMod.Slot {
       fetch = historyProv.of(entity, window)
-      transform = chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
+      transform = chartMod.chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
     }
   }
 
-  function over(w: Pick): HistoryChart = let (self = this) (self) { window = picked(w) }
+  /// A window from the providers, imported or handed in:
+  /// `.over((p) -> p.history.statistics(7.d, "hour"))`.
+  function over(w: providersMod.HistoryWindow): HistoryChart =
+    let (self = this) (self) { window = providersMod.historyWindow(w) }
 
   /// Draw at `w`×`h` instead of the default — wider for a full-width panel,
   /// narrower so labels read larger on a small cell.

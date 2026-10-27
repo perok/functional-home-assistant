@@ -266,11 +266,15 @@ enum Choice[+A] derives CanEqual:
   def resolve(env: Map[String, String]): Either[String, A] = this match
     case Fixed(a)            => Right(a)
     case Chosen(by, options) =>
-      val value = env.getOrElse(by, "")
-      options
-        .get(value)
-        .toRight(
-          s"'$value' is not one of ${options.keys.toList.sorted.mkString(", ")}"
+      env
+        .get(by)
+        .toRight(s"the variable '$by' has no value here")
+        .flatMap(value =>
+          options
+            .get(value)
+            .toRight(
+              s"'$value' is not one of ${options.keys.toList.sorted.mkString(", ")}"
+            )
         )
 
   def key(of: A => String): String = this match

@@ -56,6 +56,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/stage.pkl" as stageMod
         |import "@fh-dashboard/core/variable.pkl" as varMod
         |import "@fh-dashboard/providers/history.pkl" as historyProv
+        |import "@fh-dashboard/components/base/chart.pkl" as chartMod
         |import "@fh-dashboard/theme.pkl" as themeMod
         |
         |// The wire shape is spread across the library's modules, and reflection
@@ -64,7 +65,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, stageMod, varMod, historyProv, themeMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, stageMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
