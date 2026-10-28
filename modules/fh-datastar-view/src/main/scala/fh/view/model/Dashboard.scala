@@ -461,7 +461,7 @@ object SignalBind:
     Decoder[String].emap(s => parse(s).toRight(s"unknown signal binding: $s"))
 
 /** A card in the shared library. What it reads is its `template`'s names
-  * ([[fh.view.runtime.Templates.reads]]), which `validate` holds every node of
+  * ([[fh.view.runtime.Templates.card]]), which `validate` holds every node of
   * it to.
   *
   *   - `wrapAsCell`: off only for a card whose root must stay a direct child of
@@ -1176,13 +1176,25 @@ case class Dashboard(
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
-  ): List[String] = errors(locateTransform)
+  ): List[String] = errors(locateTransform, compiledCards)
 
-  private def errors(locateTransform: String => Option[String]): List[String] =
-    val cardReads: Map[String, Either[String, Templates.Reads]] =
-      cards.map((name, cd) =>
-        name -> Templates.reads(cd.template, cd.regions.keySet)
+  // Each template once, theme classes applied, so what validation reads is
+  // what renders.
+  private def compiledCards: Map[String, Either[String, Templates.Card]] =
+    cards.map((name, cd) =>
+      name -> Templates.card(
+        name,
+        theme.classes.rewriteTemplate(cd.template),
+        cd.regions.keySet
       )
+    )
+
+  private def errors(
+      locateTransform: String => Option[String],
+      compiled: Map[String, Either[String, Templates.Card]]
+  ): List[String] =
+    val cardReads: Map[String, Either[String, Templates.Reads]] =
+      compiled.view.mapValues(_.map(_.reads)).toMap
 
     // A section marks its names optional, and the library guards one name by
     // another's section (`{{#service}}…{{targetId}}`), so only a name outside
@@ -1364,9 +1376,8 @@ case class Dashboard(
             )
         }
         val rawHole =
-          cards.get(cardName).flatMap { cd =>
-            val hasRaw =
-              Dashboard.rawHole(name).findFirstIn(cd.template).isDefined
+          cardReads.get(cardName).flatMap(_.toOption).flatMap { reads =>
+            val hasRaw = reads.raw(name)
             src.stage match {
               case Transform.Stage.Passthrough if hasRaw =>
                 Some(
@@ -2326,15 +2337,22 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(cl => initialKeys(cl.node))
 
-  /** [[validate]] plus the compiled transforms and parsed fetches, so the
-    * renderer never recompiles or defends against a bad expression.
+  /** [[validate]] plus the compiled transforms and templates, so the renderer
+    * never recompiles or defends against a bad expression.
     */
   def validated(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
-    errors(locateTransform) match
+    val compiled = compiledCards
+    errors(locateTransform, compiled) match
       case Nil =>
-        Right(Dashboard.Validated(this, compileTransforms))
+        Right(
+          Dashboard.Validated(
+            this,
+            compileTransforms,
+            Templates(compiled.collect { case (n, Right(c)) => n -> c })
+          )
+        )
       case errs => Left(errs)
 
   // Only after `validate` proved each compiles, so a `Left` cannot occur.
@@ -2431,17 +2449,13 @@ object Dashboard:
       reach: Option[CallReach]
   )
 
-  private[model] def rawHole(name: String): scala.util.matching.Regex =
-    ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(
-      name
-    ) + "\\s*\\}\\}\\}").r
-
   /** Constructed only by [[Dashboard.validated]]: the type is the proof, so its
     * constructor, `apply` and `copy` are private to the model.
     */
   case class Validated private[model] (
       dashboard: Dashboard,
       transforms: Map[Transform.CelKey, Transform.Compiled],
+      templates: Templates,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.
       access: Access = Access.default

@@ -45,7 +45,8 @@ class HistoryReadings extends nodes.Node {
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = slotMod.labelSlot(entity, null)
-    ["unit"] = entity.unit_of_measurement ?? ""
+    // Finished, so the template places it bare: " °C", or "" for no unit.
+    ["postfix"] = entity.unit_of_measurement.ifNonNull((u) -> " " + u) ?? ""
     // No `transform`: a fetch slot's default stage is passthrough.
     ["readings"] = new slotMod.Slot { fetch = historyProv.of(entity, window) }
   }
@@ -62,7 +63,7 @@ const local readingsSignal: String = "_hist_{{id}}"
 // One reading over the signal's values, rounded, with the unit; a dash when the
 // window holds nothing. `p` is the values, nulls dropped.
 const local function stat(of: String): String =
-  "(p => p.length ? Math.round(\(of) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')" +
+  "(p => p.length ? Math.round(\(of) * 10) / 10 + '{{postfix}}' : '–')" +
     "($\(readingsSignal).points.map(x => x[1]).filter(v => v !== null))"
 
 // How many hours the answer spans, from the timestamps.

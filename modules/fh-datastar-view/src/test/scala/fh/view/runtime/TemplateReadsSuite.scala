@@ -1,15 +1,16 @@
 package fh.view.runtime
 
-/** What [[Templates.reads]] finds in a template: the names a node must set, the
+/** What [[Templates.card]] reads off a template: the names a node must set, the
   * names it may, and the shape of each region's section.
   */
 class TemplateReadsSuite extends munit.FunSuite:
 
   private def reads(tpl: String, regions: String*): Templates.Reads =
-    Templates.reads(tpl, regions.toSet).fold(e => fail(e), identity)
+    Templates.card("t", tpl, regions.toSet).fold(e => fail(e), _.reads)
 
   test("a placeholder outside every section is required; one inside is not") {
-    val r = reads("<p>{{state}} {{#unit}}{{unit}}{{/unit}}{{^icon}}x{{/icon}}</p>")
+    val r =
+      reads("<p>{{state}} {{#unit}}{{unit}}{{/unit}}{{^icon}}x{{/icon}}</p>")
     assertEquals(r.required, Set("state"))
     assertEquals(r.names, Set("state", "unit", "icon"))
   }
@@ -35,8 +36,13 @@ class TemplateReadsSuite extends munit.FunSuite:
     assertEquals(r.strayHtml, Set("", "kids"))
   }
 
+  test("raw names are the triple-braced ones, inside sections too") {
+    val r = reads("{{a}}{{{b}}}{{#s}}{{{c}}}{{/s}}{{& d}}")
+    assertEquals(r.raw, Set("b", "c", "d"))
+  }
+
   test("a template that does not compile is a Left") {
-    assert(Templates.reads("{{#open}}", Set.empty).isLeft)
+    assert(Templates.card("t", "{{#open}}", Set.empty).isLeft)
   }
 
   test("validate: a name inside a section may go unset") {

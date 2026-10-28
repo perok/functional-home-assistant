@@ -22,13 +22,16 @@ yield `bool`. A text slot took any result: a list or a map rendered as Java's `t
 
 ### The template is the list
 
-`Templates.reads` compiles a template with a fresh mustache.java factory and walks the `Code` tree.
-Slot values are strings, so a name inside an ordinary section is still the node's own; only a
-region's section opens a scope, holding `html`.
+`Templates.card` compiles a template once, theme classes applied, with the rendering factory, and
+walks that `Code` tree; `Validated` carries the compiled templates to the renderer, as it carries
+the compiled CEL, so what is checked is what renders and nothing compiles twice (about 0.6 ms for
+the library's 16 templates). Slot values are strings, so a name inside an ordinary section is
+still the node's own; only a region's section opens a scope, holding `html`.
 
 **Per card:** a section holding `{{{html}}}` is a declared region; a declared region's section is
-exactly `{{{html}}}`; `html` appears nowhere else; the template compiles. This replaces the two
-regex checks.
+exactly `{{{html}}}`; `html` appears nowhere else; the template compiles. This replaces the three
+regex checks: the two on regions, and whether a fetch slot sits in a raw hole, which the tree
+answers too.
 
 **Per node:**
 
@@ -50,6 +53,11 @@ arguments, `checkRef`.
 **What the checks found:** `tab` and `selectEntityOption` set `tappable`, the colour wheel
 `busyVisual`, and none reads it (each now takes only the tap slots its template reads); one
 `RenderInputsSuite` fixture filled a region its card lacks, so its child never rendered.
+
+**No magic optional pieces in the library:** `historyReadings` set a raw `unit` and spliced the
+space in with `{{#unit}} {{unit}}{{/unit}}`. Its slot is now the finished `postfix` (`" °C"`, or
+`""`), placed bare. A section stays the way to say "optional"; a value a card always has is set,
+`""` for nothing.
 
 ### A text slot yields text
 

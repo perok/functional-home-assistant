@@ -5,21 +5,24 @@ import com.github.mustachejava.Mustache as JavaMustache
 import com.github.mustachejava.DefaultMustacheVisitor
 import com.github.mustachejava.MustacheVisitor
 import com.github.mustachejava.TemplateContext
-import fh.view.model.Dashboard
 
 import java.io.{Reader, StringReader, Writer}
 
-/** Card templates, compiled once per renderer. A missing slot renders empty.
-  *
-  * @param components
-  *   one template per card: a leaf's is its patch fragment.
+/** Card templates, compiled once by validation ([[Templates.card]]). A missing
+  * slot renders empty.
   */
-class Templates private (
-    val components: Map[String, JavaMustache],
-    // Regions whose `{{#name}}` body is exactly `{{{html}}}`, which the walk
-    // renders inline.
-    val inlineRegions: Map[String, Set[String]]
-)
+final class Templates(cards: Map[String, Templates.Card]):
+  /** One template per card: a leaf's is its patch fragment. */
+  val components: Map[String, JavaMustache] =
+    cards.view.mapValues(_.mustache).toMap
+
+  /** Regions whose `{{#name}}` body is exactly `{{{html}}}`, which the walk
+    * renders inline.
+    */
+  val inlineRegions: Map[String, Set[String]] =
+    cards.view
+      .mapValues(_.reads.regionBodies.collect { case (r, true) => r }.toSet)
+      .toMap
 
 object Templates {
 
@@ -90,7 +93,6 @@ object Templates {
   // any other body keeps the standard iterable — slower, same bytes.
   private class FhVisitor(df: DefaultMustacheFactory)
       extends DefaultMustacheVisitor(df) {
-    val inlined = scala.collection.mutable.Set.empty[String]
 
     // Encoded holes are left alone: nothing escaped is large enough to matter.
     override def value(
@@ -114,7 +116,6 @@ object Templates {
       if codes.length == 1 then codes(0).identity(sw)
       val exact = codes.length == 1 && sw.toString == "{{{html}}}"
       if exact then {
-        inlined += variable
         val _ = list.add(new FhRegionCode(tc, df, mustache, variable))
       } else {
         val _ = list.add(
@@ -177,16 +178,14 @@ object Templates {
     }
   }
 
-  /** Inline regions are read off the code tree, and the name is uniquified: the
-    * factory caches by name, so a reload would get the old template.
+  /** The name is uniquified: the factory caches by name, so a reload would get
+    * the old template.
     */
-  def compile(name: String, template: String): (JavaMustache, Set[String]) = {
-    val tpl = factory.compile(
+  def compile(name: String, template: String): JavaMustache =
+    factory.compile(
       stringReader(template),
       s"$name#${compileCounter.incrementAndGet()}"
     )
-    (tpl, collectInline(tpl.getCodes(), Set.empty))
-  }
 
   private val compileCounter = new java.util.concurrent.atomic.AtomicLong
 
@@ -204,27 +203,37 @@ object Templates {
     * @param strayHtml
     *   the sections placing `{{{html}}}` outside a declared region, `""` for
     *   the top level
+    * @param raw
+    *   the names placed unescaped, `{{{x}}}`
     */
   final case class Reads(
       names: Set[String],
       required: Set[String],
       regionBodies: Map[String, Boolean],
-      strayHtml: Set[String]
+      strayHtml: Set[String],
+      raw: Set[String]
   )
 
-  /** A fresh plain factory: what is read does not depend on the render seams,
-    * and nothing is cached.
-    */
-  def reads(template: String, regions: Set[String]): Either[String, Reads] =
+  /** A card's template as it renders, and what validation reads off it. */
+  final case class Card(mustache: JavaMustache, reads: Reads)
+
+  /** Read off the rendering tree itself, so what is checked is what renders. */
+  def card(
+      name: String,
+      template: String,
+      regions: Set[String]
+  ): Either[String, Card] =
     try
-      val tpl = new DefaultMustacheFactory()
-        .compile(stringReader(template), "template")
+      val tpl = compile(name, template)
       Right(
-        readCodes(
-          tpl.getCodes(),
-          regions,
-          Nil,
-          Reads(Set.empty, Set.empty, Map.empty, Set.empty)
+        Card(
+          tpl,
+          readCodes(
+            tpl.getCodes(),
+            regions,
+            Nil,
+            Reads(Set.empty, Set.empty, Map.empty, Set.empty, Set.empty)
+          )
         )
       )
     catch
@@ -249,12 +258,8 @@ object Templates {
           case r: IterableCode
               if regions.contains(r.getName) && !r
                 .isInstanceOf[NotIterableCode] =>
-            val body = r.getCodes()
-            val exact = body != null && body.length == 1 && {
-              val sw = new java.io.StringWriter()
-              body(0).identity(sw)
-              sw.toString == "{{{html}}}"
-            }
+            // [[FhVisitor]] made exactly the `{{{html}}}` bodies region codes.
+            val exact = r.isInstanceOf[FhRegionCode]
             acc.copy(regionBodies =
               acc.regionBodies.updatedWith(r.getName)(was =>
                 Some(was.forall(identity) && exact)
@@ -276,7 +281,9 @@ object Templates {
             acc.copy(
               names = acc.names ++ n,
               required =
-                if guards.isEmpty then acc.required ++ n else acc.required
+                if guards.isEmpty then acc.required ++ n else acc.required,
+              raw =
+                if v.isInstanceOf[FhValueCode] then acc.raw ++ n else acc.raw
             )
           case other => readCodes(other.getCodes(), regions, guards, acc)
       }
@@ -284,19 +291,6 @@ object Templates {
   // `{{a.b}}` reads `a`; `{{.}}` is the section's own value.
   private def nameOf(tag: String): Option[String] =
     Option(tag.takeWhile(_ != '.')).filter(_.nonEmpty)
-
-  private def collectInline(
-      codes: Array[com.github.mustachejava.Code],
-      acc: Set[String]
-  ): Set[String] =
-    if codes == null then acc
-    else
-      codes.foldLeft(acc) { (acc, code) =>
-        val acc2 = code match
-          case r: FhRegionCode => acc + r.getName
-          case _               => acc
-        collectInline(code.getCodes(), acc2)
-      }
 
   // A pool, not one list per thread: execution recurses through the engine,
   // and a shared list was cleared under the outer execute, truncating nested
@@ -325,17 +319,4 @@ object Templates {
   }
 
   private def stringReader(s: String): Reader = new StringReader(s)
-
-  def from(dashboard: Dashboard): Templates = {
-    val compiled = dashboard.cards.view.map { case (name, cd) =>
-      name -> compile(
-        name,
-        dashboard.theme.classes.rewriteTemplate(cd.template)
-      )
-    }.toMap
-    new Templates(
-      compiled.view.mapValues(_._1).toMap,
-      compiled.view.mapValues(_._2).toMap
-    )
-  }
 }
