@@ -283,8 +283,8 @@ class CardDef {
   /// inside a section may be absent, and every slot the node sets must be
   /// named here. The build checks both.
   template: String
-  /// The template places each as exactly `{{#name}}{{{html}}}{{/name}}`, eager
-  /// or baked. A structural card assigns `new Mapping { … }`: a null default
+  /// The template places each as `{{{name}}}`, eager or baked: once, and
+  /// outside every section. A structural card assigns `new Mapping { … }`: a null default
   /// has nothing to amend.
   regions: Mapping<String, Region>? = null
   /// The CSS this card's markup needs to work, emitted ahead of the theme's

@@ -251,7 +251,7 @@ class SetMembershipSuite extends ServerHarness {
   private def surfaceDynDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "dot" -> CardDef(
@@ -312,7 +312,7 @@ class SetMembershipSuite extends ServerHarness {
   private def nestedSurfaceDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "dot" -> CardDef("<span>{{state}}</span>")

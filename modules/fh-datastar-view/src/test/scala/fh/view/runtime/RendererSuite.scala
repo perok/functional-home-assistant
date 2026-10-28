@@ -49,11 +49,11 @@ class RendererSuite extends munit.FunSuite {
       """<a href="{{{action}}}">go</a>"""
     ),
     "col" -> CardDef(
-      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
+      """<div class="fh-col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
     "row" -> CardDef(
-      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
+      """<div class="fh-row">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
     // Shaped like the shipped `Tabs`, structure with a bar region and a baked
@@ -61,15 +61,15 @@ class RendererSuite extends munit.FunSuite {
     // on: a fixture whose shape drifted would be a different kind of card.
     "tabs" -> CardDef(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
-        """{{#children}}{{{html}}}{{/children}}</div>""" +
-        """<div id="{{hostId}}" class="fh-tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
+        """{{{children}}}</div>""" +
+        """<div id="{{hostId}}" class="fh-tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
       regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
     // The live header is a node in the bar region, so a title tick patches that
     // node and cannot reach the panel.
     "tabsLive" -> CardDef(
-      template = """<div><div class="tabs">{{#bar}}{{{html}}}{{/bar}}</div>""" +
-        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
+      template = """<div><div class="tabs">{{{bar}}}</div>""" +
+        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
       regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
     ),
     "tabsBar" -> CardDef("""<span>{{title}}</span>""")
@@ -1010,7 +1010,7 @@ class RendererSuite extends munit.FunSuite {
     def dash(card: CardDef) =
       Dashboard(Map("box" -> card), LayoutNode.Component("box"))
 
-    // The hole is the same section spelling for both fills, so the check is
+    // The hole is the same raw spelling for both fills, so the check is
     // presence.
     val eagerMissing = dash(
       CardDef("<div>nothing</div>", regions = Map("kids" -> Region()))
@@ -1018,32 +1018,29 @@ class RendererSuite extends munit.FunSuite {
     assert(
       eagerMissing
         .validate()
-        .exists(e => e.contains("kids") && e.contains("{{#kids}}")),
+        .exists(e => e.contains("kids") && e.contains("{{{kids}}}")),
       clue = eagerMissing.validate()
     )
 
     val bakedWrongHole = dash(
       CardDef(
-        // A raw var where the baked region needs a section: the likeliest real
-        // mistake, and it renders nothing.
-        "<div>{{{panel}}}</div>",
+        // A section where the hole goes: what an older workspace card has.
+        "<div>{{#panel}}{{{html}}}{{/panel}}</div>",
         regions = Map("panel" -> Region(Region.Baked))
       )
     )
     assert(
       bakedWrongHole
         .validate()
-        .exists(e =>
-          e.contains("panel") && e.contains("{{#panel}}{{{html}}}{{/panel}}")
-        ),
+        .exists(e => e.contains("panel") && e.contains("write {{{panel}}}")),
       clue = bakedWrongHole.validate()
     )
 
-    // Non-vacuous: the section spelling, placed for both fills, is accepted.
+    // Non-vacuous: the raw hole, placed for both fills, is accepted.
     assertEquals(
       dash(
         CardDef(
-          """<div>{{#kids}}{{{html}}}{{/kids}}<i id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</i></div>""",
+          """<div>{{{kids}}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
           regions = Map("kids" -> Region(), "panel" -> Region(Region.Baked))
         )
       ).validate(),
@@ -1062,7 +1059,7 @@ class RendererSuite extends munit.FunSuite {
   test("regions decode from a region object, and from nothing else") {
     def decode(regionsField: String) = io.circe.parser
       .decode[Dashboard](
-        s"""{"cards":{"col":{"template":"<div>{{#children}}{{{html}}}{{/children}}</div>"},
+        s"""{"cards":{"col":{"template":"<div>{{{children}}}</div>"},
            | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
            | "card":{"kind":"Component","card":"col"$regionsField}}""".stripMargin
       )
@@ -1099,8 +1096,8 @@ class RendererSuite extends munit.FunSuite {
     */
   test("two eager regions splice separately and address separately") {
     val two = CardDef(
-      template = """<div><b>{{#children}}{{{html}}}{{/children}}</b>""" +
-        """<i>{{#extra}}{{{html}}}{{/extra}}</i></div>""",
+      template = """<div><b>{{{children}}}</b>""" +
+        """<i>{{{extra}}}</i></div>""",
       regions = Map("children" -> Region(), "extra" -> Region())
     )
     def leaf(v: String) =
@@ -1218,7 +1215,7 @@ class RendererSuite extends munit.FunSuite {
   test("structure may READ an entity, as long as the slot is not reactive") {
     def dash(mode: String) = Dashboard(
       cards + ("box" -> CardDef(
-        """<div title="{{name}}">{{#children}}{{{html}}}{{/children}}</div>""",
+        """<div title="{{name}}">{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )),
       LayoutNode.Component(
@@ -1262,7 +1259,7 @@ class RendererSuite extends munit.FunSuite {
     def card(region: String) = Dashboard(
       Map(
         "box" -> CardDef(
-          s"<div>{{#$region}}{{{html}}}{{/$region}}</div>",
+          s"<div>{{{$region}}}</div>",
           regions = Map(region -> Region())
         )
       ),
@@ -1473,8 +1470,7 @@ class RendererSuite extends munit.FunSuite {
     // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
     // own. The region's id is `Surface.hostId`.
     cards + ("ifhost" -> CardDef(
-      template =
-        """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))
 
@@ -1632,7 +1628,7 @@ class RendererSuite extends munit.FunSuite {
     )
 
     val undeclared =
-      dash(CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"))
+      dash(CardDef("<div>{{{children}}}</div>"))
     assert(
       undeclared
         .validate()
@@ -1642,7 +1638,7 @@ class RendererSuite extends munit.FunSuite {
 
     val declared = dash(
       CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       )
     )
@@ -1669,15 +1665,15 @@ class RendererSuite extends munit.FunSuite {
   test("a live head beside its members carries none of them") {
     val cards = Map(
       "host" -> CardDef(
-        template = """{{#head}}{{{html}}}{{/head}}""" +
-          """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        template = """{{{head}}}""" +
+          """<div>{{{children}}}</div>""",
         regions = Map("head" -> Region(), "children" -> Region())
       ),
       "head" -> CardDef("""<span>{{state}}</span>"""),
       // A member that is itself a container broke this when the answer was a
       // walk over what the children carried.
       "member" -> CardDef(
-        template = """<div>m{{#children}}{{{html}}}{{/children}}</div>""",
+        template = """<div>m{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
     )
@@ -1828,8 +1824,8 @@ class RendererSuite extends munit.FunSuite {
   private val splitCards = cards + ("split" -> CardDef(
     // No `{{hostId}}`: a region needs an id only where `bakeAs` names it for
     // filling.
-    template = """<div class="fh-col">{{#bar}}{{{html}}}{{/bar}}""" +
-      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div></div>""",
+    template = """<div class="fh-col">{{{bar}}}""" +
+      """<div class="panel">{{{children}}}</div></div>""",
     regions = Map("bar" -> Region(), "children" -> Region())
   )) + ("bar" -> CardDef(
     """<div class="bar">{{state}}</div>"""

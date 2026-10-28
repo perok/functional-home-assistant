@@ -490,8 +490,7 @@ case class CardDef(
   /** Eager and baked regions are spelled alike, which lets the document walk
     * thread both into one buffer (issue #237).
     */
-  def holeOf(name: String): String =
-    "{{#" + name + "}}{{{html}}}{{/" + name + "}}"
+  def holeOf(name: String): String = "{{{" + name + "}}}"
 
   def isStructure: Boolean = regions.nonEmpty
 
@@ -1212,7 +1211,14 @@ case class Dashboard(
           val undeclared = (filled -- cd.regions.keySet).toList.sorted.map(r =>
             s"$nodeId: fills region '$r', which card '$cardName' does not " +
               "declare — its children would never render"
-          )
+          ) ++ slotNames
+            .intersect(cd.regions.keySet)
+            .toList
+            .sorted
+            .map(r =>
+              s"$nodeId: slot '$r' is named like card '$cardName''s region, " +
+                "whose children its hole shows instead — rename the slot"
+            )
           val names = cardReads.get(cardName).flatMap(_.toOption)
           val known = slotNames ++ Dashboard.injectedStatic ++
             cd.regions.keySet ++
@@ -1821,39 +1827,38 @@ case class Dashboard(
         .flatMap(s => walk(s._2.content))).distinct
     }
 
-    // `{{{html}}}` outside a declared region reads as a leaf while its bytes
-    // carry children, so a patch re-sends them; a region with no hole shows
-    // nothing. Both are silent.
+    // A region renders its children under fixed ids, so it is placed exactly
+    // once and unconditionally: twice duplicates the ids, inside a section the
+    // server patches ids the page may not have, and with no hole nothing shows.
     val regionHoleErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
         cardReads(name) match
           case Left(e) =>
             List(s"card '$name': its template does not compile: $e")
           case Right(reads) =>
-            reads.strayHtml.toList.sorted.map {
-              case "" =>
-                s"card '$name': its template places {{{html}}} outside any " +
-                  "region — only a region's section has children to splice"
-              case r =>
-                s"card '$name': its template splices children into '$r' but " +
-                  s"declares no region '$r' — the card would read as a leaf " +
-                  "while its bytes carry its children, so a patch would " +
-                  "re-send them"
-            } ++ cd.regions.toList.sortBy(_._1).flatMap { case (r, region) =>
-              reads.regionBodies.get(r) match
-                case None =>
-                  List(
-                    s"card '$name': declares region '$r' (${region.fill}) but " +
-                      s"its `template` places no ${cd.holeOf(r)} hole for " +
-                      "it — nothing would ever appear there"
-                  )
-                case Some(false) =>
-                  List(
-                    s"card '$name': region '$r''s section holds more than " +
-                      s"{{{html}}} — write it as ${cd.holeOf(r)}, and put " +
-                      "markup around the section or in the child"
-                  )
-                case Some(true) => Nil
+            cd.regions.toList.sortBy(_._1).flatMap { case (r, region) =>
+              val hole = cd.holeOf(r)
+              if reads.misplacedRegions(r) then
+                List(
+                  s"card '$name': region '$r' is placed other than as $hole " +
+                    "outside every section (escaped, as a section, or " +
+                    s"inside one) — write $hole, where {{#$r}}{{{html}}}{{/$r}} " +
+                    "was"
+                )
+              else
+                reads.regionHoles.getOrElse(r, 0) match
+                  case 0 =>
+                    List(
+                      s"card '$name': declares region '$r' (${region.fill}) " +
+                        s"but its `template` places no $hole hole for it — " +
+                        "nothing would ever appear there"
+                    )
+                  case 1 => Nil
+                  case n =>
+                    List(
+                      s"card '$name': places region '$r' $n times — its " +
+                        "children would render twice under the same ids"
+                    )
             }
       }
 

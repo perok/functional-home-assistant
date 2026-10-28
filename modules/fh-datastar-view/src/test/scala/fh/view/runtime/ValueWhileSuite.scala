@@ -50,7 +50,7 @@ class ValueWhileSuite extends munit.FunSuite {
     cards = Map(
       "bar" -> bar,
       "col" -> CardDef(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        """<div>{{{children}}}</div>""",
         regions = Map(LayoutNode.DefaultRegion -> Region())
       )
     ),

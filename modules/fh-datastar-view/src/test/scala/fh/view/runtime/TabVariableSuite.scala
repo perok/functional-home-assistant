@@ -25,7 +25,7 @@ import scala.concurrent.duration.*
 class TabVariableSuite extends ServerHarness {
 
   private val barCard = CardDef(
-    """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+    """<div id="{{hostId}}">{{{panel}}}</div>""",
     regions = Map("panel" -> Region(Region.Baked))
   )
   private val textCard = CardDef("<p>{{text}}</p>")

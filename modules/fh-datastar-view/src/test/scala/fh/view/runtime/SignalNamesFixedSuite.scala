@@ -22,7 +22,7 @@ class SignalNamesFixedSuite extends munit.FunSuite {
 
   private val cards = Map(
     "col" -> CardDef(
-      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     ),
     "card" -> CardDef(

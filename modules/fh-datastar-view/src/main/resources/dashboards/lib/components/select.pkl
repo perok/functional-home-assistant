@@ -173,7 +173,7 @@ class SelectButtons extends Select {
   card = "selectButtons"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = #"<div class="fh-tabs fh-select">{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-tabs fh-select">{{{children}}}</div>"#
     css = """
       .fh-select>.fh-cell{display:contents}
       """
@@ -184,7 +184,7 @@ class SelectButtons extends Select {
 const local function menuTemplate(chosen: String): String =
   #"<details class="fh-select-menu" data-on:click__outside="el.open = false"><summary class="fh-select-summary">"# +
     chosen +
-    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{#children}}{{{html}}}{{/children}}</div></details>"#
+    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{{children}}}</div></details>"#
 
 // An open list hangs over the cells after it, and a later cell painted above it
 // once (a chart's svg took the click meant for an option), so the open menu and
@@ -247,7 +247,7 @@ class VarSelectDropdown extends Select {
   card = "selectVarDropdown"
   cardDef = new nodes.CardDef {
     regions = (optionsRegion) { ...panelRegion }
-    template = menuTemplate(#"<span id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</span>"#)
+    template = menuTemplate(#"<span id="{{hostId}}">{{{panel}}}</span>"#)
     css = menuCss
   }
   inlineSurfaces =
@@ -263,7 +263,7 @@ class SelectCycle extends Select {
   card = "selectCycle"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = #"<div class="fh-select-cycles fh-select-marked">{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-select-cycles fh-select-marked">{{{children}}}</div>"#
     css = cycleCss
   }
   cycling = true
@@ -276,7 +276,7 @@ class VarSelectCycle extends Select {
   card = "selectVarCycle"
   cardDef = new nodes.CardDef {
     regions = panelRegion
-    template = #"<div id="{{hostId}}" class="fh-select-cycles">{{#panel}}{{{html}}}{{/panel}}</div>"#
+    template = #"<div id="{{hostId}}" class="fh-select-cycles">{{{panel}}}</div>"#
     css = cycleCss
   }
   cycling = true
@@ -350,7 +350,7 @@ class Chooser extends nodes.Node {
       ["bar"] = new nodes.Region {}
     }
     template = """
-      <div class="fh-col">{{#bar}}{{{html}}}{{/bar}}{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col">{{{bar}}}{{{children}}}</div>
       """
   }
   vars { (bar.target as varMod.Variable).defaultingTo(defaultValue) }

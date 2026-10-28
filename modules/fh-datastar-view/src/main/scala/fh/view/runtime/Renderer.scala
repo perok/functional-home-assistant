@@ -1079,7 +1079,7 @@ class Renderer(validated: Dashboard.Validated) {
         Templates.run(
           plan.tpl,
           buf,
-          NodeContext(resolved, Map.empty, SlotForm.Patch)
+          NodeContext(resolved, SlotForm.Patch)
         )
         if (plan.wrapped) { val _ = buf.append("</div>") }
         buf.result
@@ -1212,11 +1212,6 @@ class Renderer(validated: Dashboard.Validated) {
         // (ADR 0017), document form only: a second `data-signals` on an element
         // is silently dropped by the browser.
         val wrapped = plan.wrapped
-        // Regions whose loop body is exactly `{{{html}}}` are traced into this
-        // buffer at the hole; any other template splices strings — slower,
-        // same bytes.
-        val inline = plan.inline
-
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
 
@@ -1247,14 +1242,15 @@ class Renderer(validated: Dashboard.Validated) {
             Templates.run(
               tpl,
               buf,
-              NodeContext(resolved, Map.empty, form)
+              NodeContext(resolved, form)
             )
           else {
-            val childrenHtml: Map[String, List[String]] =
-              c.regions.view.collect {
-                case (region, nodes) if !inline.contains(region) =>
-                  region -> nodes.zipWithIndex.map { case (child, i) =>
-                    tracedHtml(
+            val eager: Map[String, java.io.Writer => Unit] =
+              c.regions.map { (region, nodes) =>
+                region -> { (_: java.io.Writer) =>
+                  nodes.zipWithIndex.foreach { case (child, i) =>
+                    tracedInto(
+                      buf,
                       child,
                       childId(region, i, child),
                       idPrefix,
@@ -1265,62 +1261,37 @@ class Renderer(validated: Dashboard.Validated) {
                       within = withinOf(region, i)
                     )
                   }
-              }.toMap
-            val bakedHtml: Map[String, List[String]] =
-              bakeSel match {
-                case Some((region, sid)) if !inline.contains(region) =>
-                  renderSurfaceTraced(sid, states, selections, fragments)
-                    .map { t =>
-                      t.own.foreach { case (nid, p) => trace.own.put(nid, p) }
-                      t.seeded.foreach { case (nid, sg) =>
-                        trace.seeded.put(nid, sg)
-                      }
-                      Map(region -> List(t.html))
-                    }
-                    .getOrElse(Map.empty)
-                case _ => Map.empty
+                }
               }
             // A baked region walks the selected surface under its own ids.
-            val walk: Map[String, java.io.Writer => Unit] =
-              inline.view.collect {
-                case region if c.regions.contains(region) =>
-                  region -> { (_: java.io.Writer) =>
-                    c.regions(region).zipWithIndex.foreach { case (child, i) =>
-                      tracedInto(
-                        buf,
-                        child,
-                        childId(region, i, child),
-                        idPrefix,
-                        states,
-                        selections,
-                        fragments,
-                        trace,
-                        within = withinOf(region, i)
-                      )
+            // Not `++`: concatenating rebuilds the map on every structural node.
+            val holes: Map[String, java.io.Writer => Unit] =
+              bakeSel match {
+                case Some((region, sid)) if !eager.contains(region) =>
+                  eager.updated(
+                    region,
+                    { (_: java.io.Writer) =>
+                      dashboard.surfaces.get(sid).foreach { s =>
+                        val prefix = Renderer.surfacePrefix(sid)
+                        tracedInto(
+                          buf,
+                          s.content,
+                          LayoutNode.rootId(prefix, s.content),
+                          prefix,
+                          states,
+                          selections,
+                          fragments,
+                          trace
+                        )
+                      }
                     }
-                  }
-                case region if bakeSel.exists(_._1 == region) =>
-                  val sid = bakeSel.get._2
-                  region -> { (_: java.io.Writer) =>
-                    dashboard.surfaces.get(sid).foreach { s =>
-                      val prefix = Renderer.surfacePrefix(sid)
-                      tracedInto(
-                        buf,
-                        s.content,
-                        LayoutNode.rootId(prefix, s.content),
-                        prefix,
-                        states,
-                        selections,
-                        fragments,
-                        trace
-                      )
-                    }
-                  }
-              }.toMap
+                  )
+                case _ => eager
+              }
             Templates.run(
               tpl,
               buf,
-              NodeContext(resolved, childrenHtml ++ bakedHtml, form, walk)
+              NodeContext(resolved, form, holes)
             )
           }
         }
@@ -1532,47 +1503,33 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private case class NodeContext(
       resolved: Resolved,
-      childrenHtml: Map[String, List[String]],
       form: SlotForm,
-      // Set by the walks for inline regions; absent, the region codes splice
-      // `childrenHtml`.
-      regionWalk: Map[String, java.io.Writer => Unit] = Map.empty
+      // Each region the walk fills, written at its `{{{name}}}`.
+      override val writerHoles: Map[String, java.io.Writer => Unit] = Map.empty
   ) extends Templates.FhScope {
 
-    /** A region's children under its own name; an empty one is absent, so the
-      * section vanishes.
-      */
     def fhGet(name: String): AnyRef =
-      childrenHtml.get(name) match {
-        case Some(htmls) if htmls.nonEmpty =>
-          val list = new java.util.ArrayList[AnyRef](htmls.size)
-          htmls.foreach(h =>
-            list.add(java.util.Collections.singletonMap("html", h))
-          )
-          list
-        case _ =>
-          if (form.isPatch && resolved.signalSlots.contains(name)) ""
-          else {
-            // Flat, not nested `getOrElse`s: those defaults were capturing
-            // lambdas, 5.7% of a page open (`RenderBench.page`); a constant
-            // `null` default is not. No `Option` either, for the same reason.
-            //
-            // `AnyRef` because `paint` can hold a boxed `Boolean`, which must
-            // reach mustache as one: the string "false" is a truthy section.
-            var v: AnyRef | Null = resolved.bindings.getOrElse(name, null)
-            if (v == null) v = resolved.liveBindings.getOrElse(name, null)
-            if (v == null) {
-              val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
-              if (p != null) v = SlotValue.scoped(p)
-            }
-            if (v == null) {
-              val c: SlotValue | Null = resolved.constants.getOrElse(name, null)
-              if (c != null) v = SlotValue.scoped(c)
-            }
-            if (v == null) v = resolved.bake.getOrElse(name, null)
-            if (v == null) v = resolved.structural.getOrElse(name, null)
-            v
-          }
+      if (form.isPatch && resolved.signalSlots.contains(name)) ""
+      else {
+        // Flat, not nested `getOrElse`s: those defaults were capturing
+        // lambdas, 5.7% of a page open (`RenderBench.page`); a constant
+        // `null` default is not. No `Option` either, for the same reason.
+        //
+        // `AnyRef` because `paint` can hold a boxed `Boolean`, which must
+        // reach mustache as one: the string "false" is a truthy section.
+        var v: AnyRef | Null = resolved.bindings.getOrElse(name, null)
+        if (v == null) v = resolved.liveBindings.getOrElse(name, null)
+        if (v == null) {
+          val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
+          if (p != null) v = SlotValue.scoped(p)
+        }
+        if (v == null) {
+          val c: SlotValue | Null = resolved.constants.getOrElse(name, null)
+          if (c != null) v = SlotValue.scoped(c)
+        }
+        if (v == null) v = resolved.bake.getOrElse(name, null)
+        if (v == null) v = resolved.structural.getOrElse(name, null)
+        v
       }
   }
 
@@ -1598,7 +1555,6 @@ class Renderer(validated: Dashboard.Validated) {
       ownRendering: Boolean,
       declaresSignals: Boolean,
       wrapped: Boolean,
-      inline: Set[String],
       nodeCount: Int
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
@@ -1759,7 +1715,6 @@ class Renderer(validated: Dashboard.Validated) {
       ownRendering = ownRenderingOf(c),
       declaresSignals = c.bound.values.exists(Renderer.isSignalSlot),
       wrapped = !noWrapCards(c.card),
-      inline = templates.inlineRegions.getOrElse(c.card, Set.empty),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
     )
@@ -2100,7 +2055,6 @@ object Renderer {
   private final class PageScope(holes: Map[String, java.io.Writer => Unit])
       extends Templates.FhScope {
     def fhGet(name: String): AnyRef = null
-    def regionWalk: Map[String, java.io.Writer => Unit] = Map.empty
     override def writerHoles: Map[String, java.io.Writer => Unit] = holes
   }
 

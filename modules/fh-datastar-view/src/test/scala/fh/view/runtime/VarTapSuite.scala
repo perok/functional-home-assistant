@@ -39,7 +39,7 @@ class VarTapSuite extends ServerHarness {
   )
 
   private val panelCard = CardDef(
-    "<div>{{#children}}{{{html}}}{{/children}}</div>",
+    "<div>{{{children}}}</div>",
     regions = Map("children" -> Region())
   )
 

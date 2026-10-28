@@ -267,7 +267,7 @@ class SetNodeSuite extends ServerHarness {
     // what one child binds patches that child, not the whole member.
     val cards = tile ++ Map(
       "col" -> CardDef(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
     )
@@ -317,7 +317,7 @@ class SetNodeSuite extends ServerHarness {
     // tile, a registry fact and so a literal, is never re-rendered.
     val cards = tile ++ Map(
       "col" -> CardDef(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
     )
@@ -381,7 +381,7 @@ class SetNodeSuite extends ServerHarness {
     // luck.
     val cards = tile ++ Map(
       "col" -> CardDef(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
     )

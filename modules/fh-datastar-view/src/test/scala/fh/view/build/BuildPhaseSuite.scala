@@ -120,18 +120,36 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(errs, Nil)
   }
 
-  test("validate: a region's section holds exactly {{{html}}}") {
-    val errs = oneCard(
-      "{{#children}}<li>{{{html}}}</li>{{/children}}",
+  test("validate: a region is placed once, as {{{name}}}, outside sections") {
+    def errs(tpl: String) = oneCard(
+      tpl,
       Map.empty,
       regions = Map("children" -> Region())
     )
-    assert(errs.exists(_.contains("holds more than")), clue = errs)
+    assertEquals(errs("<div>{{{children}}}</div>"), Nil)
+    for tpl <- List(
+        "{{#children}}{{{html}}}{{/children}}",
+        "<div>{{children}}</div>",
+        "{{#busy}}{{{children}}}{{/busy}}"
+      )
+    do
+      assert(
+        errs(tpl).exists(_.contains("write {{{children}}}")),
+        clue = (tpl, errs(tpl))
+      )
+    assert(
+      errs("{{{children}}}{{{children}}}").exists(_.contains("2 times")),
+      clue = errs("{{{children}}}{{{children}}}")
+    )
   }
 
-  test("validate: {{{html}}} outside any section is rejected") {
-    val errs = oneCard("<div>{{{html}}}</div>", Map.empty)
-    assert(errs.exists(_.contains("outside any region")), clue = errs)
+  test("validate: a slot named like its card's region is rejected") {
+    val errs = oneCard(
+      "<div>{{{children}}}</div>",
+      Map("children" -> text),
+      regions = Map("children" -> Region())
+    )
+    assert(errs.exists(_.contains("named like")), clue = errs)
   }
 
   test("validate: a node filling a region its card lacks is rejected") {
@@ -696,7 +714,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       // The bake target must declare the region its surfaces name.
       cards = Map(
         "ok" -> CardDef(
-          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
@@ -744,7 +762,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val dash = Dashboard(
       cards = Map(
         "ok" -> CardDef(
-          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
@@ -775,7 +793,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       // The bake target must declare the region its surfaces name.
       cards = Map(
         "ok" -> CardDef(
-          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
@@ -830,7 +848,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
     val hasBranch = CardDef(
-      "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+      "<i>{{{branch}}}</i>",
       regions = Map("branch" -> Region(Region.Baked))
     )
 
@@ -849,7 +867,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(
       dash(
         CardDef(
-          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region())
         ),
         "branch"

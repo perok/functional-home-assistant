@@ -2,7 +2,7 @@
 
 Agreed in chat on 2026-10-28. Stacked on #654 (`card-slots-from-template`).
 
-**State:** planned.
+**State:** built; review, then delete this file.
 
 ## Why
 
@@ -62,16 +62,33 @@ These assert the old spelling's rules and are replaced, not weakened:
   is stray" become placement tests (raw, escaped, section, inside a section, twice).
 - `BuildPhaseSuite`: the region-body-shape and stray-`{{{html}}}` cases become an old-spelling
   case, a region inside a section, a region placed twice, and a slot named like a region.
-- `TemplatesBehaviourSuite`: the cases for the exact-body section and the non-inline splice go
-  with the code they cover; one case pins that a region hole streams its children into the writer.
+- `TemplatesBehaviourSuite`: the three region-loop cases go with the code they cover; one case pins
+  that a region hole streams its children into the writer, one that it renders nothing unfilled.
+- `RendererSuite` "a declared region whose template places no hole": the expected hole is
+  `{{{kids}}}`, and its wrong-hole case is now the section spelling.
+- `components.test.pkl`: the tile fact looks for `{{{features}}}`.
 
 ## Perf
 
-Expected equal or less work: the walk's streaming is unchanged, and each structural node stops
-building two maps per render. The one new cost is that `FhValueCode` checks a non-empty
-`writerHoles` map for every raw hole on a structural node. `RenderBench` before (#654's head) and
-after, same machine, numbers in the PR: `page`, `pageSignals`, `pageWalkStream`, `pageServe`,
-`mustache`, `tickRender`, `resumeMembers`, `wireCommon`.
+The walk's streaming is unchanged, and each structural node stops building two maps per render.
+`RenderBench`, `-f 2 -wi 4 -i 5 -prof gc`, #654's head against this branch, same machine;
+allocation is the steady number, times move ±10% run to run:
+
+| bench | B/op before | B/op after |
+|---|---|---|
+| page | 1 246 477 | 1 236 460 |
+| pageSignals | 1 442 755 | 1 421 204 |
+| pageWalkStream | 999 000 | 990 226 |
+| pageServe | 1 553 296 | 1 541 081 |
+| resumeMembers | 191 501 | 189 298 |
+| tickRender | 68 592 | 68 512 |
+| mustache | 392 001 | 392 001 |
+| wireCommon | 56 612 | 57 332 ± 1 147 |
+
+The first cut joined the baked and eager hole maps with `++`, which rebuilt the map on every
+structural node and put `wireCommon` 1.3 kB above its error bar; the baked hole is now added only
+when there is one. `page`, `resumeMembers` and `wireCommon` are measured after that fix; the other
+rows are from the first cut, so they are upper bounds.
 
 ## Docs
 

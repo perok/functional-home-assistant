@@ -37,13 +37,13 @@ class RenderCacheContentionSuite extends ServerHarness {
   private def leafDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
-          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          """{{{bar}}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       )
     ),
@@ -91,7 +91,7 @@ class RenderCacheContentionSuite extends ServerHarness {
   private def plainDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>")

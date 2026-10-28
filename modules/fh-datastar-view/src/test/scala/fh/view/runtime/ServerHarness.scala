@@ -163,8 +163,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       // target.
       "tabs" -> CardDef(
         template = """<div class="tabs">""" +
-          """{{#children}}{{{html}}}{{/children}}</div>""" +
-          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          """{{{children}}}</div>""" +
+          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
         regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
       )
     )
@@ -231,7 +231,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def liveLeafDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>")
@@ -303,13 +303,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   val ifCards = Map(
     "col" -> CardDef(
-      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     ),
     // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
     "ifhost" -> CardDef(
-      template =
-        """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ),
     "card" -> CardDef("<span>{{state}}</span>"),
@@ -368,13 +367,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def mixedTabsDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
-        template =
-          """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
@@ -645,13 +643,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def twoTabsDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
-        template =
-          """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),

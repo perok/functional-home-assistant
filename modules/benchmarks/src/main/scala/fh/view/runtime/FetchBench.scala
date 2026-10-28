@@ -179,7 +179,7 @@ object FetchBench {
     cards = RenderBench.cards ++ Map(
       "chart" -> CardDef("<div>{{{chart}}}</div>"),
       "host" -> CardDef(
-        """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+        """<div id="{{hostId}}">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),

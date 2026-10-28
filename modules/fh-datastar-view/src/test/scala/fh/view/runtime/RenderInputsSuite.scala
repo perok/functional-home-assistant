@@ -38,7 +38,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   private val cards = Map(
     "col" -> CardDef(
-      """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+      """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
     "card" -> CardDef(
@@ -49,7 +49,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // key is entity versions.
     "banner" -> CardDef(
       template =
-        """<div><i>{{bakeIndex}}</i>{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div></div>""",
+        """<div><i>{{bakeIndex}}</i>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
       regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
     ),
     "bannerBar" -> CardDef("""<b>{{title}}</b>"""),

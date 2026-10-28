@@ -179,7 +179,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
   keeps a per-node last-rendered cache; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
-  children unescaped via `{{#children}}{{{html}}}{{/children}}`; other raw author values (action
+  children unescaped at a raw hole named after the region, `{{{children}}}`; other raw author values (action
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.

@@ -502,7 +502,7 @@ facts {
     // tap.
     local row = t.indexOf(#"<div class="fh-tile"#)
     t.indexOf("data-on:click") > row
-    t.contains("</span></div>{{#features}}")
+    t.contains("</span></div>{{{features}}}")
     !t.take(row).contains("data-on:click")
     // Dimmed on the row too, so a tile refusing a press leaves its latch alone.
     !t.take(row).contains("fh-disabled")

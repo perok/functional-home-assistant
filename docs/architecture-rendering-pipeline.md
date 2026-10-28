@@ -1359,8 +1359,8 @@ The page's fetch answers are started before the response and awaited inside `bod
 head has been flushed, so a cold chart's fetch overlaps the browser fetching stylesheets.
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
-`regionWalk`, and `Sink` IS the writer the whole document goes through, shell included. Three things
-follow, and all are load-bearing:
+`writerHoles`, written at its `{{{name}}}`, and `Sink` IS the writer the whole document goes
+through, shell included. Three things follow, and all are load-bearing:
 
 - **`digesting` is what differs between a page and a patch.** A node's own fingerprint is a digest
   of a contiguous run of the walk's output, and that run is what lets a signal-less member's
@@ -1514,7 +1514,7 @@ Live list — delete an entry when it is answered, and say where the answer land
     a virtual thread.
   - **It collides with three synchronous-write invariants here**: `Sink.Streaming.digesting` takes
     a node's digest from its contiguous run (latched bytes bypass the sink, so digests and bytes
-    desynchronise, and `holds` with them), the region code writes children straight into the sink,
+    desynchronise, and `holds` with them), a region's hole writes children straight into the sink,
     and `RenderInputs` needs each read's version before the render. A latch failure also surfaces
     late, at close. So if built, do it in our `Sink` instead: a fetch hole hands the sink a deferred
     segment, and the body is a segment stream evaluated with fs2's order-preserving `parEvalMap`;

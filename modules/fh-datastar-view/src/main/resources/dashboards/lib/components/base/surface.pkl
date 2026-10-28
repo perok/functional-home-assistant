@@ -63,7 +63,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="fh-tabs">{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="fh-tab-panel">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="fh-tabs">{{{children}}}</div><div id="{{hostId}}" class="fh-tab-panel">{{{panel}}}</div></div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.
@@ -123,7 +123,7 @@ class If extends nodes.Node {
   // failed.
   cardDef = new nodes.CardDef {
     regions = new Mapping { ["branch"] = new nodes.Region { fill = "baked" } }
-    template = #"<div class="fh-ifhost" id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>"#
+    template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
   }
   cellClasses { "fh-cols-full" }
   hidden condition: pred.Predicate|varMod.ValueIs

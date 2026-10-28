@@ -107,11 +107,11 @@ class FetchDriftSuite extends munit.FunSuite {
         "chart" -> CardDef("<div>{{{chart}}}</div>"),
         "dot" -> CardDef("<span>{{state}}</span>"),
         "col" -> CardDef(
-          "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
         "host" -> CardDef(
-          """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )
       ),

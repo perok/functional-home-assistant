@@ -2147,7 +2147,7 @@ class PklBuildSuite extends munit.FunSuite {
        |  card = "probe"
        |  cardDef = new nodes.CardDef {
        |    regions = new Mapping { ["children"] = new nodes.Region {} }
-       |    template = #"<div>{{temp}}{{#children}}{{{html}}}{{/children}}</div>"#
+       |    template = #"<div>{{temp}}{{{children}}}</div>"#
        |  }
        |  slots { ["temp"] = $slot }
        |}

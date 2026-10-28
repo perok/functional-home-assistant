@@ -129,7 +129,7 @@ class ServerRoutesSuite extends ServerHarness {
     Dashboard(
       cards = Map(
         "col" -> CardDef(
-          "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         )
       ),
@@ -540,7 +540,7 @@ class ServerRoutesSuite extends ServerHarness {
     val r = Renderer.create(
       base.copy(
         cards = base.cards + ("tabs" -> CardDef(
-          """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )),
         card = LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
