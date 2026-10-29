@@ -29,7 +29,7 @@ class SharedPassSuite extends ServerHarness {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      "card" -> CardDef("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",

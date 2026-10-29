@@ -5,7 +5,14 @@ import fh.view.model.{ExprValue, SlotValue}
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.ast.CelExpr
 import dev.cel.common.navigation.CelNavigableAst
-import dev.cel.common.types.{CelType, ListType, MapType, SimpleType}
+import dev.cel.common.types.{
+  CelKind,
+  CelType,
+  ListType,
+  MapType,
+  OptionalType,
+  SimpleType
+}
 import dev.cel.compiler.{CelCompiler, CelCompilerFactory}
 import dev.cel.extensions.{CelExtensions, CelOptionalLibrary}
 import dev.cel.parser.CelParserFactory
@@ -200,6 +207,30 @@ object Cel {
   /** Typed `bool` exactly — not `dyn`, which may be anything. */
   def isBoolTyped(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
     resultType(src, env).contains(SimpleType.BOOL)
+
+  /** The type `src` yields when a text slot cannot show it: a list, map or
+    * timestamp would render as Java's `toString`. `dyn` passes, as in
+    * [[yieldsBool]].
+    */
+  def nonTextType(
+      src: String,
+      env: List[(String, ExprValue.Kind)]
+  ): Option[String] =
+    resultType(src, env).filterNot(isText).map(_.name)
+
+  private val textKinds: Set[CelKind] = Set(
+    CelKind.STRING,
+    CelKind.INT,
+    CelKind.UINT,
+    CelKind.DOUBLE,
+    CelKind.BOOL,
+    CelKind.DYN,
+    CelKind.NULL_TYPE
+  )
+
+  private def isText(t: CelType): Boolean = t match
+    case o: OptionalType => isText(o.parameters.get(0))
+    case _               => textKinds.contains(t.kind)
 
   /** None when it does not compile; [[parse]] reports that. */
   private def resultType(

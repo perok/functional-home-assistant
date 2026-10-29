@@ -114,6 +114,11 @@ reads it by truthiness and the string `"false"` is ON. Per tier: CEL by its chec
 exactly, since every shape's result is known at build time — a condition, or an all-Boolean
 `match` (what `c.isOn`/`c.stateIn` build), is a bool.
 
+A text slot's CEL must check to something a template can print: `string`, `int`, `uint`,
+`double`, `bool`, `null`, an `optional` of one, or `dyn`. A `list`, `map`, `timestamp`, `duration`
+or `bytes` is refused with a pointer to `str(…)`, since it would otherwise render as Java's
+`toString` (#637).
+
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
 `q.entity(l).stateIs("on")`). `active`, `disabled` and `classWhen` all take one. A condition IS the

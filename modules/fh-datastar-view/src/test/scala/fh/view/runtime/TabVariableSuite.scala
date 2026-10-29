@@ -28,7 +28,7 @@ class TabVariableSuite extends ServerHarness {
     """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
     regions = Map("panel" -> Region(Region.Baked))
   )
-  private val textCard = CardDef("<p>{{text}}</p>", slots = List("text"))
+  private val textCard = CardDef("<p>{{text}}</p>")
 
   private def panel(i: Int, text: String) =
     Surface(

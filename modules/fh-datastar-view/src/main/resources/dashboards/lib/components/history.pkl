@@ -23,7 +23,6 @@ class HistoryChart extends nodes.Node {
     template = """
       <div class="fh-card fh-chart">{{{chart}}}</div>
       """
-    slots { "chart" }
     // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled
     // by the browser to the cell.
     css = """

@@ -40,7 +40,7 @@ class RenderCacheContentionSuite extends ServerHarness {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
           """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
@@ -94,7 +94,7 @@ class RenderCacheContentionSuite extends ServerHarness {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      "card" -> CardDef("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",

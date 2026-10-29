@@ -40,8 +40,8 @@ class SetMembershipSuite extends ServerHarness {
 
   private def caseDash = Dashboard(
     cards = Map(
-      "bright" -> CardDef("<b>{{state}}</b>", slots = List("state")),
-      "dim" -> CardDef("<i>{{state}}</i>", slots = List("state"))
+      "bright" -> CardDef("<b>{{state}}</b>"),
+      "dim" -> CardDef("<i>{{state}}</i>")
     ),
     card = onSet(
       List("light.a", "light.b"),
@@ -61,8 +61,7 @@ class SetMembershipSuite extends ServerHarness {
   private def crossDash = Dashboard(
     cards = Map(
       "dot" -> CardDef(
-        "<span>{{state}}/{{extra}}</span>",
-        slots = List("state", "extra")
+        "<span>{{state}}/{{extra}}</span>"
       )
     ),
     card = onSet(
@@ -86,8 +85,8 @@ class SetMembershipSuite extends ServerHarness {
 
   private def literalCaseDash = Dashboard(
     cards = Map(
-      "live" -> CardDef("<b>{{state}}</b>", slots = List("state")),
-      "plain" -> CardDef("<i>{{label}}</i>", slots = List("label"))
+      "live" -> CardDef("<b>{{state}}</b>"),
+      "plain" -> CardDef("<i>{{label}}</i>")
     ),
     card = onSet(
       List("light.a", "light.b"),
@@ -256,8 +255,7 @@ class SetMembershipSuite extends ServerHarness {
         regions = Map("children" -> Region())
       ),
       "dot" -> CardDef(
-        "<span>{{state}}/{{level}}</span>",
-        slots = List("state", "level")
+        "<span>{{state}}/{{level}}</span>"
       )
     ),
     card = LayoutNode.Component("col"),
@@ -317,7 +315,7 @@ class SetMembershipSuite extends ServerHarness {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      "dot" -> CardDef("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component("col"),
     surfaces = Map(

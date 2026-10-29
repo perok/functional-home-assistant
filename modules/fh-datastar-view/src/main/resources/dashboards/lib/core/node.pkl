@@ -278,12 +278,15 @@ const cellStylePrefix: String = "cell.style:"
 /// (ADR 0012). A card that wants its own bytes to change puts that markup in a
 /// region, as a node ([[SliderHead]]).
 class CardDef {
+  /// Mustache, and the card's list of inputs: a name outside every section
+  /// must be a slot the node sets (or `id`, `hostId`, `dashboardSlug`), one
+  /// inside a section may be absent, and every slot the node sets must be
+  /// named here. The build checks both.
   template: String
-  /// The template must place a hole for each: `{{#name}}{{{html}}}{{/name}}`
-  /// for an eager region, `{{{name}}}` for a baked one. A structural card
-  /// assigns `new Mapping { … }`: a null default has nothing to amend.
+  /// The template places each as exactly `{{#name}}{{{html}}}{{/name}}`, eager
+  /// or baked. A structural card assigns `new Mapping { … }`: a null default
+  /// has nothing to amend.
   regions: Mapping<String, Region>? = null
-  slots: Listing<String> = new {}
   /// The CSS this card's markup needs to work, emitted ahead of the theme's
   /// `styles` (ADR 0020). Colour goes through the `--fh-*` variables, never a
   /// framework's role name; a rule on a class the card does not emit belongs in

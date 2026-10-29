@@ -26,7 +26,7 @@ import org.http4s.Status
 class MemberNodesSuite extends ServerHarness {
 
   private val cards = Map(
-    "tile" -> CardDef("<b>{{state}}</b>", slots = List("state")),
+    "tile" -> CardDef("<b>{{state}}</b>"),
     "col" -> CardDef(
       """<div>{{#children}}{{{html}}}{{/children}}</div>""",
       regions = Map("children" -> Region())
@@ -35,7 +35,7 @@ class MemberNodesSuite extends ServerHarness {
       """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
       regions = Map("panel" -> Region(Region.Baked))
     ),
-    "text" -> CardDef("<p>{{text}}</p>", slots = List("text"))
+    "text" -> CardDef("<p>{{text}}</p>")
   )
 
   private def tile(id: String) = LayoutNode.Component(

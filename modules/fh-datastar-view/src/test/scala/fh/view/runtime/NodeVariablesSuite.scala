@@ -17,10 +17,9 @@ import fh.view.testkit.DashboardBuilders.declared
 class NodeVariablesSuite extends munit.FunSuite {
 
   private val chartCard = CardDef(
-    "<div>{{{chart}}}</div>",
-    slots = List("chart")
+    "<div>{{{chart}}}</div>"
   )
-  private val plainCard = CardDef("<span>{{name}}</span>", slots = List("name"))
+  private val plainCard = CardDef("<span>{{name}}</span>")
   private val boxCard = CardDef(
     "<div>{{#children}}{{{html}}}{{/children}}</div>",
     regions = Map("children" -> Region())

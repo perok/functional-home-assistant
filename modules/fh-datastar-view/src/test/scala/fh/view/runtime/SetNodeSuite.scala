@@ -36,7 +36,7 @@ class SetNodeSuite extends ServerHarness {
     v.change(next).map(elementPatches)
 
   private val tile = Map(
-    "tile" -> CardDef("<b>{{state}}</b>", slots = List("state"))
+    "tile" -> CardDef("<b>{{state}}</b>")
   )
 
   private val whileOn: Predicate =

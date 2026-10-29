@@ -136,7 +136,7 @@ case class RenderInputs(
 class Renderer(validated: Dashboard.Validated) {
 
   private val dashboard = validated.dashboard
-  private val templates = Templates.from(dashboard)
+  private val templates = validated.templates
   // Every CEL program, once per distinct source and names. Looked up when a
   // node is planned ([[Planned]]), never by a paint.
   private val programs = validated.transforms
@@ -598,7 +598,7 @@ class Renderer(validated: Dashboard.Validated) {
     val chrome =
       if (dashboard.theme.chrome.nonEmpty) dashboard.theme.chrome
       else """<main class="container" id="dashboard">{{{body}}}</main>"""
-    Templates.compile("chrome", chrome)._1
+    Templates.compile("chrome", chrome)
   }
 
   /** What a repaint `inner`-patches into `#dashboard`, with the per-node trace
@@ -937,7 +937,7 @@ class Renderer(validated: Dashboard.Validated) {
     ): (Map[String, String], Option[(String, String)]) = {
       val sid = group(idx)
       (
-        Map("bakeIndex" -> idx.toString),
+        Map(Dashboard.BakeIndexVar -> idx.toString),
         dashboard.surfaces(sid).bakeAs.map(as => as -> sid)
       )
     }

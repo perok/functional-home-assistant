@@ -114,7 +114,6 @@ class SliderHead extends nodes.ActiveNode {
       """
     // `state` is not declared: a grouped head omits it. `label` is the toggle
     // button's `aria-label`.
-    slots { "label"; "value"; "service"; "targetKind"; "targetId"; "min"; "max" }
   }
 }
 
@@ -130,7 +129,6 @@ class SliderText extends nodes.Node {
       """
     // Guarded by the slot's presence, not its value: a live one is blank in the
     // patch form, and a value guard would delete its element.
-    slots { "label" }
   }
 }
 

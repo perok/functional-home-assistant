@@ -37,7 +37,6 @@ open class Switch extends nodes.ActiveNode {
         </label></div>
       </article>
       """
-    slots { "label" }
     // The tile's row (`core/css.pkl`), ending on the switch. A long label must
     // never shrink the switch off the card.
     css = """

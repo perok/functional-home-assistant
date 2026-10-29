@@ -71,8 +71,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val d = Dashboard(
       cards = Map(
         "card" -> CardDef(
-          """<div id="{{id}}">{{label}}</div>""",
-          slots = List("id", "label")
+          """<div id="{{id}}">{{label}}</div>"""
         )
       ),
       card = LayoutNode.Component(card = "card")
@@ -80,6 +79,86 @@ class BuildPhaseSuite extends munit.FunSuite {
     val errs = d.validate()
     assert(errs.exists(_.contains("label")), clue = errs)
     assert(!errs.exists(_.contains("missing slots: id")), clue = errs)
+  }
+
+  private def oneCard(
+      template: String,
+      slots: Map[String, SlotSource],
+      regions: Map[String, Region] = Map.empty,
+      filled: Map[String, List[LayoutNode]] = Map.empty
+  ): List[String] =
+    Dashboard(
+      cards = Map(
+        "card" -> CardDef(template, regions = regions),
+        "leaf" -> CardDef("<i></i>")
+      ),
+      card = LayoutNode.Component("card", slots = slots, regions = filled)
+    ).validate()
+
+  private val text = SlotSource(literal = Some("x"))
+
+  test("validate: a slot no template name reads is reported") {
+    val errs =
+      oneCard("<b>{{label}}</b>", Map("label" -> text, "lable" -> text))
+    assert(errs.exists(_.contains("never reads slots: lable")), clue = errs)
+  }
+
+  test("validate: a misspelt section leaves its slot unread") {
+    val errs = oneCard("{{#rond}}r{{/rond}}", Map("round" -> text))
+    assert(errs.exists(_.contains("never reads slots: round")), clue = errs)
+  }
+
+  test("validate: a derived name reads its slot; the route is the server's") {
+    val errs = oneCard(
+      "<b {{{label__bind}}}></b>",
+      Map(
+        "label" -> text,
+        Dashboard.ServiceSlot -> text,
+        Dashboard.TargetIdSlot -> text
+      )
+    )
+    assertEquals(errs, Nil)
+  }
+
+  test("validate: a region's section holds exactly {{{html}}}") {
+    val errs = oneCard(
+      "{{#children}}<li>{{{html}}}</li>{{/children}}",
+      Map.empty,
+      regions = Map("children" -> Region())
+    )
+    assert(errs.exists(_.contains("holds more than")), clue = errs)
+  }
+
+  test("validate: {{{html}}} outside any section is rejected") {
+    val errs = oneCard("<div>{{{html}}}</div>", Map.empty)
+    assert(errs.exists(_.contains("outside any region")), clue = errs)
+  }
+
+  test("validate: a node filling a region its card lacks is rejected") {
+    val errs = oneCard(
+      "<div></div>",
+      Map.empty,
+      filled = Map("children" -> List(LayoutNode.Component("leaf")))
+    )
+    assert(errs.exists(_.contains("fills region 'children'")), clue = errs)
+  }
+
+  test("validate: a text slot yielding a list is rejected; dyn passes") {
+    def cel(src: String) =
+      oneCard(
+        "{{v}}",
+        Map("v" -> SlotSource(Some("sensor.t"), transform = src))
+      )
+    assert(
+      cel("[1, 2]").exists(_.contains("yields a list")),
+      clue = cel("[1, 2]")
+    )
+    assert(
+      cel("{'a': 1}").exists(_.contains("yields a map")),
+      clue = cel("{'a': 1}")
+    )
+    assertEquals(cel("attr['x']"), Nil)
+    assertEquals(cel("num(state) * 2.0"), Nil)
   }
 
   test("validate names a surface's node by the id it renders with") {
@@ -841,7 +920,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate checks card references inside a surface") {
     val d = Dashboard(
-      cards = Map("ok" -> CardDef("<i>{{label}}</i>", slots = List("label"))),
+      cards = Map("ok" -> CardDef("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
         slots = Map("label" -> SlotSource(literal = Some("x")))
@@ -859,8 +938,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     "validate reports a slot whose transform fails to compile (blocks load)"
   ) {
     val d = Dashboard(
-      cards =
-        Map("card" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
+      cards = Map("card" -> CardDef("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
         slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))

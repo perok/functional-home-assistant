@@ -392,9 +392,7 @@ class RenderBench {
     conditionViaCel = Transform
       .parse(Transform.CelKey("on", List("on" -> ExprValue.Kind.Bool)))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
-    entityTemplate = Templates
-      .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
-      .components("entity")
+    entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
     // from the live path that still produces them.
     painted = signalled
@@ -1792,9 +1790,7 @@ object RenderBench {
         """<div class="fh-bar" {{{fill__bind}}}></div>""" +
         """<span class="fh-fillcolor" {{{fillColor__bind}}}></span>""" +
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
-        """</div>""",
-      slots =
-        List("cls", "icon", "name", "state", "fill", "fillColor", "action")
+        """</div>"""
     ),
     "col" -> CardDef(
       template =

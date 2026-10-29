@@ -27,7 +27,6 @@ class EntityInfo extends nodes.Node {
         <pre class="fh-entity-info-attrs">{{attributes}}</pre>{{/attributes}}
       </div>
       """
-    slots { "entity_id"; "attributes" }
     // Capped, so a chatty entity cannot push the controls and ✕ off screen.
     css = """
       .fh-entity-info{display:flex;flex-direction:column;gap:.5rem}

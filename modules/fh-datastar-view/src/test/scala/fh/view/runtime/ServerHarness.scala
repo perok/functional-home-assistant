@@ -156,9 +156,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def tabsDash: Dashboard = {
     val cards = Map(
       "btn" ->
-        CardDef("<button>{{label}}</button>", slots = List("label")),
+        CardDef("<button>{{label}}</button>"),
       "card" ->
-        CardDef("<span>{{state}}</span>", slots = List("state")),
+        CardDef("<span>{{state}}</span>"),
       // Shaped like the shipped `Tabs`: the bar is structure, never a patch
       // target.
       "tabs" -> CardDef(
@@ -234,7 +234,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      "card" -> CardDef("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",
@@ -278,8 +278,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val isOn: Predicate = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
 
   def dynDash = Dashboard(
-    cards =
-      Map("dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
+    cards = Map("dot" -> CardDef("<span>{{state}}</span>")),
     // Sorted, which the placement assertions were written against; a set places
     // by authored order.
     card = onSet(
@@ -313,8 +312,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
         """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ),
-    "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-    "dot" -> CardDef("<b>{{state}}</b>", slots = List("state"))
+    "card" -> CardDef("<span>{{state}}</span>"),
+    "dot" -> CardDef("<b>{{state}}</b>")
   )
 
   def branchCard(entity: String): LayoutNode.Component =
@@ -372,7 +371,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
           """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
@@ -649,7 +648,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
           """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",

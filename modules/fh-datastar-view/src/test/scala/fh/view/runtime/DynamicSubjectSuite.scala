@@ -17,8 +17,7 @@ class DynamicSubjectSuite extends munit.FunSuite {
     ),
     // Names no entity of its own, so it grounds on this paint's `entity_id`.
     "card" -> CardDef(
-      """<span>{{state}}</span>""",
-      slots = List(Dashboard.SubjectSlot, "state")
+      """<span>{{state}}</span>"""
     )
   )
 

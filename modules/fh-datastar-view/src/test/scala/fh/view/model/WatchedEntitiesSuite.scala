@@ -10,7 +10,7 @@ import io.circe.Json
 class WatchedEntitiesSuite extends munit.FunSuite {
 
   private val tile = Map(
-    "tile" -> CardDef("<b>{{state}}</b>", slots = List("state"))
+    "tile" -> CardDef("<b>{{state}}</b>")
   )
 
   private def tileNode(id: String): LayoutNode.Component =

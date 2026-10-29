@@ -41,14 +41,12 @@ class RendererSuite extends munit.FunSuite {
 
   private val cards = Map(
     "card" -> CardDef(
-      """<div><span>{{state}}</span> {{unit}}</div>""",
-      slots = List("state")
+      """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
-    "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
-    "gauge" -> CardDef("""<i>{{bri}}</i>""", slots = List("bri")),
+    "btn" -> CardDef("""<button>{{label}}</button>"""),
+    "gauge" -> CardDef("""<i>{{bri}}</i>"""),
     "act" -> CardDef(
-      """<a href="{{{action}}}">go</a>""",
-      slots = List("action")
+      """<a href="{{{action}}}">go</a>"""
     ),
     "col" -> CardDef(
       """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
@@ -74,7 +72,7 @@ class RendererSuite extends munit.FunSuite {
         """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
       regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
     ),
-    "tabsBar" -> CardDef("""<span>{{title}}</span>""", slots = List("title"))
+    "tabsBar" -> CardDef("""<span>{{title}}</span>""")
   )
 
   // As `c.tabs` plus the hoist produce it: the surfaces carry `bakeInto:"c"`,
@@ -406,7 +404,6 @@ class RendererSuite extends munit.FunSuite {
     // identity slots (rejection test below).
     val bareCards = cards + ("naked" -> CardDef(
       """<a class="tab" data-tab="{{id}}"><span>{{state}}</span></a>""",
-      slots = List("state"),
       wrapAsCell = false
     ))
     val d = Dashboard(
@@ -428,7 +425,6 @@ class RendererSuite extends munit.FunSuite {
     // a build error.
     val bareCards = cards + ("naked" -> CardDef(
       "<a>{{state}}</a>",
-      slots = List("state"),
       wrapAsCell = false
     ))
     // A live-entity slot: the pushed morphs could never match an element.
@@ -1223,8 +1219,7 @@ class RendererSuite extends munit.FunSuite {
     def dash(mode: String) = Dashboard(
       cards + ("box" -> CardDef(
         """<div title="{{name}}">{{#children}}{{{html}}}{{/children}}</div>""",
-        regions = Map("children" -> Region()),
-        slots = List("name")
+        regions = Map("children" -> Region())
       )),
       LayoutNode.Component(
         "box",
@@ -1623,7 +1618,7 @@ class RendererSuite extends munit.FunSuite {
     def dash(container: CardDef) = Dashboard(
       cards = Map(
         "box" -> container,
-        "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+        "card" -> CardDef("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component(
         "box",
@@ -1678,7 +1673,7 @@ class RendererSuite extends munit.FunSuite {
           """<div>{{#children}}{{{html}}}{{/children}}</div>""",
         regions = Map("head" -> Region(), "children" -> Region())
       ),
-      "head" -> CardDef("""<span>{{state}}</span>""", slots = List("state")),
+      "head" -> CardDef("""<span>{{state}}</span>"""),
       // A member that is itself a container broke this when the answer was a
       // walk over what the children carried.
       "member" -> CardDef(
@@ -1837,8 +1832,7 @@ class RendererSuite extends munit.FunSuite {
       """<div class="panel">{{#children}}{{{html}}}{{/children}}</div></div>""",
     regions = Map("bar" -> Region(), "children" -> Region())
   )) + ("bar" -> CardDef(
-    """<div class="bar">{{state}}</div>""",
-    slots = List("state")
+    """<div class="bar">{{state}}</div>"""
   ))
 
   private def splitRenderer: Renderer =
@@ -1906,8 +1900,7 @@ class RendererSuite extends munit.FunSuite {
     val d = Dashboard(
       Map(
         "probe" -> CardDef(
-          names.map(v => s"$v=[{{$v}}]").mkString("<p>", " ", "</p>"),
-          slots = names
+          names.map(v => s"$v=[{{$v}}]").mkString("<p>", " ", "</p>")
         )
       ),
       LayoutNode.Component("probe"),

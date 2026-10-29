@@ -16,7 +16,6 @@ class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
     template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class:fh-chosen="{{{active}}}">{{label}}</a>"#
-    slots { "label"; "onclick"; "active" }
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
     // than shortened. Unwrapped, so a theme can style the bar's `> a`.
     wrapAsCell = false
@@ -28,7 +27,10 @@ class TabButton extends nodes.Node {
   slots {
     ["label"] = label
     ["active"] = active
-    for (k, v in tapMod.tapSlots(tapAction)) {
+    for (k, v in tapMod.tapRoute(tapAction)) {
+      [k] = v
+    }
+    for (k, v in tapMod.guardSlots(tapAction)) {
       [k] = v
     }
   }

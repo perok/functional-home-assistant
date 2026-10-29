@@ -83,7 +83,6 @@ open class Button extends nodes.ActiveNode {
     template = """
       {{#href}}<a class="fh-button {{#round}}fh-circle{{/round}}{{^round}}\(pressClass){{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}fh-circle{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
       """
-    slots { "label" }
     css = pressCss
   }
   hidden label: (String|slotMod.Expr)? = null
@@ -191,7 +190,6 @@ class Pill extends nodes.ActiveNode {
     template = """
       {{#href}}<a class="fh-chip{{#round}} fh-circle{{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}"{{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip{{#round}} fh-circle{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
-    slots { "label" }
     css = """
       .fh-cell>.fh-chip{background:var(--fh-surface);color:var(--fh-text);
       border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}

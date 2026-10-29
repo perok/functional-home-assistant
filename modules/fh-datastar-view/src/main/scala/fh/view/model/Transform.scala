@@ -339,6 +339,9 @@ object Transform {
 
   def isBoolTyped(key: CelKey): Boolean = Cel.isBoolTyped(key.src, key.env)
 
+  def nonTextType(key: CelKey): Option[String] =
+    Cel.nonTextType(key.src, key.env)
+
   /** Never throws into the render: a failure returns its message. */
   def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
     Cel.run(expr, entity, dashboardSlug)

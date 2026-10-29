@@ -57,8 +57,8 @@ class PullReadsSuite extends munit.FunSuite {
   private val renderer = Renderer.create(
     Dashboard(
       cards = Map(
-        "dot" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-        "chart" -> CardDef("<div>{{{chart}}}</div>", slots = List("chart")),
+        "dot" -> CardDef("<span>{{state}}</span>"),
+        "chart" -> CardDef("<div>{{{chart}}}</div>"),
         "col" -> CardDef(
           "<div>{{#children}}{{{html}}}{{/children}}</div>",
           regions = Map("children" -> Region())

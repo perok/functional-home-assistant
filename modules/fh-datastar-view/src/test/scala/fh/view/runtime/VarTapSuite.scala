@@ -35,8 +35,7 @@ class VarTapSuite extends ServerHarness {
     * `Series`, never the window, which is the split working.
     */
   private val chartCard = CardDef(
-    """<span>{{chart}}</span>""",
-    slots = List("chart")
+    """<span>{{chart}}</span>"""
   )
 
   private val panelCard = CardDef(
@@ -536,8 +535,7 @@ class VarTapSuite extends ServerHarness {
     */
   private val bothDash = dash.copy(
     cards = dash.cards + ("both" -> CardDef(
-      """<span>s={{state}} w={{chart}}</span>""",
-      slots = List("state", "chart")
+      """<span>s={{state}} w={{chart}}</span>"""
     )),
     card = LayoutNode.Component(
       "panel",
