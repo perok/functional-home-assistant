@@ -28,11 +28,11 @@ class MemberNodesSuite extends ServerHarness {
   private val cards = Map(
     "tile" -> CardDef("<b>{{state}}</b>"),
     "col" -> CardDef(
-      """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+      """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
     "host" -> CardDef(
-      """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+      """<div id="{{hostId}}">{{{panel}}}</div>""",
       regions = Map("panel" -> Region(Region.Baked))
     ),
     "text" -> CardDef("<p>{{text}}</p>")

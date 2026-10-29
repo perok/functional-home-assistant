@@ -1793,8 +1793,7 @@ object RenderBench {
         """</div>"""
     ),
     "col" -> CardDef(
-      template =
-        """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
+      template = """<div class="fh-col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     )
   )
@@ -1905,8 +1904,7 @@ object RenderBench {
   def flipDash(signals: Boolean = true): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        template =
-          """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),
       card = LayoutNode.Component(
@@ -2070,8 +2068,7 @@ object RenderBench {
     */
   def ifSetDash(leaves: Int, states: Map[String, EntityState]): Dashboard = {
     val withHost = cards + ("ifhost" -> CardDef(
-      template =
-        """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))
     val bare = Dashboard(

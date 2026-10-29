@@ -94,18 +94,16 @@ class LiveStreamSuite extends ServerHarness {
   private def tabsInBranchDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>"),
       "ifhost" -> CardDef(
-        template =
-          """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       ),
       "tabs" -> CardDef(
-        template =
-          """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
@@ -151,13 +149,12 @@ class LiveStreamSuite extends ServerHarness {
       // Pure structure, like the shipped `Column`: no markup of its own to
       // fingerprint.
       "col" -> CardDef(
-        template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        template = "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
-        template =
-          """<div>bar</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+        template = """<div>bar</div><div id="{{hostId}}">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
@@ -190,7 +187,7 @@ class LiveStreamSuite extends ServerHarness {
     val dash = Dashboard(
       cards = Map(
         "col" -> CardDef(
-          template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          template = "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
         "card" -> CardDef("<span>{{state}}</span>")
@@ -299,7 +296,7 @@ class LiveStreamSuite extends ServerHarness {
     val d = Dashboard(
       cards = ifCards ++ Map(
         "col" -> CardDef(
-          template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          template = "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         )
       ),
@@ -526,13 +523,13 @@ class LiveStreamSuite extends ServerHarness {
   private def serverHighlightDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        template = "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>"),
       "tabs" -> CardDef(
         template =
-          """<div class="active-{{bakeIndex}}">{{#bar}}{{{html}}}{{/bar}}</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          """<div class="active-{{bakeIndex}}">{{{bar}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       ),
       "bar" -> CardDef("""<div>{{title}}</div>""")
@@ -743,7 +740,7 @@ class LiveStreamSuite extends ServerHarness {
     val twoCards = Dashboard(
       cards = Map(
         "col" -> CardDef(
-          "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
         "card" -> CardDef("<span>{{state}}</span>")

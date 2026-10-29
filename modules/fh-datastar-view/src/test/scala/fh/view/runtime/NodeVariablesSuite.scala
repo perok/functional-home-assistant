@@ -21,7 +21,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   )
   private val plainCard = CardDef("<span>{{name}}</span>")
   private val boxCard = CardDef(
-    "<div>{{#children}}{{{html}}}{{/children}}</div>",
+    "<div>{{{children}}}</div>",
     regions = Map("children" -> Region())
   )
 

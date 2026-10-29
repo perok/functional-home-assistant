@@ -60,11 +60,11 @@ class PullReadsSuite extends munit.FunSuite {
         "dot" -> CardDef("<span>{{state}}</span>"),
         "chart" -> CardDef("<div>{{{chart}}}</div>"),
         "col" -> CardDef(
-          "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
         "tabs" -> CardDef(
-          """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+          """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )
       ),

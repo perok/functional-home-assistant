@@ -16,14 +16,6 @@ final class Templates(cards: Map[String, Templates.Card]):
   val components: Map[String, JavaMustache] =
     cards.view.mapValues(_.mustache).toMap
 
-  /** Regions whose `{{#name}}` body is exactly `{{{html}}}`, which the walk
-    * renders inline.
-    */
-  val inlineRegions: Map[String, Set[String]] =
-    cards.view
-      .mapValues(_.reads.regionBodies.collect { case (r, true) => r }.toSet)
-      .toMap
-
 object Templates {
 
   // mustache.java. A section whose value is "" is skipped, so optional pieces
@@ -72,13 +64,8 @@ object Templates {
   trait FhScope:
     def fhGet(name: String): AnyRef
 
-    /** Region name -> write its children into the writer; absent, the string
-      * splice runs.
-      */
-    def regionWalk: Map[String, Writer => Unit]
-
-    /** The same for a raw `{{{name}}}` (the chrome's body), which would
-      * otherwise be a full copy of the document.
+    /** A raw `{{{name}}}` written straight into the writer: a region's
+      * children, the chrome's body. A string would be a full copy of them.
       */
     def writerHoles: Map[String, Writer => Unit] = Map.empty
 
@@ -89,11 +76,8 @@ object Templates {
       case _           => super.get(name, scope)
   }
 
-  // Wraps a section whose body is exactly `{{{html}}}` in [[FhRegionCode]];
-  // any other body keeps the standard iterable — slower, same bytes.
   private class FhVisitor(df: DefaultMustacheFactory)
       extends DefaultMustacheVisitor(df) {
-
     // Encoded holes are left alone: nothing escaped is large enough to matter.
     override def value(
         tc: TemplateContext,
@@ -104,30 +88,6 @@ object Templates {
       else {
         val _ = list.add(new FhValueCode(tc, df, variable))
       }
-
-    override def iterable(
-        tc: TemplateContext,
-        variable: String,
-        mustache: JavaMustache
-    ): Unit = {
-      // `Code.identity` writes the tag as authored.
-      val sw = new java.io.StringWriter()
-      val codes = mustache.getCodes()
-      if codes.length == 1 then codes(0).identity(sw)
-      val exact = codes.length == 1 && sw.toString == "{{{html}}}"
-      if exact then {
-        val _ = list.add(new FhRegionCode(tc, df, mustache, variable))
-      } else {
-        val _ = list.add(
-          new com.github.mustachejava.codes.IterableCode(
-            tc,
-            df,
-            mustache,
-            variable
-          )
-        )
-      }
-    }
   }
 
   private class FhValueCode(
@@ -147,33 +107,9 @@ object Templates {
             val _ = s.writerHoles(name)(writer)
             wrote = writer
           case _ => i -= 1
-      // As in [[FhRegionCode]].
-      if wrote != null then appendText(wrote)
-      else super.execute(writer, scopes)
-    }
-  }
-
-  private class FhRegionCode(
-      tc: TemplateContext,
-      df: DefaultMustacheFactory,
-      body: JavaMustache,
-      name: String
-  ) extends com.github.mustachejava.codes.IterableCode(tc, df, body, name) {
-    override def execute(
-        writer: Writer,
-        scopes: java.util.List[AnyRef]
-    ): Writer = {
-      var walked: Writer = null
-      var i = scopes.size() - 1
-      while walked == null && i >= 0 do
-        scopes.get(i) match
-          case s: FhScope if s.regionWalk.contains(name) =>
-            val _ = s.regionWalk(name)(writer)
-            walked = writer
-          case _ => i -= 1
-      // The literal after the section lives in this code's `appended` text;
+      // The literal after the hole lives in this code's `appended` text;
       // skipping `appendText` dropped every template's trailing bytes.
-      if walked != null then appendText(walked)
+      if wrote != null then appendText(wrote)
       else super.execute(writer, scopes)
     }
   }
@@ -192,26 +128,25 @@ object Templates {
   /** What a template reads, off its code tree.
     *
     * @param names
-    *   every name read outside a region's section, `{{x}}` and `{{#x}}` alike;
-    *   a slot's value is a string, so inside an ordinary section a name is
-    *   still the node's
+    *   every name read but a region's, `{{x}}` and `{{#x}}` alike; a slot's
+    *   value is a string, so inside a section a name is still the node's
     * @param required
     *   the `{{x}}`/`{{{x}}}` outside every section, which a node must set
-    * @param regionBodies
-    *   each declared region's section, and whether its body is exactly
-    *   `{{{html}}}`; inside it `html` is the region's, so it is not descended
-    * @param strayHtml
-    *   the sections placing `{{{html}}}` outside a declared region, `""` for
-    *   the top level
     * @param raw
     *   the names placed unescaped, `{{{x}}}`
+    * @param regionHoles
+    *   how often each declared region is placed as `{{{name}}}` outside every
+    *   section
+    * @param misplacedRegions
+    *   the declared regions also placed any other way: escaped, as a section,
+    *   or inside one
     */
   final case class Reads(
       names: Set[String],
       required: Set[String],
-      regionBodies: Map[String, Boolean],
-      strayHtml: Set[String],
-      raw: Set[String]
+      raw: Set[String],
+      regionHoles: Map[String, Int],
+      misplacedRegions: Set[String]
   )
 
   /** A card's template as it renders, and what validation reads off it. */
@@ -232,7 +167,7 @@ object Templates {
             tpl.getCodes(),
             regions,
             Nil,
-            Reads(Set.empty, Set.empty, Map.empty, Set.empty, Set.empty)
+            Reads(Set.empty, Set.empty, Set.empty, Map.empty, Set.empty)
           )
         )
       )
@@ -246,36 +181,25 @@ object Templates {
       guards: List[String],
       acc: Reads
   ): Reads =
-    import com.github.mustachejava.codes.{
-      IterableCode,
-      NotIterableCode,
-      ValueCode
-    }
+    import com.github.mustachejava.codes.{IterableCode, ValueCode}
     if codes == null then acc
     else
       codes.foldLeft(acc) { (acc, code) =>
         code match
-          case r: IterableCode
-              if regions.contains(r.getName) && !r
-                .isInstanceOf[NotIterableCode] =>
-            // [[FhVisitor]] made exactly the `{{{html}}}` bodies region codes.
-            val exact = r.isInstanceOf[FhRegionCode]
-            acc.copy(regionBodies =
-              acc.regionBodies.updatedWith(r.getName)(was =>
-                Some(was.forall(identity) && exact)
-              )
-            )
           case s: IterableCode =>
-            readCodes(
-              s.getCodes(),
-              regions,
-              s.getName :: guards,
-              acc.copy(names = acc.names ++ nameOf(s.getName))
-            )
-          case v: ValueCode if v.getName == "html" =>
-            acc.copy(strayHtml =
-              acc.strayHtml + guards.headOption.getOrElse("")
-            )
+            val here =
+              if regions.contains(s.getName) then
+                acc.copy(misplacedRegions = acc.misplacedRegions + s.getName)
+              else acc.copy(names = acc.names ++ nameOf(s.getName))
+            readCodes(s.getCodes(), regions, s.getName :: guards, here)
+          case v: ValueCode if regions.contains(v.getName) =>
+            if v.isInstanceOf[FhValueCode] && guards.isEmpty then
+              acc.copy(regionHoles =
+                acc.regionHoles.updatedWith(v.getName)(n =>
+                  Some(n.getOrElse(0) + 1)
+                )
+              )
+            else acc.copy(misplacedRegions = acc.misplacedRegions + v.getName)
           case v: ValueCode =>
             val n = nameOf(v.getName)
             acc.copy(

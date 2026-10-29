@@ -292,7 +292,7 @@ A container declares **regions** instead of slots:
 ```pkl
 cardDef = new nodes.CardDef {
   template = """
-    <div class="panel">{{#children}}{{{html}}}{{/children}}</div>
+    <div class="panel">{{{children}}}</div>
     """
   regions = new Mapping {
     ["children"] = new nodes.Region {}
@@ -300,7 +300,10 @@ cardDef = new nodes.CardDef {
 }
 ```
 
-Anything the author puts in `children` is rendered and dropped in there.
+Anything the author puts in `children` is rendered and dropped in at
+`{{{children}}}`. Place each region exactly once, with three braces, and not
+inside a `{{#…}}` section; the build says so if you don't. A slot cannot share
+a region's name.
 
 ---
 

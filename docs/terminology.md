@@ -264,7 +264,8 @@ node above declaring the node variable `name`, spliced node by node so a shadow 
 The vendor is a third thing again, and the reason the sentence "Chrome ignores the chrome colour
 in an installed app" needs writing out rather than shortening.
 
-**Region** — a named hole in a template that something else fills. A card declares them
+**Region** — a named hole in a template that something else fills, spelled `{{{name}}}` and placed
+exactly once, outside every section. A card declares them
 (`CardDef.regions`), a node fills them (`Component.regions`, keyed by region name). `fill = "eager"`
 splices the children it was given; `fill = "baked"` is filled by a surface instead (see **bake**).
 

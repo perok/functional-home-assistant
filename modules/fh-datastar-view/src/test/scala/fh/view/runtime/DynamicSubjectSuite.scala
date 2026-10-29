@@ -12,7 +12,7 @@ class DynamicSubjectSuite extends munit.FunSuite {
 
   private val cards = Map(
     "col" -> CardDef(
-      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     ),
     // Names no entity of its own, so it grounds on this paint's `entity_id`.

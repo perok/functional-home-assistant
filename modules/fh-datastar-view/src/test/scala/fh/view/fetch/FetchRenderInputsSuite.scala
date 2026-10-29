@@ -318,7 +318,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       cards = Map(
         "chart" -> CardDef("""<div>{{{chart}}}</div>"""),
         "col" -> CardDef(
-          """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+          """<div>{{{children}}}</div>""",
           regions = Map("children" -> Region())
         )
       ),
@@ -377,19 +377,20 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val r = Renderer.create(
       Dashboard(
-        cards = Map(
-          "chart" -> CardDef(
-            """<div>{{{chart}}}</div>"""
+        cards =
+          Map(
+            "chart" -> CardDef(
+              """<div>{{{chart}}}</div>"""
+            ),
+            "col" -> CardDef(
+              """<div>{{{children}}}</div>""",
+              regions = Map("children" -> Region())
+            ),
+            "host" -> CardDef(
+              """<div id="{{hostId}}">{{{panel}}}</div>""",
+              regions = Map("panel" -> Region(Region.Baked))
+            )
           ),
-          "col" -> CardDef(
-            """<div>{{#children}}{{{html}}}{{/children}}</div>""",
-            regions = Map("children" -> Region())
-          ),
-          "host" -> CardDef(
-            """<div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
-            regions = Map("panel" -> Region(Region.Baked))
-          )
-        ),
         card = LayoutNode.Component(
           card = "col",
           regions = LayoutNode.kids(

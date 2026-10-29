@@ -85,7 +85,7 @@ class Popup extends nodes.Node {
   card = "popup"
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = #"<div class="fh-popup-backdrop" data-on:click="\#(closeExpr)"></div><dialog open class="fh-popup"><button class="fh-popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    template = #"<div class="fh-popup-backdrop" data-on:click="\#(closeExpr)"></div><dialog open class="fh-popup"><button class="fh-popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{{children}}}</dialog>"#
     // The frame is the theme's `<dialog>`. The ✕ is 44px, the touch-target
     // minimum, with a surface of its own, and `z-index:1`: at that size it
     // overlaps a title, which was otherwise on top of it. The dialog is not

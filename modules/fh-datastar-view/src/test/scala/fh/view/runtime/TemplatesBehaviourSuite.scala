@@ -2,8 +2,7 @@ package fh.view.runtime
 
 /** The engine behaviours the runtime depends on, against expected bytes: the
   * escape set (newlines included), missing keys rendering empty,
-  * `emptyStringIsFalse` truthiness, and the region-loop shapes every container
-  * uses.
+  * `emptyStringIsFalse` truthiness, and the region hole every container uses.
   */
 class TemplatesBehaviourSuite extends munit.FunSuite:
 
@@ -18,12 +17,6 @@ class TemplatesBehaviourSuite extends munit.FunSuite:
       .compile(new java.io.StringReader(tpl), "t")
       .execute(w, ctx)
     w.toString
-
-  /** What a region loop iterates. */
-  private def children(names: String*): java.util.List[AnyRef] =
-    val list = new java.util.ArrayList[AnyRef]()
-    names.foreach(n => list.add(java.util.Collections.singletonMap("html", n)))
-    list
 
   test("escaping: the five HTML specials inside {{x}}") {
     assertEquals(
@@ -94,31 +87,22 @@ class TemplatesBehaviourSuite extends munit.FunSuite:
     assertEquals(render("""A{{^x}}Y{{/x}}B""", "x" -> "set"), "AB")
   }
 
-  test("region loop: iterates the singleton-map list") {
-    assertEquals(
-      render(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
-        "children" -> children("<i>a</i>", "b&amp;", "")
-      ),
-      "<div><i>a</i>b&amp;</div>"
+  test("a region hole: its scope's writer fills it, in place") {
+    val scope = new Templates.FhScope:
+      def fhGet(name: String): AnyRef = if name == "id" then "c_2" else null
+      override def writerHoles: Map[String, java.io.Writer => Unit] =
+        Map("children" -> (w => w.write("<i>a</i><i>b</i>")))
+    val w = new java.io.StringWriter
+    Templates.run(
+      Templates.compile("t", """<div id="{{id}}">{{{children}}}</div>!"""),
+      w,
+      scope
     )
+    assertEquals(w.toString, """<div id="c_2"><i>a</i><i>b</i></div>!""")
   }
 
-  test("region loop: empty list renders nothing") {
-    assertEquals(
-      render(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
-        "children" -> children()
-      ),
-      "<div></div>"
-    )
-  }
-
-  test("region loop: absent renders nothing") {
-    assertEquals(
-      render("""<div>{{#children}}{{{html}}}{{/children}}</div>"""),
-      "<div></div>"
-    )
+  test("a region hole with nothing to write renders nothing") {
+    assertEquals(render("""<div>{{{children}}}</div>"""), "<div></div>")
   }
 
   test("the entity card's tap-conditional shape") {
@@ -139,15 +123,15 @@ class TemplatesBehaviourSuite extends munit.FunSuite:
     )
   }
 
-  test("the tabs host shape: vars + region loops") {
+  test("the tabs host shape: vars + region holes") {
     assertEquals(
       render(
-        """<div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
+        """<div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{{children}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
         "id" -> "c_2",
         "bakeIndex" -> "1",
         "hostId" -> "c_2_panel",
-        "children" -> children("<a>one</a>", "<a>two</a>"),
-        "panel" -> children("<section>the panel</section>")
+        "children" -> "<a>one</a><a>two</a>",
+        "panel" -> "<section>the panel</section>"
       ),
       """<div class="tabs" data-signals__ifmissing="{ ui_c_2: 1 }"><a>one</a><a>two</a></div><div id="c_2_panel"><section>the panel</section></div>"""
     )

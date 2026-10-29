@@ -475,7 +475,7 @@ class SignalSlotSuite extends ServerHarness {
     val boxed = Dashboard(
       Map(
         "box" -> CardDef(
-          """<div><b {{{state__bind}}}>{{state}}</b><i {{{bright__bind}}}>{{bright}}</i>{{#children}}{{{html}}}{{/children}}</div>""",
+          """<div><b {{{state__bind}}}>{{state}}</b><i {{{bright__bind}}}>{{bright}}</i>{{{children}}}</div>""",
           regions = Map("children" -> Region())
         ),
         "plain" -> CardDef("<p>x</p>")
@@ -642,7 +642,7 @@ class SignalSlotSuite extends ServerHarness {
     */
   private val twoNodes = Dashboard(
     cards + ("col" -> CardDef(
-      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     )),
     LayoutNode.Component(
@@ -654,7 +654,7 @@ class SignalSlotSuite extends ServerHarness {
   /** The shape issue #134 was opened on. */
   private val twiceOver = Dashboard(
     cards + ("col" -> CardDef(
-      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     )),
     LayoutNode.Component(
@@ -704,7 +704,7 @@ class SignalSlotSuite extends ServerHarness {
           "<u {{{tint__bind}}}></u>"
       ),
       "col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       )
     )
@@ -1122,7 +1122,7 @@ class SignalSlotSuite extends ServerHarness {
     */
   private val structural = Dashboard(
     cards + ("frame" -> CardDef(
-      "<section {{{tint__bind}}}>{{#body}}{{{html}}}{{/body}}</section>",
+      "<section {{{tint__bind}}}>{{{body}}}</section>",
       regions = Map("body" -> Region())
     )),
     LayoutNode.Component(

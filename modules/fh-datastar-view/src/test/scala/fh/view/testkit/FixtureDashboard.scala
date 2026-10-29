@@ -23,7 +23,7 @@ object FixtureDashboard {
 
   val cards: Map[String, CardDef] = Map(
     "col" -> CardDef(
-      """<div class="col">{{#children}}{{{html}}}{{/children}}</div>""",
+      """<div class="col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
     "reading" -> CardDef(
@@ -129,8 +129,7 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        template =
-          """<div class="ifhost" id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
+        template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),
       card = LayoutNode.Component("ifhost"),

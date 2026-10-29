@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 /** What [[Templates.card]] reads off a template: the names a node must set, the
-  * names it may, and the shape of each region's section.
+  * names it may, and where each region is placed.
   */
 class TemplateReadsSuite extends munit.FunSuite:
 
@@ -20,20 +20,28 @@ class TemplateReadsSuite extends munit.FunSuite:
     assertEquals(r.names, Set("a", "xs"))
   }
 
-  test("a region's section is not descended, and its shape is reported") {
+  test("a region is counted where it is a raw hole outside every section") {
     val r = reads(
-      "{{#children}}{{{html}}}{{/children}}{{#panel}}<i>{{{html}}}</i>{{/panel}}",
+      "{{{children}}}{{{panel}}}{{{panel}}}<b>{{{text}}}</b>{{#x}}{{{x}}}{{/x}}",
       "children",
       "panel"
     )
-    assertEquals(r.names, Set.empty[String])
-    assertEquals(r.regionBodies, Map("children" -> true, "panel" -> false))
-    assertEquals(r.strayHtml, Set.empty[String])
+    assertEquals(r.regionHoles, Map("children" -> 1, "panel" -> 2))
+    assertEquals(r.misplacedRegions, Set.empty[String])
+    assertEquals(r.names, Set("text", "x"))
   }
 
-  test("html outside a declared region is stray, named by its section") {
-    val r = reads("{{{html}}}{{#kids}}{{{html}}}{{/kids}}")
-    assertEquals(r.strayHtml, Set("", "kids"))
+  test("a region placed any other way is misplaced, and is no slot name") {
+    val r = reads(
+      "{{#a}}{{{html}}}{{/a}}{{b}}{{#s}}{{{c}}}{{/s}}{{^d}}-{{/d}}",
+      "a",
+      "b",
+      "c",
+      "d"
+    )
+    assertEquals(r.misplacedRegions, Set("a", "b", "c", "d"))
+    assertEquals(r.regionHoles, Map.empty[String, Int])
+    assertEquals(r.names, Set("html", "s"))
   }
 
   test("raw names are the triple-braced ones, inside sections too") {

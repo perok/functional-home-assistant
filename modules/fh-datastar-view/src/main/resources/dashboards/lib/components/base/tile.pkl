@@ -29,7 +29,7 @@ open class Tile extends nodes.ActiveNode {
         <div class="fh-tile{{#tappable}} fh-tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun("label"))</span>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
-        <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>{{#features}}{{{html}}}{{/features}}
+        <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>{{{features}}}
       </article>
       """
     // The row and its on look are `core/css.pkl`'s, shared with the switch. The

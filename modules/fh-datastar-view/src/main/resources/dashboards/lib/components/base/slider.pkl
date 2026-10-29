@@ -90,9 +90,9 @@ class SliderHead extends nodes.ActiveNode {
       <div class="fh-slider-body">
         <div class="fh-slider-head{{#greyed}} fh-slider-greyed{{/greyed}}">
           \(badgeMod.seat(" fh-slider-icon", "mdi {{icon}}", "{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}"))
-          {{#text}}{{{html}}}{{/text}}
+          {{{text}}}
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
-          <div class="fh-slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
+          <div class="fh-slider-actions">{{{actions}}}</div>
         </div>
         <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#kelvinTrack}} fh-track-kelvin{{/kelvinTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
@@ -177,7 +177,7 @@ class SliderPill extends nodes.Node {
   cellClasses { "fh-slider-pill-cell" }
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = #"<div class="fh-slider-pill">{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-slider-pill">{{{children}}}</div>"#
   }
   hidden buttons: List<SliderButton?>
   children = new Mapping { [nodes.defaultRegion] = pillsOf(buttons) }
@@ -194,7 +194,7 @@ class SliderControls extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
       ["panel"] = new nodes.Region { fill = "baked" }
     }
-    template = #"<div class="fh-slider-controls"><div id="{{hostId}}" class="fh-slider-controls-panel">{{#panel}}{{{html}}}{{/panel}}</div>{{#children}}{{{html}}}{{/children}}</div>"#
+    template = #"<div class="fh-slider-controls"><div id="{{hostId}}" class="fh-slider-controls-panel">{{{panel}}}</div>{{{children}}}</div>"#
   }
   hidden controls: List<ControlHead>
   inlineSurfaces = controlPanels(controls)
@@ -429,7 +429,7 @@ open class Slider extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
-      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}">{{#head}}{{{html}}}{{/head}}<div class="fh-slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
+      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}">{{{head}}}<div class="fh-slider-members">{{{children}}}</div></article>
       """
     css = sliderCss
     script = sliderTouchScript
