@@ -2163,7 +2163,7 @@ class PklBuildSuite extends munit.FunSuite {
   test("Pkl rejects a live BYTES slot on a card that holds regions") {
     assert(
       !cardShapeAccepted(
-        structuralCard("""new slotMod.Slot { entityId = "sensor.t" }""")
+        structuralCard("""new slotMod.Reading { entityId = "sensor.t" }""")
       ),
       "a live slot on structure must be rejected"
     )
@@ -2177,7 +2177,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(
       cardShapeAccepted(
         structuralCard(
-          """new slotMod.Slot { entityId = "sensor.t"; signal = "text" }"""
+          """new slotMod.Reading { entityId = "sensor.t"; signal = "text" }"""
         )
       ),
       "a signal slot on structure is fine"
@@ -2187,7 +2187,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(
       cardShapeAccepted(
         structuralCard(
-          """new slotMod.Slot { entityId = "sensor.t"; reads = "once" }"""
+          """new slotMod.Reading { entityId = "sensor.t"; reads = "once" }"""
         )
       ),
       "a non-live read on structure is fine"

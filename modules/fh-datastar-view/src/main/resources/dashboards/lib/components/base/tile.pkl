@@ -45,15 +45,15 @@ open class Tile extends nodes.ActiveNode {
       .fh-tile .fh-reading{font-size:.875em}
       """
   }
-  hidden title: String|slotMod.Slot = ""
+  hidden title: String|slotMod.Reading = ""
   /// A reading is carried as a signal (ADR 0017): a temperature ticking costs a
   /// few bytes instead of the tile.
-  hidden reading: String|slotMod.Slot = ""
+  hidden reading: String|slotMod.Reading = ""
   hidden secondary: slotMod.Secondary? = null
   /// The `<i>`'s WHOLE class (`mdi mdi-lock`), a literal or a reading. Whole,
   /// so the template has one `{{icon}}` and needs no flag saying which; a
   /// reading is a signal on `class`.
-  hidden glyph: (String|slotMod.Slot)? = null
+  hidden glyph: (String|slotMod.Reading)? = null
   /// Null opts the card out of clicks entirely.
   hidden tapAction: tapMod.TapAction? = null
   inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
@@ -70,11 +70,11 @@ open class Tile extends nodes.ActiveNode {
     when (subject != null) {
       ["entity_id"] = subject!!
     }
-    ["label"] = if (title is slotMod.Slot) (title as slotMod.Slot) { signal = slotMod.asText } else title
-    ["value"] = if (reading is slotMod.Slot) (reading as slotMod.Slot) { signal = slotMod.asText } else reading
+    ["label"] = if (title is slotMod.Reading) (title as slotMod.Reading) { signal = slotMod.asText } else title
+    ["value"] = if (reading is slotMod.Reading) (reading as slotMod.Reading) { signal = slotMod.asText } else reading
     when (glyph != null) {
       ["icon"] =
-        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
+        if (glyph is slotMod.Reading) (glyph as slotMod.Reading) { signal = slotMod.asAttr("class") }
         else glyph!!
     }
     when (secondary != null) {

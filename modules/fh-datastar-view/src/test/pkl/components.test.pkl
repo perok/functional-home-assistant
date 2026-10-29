@@ -212,7 +212,7 @@ facts {
     // author's icon, a user's `icon` attribute and a device_class are all more
     // specific than "this is a lock".
     //
-    // A plain String, not a `Slot` — which is the whole difference, and is also
+    // A plain String, not a `Reading` — which is the whole difference, and is also
     // why both tiers must resolve to the SAME shape of value: the template has
     // one `{{icon}}` and cannot ask which tier filled it.
     c.entityCard(latchLock).icon("mdi:key").slots["icon"] == "mdi mdi-key"
@@ -258,9 +258,9 @@ facts {
     t.inlineSurfaces.containsKey("self")
     // A transform, not a constant: the route carries `dashboard_slug`, which
     // only a transform can read.
-    (t.onclick as slotMod.Slot).transform.contains("sse/surface/")
-    (t.onclick as slotMod.Slot).transform.contains("/open/\(nodes.NODE_ID)_self")
-    (t.onclick as slotMod.Slot).transform.contains("dashboard_slug")
+    (t.onclick as slotMod.Reading).transform.contains("sse/surface/")
+    (t.onclick as slotMod.Reading).transform.contains("/open/\(nodes.NODE_ID)_self")
+    (t.onclick as slotMod.Reading).transform.contains("dashboard_slug")
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
@@ -328,7 +328,7 @@ facts {
     bar.every((n) -> (n as nodes.Node).slots["busy"] == "1")
     // A window names the chooser by the token, never by an id it cannot know.
     let (week = bar[2] as nodes.Node)
-      (week.slots["onclick"] as slotMod.Slot).transform.contains(
+      (week.slots["onclick"] as slotMod.Reading).transform.contains(
         "/" + historyMod.windowVar.declarer + "/window/7d?group=" + historyMod.windowVar.below.group + "'"
       )
       && (week.slots["active"] as String).endsWith("=== '7d'")
@@ -420,7 +420,7 @@ facts {
   ["a lock's service is the one thing the STATE has to decide"] {
     // Through the lock's own verb: its card opens more-info (see below).
     local acts = c.entityCard(frontLock).tapAction(c.tap.toggle(frontLock))
-    local svc: slotMod.Slot = acts.slots["service"]
+    local svc: slotMod.Reading = acts.slots["service"]
     local m: simpleMod.SimpleMatch = svc.transform!!
     // A lock's snapshot state decides WHICH service the tap posts; the value
     // itself never changes what the target is.
@@ -473,8 +473,8 @@ facts {
     // call HA would reject. This is the flip the more-info work gated.
     card.slots["tappable"] == "1"
     card.inlineSurfaces.containsKey("self")
-    !(card.slots["onclick"] as slotMod.Slot).transform.contains("sse/action")
-    (card.slots["onclick"] as slotMod.Slot).transform.contains("/open/")
+    !(card.slots["onclick"] as slotMod.Reading).transform.contains("sse/action")
+    (card.slots["onclick"] as slotMod.Reading).transform.contains("/open/")
   }
 
   ["the more-info body's own card does NOT default to more-info"] {
@@ -862,7 +862,7 @@ facts {
     c.button("x", c.view.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
     c.entitySlider(kitchen).secondary("device_class").textSlots["secondary"] == "device_class"
 
-    local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Slot
+    local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Reading
     byAttr.transform == simpleMod.attr("device_class")
     byAttr.entityId == null
   }
@@ -905,11 +905,11 @@ facts {
     placing.every((_, d) ->
       d.template.contains("{{{secondary.bind}}}") && !d.template.contains("{{#secondary}}"))
 
-    (c.entityCard(kitchen).secondary(c.expr("state")).slots["secondary"] as slotMod.Slot).signal == "text"
+    (c.entityCard(kitchen).secondary(c.expr("state")).slots["secondary"] as slotMod.Reading).signal == "text"
     // A literal is the text itself, and a reading that is not live stays bytes.
     c.entityCard(kitchen).secondary("Kjøkken").slots["secondary"] == "Kjøkken"
-    local once = new slotMod.Slot { transform = "state"; reads = "once" }
-    (c.entityCard(kitchen).secondary(once).slots["secondary"] as slotMod.Slot).signal == null
+    local once = new slotMod.Reading { transform = "state"; reads = "once" }
+    (c.entityCard(kitchen).secondary(once).slots["secondary"] as slotMod.Reading).signal == null
   }
 
   ["a button takes a second line, and one without it is untouched"] {
@@ -922,7 +922,7 @@ facts {
 
     // A `c.expr` is a live reading of the subject, like a label's.
     local live = c.entityButton(kitchen).secondary(c.expr("state"))
-    (live.slots["secondary"] as slotMod.Slot).transform == "state"
+    (live.slots["secondary"] as slotMod.Reading).transform == "state"
     live.slots["entity_id"] == kitchen.entity_id
 
     // A glyph with a second line is not a bare icon, so it stays rectangular.
@@ -997,7 +997,7 @@ facts {
   ["a toggle and an entity card are their base built by hand, and nothing more"] {
     local sw = new switchMod.Switch {
       label = kitchen.entity_id
-      on = new slotMod.Slot {
+      on = new slotMod.Reading {
         transform = simpleMod.enumOf("on", "on", "")
         default = ""
         bypassUnavailable = false
@@ -1033,17 +1033,17 @@ facts {
       glyph = "mdi-lightbulb"
       rangeMin = 1
       rangeMax = 255
-      position = new slotMod.Slot {
+      position = new slotMod.Reading {
         transform = simpleMod.attr("brightness")
         default = "0"
         bypassUnavailable = false
       }
-      fill = new slotMod.Slot {
+      fill = new slotMod.Reading {
         transform = simpleMod.fill("brightness", 1, 255)
         default = "100%"
         bypassUnavailable = false
       }
-      reading = new slotMod.Slot { transform = simpleMod.state() }
+      reading = new slotMod.Reading { transform = simpleMod.state() }
       commit = (c.tap.call("light/turn_on", kitchen)) { dataKey = "brightness" }
       subject = kitchen.entity_id
       active = slotMod.activeOf(kitchen)!!
@@ -1104,7 +1104,7 @@ facts {
       c.entityButton(kitchen).tapAction(c.view.navigate("home"))
     )
     links.every((n) ->
-      let (cur = n.slots["current"] as slotMod.Slot)
+      let (cur = n.slots["current"] as slotMod.Reading)
         cur.transform == "dashboard_slug == 'home'" && cur.reads == "once"
           && cur.type == "bool" && cur.signal == null)
     List("button", "pill").every((k) ->
@@ -1113,7 +1113,7 @@ facts {
     // A service tap is no link, so it has nothing to mark.
     !c.button("x", c.tap.toggle(kitchen)).slots.containsKey("current")
     // A slug is a key the author wrote, so a quote in it stays in the string.
-    (c.button("x", c.view.navigate("it's")).slots["current"] as slotMod.Slot).transform
+    (c.button("x", c.view.navigate("it's")).slots["current"] as slotMod.Reading).transform
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
     cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
@@ -1122,7 +1122,7 @@ facts {
   ["an entity button wears its entity's icon, live where the domain's follows its state"] {
     c.entityButton(kitchen).slots["glyph"] == "mdi mdi-lightbulb"
     // A lock's glyph is its state's, so the button flips with it as its tile does.
-    (c.entityButton(plainLock).slots["glyph"] as slotMod.Slot).signal == "attr:class"
+    (c.entityButton(plainLock).slots["glyph"] as slotMod.Reading).signal == "attr:class"
     c.entityButton(plainLock).slots["glyph"] == c.entityCard(plainLock).slots["icon"]
     // An author's icon wins, and `noIcon` takes the glyph away entirely.
     c.entityButton(kitchen).icon("mdi:fan").slots["glyph"] == "mdi mdi-fan"
@@ -1262,7 +1262,7 @@ facts {
     head.cardDef.regions.keys == Set("text", "actions")
     // Every live slot left on it carries a signal binding...
     head.slots.toMap().values
-      .filter((v) -> v is slotMod.Slot && v.reads == "live")
+      .filter((v) -> v is slotMod.Reading && v.reads == "live")
       .every((v) -> v.signal != null)
     // ...and the label that stayed behind for the toggle's `aria-label` reads
     // `onRender`: right whenever the card is drawn, never a reason to draw it.
@@ -1312,11 +1312,11 @@ facts {
     // since it last read 0, from the recorder, so it is right on the first
     // paint after a reload too.
     local washer = c.progress(remainingMin).status(applianceState)
-    (washer.slots["value"] as slotMod.Slot).transform is simpleMod.SimpleValue
-    (barOf(washer).slots["of"] as slotMod.Slot).values.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
+    (washer.slots["value"] as slotMod.Reading).transform is simpleMod.SimpleValue
+    (barOf(washer).slots["of"] as slotMod.Reading).values.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
     // The status renders as the integration's own words, never interpreted:
     // nothing here knows which of them means "running".
-    (washer.slots["secondary"] as slotMod.Slot).entityId == "sensor.appliancestate"
+    (washer.slots["secondary"] as slotMod.Reading).entityId == "sensor.appliancestate"
     // The entity tile, not a card of its own.
     washer.card == "tile"
   }
@@ -1325,8 +1325,8 @@ facts {
     local dishwasher = c.progress(remainingMin).total(programMin)
     dishwasher.features.length == 1
     local bar = barOf(dishwasher)
-    (bar.slots["value"] as slotMod.Slot).entityId == "sensor.timetoend"
-    (bar.slots["of"] as slotMod.Slot).entityId == "sensor.programduration"
+    (bar.slots["value"] as slotMod.Reading).entityId == "sensor.timetoend"
+    (bar.slots["of"] as slotMod.Reading).entityId == "sensor.programduration"
     bar.slots["down"] == "1"
     // Same unit both sides, so no factor rides along.
     !bar.slots.containsKey("scale")
@@ -1386,12 +1386,12 @@ facts {
 
   ["a percentage bar reads one entity and divides by nothing"] {
     local b = c.bar.percent(outside)
-    (b.slots["value"] as slotMod.Slot).entityId == "sensor.outside"
+    (b.slots["value"] as slotMod.Reading).entityId == "sensor.outside"
     !b.slots.containsKey("hasOf")
     !b.slots.containsKey("down")
     // Its reading is a signal its own expression reads, so a tick is a frame
     // entry, never the bar's bytes.
-    (b.slots["value"] as slotMod.Slot).signal == slotMod.asHandler
+    (b.slots["value"] as slotMod.Reading).signal == slotMod.asHandler
   }
 
   ["any entity tile takes a bar as a feature"] {
@@ -1429,17 +1429,17 @@ facts {
     b.slots["service"] == "light/toggle"
     b.slots["targetId"] == kitchen.entity_id
     // Availability is the TARGET's, so the refusal reads it by name.
-    (b.slots["tapDisabled"] as slotMod.Slot).entityId == kitchen.entity_id
+    (b.slots["tapDisabled"] as slotMod.Reading).entityId == kitchen.entity_id
   }
 
   ["a state-picked service reads the target, not the card's entity"] {
     // A card showing the kitchen light whose tap works the front lock: both the
     // service the lock's state picks and its mid-move inert read the LOCK.
     local b = c.entityButton(kitchen).label("Lås").tapAction(c.tap.toggle(frontLock))
-    local svc: slotMod.Slot = b.slots["service"]
+    local svc: slotMod.Reading = b.slots["service"]
     svc.entityId == frontLock.entity_id
     b.slots["targetId"] == frontLock.entity_id
-    (b.slots["tapDisabled"] as slotMod.Slot).entityId == frontLock.entity_id
+    (b.slots["tapDisabled"] as slotMod.Reading).entityId == frontLock.entity_id
     b.slots["entity_id"] == kitchen.entity_id
   }
 
@@ -1518,7 +1518,7 @@ facts {
     // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
     local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
-      .map((n) -> (n.slots["onclick"] as slotMod.Slot).transform as String)
+      .map((n) -> (n.slots["onclick"] as slotMod.Reading).transform as String)
     steps.length == 3
     steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
     // A dimmer, or a capability axis, is one head and no pill.
@@ -1655,7 +1655,7 @@ facts {
       colour = new hass.Colour { owner = lamp }
     }
     local head = c.entitySlider(lamp.colour!!).headNode
-    local paint = head.slots["fillColor"] as slotMod.Slot
+    local paint = head.slots["fillColor"] as slotMod.Reading
     paint.reads == "live"
     (paint.transform as String).contains("'hsl(' + str(math.round(h)) + ',100%,50%)'")
     // A drag repaints it with the same hsl, before any commit.
@@ -1675,7 +1675,7 @@ facts {
     head.slots["kelvinTrack"] == "1"
     // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
     // on the server and on a rollback alike.
-    (head.slots["fillColor"] as slotMod.Slot).default == "transparent"
+    (head.slots["fillColor"] as slotMod.Reading).default == "transparent"
     head.cardDef.template.contains("{{#kelvinTrack}}, $\(slotMod.signalRef("fillColor")) = ($\(slotMod.signalRef("value")) >= {{min}}")
     c.entitySlider(lamp).controls.map((m) -> m.head.slots.containsKey("kelvinTrack"))
       == List(false, true, false)

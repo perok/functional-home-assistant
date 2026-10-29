@@ -50,11 +50,11 @@ open class Switch extends nodes.ActiveNode {
   /// It feeds `checked`, two-way bound (the browser reads the property, not
   /// the attribute, after load), and `switched`, the server's copy
   /// ([[restoreSwitch]]).
-  hidden on: slotMod.Slot
+  hidden on: slotMod.Reading
   hidden tapAction: tapMod.TapAction = throw(buttonMod.noAction("c.switch"))
   inlineSurfaces = tapAction.inlineSurfaces
   /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`.
-  hidden glyph: (String|slotMod.Slot)? = null
+  hidden glyph: (String|slotMod.Reading)? = null
   /// See `Button.subject`.
   hidden subject: String? = null
   slots {
@@ -64,7 +64,7 @@ open class Switch extends nodes.ActiveNode {
     ["label"] = slotMod.labelSlot(null, label)
     when (glyph != null) {
       ["icon"] =
-        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
+        if (glyph is slotMod.Reading) (glyph as slotMod.Reading) { signal = slotMod.asAttr("class") }
         else glyph!!
     }
     ["checked"] = (on) { signal = slotMod.asBind }

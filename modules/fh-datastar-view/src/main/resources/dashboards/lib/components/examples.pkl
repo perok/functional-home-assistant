@@ -48,7 +48,7 @@ class HistoryReadings extends nodes.Node {
     // Finished, so the template places it bare: " °C", or "" for no unit.
     ["postfix"] = entity.unit_of_measurement.ifNonNull((u) -> " " + u) ?? ""
     // No `transform`: a fetch slot's default stage is passthrough.
-    ["readings"] = new slotMod.Slot { fetch = historyProv.of(entity, window) }
+    ["readings"] = new slotMod.Reading { fetch = historyProv.of(entity, window) }
   }
 
   function over(w: providersMod.HistoryWindow): HistoryReadings =

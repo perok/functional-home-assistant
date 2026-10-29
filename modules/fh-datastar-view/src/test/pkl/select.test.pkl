@@ -27,7 +27,7 @@ local lamp: hass.LightEntity = new {
   effects = new hass.Effects { owner = lamp; list { "none"; "Rainbow Slow" } }
 }
 
-local function route(n: Any): String = (n.slots["onclick"] as slotMod.Slot).transform as String
+local function route(n: Any): String = (n.slots["onclick"] as slotMod.Reading).transform as String
 
 // A baked select's members in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
@@ -37,7 +37,7 @@ local function members(s: selectMod.Select): List<Pair<Any, String?>> =
 
 facts {
   ["style keeps what was set on the select before it; every node field is carried or the card's"] {
-    local before = c.select(shade).options(List("a", "b")).columns(6).cssProperty("--x", new slotMod.Slot { entityId = "sensor.x"; transform = "state" }) as selectMod.Select
+    local before = c.select(shade).options(List("a", "b")).columns(6).cssProperty("--x", new slotMod.Reading { entityId = "sensor.x"; transform = "state" }) as selectMod.Select
     local after = before.style("dropdown")
     after.cellClasses.toList() == List("fh-cols-6")
     after.liveProperties == before.liveProperties && !after.liveProperties.isEmpty
@@ -111,12 +111,12 @@ facts {
     local lit = (opts[2] as selectMod.EntityOption).active as predMod.Cmp
     lit.property == "state" && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
     // The dropdown's label is the server's, so the first HTML names it.
-    local shown = c.select(mode).style("dropdown").slots["chosen"] as slotMod.Slot
+    local shown = c.select(mode).style("dropdown").slots["chosen"] as slotMod.Reading
     shown.entityId == "select.robot_mode"
     shown.signal == slotMod.asText
     // An option it has no label for shows as itself.
     (shown.transform as simpleMod.SimpleMatch).otherwise is simpleMod.State
-    local effect = (c.select(lamp.effects!!).style("dropdown").slots["chosen"] as slotMod.Slot)
+    local effect = (c.select(lamp.effects!!).style("dropdown").slots["chosen"] as slotMod.Reading)
       .transform as simpleMod.SimpleMatch
     effect.property == "attr:effect"
     (effect.otherwise as simpleMod.Attr).attribute == "effect"

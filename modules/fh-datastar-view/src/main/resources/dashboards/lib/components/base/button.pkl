@@ -93,7 +93,7 @@ open class Button extends nodes.ActiveNode {
   hidden icon: String? = null
   /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`; [[icon]]
   /// by default. An entity button reads its entity's.
-  hidden glyph: (String|slotMod.Slot)? = if (icon != null) "mdi " + icons.mdiClass(icon!!) else null
+  hidden glyph: (String|slotMod.Reading)? = if (icon != null) "mdi " + icons.mdiClass(icon!!) else null
   /// The pill's height, which a theme sets per size. Large fits the badge
   /// every card wears; a round icon button has its own.
   hidden size: "small"|"medium"|"large" = "large"
@@ -109,7 +109,7 @@ open class Button extends nodes.ActiveNode {
   // A navigating button is a link, which has no inert form, so `disabled` on
   // one is refused rather than quietly dropped. The value `slots` reads, since a
   // Pkl local nothing forces never runs.
-  local ownDisabled: (slotMod.Slot|String)? =
+  local ownDisabled: (slotMod.Reading|String)? =
     if (disabled == null || disabled == false) null
     else if (tapAction.href != null)
       throw("c.button: `disabled` needs a button, but this one navigates and "
@@ -123,7 +123,7 @@ open class Button extends nodes.ActiveNode {
     ["label"] = slotMod.labelSlot(null, label)
     when (glyph != null) {
       ["glyph"] =
-        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
+        if (glyph is slotMod.Reading) (glyph as slotMod.Reading) { signal = slotMod.asAttr("class") }
         else glyph!!
       // The AUTHORED label, not the resolved one, or every entity button would
       // be round.

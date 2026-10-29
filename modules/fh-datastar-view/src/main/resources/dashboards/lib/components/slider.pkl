@@ -157,7 +157,7 @@ class EntitySlider extends sliderBase.Slider {
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".
-  position = new slotMod.Slot {
+  position = new slotMod.Reading {
     transform =
       if (element != null) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
       else simpleMod.attr(valueAttr)
@@ -166,7 +166,7 @@ class EntitySlider extends sliderBase.Slider {
   }
   // Not rounded: beer.min.js recomputes the same percentage unrounded after
   // every morph, and a rounded value twitched into place.
-  fill = new slotMod.Slot {
+  fill = new slotMod.Reading {
     transform =
       if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
       else if (hue) "\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')"
@@ -174,7 +174,7 @@ class EntitySlider extends sliderBase.Slider {
     default = "100%"
     bypassUnavailable = false
   }
-  fillColor = if (fillColourMoves) new slotMod.Slot { transform = fillColorExpr } else null
+  fillColor = if (fillColourMoves) new slotMod.Reading { transform = fillColorExpr } else null
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
   // reads as text: `--fh-default-color` is the paint for an assumed colour.
   fillDefault =
@@ -186,15 +186,15 @@ class EntitySlider extends sliderBase.Slider {
   reading =
     if (shownReadout == "none") null
     else if (shownReadout is slotMod.Expr)
-      new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform }
+      new slotMod.Reading { entityId = shownReadout.entityId; transform = shownReadout.transform }
     else if (shownReadout == "percent")
-      new slotMod.Slot {
+      new slotMod.Reading {
         transform =
           if (element != null) percentExpr else simpleMod.percent(valueAttr, rangeMin, rangeMax)
         default = "0 %"
         bypassUnavailable = false
       }
-    else new slotMod.Slot { transform = simpleMod.state() }
+    else new slotMod.Reading { transform = simpleMod.state() }
   readingFollowsDrag = shownReadout == "percent"
   commit = commitTap
   press = if (toggleOnly) toggleTap else null

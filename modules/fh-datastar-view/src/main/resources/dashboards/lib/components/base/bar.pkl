@@ -42,9 +42,9 @@ class ProgressBar extends nodes.Node {
       background:var(--fh-accent);transition:inline-size .3s linear}
       """
   }
-  hidden value: slotMod.Slot
+  hidden value: slotMod.Reading
   /// The whole the value is a part of; without one, the value is a percentage.
-  hidden of: slotMod.Slot? = null
+  hidden of: slotMod.Reading? = null
   /// One unit of `value` in units of `of`, when the two differ: `60` for
   /// minutes left out of a total in seconds.
   hidden scale: Number = 1
@@ -64,7 +64,7 @@ class ProgressBar extends nodes.Node {
 }
 
 /// A bar filled to a percentage reading.
-function percent(v: slotMod.Slot): ProgressBar = new { value = v }
+function percent(v: slotMod.Reading): ProgressBar = new { value = v }
 
 /// A bar filled to `v` out of `whole`.
-function partOf(v: slotMod.Slot, whole: slotMod.Slot): ProgressBar = new { value = v; of = whole }
+function partOf(v: slotMod.Reading, whole: slotMod.Reading): ProgressBar = new { value = v; of = whole }

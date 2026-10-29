@@ -208,7 +208,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
-        |    }).secondary(new slotMod.Slot { transform = "string(n)"; reads = "once" })""".stripMargin
+        |    }).secondary(new slotMod.Reading { transform = "string(n)"; reads = "once" })""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would show the first count forever")), errs)
   }
@@ -309,7 +309,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private val notBool = "does not produce a bool"
 
   test("a boolean slot whose CEL is not a bool fails the build") {
-    val int = """new slotMod.Slot { transform = "n" }"""
+    val int = """new slotMod.Reading { transform = "n" }"""
     assert(
       yesNo(
         s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }"""
@@ -321,14 +321,14 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a boolean slot whose Simple shape is text fails the build") {
     val text =
-      s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
+      s"""new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
     assert(yesNo(s"disabled = $text").exists(_.contains(notBool)))
   }
 
   test(
     "a comparison, a boolean match and a condition all fill a boolean slot"
   ) {
-    val cmp = """new slotMod.Slot { transform = "n > 0" }"""
+    val cmp = """new slotMod.Reading { transform = "n > 0" }"""
     assertEquals(
       yesNo(s"disabled = $cmp").filter(_.contains(notBool)),
       Nil
@@ -547,7 +547,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a cssProperty takes a Simple reading, on the fast tier") {
     val body = propertyButton(
-      s""".cssProperty("--fh-name", new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+      s""".cssProperty("--fh-name", new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
     )
     withServer(body)(_.page()).map { html =>
       assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)

@@ -40,7 +40,7 @@ class EntityInfo extends nodes.Node {
   hidden entity: hass.Entity
   slots {
     ["entity_id"] = entity.entity_id
-    ["attributes"] = new slotMod.Slot { transform = ATTR_LINES; default = "" }
+    ["attributes"] = new slotMod.Reading { transform = ATTR_LINES; default = "" }
   }
 }
 

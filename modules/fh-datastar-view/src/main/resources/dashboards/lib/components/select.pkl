@@ -225,9 +225,9 @@ class SelectDropdown extends Select {
   hidden target: hass.Options
   // A class-level property: a nested body cannot see `target`, which `Select`
   // declares. A value outside the options shows as itself.
-  hidden chosen: slotMod.Slot =
+  hidden chosen: slotMod.Reading =
     let (o = target) let (cs = choices)
-      new slotMod.Slot {
+      new slotMod.Reading {
         entityId = o.owner.entity_id
         transform = new simpleMod.SimpleMatch {
           cases { for (ch in cs) { [ch.value] = ch.label } }

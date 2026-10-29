@@ -17,28 +17,28 @@ typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predi
 /// (`c.isOn(l)`), an `Expr` (`c.expr("on > 2")`), or a condition
 /// (`q.from(lights).where(…).any()`). An aggregate the build can settle IS a
 /// `Boolean`, so a room with no lights needs no live slot.
-typealias BooleanInput = Boolean|slotMod.Slot|slotMod.Expr|predMod.Predicate
+typealias BooleanInput = Boolean|slotMod.Reading|slotMod.Expr|predMod.Predicate
 
 /// The slot a live [[BooleanInput]] fills. A condition is its transform,
 /// decided on the fast path.
-const function booleanSlot(input: slotMod.Slot|slotMod.Expr|predMod.Predicate): slotMod.Slot =
-  if (input is slotMod.Slot) (input) { type = "bool" }
+const function booleanSlot(input: slotMod.Reading|slotMod.Expr|predMod.Predicate): slotMod.Reading =
+  if (input is slotMod.Reading) (input) { type = "bool" }
   else if (input is slotMod.Expr)
-    new slotMod.Slot {
+    new slotMod.Reading {
       entityId = input.entityId
       transform = input.transform
       bypassUnavailable = false
       type = "bool"
     }
-  else new slotMod.Slot { transform = input; bypassUnavailable = false; type = "bool" }
+  else new slotMod.Reading { transform = input; bypassUnavailable = false; type = "bool" }
 
 /// A card's own `disabled`, as the slot `tapMod.refused` ORs in: nothing for
 /// `false`, a literal for `true`, else a handler.
-const function disabledSlot(d: BooleanInput?): (slotMod.Slot|String)? =
+const function disabledSlot(d: BooleanInput?): (slotMod.Reading|String)? =
   if (d == null || d == false) null
   else if (d == true) "1"
   else
-    (booleanSlot(d as slotMod.Slot|slotMod.Expr|predMod.Predicate)) {
+    (booleanSlot(d as slotMod.Reading|slotMod.Expr|predMod.Predicate)) {
       signal = slotMod.asHandler
     }
 
@@ -110,11 +110,11 @@ abstract class LayoutNode {
   ///     // css: .fh-cell>button { background-size: var(--fh-fill) 100% }
   ///
   /// Only `--…`: a plain property would fight the theme's framework.
-  function cssProperty(name: String(startsWith("--")), reading: slotMod.Slot|slotMod.Expr): LayoutNode =
+  function cssProperty(name: String(startsWith("--")), reading: slotMod.Reading|slotMod.Expr): LayoutNode =
     let (self = this)
     let (s = if (reading is slotMod.Expr)
-        new slotMod.Slot { entityId = reading.entityId; transform = reading.transform }
-      else reading as slotMod.Slot)
+        new slotMod.Reading { entityId = reading.entityId; transform = reading.transform }
+      else reading as slotMod.Reading)
       if (!(self is Node)) throw("cssProperty: a live property is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveProperties { [name] = (s) { signal = slotMod.asStyle(name) } } }
   // One class per family (`fh-cols-*`, `fh-text-*`, hug or grow, one edge): two
@@ -149,8 +149,8 @@ abstract class Node extends LayoutNode {
   /// The live cell classes and properties ([[LayoutNode.classWhen]],
   /// [[LayoutNode.cssProperty]]), which [[slots]] carries. A set has no slots,
   /// so the builders refuse them there.
-  hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
-  hidden liveProperties: Mapping<String, slotMod.Slot> = new {}
+  hidden liveClasses: Mapping<String, slotMod.Reading> = new {}
+  hidden liveProperties: Mapping<String, slotMod.Reading> = new {}
   // The structural check mirrors `LayoutNode.Component.liveEntitiesAsBytes`.
   /// What this node's card reads, by slot name. Amend it, `slots { ["label"] = … }`:
   /// it already holds the node's live cell classes and properties
@@ -161,9 +161,9 @@ abstract class Node extends LayoutNode {
   /// since its patch would carry everything the card holds: put live markup in a
   /// region as a node, or make it a signal slot. `once` and `onRender` reads are
   /// fine.
-  slots: Mapping<String, slotMod.Slot|String>(
+  slots: Mapping<String, slotMod.Reading|String>(
     !isStructure(cardDef) || !toMap().values.any((v) ->
-      v is slotMod.Slot && v.reads == "live" && v.signal == null &&
+      v is slotMod.Reading && v.reads == "live" && v.signal == null &&
         (v.entityId != null ||
         (containsKey("entity_id") && this["entity_id"] is String))),
     keepsLiveCell(this, card, liveClasses, liveProperties)
@@ -229,11 +229,11 @@ abstract class Node extends LayoutNode {
 /// that part's slots read; the build's own parse then checks every part.
 const function valuesNamedIn(
   vs: Mapping<String, ExpressionValue>,
-  slots: Mapping<String, slotMod.Slot|String>
+  slots: Mapping<String, slotMod.Reading|String>
 ): Map<String, ExpressionValue> =
   let (cels = slots.toMap().values
-      .filter((s) -> s is slotMod.Slot && s.transform is String)
-      .map((s) -> (s as slotMod.Slot).transform as String))
+      .filter((s) -> s is slotMod.Reading && s.transform is String)
+      .map((s) -> (s as slotMod.Reading).transform as String))
     vs.toMap().filter((name, _) ->
       cels.any((t) -> t.contains(Regex(#"(?<![\w.])\#(name)(?!\w)"#))))
 
@@ -248,7 +248,7 @@ abstract class ActiveNode extends Node {
   }
   liveClasses {
     when (!(active is Boolean)) {
-      ["fh-active"] = (booleanSlot(active as slotMod.Slot|slotMod.Expr|predMod.Predicate)) {
+      ["fh-active"] = (booleanSlot(active as slotMod.Reading|slotMod.Expr|predMod.Predicate)) {
         signal = slotMod.asClass("fh-active")
       }
     }
@@ -308,8 +308,8 @@ const local function isStructure(d: CardDef): Boolean = d.regions != null
 const local function keepsLiveCell(
   slots: Mapping,
   card: String,
-  classes: Mapping<String, slotMod.Slot>,
-  properties: Mapping<String, slotMod.Slot>
+  classes: Mapping<String, slotMod.Reading>,
+  properties: Mapping<String, slotMod.Reading>
 ): Boolean =
   let (lost =
       classes.keys.toList().filter((c) -> !slots.containsKey(cellClassPrefix + c)).map((c) -> "class '\(c)'")

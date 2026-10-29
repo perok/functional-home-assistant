@@ -43,7 +43,7 @@ class HistoryChart extends nodes.Node {
   hidden chartHeight: Int(isPositive)? = null
 
   slots {
-    ["chart"] = new slotMod.Slot {
+    ["chart"] = new slotMod.Reading {
       fetch = historyProv.of(entity, window)
       transform = chartMod.chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
     }

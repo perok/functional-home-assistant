@@ -43,7 +43,7 @@ const local peakSinceZero: String =
       math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))
   """.trim()
 
-local function peakOf(left: hass.SensorEntity): slotMod.Slot = new {
+local function peakOf(left: hass.SensorEntity): slotMod.Reading = new {
   entityId = left.entity_id
   transform = peakSinceZero
   expressionValues { ["past"] = historyProv.of(left, historyProv.raw(24.h)) }
@@ -53,5 +53,5 @@ local function peakOf(left: hass.SensorEntity): slotMod.Slot = new {
 function canCount(left: hass.SensorEntity, total: hass.SensorEntity): Boolean =
   left.durationSeconds != null && total.durationSeconds != null
 
-local function stateOf(e: hass.Entity): slotMod.Slot =
+local function stateOf(e: hass.Entity): slotMod.Reading =
   new { entityId = e.entity_id; transform = simpleMod.state() }

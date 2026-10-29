@@ -219,7 +219,7 @@ class SliderControls extends nodes.Node {
 /// the chain form.
 open class Slider extends nodes.Node {
   card = "slider"
-  hidden title: String|slotMod.Slot
+  hidden title: String|slotMod.Reading
   /// On an entity slider, often an [[slotMod.Expr]] naming a DIFFERENT entity
   /// (the room's temperature beside its lights).
   hidden secondary: slotMod.Secondary? = null
@@ -231,14 +231,14 @@ open class Slider extends nodes.Node {
   hidden rangeMax: Number
   /// Where the device is, as the input's number. Server-written; the drag moves
   /// [[slideSig]] and adopts this.
-  hidden position: slotMod.Slot
+  hidden position: slotMod.Reading
   /// The track fill as `--fh-fill`, a distance from the right edge. The
   /// value carries its own `%`.
-  hidden fill: slotMod.Slot
+  hidden fill: slotMod.Reading
   /// Null paints [[fillDefault]].
-  hidden fillColor: slotMod.Slot? = null
+  hidden fillColor: slotMod.Reading? = null
   hidden fillDefault: String = "currentcolor"
-  hidden reading: slotMod.Slot? = null
+  hidden reading: slotMod.Reading? = null
   /// Whether a drag also moves the readout: only a percentage is a function of
   /// the position.
   hidden readingFollowsDrag: Boolean = false
@@ -274,7 +274,7 @@ open class Slider extends nodes.Node {
   /// Disables the range (or the press) while it holds, ORed with the commit's
   /// own refusal, as `Button.disabled`.
   hidden disabled: nodes.BooleanInput? = null
-  hidden headSlots: Mapping<String, slotMod.Slot|String> = new {
+  hidden headSlots: Mapping<String, slotMod.Reading|String> = new {
     when (subject != null) {
       ["entity_id"] = subject!!
     }
@@ -282,7 +282,7 @@ open class Slider extends nodes.Node {
       ["disabled"] = nodes.disabledSlot(disabled)!!
     }
     // `onRender`: an `aria-label` on a head that is never patched.
-    ["label"] = if (title is slotMod.Slot) (title as slotMod.Slot) { reads = "onRender" } else title
+    ["label"] = if (title is slotMod.Reading) (title as slotMod.Reading) { reads = "onRender" } else title
     when (glyph != null) {
       ["icon"] = glyph!!
     }
@@ -338,7 +338,7 @@ open class Slider extends nodes.Node {
     ["min"] = "\(rangeMin)"
     ["max"] = "\(rangeMax)"
   }
-  hidden textSlots: Mapping<String, slotMod.Slot|String> = new {
+  hidden textSlots: Mapping<String, slotMod.Reading|String> = new {
     when (subject != null) {
       ["entity_id"] = subject!!
     }

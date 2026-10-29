@@ -24,7 +24,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |
        |theme { classes { $themeRules } }
        |
-       |local kitchenOn = new slotMod.Slot {
+       |local kitchenOn = new slotMod.Reading {
        |  entityId = dump.entities.${kitchen.dumpKey}.entity_id
        |  transform = simpleMod.stateIn(new Listing { "on" })
        |  bypassUnavailable = false

@@ -52,7 +52,7 @@ abstract class TapAction {
   hidden label: String? = null
   /// What lights a pill sending this: a toggle's entity being on. None for an
   /// effect or a popup, whose pill is not lit by state.
-  hidden lit: slotMod.Slot? = null
+  hidden lit: slotMod.Reading? = null
 }
 
 class Call extends TapAction {
@@ -60,7 +60,7 @@ class Call extends TapAction {
   /// signal when the target's live state picks it ([[stateService]]). Only the
   /// service, not the URL: only a card's template can name the slug and node id
   /// ([[serviceClick]]).
-  service: slotMod.Slot|String
+  service: slotMod.Reading|String
   /// Named by the tap, never borrowed from the card, so a card may show one
   /// entity and act on another, or on a room.
   target: Target
@@ -88,7 +88,7 @@ class Call extends TapAction {
 /// A tap that is its own click expression. `onclick` is what a card whose root
 /// cannot be an `<a>` places for a navigate.
 open class Click extends TapAction {
-  onclick: slotMod.Slot|String
+  onclick: slotMod.Reading|String
 }
 
 /// Guarded like a [[Call]]: the open answers only once the surface's fetches
@@ -317,7 +317,7 @@ const function refusedStates(t: TapAction, target: Target?): List<String> =
 /// A boolean, because only a real `false` removes a boolean attribute (ADR
 /// 0017). Read by expression rather than bound, since how it shows is the
 /// host's.
-const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {
+const function tapDisabledSlot(states: List<String>): slotMod.Reading = new {
   transform = simpleMod.stateIn(states.toListing())
   // `unavailable` is one of the arms, so the raw state has to reach the match.
   bypassUnavailable = false
@@ -328,14 +328,14 @@ const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {
 /// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
 /// carries its tally as `targetSet`, the JSON the press filters by.
 const local function routeSlots(
-  action: slotMod.Slot|String,
+  action: slotMod.Reading|String,
   target: Target,
   key: String?
-): Mapping<String, slotMod.Slot|String> =
+): Mapping<String, slotMod.Reading|String> =
   new {
     ["service"] =
-      if (action is slotMod.Slot && target is hass.Entity)
-        (action as slotMod.Slot) { entityId = target.entity_id }
+      if (action is slotMod.Reading && target is hass.Entity)
+        (action as slotMod.Reading) { entityId = target.entity_id }
       else action
     ["targetKind"] =
       if (target is hass.Entity) "entity" else if (target is hass.Area) "area"
@@ -357,7 +357,7 @@ const local function routeSlots(
 /// place a route without it. Separate from [[tapSlots]] for a card with no
 /// `tappable` section (a [[Button]]'s anchor arm). One node holds one tap's
 /// route.
-const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
+const function tapRoute(t: TapAction): Mapping<String, slotMod.Reading|String> =
   let (target = if (t is Call) t.target else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
   let (states = refusedStates(t, target))
@@ -388,7 +388,7 @@ const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).
 ///   for (k, v in tapMod.tapSlots(tapAction)) { [k] = v }
 /// }
 /// ```
-const function tapSlots(t: TapAction?): Mapping<String, slotMod.Slot|String> =
+const function tapSlots(t: TapAction?): Mapping<String, slotMod.Reading|String> =
   new {
     when (t != null) {
       ["tappable"] = "1"
@@ -417,7 +417,7 @@ const function guardSlots(t: TapAction): Mapping<String, String> =
 /// `dashboard_slug`. `once`, so the node stays in the renderer's identity cache;
 /// it must resolve on an unavailable entity, which is exactly the one you want
 /// to click.
-const function clickSlot(transformExpr: String): slotMod.Slot = new {
+const function clickSlot(transformExpr: String): slotMod.Reading = new {
   transform = transformExpr
   reads = "once"
   bypassUnavailable = false
@@ -425,7 +425,7 @@ const function clickSlot(transformExpr: String): slotMod.Slot = new {
 
 // A transform rather than a constant, because only a transform can read
 // `dashboard_slug`.
-const local function openSurfaceOnclick(surfaceId: String): slotMod.Slot =
+const local function openSurfaceOnclick(surfaceId: String): slotMod.Reading =
   clickSlot(
     // `"\""`, not `#"""#`, which would open a multi-line string.
     #""@post('sse/surface/""# + #" + dashboard_slug + "/open/"# + surfaceId +
@@ -471,7 +471,7 @@ const function toggle(e: hass.Entity): Call =
 /// visible state, so a click acts on what the user is looking at (ADR 0016).
 const local function stateService(e: hass.Entity, byState: hassActions.CallByState): Call =
   new {
-    service = new slotMod.Slot {
+    service = new slotMod.Reading {
       transform = simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)
       bypassUnavailable = false
       signal = slotMod.asHandler
@@ -500,9 +500,9 @@ function navigate(slug: String): Click = new {
 /// place `fh-current-dashboard` and `aria-current="page"` under. Read once per renderer,
 /// which is one dashboard, so it costs no signal; the build cannot answer it,
 /// since a module does not know its slug.
-const function currentSlots(t: TapAction): Mapping<String, slotMod.Slot> = new {
+const function currentSlots(t: TapAction): Mapping<String, slotMod.Reading> = new {
   when (t.page != null) {
-    ["current"] = new slotMod.Slot {
+    ["current"] = new slotMod.Reading {
       transform = "dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
       reads = "once"
       type = "bool"

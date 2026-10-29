@@ -107,7 +107,7 @@ import "@fh-dashboard/core/slot.pkl" as slotMod
 hidden entity: hass.Entity
 
 slots {
-  ["message"] = new slotMod.Slot {
+  ["message"] = new slotMod.Reading {
     entityId = entity.entity_id
     transform = "state"
   }
@@ -157,7 +157,7 @@ If a value changes often, redrawing the whole card each time is wasteful. Mark
 the slot as a **signal** instead, and only that one value is sent:
 
 ```pkl
-["temperature"] = new slotMod.Slot {
+["temperature"] = new slotMod.Reading {
   entityId = entity.entity_id
   signal = "text"
 }
@@ -180,7 +180,7 @@ by a name you give it:
 ```pkl
 import "@fh-dashboard/providers.pkl" as p
 
-["peak"] = new slotMod.Slot {
+["peak"] = new slotMod.Reading {
   entityId = entity.entity_id
   transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
   expressionValues { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
@@ -211,7 +211,7 @@ or a function handed the providers, so its users need no import.
 is `""`, the expression does not run, and its history is not read:
 
 ```pkl
-["peak"] = new slotMod.Slot {
+["peak"] = new slotMod.Reading {
   entityId = entity.entity_id
   valueWhile = q.entity(entity).gt(q.prop("state"), 0)
   transform = "…"

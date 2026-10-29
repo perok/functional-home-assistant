@@ -25,11 +25,11 @@ local function wheelIn(t: Any): wheelMod.ColourWheel? =
 facts {
   ["the wheel reads hs_color and sets it, through the JSON body"] {
     local w = wheelMod.colourWheel(lamp)
-    (w.slots["hue"] as slotMod.Slot).transform.contains("attr[?'hs_color']")
+    (w.slots["hue"] as slotMod.Reading).transform.contains("attr[?'hs_color']")
     // The server's reading paints nothing itself: the knob shows the client's
     // copy, which the drag moves and a refusal, a dead stream, a cancelled
     // pointer and a mount put back to the light's.
-    (w.slots["hue"] as slotMod.Slot).signal == slotMod.asHandler
+    (w.slots["hue"] as slotMod.Reading).signal == slotMod.asHandler
     local t = w.cardDef.template
     t.contains(#"data-style:--fh-h="$_{{id}}__h""#)
     t.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")

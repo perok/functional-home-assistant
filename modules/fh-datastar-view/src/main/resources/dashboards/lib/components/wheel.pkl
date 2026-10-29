@@ -64,21 +64,21 @@ class ColourWheel extends nodes.Node {
   hidden light: hass.LightEntity(colour != null)
   hidden setColour: tapMod.Call = (tapMod.call("light/turn_on", light)) { dataKey = "hs_color"; busyVisual = false }
   slots {
-    ["hue"] = new slotMod.Slot {
+    ["hue"] = new slotMod.Reading {
       entityId = light.entity_id
       transform = hsRead("str(double(hs[0])) + 'deg'", "0deg")
       default = "0deg"
       signal = slotMod.asHandler
       bypassUnavailable = false
     }
-    ["sat"] = new slotMod.Slot {
+    ["sat"] = new slotMod.Reading {
       entityId = light.entity_id
       transform = hsRead("str(double(hs[1]) / 100.0)", "0")
       default = "0"
       signal = slotMod.asHandler
       bypassUnavailable = false
     }
-    ["paint"] = new slotMod.Slot {
+    ["paint"] = new slotMod.Reading {
       entityId = light.entity_id
       transform = hsRead("'hsl(' + str(math.round(double(hs[0]))) + ',' + str(math.round(double(hs[1]))) + '%,50%)'", "#fff")
       default = "#fff"
