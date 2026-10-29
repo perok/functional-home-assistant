@@ -270,8 +270,8 @@ const defaultRegion: String = "children"
 /// The slot-name prefixes of a live cell class and property;
 /// `Dashboard.CellClassPrefix` / `CellStylePrefix` in the backend. The `:` keeps
 /// them out of any name a template could place.
-const cellClassPrefix: String = "cell.class:"
-const cellStylePrefix: String = "cell.style:"
+const cellClassPrefix: String = "cell:class:"
+const cellStylePrefix: String = "cell:style:"
 
 /// A card's markup. A card is a LEAF (no regions) or STRUCTURE (regions), and a
 /// patch replaces a node's own element, so structure is never a patch target

@@ -166,11 +166,11 @@ the slot as a **signal** instead, and only that one value is sent:
 Then place both the value and its binding in the template:
 
 ```html
-<span {{{temperature__bind}}}>{{temperature}}</span>
+<span {{{temperature.bind}}}>{{temperature}}</span>
 ```
 
 The `{{temperature}}` part is what a browser sees on first load. The
-`{{{temperature__bind}}}` part is what keeps it fresh afterwards. You need both.
+`{{{temperature.bind}}}` part is what keeps it fresh afterwards. You need both.
 
 ### Reading an entity's history
 

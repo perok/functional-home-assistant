@@ -1605,8 +1605,8 @@ class PklBuildSuite extends munit.FunSuite {
         // `tile` marks `value` and `tapDisabled` as signal slots, and
         // `validate` rejects a card that declares one without placing its
         // binding — or, for a handler, its read (ADR 0017).
-        "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>" +
-          "<u data-on:click=\"{{tapDisabled__signal}}\"></u>" +
+        "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>" +
+          "<u data-on:click=\"{{tapDisabled.signal}}\"></u>" +
           // The rest of what the library tile reads, so every slot is read.
           "{{#icon}}{{#onoff}}{{#tappable}}{{#busy}}{{#busyVisual}}" +
           "{{/busyVisual}}{{/busy}}{{/tappable}}{{/onoff}}{{/icon}}"
@@ -2062,7 +2062,7 @@ class PklBuildSuite extends munit.FunSuite {
         "icon",
         "busyVisual",
         "onoff",
-        "cell.class:fh-active"
+        "cell:class:fh-active"
       ),
       clue = rowOf(plain).slots.keySet
     )

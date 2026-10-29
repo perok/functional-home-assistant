@@ -15,9 +15,33 @@ class TemplateReadsSuite extends munit.FunSuite:
     assertEquals(r.names, Set("state", "unit", "icon"))
   }
 
-  test("a dotted name reads its head; the section's own value reads nothing") {
-    val r = reads("{{a.b}}{{#xs}}{{.}}{{/xs}}")
-    assertEquals(r.names, Set("a", "xs"))
+  test("a view reads its slot; the section's own value reads nothing") {
+    import Templates.View
+    val r = reads(
+      "{{{a.bind}}}{{#b.has}}{{b}}{{/b.has}}{{{c.jsValue}}}{{d.signal}}" +
+        "{{e.nope}}{{#xs}}{{.}}{{/xs}}"
+    )
+    assertEquals(r.names, Set("a", "b", "c", "d", "xs"))
+    assertEquals(
+      r.views,
+      Set(
+        "a" -> View.Bind,
+        "b" -> View.Has,
+        "c" -> View.JsValue,
+        "d" -> View.Signal
+      )
+    )
+    assertEquals(r.required, Set("a", "c", "d"))
+    assertEquals(r.unknownViews, Set("e.nope"))
+    assertEquals(r.raw, Set.empty[String])
+  }
+
+  test("a binding inside a section on its own value is recorded") {
+    val r = reads(
+      "{{#x}}<i {{{x.bind}}}>{{/x}}{{^w}}<i {{{w.bind}}}>{{/w}}" +
+        "{{#y.has}}<i {{{y.bind}}}>{{/y.has}}{{#z}}<i {{{y.bind}}}>{{/z}}"
+    )
+    assertEquals(r.boundInOwnSection, Set("x", "w"))
   }
 
   test("a region is counted where it is a raw hole outside every section") {

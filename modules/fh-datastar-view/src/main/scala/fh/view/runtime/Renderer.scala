@@ -1408,16 +1408,18 @@ class Renderer(validated: Dashboard.Validated) {
     * @param structural
     *   constants from the node's position (ids, inherited entity)
     * @param constants
-    *   literal and identity-`once` slot values, plus every slot's `__has`
-    * @param bindings
-    *   the `__bind`/`__signal` strings (constant subject)
+    *   literal and identity-`once` slot values
+    * @param jsConstants
+    *   their `x.jsValue`, quoted
+    * @param signalled
+    *   each signal slot's views: the plan's for a constant subject, built per
+    *   paint for a dynamic one, whose signal names can change
+    * @param slots
+    *   every slot the node sets, which is what `x.has` asks
     * @param paint
     *   the live slot values — empty when the card has none
     * @param bake
     *   the client's bake selection (empty off bake groups)
-    * @param liveBindings
-    *   the direct path's `__bind`/`__signal` strings — the subject is dynamic
-    *   there, so the names cannot be precomputed
     * @param signalSlots
     *   slots withheld (blanked) in the patch form
     * @param signals
@@ -1426,13 +1428,32 @@ class Renderer(validated: Dashboard.Validated) {
   private case class Resolved(
       structural: Map[String, String],
       constants: Map[String, SlotValue],
-      bindings: Map[String, String],
+      jsConstants: Map[String, String],
+      signalled: Map[String, Signalled],
+      slots: Map[String, Planned],
       paint: Map[String, SlotValue],
       bake: Map[String, String],
-      liveBindings: Map[String, String],
       signalSlots: Set[String],
       signals: Map[SignalId, SlotValue]
   )
+
+  /** A signal slot's views. `bind` is in both forms: a morph that dropped it
+    * would leave the element inert; only the value is withheld.
+    */
+  private final case class Signalled(
+      bind: String,
+      signal: SignalId,
+      jsValue: String
+  )
+
+  private def signalledOf(signal: SignalId, kind: SignalBind): Signalled =
+    Signalled(
+      Datastar.binding(signal, kind, themeClasses),
+      signal,
+      // The value as a JS expression whatever the tier, so one template serves
+      // a static tap and a state-dependent one (issue #133).
+      s"$$$signal"
+    )
 
   /** A component's `<div class="fh-cell …"`, its live classes and custom
     * properties ([[Dashboard.CellClassPrefix]], [[Dashboard.CellStylePrefix]])
@@ -1482,12 +1503,8 @@ class Renderer(validated: Dashboard.Validated) {
     * undefined`, the first `LiveCellClassSmokeSuite` run).
     */
   private def cellBindingsInto(buf: Sink, r: Resolved): Unit = {
-    def bind(slot: String): Unit = {
-      val key = slot + "__bind"
-      r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
-        buf.append(' ').append(b)
-      }
-    }
+    def bind(slot: String): Unit =
+      r.signalled.get(slot).foreach { s => buf.append(' ').append(s.bind) }
     cellSlots(r, Dashboard.CellClassPrefix).foreach(bind)
     cellSlots(r, Dashboard.CellStylePrefix).foreach(bind)
   }
@@ -1517,12 +1534,9 @@ class Renderer(validated: Dashboard.Validated) {
         //
         // `AnyRef` because `paint` can hold a boxed `Boolean`, which must
         // reach mustache as one: the string "false" is a truthy section.
-        var v: AnyRef | Null = resolved.bindings.getOrElse(name, null)
-        if (v == null) v = resolved.liveBindings.getOrElse(name, null)
-        if (v == null) {
-          val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
-          if (p != null) v = SlotValue.scoped(p)
-        }
+        var v: AnyRef | Null = null
+        val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
+        if (p != null) v = SlotValue.scoped(p)
         if (v == null) {
           val c: SlotValue | Null = resolved.constants.getOrElse(name, null)
           if (c != null) v = SlotValue.scoped(c)
@@ -1531,6 +1545,27 @@ class Renderer(validated: Dashboard.Validated) {
         if (v == null) v = resolved.structural.getOrElse(name, null)
         v
       }
+
+    override def fhView(slot: String, view: Templates.View): AnyRef =
+      view match
+        case Templates.View.Has =>
+          java.lang.Boolean.valueOf(resolved.slots.contains(slot))
+        case Templates.View.Bind =>
+          val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
+          if (s == null) null else s.bind
+        case Templates.View.Signal =>
+          val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
+          if (s == null) null else s.signal
+        case Templates.View.JsValue =>
+          val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
+          if (s != null) s.jsValue
+          else {
+            val c: String | Null = resolved.jsConstants.getOrElse(slot, null)
+            if (c != null) c
+            else
+              // A dynamic subject's `once` value, resolved per paint.
+              resolved.paint.get(slot).map(Datastar.jsValue).orNull
+          }
   }
 
   /** What a paint cannot change about one node, derived once per renderer so a
@@ -1542,10 +1577,12 @@ class Renderer(validated: Dashboard.Validated) {
       tpl: Mustache,
       structural: Map[String, String],
       constants: Map[String, SlotValue],
+      jsConstants: Map[String, String],
       dynamic: List[(String, Option[String], Planned)],
-      // Every slot, for a subject that is itself a transform ([[resolveDirect]]).
+      // Every slot: what `x.has` asks, and for a subject that is itself a
+      // transform ([[resolveDirect]]), what it resolves.
       slots: Map[String, Planned],
-      bindings: Map[String, String],
+      signalled: Map[String, Signalled],
       signalNameBySlot: Map[String, SignalId],
       // The address variables are looked up by, never their values: a plan is
       // shared across sessions.
@@ -1623,19 +1660,14 @@ class Renderer(validated: Dashboard.Validated) {
         case Some(_)                        => None
       }
     val constB = Map.newBuilder[String, SlotValue]
+    val jsB = Map.newBuilder[String, String]
     val dynB = List.newBuilder[(String, Option[String], Planned)]
     slots.foreach { case (slot, planned) =>
       val source = planned.source
-      // The section guard (ADR 0017), for every slot: a withheld signal value
-      // is a false section, so `{{#value}}` would delete its own element and
-      // binding on the first patch. Uniform because a card may not know its
-      // tier (`EntityCard`'s icon is a signal for some domains only).
-      constB += ((slot + "__has", "1"))
       source.literal match {
         case Some(text) =>
           constB += ((slot, text))
-          // The value as a JS expression; see `bindings` below.
-          constB += ((slot + "__read", Datastar.jsLiteral(text)))
+          jsB += ((slot, Datastar.jsLiteral(text)))
         case None =>
           subjectConst match {
             case Some(subject) =>
@@ -1660,15 +1692,14 @@ class Renderer(validated: Dashboard.Validated) {
                         )
                     )
                     constB += ((slot, once))
-                    constB += ((slot + "__read", Datastar.jsValue(once)))
+                    jsB += ((slot, Datastar.jsValue(once)))
                   } else dynB += ((slot, srcEntity, planned))
             case None => ()
           }
       }
     }
-    // The binding is in both forms (a morph that dropped it would leave the
-    // element inert); only the value is withheld. A signal slot is always
-    // `live` and non-literal, so its name is constant per node.
+    // A signal slot is always `live` and non-literal, so its name is constant
+    // per node.
     val named = subjectConst match {
       case Some(subject) =>
         c.bound.toList.flatMap { case (slot, src) =>
@@ -1693,18 +1724,11 @@ class Renderer(validated: Dashboard.Validated) {
       tpl = templateOf(c.card),
       structural = structuralVars(id, states),
       constants = constB.result(),
+      jsConstants = jsB.result(),
       dynamic = dynB.result(),
       slots = slots,
-      bindings = named.flatMap { case (slot, kind, signal) =>
-        List(
-          s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
-          // For a card composing the signal into its own expression; such a
-          // card relies on a signal the plain form does not have.
-          s"${slot}__signal" -> signal,
-          // The value as a JS expression whatever the tier, so one template
-          // serves a static tap and a state-dependent one (issue #133).
-          s"${slot}__read" -> s"$$$signal"
-        )
+      signalled = named.map { case (slot, kind, signal) =>
+        slot -> signalledOf(signal, kind)
       }.toMap,
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
@@ -1753,10 +1777,11 @@ class Renderer(validated: Dashboard.Validated) {
     Resolved(
       plan.structural,
       plan.constants,
-      plan.bindings,
+      plan.jsConstants,
+      plan.signalled,
+      plan.slots,
       paint = paintB.result(),
       bake = bakeIndex,
-      liveBindings = Map.empty,
       plan.signalSlots,
       signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
@@ -1820,20 +1845,16 @@ class Renderer(validated: Dashboard.Validated) {
         )
       )
     }
-    val bindings = named.flatMap { case (slot, kind, signal) =>
-      List(
-        s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
-        s"${slot}__signal" -> signal,
-        s"${slot}__read" -> s"$$$signal"
-      )
-    }
     Resolved(
       structural = plan.structural,
       constants = plan.constants,
-      bindings = plan.bindings,
+      jsConstants = plan.jsConstants,
+      signalled = named.map { case (slot, kind, signal) =>
+        slot -> signalledOf(signal, kind)
+      }.toMap,
+      slots = plan.slots,
       paint = resolved,
       bake = bakeIndex,
-      liveBindings = bindings.toMap,
       named.map(_._1).toSet,
       named.map { case (slot, _, signal) => signal -> resolved(slot) }.toMap
     )

@@ -108,9 +108,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("never reads slots: round")), clue = errs)
   }
 
-  test("validate: a derived name reads its slot; the route is the server's") {
+  test("validate: a view reads its slot; the route is the server's") {
     val errs = oneCard(
-      "<b {{{label__bind}}}></b>",
+      "<b {{{label.bind}}}></b>",
       Map(
         "label" -> text,
         Dashboard.ServiceSlot -> text,
@@ -118,6 +118,38 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
     assertEquals(errs, Nil)
+  }
+
+  test("validate: an unknown view and a pre-views spelling are named") {
+    val errs = oneCard(
+      "<b {{{label.bnid}}}>{{label}}</b><i {{{label__bind}}}></i>",
+      Map("label" -> text)
+    )
+    assert(errs.exists(_.contains("reads 'label.bnid'")), clue = errs)
+    assert(
+      errs.exists(_.contains("reads 'label__bind' — write {{{label.bind}}}")),
+      clue = errs
+    )
+    // Once, on the card, not again as a slot the node leaves unset.
+    assert(!errs.exists(_.contains("missing slots")), clue = errs)
+  }
+
+  test("validate: a binding inside a section on its own value is rejected") {
+    def errs(tpl: String) = oneCard(tpl, Map("icon" -> text))
+    assert(
+      errs("{{#icon}}<i {{{icon.bind}}}></i>{{/icon}}")
+        .exists(_.contains("guard it with {{#icon.has}}")),
+      clue = errs("{{#icon}}<i {{{icon.bind}}}></i>{{/icon}}")
+    )
+    assertEquals(
+      errs("{{#icon.has}}<i {{{icon.bind}}}>{{icon}}</i>{{/icon.has}}"),
+      Nil
+    )
+  }
+
+  test("validate: a slot name with a '.' is rejected") {
+    val errs = oneCard("<b>{{a}}</b>", Map("a" -> text, "a.b" -> text))
+    assert(errs.exists(_.contains("slot 'a.b' has a '.'")), clue = errs)
   }
 
   test("validate: a region is placed once, as {{{name}}}, outside sections") {

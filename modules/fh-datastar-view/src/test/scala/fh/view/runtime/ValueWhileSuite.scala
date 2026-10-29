@@ -35,7 +35,7 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   private val bar = CardDef(
-    """<b {{{of__bind}}}>{{of}}</b>"""
+    """<b {{{of.bind}}}>{{of}}</b>"""
   )
 
   private def node(of: SlotSource) = LayoutNode.Component(

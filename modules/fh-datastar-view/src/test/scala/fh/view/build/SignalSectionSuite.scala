@@ -8,7 +8,7 @@ package fh.view.build
   * changes, usually the `busy` flag a tap sets. "It disappears when I click
   * it."
   *
-  * `slotMod.ifSlot(name)` is the guard: it keys on `<slot>__has`, emitted for
+  * `slotMod.ifSlot(name)` is the guard: it keys on `<slot>.has`, answered for
   * every declared slot in both forms. The sources are read, not the registry,
   * because the template text is where the author makes the mistake.
   */

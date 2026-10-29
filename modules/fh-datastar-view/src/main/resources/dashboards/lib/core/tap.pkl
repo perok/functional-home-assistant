@@ -287,7 +287,7 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 /// A service call, assembled in the card's template from [[routeSlots]]: the
 /// one place that can name `{{dashboardSlug}}`, `{{id}}` and the slot read.
 ///
-/// `service__read` is a quoted literal for a build-time service and a signal
+/// `service.jsValue` is a quoted literal for a build-time service and a signal
 /// for a state-picked one, so the template is the same either way, and a lock
 /// tile's bytes stay constant across lock/unlock (ADR 0017).
 const serviceClick: String =

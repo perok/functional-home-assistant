@@ -57,7 +57,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // The signal's entity reaches the patch form only as a binding (ADR 0017),
     // the asymmetry the key must reflect.
     "gauge" -> CardDef(
-      """<div><span>{{state}}</span><em {{{live__bind}}}>{{live}}</em></div>"""
+      """<div><span>{{state}}</span><em {{{live.bind}}}>{{live}}</em></div>"""
     )
   )
 
@@ -306,7 +306,7 @@ class RenderInputsSuite extends munit.FunSuite {
     Dashboard(
       cards + ("signalBanner" -> cards("banner").copy(
         template = cards("banner").template
-          .replace("<i>", "<b {{{title__bind}}}></b><i>")
+          .replace("<i>", "<b {{{title.bind}}}></b><i>")
       )),
       LayoutNode.Component(
         "signalBanner",

@@ -26,10 +26,10 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       regions = Map("children" -> Region())
     ),
     "card" -> CardDef(
-      """<span {{{value__bind}}}>{{value}}</span>"""
+      """<span {{{value.bind}}}>{{value}}</span>"""
     ),
     "two" -> CardDef(
-      """<span {{{a__bind}}} {{{b__bind}}}>{{a}}{{b}}</span>"""
+      """<span {{{a.bind}}} {{{b.bind}}}>{{a}}{{b}}</span>"""
     )
   )
 

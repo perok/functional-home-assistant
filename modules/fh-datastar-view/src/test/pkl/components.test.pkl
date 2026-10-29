@@ -407,7 +407,7 @@ facts {
 
   ["a domain with a real toggle gets a LITERAL route, not a runtime lookup"] {
     // A bare String — no transform, nothing for the runtime to decide, and so
-    // nothing that can leave the renderer's identity cache. `service__read`
+    // nothing that can leave the renderer's identity cache. `service.jsValue`
     // quotes it back into the card's click expression.
     c.entityCard(kitchen).slots["service"] == "light/toggle"
     !c.entityCard(kitchen).slots.containsKey("onclick")
@@ -696,11 +696,11 @@ facts {
     // regions now (#151), and a card that holds regions is never patched — so
     // the two values here that move as bytes are their own node.
     cards["sliderText"].template.contains(#"<strong class="fh-text"><span class="fh-text-run">{{label}}</span></strong>"#)
-    cards["sliderText"].template.contains(#"<span class="fh-sub fh-text"><span class="fh-text-run" {{{secondary__bind}}}>{{secondary}}</span></span>"#)
+    cards["sliderText"].template.contains(#"<span class="fh-sub fh-text"><span class="fh-text-run" {{{secondary.bind}}}>{{secondary}}</span></span>"#)
     // A signal-backed reading binds on the RUN, not on the box: `data-text`
     // replaces an element's whole content, so binding the box would delete the
     // run on the first tick and the label would never move again.
-    cards["tile"].template.contains(#"<span class="fh-text-run" {{{value__bind}}}>{{value}}</span>"#)
+    cards["tile"].template.contains(#"<span class="fh-text-run" {{{value.bind}}}>{{value}}</span>"#)
 
     // The mode travels as inherited custom properties. That is not a style
     // choice: two equally-specific `.fh-text-clip .fh-text` / `.fh-text-wrap
@@ -903,7 +903,7 @@ facts {
     local placing = c.cards.toMap().filter((_, d) -> d.template.contains("{{secondary}}"))
     placing.keys == Set("tile", "button", "sliderText")
     placing.every((_, d) ->
-      d.template.contains("{{{secondary__bind}}}") && !d.template.contains("{{#secondary}}"))
+      d.template.contains("{{{secondary.bind}}}") && !d.template.contains("{{#secondary}}"))
 
     (c.entityCard(kitchen).secondary(c.expr("state")).slots["secondary"] as slotMod.Slot).signal == "text"
     // A literal is the text itself, and a reading that is not live stays bytes.
@@ -931,8 +931,8 @@ facts {
 
     // Both arms place it, under the same section that opens the column.
     local t = c.cards["button"].template
-    t.split("{{#secondary__has}}<span class=\"fh-lines\">").length == 3
-    t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span></span>")
+    t.split("{{#secondary.has}}<span class=\"fh-lines\">").length == 3
+    t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>")
   }
 
   ["a pill wears its tap's look: round alone, named for a screen reader"] {
@@ -943,7 +943,7 @@ facts {
     power.slots["round"] == "1"
     power.slots["name"] == "Toggle"
     // A toggle's pill is lit while its entity is on; other calls' are not.
-    power.slots["cell.class:fh-active"].entityId == kitchen.entity_id
+    power.slots["cell:class:fh-active"].entityId == kitchen.entity_id
     c.pill(c.tap.call("light/turn_on", kitchen).with("effect", "x")).label("x").active == false
     // A tap with no icon shows its label; an author's label is always shown.
     local evening: hass.SceneEntity = new { entity_id = "scene.kveld"; friendly_name = "Kveld" }
@@ -989,7 +989,7 @@ facts {
     // reflect a state — and rides the CELL, which the button card paints.
     glyphOnly.cell == null
     c.entityButton(kitchen).cell == null
-    c.entityButton(kitchen).active(c.isOn(kitchen)).slots["cell.class:fh-active"].signal
+    c.entityButton(kitchen).active(c.isOn(kitchen)).slots["cell:class:fh-active"].signal
       == "class:fh-active"
     c.cards["button"].css.contains(".fh-cell.fh-active>")
   }
@@ -1066,15 +1066,15 @@ facts {
     local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
     after.cell == before.cell
     after.cell.classes.toList() == List("fh-cols-3")
-    after.slots.containsKey("cell.class:fh-active")
+    after.slots.containsKey("cell:class:fh-active")
     c.button("x", tap).active(true).columns(3).cell.classes.toList().sort()
       == List("fh-active", "fh-cols-3")
   }
 
   ["a live cell class is a slot: replacing a card's slots cannot drop it, and a set has none"] {
     local lit = c.button("x", c.tap.toggle(kitchen)).classWhen("warm", c.isOn(kitchen))
-    lit.slots["cell.class:warm"].signal == "class:warm"
-    lit.cssProperty("--x", c.expr("'1'")).slots.containsKey("cell.style:--x")
+    lit.slots["cell:class:warm"].signal == "class:warm"
+    lit.cssProperty("--x", c.expr("'1'")).slots.containsKey("cell:style:--x")
     module.catch(() -> new OwnSlots {}.classWhen("warm", c.isOn(kitchen)).slots)
       .contains("card 'ownSlots': `slots = new { … }` drops its live cell class 'warm'")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
@@ -1148,7 +1148,7 @@ facts {
   }
 
   ["an entity card's badge fills while its entity is on, by HA's rule for the domain"] {
-    local lit = c.entityCard(kitchen).slots["cell.class:fh-active"]
+    local lit = c.entityCard(kitchen).slots["cell:class:fh-active"]
     lit.signal == "class:fh-active"
     lit.entityId == kitchen.entity_id
     lit.type == "bool"
@@ -1157,7 +1157,7 @@ facts {
     light.cases.toMap() == Map("unavailable", false, "unknown", false, "off", false)
     light.otherwise == true
     // A lock is on while it is not locked: HA's reading, not `on`.
-    (c.entityCard(plainLock).slots["cell.class:fh-active"].transform as simpleMod.SimpleMatch)
+    (c.entityCard(plainLock).slots["cell:class:fh-active"].transform as simpleMod.SimpleMatch)
       .cases.toMap()["locked"] == false
     // A reading has no off, so a sensor carries no live class at all.
     c.entityCard(outside).cell == null
@@ -1181,16 +1181,16 @@ facts {
     local paints = Regex(#"\.fh-badge[^{,]*\{[^}]*(background|color):"#)
     c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button")
     // On is the cell's; whether there is an off is the badge's.
-    c.toggle(kitchen).slots.containsKey("cell.class:fh-active")
+    c.toggle(kitchen).slots.containsKey("cell:class:fh-active")
     c.toggle(kitchen).slots["onoff"] == "1"
     c.entityCard(kitchen).slots["onoff"] == "1"
     !c.entityCard(outside).slots.containsKey("onoff")
     local head = c.entitySlider(kitchen).children["head"][0]
-    head.slots.containsKey("cell.class:fh-active")
+    head.slots.containsKey("cell:class:fh-active")
     head.slots["onoff"] == "1"
     // One meaning of on: a toggle's pill reads HA's rule, as the tile.
-    c.pill(c.tap.toggle(kitchen)).slots["cell.class:fh-active"].transform
-      == c.entityCard(kitchen).slots["cell.class:fh-active"].transform
+    c.pill(c.tap.toggle(kitchen)).slots["cell:class:fh-active"].transform
+      == c.entityCard(kitchen).slots["cell:class:fh-active"].transform
   }
 
   ["a card's own on state survives a builder that ran before it"] {
@@ -1235,8 +1235,8 @@ facts {
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
     c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
     // A toggle's pill is lit by its entity; a view tap's binds no class signal.
-    acts[0].slots.containsKey("cell.class:fh-active")
-    !acts[1].slots.containsKey("cell.class:fh-active")
+    acts[0].slots.containsKey("cell:class:fh-active")
+    !acts[1].slots.containsKey("cell:class:fh-active")
     // A popup action carries its OWN surfaces, so the popup hangs off the
     // button that opens it rather than off the slider.
     acts[1].inlineSurfaces != null
@@ -1303,7 +1303,7 @@ facts {
     sw.slots["switched"].signal == "attr:data-switched"
     // ...and the rollback copies one into the other, gated on the error signal.
     t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
-    t.contains("$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})")
+    t.contains("$_{{id}}__error && (${{checked.signal}} = ${{switched.signal}})")
   }
 
   ["an appliance with no programme length fills out of where its countdown started"] {
@@ -1843,7 +1843,7 @@ facts {
     head.contains(#"data-on:change=""# + tapMod.refusalGuard + #"$_{{id}}__busy_change ? '' : @post("#)
     // The refusal is the tap's OR the card's own `disabled`, whichever a node
     // carries — so the same guard stops a slider its author disabled.
-    tapMod.refused.contains("{{{tapDisabled__read}}}") && tapMod.refused.contains("{{{disabled__read}}}")
+    tapMod.refused.contains("{{{tapDisabled.jsValue}}}") && tapMod.refused.contains("{{{disabled.jsValue}}}")
     c.entitySlider(kitchen).disabled(c.isOn(kitchen)).headSlots.containsKey("disabled")
     !c.entitySlider(kitchen).headSlots.containsKey("disabled")
   }

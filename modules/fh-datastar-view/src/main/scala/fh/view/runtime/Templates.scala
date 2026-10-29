@@ -61,8 +61,36 @@ object Templates {
     f
   }
 
+  /** A way a template reaches a slot besides its value: `{{{x.bind}}}`,
+    * `{{#x.has}}`, `{{{x.jsValue}}}`, `{{x.signal}}` (ADR 0017).
+    */
+  enum View(val spelling: String):
+    case Bind extends View("bind")
+    case Has extends View("has")
+    case JsValue extends View("jsValue")
+    case Signal extends View("signal")
+
+  object View:
+    private val bySpelling: Map[String, View] =
+      values.map(v => v.spelling -> v).toMap
+
+    /** `x.bind` as its slot and view; `None` for a name with no `.`. */
+    def parse(name: String): Option[Either[String, (String, View)]] =
+      name.indexOf('.') match
+        case i if i <= 0 => None
+        case i           =>
+          val view = name.substring(i + 1)
+          Some(
+            bySpelling
+              .get(view)
+              .map(name.substring(0, i) -> _)
+              .toRight(view)
+          )
+
   trait FhScope:
     def fhGet(name: String): AnyRef
+
+    def fhView(slot: String, view: View): AnyRef = null
 
     /** A raw `{{{name}}}` written straight into the writer: a region's
       * children, the chrome's body. A string would be a full copy of them.
@@ -74,6 +102,26 @@ object Templates {
     override def get(name: String, scope: AnyRef): AnyRef = scope match
       case nc: FhScope => nc.fhGet(name)
       case _           => super.get(name, scope)
+
+    // A view is split once, here. The inherited lookup splits a dotted name at
+    // every call and would ask the slot's string for `bind`.
+    override def createBinding(
+        name: String,
+        tc: TemplateContext,
+        code: com.github.mustachejava.Code
+    ): com.github.mustachejava.Binding =
+      // `name` is null for the codes that name nothing (the template's root).
+      Option(name).flatMap(View.parse) match
+        case Some(Right((slot, view))) =>
+          scopes =>
+            var i = scopes.size() - 1
+            var v: AnyRef = null
+            while i >= 0 do
+              scopes.get(i) match
+                case s: FhScope => v = s.fhView(slot, view); i = -1
+                case _          => i -= 1
+            v
+        case _ => super.createBinding(name, tc, code)
   }
 
   private class FhVisitor(df: DefaultMustacheFactory)
@@ -140,14 +188,36 @@ object Templates {
     * @param misplacedRegions
     *   the declared regions also placed any other way: escaped, as a section,
     *   or inside one
+    * @param views
+    *   each slot's views, `{{{x.bind}}}`; the slot is in [[names]] too
+    * @param boundInOwnSection
+    *   the slots whose `x.bind` sits inside `{{#x}}` or `{{^x}}`, which the
+    *   patch form's withheld value closes (ADR 0017)
+    * @param unknownViews
+    *   the dotted names whose view is none of [[View]]
     */
   final case class Reads(
       names: Set[String],
       required: Set[String],
       raw: Set[String],
       regionHoles: Map[String, Int],
-      misplacedRegions: Set[String]
+      misplacedRegions: Set[String],
+      views: Set[(String, View)],
+      boundInOwnSection: Set[String],
+      unknownViews: Set[String]
   )
+
+  private object Reads:
+    val empty: Reads = Reads(
+      Set.empty,
+      Set.empty,
+      Set.empty,
+      Map.empty,
+      Set.empty,
+      Set.empty,
+      Set.empty,
+      Set.empty
+    )
 
   /** A card's template as it renders, and what validation reads off it. */
   final case class Card(mustache: JavaMustache, reads: Reads)
@@ -163,12 +233,7 @@ object Templates {
       Right(
         Card(
           tpl,
-          readCodes(
-            tpl.getCodes(),
-            regions,
-            Nil,
-            Reads(Set.empty, Set.empty, Set.empty, Map.empty, Set.empty)
-          )
+          readCodes(tpl.getCodes(), regions, Nil, Reads.empty)
         )
       )
     catch
@@ -190,7 +255,7 @@ object Templates {
             val here =
               if regions.contains(s.getName) then
                 acc.copy(misplacedRegions = acc.misplacedRegions + s.getName)
-              else acc.copy(names = acc.names ++ nameOf(s.getName))
+              else read(s.getName, guards, value = false, raw = false, acc)
             readCodes(s.getCodes(), regions, s.getName :: guards, here)
           case v: ValueCode if regions.contains(v.getName) =>
             if v.isInstanceOf[FhValueCode] && guards.isEmpty then
@@ -201,20 +266,44 @@ object Templates {
               )
             else acc.copy(misplacedRegions = acc.misplacedRegions + v.getName)
           case v: ValueCode =>
-            val n = nameOf(v.getName)
-            acc.copy(
-              names = acc.names ++ n,
-              required =
-                if guards.isEmpty then acc.required ++ n else acc.required,
-              raw =
-                if v.isInstanceOf[FhValueCode] then acc.raw ++ n else acc.raw
+            read(
+              v.getName,
+              guards,
+              value = true,
+              raw = v.isInstanceOf[FhValueCode],
+              acc
             )
           case other => readCodes(other.getCodes(), regions, guards, acc)
       }
 
-  // `{{a.b}}` reads `a`; `{{.}}` is the section's own value.
-  private def nameOf(tag: String): Option[String] =
-    Option(tag.takeWhile(_ != '.')).filter(_.nonEmpty)
+  // `{{.}}` is the section's own value, and names nothing.
+  private def read(
+      tag: String,
+      guards: List[String],
+      value: Boolean,
+      raw: Boolean,
+      acc: Reads
+  ): Reads =
+    val required = value && guards.isEmpty
+    View.parse(tag) match
+      case None if tag == "." || tag.isEmpty => acc
+      case None                              =>
+        acc.copy(
+          names = acc.names + tag,
+          required = if required then acc.required + tag else acc.required,
+          raw = if raw then acc.raw + tag else acc.raw
+        )
+      case Some(Right((slot, view))) =>
+        acc.copy(
+          names = acc.names + slot,
+          required = if required then acc.required + slot else acc.required,
+          views = acc.views + (slot -> view),
+          boundInOwnSection =
+            if view == View.Bind && guards.contains(slot) then
+              acc.boundInOwnSection + slot
+            else acc.boundInOwnSection
+        )
+      case Some(Left(_)) => acc.copy(unknownViews = acc.unknownViews + tag)
 
   // A pool, not one list per thread: execution recurses through the engine,
   // and a shared list was cleared under the outer execute, truncating nested

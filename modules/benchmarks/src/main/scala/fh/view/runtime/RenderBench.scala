@@ -1776,7 +1776,7 @@ object RenderBench {
   def entityId(i: Int): String = s"light.tile_$i"
 
   /** An entity card shaped like the shipped ones: icon, name, state, a fill bar
-    * and a tap target. The `__bind` holes render empty for a slot that is not a
+    * and a tap target. The `.bind` holes render empty for a slot that is not a
     * signal slot, so ONE card set serves both dashboards and `signals` moves
     * only on the slot — which is what keeps [[RenderBench.page]] and
     * [[RenderBench.pageSignals]] a comparison of one variable.
@@ -1786,9 +1786,9 @@ object RenderBench {
       template = """<div class="fh-entity {{cls}}">""" +
         """<i class="fh-icon">{{icon}}</i>""" +
         """<div class="fh-body"><span class="fh-name">{{name}}</span>""" +
-        """<span class="fh-state" {{{state__bind}}}>{{state}}</span>""" +
-        """<div class="fh-bar" {{{fill__bind}}}></div>""" +
-        """<span class="fh-fillcolor" {{{fillColor__bind}}}></span>""" +
+        """<span class="fh-state" {{{state.bind}}}>{{state}}</span>""" +
+        """<div class="fh-bar" {{{fill.bind}}}></div>""" +
+        """<span class="fh-fillcolor" {{{fillColor.bind}}}></span>""" +
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
         """</div>"""
     ),

@@ -115,11 +115,11 @@ const asHandler: SignalBind = "handler"
 ///
 /// The backend fills it, and with nothing when the value is not a signal, which
 /// keeps the no-signals rendering reachable.
-const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
+const function signalBind(name: String): String = "{{{" + name + ".bind}}}"
 
 /// The signal's name, for an expression of the card's own (the slider's commit
 /// URL). Signal-only.
-const function signalRef(name: String): String = "{{" + name + "__signal}}"
+const function signalRef(name: String): String = "{{" + name + ".signal}}"
 
 /// The slot's value as a JS expression, for a handler of the card's own:
 ///
@@ -130,7 +130,7 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 /// A literal reads back as `'light/toggle'`, a signal as its `$…` read, so one
 /// template serves both and the card never branches. A live slot that is not a
 /// signal is a build error.
-const function slotRead(name: String): String = "{{{" + name + "__read}}}"
+const function slotRead(name: String): String = "{{{" + name + ".jsValue}}}"
 
 /// Whether `e`'s state is one of `states`, as a boolean reading.
 const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
@@ -182,14 +182,14 @@ const function readingOf(e: hass.Entity): Expr? =
 ///
 /// Never `{{#icon}}`: a signal's value is withheld in the patch form, so a
 /// section on the value deletes its own element on the first patch
-/// (`SignalSectionSuite`). `name__has` is filled for every declared slot.
-const function ifSlot(name: String): String = "{{#" + name + "__has}}"
+/// (`SignalSectionSuite`). `name.has` holds for every slot the node sets.
+const function ifSlot(name: String): String = "{{#" + name + ".has}}"
 
-const function endIfSlot(name: String): String = "{{/" + name + "__has}}"
+const function endIfSlot(name: String): String = "{{/" + name + ".has}}"
 
-const function ifNoSlot(name: String): String = "{{^" + name + "__has}}"
+const function ifNoSlot(name: String): String = "{{^" + name + ".has}}"
 
-const function endIfNoSlot(name: String): String = "{{/" + name + "__has}}"
+const function endIfNoSlot(name: String): String = "{{/" + name + ".has}}"
 
 /// A live value for a display field that also takes a plain string:
 /// `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`.

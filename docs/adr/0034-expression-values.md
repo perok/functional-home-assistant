@@ -164,7 +164,7 @@ and a slot behind it runs nothing.
 
 `.cssProperty(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
 produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), an `Expr` may read the
-node's values. It is `classWhen`'s twin: a `cell.style:` slot beside `cell.class:`, the value inline
+node's values. It is `classWhen`'s twin: a `cell:style:` slot beside `cell:class:`, the value inline
 (`style="--x:…"`) in the document form and a `data-style:--x` binding after the wrapper's seed in
 both. Only a custom property (`--…`), since a plain property would fight the theme's framework,
 which writes `!important` utilities; a reading that is certainly a bool is refused — that is

@@ -29,7 +29,7 @@ given Configuration =
   *   - `literal`: a verbatim value, authored as a bare string; all else unused.
   *   - `signal`: carry the value as a Datastar signal, so a change is one
   *     signal frame rather than a re-rendered card (ADR 0017). The card puts
-  *     `{{{<slot>__bind}}}` on the element beside its `{{<slot>}}` hole.
+  *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
   *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
   *     ([[SlotShape]]).
   *   - `values`: expression values of this slot alone, beside the node's
@@ -433,7 +433,7 @@ object SlotType:
   *   - `Bind`: two-way `data-bind` on a form control; such a card needs a
   *     client signal in any form.
   *   - `Handler`: no attribute; the value is read by an event handler via
-  *     `{{<slot>__signal}}`.
+  *     `{{{<slot>.jsValue}}}` or `{{<slot>.signal}}`.
   */
 enum SignalBind derives CanEqual:
   case Text
@@ -1225,21 +1225,24 @@ case class Dashboard(
             Option.when(cd.bakedRegions.nonEmpty)(Dashboard.BakeIndexVar)
           val unset = names.toList
             .flatMap(_.required)
-            .filterNot(n =>
-              known(n) || Dashboard.derivedFrom(n).exists(slotNames)
-            )
+            // An old spelling is the card's error ([[viewErrors]]), once.
+            .filterNot(n => known(n) || Dashboard.oldSpelling(n).isDefined)
             .sorted
-          val read =
-            names.toList
-              .flatMap(_.names)
-              .map(n => Dashboard.derivedFrom(n).getOrElse(n))
-              .toSet
+          val read = names.toList.flatMap(_.names).toSet
           val unread = names.toList.flatMap(_ =>
             slotNames.toList.sorted.filterNot(s =>
               read(s) || Dashboard.readByRenderer(s)
             )
           )
-          undeclared ++
+          val dotted = slotNames
+            .filter(_.contains('.'))
+            .toList
+            .sorted
+            .map(s =>
+              s"$nodeId: slot '$s' has a '.' in its name, which a template " +
+                "reads as one of its views ({{{x.bind}}}) — rename the slot"
+            )
+          undeclared ++ dotted ++
             Option
               .when(unset.nonEmpty)(
                 s"$nodeId: card '$cardName' missing slots: " +
@@ -1569,7 +1572,7 @@ case class Dashboard(
         )
       }
 
-    /** `<slot>__read` has no answer for a live non-signal slot (ADR 0017);
+    /** `<slot>.jsValue` has no answer for a live non-signal slot (ADR 0017);
       * without this the var renders empty and the handler is silently
       * malformed.
       */
@@ -1584,15 +1587,16 @@ case class Dashboard(
         src.reads == Reads.Once
       ) Nil
       else
-        cards
-          .get(cardName)
-          .toList
-          .filter(_.template.contains(s"{{{${name}__read}}}"))
+        viewsOf(cardName)
+          .filter(_((name, Templates.View.JsValue)))
           .map(_ =>
-            s"$nodeId: card '$cardName' reads slot '$name' as {{{${name}__read}}}, " +
+            s"$nodeId: card '$cardName' reads slot '$name' as {{{$name.jsValue}}}, " +
               "but the slot is live and not a signal — its value moves in the " +
               "element's bytes, so make it a signal slot or a literal"
           )
+
+    def viewsOf(cardName: String): List[Set[(String, Templates.View)]] =
+      cardReads.get(cardName).flatMap(_.toOption).map(_.views).toList
 
     // Each of these otherwise fails silently: the value stops updating.
     def signalErrors(
@@ -1634,16 +1638,15 @@ case class Dashboard(
         // one of its two read forms must appear instead.
         val placed =
           if (src.signal.contains(SignalBind.Handler))
-            List(s"{{{${name}__read}}}", s"{{${name}__signal}}")
-          else List(s"{{{${name}__bind}}}")
-        cards
-          .get(cardName)
-          .toList
-          .filterNot(cd => placed.exists(cd.template.contains))
+            List(Templates.View.JsValue, Templates.View.Signal)
+          else List(Templates.View.Bind)
+        viewsOf(cardName)
+          .filterNot(views => placed.exists(v => views((name, v))))
           .map(_ =>
             s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
               s"slot, but no part of its template places " +
-              placed.mkString(" or ") + " — the value would stop updating"
+              placed.map(Dashboard.spell(name, _)).mkString(" or ") +
+              " — the value would stop updating"
           )
 
     def childErrors(
@@ -1860,6 +1863,26 @@ case class Dashboard(
                         "children would render twice under the same ids"
                     )
             }
+      }
+
+    val viewErrors: List[String] =
+      cards.keys.toList.sorted.flatMap { name =>
+        cardReads(name).toOption.toList.flatMap { reads =>
+          reads.unknownViews.toList.sorted.map(t =>
+            s"card '$name': its template reads '$t', but a slot's views are " +
+              Templates.View.values.map("." + _.spelling).mkString(", ")
+          ) ++ reads.names.toList.sorted.flatMap(n =>
+            Dashboard
+              .oldSpelling(n)
+              .map(fix => s"card '$name': its template reads '$n' — write $fix")
+          ) ++ reads.boundInOwnSection.toList.sorted.map(s =>
+            // ADR 0017: the patch form withholds a signal's value, a false
+            // section, which would take its element and binding with it.
+            s"card '$name': places {{{$s.bind}}} inside a section on '$s' " +
+              s"itself, which the first patch closes — guard it with " +
+              s"{{#$s.has}}"
+          )
+        }
       }
 
     // Keeps the id grammar's two shapes apart ([[LayoutNode.segment]]): an
@@ -2133,6 +2156,7 @@ case class Dashboard(
       callSetErrors ++
       structureLiveSlotErrors ++
       regionHoleErrors ++
+      viewErrors ++
       regionNameErrors ++
       chromeErrors ++
       theme.classes.errors ++
@@ -2428,10 +2452,10 @@ object Dashboard:
     * `cellClassPrefix`). The `:` keeps it out of any name a card's template
     * could place.
     */
-  val CellClassPrefix: String = "cell.class:"
+  val CellClassPrefix: String = "cell:class:"
 
   /** [[CellClassPrefix]]'s twin for a live custom property (`cssProperty`). */
-  val CellStylePrefix: String = "cell.style:"
+  val CellStylePrefix: String = "cell:style:"
 
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
@@ -2498,13 +2522,25 @@ object Dashboard:
   /** The chosen member's index, which the renderer gives a bake owner. */
   val BakeIndexVar: String = "bakeIndex"
 
-  private val derivedSuffixes = List("__bind", "__has", "__read", "__signal")
+  /** How a template places a slot's view. */
+  def spell(slot: String, view: Templates.View): String = view match
+    case Templates.View.Has    => s"{{#$slot.has}}…{{/$slot.has}}"
+    case Templates.View.Signal => s"{{$slot.signal}}"
+    case v                     => s"{{{$slot.${v.spelling}}}}"
 
-  /** The slot a renderer-derived name (`label__bind`) is read from. */
-  def derivedFrom(name: String): Option[String] =
-    derivedSuffixes.collectFirst {
-      case s if name.endsWith(s) && name.length > s.length =>
-        name.dropRight(s.length)
+  // The `__` spellings views replaced, named in the error that meets one.
+  private val oldSuffixes = Map(
+    "__bind" -> Templates.View.Bind,
+    "__has" -> Templates.View.Has,
+    "__read" -> Templates.View.JsValue,
+    "__signal" -> Templates.View.Signal
+  )
+
+  /** The view an old `label__bind` meant, spelled as it is now. */
+  def oldSpelling(name: String): Option[String] =
+    oldSuffixes.collectFirst {
+      case (s, view) if name.endsWith(s) && name.length > s.length =>
+        spell(name.dropRight(s.length), view)
     }
 
   /** Slots the server reads itself, so no template need name them: the subject,

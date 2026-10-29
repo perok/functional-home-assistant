@@ -3,7 +3,8 @@
 Discussed in chat on 2026-10-29, after #654 and #655. Regions get the same treatment next, once this
 design settles; they are out of scope here.
 
-**State:** design. The decisions under "Open" are still being settled; no code yet.
+**State:** views built (the Scala half, the new spelling, `cell:class:`); the Pkl `Slot`/`Reading`
+handles next.
 
 ## Why
 
@@ -144,6 +145,25 @@ entries, fewer missed map lookups per hole, and no joined keys on the direct pat
 per signal slot on every render. The risk is a dotted name falling through to mustache's own
 `find`. The handles add an object per slot to Pkl evaluation, so the demo site's evaluation is
 timed before and after too.
+
+Views, measured against main on the same machine; allocation is the steady number, times move
+±10% run to run and were flat or better:
+
+| bench | B/op before | B/op after |
+|---|---|---|
+| page | 1 247 661 | 1 223 340 |
+| pageSignals | 1 418 216 | 1 416 972 |
+| pageSet | 1 258 165 ± 26 820 | 1 260 481 ± 20 417 |
+| pageSetTiles | 2 192 565 ± 21 684 | 2 173 645 ± 21 802 (4 forks) |
+| pageWalkStream | 992 852 ± 4 988 | 998 135 ± 15 007 (4 forks) |
+| resumeMembers | 191 795 | 191 110 |
+| tickRender | 67 889 | 65 872 |
+| wireCommon | 59 172 | 57 332 |
+| direct | 33 600 | 33 600 |
+| mustache | 392 001 | 392 001 |
+
+`pageSetTiles` and `pageWalkStream` first read 1–2% higher with 2 forks; with 4 they sit inside
+the spread between forks.
 
 ## Docs
 

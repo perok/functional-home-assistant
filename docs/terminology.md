@@ -25,6 +25,10 @@ byte-equal to it). The tier is the slot's own field; nothing infers one from exp
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
 
+**View** — a way a template reaches a slot besides its value, spelled `x.view`: `bind` (a signal
+slot's binding), `has` (whether the node sets it), `jsValue` (the value as JavaScript), `signal`
+(the signal's name). ADR 0017.
+
 **Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
 so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's
 value and is named by what it READS (`_e.<domain>.<object_id>.<transform>`), so every card showing
@@ -107,7 +111,7 @@ named as a compiler names them:
   property is written as a slot.
 - **bind**: each name a slot's CEL reads is connected to its definition, an expression value, and
   so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
-  where a value lands (`signalBind`, `{{{slot__bind}}}`).
+  where a value lands (`signalBind`, `{{{slot.bind}}}`).
 - **check**: the rules across fields and nodes (`validate`).
 - **compile**: CEL against the names and types binding gave it; each card's template, once, theme
   classes applied (`Templates.card`), which check reads its names off and the renderer runs.
