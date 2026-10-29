@@ -56,18 +56,25 @@ template then serves both. Its three uses (`service`, `tapDisabled`, `disabled`)
 ### The live cell slots
 
 `cell.class:<name>` and `cell.style:<property>` become `cell:class:<name>` and
-`cell:style:<property>`, leaving `.` to views. They are the live cell modifiers (`classWhen`,
+`cell:style:<property>`, leaving `.` to views; `Dashboard.CellClassPrefix`/`CellStylePrefix` and
+`node.pkl`'s `cellClassPrefix`/`cellStylePrefix` change with them. They are the live cell modifiers (`classWhen`,
 `cssProperty`), lowered into slots to share slot resolution and signals; the renderer binds them on
 the cell, and no template places them. The rest of the name already follows Datastar's
 `data-class:<name>`.
 
 ### Pkl: a slot is one object, named once
 
-A card holds each slot as a hidden property carrying its name and settings, and `slots` lists them:
+The classes follow `terminology.md`. A **Reading** is an input with no binding yet: today's Pkl
+`Slot` class, renamed `slotMod.Reading`, keeping what it reads (`entityId`, `transform`, `reads`,
+`valueWhile`, …). A **Slot** is the named, per-node thing a card binds: `slotMod.Slot`, holding
+`name`, `value` (a literal, a `Reading`, or null) and the binding, `signal` and `type`, which move
+off the reading because the card sets them where it binds it.
+
+A card holds each slot as a hidden property, and `slots` lists them:
 
 ```pkl
-hidden label: slotMod.NamedSlot = new { name = "label"; value = slotMod.labelSlot(null, text) }
-hidden icon: slotMod.NamedSlot = new { name = "icon"; value = glyph }  // null: not set
+hidden label: slotMod.Slot = new { name = "label"; value = slotMod.labelSlot(null, text) }
+hidden icon: slotMod.Slot = new { name = "icon"; value = glyph; signal = slotMod.asAttr("class") }  // null value: not set
 cardDef = new nodes.CardDef {
   template = """
     <span \(label.bind)>\(label)</span>
@@ -91,7 +98,8 @@ slots { label; icon; ...tapMod.tapRoute(tapAction) }
 - `slots` is a `Listing`, and a slot whose value is null is left out, which replaces
   `when (glyph != null) { ["icon"] = … }`. A subclass changes a slot by amending its property.
 - **Lowering, so the wire does not change:** a `["slots"]` path converter in the library's output
-  renderer turns the Listing into the name→value map the backend decodes. Spiked with `PklBuild`'s
+  renderer turns the Listing into the name→value map the backend decodes, a reading's entry
+  carrying its slot's `signal` and `type` as today. Spiked with `PklBuild`'s
   settings (JSON output, `evaluateOutputText`): it matches at every depth, drops nulls, and a
   duplicate name fails. The converters are one constant in `core/node.pkl`, used by `site.pkl`'s
   `output` and by the Pkl tests that render a node with a bare `new JsonRenderer {}`. Only
@@ -100,25 +108,27 @@ slots { label; icon; ...tapMod.tapRoute(tapAction) }
   constraint, `keepsLiveCell`, `valuesNamedIn`, and the slot-producing helpers (`tapRoute`,
   `guardSlots`, `badgeMod.slots`).
 
+## Decided
+
+- **`jsValue`** for the JS view: it holds for both cases, since a literal is the value and
+  `$<signal>` evaluates to it. Not `jsReference` or `clientReference`: half the time it is a
+  literal, `terminology.md` already defines **Reference** (a node variable's read), and
+  "client-owned" names the browser's own signals.
+- **`cell:class:`** for the cell slots.
+- **`Slot` and `Reading`**, the vocabulary's own split, over a `NamedSlot` beside today's `Slot`.
+
 ## Open
 
-- **The JS view's name.** `jsValue` recommended: it holds for both cases, since a literal is the
-  value and `$<signal>` evaluates to it. Rejected: `jsReference` and `clientReference`, since half
-  the time it is a literal, `terminology.md` already defines **Reference** (a node variable's read),
-  and "client-owned" names the browser's own signals.
-- **The cell separator.** `cell:class:` recommended, above.
-- **The handle's class, and where `signal` and `type` live.** Either `NamedSlot` beside today's
-  `Slot`, or the vocabulary's own split: `terminology.md`'s **Slot** is the named, per-node thing and
-  its **Reading** is an input with no binding yet, which is what today's Pkl `Slot` class is. So the
-  handle would be `Slot`, today's class `Reading`, and `signal` and `type` would move onto the slot,
-  since the card sets them where it binds it. The second matches the vocabulary but renames a type
-  used 91 times in 18 library files, and in workspaces' own components.
 - **Where a duplicate name is reported.** The converter's error names the slot, not the node. A
   check on `Node` could name both.
 
 ## Migration
 
-- Library: 18 `slots` blocks in 13 files, about 83 helper calls, the cell lowering in `node.pkl`.
+- Library: 18 `slots` blocks in 13 files, about 83 helper calls, the cell lowering in `node.pkl`,
+  and the `Slot` → `Reading` rename (91 uses in 18 files). A reading amended with a binding
+  (`(on) { signal = slotMod.asBind }`) becomes a slot holding it.
+- Workspaces' own components that name `slotMod.Slot` as a reading fail Pkl's type check;
+  `writing-components.md` shows the new form.
 - The starter and demo modules: 9 raw suffix spellings.
 - Tests and benchmarks: about 860 hand-written spellings, rewritten mechanically; wire snapshots
   regenerate, and only template strings and cell slot names may change.
@@ -140,9 +150,9 @@ timed before and after too.
 
 ## Docs
 
-- ADR 0017 (the binding, section and `__read` sections), ADR 0016 (`service__read`), ADR 0034 if
-  `type` moves.
-- `docs/terminology.md`: a **view** entry, and **Slot**/**Reading** per the open decision.
+- ADR 0017 (the binding, section and `__read` sections), ADR 0016 (`service__read`), ADR 0034
+  (`Slot.type` now sits on the slot, not the reading).
+- `docs/terminology.md`: a **view** entry; **Slot** and **Reading** name the two Pkl classes.
 - `docs/architecture-rendering-pipeline.md` where it names a suffix.
 - `writing-components.md`: teach the handle; its `{{{temperature__bind}}}` example goes.
 - Module `CLAUDE.md` (the signal-slots paragraph), `core/slot.pkl` and `core/node.pkl` docs.
