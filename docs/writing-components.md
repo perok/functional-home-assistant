@@ -302,7 +302,8 @@ cardDef = new nodes.CardDef {
 
 Anything the author puts in `children` is rendered and dropped in at
 `{{{children}}}`. Place each region exactly once, with three braces, and not
-inside a `{{#…}}` section; the build says so if you don't.
+inside a `{{#…}}` section; the build says so if you don't. A slot cannot share
+a region's name.
 
 ---
 
