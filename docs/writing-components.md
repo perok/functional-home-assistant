@@ -55,7 +55,9 @@ Three things are going on:
 The build holds the two halves to each other. A name written outside every
 `{{#…}}` section, like `{{message}}` here, must be a slot the banner sets;
 inside a section it may be left out, so wrap anything optional:
-`{{#icon}}<i>{{icon}}</i>{{/icon}}` shows the icon only when there is one. And every
+`{{#icon}}<i>{{icon}}</i>{{/icon}}` shows the icon only when there is one. A
+piece that is always there needs no section: set it as finished text, `""` when
+there is nothing, as `historyReadings` sets `postfix` to `" °C"`. And every
 slot you set must be named somewhere in the template, so a misspelt
 `{{#mesage}}` fails the build instead of showing nothing.
 

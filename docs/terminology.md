@@ -109,7 +109,8 @@ named as a compiler names them:
   so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
   where a value lands (`signalBind`, `{{{slot__bind}}}`).
 - **check**: the rules across fields and nodes (`validate`).
-- **compile**: CEL against the names and types binding gave it.
+- **compile**: CEL against the names and types binding gave it; each card's template, once, theme
+  classes applied (`Templates.card`), which check reads its names off and the renderer runs.
 
 Bind and compile fix CEL's **environment**, the names and their types. The values are its
 **activation**, computed on every render (`Conditions.resolve`).
