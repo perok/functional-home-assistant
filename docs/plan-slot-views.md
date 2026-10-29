@@ -116,11 +116,8 @@ slots { label; icon; ...tapMod.tapRoute(tapAction) }
   "client-owned" names the browser's own signals.
 - **`cell:class:`** for the cell slots.
 - **`Slot` and `Reading`**, the vocabulary's own split, over a `NamedSlot` beside today's `Slot`.
-
-## Open
-
-- **Where a duplicate name is reported.** The converter's error names the slot, not the node. A
-  check on `Node` could name both.
+- **A duplicate slot name is reported by a check on `Node`**, naming the node's card and the slot,
+  so the author can find it; the converter's own error names only the slot.
 
 ## Migration
 
