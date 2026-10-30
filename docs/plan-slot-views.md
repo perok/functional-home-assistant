@@ -5,7 +5,7 @@ design settles; they are out of scope here.
 
 **State:** built: views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
 rename, the Pkl `Slot` handles across the library, and flags and signal writes (decided in chat on
-2026-10-30). `tapMod.disabled`'s literal `"1"` stays: it is a bool value read with `ifTrue`, live
+2026-10-30). Next: `ifSetElse`/`ifTrueElse` (agreed 2026-10-30). `tapMod.disabled`'s literal `"1"` stays: it is a bool value read with `ifTrue`, live
 on other nodes, not a flag.
 
 ## Why
@@ -155,6 +155,21 @@ reinvents it).
   (absent false, non-empty true); a live slot, `""` or an injected variable counts as possibly
   open. If every section may open and `x` is not a signal on that node, the error names the card,
   the slot and the section. `validate` is timed before and after.
+
+### Both halves of a section in one call
+
+Fourteen places write both halves of one slot's section, nine `ifSet` + `ifUnset` and five
+`ifTrue` + `ifFalse`:
+
+```pkl
+roundSlot.ifSet("fh-circle") + roundSlot.ifUnset(pressClass)   // button.pkl
+roundSlot.ifSetElse("fh-circle", pressClass)
+```
+
+**`x.ifSetElse(a, b)`** and **`x.ifTrueElse(a, b)`** print exactly the two sections, so every
+template is byte for byte what it was and the snapshot diff is empty. Pkl has no overloading or
+default parameters, hence new names rather than a second argument to `ifSet`. The one-sided forms
+stay for the one-sided cases.
 
 ## Decided
 

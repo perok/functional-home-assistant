@@ -2,7 +2,7 @@
 
 Discussed in chat on 2026-10-30, during #657 (slot views). Lands on the same branch.
 
-**State:** design agreed; no code yet.
+**State:** agreed 2026-10-30, being built.
 
 ## Why
 
@@ -33,7 +33,7 @@ bindings at render. A class held in a slot VALUE is in none of them, so the them
 
   ```pkl
   const local sizeClass = slotMod.cssClass("size")
-  const local pressClass: String = "fh-press \(sizeClass)" + glyphSlot.ifSet(" fh-badged")
+  const local pressClass: String = "fh-press \(sizeClass) \(glyphSlot.ifSet("fh-badged"))"
 
   slots { sizeClass.of("fh-size-\(size)") }   // the button's size "small" → "fh-size-small"
   ```
@@ -65,11 +65,27 @@ bindings at render. A class held in a slot VALUE is in none of them, so the them
   does `select.pkl`'s `glyphSlot` (its two option cards). Their values are `mdi …`, which no theme
   maps, so their output does not change.
 - The slider's `group` becomes a flag instead: `groupSlot.setIf(!members.isEmpty)` and
-  `groupSlot.ifSet(" fh-slider-group")`. One class, on or off, is what a flag is for, and the class
+  `groupSlot.ifSet("fh-slider-group")`. One class, on or off, is what a flag is for, and the class
   is then template text the theme already rewrites.
 
 Every slot placed inside a `class` attribute was found by scanning the snapshot templates and the
 library's `class="…"` attributes; the list above is all of them.
+
+In a `class` attribute this work touches, the separating space sits in the text before a section,
+never inside it: `"fh-card fh-slider-card \(groupSlot.ifSet("fh-slider-group"))"`. An unset
+section leaves a trailing space, which HTML ignores.
+
+### Classes Scala writes
+
+Two more places write `fh-` classes that no swap reaches, outside any slot. Both are swapped with
+`rewriteTemplate`, the pass the card templates already go through:
+
+- **The page shell's connection banners** (`Server.pageInto`: `fh-offline`, `fh-offline-sse`,
+  `fh-offline-ha`, `fh-offline-action`), through the page's renderer's theme classes.
+- **A failed fetch's label** (`Fetches.label`, the runtime's copy of `core/text.pkl`'s `label`,
+  "Chart unavailable"). The Pkl copy is template text and is swapped; the runtime one is not. The
+  renderer swaps a read whose answer is the failure (`Staged.FailedVersion`), so a working chart
+  pays nothing.
 
 ## Not in scope
 
@@ -100,5 +116,7 @@ ADR 0020 (a `cssClass` value is swapped too), ADR 0017 (a `cssClass` signal's na
   class: each arrives swapped, the reading in the document form and in its signal frame.
 - One dashboard with a text slot and a `cssClass` slot reading the same thing: the class comes out
   swapped and the text raw, under two signals.
+- Under a theme that maps them, the shell's banner classes and a failed chart's label arrive
+  swapped.
 - `sbt 'fh-datastar-view/testOnly * -- --exclude-tags=Slow'`, CI-mode compile of tests and
   benchmarks, scalafix, scalafmt, the snapshot diff read, RenderBench before and after.
