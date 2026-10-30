@@ -3,8 +3,9 @@
 Discussed in chat on 2026-10-29, after #654 and #655. Regions get the same treatment next, once this
 design settles; they are out of scope here.
 
-**State:** built. Views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
-rename, and the Pkl `Slot` handles across the library; the wire snapshots are unchanged.
+**State:** built: views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
+rename, and the Pkl `Slot` handles across the library; the wire snapshots are unchanged. Next:
+flags and signal writes (below), decided in chat on 2026-10-30.
 
 ## Why
 
@@ -126,6 +127,33 @@ class Badge extends nodes.Node {
   constraint, `keepsLiveCell`, `valuesNamedIn`, and the slot-producing helpers (`tapRoute`,
   `guardSlots`, `badgeMod.slots`).
 
+### Flags and signal writes
+
+Two hand-written conventions survived the handles: about 17 `when (b) { x.of("1") }` flags, and
+`"$" + x.signalName` in the bar, the switch, the slider and the wheel (whose local `server(s)`
+reinvents it).
+
+- **`x.setIf(b)`** sets a flag slot when `b` holds and leaves it out otherwise, and the template
+  reads it with `ifSet`/`ifUnset`, so the `"1"` it writes is a payload nothing reads, written in
+  one place. Not `of(Boolean)`: a slot's value can be a real `false` (`attr:disabled`, ADR 0017),
+  so `of(false)` meaning "absent" would be ambiguous.
+- `when (x != null) { s.of(x!!) }` becomes `s.of(x)`: `of(null)` already leaves the slot out.
+- `bar.pkl`'s `hasOf` goes: it is set exactly when `of` is, which `ofSlot.ifSet` already says.
+- `button.pkl`'s `sizeSmall`/`sizeMedium`/`sizeLarge` become one `sizeClass` slot holding the class:
+  three flags spelled one choice only because Mustache cannot compare.
+- **Reads** of a signal become `x.jsValue`, which already prints `$<signal>` for a signal and the
+  quoted value otherwise. **Writes** become **`x.assign(js)`**, printing `$<signal> = js`.
+  `signalName` stays for the signal-patch filter regexes.
+- **`x.signal` on a node where `x` is not a signal fails the build.** It prints nothing there, so
+  `$ = …` would ship silently: the slider's `hueMarker` assigns `fillColor`, which is a signal only
+  when the slider has a colour reading, safe today only because it sits under `hueTrack`.
+  `Templates.Reads` records, for each placement of `x.signal`, the sections around it, each as
+  open-on-true or open-on-false (`readCodes` already threads their names). `validate` decides each
+  per node: a `y.has` section by whether the node sets `y`, one on a literal `y` by its value
+  (absent false, non-empty true); a live slot, `""` or an injected variable counts as possibly
+  open. If every section may open and `x` is not a signal on that node, the error names the card,
+  the slot and the section. `validate` is timed before and after.
+
 ## Decided
 
 - **`jsValue`** for the JS view: it holds for both cases, since a literal is the value and
@@ -136,6 +164,7 @@ class Badge extends nodes.Node {
 - **`Slot` and `Reading`**, the vocabulary's own split, over a `NamedSlot` beside today's `Slot`.
 - **A duplicate slot name is reported by a check on `Node`**, naming the node's card and the slot,
   so the author can find it; the converter's own error names only the slot.
+- **`setIf`** for a flag (not `of(Boolean)` or `fromBoolean`) and **`assign`** for a signal write.
 
 ## Migration
 
