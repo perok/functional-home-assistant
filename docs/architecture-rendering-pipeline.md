@@ -1282,7 +1282,11 @@ properties (`LayoutNode.cssProperty`): ordinary signal slots, which Pkl writes u
 places their bindings on the wrapper in both forms and the class or `style="--x:…"` itself only in
 the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
-through them once, when `Templates` compiled them.
+through them once, when `Templates` compiled them. A `cssClass` slot's value goes through them where
+it resolves (`Renderer.classed`): a literal once, into `NodePlan.constants`, a reading on each
+resolve, so a signal frame carries the swapped value too. The page's connection banners
+(`Server.pageInto`) and a failed fetch's label (`Fetches.label`, swapped in `resolveSlotValue`) are
+the markup Scala writes itself, and take the same rewrite.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
@@ -1292,7 +1296,8 @@ opted-in simple structure's key (`attr:brightness`, `percent:brightness:1.0:255.
 `Transform.Simple.key`) for the fast tier
 (`Renderer.transformSegment` / `SlotSource.valueKey`); the slot NAME is deliberately not used, so
 cards sharing a reading
-share a signal whatever they call the hole. Dots are PATH separators — the bundle rewrites
+share a signal whatever they call the hole. A `cssClass` slot's key carries its type
+(`BoundSlot.valueKey`), since its value is the theme's swap and must not share with text. Dots are PATH separators — the bundle rewrites
 `$_e.light.a.state` into bracket
 indexing, and `datastar-patch-signals` deep-merges — so a frame carries a nested structure and never
 a flat dotted key. A two-way `SignalBind.Bind` is the exception and stays node-scoped: an input

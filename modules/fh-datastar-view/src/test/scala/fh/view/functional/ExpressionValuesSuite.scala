@@ -401,7 +401,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
       assertEquals(classSignals(html), Nil, clue = html)
       assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
-      assert(html.contains("<button class=\"fh-press large\""), clue = html)
+      assert(html.contains("<button class=\"fh-press large \""), clue = html)
       assert(staticallyDisabled(html), clue = html)
     }
   }

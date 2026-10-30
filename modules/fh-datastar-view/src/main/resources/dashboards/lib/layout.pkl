@@ -24,7 +24,7 @@ abstract class Box extends nodes.Node {
   }
 }
 
-const local extraClass: slotMod.Slot = slotMod.slot("class")
+const local extraClass: slotMod.Slot = slotMod.cssClass("class")
 
 /// Where a box's children sit along its own direction when they do not fill
 /// it: a row's hugging pills, a column taller than its cards.
@@ -32,7 +32,7 @@ typealias Justify = "start"|"center"|"end"
 
 const local function boxDef(cls: String): nodes.CardDef = new {
   regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-  template = #"<div class="\#(cls)\#(extraClass.ifTrue(" \(extraClass)"))">{{{children}}}</div>"#
+  template = #"<div class="\#(cls) \#(extraClass.ifTrue("\(extraClass)"))">{{{children}}}</div>"#
 }
 
 class Row extends Box {

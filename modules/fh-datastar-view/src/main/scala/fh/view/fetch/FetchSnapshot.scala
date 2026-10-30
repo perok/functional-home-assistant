@@ -30,8 +30,9 @@ final class FetchSnapshot private (
   def versions(node: NodeId, asks: List[SlotAsk]): Map[SlotRead, Long] =
     asks.view.map(read(node, _)).map(r => r -> staged(r).version).toMap
 
-  def value(node: NodeId, ask: SlotAsk): String =
-    staged(read(node, ask)).value
+  def value(node: NodeId, ask: SlotAsk): String = staged(node, ask).value
+
+  def staged(node: NodeId, ask: SlotAsk): Staged = staged(read(node, ask))
 
   private def staged(read: SlotRead): Staged =
     answers.getOrElse(

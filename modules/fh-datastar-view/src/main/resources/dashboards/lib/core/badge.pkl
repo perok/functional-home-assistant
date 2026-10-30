@@ -8,7 +8,7 @@ import "slot.pkl" as slotMod
 import "tap.pkl" as tapMod
 
 /// The glyph in the seat: the `<i>`'s whole class.
-const icon: slotMod.Slot = slotMod.slot("icon")
+const icon: slotMod.Slot = slotMod.cssClass("icon")
 
 /// [[icon]] holding `glyph`: a reading moves as the `<i>`'s class signal.
 const function iconOf(glyph: (String|slotMod.Reading)?): slotMod.Slot =

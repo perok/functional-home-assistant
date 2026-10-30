@@ -2,7 +2,8 @@
 
 Discussed in chat on 2026-10-30, during #657 (slot views). Lands on the same branch.
 
-**State:** agreed 2026-10-30, being built.
+**State:** built. A typed literal reaches the wire as `{literal, type}`, which the `SlotSource`
+decoder already read; a bare string would have lost its type.
 
 ## Why
 

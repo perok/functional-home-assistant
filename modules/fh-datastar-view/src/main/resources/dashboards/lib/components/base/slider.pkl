@@ -149,7 +149,7 @@ class SliderHead extends nodes.ActiveNode {
           \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
           <div class="fh-slider-actions">{{{actions}}}</div>
         </div>
-        <div class="fh-slider\(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange)"))\(tapMod.busyVisual.ifUnset(tapMod.refusedClass))>
+        <div class="fh-slider\(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSetElse(" \(tapMod.busyClassChange)", tapMod.refusedClass))>
           \(toggleSlot.ifUnset(rangeInput))
           <span style="--fh-fill: \(fillSlot);background:\(fillColorSlot)" \(fillSlot.bind) \(fillColorSlot.bind)></span>
           \(toggleSlot.ifSet(toggleButton))
@@ -375,9 +375,7 @@ open class Slider extends nodes.Node {
     when (declaresControl) { controlDeclaration }
   }
   slots {
-    when (!members.isEmpty) {
-      groupSlot.of("fh-slider-group")
-    }
+    groupSlot.setIf(!members.isEmpty)
   }
   // An author's values go on the slider, but its readings are on the head and
   // the text, so each takes the ones it reads. One nothing here reads stays on
@@ -443,7 +441,7 @@ open class Slider extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
-      <article class="fh-card fh-slider-card\(groupSlot.ifTrue(" \(groupSlot)"))">{{{head}}}<div class="fh-slider-members">{{{children}}}</div></article>
+      <article class="fh-card fh-slider-card \(groupSlot.ifSet("fh-slider-group"))">{{{head}}}<div class="fh-slider-members">{{{children}}}</div></article>
       """
     css = sliderCss
     script = sliderTouchScript

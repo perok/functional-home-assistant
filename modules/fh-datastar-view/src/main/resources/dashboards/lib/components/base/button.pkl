@@ -19,13 +19,11 @@ const function noAction(ctor: String): String =
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
-const local glyphSlot: slotMod.Slot = slotMod.slot("glyph")
+const local glyphSlot: slotMod.Slot = slotMod.cssClass("glyph")
 const local roundSlot: slotMod.Slot = slotMod.slot("round")
 const local hrefSlot: slotMod.Slot = slotMod.slot("href")
 const local nameSlot: slotMod.Slot = slotMod.slot("name")
-const local sizeSmall: slotMod.Slot = slotMod.slot("sizeSmall")
-const local sizeMedium: slotMod.Slot = slotMod.slot("sizeMedium")
-const local sizeLarge: slotMod.Slot = slotMod.slot("sizeLarge")
+const local sizeClass: slotMod.Slot = slotMod.cssClass("size")
 
 // The label, and [[Button.secondary]] under it in a column that only opens when
 // there is one.
@@ -37,25 +35,22 @@ const local buttonText: String =
 // The glyph's WHOLE class, as `Tile.glyph`, so a reading can swap it.
 const local glyphTag: String = #"<i class="\#(glyphSlot)" \#(glyphSlot.bind)></i>"#
 
-// One literal token per size, so a theme's class rules reach it (ADR 0020).
-const local pressClass: String =
-  "fh-press" + glyphSlot.ifSet(" fh-badged") + sizeSmall.ifSet(" fh-size-small")
-    + sizeMedium.ifSet(" fh-size-medium") + sizeLarge.ifSet(" fh-size-large")
+const local pressClass: String = "fh-press \(sizeClass) \(glyphSlot.ifSet("fh-badged"))"
 
-const local roundOrPress: String = roundSlot.ifSet("fh-circle") + roundSlot.ifUnset(pressClass)
+const local roundOrPress: String = roundSlot.ifSetElse("fh-circle", pressClass)
 
 // A navigating button is an `<a href>`, so the browser gives it middle-click and
 // a click that works before Datastar loads.
 const local buttonAnchor: String =
   #"<a class="fh-button \#(roundOrPress)\#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)">"#
-    + glyphSlot.ifSet(roundSlot.ifSet(glyphTag) + roundSlot.ifUnset(#"<span class="fh-badge">\#(glyphTag)</span>"#))
+    + glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag, #"<span class="fh-badge">\#(glyphTag)</span>"#))
     + buttonText + "</a>"
 
 const local buttonPress: String =
   #"<button class="\#(roundOrPress)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)"#
     + tapMod.busyVisual.ifSet(glyphSlot.ifSet(roundSlot.ifSet(" " + tapMod.busyShapeClass))) + ">"
-    + glyphSlot.ifSet(roundSlot.ifSet(glyphTag)
-      + roundSlot.ifUnset(#"<span class="fh-badge fh-icon-shape""# + tapMod.busyVisual.ifSet(" " + tapMod.busyShapeClass) + ">" + glyphTag + "</span>"))
+    + glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag,
+      #"<span class="fh-badge fh-icon-shape""# + tapMod.busyVisual.ifSet(" " + tapMod.busyShapeClass) + ">" + glyphTag + "</span>"))
     + buttonText + "</button>"
 
 // A pill's accessible name, when it shows no text.
@@ -118,7 +113,7 @@ open class Button extends nodes.ActiveNode {
     // badge that also carries the spinner. Icon-only is `round`
     // (`fh-circle`): a glyph alone in a rectangle reads as a broken label, and
     // there the button itself spins.
-    template = hrefSlot.ifTrue(buttonAnchor) + hrefSlot.ifFalse(buttonPress)
+    template = hrefSlot.ifTrueElse(buttonAnchor, buttonPress)
     css = pressCss
   }
   hidden label: (String|slotMod.Expr)? = null
@@ -161,9 +156,7 @@ open class Button extends nodes.ActiveNode {
       // be round.
       roundSlot.setIf(label == "" && secondary == null)
     }
-    sizeSmall.setIf(size == "small")
-    sizeMedium.setIf(size == "medium")
-    sizeLarge.setIf(size == "large")
+    sizeClass.of("fh-size-\(size)")
     slotMod.secondary(secondarySlot, secondary)
     // `ownDisabled` is read first to force the anchor-plus-`disabled` check;
     // by the time it returns it is null on the anchor arm.
@@ -211,7 +204,7 @@ class Pill extends nodes.ActiveNode {
     // size. Its glyph keeps the spinner's colour (`aria-busy`, which
     // any theme's spinner carries). It wears the
     // button's surface, so a run of pills and a button read as one family.
-    template = hrefSlot.ifTrue(pillAnchor) + hrefSlot.ifFalse(pillPress)
+    template = hrefSlot.ifTrueElse(pillAnchor, pillPress)
     css = """
       .fh-cell>.fh-chip{background:var(--fh-surface);color:var(--fh-text);
       border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}

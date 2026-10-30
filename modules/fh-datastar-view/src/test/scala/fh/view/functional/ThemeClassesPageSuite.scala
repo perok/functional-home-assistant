@@ -101,6 +101,90 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
     }
   }
 
+  // A `cssClass` slot and a text slot reading one thing, so the swap shows up
+  // in one and not the other.
+  private val valuesEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/core/node.pkl" as nodes
+       |import "@fh-dashboard/core/slot.pkl" as slotMod
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |theme { classes {
+       |  ["fh-boxed"] = "fh-boxed padded"
+       |  ["fh-lit"] = "fh-lit bright"
+       |  ["fh-offline"] = "fh-offline banner"
+       |} }
+       |
+       |const local look = slotMod.cssClass("look")
+       |const local said = slotMod.slot("said")
+       |
+       |local class Probe extends nodes.Node {
+       |  card = "probe"
+       |  cardDef = new nodes.CardDef {
+       |    template = #"<i class="\\#(look)" \\#(look.bind)></i><span \\#(said.bind)>\\#(said)</span>"#
+       |  }
+       |  hidden word: slotMod.Reading
+       |  slots {
+       |    slotMod.liveClass(look, word)
+       |    slotMod.liveText(said, word)
+       |  }
+       |}
+       |
+       |card = (c.grid) {
+       |  children {
+       |    c.row.cssClass("fh-boxed")
+       |    c.button("Sized", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey})).size("small")
+       |    new Probe {
+       |      word = new slotMod.Reading {
+       |        entityId = dump.entities.${kitchen.dumpKey}.entity_id
+       |        transform = "state == 'on' ? 'fh-lit' : 'fh-dark'"
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
+
+  private val valuesPage: IO[String] =
+    TestServer
+      .fromWorkspace("theme-values", valuesEntry, entities)
+      .use(_.page())
+      .timeout(60.seconds)
+
+  test(
+    "a class held in a slot's value is swapped, a literal and a reading alike"
+  ) {
+    valuesPage.map { html =>
+      assert(html.contains("""<div class="fh-row fh-boxed padded">"""), html)
+      assert(html.contains("""<button class="fh-press small """), html)
+      assert(html.contains("""<i class="fh-lit bright""""), html)
+    }
+  }
+
+  test("a cssClass reading and a text one of the same thing are two signals") {
+    valuesPage.map { html =>
+      val classSig = """data-attr:class="\$([^"]+)"""".r
+        .findFirstMatchIn(html)
+        .map(_.group(1))
+      val textSig = """data-text="\$([^"]+)"[^>]*>fh-lit<""".r
+        .findFirstMatchIn(html)
+        .map(_.group(1))
+      assert(classSig.isDefined && textSig.isDefined, html)
+      assertNotEquals(classSig, textSig)
+    }
+  }
+
+  test("the page's connection banners take the theme's class rules") {
+    valuesPage.map { html =>
+      assert(
+        html.contains("""class="fh-offline banner fh-offline-sse""""),
+        html
+      )
+      assert(html.contains("""class="fh-offline banner fh-offline-ha""""), html)
+    }
+  }
+
   test("replacing a class the runtime selects on fails validation") {
     val dashboard = PklFixture.buildDashboard(
       "theme-classes",

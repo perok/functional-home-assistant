@@ -78,11 +78,13 @@ subclass that holds an `entity` and assigns the base's inputs from it, declaring
 or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
 
 **Slot type** / **boolean slot** — what a card reads a slot's value AS (`Slot.type`): text by
-default, or `bool` for a slot its template reads as on/off (a `disabled` ORed into
-`data-attr:disabled`, where the string `"false"` would be truthy). A boolean slot is one whose type
-is `bool`. The CARD sets the type where it binds the slot, beside `signal`, because a reading has no
-binding of its own; a `class:` binding (a live cell class) is a bool by kind. The build refuses a
-reading on a boolean slot that does not produce a bool.
+default, `bool` for a slot its template reads as on/off (a `disabled` ORed into
+`data-attr:disabled`, where the string `"false"` would be truthy), or `cssClass` for one placed in a
+`class` attribute, whose value the theme's class rules reach (ADR 0020). A boolean slot is one whose
+type is `bool`. The CARD sets the type where it binds the slot: on the handle for `cssClass`
+(`slotMod.cssClass(name)`), beside `signal` for `bool`, because a reading has no binding of its own;
+a `class:` binding (a live cell class) is a bool by kind. The build refuses a reading on a boolean
+slot that does not produce a bool.
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
 all. While it does not hold the value is `""`, and the slot's transform and fetches are not run.

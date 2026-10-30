@@ -64,7 +64,8 @@ The build holds the two halves to each other. A slot placed outside every
 section, like `message` here, must be one the banner sets. Wrap anything
 optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node
 sets it, and `ifUnset` is the other half. `ifTrue`/`ifFalse` test a yes/no
-value instead. For a switch of your own card's, such as a size or a direction,
+value instead. Where one is the other's alternative, write both in one call:
+`icon.ifSetElse("<i>\(icon)</i>", "<span>\(label)</span>")`, or `ifTrueElse`. For a switch of your own card's, such as a size or a direction,
 `flag.setIf(isDown)` sets the slot only while it holds, and the template reads
 it with `flag.ifSet(…)`. A piece that is always there needs no section: set it as
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
@@ -330,6 +331,12 @@ Two rules keep your card working under any theme:
   theme where you can.
 - When you do need a colour, use the `--fh-*` variables, never a colour name
   from a CSS framework. Someone may be using a theme that never loaded it.
+
+A theme may rename the `fh-` classes your template writes. It sees a class
+written in the template text, and a class held in a slot made with
+`slotMod.cssClass("size")` instead of `slotMod.slot(…)`. Use that for any slot
+you place inside `class="…"`, and put a whole class name in it
+(`size.of("fh-size-small")`), not a piece the template completes.
 
 ---
 

@@ -21,7 +21,9 @@ instead of as bytes inside the node's element.** A change to it costs one
 entity shown on three cards is one signal and one frame entry (issue #134). The transform is one
 path segment — `state`, `attr_<name>`, or `t<hash>` for a computed expression — because the slot
 NAME cannot serve: two cards naming one transform differently would stop sharing, and one name over
-two transforms would collide.
+two transforms would collide. A `cssClass` slot's reading keys apart (`BoundSlot.valueKey`, always a
+hashed segment): its value is the theme's swap of what it reads (ADR 0020), so it must not share a
+signal with a text slot reading the same thing.
 
 Dots are path separators, not characters: the bundle rewrites `$_e.light.taklys.state` to
 `$['_e']['light']['taklys']['state']`, and `datastar-patch-signals` applies `mergePatch`, which

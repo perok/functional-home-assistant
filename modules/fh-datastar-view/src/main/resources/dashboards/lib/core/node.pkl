@@ -338,7 +338,8 @@ const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Bool
     else throw("card '\(card)': slot \(twice.toList().map((n) -> "'\(n)'").join(", ")) is listed twice in `slots`")
 
 /// A node's [[Node.slots]] as the backend decodes them: by name, set ones
-/// only, a reading carrying its slot's `signal` and `type`. The library's
+/// only, a reading carrying its slot's `signal` and `type`, and a literal its
+/// `type` when it has one (a `cssClass`), else a bare string. The library's
 /// `output` renders every `slots` through it (`site.pkl`, `entry.pkl`).
 const function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = new {
   for (s in slots) {
@@ -350,6 +351,7 @@ const function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = n
             + (if (s.type != null) Map("type", s.type) else Map())
         else if (s.signal != null)
           throw("slot '\(s.name)' is a constant literal and cannot be a signal slot — a value that never moves has nothing to patch")
+        else if (s.type != null) Map("literal", s.value, "type", s.type)
         else s.value
     }
   }

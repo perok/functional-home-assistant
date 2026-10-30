@@ -194,8 +194,8 @@ class WireShapeSuite extends munit.FunSuite {
   test("the slot shape agrees, minus what only one side names") {
     // `Reading` is `SlotSource` in Scala: "reading" is the authoring word, "source"
     // the model's. `literal` is Scala-only because a constant slot is authored
-    // as a bare string (`Reading|String`) that the decoder maps into it: an
-    // encoding, not drift. `signal` and `type` are on the `Slot` holding the
+    // as a bare string (`Reading|String`), or `{literal, type}` when typed, that
+    // the decoder maps into it: an encoding, not drift. `signal` and `type` are on the `Slot` holding the
     // reading, and `nodes.wireSlots` merges them into it.
     val onSlot = Set("signal", "type")
     assert(

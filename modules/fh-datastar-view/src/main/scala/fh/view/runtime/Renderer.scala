@@ -3,7 +3,7 @@ package fh.view.runtime
 import com.github.mustachejava.Mustache
 import fh.view.FHError
 import fh.view.build.LibPackage
-import fh.view.fetch.FetchSnapshot
+import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.history.Series
 import fh.view.model.{
   CallReach,
@@ -21,6 +21,7 @@ import fh.view.model.{
   SlotAsk,
   SlotRead,
   SlotShape,
+  SlotType,
   SetId,
   Transform,
   SignalBind,
@@ -144,7 +145,7 @@ class Renderer(validated: Dashboard.Validated) {
   // value.
   val access: Access = validated.access
 
-  private val themeClasses = dashboard.theme.classes
+  val themeClasses: ThemeClasses = dashboard.theme.classes
   private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
   private val groupOpen =
     s"""<div class="${themeClasses.expandAll("fh-cell fh-group")}"""
@@ -1665,7 +1666,8 @@ class Renderer(validated: Dashboard.Validated) {
     slots.foreach { case (slot, planned) =>
       val source = planned.source
       source.literal match {
-        case Some(text) =>
+        case Some(literal) =>
+          val text = classed(source, literal)
           constB += ((slot, text))
           jsB += ((slot, Datastar.jsLiteral(text)))
         case None =>
@@ -1807,7 +1809,7 @@ class Renderer(validated: Dashboard.Validated) {
     val resolved: Map[String, SlotValue] = slots.map { case (slot, planned) =>
       val source = planned.source
       val value: SlotValue = source.literal match {
-        case Some(text) => text
+        case Some(text) => classed(source, text)
         case None       =>
           val srcEntity =
             if (slot == Dashboard.SubjectSlot) source.entityId
@@ -1982,8 +1984,14 @@ class Renderer(validated: Dashboard.Validated) {
     case SlotShape.Fetch(_) if withheld(source, srcEntity, states) =>
       ""
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
-    case SlotShape.Fetch(ask) => fragments.value(node, ask)
-    case SlotShape.State(_)   =>
+    case SlotShape.Fetch(ask) =>
+      val answer = fragments.staged(node, ask)
+      // The failure is the runtime's own markup (`Fetches.label`), whose
+      // `fh-` classes the theme renames as it does a card's.
+      if (answer.version == Staged.FailedVersion)
+        themeClasses.rewriteTemplate(answer.value)
+      else answer.value
+    case SlotShape.State(_) =>
       resolveStateSlotValue(
         srcEntity,
         source,
@@ -2043,11 +2051,16 @@ class Renderer(validated: Dashboard.Validated) {
       }
       out match {
         case b: Boolean              => b
-        case s: String if s.nonEmpty => s
-        case _                       => source.default.getOrElse("")
+        case s: String if s.nonEmpty => classed(source, s)
+        case _ => classed(source, source.default.getOrElse(""))
       }
     }
   }
+
+  /** The one swap of a `CssClass` value's classes, wherever it resolves. */
+  private def classed(source: BoundSlot, value: String): String =
+    if (source.`type` == SlotType.CssClass) themeClasses.expandAll(value)
+    else value
 }
 
 object Renderer {

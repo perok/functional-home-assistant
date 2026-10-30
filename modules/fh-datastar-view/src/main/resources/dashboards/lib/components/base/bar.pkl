@@ -20,7 +20,7 @@ const local downSlot: slotMod.Slot = slotMod.slot("down")
 
 const local fillSig: String = "_{{id}}__fill"
 const local fillExpr: String =
-  "Math.min(100, Math.max(0, \(downSlot.ifSet("100 - "))\(ofSlot.ifSet("100 * \(valueSlot.jsValue)\(scaleSlot.ifSet(" * \(scaleSlot)")) / \(ofSlot.jsValue)"))\(ofSlot.ifUnset("+\(valueSlot.jsValue)")))) || 0"
+  "Math.min(100, Math.max(0, \(downSlot.ifSet("100 - "))\(ofSlot.ifSetElse("100 * \(valueSlot.jsValue)\(scaleSlot.ifSet(" * \(scaleSlot)")) / \(ofSlot.jsValue)", "+\(valueSlot.jsValue)")))) || 0"
 // Hidden while a reading has no value (`""`, a `valueWhile` that does not hold)
 // or is not a number (`unknown`). `isNaN('')` is false, hence both.
 const local readable: String =

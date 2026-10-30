@@ -75,7 +75,8 @@ finished, and are deleted (issue #23).
    to the default rule rather than to public (`SiteAccessSuite`). Pkl class names are the
    author's API and keep theirs (`Node`, `PAnd`); only `Simple`'s operator classes are named as
    their case, so a class name equals its `op`. A slot is a bare string
-   (literal) or the `SlotSource` object form. **Literal slots must be JSON
+   (literal), `{literal, type}` for a typed literal (a `cssClass`), or the `SlotSource` object
+   form. **Literal slots must be JSON
    strings, never numbers** (the slot decoder rejects numbers) — numeric config
    like the slider's `min`/`max` is stringified.
 6. **Cards are classes with call-style factories.** The class is the

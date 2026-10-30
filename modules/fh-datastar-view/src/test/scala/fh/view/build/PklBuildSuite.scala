@@ -1767,7 +1767,12 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     def clazz(k: String) =
-      cur.downField(k).downField("slots").get[String]("class").toOption
+      cur
+        .downField(k)
+        .downField("slots")
+        .downField("class")
+        .get[String]("literal")
+        .toOption
     // Centred is the grid's baseline, so it emits no `class`; left-packing
     // rides on `fh-start`.
     assertEquals(clazz("base"), None)
@@ -1991,7 +1996,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
-    assertEquals(group.slots("group").literal, Some("fh-slider-group"))
+    assertEquals(group.slots("group").literal, Some("1"))
     // A head does not repeat a readout its rows carry.
     assert(!rowOf(group).slots.contains("state"), clue = group.slots.keySet)
     assertEquals(rowOf(group).slots("entity_id").literal, Some("light.lys"))

@@ -96,12 +96,18 @@ are emitted by `Renderer`, so a Pkl-side rewrite would cover half the markup and
 leave a second mechanism for the rest. `Theme.classes` therefore rides the wire,
 and `ThemeClasses` rewrites every card template once, when it is compiled
 (`class="…"` tokens and `data-class:fh-…` bindings), and expands each class the
-renderer emits. `dashboard.json` shows the rules beside unrewritten templates,
-which is the "what is going on" a reader needs.
+renderer emits. A class can also arrive as a slot's VALUE (a `Box`'s author
+class, a button's size, a glyph): a slot placed in a `class` attribute is typed
+`cssClass` (`slotMod.cssClass(name)`), and the renderer expands its value wherever
+it resolves — a literal once per renderer, a reading each time, a signal's value
+included. The markup Scala writes itself goes through the same rewrite: the
+page's connection banners and a failed fetch's label. `dashboard.json` shows the
+rules beside unrewritten templates and values, which is the "what is going on" a
+reader needs.
 
 **Leaving the class out is for a look the framework has its own of.** BeerCSS's
 mask beside `fh-busy-spin` would leave the base ring drawing under it, and a
-button's `fh-size-small`/`-medium`/`-large` become BeerCSS's `small`/(none)/`large`,
+button's `fh-size-small`/`-medium`/`-large` (its `size` slot's value) become BeerCSS's `small`/(none)/`large`,
 whose height the theme reads through `--_size`, so the button card's fallback
 heights stop applying. Leaving a class out of
 its content takes the base CSS's rules with it, so `fh-cell` and `fh-group` must

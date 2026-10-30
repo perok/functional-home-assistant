@@ -82,7 +82,8 @@ class Slot {
   signal: SignalBind? = null
   /// `"bool"` for a slot the template reads as on/off, where the string
   /// `"false"` would be truthy; the build refuses a reading that is not one.
-  /// Null is text; a `class:` binding is a bool by kind.
+  /// `"cssClass"` for one placed in a `class` attribute ([[cssClass]]). Null is
+  /// text; a `class:` binding is a bool by kind.
   type: SlotType? = null
 
   /// `{{{name}}}`, unescaped: markup the value already is (a chart).
@@ -112,6 +113,9 @@ class Slot {
   /// `body` while the value is truthy: `""`, `false` and absence are not.
   function ifTrue(body: String): String = "{{#\(name)}}\(body){{/\(name)}}"
   function ifFalse(body: String): String = "{{^\(name)}}\(body){{/\(name)}}"
+  /// Both halves, where each is the other's alternative.
+  function ifSetElse(set: String, unset: String): String = ifSet(set) + ifUnset(unset)
+  function ifTrueElse(yes: String, no: String): String = ifTrue(yes) + ifFalse(no)
 
   /// This slot holding `v`.
   function of(v: (String|Reading)?): Slot = let (self = this) (self) { value = v }
@@ -125,6 +129,11 @@ class Slot {
 
 const function slot(n: String): Slot = new { name = n }
 
+/// A slot whose value is classes, placed in a `class` attribute: the theme's
+/// class rules reach its value as they reach the template (ADR 0020). A
+/// literal or a reading, filled with [[Slot.of]] like any other.
+const function cssClass(n: String): Slot = new { name = n; type = "cssClass" }
+
 /// The entity a card is about, which its other slots read unless they name
 /// their own (`Dashboard.SubjectSlot`).
 const subject: Slot = slot("entity_id")
@@ -135,7 +144,7 @@ abstract class Fetch {
   provider: String
 }
 
-typealias SlotType = "text"|"bool"
+typealias SlotType = "text"|"bool"|"cssClass"
 
 /// Where a signal slot's value lands in the DOM. One constrained String, since
 /// the wire form is one string and the kinds take a name; a typo is an eval
@@ -258,8 +267,8 @@ const function secondary(at: Slot, s: Secondary?): Slot =
 const function signalled(at: Slot, v: Reading, kind: SignalBind): Slot =
   (at) { value = v; signal = kind }
 
-/// `at` holding an element's whole class: a reading moves as a signal on
-/// `class`, so a glyph can swap.
+/// `at` (a [[cssClass]] slot) holding an element's whole class: a reading moves
+/// as a signal on `class`, so a glyph can swap.
 const function liveClass(at: Slot, v: (String|Reading)?): Slot =
   if (v is Reading) (at) { value = v; signal = asAttr("class") } else at.of(v)
 

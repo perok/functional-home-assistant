@@ -1133,16 +1133,13 @@ facts {
   }
 
   ["a button's size is a class token a theme can map"] {
-    // One literal token per size in the markup, since a theme's class rules
-    // rewrite only literal `fh-` tokens, and BeerCSS maps every one.
-    local t = c.cards["button"].template
-    List("small", "medium", "large").every((sz) ->
-      t.contains(" fh-size-\(sz){{/") && beerMod.theme.classes.containsKey("fh-size-\(sz)"))
-    // Large by default, and one size at a time.
-    c.button("x", c.view.closePopup()).slotsByName["sizeLarge"].value == "1"
-    local small = c.button("x", c.view.closePopup()).size("small")
-    small.slotsByName["sizeSmall"].value == "1"
-    !small.slotsByName.containsKey("sizeLarge")
+    // The `size` slot holds the whole class, typed `cssClass`, so a theme's
+    // class rules reach its value, and BeerCSS maps every one.
+    local large = c.button("x", c.view.closePopup()).slotsByName["size"]
+    large.value == "fh-size-large"
+    large.type == "cssClass"
+    c.button("x", c.view.closePopup()).size("small").slotsByName["size"].value == "fh-size-small"
+    List("small", "medium", "large").every((sz) -> beerMod.theme.classes.containsKey("fh-size-\(sz)"))
     // The base heights are fallbacks; under BeerCSS the height is its own.
     c.cards["button"].css.contains(".fh-press.fh-size-small{--fh-press-size:2rem}")
     beerMod.theme.styles.contains("--fh-press-size:var(--_size)")

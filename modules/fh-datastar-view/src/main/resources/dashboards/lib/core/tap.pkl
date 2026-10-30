@@ -160,12 +160,12 @@ const refused: String =
 
 /// `s`, when the node carries either refusal slot.
 const function whenRefusable(s: String): String =
-  tapDisabled.ifSet(s) + tapDisabled.ifUnset(disabled.ifSet(s))
+  tapDisabled.ifSetElse(s, disabled.ifSet(s))
 
 /// `s` while the node refuses now. Document form only: the patch form withholds
 /// the values, and the binding beside it keeps the state live.
 const function refusedNow(s: String): String =
-  tapDisabled.ifTrue(s) + tapDisabled.ifFalse(disabled.ifTrue(s))
+  tapDisabled.ifTrueElse(s, disabled.ifTrue(s))
 
 /// `fh-disabled` + `fh-loading` while `sig` is truthy, and `fh-disabled` also
 /// while the node refuses — in ONE binding, because a second binding of the
@@ -233,8 +233,7 @@ const guardMechanism: String =
 /// visible one: a BeerCSS switch hides its `<input>`, so an outline there is
 /// one nobody sees.
 const guardLook: String =
-  busyVisual.ifSet(" " + inFlightOrRefused(busySig) + " " + failedClass(errorSig))
-    + busyVisual.ifUnset(refusedClass)
+  busyVisual.ifSetElse(" " + inFlightOrRefused(busySig) + " " + failedClass(errorSig), refusedClass)
 
 /// Puts an optimistic control back where the server last said it was, when an
 /// action on this node is refused: a refusal sends no state frame to correct
@@ -306,14 +305,13 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 const serviceClick: String =
   #"@post('sse/call/{{dashboardSlug}}/' + "# + service.jsValue +
     #" + '/\#(targetKind)/\#(targetId)?node={{id}}', "# +
-    dataKey.ifSet(withData("\(dataKey)", "\(dataValue)")) +
-    dataKey.ifUnset(noSignals) + ")"
+    dataKey.ifSetElse(withData("\(dataKey)", "\(dataValue)"), noSignals) + ")"
 
 /// What every card with a tap places: `data-on:click="\(guardClick)\(click)"`.
 /// The arm is picked by whether [[tapSlots]] set [[service]]. Service URLs stay
 /// in Pkl because nothing in Scala knows an HA domain (ADR 0016).
 const click: String =
-  refusalGuard + service.ifSet(serviceClick) + service.ifUnset(onclick.raw)
+  refusalGuard + service.ifSetElse(serviceClick, onclick.raw)
 
 /// Every state in which this tap must refuse the press: the call's own
 /// [[Call.disabledWhile]], plus `unavailable`, which HA rejects in every

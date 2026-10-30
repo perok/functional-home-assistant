@@ -289,7 +289,7 @@ class VarSelectCycle extends Select {
 class ChoiceLabel extends nodes.Node {
   card = "selectChoice"
   cardDef = new nodes.CardDef {
-    template = glyphSlot.ifTrue(#"<i class="\#(glyphSlot)" title="\#(labelSlot)"></i>"#) + glyphSlot.ifFalse("<span>\(labelSlot)</span>")
+    template = glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)" title="\#(labelSlot)"></i>"#, "<span>\(labelSlot)</span>")
   }
   hidden label: String
   hidden icon: String? = null
@@ -300,7 +300,7 @@ class ChoiceLabel extends nodes.Node {
 }
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
-const local glyphSlot: slotMod.Slot = slotMod.slot("glyph")
+const local glyphSlot: slotMod.Slot = slotMod.cssClass("glyph")
 const local chosenSlot: slotMod.Slot = slotMod.slot("chosen")
 
 /// One option of a select over an entity: `fh-active` on its cell while the
@@ -308,7 +308,7 @@ const local chosenSlot: slotMod.Slot = slotMod.slot("chosen")
 class EntityOption extends nodes.ActiveNode {
   card = "selectEntityOption"
   cardDef = new nodes.CardDef {
-    template = #"<a class="fh-select-opt" title="\#(labelSlot)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>"# + glyphSlot.ifTrue(#"<i class="\#(glyphSlot)"></i>"#) + glyphSlot.ifFalse("\(labelSlot)") + "</a>"
+    template = #"<a class="fh-select-opt" title="\#(labelSlot)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>"# + glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)"></i>"#, "\(labelSlot)") + "</a>"
     css = """
       .fh-select .fh-active>.fh-select-opt{font-weight:600}
       """

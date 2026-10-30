@@ -26,7 +26,8 @@ given Configuration =
   *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
   *     running the transform. Off for an action, a label or a slider position.
   *   - `entityId`: `None` inherits the card's `entity_id`.
-  *   - `literal`: a verbatim value, authored as a bare string; all else unused.
+  *   - `literal`: a verbatim value, authored as a bare string, or as
+  *     `{literal, type}` when typed (a `cssClass`); all else unused.
   *   - `signal`: carry the value as a Datastar signal, so a change is one
   *     signal frame rather than a re-rendered card (ADR 0017). The card puts
   *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
@@ -142,7 +143,8 @@ final case class BoundSlot(
       }
 
   /** What the renderer keys a value by (signal names, the once-cache): two
-    * nodes saying the same thing over the same values share a signal.
+    * nodes saying the same thing over the same values share a signal. A
+    * `CssClass` value is the theme's swap of it, so it never shares with text.
     */
   lazy val valueKey: String =
     source.valueKey + values.toList
@@ -150,7 +152,7 @@ final case class BoundSlot(
       .map((n, v) => s"|$n=${ExprValue.key(v)}")
       .mkString + valueWhile.fold("")(w =>
       s"|while=${w.entityId.getOrElse("")}:${w.valueKey}"
-    )
+    ) + (if (source.`type` == SlotType.CssClass) "|cssClass" else "")
 
 object BoundSlot:
   /** By the identifiers the expression PARSES to, so a name inside a string
@@ -408,16 +410,19 @@ object SlotSource:
 
 /** What a card reads a slot's value as. A `Bool` slot decides a class or an
   * attribute by truthiness, where the string `"false"` is ON, so the build
-  * refuses a reading on one that does not produce a bool.
+  * refuses a reading on one that does not produce a bool. A `CssClass` slot
+  * sits in a `class` attribute, so the renderer passes its value through the
+  * theme's class rules (ADR 0020).
   */
 enum SlotType derives CanEqual:
-  case Text, Bool
+  case Text, Bool, CssClass
 
 object SlotType:
   given Decoder[SlotType] = Decoder[String].emap {
-    case "text" => Right(Text)
-    case "bool" => Right(Bool)
-    case other  => Left(s"unknown slot type: $other")
+    case "text"     => Right(Text)
+    case "bool"     => Right(Bool)
+    case "cssClass" => Right(CssClass)
+    case other      => Left(s"unknown slot type: $other")
   }
 
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the

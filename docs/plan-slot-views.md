@@ -5,7 +5,7 @@ design settles; they are out of scope here.
 
 **State:** built: views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
 rename, the Pkl `Slot` handles across the library, and flags and signal writes (decided in chat on
-2026-10-30). Next: `ifSetElse`/`ifTrueElse` (agreed 2026-10-30). `tapMod.disabled`'s literal `"1"` stays: it is a bool value read with `ifTrue`, live
+2026-10-30), and `ifSetElse`/`ifTrueElse` (agreed the same day). `tapMod.disabled`'s literal `"1"` stays: it is a bool value read with `ifTrue`, live
 on other nodes, not a flag.
 
 ## Why
@@ -140,9 +140,8 @@ reinvents it).
   so `of(false)` meaning "absent" would be ambiguous.
 - `when (x != null) { s.of(x!!) }` becomes `s.of(x)`: `of(null)` already leaves the slot out.
 - `bar.pkl`'s `hasOf` goes: it is set exactly when `of` is, which `ofSlot.ifSet` already says.
-- `button.pkl`'s `sizeSmall`/`sizeMedium`/`sizeLarge` stay three flags: a theme rewrites class
-  tokens in the template text only (`theme.classes.rewriteTemplate`, ADR 0020), so a class held in
-  a slot value would escape it.
+- `button.pkl`'s size is one `cssClass` slot (`docs/plan-css-class-slots.md`), whose value the
+  theme's class rules reach.
 - **Reads** of a signal become `x.jsValue`, which already prints `$<signal>` for a signal and the
   quoted value otherwise. **Writes** become **`x.assign(js)`**, printing `$<signal> = js`.
   `signalName` stays for the signal-patch filter regexes.
