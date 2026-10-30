@@ -111,7 +111,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // BeerCSS's own class, through the theme's class rules.
       assert(
         html.contains(
-          """<a class="fh-button button fh-press large " href="d/other">""" +
+          """<a class="fh-button button fh-press large  " href="d/other">""" +
             """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
         ),
         clue = html

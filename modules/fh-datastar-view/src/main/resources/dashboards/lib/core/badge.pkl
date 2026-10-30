@@ -18,11 +18,11 @@ const function iconOf(glyph: (String|slotMod.Reading)?): slotMod.Slot =
 /// badge that has none.
 const onoff: slotMod.Slot = slotMod.slot("onoff")
 
-/// The [[icon]] slot's glyph in its seat, absent with the slot. `glyph` is the
-/// `<i>`'s class; `spin` is the card's busy splice, inside whatever section
+/// The [[icon]] slot's glyph in its seat, absent with the slot. `extraClass` is
+/// the seat's own class (`"fh-slider-icon"`, or `""`); `glyph` is the `<i>`'s; `spin` is the card's busy splice, inside whatever section
 /// gates it: [[tapSpin]], or the slider head's, which spins on its commit.
 const function seat(extraClass: String, glyph: String, spin: String): String =
-  icon.ifSet(#"<span class="fh-badge fh-icon-shape\#(extraClass)\#(onoff.ifSet(" fh-onoff"))"\#(spin)><i class="\#(glyph)" \#(icon.bind)></i></span>"#)
+  icon.ifSet(#"<span class="fh-badge fh-icon-shape \#(extraClass) \#(onoff.ifSet("fh-onoff"))"\#(spin)><i class="\#(glyph)" \#(icon.bind)></i></span>"#)
 
 /// The slots a seat reads besides [[icon]]. The card lists them beside its own,
 /// `slots { ...badgeMod.slots(active) }`.

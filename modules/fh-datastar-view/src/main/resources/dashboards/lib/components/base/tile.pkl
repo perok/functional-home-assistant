@@ -30,7 +30,7 @@ open class Tile extends nodes.ActiveNode {
     // `<header>`, which is a 4rem app-bar grid.
     template = """
       <article class="fh-card fh-entity fh-tile-card">
-        <div class="fh-tile\(tapMod.tappable.ifSet(" fh-tappable"))\(tapMod.refusedNow(" fh-disabled"))"\(tapMod.tappable.ifSet("\n  data-on:click=\"\(tapMod.guardClick)\(tapMod.click)\""))\(tapMod.guard)>\(badgeMod.seat("", "\(badgeMod.icon)", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun(labelSlot))</span>
+        <div class="fh-tile \(tapMod.tappable.ifSet("fh-tappable")) \(tapMod.refusedNow("fh-disabled"))"\(tapMod.tappable.ifSet("\n  data-on:click=\"\(tapMod.guardClick)\(tapMod.click)\""))\(tapMod.guard)>\(badgeMod.seat("", "\(badgeMod.icon)", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun(labelSlot))</span>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun(valueSlot))</span>\(secondarySlot.ifSet("\n  " + #"<span class="fh-sub \#(textMod.BOX)">\#(textMod.liveRun(secondarySlot))</span>"#))</span></div>{{{features}}}
       </article>
       """

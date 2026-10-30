@@ -264,7 +264,7 @@ button the server refuses.
 
 `refusedAttr` disables the control while the tap would be refused (its entity is
 unavailable, say). It is for a `<button>` or other form control; on an element
-that cannot be disabled, use `\(tapMod.refusedNow(" fh-disabled"))` in its
+that cannot be disabled, use `\(tapMod.refusedNow("fh-disabled"))` in its
 `class` instead, as the tile does.
 
 Between them they give you everything a working control needs:

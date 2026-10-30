@@ -42,7 +42,7 @@ const local roundOrPress: String = roundSlot.ifSetElse("fh-circle", pressClass)
 // A navigating button is an `<a href>`, so the browser gives it middle-click and
 // a click that works before Datastar loads.
 const local buttonAnchor: String =
-  #"<a class="fh-button \#(roundOrPress)\#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)">"#
+  #"<a class="fh-button \#(roundOrPress) \#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)">"#
     + glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag, #"<span class="fh-badge">\#(glyphTag)</span>"#))
     + buttonText + "</a>"
 
@@ -61,11 +61,11 @@ const local pillGlyph: String =
   glyphSlot.ifTrue(#"<i class="mdi \#(glyphSlot)"></i>"#) + labelSlot.ifTrue(textMod.hole(labelSlot))
 
 const local pillAnchor: String =
-  #"<a class="fh-chip\#(roundSlot.ifSet(" fh-circle"))\#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)"\#(pillName)>"#
+  #"<a class="fh-chip \#(roundSlot.ifSet("fh-circle")) \#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)"\#(pillName)>"#
     + pillGlyph + "</a>"
 
 const local pillPress: String =
-  #"<button class="fh-chip\#(roundSlot.ifSet(" fh-circle"))" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)\#(pillName)"#
+  #"<button class="fh-chip \#(roundSlot.ifSet("fh-circle"))" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)\#(pillName)"#
     + tapMod.busyVisual.ifSet(glyphSlot.ifTrue(" " + tapMod.busyShapeClass)) + ">"
     + pillGlyph + "</button>"
 

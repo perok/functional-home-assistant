@@ -506,8 +506,9 @@ const function currentSlots(t: TapAction): Listing<slotMod.Slot> = new {
   }
 }
 
-/// What an anchor places for [[currentSlots]]: the class, then the attribute.
-const currentClass: String = current.ifTrue(" fh-current-dashboard")
+/// What an anchor places for [[currentSlots]]: the class, in the `class` value
+/// after a space, then the attribute.
+const currentClass: String = current.ifTrue("fh-current-dashboard")
 const currentAttr: String = current.ifTrue(#" aria-current="page""#)
 
 /// Dismiss the open popup, as its ✕ does.

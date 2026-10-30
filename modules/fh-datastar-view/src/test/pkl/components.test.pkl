@@ -1419,7 +1419,7 @@ facts {
     // the `fh-disabled` look through the guard, since only a form control can
     // be disabled.
     tile.slotsByName["tapDisabled"].signal == "handler"
-    c.cards["tile"].template.contains("{{#tapDisabled}} fh-disabled{{/tapDisabled}}")
+    c.cards["tile"].template.contains("{{#tapDisabled}}fh-disabled{{/tapDisabled}}")
   }
 
   ["a tap that names its target needs no entity on the card"] {

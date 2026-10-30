@@ -77,7 +77,7 @@ const local rollbackToCommitted: String =
 
 // The track's own classes: one `cardDef` serves every slider.
 const local trackClasses: String =
-  hueTrackSlot.ifSet(" fh-track-hue") + kelvinTrackSlot.ifSet(" fh-track-kelvin") + greyedSlot.ifSet(" fh-slider-greyed")
+  "\(hueTrackSlot.ifSet("fh-track-hue")) \(kelvinTrackSlot.ifSet("fh-track-kelvin")) \(greyedSlot.ifSet("fh-slider-greyed"))"
 
 // What a drag paints before any commit: the fill, and the readout or marker
 // where they follow the position.
@@ -143,13 +143,13 @@ class SliderHead extends nodes.ActiveNode {
     }
     template = """
       <div class="fh-slider-body">
-        <div class="fh-slider-head\(greyedSlot.ifSet(" fh-slider-greyed"))">
-          \(badgeMod.seat(" fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
+        <div class="fh-slider-head \(greyedSlot.ifSet("fh-slider-greyed"))">
+          \(badgeMod.seat("fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
           {{{text}}}
           \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
           <div class="fh-slider-actions">{{{actions}}}</div>
         </div>
-        <div class="fh-slider\(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSetElse(" \(tapMod.busyClassChange)", tapMod.refusedClass))>
+        <div class="fh-slider \(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSetElse(" \(tapMod.busyClassChange)", tapMod.refusedClass))>
           \(toggleSlot.ifUnset(rangeInput))
           <span style="--fh-fill: \(fillSlot);background:\(fillColorSlot)" \(fillSlot.bind) \(fillColorSlot.bind)></span>
           \(toggleSlot.ifSet(toggleButton))
