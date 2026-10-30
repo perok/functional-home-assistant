@@ -17,8 +17,10 @@ bindings at render. A class held in a slot VALUE is in none of them, so the them
   `fh-size-*` token is literal template text for the BeerCSS theme to swap (`small`, `large`).
   The size is fixed per node, but the template is shared and Mustache cannot compare, so every
   value needed its own section.
+- `slider.pkl` sets its `group` slot to `fh-slider-group` on a slider with members: the same gap
+  as `Box`, for one class.
 - `slotMod.liveClass` puts a reading into an element's whole `class` (the button's glyph, the
-  badge icon), which no swap reaches either.
+  badge icon), and `select.pkl`'s options put an `mdi …` literal there; no swap reaches either.
 
 ## The design
 
@@ -59,8 +61,15 @@ bindings at render. A class held in a slot VALUE is in none of them, so the them
 - `Box`: `extraClass` becomes `slotMod.cssClass("class")`.
 - The button: one `sizeClass` slot, replacing the three flags and their three sections in
   `pressClass`. The BeerCSS theme's `fh-size-medium = ""` swaps to nothing, as it does today.
-- `liveClass`: the button's `glyphSlot` and `badge.pkl`'s `icon` become `cssClass` handles. Their
-  values are `mdi …`, which no theme maps, so their output does not change.
+- `liveClass`: the button's `glyphSlot` and `badge.pkl`'s `icon` become `cssClass` handles, and so
+  does `select.pkl`'s `glyphSlot` (its two option cards). Their values are `mdi …`, which no theme
+  maps, so their output does not change.
+- The slider's `group` becomes a flag instead: `groupSlot.setIf(!members.isEmpty)` and
+  `groupSlot.ifSet(" fh-slider-group")`. One class, on or off, is what a flag is for, and the class
+  is then template text the theme already rewrites.
+
+Every slot placed inside a `class` attribute was found by scanning the snapshot templates and the
+library's `class="…"` attributes; the list above is all of them.
 
 ## Not in scope
 
@@ -74,8 +83,9 @@ bindings at render. A class held in a slot VALUE is in none of them, so the them
 ## Wire and snapshots
 
 `Box`'s `class`, the button's `size` and the glyph and icon slots gain `"type": "cssClass"`; the
-button's three flag slots become one `size` slot and its template loses the three size sections.
-The snapshot diff is read for exactly that.
+button's three flag slots become one `size` slot and its template loses the three size sections;
+the slider's `group` value becomes `"1"` and its template section holds the class. The snapshot
+diff is read for exactly that.
 
 ## Docs
 
