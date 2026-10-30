@@ -27,6 +27,24 @@ const function jsonLiteral(v: CallValue): String =
   if (v is List) "[" + v.map((x) -> jsonRenderer.renderValue(x)).join(",") + "]"
   else jsonRenderer.renderValue(v)
 
+// The slots a tap fills ([[tapSlots]]), for the template pieces below and the
+// cards that place them.
+const service: slotMod.Slot = slotMod.slot("service")
+const targetKind: slotMod.Slot = slotMod.slot("targetKind")
+const targetId: slotMod.Slot = slotMod.slot("targetId")
+const targetSet: slotMod.Slot = slotMod.slot("targetSet")
+const dataKey: slotMod.Slot = slotMod.slot("dataKey")
+const dataValue: slotMod.Slot = slotMod.slot("dataValue")
+const onclick: slotMod.Slot = slotMod.slot("onclick")
+/// The tap's own refusal ([[refusedStates]]) and the card's (`nodes.disabledSlot`).
+const tapDisabled: slotMod.Slot = slotMod.slot("tapDisabled")
+const disabled: slotMod.Slot = slotMod.slot("disabled")
+/// Set on any card that has a tap.
+const tappable: slotMod.Slot = slotMod.slot("tappable")
+const busy: slotMod.Slot = slotMod.slot("busy")
+const busyVisual: slotMod.Slot = slotMod.slot("busyVisual")
+const current: slotMod.Slot = slotMod.slot("current")
+
 /// A [[Call]] or a [[Click]], rendered in one place ([[tapRoute]]).
 ///
 /// A card that can be an anchor must prefer `href` when set: that is what gives
@@ -119,10 +137,10 @@ const function withData(key: String, value: String): String =
 
 // What a card writes for a guarded tap:
 //
-//   data-on:click="\(tapMod.guardClick){{{onclick}}}"
-//   \(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}
+//   data-on:click="\(tapMod.guardClick)\(tapMod.onclick.raw)"
+//   \(tapMod.guard)\(tapMod.busyVisual.ifTrue(glyph.ifTrue(" " + tapMod.busyShapeClass)))
 //
-// [[guard]] and [[guardClick]] carry their own `{{#busy}}` sections, so a card
+// [[guard]] and [[guardClick]] carry their own [[busy]] sections, so a card
 // places them unconditionally. Their signal names must match what the server
 // patches on a refusal (ADR 0024), which a third-party card should not need to
 // know. The spinner is the card's to place: only its template knows which
@@ -136,22 +154,18 @@ const function withData(key: String, value: String): String =
 /// The refusal as one JS expression. `||` binds tighter than `?:`, so a guard
 /// needs no parentheses round it.
 const refused: String =
-  slotMod.ifSlot("tapDisabled") + slotMod.slotRead("tapDisabled") + slotMod.endIfSlot("tapDisabled")
-    + slotMod.ifSlot("tapDisabled") + slotMod.ifSlot("disabled") + " || "
-    + slotMod.endIfSlot("disabled") + slotMod.endIfSlot("tapDisabled")
-    + slotMod.ifSlot("disabled") + slotMod.slotRead("disabled") + slotMod.endIfSlot("disabled")
+  tapDisabled.ifSet(tapDisabled.jsValue)
+    + tapDisabled.ifSet(disabled.ifSet(" || "))
+    + disabled.ifSet(disabled.jsValue)
 
 /// `s`, when the node carries either refusal slot.
 const function whenRefusable(s: String): String =
-  slotMod.ifSlot("tapDisabled") + s + slotMod.endIfSlot("tapDisabled")
-    + slotMod.ifNoSlot("tapDisabled") + slotMod.ifSlot("disabled") + s
-    + slotMod.endIfSlot("disabled") + slotMod.endIfNoSlot("tapDisabled")
+  tapDisabled.ifSet(s) + tapDisabled.ifUnset(disabled.ifSet(s))
 
 /// `s` while the node refuses now. Document form only: the patch form withholds
 /// the values, and the binding beside it keeps the state live.
 const function refusedNow(s: String): String =
-  "{{#tapDisabled}}" + s + "{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}" + s
-    + "{{/disabled}}{{/tapDisabled}}"
+  tapDisabled.ifTrue(s) + tapDisabled.ifFalse(disabled.ifTrue(s))
 
 /// `fh-disabled` + `fh-loading` while `sig` is truthy, and `fh-disabled` also
 /// while the node refuses — in ONE binding, because a second binding of the
@@ -213,15 +227,14 @@ const guard: String = guardMechanism + guardLook
 /// Must sit on the element that ISSUES the action: [[failedOn]] filters on it,
 /// and the server answers the `data-fh-node` it sent.
 const guardMechanism: String =
-  "{{#busy}} " + indicatorOn(busySig) + " " + failedOn(errorSig)
-    + #" data-fh-node="{{id}}""# + "{{/busy}}"
+  busy.ifTrue(" " + indicatorOn(busySig) + " " + failedOn(errorSig) + #" data-fh-node="{{id}}""#)
 
 /// Separate from [[guardMechanism]] for a card whose acting element is not its
 /// visible one: a BeerCSS switch hides its `<input>`, so an outline there is
 /// one nobody sees.
 const guardLook: String =
-  "{{#busyVisual}} " + inFlightOrRefused(busySig) + " " + failedClass(errorSig)
-    + "{{/busyVisual}}{{^busyVisual}}" + refusedClass + "{{/busyVisual}}"
+  busyVisual.ifTrue(" " + inFlightOrRefused(busySig) + " " + failedClass(errorSig))
+    + busyVisual.ifFalse(refusedClass)
 
 /// Puts an optimistic control back where the server last said it was, when an
 /// action on this node is refused: a refusal sends no state frame to correct
@@ -232,7 +245,7 @@ const function restoreOnRefusal(restore: String): String =
 /// [[guard]]'s half for INSIDE the click expression. Spliced into the template,
 /// not the expression: a tap's expression is a transform's output, inserted
 /// raw, so a `{{id}}` in it would never be filled.
-const guardClick: String = "{{#busy}}" + guardOn(busySig) + "{{/busy}}"
+const guardClick: String = busy.ifTrue(guardOn(busySig))
 
 /// How long an action may take before the spinner says it is taking a while.
 const busyDelayMs: Int = 300
@@ -291,19 +304,16 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 /// for a state-picked one, so the template is the same either way, and a lock
 /// tile's bytes stay constant across lock/unlock (ADR 0017).
 const serviceClick: String =
-  #"@post('sse/call/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
-    #" + '/{{targetKind}}/{{targetId}}?node={{id}}', "# +
-    slotMod.ifSlot("dataKey") + withData("{{dataKey}}", "{{dataValue}}") +
-    slotMod.endIfSlot("dataKey") +
-    slotMod.ifNoSlot("dataKey") + noSignals + slotMod.endIfNoSlot("dataKey") + ")"
+  #"@post('sse/call/{{dashboardSlug}}/' + "# + service.jsValue +
+    #" + '/\#(targetKind)/\#(targetId)?node={{id}}', "# +
+    dataKey.ifSet(withData("\(dataKey)", "\(dataValue)")) +
+    dataKey.ifUnset(noSignals) + ")"
 
 /// What every card with a tap places: `data-on:click="\(guardClick)\(click)"`.
-/// The arm is picked by whether [[tapSlots]] emitted a `service` slot. Service
-/// URLs stay in Pkl because nothing in Scala knows an HA domain (ADR 0016).
+/// The arm is picked by whether [[tapSlots]] set [[service]]. Service URLs stay
+/// in Pkl because nothing in Scala knows an HA domain (ADR 0016).
 const click: String =
-  refusalGuard +
-    slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
-    slotMod.ifNoSlot("service") + "{{{onclick}}}" + slotMod.endIfNoSlot("service")
+  refusalGuard + service.ifSet(serviceClick) + service.ifUnset(onclick.raw)
 
 /// Every state in which this tap must refuse the press: the call's own
 /// [[Call.disabledWhile]], plus `unavailable`, which HA rejects in every
@@ -321,59 +331,62 @@ const function tapDisabledSlot(states: List<String>): slotMod.Reading = new {
   transform = simpleMod.stateIn(states.toListing())
   // `unavailable` is one of the arms, so the raw state has to reach the match.
   bypassUnavailable = false
-  signal = slotMod.asHandler
 }
 
 /// What [[serviceClick]] builds the URL from, and what the server reads back as
 /// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
-/// carries its tally as `targetSet`, the JSON the press filters by.
+/// carries its tally as [[targetSet]], the JSON the press filters by. A service
+/// the live state picks is a handler signal (ADR 0016).
 const local function routeSlots(
   action: slotMod.Reading|String,
   target: Target,
   key: String?
-): Mapping<String, slotMod.Reading|String> =
+): Listing<slotMod.Slot> =
   new {
-    ["service"] =
-      if (action is slotMod.Reading && target is hass.Entity)
-        (action as slotMod.Reading) { entityId = target.entity_id }
-      else action
-    ["targetKind"] =
+    if (action is slotMod.Reading)
+      (service) {
+        value = if (target is hass.Entity) (action as slotMod.Reading) { entityId = target.entity_id } else action
+        signal = slotMod.asHandler
+      }
+    else service.of(action)
+    targetKind.of(
       if (target is hass.Entity) "entity" else if (target is hass.Area) "area"
-      else if (target is hass.Floor) "floor" else "set"
-    ["targetId"] =
+      else if (target is hass.Floor) "floor" else "set")
+    targetId.of(
       if (target is hass.Entity) target.entity_id
       else if (target is hass.Area) target.area_id
       else if (target is hass.Floor) target.floor_id
-      else setId(target as pred.Tally)
+      else setId(target as pred.Tally))
     when (target is pred.Tally) {
-      ["targetSet"] = jsonRenderer.renderValue(target)
+      targetSet.of(jsonRenderer.renderValue(target))
     }
     when (key != null) {
-      ["dataKey"] = key!!
+      dataKey.of(key!!)
     }
   }
 
 /// The route slots [[click]] reads, and the refusal with them, so no card can
 /// place a route without it. Separate from [[tapSlots]] for a card with no
-/// `tappable` section (a [[Button]]'s anchor arm). One node holds one tap's
+/// [[tappable]] section (a [[Button]]'s anchor arm). One node holds one tap's
 /// route.
-const function tapRoute(t: TapAction): Mapping<String, slotMod.Reading|String> =
+const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
   let (target = if (t is Call) t.target else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
   let (states = refusedStates(t, target))
     new {
       when (t is Call) {
-        for (k, v in routeSlots(t.service, t.target, t.dataKey)) {
-          [k] = v
-        }
+        ...routeSlots(t.service, t.target, t.dataKey)
         when (t.dataValue != null) {
-          ["dataValue"] = t.dataValue!!
+          dataValue.of(t.dataValue!!)
         }
       } else {
-        ["onclick"] = (t as Click).onclick
+        onclick.of((t as Click).onclick)
       }
       when (!states.isEmpty) {
-        ["tapDisabled"] = (tapDisabledSlot(states)) { entityId = reads }
+        (tapDisabled) {
+          value = (tapDisabledSlot(states)) { entityId = reads }
+          signal = slotMod.asHandler
+        }
       }
     }
 
@@ -381,35 +394,26 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Reading|String> =
 /// equal set share one.
 const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).sha256.take(16)
 
-/// Every slot a tap contributes, for a card to fold in with one generator:
-///
-/// ```
-/// slots {
-///   for (k, v in tapMod.tapSlots(tapAction)) { [k] = v }
-/// }
-/// ```
-const function tapSlots(t: TapAction?): Mapping<String, slotMod.Reading|String> =
+/// Every slot a tap contributes, for a card to fold in:
+/// `slots { ...tapMod.tapSlots(tapAction) }`.
+const function tapSlots(t: TapAction?): Listing<slotMod.Slot> =
   new {
     when (t != null) {
-      ["tappable"] = "1"
-      for (k, v in tapRoute(t!!)) {
-        [k] = v
-      }
-      for (k, v in guardSlots(t!!)) {
-        [k] = v
-      }
+      tappable.of("1")
+      ...tapRoute(t!!)
+      ...guardSlots(t!!)
     }
   }
 
 /// The slots [[guard]] and [[guardClick]] open, for a card that takes
 /// [[tapRoute]] rather than [[tapSlots]].
-const function guardSlots(t: TapAction): Mapping<String, String> =
+const function guardSlots(t: TapAction): Listing<slotMod.Slot> =
   new {
     when (t.busy) {
-      ["busy"] = "1"
+      busy.of("1")
     }
     when (t.busy && t.busyVisual) {
-      ["busyVisual"] = "1"
+      busyVisual.of("1")
     }
   }
 
@@ -474,7 +478,6 @@ const local function stateService(e: hass.Entity, byState: hassActions.CallBySta
     service = new slotMod.Reading {
       transform = simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)
       bypassUnavailable = false
-      signal = slotMod.asHandler
     }
     target = e
     disabledWhile = byState.disabledWhile
@@ -500,20 +503,22 @@ function navigate(slug: String): Click = new {
 /// place `fh-current-dashboard` and `aria-current="page"` under. Read once per renderer,
 /// which is one dashboard, so it costs no signal; the build cannot answer it,
 /// since a module does not know its slug.
-const function currentSlots(t: TapAction): Mapping<String, slotMod.Reading> = new {
+const function currentSlots(t: TapAction): Listing<slotMod.Slot> = new {
   when (t.page != null) {
-    ["current"] = new slotMod.Reading {
-      transform = "dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
-      reads = "once"
+    (current) {
+      value = new slotMod.Reading {
+        transform = "dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
+        reads = "once"
+        bypassUnavailable = false
+      }
       type = "bool"
-      bypassUnavailable = false
     }
   }
 }
 
 /// What an anchor places for [[currentSlots]]: the class, then the attribute.
-const currentClass: String = "{{#current}} fh-current-dashboard{{/current}}"
-const currentAttr: String = #"{{#current}} aria-current="page"{{/current}}"#
+const currentClass: String = current.ifTrue(" fh-current-dashboard")
+const currentAttr: String = current.ifTrue(#" aria-current="page""#)
 
 /// Dismiss the open popup, as its ✕ does.
 function closePopup(): Click =

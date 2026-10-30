@@ -5,6 +5,7 @@
 module layout
 
 import "core/node.pkl" as nodes
+import "core/slot.pkl" as slotMod
 
 /// A classed `<div>` holding its children, plus an optional author class. Pure
 /// structure: nothing fills a box from outside.
@@ -15,13 +16,15 @@ abstract class Box extends nodes.Node {
   hidden ownClasses: Listing<String> = new {}
   slots {
     when (cssClass != null || !ownClasses.isEmpty) {
-      ["class"] = new Listing<String> {
+      extraClass.of(new Listing<String> {
         when (cssClass != null) { cssClass!! }
         ...ownClasses
-      }.toList().join(" ")
+      }.toList().join(" "))
     }
   }
 }
+
+const local extraClass: slotMod.Slot = slotMod.slot("class")
 
 /// Where a box's children sit along its own direction when they do not fill
 /// it: a row's hugging pills, a column taller than its cards.
@@ -29,7 +32,7 @@ typealias Justify = "start"|"center"|"end"
 
 const local function boxDef(cls: String): nodes.CardDef = new {
   regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-  template = #"<div class="\#(cls){{#class}} {{class}}{{/class}}">{{{children}}}</div>"#
+  template = #"<div class="\#(cls)\#(extraClass.ifTrue(" \(extraClass)"))">{{{children}}}</div>"#
 }
 
 class Row extends Box {

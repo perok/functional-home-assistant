@@ -480,14 +480,17 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     """module mycards
       |
       |import "@fh-dashboard/core/node.pkl" as nodes
+      |import "@fh-dashboard/core/slot.pkl" as slotMod
+      |
+      |const local labelSlot = slotMod.slot("label")
       |
       |class Gauge extends nodes.Node {
       |  card = "gauge"
       |  cardDef = new nodes.CardDef {
-      |    template = "<article class=\"mine\">{{label}}</article>"
+      |    template = "<article class=\"mine\">\(labelSlot)</article>"
       |  }
       |  label: String
-      |  slots { ["label"] = label }
+      |  slots { labelSlot.of(label) }
       |}
       |
       |function gauge(l: String): Gauge = new Gauge { label = l }

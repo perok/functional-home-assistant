@@ -17,24 +17,62 @@ const function noAction(ctor: String): String =
     + "`c.tap.call(service, target)`), or use `c.entityButton(e)` for an entity "
     + "whose domain implies one (the table is `hass/actions.pkl`)"
 
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
+const local glyphSlot: slotMod.Slot = slotMod.slot("glyph")
+const local roundSlot: slotMod.Slot = slotMod.slot("round")
+const local hrefSlot: slotMod.Slot = slotMod.slot("href")
+const local nameSlot: slotMod.Slot = slotMod.slot("name")
+const local sizeSmall: slotMod.Slot = slotMod.slot("sizeSmall")
+const local sizeMedium: slotMod.Slot = slotMod.slot("sizeMedium")
+const local sizeLarge: slotMod.Slot = slotMod.slot("sizeLarge")
+
 // The label, and [[Button.secondary]] under it in a column that only opens when
 // there is one.
 const local buttonText: String =
-  slotMod.ifSlot("secondary") + #"<span class="fh-lines">"# + slotMod.endIfSlot("secondary")
-    + "{{#label}}" + textMod.hole("label") + "{{/label}}"
-    + slotMod.ifSlot("secondary")
-    + #"<span class="fh-sub \#(textMod.BOX)">"# + textMod.liveRun("secondary") + "</span></span>"
-    + slotMod.endIfSlot("secondary")
+  secondarySlot.ifSet(#"<span class="fh-lines">"#)
+    + labelSlot.ifTrue(textMod.hole(labelSlot))
+    + secondarySlot.ifSet(#"<span class="fh-sub \#(textMod.BOX)">"# + textMod.liveRun(secondarySlot) + "</span></span>")
 
 // The glyph's WHOLE class, as `Tile.glyph`, so a reading can swap it.
-const local glyphTag: String =
-  #"<i class="{{glyph}}" "# + slotMod.signalBind("glyph") + "></i>"
+const local glyphTag: String = #"<i class="\#(glyphSlot)" \#(glyphSlot.bind)></i>"#
 
 // One literal token per size, so a theme's class rules reach it (ADR 0020).
 const local pressClass: String =
-  "fh-press" + slotMod.ifSlot("glyph") + " fh-badged" + slotMod.endIfSlot("glyph")
-    + "{{#sizeSmall}} fh-size-small{{/sizeSmall}}{{#sizeMedium}} fh-size-medium{{/sizeMedium}}"
-    + "{{#sizeLarge}} fh-size-large{{/sizeLarge}}"
+  "fh-press" + glyphSlot.ifSet(" fh-badged") + sizeSmall.ifTrue(" fh-size-small")
+    + sizeMedium.ifTrue(" fh-size-medium") + sizeLarge.ifTrue(" fh-size-large")
+
+const local roundOrPress: String = roundSlot.ifTrue("fh-circle") + roundSlot.ifFalse(pressClass)
+
+// A navigating button is an `<a href>`, so the browser gives it middle-click and
+// a click that works before Datastar loads.
+const local buttonAnchor: String =
+  #"<a class="fh-button \#(roundOrPress)\#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)">"#
+    + glyphSlot.ifSet(roundSlot.ifTrue(glyphTag) + roundSlot.ifFalse(#"<span class="fh-badge">\#(glyphTag)</span>"#))
+    + buttonText + "</a>"
+
+const local buttonPress: String =
+  #"<button class="\#(roundOrPress)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)"#
+    + tapMod.busyVisual.ifTrue(glyphSlot.ifSet(roundSlot.ifTrue(" " + tapMod.busyShapeClass))) + ">"
+    + glyphSlot.ifSet(roundSlot.ifTrue(glyphTag)
+      + roundSlot.ifFalse(#"<span class="fh-badge fh-icon-shape""# + tapMod.busyVisual.ifTrue(" " + tapMod.busyShapeClass) + ">" + glyphTag + "</span>"))
+    + buttonText + "</button>"
+
+// A pill's accessible name, when it shows no text.
+const local pillName: String =
+  nameSlot.ifTrue(#" title="\#(nameSlot)" aria-label="\#(nameSlot)""#)
+
+const local pillGlyph: String =
+  glyphSlot.ifTrue(#"<i class="mdi \#(glyphSlot)"></i>"#) + labelSlot.ifTrue(textMod.hole(labelSlot))
+
+const local pillAnchor: String =
+  #"<a class="fh-chip\#(roundSlot.ifTrue(" fh-circle"))\#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot.raw)"\#(pillName)>"#
+    + pillGlyph + "</a>"
+
+const local pillPress: String =
+  #"<button class="fh-chip\#(roundSlot.ifTrue(" fh-circle"))" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)\#(pillName)"#
+    + tapMod.busyVisual.ifTrue(glyphSlot.ifTrue(" " + tapMod.busyShapeClass)) + ">"
+    + pillGlyph + "</button>"
 
 // A labelled button fills its cell, as every other card does; a framework
 // sizing buttons to their label left three nav buttons ragged. `block-size:auto`
@@ -80,9 +118,7 @@ open class Button extends nodes.ActiveNode {
     // badge that also carries the spinner. Icon-only is `round`
     // (`fh-circle`): a glyph alone in a rectangle reads as a broken label, and
     // there the button itself spins.
-    template = """
-      {{#href}}<a class="fh-button {{#round}}fh-circle{{/round}}{{^round}}\(pressClass){{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}">\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge">\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}fh-circle{{/round}}{{^round}}\(pressClass){{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}\(slotMod.ifSlot("glyph")){{#round}} \(tapMod.busyShapeClass){{/round}}\(slotMod.endIfSlot("glyph")){{/busyVisual}}>\(slotMod.ifSlot("glyph")){{#round}}\(glyphTag){{/round}}{{^round}}<span class="fh-badge fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>\(glyphTag)</span>{{/round}}\(slotMod.endIfSlot("glyph"))\(buttonText)</button>{{/href}}
-      """
+    template = hrefSlot.ifTrue(buttonAnchor) + hrefSlot.ifFalse(buttonPress)
     css = pressCss
   }
   hidden label: (String|slotMod.Expr)? = null
@@ -109,7 +145,7 @@ open class Button extends nodes.ActiveNode {
   // A navigating button is a link, which has no inert form, so `disabled` on
   // one is refused rather than quietly dropped. The value `slots` reads, since a
   // Pkl local nothing forces never runs.
-  local ownDisabled: (slotMod.Reading|String)? =
+  local ownDisabled: slotMod.Slot? =
     if (disabled == null || disabled == false) null
     else if (tapAction.href != null)
       throw("c.button: `disabled` needs a button, but this one navigates and "
@@ -117,42 +153,32 @@ open class Button extends nodes.ActiveNode {
         + "it, or give it a service tap.")
     else nodes.disabledSlot(disabled)
   slots {
-    when (subject != null) {
-      ["entity_id"] = subject!!
-    }
-    ["label"] = slotMod.labelSlot(null, label)
+    slotMod.subject.of(subject)
+    labelSlot.of(slotMod.labelSlot(null, label))
     when (glyph != null) {
-      ["glyph"] =
-        if (glyph is slotMod.Reading) (glyph as slotMod.Reading) { signal = slotMod.asAttr("class") }
-        else glyph!!
+      slotMod.liveClass(glyphSlot, glyph)
       // The AUTHORED label, not the resolved one, or every entity button would
       // be round.
       when (label == "" && secondary == null) {
-        ["round"] = "1"
+        roundSlot.of("1")
       }
     }
-    when (size == "small") { ["sizeSmall"] = "1" }
-    when (size == "medium") { ["sizeMedium"] = "1" }
-    when (size == "large") { ["sizeLarge"] = "1" }
-    when (secondary != null) {
-      ["secondary"] = slotMod.secondarySlot(secondary!!)
-    }
+    when (size == "small") { sizeSmall.of("1") }
+    when (size == "medium") { sizeMedium.of("1") }
+    when (size == "large") { sizeLarge.of("1") }
+    slotMod.secondary(secondarySlot, secondary)
     // `ownDisabled` is read first to force the anchor-plus-`disabled` check;
     // by the time it returns it is null on the anchor arm.
     when (ownDisabled == null && tapAction.href != null) {
-      ["href"] = tapAction.href!!
+      hrefSlot.of(tapAction.href!!)
       ...tapMod.currentSlots(tapAction)
     } else {
-      for (k, v in tapMod.tapRoute(tapAction)) {
-        [k] = v
-      }
+      ...tapMod.tapRoute(tapAction)
       when (ownDisabled != null) {
-        ["disabled"] = ownDisabled!!
+        ownDisabled!!
       }
       // The anchor has no splice for the guard.
-      for (k, v in tapMod.guardSlots(tapAction)) {
-        [k] = v
-      }
+      ...tapMod.guardSlots(tapAction)
     }
   }
   function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
@@ -187,9 +213,7 @@ class Pill extends nodes.ActiveNode {
     // size. Its glyph keeps the spinner's colour (`aria-busy`, which
     // any theme's spinner carries). It wears the
     // button's surface, so a run of pills and a button read as one family.
-    template = """
-      {{#href}}<a class="fh-chip{{#round}} fh-circle{{/round}}\(tapMod.currentClass)"\(tapMod.currentAttr) href="{{{href}}}"{{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="fh-chip{{#round}} fh-circle{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#name}} title="{{name}}" aria-label="{{name}}"{{/name}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
-      """
+    template = hrefSlot.ifTrue(pillAnchor) + hrefSlot.ifFalse(pillPress)
     css = """
       .fh-cell>.fh-chip{background:var(--fh-surface);color:var(--fh-text);
       border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
@@ -213,29 +237,21 @@ class Pill extends nodes.ActiveNode {
   active = tapAction.lit ?? false
   inlineSurfaces = tapAction.inlineSurfaces
   slots {
-    ["label"] =
+    labelSlot.of(
       if (label == null && icon == null)
         throw("c.pill: this tap has no look of its own; give the pill .label(…) or .icon(…)")
-      else slotMod.labelSlot(null, label)
-    when (icon != null) {
-      ["glyph"] = icons.mdiClass(icon!!)
-    }
+      else slotMod.labelSlot(null, label))
+    glyphSlot.of(icon.ifNonNull((i) -> icons.mdiClass(i)))
     when (round) {
-      ["round"] = "1"
+      roundSlot.of("1")
     }
-    when (name != null) {
-      ["name"] = name!!
-    }
+    nameSlot.of(name)
     when (tapAction.href != null) {
-      ["href"] = tapAction.href!!
+      hrefSlot.of(tapAction.href!!)
       ...tapMod.currentSlots(tapAction)
     } else {
-      for (k, v in tapMod.tapRoute(tapAction)) {
-        [k] = v
-      }
-      for (k, v in tapMod.guardSlots(tapAction)) {
-        [k] = v
-      }
+      ...tapMod.tapRoute(tapAction)
+      ...tapMod.guardSlots(tapAction)
     }
   }
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }

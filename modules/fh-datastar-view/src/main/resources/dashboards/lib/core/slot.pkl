@@ -14,7 +14,9 @@ import "simple.pkl" as simpleMod
 import "stage.pkl" as stageMod
 import "node.pkl" as nodes
 
-/// The object form of a slot (`fh.view.model.SlotSource`).
+/// What a slot reads, with no binding yet (`docs/terminology.md`): the card it
+/// is handed to puts it in a [[Slot]], which says where it lands.
+/// `fh.view.model.SlotSource`, less the slot's `signal` and `type`.
 class Reading {
   entityId: String? = null
   /// CEL, a [[simpleMod.Simple]], or on a fetch slot a [[stageMod.Stage]] over
@@ -34,14 +36,6 @@ class Reading {
   ///
   /// A fetch slot is `onRender`: a provider's answer is never pushed.
   reads: "live"|"onRender"|"once" = if (fetch == null) "live" else "onRender"
-  /// Carry the value as a Datastar signal rather than bytes, so a change costs a
-  /// frame entry instead of a re-render (ADR 0017). The template must place
-  /// [[signalBind]] for this slot; the backend rejects it otherwise.
-  signal: SignalBind? = null
-  /// `"bool"` for a slot the template reads as on/off, where the string
-  /// `"false"` would be truthy; the build refuses a reading that is not one.
-  /// Null is text; a `class:` binding is a bool by kind.
-  type: SlotType? = null
   /// Makes this a fetch slot, read from a provider rather than live state
   /// (`providers/history.pkl`'s `HistoryFetch`).
   fetch: Fetch? = null
@@ -58,13 +52,73 @@ class Reading {
   ///   valueWhile = q.entity(left).gt(q.prop("state"), 0)
   ///
   /// A constant, a condition (decided without CEL, over the slot's entity
-  /// when it names none), or a `bool` reading; none may read a fetch.
+  /// when it names none), or a reading of a bool; none may read a fetch.
   hidden valueWhile: nodes.BooleanInput = true
   valueWhileSlot: Reading? =
     if (valueWhile == true) null
-    else if (valueWhile == false) nodes.booleanSlot(predMod.neverHolds)
-    else nodes.booleanSlot(valueWhile as Reading|Expr|predMod.Predicate)
+    else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
+    else nodes.booleanReading(valueWhile as Reading|Expr|predMod.Predicate)
 }
+
+/// One named value a card's template places, filled per node. The template
+/// reaches it through this object, so its name is written once:
+///
+/// ```
+/// const local label = slotMod.slot("label")
+/// template = "<span \(label.bind)>\(label)</span>"
+/// slots { label.of(slotMod.labelSlot(null, text)) }
+/// ```
+///
+/// Interpolated, it is the plain hole: `\(label)` is `{{label}}`. A slot with
+/// no value is not set, which [[ifSet]] tests; one with only a name is what a
+/// template piece shared across cards places (`core/tap.pkl`'s).
+class Slot {
+  name: String(!contains("."))
+  /// A literal, a [[Reading]], or null: not set.
+  value: (String|Reading)? = null
+  /// Carry the value as a Datastar signal rather than bytes, so a change costs a
+  /// frame entry instead of a re-render (ADR 0017). The template must place
+  /// [[bind]]; the backend rejects it otherwise. Only a [[Reading]] moves.
+  signal: SignalBind? = null
+  /// `"bool"` for a slot the template reads as on/off, where the string
+  /// `"false"` would be truthy; the build refuses a reading that is not one.
+  /// Null is text; a `class:` binding is a bool by kind.
+  type: SlotType? = null
+
+  /// `{{{name}}}`, unescaped: markup the value already is (a chart).
+  fixed raw: String = "{{{" + name + "}}}"
+  /// The binding a signal slot places beside its hole, on the element whose
+  /// text it is: `<span \(value.bind)>\(value)</span>`. Empty when the value is
+  /// not a signal, which keeps the no-signals rendering reachable.
+  fixed bind: String = "{{{" + name + ".bind}}}"
+  /// The value as JavaScript, for a handler of the card's own: a literal reads
+  /// back as `'light/toggle'`, a signal as its `$…` read, so one template
+  /// serves both. A live slot that is not a signal is a build error.
+  fixed jsValue: String = "{{{" + name + ".jsValue}}}"
+  /// The signal's name, for an expression of the card's own (the slider's
+  /// commit URL). Signal-only.
+  fixed signalName: String = "{{" + name + ".signal}}"
+
+  /// `body` while the node sets this slot. Never `{{#name}}` around a signal's
+  /// binding: the patch form withholds the value, so that section closes on the
+  /// first patch and takes the element with it (ADR 0017).
+  function ifSet(body: String): String = "{{#\(name).has}}\(body){{/\(name).has}}"
+  function ifUnset(body: String): String = "{{^\(name).has}}\(body){{/\(name).has}}"
+  /// `body` while the value is truthy: `""`, `false` and absence are not.
+  function ifTrue(body: String): String = "{{#\(name)}}\(body){{/\(name)}}"
+  function ifFalse(body: String): String = "{{^\(name)}}\(body){{/\(name)}}"
+
+  /// This slot holding `v`.
+  function of(v: (String|Reading)?): Slot = let (self = this) (self) { value = v }
+
+  function toString(): String = "{{" + name + "}}"
+}
+
+const function slot(n: String): Slot = new { name = n }
+
+/// The entity a card is about, which its other slots read unless they name
+/// their own (`Dashboard.SubjectSlot`).
+const subject: Slot = slot("entity_id")
 
 /// A read of a named provider. Each provider's component module declares its
 /// typed question as a subclass, which the backend decodes by `provider`.
@@ -103,34 +157,10 @@ const function asAttr(name: String): SignalBind = "attr:" + name
 /// class list.
 const function asClass(name: String): SignalBind = "class:" + name
 
-/// No binding: an event handler reads the value through [[signalRef]]. For a
-/// value that only a click consumes, so the markup stays constant (ADR 0017).
+/// No binding: an event handler reads the value through [[Slot.jsValue]] or
+/// [[Slot.signalName]]. For a value that only a click consumes, so the markup
+/// stays constant (ADR 0017).
 const asHandler: SignalBind = "handler"
-
-/// The binding a signal slot's card places beside the `{{name}}` hole:
-///
-/// ```
-/// <span class="fh-reading" \(signalBind("value"))>{{value}}</span>
-/// ```
-///
-/// The backend fills it, and with nothing when the value is not a signal, which
-/// keeps the no-signals rendering reachable.
-const function signalBind(name: String): String = "{{{" + name + ".bind}}}"
-
-/// The signal's name, for an expression of the card's own (the slider's commit
-/// URL). Signal-only.
-const function signalRef(name: String): String = "{{" + name + ".signal}}"
-
-/// The slot's value as a JS expression, for a handler of the card's own:
-///
-/// ```
-/// @post('sse/call/{{dashboardSlug}}/' + \(slotRead("service")) + '/entity/{{entity_id}}')
-/// ```
-///
-/// A literal reads back as `'light/toggle'`, a signal as its `$…` read, so one
-/// template serves both and the card never branches. A live slot that is not a
-/// signal is a build error.
-const function slotRead(name: String): String = "{{{" + name + ".jsValue}}}"
 
 /// Whether `e`'s state is one of `states`, as a boolean reading.
 const function stateIn(e: hass.Entity, states: List<String>): Reading = new {
@@ -174,22 +204,6 @@ const function readingOf(e: hass.Entity): Expr? =
   if (activeTables.lastHappened.contains(e.domain)) new Expr { transform = CLOCK_TIME_EXPR }
   else null
 
-/// The section for optional markup holding a slot:
-///
-/// ```
-/// \(ifSlot("icon"))<i class="{{icon}}" \(signalBind("icon"))></i>\(endIfSlot("icon"))
-/// ```
-///
-/// Never `{{#icon}}`: a signal's value is withheld in the patch form, so a
-/// section on the value deletes its own element on the first patch
-/// (`SignalSectionSuite`). `name.has` holds for every slot the node sets.
-const function ifSlot(name: String): String = "{{#" + name + ".has}}"
-
-const function endIfSlot(name: String): String = "{{/" + name + ".has}}"
-
-const function ifNoSlot(name: String): String = "{{^" + name + ".has}}"
-
-const function endIfNoSlot(name: String): String = "{{/" + name + ".has}}"
 
 /// A live value for a display field that also takes a plain string:
 /// `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`.
@@ -224,12 +238,26 @@ const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Reading =
 /// (that is [[attr]]).
 typealias Secondary = String|Expr|Reading
 
-/// A live reading becomes a text signal, so a card placing it uses
-/// `textMod.liveRun` under [[ifSlot]].
-const function secondarySlot(s: Secondary): String|Reading =
-  if (s is Expr) new Reading { entityId = s.entityId; transform = s.transform; default = ""; signal = asText }
-  else if (s is Reading && s.fetch == null && s.reads == "live" && s.signal == null) (s) { signal = asText }
-  else s
+/// `at` holding a second line. A live reading becomes a text signal, so a card
+/// places it with `textMod.liveRun` under [[Slot.ifSet]].
+const function secondary(at: Slot, s: Secondary?): Slot =
+  if (s is Expr) (at) { value = new Reading { entityId = s.entityId; transform = s.transform; default = "" }; signal = asText }
+  else if (s is Reading && s.fetch == null && s.reads == "live") (at) { value = s; signal = asText }
+  else at.of(s)
+
+/// `at` holding `v` as a signal bound as `kind`.
+const function signalled(at: Slot, v: Reading, kind: SignalBind): Slot =
+  (at) { value = v; signal = kind }
+
+/// `at` holding an element's whole class: a reading moves as a signal on
+/// `class`, so a glyph can swap.
+const function liveClass(at: Slot, v: (String|Reading)?): Slot =
+  if (v is Reading) (at) { value = v; signal = asAttr("class") } else at.of(v)
+
+/// `at` holding text: a reading moves as a text signal (ADR 0017), so a
+/// ticking value costs a few bytes instead of the card.
+const function liveText(at: Slot, v: (String|Reading)?): Slot =
+  if (v is Reading) (at) { value = v; signal = asText } else at.of(v)
 
 /// One attribute of the card's entity, blank when absent:
 /// `c.entityCard(l).secondary(c.attr("device_class"))`.

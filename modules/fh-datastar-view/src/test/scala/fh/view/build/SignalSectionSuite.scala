@@ -1,5 +1,8 @@
 package fh.view.build
 
+import fh.view.runtime.Templates
+import fh.view.testkit.PklWorkspace
+
 /** A shipped card may not put a slot's signal binding inside a Mustache section
   * keyed on that slot's value. A signal slot is blank in the patch form (ADR
   * 0017), and blank is a false section, so the first patch touching the node
@@ -8,83 +11,54 @@ package fh.view.build
   * changes, usually the `busy` flag a tap sets. "It disappears when I click
   * it."
   *
-  * `slotMod.ifSlot(name)` is the guard: it keys on `<slot>.has`, answered for
-  * every declared slot in both forms. The sources are read, not the registry,
-  * because the template text is where the author makes the mistake.
+  * The build refuses it for every card a dashboard uses
+  * (`Templates.Reads.boundInOwnSection`; `TemplateReadsSuite` holds the
+  * shapes). This holds every card the library ships to it, used by a test
+  * dashboard or not, read off `components.pkl`'s `cards` index.
   */
 class SignalSectionSuite extends munit.FunSuite {
 
-  /** The same name never nests, so the first close tag ends the section. */
-  private def sections(src: String): List[(String, String)] =
-    """\{\{#([a-zA-Z_][a-zA-Z0-9_]*)\}\}""".r
-      .findAllMatchIn(src)
-      .toList
-      .flatMap { m =>
-        val name = m.group(1)
-        val from = m.end
-        val close = src.indexOf(s"{{/$name}}", from)
-        Option.when(close >= 0)(name -> src.substring(from, close))
-      }
-
-  test("no card sections a signal binding on its own slot's value") {
-    val offenders = BundledLib
-      .entries()
-      .filter { case (name, _) => name.endsWith(".pkl") }
-      .flatMap { case (name, bytes) =>
-        val src = new String(bytes, "UTF-8")
-        sections(src).collect {
-          case (slot, body) if body.contains(s"""signalBind("$slot")""") =>
-            s"$name: {{#$slot}} wraps signalBind(\"$slot\") — " +
-              s"""use ifSlot("$slot") instead"""
-        }
-      }
-    assertEquals(offenders.toList, Nil)
+  private lazy val shipped: Map[String, Templates.Card] = {
+    val tmp = os.temp.dir()
+    val _ = PklWorkspace.bootstrap(tmp)
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "@fh-dashboard/components.pkl" as c
+        |cards = c.cards
+        |""".stripMargin
+    )
+    val cards = SourceEval
+      .eval(tmp, "probe.pkl")
+      .fold(e => fail(e), identity)
+      .value
+      .hcursor
+      .downField("cards")
+    cards.keys.toList.flatten.map { name =>
+      val card = cards.downField(name)
+      val template =
+        card.get[String]("template").fold(e => fail(s"$name: $e"), identity)
+      val regions = card.downField("regions").keys.toList.flatten.toSet
+      name -> Templates
+        .card(name, template, regions)
+        .fold(e => fail(s"$name: $e"), identity)
+    }.toMap
   }
 
-  test("the scan reaches the shipped templates at all") {
-    // The offender scan passes trivially on an empty lib or no matched module.
-    val scanned = BundledLib
-      .entries()
-      .filter { case (name, _) => name.endsWith(".pkl") }
-    assert(scanned.sizeIs > 20, clue = scanned.map(_._1))
-    val found = scanned.flatMap { case (_, b) =>
-      sections(new String(b, "UTF-8")).map(_._1)
-    }.distinct
-    assert(found.contains("busy"), clue = found)
-    assert(found.sizeIs > 10, clue = found)
+  test("no shipped card binds a slot inside its own section") {
+    val offenders = shipped.toList.flatMap { case (name, card) =>
+      card.reads.boundInOwnSection.toList.map(slot => s"$name: $slot")
+    }
+    assertEquals(offenders.sorted, Nil)
   }
 
-  test("the check would have caught the two that shipped") {
-    // A control: if `sections` parsed nothing, the test above would pass for
-    // any library. These are the shapes that reached 0.1.38.
-    val entityCard =
-      """<i class="{{icon}}"{{#liveIcon}} \(slotMod.signalBind("icon")){{/liveIcon}}></i>"""
-    val brokenIcon = s"""<header>{{#icon}}$entityCard{{/icon}}</header>"""
-    assertEquals(
-      sections(brokenIcon).collect {
-        case (slot, body) if body.contains(s"""signalBind("$slot")""") => slot
-      },
-      List("icon")
-    )
-
-    val brokenState =
-      """{{#state}}<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}"""
-    assertEquals(
-      sections(brokenState).collect {
-        case (slot, body) if body.contains(s"""signalBind("$slot")""") => slot
-      },
-      List("state")
-    )
-
-    // The safe shape control.pkl uses: the section covers only an inline
-    // attribute, the binding sits outside.
-    val safe =
-      """{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}"""
-    assertEquals(
-      sections(safe).collect {
-        case (slot, body) if body.contains(s"""signalBind("$slot")""") => slot
-      },
-      Nil
-    )
+  test("the index reaches the shipped cards and their bindings") {
+    // The check passes trivially on an empty index or a card with no binding.
+    assert(shipped.sizeIs > 20, clue = shipped.keySet)
+    val bound = shipped.values
+      .flatMap(_.reads.views.collect { case (s, Templates.View.Bind) => s })
+      .toSet
+    assert(bound.contains("value"), clue = bound)
+    assert(bound.sizeIs > 5, clue = bound)
   }
 }

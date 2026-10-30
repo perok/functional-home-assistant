@@ -176,7 +176,7 @@ facts {
     // What makes a clause unable to be wrong about which member it belongs to,
     // and what the renderer relies on: nothing is injected per render.
     local s = q.from(stue).render((e) -> c.entityCard(e)).build()
-    memberOf.apply(s, "light.lampe")[0].node.slots["entity_id"] == "light.lampe"
+    memberOf.apply(s, "light.lampe")[0].node.slotsByName["entity_id"].value == "light.lampe"
   }
 
   ["a property only SOME candidates carry needs `optional`"] {
@@ -339,7 +339,7 @@ facts {
     stueSet.members["light.taklys"].clauses.toList()[0].`when`.property == "state"
     // ...and a room's title is a LITERAL, which is why the tile needs no
     // patch target of its own.
-    card.children.toList()[1].children.toList()[0].slots["label"] == "Kjøkken"
+    card.children.toList()[1].children.toList()[0].slotsByName["label"].value == "Kjøkken"
   }
 
   ["a set NESTS inside another's render, when the outer membership is live"] {
@@ -378,7 +378,7 @@ facts {
     local s = q.from(stue)
       .render((e) -> (c.entityCard(e)) { label = "Blah \(e.friendly_name)" })
       .build()
-    memberOf.apply(s, "light.taklys")[0].node.slots["label"] == "Blah Taklys"
+    memberOf.apply(s, "light.taklys")[0].node.slotsByName["label"].value == "Blah Taklys"
   }
 
   ["S3 a different card per domain, resolved at build time"] {
@@ -547,10 +547,10 @@ facts {
         c.entityCard(e)
       } })
       .build()
-    local heads = clausesOf.apply(s).map((cl) -> cl.node.children.toList()[0].slots["label"])
+    local heads = clausesOf.apply(s).map((cl) -> cl.node.children.toList()[0].slotsByName["label"].value)
     heads == List("Light", "Light")
     // ...and each member's own card still carries its own entity.
-    memberOf.apply(s, "light.lampe")[0].node.children.toList()[1].slots["entity_id"] == "light.lampe"
+    memberOf.apply(s, "light.lampe")[0].node.children.toList()[1].slotsByName["entity_id"].value == "light.lampe"
   }
 
   ["a TYPED render lambda never meets a candidate its branch cannot match"] {

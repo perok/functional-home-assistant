@@ -219,7 +219,7 @@ class SelectDropdown extends Select {
   card = "selectDropdown"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = menuTemplate(#"<span \#(slotMod.signalBind("chosen"))>{{chosen}}</span>"#)
+    template = menuTemplate(#"<span \#(chosenSlot.bind)>\#(chosenSlot)</span>"#)
     css = menuCss
   }
   hidden target: hass.Options
@@ -234,10 +234,9 @@ class SelectDropdown extends Select {
           otherwise = currentRead(o)
           property = currentOf(o)
         }
-        signal = slotMod.asText
         bypassUnavailable = false
       }
-  slots { ["chosen"] = chosen }
+  slots { slotMod.signalled(chosenSlot, chosen, slotMod.asText) }
 }
 
 /// [[SelectDropdown]] over a node variable: its label is one member per option,
@@ -290,24 +289,26 @@ class VarSelectCycle extends Select {
 class ChoiceLabel extends nodes.Node {
   card = "selectChoice"
   cardDef = new nodes.CardDef {
-    template = #"{{#glyph}}<i class="{{glyph}}" title="{{label}}"></i>{{/glyph}}{{^glyph}}<span>{{label}}</span>{{/glyph}}"#
+    template = glyphSlot.ifTrue(#"<i class="\#(glyphSlot)" title="\#(labelSlot)"></i>"#) + glyphSlot.ifFalse("<span>\(labelSlot)</span>")
   }
   hidden label: String
   hidden icon: String? = null
   slots {
-    ["label"] = label
-    when (icon != null) {
-      ["glyph"] = "mdi " + icons.mdiClass(icon!!)
-    }
+    labelSlot.of(label)
+    glyphSlot.of(icon.ifNonNull((i) -> "mdi " + icons.mdiClass(i)))
   }
 }
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local glyphSlot: slotMod.Slot = slotMod.slot("glyph")
+const local chosenSlot: slotMod.Slot = slotMod.slot("chosen")
 
 /// One option of a select over an entity: `fh-active` on its cell while the
 /// entity holds this value, decided by the server, so the first HTML is right.
 class EntityOption extends nodes.ActiveNode {
   card = "selectEntityOption"
   cardDef = new nodes.CardDef {
-    template = #"<a class="fh-select-opt" title="{{label}}" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>{{#glyph}}<i class="{{glyph}}"></i>{{/glyph}}{{^glyph}}{{label}}{{/glyph}}</a>"#
+    template = #"<a class="fh-select-opt" title="\#(labelSlot)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>"# + glyphSlot.ifTrue(#"<i class="\#(glyphSlot)"></i>"#) + glyphSlot.ifFalse("\(labelSlot)") + "</a>"
     css = """
       .fh-select .fh-active>.fh-select-opt{font-weight:600}
       """
@@ -316,16 +317,10 @@ class EntityOption extends nodes.ActiveNode {
   hidden icon: String? = null
   hidden tapAction: tapMod.Call
   slots {
-    ["label"] = label
-    when (icon != null) {
-      ["glyph"] = "mdi " + icons.mdiClass(icon!!)
-    }
-    for (k, v in tapMod.tapRoute(tapAction)) {
-      [k] = v
-    }
-    for (k, v in tapMod.guardSlots(tapAction)) {
-      [k] = v
-    }
+    labelSlot.of(label)
+    glyphSlot.of(icon.ifNonNull((i) -> "mdi " + icons.mdiClass(i)))
+    ...tapMod.tapRoute(tapAction)
+    ...tapMod.guardSlots(tapAction)
   }
 }
 

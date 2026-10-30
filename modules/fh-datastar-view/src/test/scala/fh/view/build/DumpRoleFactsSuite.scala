@@ -95,7 +95,7 @@ class DumpRoleFactsSuite extends munit.FunSuite {
         |// The namespace's own object, not a copy of it.
         |linked = left.device == dump.devices.printer
         |found = List(card.percent?.entity_id, card.status?.entity_id)
-        |label = card.slots["label"]
+        |label = card.slotsByName["label"].value
         |""".stripMargin
     )
     val c = SourceEval

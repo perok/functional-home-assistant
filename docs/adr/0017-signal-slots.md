@@ -486,7 +486,7 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
   `tapDisabled` reading of a service tap on an entity, as a `handler` signal; to the `service` of a
   `CallByState` tap, as a `handler` signal; to all four of the slider's moving slots; and to a
   LIVE `secondary` on every card that places one (tile, button, `sliderText`), which
-  `slotMod.secondarySlot` decides once — a literal, or a reading read once or on render, stays
+  `slotMod.secondary` decides once — a literal, or a reading read once or on render, stays
   bytes. `label` stays a registry fact and never moves.
 
 ## What was deliberately left out

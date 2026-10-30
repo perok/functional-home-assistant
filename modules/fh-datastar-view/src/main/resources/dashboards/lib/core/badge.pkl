@@ -7,25 +7,33 @@ import "node.pkl" as nodes
 import "slot.pkl" as slotMod
 import "tap.pkl" as tapMod
 
-/// The `icon` slot's glyph in its seat, absent with the slot. `glyph` is the
+/// The glyph in the seat: the `<i>`'s whole class.
+const icon: slotMod.Slot = slotMod.slot("icon")
+
+/// [[icon]] holding `glyph`: a reading moves as the `<i>`'s class signal.
+const function iconOf(glyph: (String|slotMod.Reading)?): slotMod.Slot =
+  slotMod.liveClass(icon, glyph)
+
+/// Set while the card's `active` is live, which is what tells its off from a
+/// badge that has none.
+const onoff: slotMod.Slot = slotMod.slot("onoff")
+
+/// The [[icon]] slot's glyph in its seat, absent with the slot. `glyph` is the
 /// `<i>`'s class; `spin` is the card's busy splice, inside whatever section
 /// gates it: [[tapSpin]], or the slider head's, which spins on its commit.
 const function seat(extraClass: String, glyph: String, spin: String): String =
-  slotMod.ifSlot("icon")
-    + #"<span class="fh-badge fh-icon-shape\#(extraClass){{#onoff}} fh-onoff{{/onoff}}"\#(spin)><i class="\#(glyph)" \#(slotMod.signalBind("icon"))></i></span>"#
-    + slotMod.endIfSlot("icon")
+  icon.ifSet(#"<span class="fh-badge fh-icon-shape\#(extraClass)\#(onoff.ifTrue(" fh-onoff"))"\#(spin)><i class="\#(glyph)" \#(icon.bind)></i></span>"#)
 
-/// The slots a seat reads besides `icon`: `onoff` while the card's `active` is
-/// live, which is what tells its off from a badge that has none. The card
-/// puts them beside its own, `for (k, v in badgeMod.slots(active)) { [k] = v }`.
-const function slots(active: nodes.BooleanInput): Mapping<String, String> =
+/// The slots a seat reads besides [[icon]]. The card lists them beside its own,
+/// `slots { ...badgeMod.slots(active) }`.
+const function slots(active: nodes.BooleanInput): Listing<slotMod.Slot> =
   new {
     when (!(active is Boolean)) {
-      ["onoff"] = "1"
+      onoff.of("1")
     }
   }
 
 /// The spin for a seat on a card with one tap (the tile, the switch): while
 /// that tap is busy, if it asks to be seen.
 const tapSpin: String =
-  "{{#busy}}{{#busyVisual}} " + tapMod.busyShapeClass + "{{/busyVisual}}{{/busy}}"
+  tapMod.busy.ifTrue(tapMod.busyVisual.ifTrue(" " + tapMod.busyShapeClass))

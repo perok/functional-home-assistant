@@ -92,7 +92,7 @@ local class E_lock_icon extends hass.LockEntity { icon: String = "mdi:key" }
 local class OwnSlots extends nodes.Node {
   card = "ownSlots"
   cardDef { template = "<div></div>" }
-  slots = new { ["label"] = "x" }
+  slots = new { slotMod.slot("label").of("x") }
 }
 
 // D1 helpers: there are no shared tables any more, so "how many distinct shapes
@@ -161,23 +161,23 @@ facts {
 
   ["an entity's OWN icon wins, as the MDI class"] {
     // Its own icon wins over the `running` device_class it also carries.
-    c.entityCard(new E_with_icon { entity_id = "light.k" }).slots["icon"]
+    c.entityCard(new E_with_icon { entity_id = "light.k" }).slotsByName["icon"].value
       == "mdi mdi-ceiling-light"
   }
 
   ["device_class beats the domain, so a temperature sensor is not a generic one"] {
     local plain: hass.SensorEntity = new { entity_id = "sensor.p" }
-    c.entityCard(new E_temp { entity_id = "sensor.t" }).slots["icon"] == "mdi mdi-thermometer"
+    c.entityCard(new E_temp { entity_id = "sensor.t" }).slotsByName["icon"].value == "mdi mdi-thermometer"
     // No device_class at all -> the domain default, and no eval error for
     // reading a property this entity does not have.
-    c.entityCard(plain).slots["icon"] == "mdi mdi-eye"
+    c.entityCard(plain).slotsByName["icon"].value == "mdi mdi-eye"
   }
 
   ["a NON-mdi icon set falls through, rather than emitting a dead class"] {
     // Six entities on the reference instance carry `hue:` icons from a HACS
     // integration whose glyphs we do not ship. A class the stylesheet does not
     // define renders as blank space, which is visibly worse than the default.
-    c.entityCard(new E_custom_icon { entity_id = "light.h" }).slots["icon"]
+    c.entityCard(new E_custom_icon { entity_id = "light.h" }).slotsByName["icon"].value
       == "mdi mdi-lightbulb"
   }
 
@@ -186,14 +186,14 @@ facts {
       entity_id = "wibble.x"
       domain = "wibble"
     }
-    !c.entityCard(odd).slots.containsKey("icon")
+    !c.entityCard(odd).slotsByName.containsKey("icon")
   }
 
   // ---- state-dependent icons ----
 
   ["a lock's glyph follows its state, as a shared signal"] {
     local tile = c.entityCard(latchLock)
-    local m: simpleMod.SimpleMatch = tile.slots["icon"].transform!!
+    local m: simpleMod.SimpleMatch = tile.slotsByName["icon"].value.transform!!
     m.cases.toMap()["locked"] == "mdi mdi-lock"
     m.cases.toMap()["unlocked"] == "mdi mdi-lock-open"
     // `jammed` is the one lock state you want to notice from across the room,
@@ -204,7 +204,7 @@ facts {
     m.otherwise == "mdi mdi-lock"
     // The WHOLE class is the value: the element carries nothing else, so
     // `data-attr:class` has nothing to fight over.
-    tile.slots["icon"].signal == "attr:class"
+    tile.slotsByName["icon"].signal == "attr:class"
   }
 
   ["anything more specific than the domain beats the live glyph"] {
@@ -215,20 +215,20 @@ facts {
     // A plain String, not a `Reading` — which is the whole difference, and is also
     // why both tiers must resolve to the SAME shape of value: the template has
     // one `{{icon}}` and cannot ask which tier filled it.
-    c.entityCard(latchLock).icon("mdi:key").slots["icon"] == "mdi mdi-key"
-    c.entityCard(new E_lock_icon { entity_id = "lock.k" }).slots["icon"]
+    c.entityCard(latchLock).icon("mdi:key").slotsByName["icon"].value == "mdi mdi-key"
+    c.entityCard(new E_lock_icon { entity_id = "lock.k" }).slotsByName["icon"].value
       == "mdi mdi-key"
   }
 
   ["a domain with no state glyphs renders byte-identical to before"] {
     // Most domains are not in the table, and they must not pay for it.
-    c.entityCard(kitchen).slots["icon"] == "mdi mdi-lightbulb"
+    c.entityCard(kitchen).slotsByName["icon"].value == "mdi mdi-lightbulb"
   }
 
   ["an author override takes either spelling"] {
     local e: hass.LightEntity = new { entity_id = "light.k" }
-    c.entityCard(e).icon("mdi:fridge").slots["icon"] == "mdi mdi-fridge"
-    c.entityCard(e).icon("mdi-fridge").slots["icon"] == "mdi mdi-fridge"
+    c.entityCard(e).icon("mdi:fridge").slotsByName["icon"].value == "mdi mdi-fridge"
+    c.entityCard(e).icon("mdi-fridge").slotsByName["icon"].value == "mdi mdi-fridge"
   }
 
   ["a node has no cell until a layout builder adds one"] {
@@ -278,7 +278,7 @@ facts {
       == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
-    body.children[1].children[0].slots["chart"].fetch.window.by.`var`
+    body.children[1].children[0].slotsByName["chart"].value.fetch.window.by.`var`
       == "window"
   }
 
@@ -290,48 +290,48 @@ facts {
     // name between them — which is the property, not the string: an author
     // cannot misspell one side of this pair because neither side is typed.
     defaults.apply(picked) == Map("window", "24h")
-    picked.children[0].slots["chart"].fetch.window.by.`var` == "window"
+    picked.children[0].slotsByName["chart"].value.fetch.window.by.`var` == "window"
     // Each key the bar offers is a window the chart has: the bar and the
     // table are one mapping, so neither can offer what the other lacks.
-    picked.children[0].slots["chart"].fetch.window.options.keys
+    picked.children[0].slotsByName["chart"].value.fetch.window.options.keys
       == p.history.presets.keys
     // The entity is still written down beside it. Only a declared variable is
     // writable, so this chart's subject has nowhere for a write to land.
-    picked.children[0].slots["chart"].fetch.entity == "sensor.power"
+    picked.children[0].slotsByName["chart"].value.fetch.entity == "sensor.power"
   }
 
   ["a chart's window is picked with the providers imported or handed in, alike"] {
     local imported = c.history.chart(power).over(p.history.statistics(7.d, "hour"))
     local handed = c.history.chart(power).over((pr) -> pr.history.statistics(7.d, "hour"))
-    imported.slots["chart"].fetch == handed.slots["chart"].fetch
-    imported.slots["chart"].fetch.window == p.history.statistics(7.d, "hour")
+    imported.slotsByName["chart"].value.fetch == handed.slotsByName["chart"].value.fetch
+    imported.slotsByName["chart"].value.fetch.window == p.history.statistics(7.d, "hour")
     // A function answering anything but a window is a type error, not a chart.
-    module.catch(() -> c.history.chart(power).over((pr) -> "7d").slots["chart"].fetch.window)
+    module.catch(() -> c.history.chart(power).over((pr) -> "7d").slotsByName["chart"].value.fetch.window)
       .contains("Window")
   }
 
   ["a chart's size is the author's to set, and unset leaves the backend's"] {
     local wide = c.history.chart(power).size(720, 200)
-    wide.slots["chart"].transform.params.width == 720
-    wide.slots["chart"].transform.params.height == 200
+    wide.slotsByName["chart"].value.transform.params.width == 720
+    wide.slotsByName["chart"].value.transform.params.height == 200
     // A size is how the answer is DRAWN, so the question stays the same one:
     // two sizes of a chart share one fetch.
-    wide.slots["chart"].fetch == c.history.chart(power).slots["chart"].fetch
-    c.history.chart(power).slots["chart"].transform.params.width == null
+    wide.slotsByName["chart"].value.fetch == c.history.chart(power).slotsByName["chart"].value.fetch
+    c.history.chart(power).slotsByName["chart"].value.transform.params.width == null
   }
 
   ["each window is a tab node of its own, guarded by its own tap"] {
     local bar = (c.history.chooser).regions["bar"][0].children.toList()
     bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
-    bar.map((n) -> (n as nodes.Node).slots["label"]) == List("1h", "24h", "7d", "30d")
+    bar.map((n) -> (n as nodes.Node).slotsByName["label"].value) == List("1h", "24h", "7d", "30d")
     // Per node, so one window's answer never clears another's guard (ADR 0019).
-    bar.every((n) -> (n as nodes.Node).slots["busy"] == "1")
+    bar.every((n) -> (n as nodes.Node).slotsByName["busy"].value == "1")
     // A window names the chooser by the token, never by an id it cannot know.
     let (week = bar[2] as nodes.Node)
-      (week.slots["onclick"] as slotMod.Reading).transform.contains(
+      (week.slotsByName["onclick"].value as slotMod.Reading).transform.contains(
         "/" + historyMod.windowVar.declarer + "/window/7d?group=" + historyMod.windowVar.below.group + "'"
       )
-      && (week.slots["active"] as String).endsWith("=== '7d'")
+      && (week.slotsByName["active"].value as String).endsWith("=== '7d'")
   }
 
   ["a variable choice is guarded, and takes only plain tokens"] {
@@ -362,12 +362,12 @@ facts {
     // mirror takes the declared one from `vars`, so the template carries no
     // copy of it to disagree with either.
     !week.cardDef.template.contains("{{start}}")
-    !week.slots.containsKey("start")
+    !week.slotsByName.containsKey("start")
   }
 
   ["a label node is the core label, its tone a slot"] {
     c.label("Leak").cardDef.template == textMod.label("{{tone}}", "{{label}}")
-    ((c.label("Leak")) { tone = "error" }).slots["tone"] == "error"
+    ((c.label("Leak")) { tone = "error" }).slotsByName["tone"].value == "error"
   }
 
   ["whether a chart makes sense is answered at BUILD time"] {
@@ -392,11 +392,11 @@ facts {
 
   ["the facts card names its subject and reads every attribute live"] {
     local info = c.entityInfo(kitchen)
-    info.slots["entity_id"] == "light.kitchen"
-    info.slots["attributes"].transform.contains("attr.transformList(k, v,")
+    info.slotsByName["entity_id"].value == "light.kitchen"
+    info.slotsByName["attributes"].value.transform.contains("attr.transformList(k, v,")
     // No attributes evaluates to null, which this default renders as an absent
     // block rather than the word "null".
-    info.slots["attributes"].default == ""
+    info.slotsByName["attributes"].value.default == ""
   }
 
   // ---- the default tap (#106) ----
@@ -409,18 +409,19 @@ facts {
     // A bare String — no transform, nothing for the runtime to decide, and so
     // nothing that can leave the renderer's identity cache. `service.jsValue`
     // quotes it back into the card's click expression.
-    c.entityCard(kitchen).slots["service"] == "light/toggle"
-    !c.entityCard(kitchen).slots.containsKey("onclick")
+    c.entityCard(kitchen).slotsByName["service"].value == "light/toggle"
+    !c.entityCard(kitchen).slotsByName.containsKey("onclick")
   }
 
   ["a one-shot domain presses instead of toggling"] {
-    c.entityCard(doorbell).slots["service"] == "button/press"
+    c.entityCard(doorbell).slotsByName["service"].value == "button/press"
   }
 
   ["a lock's service is the one thing the STATE has to decide"] {
     // Through the lock's own verb: its card opens more-info (see below).
     local acts = c.entityCard(frontLock).tapAction(c.tap.toggle(frontLock))
-    local svc: slotMod.Reading = acts.slots["service"]
+    local svcSlot = acts.slotsByName["service"]
+    local svc: slotMod.Reading = svcSlot.value
     local m: simpleMod.SimpleMatch = svc.transform!!
     // A lock's snapshot state decides WHICH service the tap posts; the value
     // itself never changes what the target is.
@@ -429,29 +430,29 @@ facts {
     // Carried as a SIGNAL with no binding, so the service moves in the signal
     // store and the element's bytes do not — the tile stays in the renderer's
     // identity cache across a lock/unlock (ADR 0017).
-    svc.signal == "handler"
+    svcSlot.signal == "handler"
     // …and the click expression is therefore not the live one it used to be:
     // the card assembles the URL from `tapMod.serviceClick`.
-    !acts.slots.containsKey("onclick")
+    !acts.slotsByName.containsKey("onclick")
   }
 
   ["a lock acts through Lock and Unlock buttons, on the dashboard and in more-info"] {
     // A stray tap on a wall tablet must not unlock the front door, so the card
     // posts nothing and opens a popup instead, as HA's tile does.
-    !c.entityCard(latchLock).slots.containsKey("service")
+    !c.entityCard(latchLock).slotsByName.containsKey("service")
     c.entityCard(latchLock).inlineSurfaces != null
     local card = c.lock.controls(latchLock) as nodes.Node
-    !card.slots.containsKey("service")
+    !card.slotsByName.containsKey("service")
     // Its features: Lock and Unlock side by side (HA's `lock-commands`), then
     // the latch. Fixed presses, not one that reads the state.
     local features = card.regions!!["features"].toList()
     local buttons = (features[0] as nodes.Node).regions!!["children"].toList()
       .map((n) -> n as nodes.Node)
-    buttons.map((b) -> b.slots["service"]) == List("lock/lock", "lock/unlock")
-    (features[1] as nodes.Node).slots["glyph"] == "mdi mdi-door-open"
+    buttons.map((b) -> b.slotsByName["service"].value) == List("lock/lock", "lock/unlock")
+    (features[1] as nodes.Node).slotsByName["glyph"].value == "mdi mdi-door-open"
     // Each refused where HA disables its own button: the state it would reach,
     // and the moves.
-    buttons.map((b) -> (b.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
+    buttons.map((b) -> (b.slotsByName["tapDisabled"].value.transform as simpleMod.SimpleMatch)
       .cases.toMap().keys.toList().sort())
       == List(
         List("locked", "locking", "opening", "unavailable", "unlocking"),
@@ -461,20 +462,20 @@ facts {
     local popup = c.entityCard(latchLock).inlineSurfaces!!.toMap().values.first.content as nodes.Node
     local body = popup.regions!!["children"].toList().first as nodes.Node
     local inPopup = body.regions!!["children"].toList().first as nodes.Node
-    !inPopup.slots.containsKey("tappable")
+    !inPopup.slotsByName.containsKey("tappable")
     inPopup.regions == card.regions
     // Only the guarded domains: a light's card still toggles on a tap.
-    c.entityCard(kitchen).slots["service"] == "light/toggle"
+    c.entityCard(kitchen).slotsByName["service"].value == "light/toggle"
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
     local card = c.entityCard(outside)
     // Still tappable — but it opens the popup rather than posting a service
     // call HA would reject. This is the flip the more-info work gated.
-    card.slots["tappable"] == "1"
+    card.slotsByName["tappable"].value == "1"
     card.inlineSurfaces.containsKey("self")
-    !(card.slots["onclick"] as slotMod.Reading).transform.contains("sse/action")
-    (card.slots["onclick"] as slotMod.Reading).transform.contains("/open/")
+    !(card.slotsByName["onclick"].value as slotMod.Reading).transform.contains("sse/action")
+    (card.slotsByName["onclick"].value as slotMod.Reading).transform.contains("/open/")
   }
 
   ["the more-info body's own card does NOT default to more-info"] {
@@ -507,7 +508,7 @@ facts {
     // Dimmed on the row too, so a tile refusing a press leaves its latch alone.
     !t.take(row).contains("fh-disabled")
     // Every live value on it is a signal, which is what lets it hold nodes.
-    t.contains(textMod.liveRun("label"))
+    t.contains(textMod.liveRun(slotMod.slot("label")))
     local f = c.lock.controls(new hass.LockEntity { entity_id = "lock.front"; supported_features = 1 })
       as nodes.Node
     f.card == "tile"
@@ -518,8 +519,8 @@ facts {
     // Loose `==` makes `'' == 0` true: an unset selection would look like tab 0.
     local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } ["B"] { c.title("b") } } })
       .children.toList()[1] as nodes.Node
-    (tab.slots["active"] as String).endsWith(") === '1'")
-    (tab.slots["active"] as String).startsWith("String(")
+    (tab.slotsByName["active"].value as String).endsWith(") === '1'")
+    (tab.slotsByName["active"].value as String).startsWith("String(")
   }
 
   ["an If whose branches all fail collapses its cell, rather than leaving a blank band"] {
@@ -536,8 +537,8 @@ facts {
     !tapMod.closePopup().busy
     // The tab card takes its guard from its tap, like every other card.
     local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } } }).children.toList().first as nodes.Node
-    tab.slots["busy"] == "1"
-    tab.slots["busyVisual"] == "1"
+    tab.slotsByName["busy"].value == "1"
+    tab.slotsByName["busyVisual"].value == "1"
   }
 
   ["every pressable card places the guard exactly when its tap asks for it"] {
@@ -558,9 +559,9 @@ facts {
     )
     // An anchor (a navigate's `href`) has no splice for the guard to open.
     taps.every((t) -> cards.apply(t).every((n) ->
-      let (guarded = t.busy && !n.slots.containsKey("href"))
-        n.slots.containsKey("busy") == guarded
-          && n.slots.containsKey("busyVisual") == (guarded && t.busyVisual)))
+      let (guarded = t.busy && !n.slotsByName.containsKey("href"))
+        n.slotsByName.containsKey("busy") == guarded
+          && n.slotsByName.containsKey("busyVisual") == (guarded && t.busyVisual)))
   }
 
   ["every pressable card refuses a service tap on a dead entity, and only a service tap"] {
@@ -571,28 +572,28 @@ facts {
       new switchMod.Switch { label = "s"; on = slotMod.stateIn(kitchen, List("on")); tapAction = t },
       new tileMod.Tile { tapAction = t }
     )
-    cards.apply(tapMod.call("light/toggle", kitchen)).every((n) -> n.slots.containsKey("tapDisabled"))
-    c.toggle(kitchen).slots.containsKey("tapDisabled")
+    cards.apply(tapMod.call("light/toggle", kitchen)).every((n) -> n.slotsByName.containsKey("tapDisabled"))
+    c.toggle(kitchen).slotsByName.containsKey("tapDisabled")
     List(tapMod.openPopup("p"), tapMod.navigate("home"), tapMod.closePopup())
-      .every((t) -> cards.apply(t).every((n) -> !n.slots.containsKey("tapDisabled")))
+      .every((t) -> cards.apply(t).every((n) -> !n.slotsByName.containsKey("tapDisabled")))
   }
 
   ["`tapAction = null` is how a card opts out of being clickable at all"] {
     local card = (c.entityCard(outside)) { tapAction = null }
-    !card.slots.containsKey("tappable")
-    !card.slots.containsKey("onclick")
+    !card.slotsByName.containsKey("tappable")
+    !card.slotsByName.containsKey("onclick")
   }
 
   ["a pressable card with nothing to press is a BUILD error"] {
     // The amend form is the one that could reach it: the factories take an
     // action, so only `new c.Button { label = ... }` leaves both unset. It used
     // to post `homeassistant/toggle` with an empty entity id.
-    // `slots["onclick"]` and not `slots`: reading the object does not force its
+    // `slotsByName["onclick"]` and not `slots`: reading the object does not force its
     // entries, so a `catch` over the bare `slots` sees no error at all.
-    module.catch(() -> (new c.Button { label = "x" }).slots["onclick"])
+    module.catch(() -> (new c.Button { label = "x" }).slotsByName["onclick"].value)
       .contains("nothing happens on click")
     // A toggle whose domain cannot be toggled is the same mistake.
-    module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
+    module.catch(() -> c.toggle(outside).slotsByName["onclick"].value).contains("nothing happens on click")
   }
 
   ["disabled on a button that NAVIGATES is a build error, not a no-op"] {
@@ -606,14 +607,14 @@ facts {
         c.entityButton(latchLock)
           .tapAction(c.view.navigate("/other"))
           .disabled(c.stateIn(latchLock, List("opening")))
-          .slots["label"])
+          .slotsByName["label"].value)
       .contains("renders as a link")
     // The same button with a SERVICE tap is fine, which is what makes the
     // check about the link rather than about `disabled`.
     c.entityButton(latchLock)
       .tapAction(c.tap.locks.openLatch(latchLock))
       .disabled(c.stateIn(latchLock, List("opening")))
-      .slots["tapDisabled"].signal == "handler"
+      .slotsByName["tapDisabled"].signal == "handler"
   }
 
   // ---- CSS ownership (ADR 0020) ----
@@ -761,7 +762,7 @@ facts {
     // Toggle-only is HA's positive `onoff`, never "reports no dimmable mode".
     local blind: hass.LightEntity = new { entity_id = "light.away" }
     !c.entitySlider(blind).toggleOnly
-    !c.entitySlider(blind).headSlots.containsKey("toggle")
+    !c.entitySlider(blind).headNode.slotsByName.containsKey("toggle")
   }
 
   ["a light that only switches keeps the row, and stops pretending to slide"] {
@@ -773,27 +774,27 @@ facts {
     // have to, which of a group's lights can dim.
     local row = (c.entitySlider(switchOnly)).readout("percent")
     row.toggleOnly
-    row.headSlots["toggle"] == "1"
+    row.headNode.slotsByName["toggle"].value == "1"
     // The whole track posts the domain's own toggle.
-    row.headSlots["service"] == "light/toggle"
+    row.headNode.slotsByName["service"].value == "light/toggle"
     // All or nothing, in the theme's switch-fill rather than in the text colour
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
     // get. A TOKEN, not the literal behind it: the value is the theme's to move.
     // The fill is OPTED IN: a one-armed state match of the simple tier
     // (annotated local = the runtime-checked downcast from the union).
-    local fillMatch: simpleMod.SimpleMatch = row.headSlots["fill"].transform!!
+    local fillMatch: simpleMod.SimpleMatch = row.headNode.slotsByName["fill"].value.transform!!
     fillMatch.cases.toMap() == Map("on", "0%")
     fillMatch.otherwise == "100%"
-    row.headSlots["fillColor"] == "var(--fh-default-color)"
+    row.headNode.slotsByName["fillColor"].value == "var(--fh-default-color)"
     // ...and the token is one the contract actually defines. A `var()` naming
     // nothing paints TRANSPARENT, and only a browser would ever say so.
     cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
     // The state readout opted in as the raw-state shape.
-    (row.headSlots["state"].transform as simpleMod.SimpleValue).op == "State"
-    !row.slots.containsKey("dragPercent")
+    (row.headNode.slotsByName["state"].value.transform as simpleMod.SimpleValue).op == "State"
+    !row.slotsByName.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
     c.cards["sliderHead"].template.contains("{{#toggle}}<button type=\"button\" class=\"fh-slider-toggle\"")
@@ -804,15 +805,15 @@ facts {
     local dim = (c.entitySlider(dimmer)).readout("percent")
     !dim.toggleOnly
     !(c.entitySlider(kitchen)).toggleOnly
-    !dim.slots.containsKey("toggle")
+    !dim.slotsByName.containsKey("toggle")
     // The percent READOUT rides the "state" slot (shownReadout), opted in as
     // the simple tier's percent over the light's own 1..255 range.
-    local statePercent: simpleMod.Percent = dim.headSlots["state"].transform!!
+    local statePercent: simpleMod.Percent = dim.headNode.slotsByName["state"].value.transform!!
     statePercent.op == "Percent"
     statePercent.attribute == "brightness"
     statePercent.min == 1
     statePercent.max == 255
-    dim.headSlots["dragPercent"] == "1"
+    dim.headNode.slotsByName["dragPercent"].value == "1"
   }
 
   ["a card's structure travels with the card"] {
@@ -852,17 +853,17 @@ facts {
     // entity anywhere but on the card it is applied to opens the wrong popup.
     local card = (c.entityCard(kitchen)) |> c.informative
     card.inlineSurfaces["self"].content.children[0].children[0]
-      .slots["entity_id"] == "light.kitchen"
+      .slotsByName["entity_id"].value == "light.kitchen"
   }
 
   ["`secondary` means one thing on every card: a String is the text"] {
     // An attribute is asked for by name, never inferred from a bare String —
     // which is what it meant on an entity card before the base cards took it.
-    c.entityCard(kitchen).secondary("device_class").slots["secondary"] == "device_class"
-    c.button("x", c.view.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
-    c.entitySlider(kitchen).secondary("device_class").textSlots["secondary"] == "device_class"
+    c.entityCard(kitchen).secondary("device_class").slotsByName["secondary"].value == "device_class"
+    c.button("x", c.view.closePopup()).secondary("device_class").slotsByName["secondary"].value == "device_class"
+    c.entitySlider(kitchen).secondary("device_class").textSlots.toList().find((s) -> s.name == "secondary").value == "device_class"
 
-    local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Reading
+    local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slotsByName["secondary"].value as slotMod.Reading
     byAttr.transform == simpleMod.attr("device_class")
     byAttr.entityId == null
   }
@@ -905,29 +906,29 @@ facts {
     placing.every((_, d) ->
       d.template.contains("{{{secondary.bind}}}") && !d.template.contains("{{#secondary}}"))
 
-    (c.entityCard(kitchen).secondary(c.expr("state")).slots["secondary"] as slotMod.Reading).signal == "text"
+    c.entityCard(kitchen).secondary(c.expr("state")).slotsByName["secondary"].signal == "text"
     // A literal is the text itself, and a reading that is not live stays bytes.
-    c.entityCard(kitchen).secondary("Kjøkken").slots["secondary"] == "Kjøkken"
+    c.entityCard(kitchen).secondary("Kjøkken").slotsByName["secondary"].value == "Kjøkken"
     local once = new slotMod.Reading { transform = "state"; reads = "once" }
-    (c.entityCard(kitchen).secondary(once).slots["secondary"] as slotMod.Reading).signal == null
+    c.entityCard(kitchen).secondary(once).slotsByName["secondary"].signal == null
   }
 
   ["a button takes a second line, and one without it is untouched"] {
     local plain = c.button("Stue", c.view.closePopup())
-    !plain.slots.containsKey("secondary")
+    !plain.slotsByName.containsKey("secondary")
 
     local literal = plain.secondary("Turns off 4 lights")
-    literal.slots["secondary"] == "Turns off 4 lights"
-    literal.slots["label"] == "Stue"
+    literal.slotsByName["secondary"].value == "Turns off 4 lights"
+    literal.slotsByName["label"].value == "Stue"
 
     // A `c.expr` is a live reading of the subject, like a label's.
     local live = c.entityButton(kitchen).secondary(c.expr("state"))
-    (live.slots["secondary"] as slotMod.Reading).transform == "state"
-    live.slots["entity_id"] == kitchen.entity_id
+    (live.slotsByName["secondary"].value as slotMod.Reading).transform == "state"
+    live.slotsByName["entity_id"].value == kitchen.entity_id
 
     // A glyph with a second line is not a bare icon, so it stays rectangular.
     local glyphed = c.button("", c.view.closePopup()).icon("mdi:power").secondary("Off")
-    !glyphed.slots.containsKey("round")
+    !glyphed.slotsByName.containsKey("round")
 
     // Both arms place it, under the same section that opens the column.
     local t = c.cards["button"].template
@@ -938,25 +939,25 @@ facts {
   ["a pill wears its tap's look: round alone, named for a screen reader"] {
     // The tap's icon and no text: round, and the label is its accessible name.
     local power = c.pill(c.tap.toggle(kitchen))
-    power.slots["glyph"] == "mdi-power"
-    power.slots["label"] == ""
-    power.slots["round"] == "1"
-    power.slots["name"] == "Toggle"
+    power.slotsByName["glyph"].value == "mdi-power"
+    power.slotsByName["label"].value == ""
+    power.slotsByName["round"].value == "1"
+    power.slotsByName["name"].value == "Toggle"
     // A toggle's pill is lit while its entity is on; other calls' are not.
-    power.slots["cell:class:fh-active"].entityId == kitchen.entity_id
+    power.slotsByName["cell:class:fh-active"].value.entityId == kitchen.entity_id
     c.pill(c.tap.call("light/turn_on", kitchen).with("effect", "x")).label("x").active == false
     // A tap with no icon shows its label; an author's label is always shown.
     local evening: hass.SceneEntity = new { entity_id = "scene.kveld"; friendly_name = "Kveld" }
-    c.pill(c.tap.activate(evening)).slots["label"] == "Kveld"
+    c.pill(c.tap.activate(evening)).slotsByName["label"].value == "Kveld"
     local both = c.pill(c.tap.toggle(kitchen)).label("Kjøkken")
-    both.slots["label"] == "Kjøkken" && both.slots["glyph"] == "mdi-power"
-    !both.slots.containsKey("round") && !both.slots.containsKey("name")
+    both.slotsByName["label"].value == "Kjøkken" && both.slotsByName["glyph"].value == "mdi-power"
+    !both.slotsByName.containsKey("round") && !both.slotsByName.containsKey("name")
     // An emoji is text, and short text is round too.
-    c.pill(c.view.navigate("under")).label("🔥").slots["round"] == "1"
-    !c.pill(c.view.navigate("under")).label("Under").slots.containsKey("round")
-    c.pill(c.tap.toggle(kitchen)).label("Kveld").noIcon().slots.containsKey("glyph") == false
+    c.pill(c.view.navigate("under")).label("🔥").slotsByName["round"].value == "1"
+    !c.pill(c.view.navigate("under")).label("Under").slotsByName.containsKey("round")
+    c.pill(c.tap.toggle(kitchen)).label("Kveld").noIcon().slotsByName.containsKey("glyph") == false
     // A tap with no look of its own needs one from the author.
-    module.catch(() -> c.pill(c.view.navigate("under")).slots["label"]).contains("give the pill .label(…) or .icon(…)")
+    module.catch(() -> c.pill(c.view.navigate("under")).slotsByName["label"].value).contains("give the pill .label(…) or .icon(…)")
   }
 
   ["a button or a pill can be a glyph, a label, or both"] {
@@ -964,32 +965,32 @@ facts {
     // and the `active` tint. None of the three is about sliders, so all three are
     // the shared cards' — one icon button in the library, not a private copy.
     local labelled = c.button("Close", c.view.closePopup())
-    !labelled.slots.containsKey("glyph")
-    !labelled.slots.containsKey("round")
-    labelled.slots["label"] == "Close"
+    !labelled.slotsByName.containsKey("glyph")
+    !labelled.slotsByName.containsKey("round")
+    labelled.slotsByName["label"].value == "Close"
 
     local glyphOnly = c.button("", c.view.closePopup()).icon("mdi:power")
-    glyphOnly.slots["glyph"] == "mdi mdi-power"
+    glyphOnly.slotsByName["glyph"].value == "mdi mdi-power"
     // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
     // as a label that failed to render.
-    glyphOnly.slots["round"] == "1"
-    glyphOnly.slots["label"] == ""
+    glyphOnly.slotsByName["round"].value == "1"
+    glyphOnly.slotsByName["label"].value == ""
 
     // Both together stay rectangular — that is an ordinary button with an icon.
     local both = (c.button("Power", c.view.closePopup())).icon("mdi:power")
-    both.slots["glyph"] == "mdi mdi-power"
-    !both.slots.containsKey("round")
+    both.slotsByName["glyph"].value == "mdi mdi-power"
+    !both.slotsByName.containsKey("round")
 
     // A pill takes the glyph too; with a label beside it, it is not round.
     local chip = (c.pill(c.view.navigate("under")).label("Up")).icon("mdi:arrow-up")
-    chip.slots["glyph"] == "mdi-arrow-up"
-    !chip.slots.containsKey("round")
+    chip.slotsByName["glyph"].value == "mdi-arrow-up"
+    !chip.slotsByName.containsKey("round")
 
     // `active` is OFF by default — most buttons do something rather than
     // reflect a state — and rides the CELL, which the button card paints.
     glyphOnly.cell == null
     c.entityButton(kitchen).cell == null
-    c.entityButton(kitchen).active(c.isOn(kitchen)).slots["cell:class:fh-active"].signal
+    c.entityButton(kitchen).active(c.isOn(kitchen)).slotsByName["cell:class:fh-active"].signal
       == "class:fh-active"
     c.cards["button"].css.contains(".fh-cell.fh-active>")
   }
@@ -1066,15 +1067,15 @@ facts {
     local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
     after.cell == before.cell
     after.cell.classes.toList() == List("fh-cols-3")
-    after.slots.containsKey("cell:class:fh-active")
+    after.slotsByName.containsKey("cell:class:fh-active")
     c.button("x", tap).active(true).columns(3).cell.classes.toList().sort()
       == List("fh-active", "fh-cols-3")
   }
 
   ["a live cell class is a slot: replacing a card's slots cannot drop it, and a set has none"] {
     local lit = c.button("x", c.tap.toggle(kitchen)).classWhen("warm", c.isOn(kitchen))
-    lit.slots["cell:class:warm"].signal == "class:warm"
-    lit.cssProperty("--x", c.expr("'1'")).slots.containsKey("cell:style:--x")
+    lit.slotsByName["cell:class:warm"].signal == "class:warm"
+    lit.cssProperty("--x", c.expr("'1'")).slotsByName.containsKey("cell:style:--x")
     module.catch(() -> new OwnSlots {}.classWhen("warm", c.isOn(kitchen)).slots)
       .contains("card 'ownSlots': `slots = new { … }` drops its live cell class 'warm'")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
@@ -1104,31 +1105,31 @@ facts {
       c.entityButton(kitchen).tapAction(c.view.navigate("home"))
     )
     links.every((n) ->
-      let (cur = n.slots["current"] as slotMod.Reading)
+      let (s = n.slotsByName["current"]) let (cur = s.value as slotMod.Reading)
         cur.transform == "dashboard_slug == 'home'" && cur.reads == "once"
-          && cur.type == "bool" && cur.signal == null)
+          && s.type == "bool" && s.signal == null)
     List("button", "pill").every((k) ->
       let (t = c.cards[k].template)
         t.contains(tapMod.currentClass + "\"" + tapMod.currentAttr + " href="))
     // A service tap is no link, so it has nothing to mark.
-    !c.button("x", c.tap.toggle(kitchen)).slots.containsKey("current")
+    !c.button("x", c.tap.toggle(kitchen)).slotsByName.containsKey("current")
     // A slug is a key the author wrote, so a quote in it stays in the string.
-    (c.button("x", c.view.navigate("it's")).slots["current"] as slotMod.Reading).transform
+    (c.button("x", c.view.navigate("it's")).slotsByName["current"].value as slotMod.Reading).transform
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
     cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
   }
 
   ["an entity button wears its entity's icon, live where the domain's follows its state"] {
-    c.entityButton(kitchen).slots["glyph"] == "mdi mdi-lightbulb"
+    c.entityButton(kitchen).slotsByName["glyph"].value == "mdi mdi-lightbulb"
     // A lock's glyph is its state's, so the button flips with it as its tile does.
-    (c.entityButton(plainLock).slots["glyph"] as slotMod.Reading).signal == "attr:class"
-    c.entityButton(plainLock).slots["glyph"] == c.entityCard(plainLock).slots["icon"]
+    c.entityButton(plainLock).slotsByName["glyph"].signal == "attr:class"
+    c.entityButton(plainLock).slotsByName["glyph"].value == c.entityCard(plainLock).slotsByName["icon"].value
     // An author's icon wins, and `noIcon` takes the glyph away entirely.
-    c.entityButton(kitchen).icon("mdi:fan").slots["glyph"] == "mdi mdi-fan"
-    !c.entityButton(kitchen).noIcon().slots.containsKey("glyph")
+    c.entityButton(kitchen).icon("mdi:fan").slotsByName["glyph"].value == "mdi mdi-fan"
+    !c.entityButton(kitchen).noIcon().slotsByName.containsKey("glyph")
     // Labelled, so still the pill and never the round icon form.
-    !c.entityButton(kitchen).slots.containsKey("round")
+    !c.entityButton(kitchen).slotsByName.containsKey("round")
   }
 
   ["a button's size is a class token a theme can map"] {
@@ -1138,26 +1139,27 @@ facts {
     List("small", "medium", "large").every((sz) ->
       t.contains(" fh-size-\(sz){{/") && beerMod.theme.classes.containsKey("fh-size-\(sz)"))
     // Large by default, and one size at a time.
-    c.button("x", c.view.closePopup()).slots["sizeLarge"] == "1"
+    c.button("x", c.view.closePopup()).slotsByName["sizeLarge"].value == "1"
     local small = c.button("x", c.view.closePopup()).size("small")
-    small.slots["sizeSmall"] == "1"
-    !small.slots.containsKey("sizeLarge")
+    small.slotsByName["sizeSmall"].value == "1"
+    !small.slotsByName.containsKey("sizeLarge")
     // The base heights are fallbacks; under BeerCSS the height is its own.
     c.cards["button"].css.contains(".fh-press.fh-size-small{--fh-press-size:2rem}")
     beerMod.theme.styles.contains("--fh-press-size:var(--_size)")
   }
 
   ["an entity card's badge fills while its entity is on, by HA's rule for the domain"] {
-    local lit = c.entityCard(kitchen).slots["cell:class:fh-active"]
-    lit.signal == "class:fh-active"
+    local litSlot = c.entityCard(kitchen).slotsByName["cell:class:fh-active"]
+    local lit = litSlot.value
+    litSlot.signal == "class:fh-active"
     lit.entityId == kitchen.entity_id
-    lit.type == "bool"
+    litSlot.type == "bool"
     // `off` and the two unavailable states are off; any other state is on.
     local light = lit.transform as simpleMod.SimpleMatch
     light.cases.toMap() == Map("unavailable", false, "unknown", false, "off", false)
     light.otherwise == true
     // A lock is on while it is not locked: HA's reading, not `on`.
-    (c.entityCard(plainLock).slots["cell:class:fh-active"].transform as simpleMod.SimpleMatch)
+    (c.entityCard(plainLock).slotsByName["cell:class:fh-active"].value.transform as simpleMod.SimpleMatch)
       .cases.toMap()["locked"] == false
     // A reading has no off, so a sensor carries no live class at all.
     c.entityCard(outside).cell == null
@@ -1181,16 +1183,16 @@ facts {
     local paints = Regex(#"\.fh-badge[^{,]*\{[^}]*(background|color):"#)
     c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button")
     // On is the cell's; whether there is an off is the badge's.
-    c.toggle(kitchen).slots.containsKey("cell:class:fh-active")
-    c.toggle(kitchen).slots["onoff"] == "1"
-    c.entityCard(kitchen).slots["onoff"] == "1"
-    !c.entityCard(outside).slots.containsKey("onoff")
+    c.toggle(kitchen).slotsByName.containsKey("cell:class:fh-active")
+    c.toggle(kitchen).slotsByName["onoff"].value == "1"
+    c.entityCard(kitchen).slotsByName["onoff"].value == "1"
+    !c.entityCard(outside).slotsByName.containsKey("onoff")
     local head = c.entitySlider(kitchen).children["head"][0]
-    head.slots.containsKey("cell:class:fh-active")
-    head.slots["onoff"] == "1"
+    head.slotsByName.containsKey("cell:class:fh-active")
+    head.slotsByName["onoff"].value == "1"
     // One meaning of on: a toggle's pill reads HA's rule, as the tile.
-    c.pill(c.tap.toggle(kitchen)).slots["cell:class:fh-active"].transform
-      == c.entityCard(kitchen).slots["cell:class:fh-active"].transform
+    c.pill(c.tap.toggle(kitchen)).slotsByName["cell:class:fh-active"].value.transform
+      == c.entityCard(kitchen).slotsByName["cell:class:fh-active"].value.transform
   }
 
   ["a card's own on state survives a builder that ran before it"] {
@@ -1201,13 +1203,13 @@ facts {
 
   ["a button knows only its label and its tap; an entity button knows its entity"] {
     local plain = c.button("Kjøkken", c.tap.toggle(kitchen))
-    !plain.slots.containsKey("entity_id")
+    !plain.slotsByName.containsKey("entity_id")
     local about = c.entityButton(kitchen)
-    about.slots["entity_id"] == kitchen.entity_id
+    about.slotsByName["entity_id"].value == kitchen.entity_id
     // Named after it, and doing what its domain does.
-    about.slots["label"] == kitchen.entity_id
-    about.slots["service"] == "light/toggle"
-    about.slots["targetId"] == kitchen.entity_id
+    about.slotsByName["label"].value == kitchen.entity_id
+    about.slotsByName["service"].value == "light/toggle"
+    about.slotsByName["targetId"].value == kitchen.entity_id
     // The same card: one registry entry, one template.
     about.card == "button"
     c.cards.keys.filter((k) -> k == "button").length == 1
@@ -1225,18 +1227,18 @@ facts {
     local acts = row.children["head"][0].children["actions"]
     acts.length == 2
     // In the order given.
-    acts[0].slots["glyph"] == "mdi-power"
-    acts[1].slots["glyph"] == "mdi-information"
+    acts[0].slotsByName["glyph"].value == "mdi-power"
+    acts[1].slotsByName["glyph"].value == "mdi-information"
     // They are ordinary pills, not a card of this module's own. What the
     // slider adds is only WHERE they sit.
     acts.toList().every((a) -> a.card == "pill")
-    acts.toList().every((a) -> a.slots["round"] == "1")
+    acts.toList().every((a) -> a.slotsByName["round"].value == "1")
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
     c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
     // A toggle's pill is lit by its entity; a view tap's binds no class signal.
-    acts[0].slots.containsKey("cell:class:fh-active")
-    !acts[1].slots.containsKey("cell:class:fh-active")
+    acts[0].slotsByName.containsKey("cell:class:fh-active")
+    !acts[1].slotsByName.containsKey("cell:class:fh-active")
     // A popup action carries its OWN surfaces, so the popup hangs off the
     // button that opens it rather than off the slider.
     acts[1].inlineSurfaces != null
@@ -1261,12 +1263,12 @@ facts {
     local head = (c.entitySlider(kitchen)).children["head"][0]
     head.cardDef.regions.keys == Set("text", "actions")
     // Every live slot left on it carries a signal binding...
-    head.slots.toMap().values
-      .filter((v) -> v is slotMod.Reading && v.reads == "live")
-      .every((v) -> v.signal != null)
+    head.slots.toList()
+      .filter((s) -> s.value is slotMod.Reading && s.value.reads == "live")
+      .every((s) -> s.signal != null)
     // ...and the label that stayed behind for the toggle's `aria-label` reads
     // `onRender`: right whenever the card is drawn, never a reason to draw it.
-    head.slots["label"] is String || head.slots["label"].reads == "onRender"
+    head.slotsByName["label"].value is String || head.slotsByName["label"].value.reads == "onRender"
   }
 
   // ---- the lock domain ----
@@ -1298,9 +1300,9 @@ facts {
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,
     // shared rather than node-scoped.
-    sw.slots["switched"].transform == sw.slots["checked"].transform
-    sw.slots["checked"].signal == "bind"
-    sw.slots["switched"].signal == "attr:data-switched"
+    sw.slotsByName["switched"].value.transform == sw.slotsByName["checked"].value.transform
+    sw.slotsByName["checked"].signal == "bind"
+    sw.slotsByName["switched"].signal == "attr:data-switched"
     // ...and the rollback copies one into the other, gated on the error signal.
     t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
     t.contains("$_{{id}}__error && (${{checked.signal}} = ${{switched.signal}})")
@@ -1312,11 +1314,11 @@ facts {
     // since it last read 0, from the recorder, so it is right on the first
     // paint after a reload too.
     local washer = c.progress(remainingMin).status(applianceState)
-    (washer.slots["value"] as slotMod.Reading).transform is simpleMod.SimpleValue
-    (barOf(washer).slots["of"] as slotMod.Reading).values.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
+    (washer.slotsByName["value"].value as slotMod.Reading).transform is simpleMod.SimpleValue
+    (barOf(washer).slotsByName["of"].value as slotMod.Reading).values.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
     // The status renders as the integration's own words, never interpreted:
     // nothing here knows which of them means "running".
-    (washer.slots["secondary"] as slotMod.Reading).entityId == "sensor.appliancestate"
+    (washer.slotsByName["secondary"].value as slotMod.Reading).entityId == "sensor.appliancestate"
     // The entity tile, not a card of its own.
     washer.card == "tile"
   }
@@ -1325,11 +1327,11 @@ facts {
     local dishwasher = c.progress(remainingMin).total(programMin)
     dishwasher.features.length == 1
     local bar = barOf(dishwasher)
-    (bar.slots["value"] as slotMod.Reading).entityId == "sensor.timetoend"
-    (bar.slots["of"] as slotMod.Reading).entityId == "sensor.programduration"
-    bar.slots["down"] == "1"
+    (bar.slotsByName["value"].value as slotMod.Reading).entityId == "sensor.timetoend"
+    (bar.slotsByName["of"].value as slotMod.Reading).entityId == "sensor.programduration"
+    bar.slotsByName["down"].value == "1"
     // Same unit both sides, so no factor rides along.
-    !bar.slots.containsKey("scale")
+    !bar.slotsByName.containsKey("scale")
     // The fill is a function of TWO entities, so it cannot be a transform: a
     // slot reads one entity. The guard is the substance — a `total` reading
     // `unknown` makes NaN, and the bar sits empty rather than painting NaN%.
@@ -1342,7 +1344,7 @@ facts {
     // The whole reason the schema derives `durationSeconds`: the same reading
     // is minutes here and seconds elsewhere, and a countdown scaled by a guess
     // runs sixty times fast.
-    local d: simpleMod.Duration = c.progress(remainingMin).slots["value"].transform!!
+    local d: simpleMod.Duration = c.progress(remainingMin).slotsByName["value"].value.transform!!
     d.op == "Duration"
     d.scale == 60
     local secs: hass.SensorEntity = new {
@@ -1350,7 +1352,7 @@ facts {
       device_class = "duration"
       unit_of_measurement = "s"
     }
-    (c.progress(secs).slots["value"].transform as simpleMod.Duration)
+    (c.progress(secs).slotsByName["value"].value.transform as simpleMod.Duration)
       .scale == 1
   }
 
@@ -1363,9 +1365,9 @@ facts {
       device_class = "duration"
       unit_of_measurement = "m"
     }
-    c.progress(months).slots["value"] == ""
+    c.progress(months).slotsByName["value"].value == ""
     // ...and it is still a card: the label survives.
-    c.progress(months).slots.containsKey("label")
+    c.progress(months).slotsByName.containsKey("label")
     // ...and no bar, which would divide months by minutes.
     c.progress(months).total(programMin).features.isEmpty
     module.catch(() -> c.bar.remaining(months, programMin).slots)
@@ -1380,18 +1382,18 @@ facts {
       device_class = "duration"
       unit_of_measurement = "s"
     }
-    c.bar.remaining(remainingMin, programSecs).slots["scale"] == "60.0"
+    c.bar.remaining(remainingMin, programSecs).slotsByName["scale"].value == "60.0"
     c.cards["progressBar"].template.contains(" * {{scale}}")
   }
 
   ["a percentage bar reads one entity and divides by nothing"] {
     local b = c.bar.percent(outside)
-    (b.slots["value"] as slotMod.Reading).entityId == "sensor.outside"
-    !b.slots.containsKey("hasOf")
-    !b.slots.containsKey("down")
+    (b.slotsByName["value"].value as slotMod.Reading).entityId == "sensor.outside"
+    !b.slotsByName.containsKey("hasOf")
+    !b.slotsByName.containsKey("down")
     // Its reading is a signal its own expression reads, so a tick is a frame
     // entry, never the bar's bytes.
-    (b.slots["value"] as slotMod.Reading).signal == slotMod.asHandler
+    b.slotsByName["value"].signal == slotMod.asHandler
   }
 
   ["any entity tile takes a bar as a feature"] {
@@ -1407,7 +1409,7 @@ facts {
     // the unlock already running. The list is the DOMAIN's, so no author has to
     // know it.
     local tile = c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock))
-    local inert: simpleMod.SimpleMatch = tile.slots["tapDisabled"].transform!!
+    local inert: simpleMod.SimpleMatch = tile.slotsByName["tapDisabled"].value.transform!!
     // `unavailable` rides with them but is NOT one of them — see the fact
     // below. The three transitional ones are the domain table's.
     inert.cases.toMap().keys.toList().sort()
@@ -1419,35 +1421,35 @@ facts {
     // Read, not bound: every host shows it its own way — this `<article>` as
     // the `fh-disabled` look through the guard, since only a form control can
     // be disabled.
-    tile.slots["tapDisabled"].signal == "handler"
+    tile.slotsByName["tapDisabled"].signal == "handler"
     c.cards["tile"].template.contains("{{#tapDisabled}} fh-disabled{{/tapDisabled}}")
   }
 
   ["a tap that names its target needs no entity on the card"] {
     local b = c.button("Kjøkken", c.tap.toggle(kitchen))
-    !b.slots.containsKey("entity_id")
-    b.slots["service"] == "light/toggle"
-    b.slots["targetId"] == kitchen.entity_id
+    !b.slotsByName.containsKey("entity_id")
+    b.slotsByName["service"].value == "light/toggle"
+    b.slotsByName["targetId"].value == kitchen.entity_id
     // Availability is the TARGET's, so the refusal reads it by name.
-    (b.slots["tapDisabled"] as slotMod.Reading).entityId == kitchen.entity_id
+    (b.slotsByName["tapDisabled"].value as slotMod.Reading).entityId == kitchen.entity_id
   }
 
   ["a state-picked service reads the target, not the card's entity"] {
     // A card showing the kitchen light whose tap works the front lock: both the
     // service the lock's state picks and its mid-move inert read the LOCK.
     local b = c.entityButton(kitchen).label("Lås").tapAction(c.tap.toggle(frontLock))
-    local svc: slotMod.Reading = b.slots["service"]
+    local svc: slotMod.Reading = b.slotsByName["service"].value
     svc.entityId == frontLock.entity_id
-    b.slots["targetId"] == frontLock.entity_id
-    (b.slots["tapDisabled"] as slotMod.Reading).entityId == frontLock.entity_id
-    b.slots["entity_id"] == kitchen.entity_id
+    b.slotsByName["targetId"].value == frontLock.entity_id
+    (b.slotsByName["tapDisabled"].value as slotMod.Reading).entityId == frontLock.entity_id
+    b.slotsByName["entity_id"].value == kitchen.entity_id
   }
 
   ["an area tap has no state to be inert on"] {
     local b = c.button("Stue av", c.tap.call("light/turn_off", stue))
-    b.slots["targetKind"] == "area"
-    b.slots["targetId"] == stue.area_id
-    !b.slots.containsKey("tapDisabled")
+    b.slotsByName["targetKind"].value == "area"
+    b.slotsByName["targetId"].value == stue.area_id
+    !b.slotsByName.containsKey("tapDisabled")
   }
 
   ["a typed verb is `call` with the service filled in"] {
@@ -1511,14 +1513,14 @@ facts {
     local s = c.entitySlider(lamp)
     s.offeredControls == List("brightness", "colourTemp", "colour")
     s.declaresControl
-    s.controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    s.controls.map((m) -> m.head.slotsByName["dataKey"].value) == List("brightness", "color_temp_kelvin", "hs_color")
     // Each head is chosen by its main control's name, the first declared.
     s.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour")
     defaults.apply(s) == Map("control", "brightness")
     // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
     local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
-      .map((n) -> (n.slots["onclick"] as slotMod.Reading).transform as String)
+      .map((n) -> (n.slotsByName["onclick"].value as slotMod.Reading).transform as String)
     steps.length == 3
     steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
     // A dimmer, or a capability axis, is one head and no pill.
@@ -1527,14 +1529,14 @@ facts {
     // No switch among the buttons: the plain row.
     local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))
     !plain.declaresControl
-    plain.headNode.slots["dataKey"] == "brightness"
+    plain.headNode.slotsByName["dataKey"].value == "brightness"
     // The switch's options: these, in this order, where the light has them.
     local picked = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour", "colourTemp"))))
     picked.controls.map((m) -> m.value) == List("colour", "colourTemp")
     // One left is that axis, with no switch.
     local hueOnly = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour"))))
     !hueOnly.declaresControl
-    hueOnly.headNode.slots["dataKey"] == "hs_color"
+    hueOnly.headNode.slotsByName["dataKey"].value == "hs_color"
     // One switch picks one head.
     module.catch(() -> c.entitySlider(lamp).buttons(List(c.its.mainControl, c.its.mainControl)).declaresControl)
       .contains("c.entitySlider(light.lamp) has 2 main control switches")
@@ -1545,10 +1547,10 @@ facts {
     // A light with none of them keeps its plain row: one list serves mixed lights.
     local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
     !narrowed.declaresControl
-    narrowed.headNode.slots["dataKey"] == "brightness"
+    narrowed.headNode.slotsByName["dataKey"].value == "brightness"
     // A plug has no main controls at all, and is still the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
-    c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headSlots["toggle"] == "1"
+    c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headNode.slotsByName["toggle"].value == "1"
   }
 
   ["a slider following a chooser has no switch of its own"] {
@@ -1581,15 +1583,15 @@ facts {
     lamp.axes.every((a) -> a.owner == lamp)
     // Every one is a single row, configured by the axis alone.
     lamp.axes.map((a) -> c.entitySlider(a)).every((s) -> !s.declaresControl)
-    lamp.axes.map((a) -> c.entitySlider(a).headNode.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    lamp.axes.map((a) -> c.entitySlider(a).headNode.slotsByName["dataKey"].value) == List("brightness", "color_temp_kelvin", "hs_color")
     // A light that cannot dim has none, and stays the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
     plug.brightness == null && plug.axes.isEmpty
     c.entitySlider(plug).toggleOnly
     // A domain row is an axis too: a cover posts its position.
     local blind: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-    c.entitySlider(blind).headSlots["service"] == "cover/set_cover_position"
-    c.entitySlider(blind).headSlots["dataKey"] == "position"
+    c.entitySlider(blind).headNode.slotsByName["service"].value == "cover/set_cover_position"
+    c.entitySlider(blind).headNode.slotsByName["dataKey"].value == "position"
     // Which one a light is on, as data for the card to read.
     lamp.colour!!.inUseWhen!!.values == hassLight.COLOUR_MODES
     lamp.brightness!!.inUseWhen == null
@@ -1655,11 +1657,11 @@ facts {
       colour = new hass.Colour { owner = lamp }
     }
     local head = c.entitySlider(lamp.colour!!).headNode
-    local paint = head.slots["fillColor"] as slotMod.Reading
+    local paint = head.slotsByName["fillColor"].value as slotMod.Reading
     paint.reads == "live"
     (paint.transform as String).contains("'hsl(' + str(math.round(h)) + ',100%,50%)'")
     // A drag repaints it with the same hsl, before any commit.
-    head.slots["hueTrack"] == "1"
+    head.slotsByName["hueTrack"].value == "1"
   }
 
   ["a colour temperature track is painted warm to cold, only on that axis"] {
@@ -1672,12 +1674,12 @@ facts {
     // In a colour mode HA reports no kelvin, so the fill is empty and the band
     // is what says this track sets a temperature.
     local head = c.entitySlider(lamp.colourTemp!!).headNode
-    head.slots["kelvinTrack"] == "1"
+    head.slotsByName["kelvinTrack"].value == "1"
     // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
     // on the server and on a rollback alike.
-    (head.slots["fillColor"] as slotMod.Reading).default == "transparent"
-    head.cardDef.template.contains("{{#kelvinTrack}}, $\(slotMod.signalRef("fillColor")) = ($\(slotMod.signalRef("value")) >= {{min}}")
-    c.entitySlider(lamp).controls.map((m) -> m.head.slots.containsKey("kelvinTrack"))
+    (head.slotsByName["fillColor"].value as slotMod.Reading).default == "transparent"
+    head.cardDef.template.contains("{{#kelvinTrack}}, ${{fillColor.signal}} = (${{value.signal}} >= {{min}}")
+    c.entitySlider(lamp).controls.map((m) -> m.head.slotsByName.containsKey("kelvinTrack"))
       == List(false, true, false)
   }
 
@@ -1699,10 +1701,10 @@ facts {
     local rows = g.members.toList().map((r) -> r as c.EntitySlider)
     // The rows read the head's variable rather than declaring their own.
     rows.every((r) -> !r.declaresControl && r.shownButtons.filterNonNull().isEmpty && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
-    rows[0].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "color_temp_kelvin", "hs_color")
+    rows[0].controls.map((m) -> m.head.slotsByName["dataKey"].value) == List("brightness", "color_temp_kelvin", "hs_color")
     // The dimmer stands in with its brightness, dimmed and disabled.
-    rows[1].controls.map((m) -> m.head.slots.containsKey("greyed")) == List(false, true, true)
-    rows[1].controls.map((m) -> m.head.slots["dataKey"]) == List("brightness", "brightness", "brightness")
+    rows[1].controls.map((m) -> m.head.slotsByName.containsKey("greyed")) == List(false, true, true)
+    rows[1].controls.map((m) -> m.head.slotsByName["dataKey"].value) == List("brightness", "brightness", "brightness")
   }
 
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
@@ -1710,7 +1712,7 @@ facts {
     // service call on an unavailable entity in EVERY domain, so it is one rule
     // rather than a row per domain or per verb (`Call.disabledWhile`).
     local lit: simpleMod.SimpleMatch =
-      c.entityCard(kitchen).slots["tapDisabled"].transform!!
+      c.entityCard(kitchen).slotsByName["tapDisabled"].value.transform!!
     // `light/toggle` means the same thing in every state, so nothing
     // transitional — and `unavailable` all the same.
     lit.cases.toMap().keys.toList() == List("unavailable")
@@ -1719,14 +1721,14 @@ facts {
   ["a tap that calls NO service stays live on a dead entity"] {
     // More-info is exactly what you want to open on an unavailable entity: it
     // is where the reason is. A navigate does not care either.
-    !c.entityCard(outside).slots.containsKey("tapDisabled")
-    !c.button("Go", c.view.navigate("other")).slots.containsKey("tapDisabled")
+    !c.entityCard(outside).slotsByName.containsKey("tapDisabled")
+    !c.button("Go", c.view.navigate("other")).slotsByName.containsKey("tapDisabled")
   }
 
   ["a typed lock still taps by state, like any other lock"] {
     // Typing the domain must not change what the lock's tap does — the
     // capability is additive (ADR 0016 owns the tap).
-    (c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock)).slots["service"].transform
+    (c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock)).slotsByName["service"].value.transform
       as simpleMod.SimpleMatch).otherwise == "lock/lock"
   }
 
@@ -1751,30 +1753,30 @@ facts {
     // The latch itself calls nothing — it opens an inline confirmation, which
     // is the whole point: releasing a latch opens a door.
     latch.inlineSurfaces != null
-    !latch.slots.containsKey("service")
+    !latch.slotsByName.containsKey("service")
     // …and `lock/open` lives inside it, aimed at the lock by its own target.
     local body = latch.inlineSurfaces!!["self"].content.children.toList().first
     local press = body.children.toList()
-      .filter((n) -> n.card == "button" && n.slots.containsKey("service"))
+      .filter((n) -> n.card == "button" && n.slotsByName.containsKey("service"))
       .first
-    press.slots["service"] == "lock/open"
-    press.slots["targetId"] == "lock.latch"
+    press.slotsByName["service"].value == "lock/open"
+    press.slotsByName["targetId"].value == "lock.latch"
     // …and it is THAT press availability guards, not the latch that opens the
     // dialog: a service tap is inert on a dead entity in every domain, so
     // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
-    (press.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
+    (press.slotsByName["tapDisabled"].value.transform as simpleMod.SimpleMatch)
       .cases.toMap().containsKey("unavailable")
     // Lock and Unlock beside it are different actions, not two spellings of
     // the latch's.
-    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).slots["service"])
+    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).slotsByName["service"].value)
       == List("lock/lock", "lock/unlock")
   }
 
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {
     local latch = c.lock.openLatch(latchLock)
     // The OPENER's own reason: it opens a popup, so it has no call to carry one.
-    local inert: simpleMod.SimpleMatch = latch.slots["disabled"].transform!!
-    latch.slots["disabled"].entityId == "lock.latch"
+    local inert: simpleMod.SimpleMatch = latch.slotsByName["disabled"].value.transform!!
+    latch.slotsByName["disabled"].value.entityId == "lock.latch"
     // HA's `canOpen`, and ONLY that: already open, or mid-move. Every arm
     // answers the same `true` — a set membership test, which is what one
     // `match` buys over the two-armed enum it replaced, and what `stateIn`
@@ -1792,7 +1794,7 @@ facts {
     // off: `""` would SET `disabled`, because `disabled=""` is how HTML spells
     // ON. That is why the button's one `data-attr:disabled` can read it (ADR 0017).
     inert.otherwise == false
-    latch.slots["disabled"].signal == "handler"
+    latch.slotsByName["disabled"].signal == "handler"
   }
 
   ["every card that sends openLatch refuses HA's canOpen states, not only the one it was written for"] {
@@ -1803,7 +1805,7 @@ facts {
     local press = c.tap.locks.openLatch(latchLock)
     local confirm = c.lock.openLatch(latchLock).inlineSurfaces!!["self"].content
       .children.toList().first.children.toList()
-      .filter((n) -> n.card == "button" && n.slots.containsKey("service"))
+      .filter((n) -> n.card == "button" && n.slotsByName.containsKey("service"))
       .first
     local senders = List(
       confirm,
@@ -1814,11 +1816,11 @@ facts {
       c.entityCard(latchLock).tapAction(press),
       c.toggle(latchLock).tapAction(press)
     )
-    senders.every((n) -> n.slots["service"] == "lock/open")
+    senders.every((n) -> n.slotsByName["service"].value == "lock/open")
     senders.every((n) ->
-      let (refused = (n.slots["tapDisabled"].transform as simpleMod.SimpleMatch).cases.toMap().keys)
+      let (refused = (n.slotsByName["tapDisabled"].value.transform as simpleMod.SimpleMatch).cases.toMap().keys)
         Set("open", "opening", "unlocking", "locking", "unavailable").every((s) -> refused.contains(s)))
-    senders.every((n) -> n.slots["tapDisabled"].entityId == "lock.latch")
+    senders.every((n) -> n.slotsByName["tapDisabled"].value.entityId == "lock.latch")
   }
 
   ["every slider refuses to post while its target is unavailable, and only then"] {
@@ -1830,12 +1832,12 @@ facts {
     local vent: hass.GenericEntity = new { entity_id = "fan.vent"; domain = "fan" }
     local warmth = new hass.ColourTemp { owner = dimmer; min_kelvin = 2000; max_kelvin = 6500 }
     local rows = List(c.entitySlider(kitchen), c.entitySlider(dimmer), c.entitySlider(warmth), c.entitySlider(blind), c.entitySlider(vent), c.entitySlider(switchOnly))
-    rows.every((s) -> s.headSlots.containsKey("service"))
+    rows.every((s) -> s.headNode.slotsByName.containsKey("service"))
     rows.every((s) ->
-      (s.headSlots["tapDisabled"].transform as simpleMod.SimpleMatch).cases.toMap().keys == Set("unavailable"))
-    rows.every((s) -> s.headSlots["tapDisabled"].entityId == s.entity.entity_id)
+      (s.headNode.slotsByName["tapDisabled"].value.transform as simpleMod.SimpleMatch).cases.toMap().keys == Set("unavailable"))
+    rows.every((s) -> s.headNode.slotsByName["tapDisabled"].value.entityId == s.entity.entity_id)
     // The value is the drag's, so the route carries the key and no value.
-    rows.filter((s) -> !s.toggleOnly).every((s) -> s.headSlots.containsKey("dataKey") && !s.headSlots.containsKey("dataValue"))
+    rows.filter((s) -> !s.toggleOnly).every((s) -> s.headNode.slotsByName.containsKey("dataKey") && !s.headNode.slotsByName.containsKey("dataValue"))
     // The input is disabled by the refusal as well as by its own commit, and
     // the change handler leads with the refusal guard.
     local head = c.cards["sliderHead"].template
@@ -1844,8 +1846,8 @@ facts {
     // The refusal is the tap's OR the card's own `disabled`, whichever a node
     // carries — so the same guard stops a slider its author disabled.
     tapMod.refused.contains("{{{tapDisabled.jsValue}}}") && tapMod.refused.contains("{{{disabled.jsValue}}}")
-    c.entitySlider(kitchen).disabled(c.isOn(kitchen)).headSlots.containsKey("disabled")
-    !c.entitySlider(kitchen).headSlots.containsKey("disabled")
+    c.entitySlider(kitchen).disabled(c.isOn(kitchen)).headNode.slotsByName.containsKey("disabled")
+    !c.entitySlider(kitchen).headNode.slotsByName.containsKey("disabled")
   }
 
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {

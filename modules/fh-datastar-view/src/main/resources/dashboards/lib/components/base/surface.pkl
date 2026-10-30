@@ -6,6 +6,7 @@ module components.base.surface
 import "../../core/node.pkl" as nodes
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/predicate.pkl" as pred
+import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/variable.pkl" as varMod
 import "../../layout.pkl" as layout
@@ -15,7 +16,7 @@ import "../../layout.pkl" as layout
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class:fh-chosen="{{{active}}}">{{label}}</a>"#
+    template = #"<a data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifTrue(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)">\#(labelSlot)</a>"#
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
     // than shortened. Unwrapped, so a theme can style the bar's `> a`.
     wrapAsCell = false
@@ -25,16 +26,15 @@ class TabButton extends nodes.Node {
   /// A Datastar boolean expression for `fh-chosen`, the open tab.
   hidden active: String
   slots {
-    ["label"] = label
-    ["active"] = active
-    for (k, v in tapMod.tapRoute(tapAction)) {
-      [k] = v
-    }
-    for (k, v in tapMod.guardSlots(tapAction)) {
-      [k] = v
-    }
+    labelSlot.of(label)
+    activeSlot.of(active)
+    ...tapMod.tapRoute(tapAction)
+    ...tapMod.guardSlots(tapAction)
   }
 }
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local activeSlot: slotMod.Slot = slotMod.slot("active")
 
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
 /// over a node variable — a [[Tabs]], `c.select(v)`.

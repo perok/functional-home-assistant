@@ -20,7 +20,10 @@ string baked at build time) or a **transform** evaluated against live entity sta
 expression (the engine tier), or an opted-in **simple** structure (`simpleMod.attr(...)`, the fast
 tier: the closed set of atomic reads, each defined by its idiomatic CEL spelling and pinned
 byte-equal to it). The tier is the slot's own field; nothing infers one from expression spelling.
-"Slot" is the value; the template hole it fills has the same name.
+"Slot" is the value; the template hole it fills has the same name. In Pkl a slot is a
+`slotMod.Slot`: its name, its value (a literal or a **Reading**) and how the card binds it (`signal`,
+`type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
+places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
@@ -55,7 +58,7 @@ hue. HA's own name (`more-info-light.ts`), switched by `c.its.mainControl` throu
 `control`. Not HA's colour MODES, the formats a light accepts (`hs`, `color_temp`), which the main
 controls are derived from.
 
-**Reading** — a slot used as an INPUT: a live read (`entityId` + transform) with no binding yet,
+**Reading** — a slot's value used as an INPUT (`slotMod.Reading`): a live read (`entityId` + transform) with no binding yet,
 which the card it is handed to binds where it belongs. It reads its entity's state (a fast read may
 name another), or the node's own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
 readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
@@ -111,7 +114,7 @@ named as a compiler names them:
   property is written as a slot.
 - **bind**: each name a slot's CEL reads is connected to its definition, an expression value, and
   so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
-  where a value lands (`signalBind`, `{{{slot.bind}}}`).
+  where a value lands (`x.bind` in Pkl, `{{{x.bind}}}` in the template).
 - **check**: the rules across fields and nodes (`validate`).
 - **compile**: CEL against the names and types binding gave it; each card's template, once, theme
   classes applied (`Templates.card`), which check reads its names off and the renderer runs.

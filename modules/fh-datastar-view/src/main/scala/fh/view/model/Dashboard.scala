@@ -159,7 +159,9 @@ object BoundSlot:
   def bind(values: Map[String, ExprValue])(s: SlotSource): BoundSlot =
     // The slot's own win a clash, which `validate` refuses anyway.
     val all = values ++ s.values
-    val valueWhile = s.valueWhileSlot.map(bind(values))
+    // A bool by position: its reading carries no type of its own.
+    val valueWhile =
+      s.valueWhileSlot.map(w => bind(values)(w.copy(`type` = SlotType.Bool)))
     s.transform match
       case t: String if all.nonEmpty && s.literal.isEmpty =>
         val read = Cel.identifiers(t)

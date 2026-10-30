@@ -27,7 +27,7 @@ local lamp: hass.LightEntity = new {
   effects = new hass.Effects { owner = lamp; list { "none"; "Rainbow Slow" } }
 }
 
-local function route(n: Any): String = (n.slots["onclick"] as slotMod.Reading).transform as String
+local function route(n: Any): String = (n.slotsByName["onclick"].value as slotMod.Reading).transform as String
 
 // A baked select's members in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
@@ -45,7 +45,7 @@ facts {
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
     local carried = Set("cellClasses", "stateClasses", "liveClasses", "liveProperties", "id", "vars", "expressionValues")
-    local cards = Set("kind", "cell", "card", "cardDef", "slots", "children", "regions", "values", "inlineSurfaces")
+    local cards = Set("kind", "cell", "card", "cardDef", "slots", "slotsByName", "children", "regions", "values", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
 
@@ -56,8 +56,8 @@ facts {
     opts.length == 2
     route(opts[0]).contains("/shade/pale") && route(opts[1]).contains("/shade/deep")
     // Lit by the ask while one is out, else the commit.
-    (opts[1].slots["active"] as String).endsWith("=== 'deep'")
-    (opts[1].slots["active"] as String).contains("__pending")
+    (opts[1].slotsByName["active"].value as String).endsWith("=== 'deep'")
+    (opts[1].slotsByName["active"].value as String).contains("__pending")
   }
 
   ["a style is the same choice in another card, a variable's baked"] {
@@ -82,8 +82,8 @@ facts {
     local iconic = members(c.select(shade)
       .options(List(new selectMod.Choice { value = "a"; label = "A"; icon = "mdi:palette" }, "b"))
       .style("dropdown"))
-    (iconic[0].first as selectMod.ChoiceLabel).slots["glyph"] == "mdi mdi-palette"
-    !(iconic[1].first as selectMod.ChoiceLabel).slots.containsKey("glyph")
+    (iconic[0].first as selectMod.ChoiceLabel).slotsByName["glyph"].value == "mdi mdi-palette"
+    !(iconic[1].first as selectMod.ChoiceLabel).slotsByName.containsKey("glyph")
   }
 
   ["a variable's cycle bakes one button per option, each choosing the next, round"] {
@@ -98,25 +98,26 @@ facts {
       .options(List(new selectMod.Choice { value = "a"; label = "Aa"; icon = "mdi:palette" }, "b"))
       .style("cycle"))
     local face = iconic[0].first as buttonMod.Pill
-    face.slots["glyph"] == "mdi-palette" && face.slots["name"] == "Aa" && face.slots["round"] == "1"
-    !(iconic[1].first as buttonMod.Pill).slots.containsKey("glyph")
+    face.slotsByName["glyph"].value == "mdi-palette" && face.slotsByName["name"].value == "Aa" && face.slotsByName["round"].value == "1"
+    !(iconic[1].first as buttonMod.Pill).slotsByName.containsKey("glyph")
   }
 
   ["over a select entity: its own options, each a call lit by the state"] {
     local opts = c.select(mode).children.toList()
-    opts.map((o) -> o.slots["label"]) == List("quiet", "turbo", "it's max")
+    opts.map((o) -> o.slotsByName["label"].value) == List("quiet", "turbo", "it's max")
     local tap = (opts[1] as selectMod.EntityOption).tapAction
     tap.service == "select/select_option"
     tap.dataKey == "option" && tap.dataValue == #""turbo""#
     local lit = (opts[2] as selectMod.EntityOption).active as predMod.Cmp
     lit.property == "state" && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
     // The dropdown's label is the server's, so the first HTML names it.
-    local shown = c.select(mode).style("dropdown").slots["chosen"] as slotMod.Reading
+    local shownSlot = c.select(mode).style("dropdown").slotsByName["chosen"]
+    local shown = shownSlot.value as slotMod.Reading
     shown.entityId == "select.robot_mode"
-    shown.signal == slotMod.asText
+    shownSlot.signal == slotMod.asText
     // An option it has no label for shows as itself.
     (shown.transform as simpleMod.SimpleMatch).otherwise is simpleMod.State
-    local effect = (c.select(lamp.effects!!).style("dropdown").slots["chosen"] as slotMod.Reading)
+    local effect = (c.select(lamp.effects!!).style("dropdown").slotsByName["chosen"].value as slotMod.Reading)
       .transform as simpleMod.SimpleMatch
     effect.property == "attr:effect"
     (effect.otherwise as simpleMod.Attr).attribute == "effect"
@@ -136,7 +137,7 @@ facts {
   [".options picks, orders and relabels an entity's, and refuses one it lacks"] {
     local picked = c.select(mode)
       .options(List("turbo", new selectMod.Choice { value = "quiet"; label = "Shh" }))
-    picked.children.toList().map((o) -> o.slots["label"]) == List("turbo", "Shh")
+    picked.children.toList().map((o) -> o.slotsByName["label"].value) == List("turbo", "Shh")
     module.catch(() -> c.select(mode).options(List("eco")).card)
       .contains("c.select(select.robot_mode) offers no eco: it has quiet, turbo, it's max")
   }

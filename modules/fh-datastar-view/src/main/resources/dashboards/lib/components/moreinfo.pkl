@@ -23,8 +23,7 @@ class EntityInfo extends nodes.Node {
   cardDef = new nodes.CardDef {
     template = """
       <div class="fh-card fh-entity-info">
-        <code class="fh-entity-info-id">{{entity_id}}</code>{{#attributes}}
-        <pre class="fh-entity-info-attrs">{{attributes}}</pre>{{/attributes}}
+        <code class="fh-entity-info-id">\(slotMod.subject)</code>\(attributes.ifTrue(#"\#n  <pre class="fh-entity-info-attrs">\#(attributes)</pre>"#))
       </div>
       """
     // Capped, so a chatty entity cannot push the controls and ✕ off screen.
@@ -39,10 +38,12 @@ class EntityInfo extends nodes.Node {
   }
   hidden entity: hass.Entity
   slots {
-    ["entity_id"] = entity.entity_id
-    ["attributes"] = new slotMod.Reading { transform = ATTR_LINES; default = "" }
+    slotMod.subject.of(entity.entity_id)
+    attributes.of(new slotMod.Reading { transform = ATTR_LINES; default = "" })
   }
 }
+
+const local attributes: slotMod.Slot = slotMod.slot("attributes")
 
 function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
 

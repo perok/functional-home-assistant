@@ -195,8 +195,14 @@ class WireShapeSuite extends munit.FunSuite {
     // `Reading` is `SlotSource` in Scala: "reading" is the authoring word, "source"
     // the model's. `literal` is Scala-only because a constant slot is authored
     // as a bare string (`Reading|String`) that the decoder maps into it: an
-    // encoding, not drift.
-    check("Reading", SlotSource(), scalaOnly = Set("literal"))
+    // encoding, not drift. `signal` and `type` are on the `Slot` holding the
+    // reading, and `nodes.wireSlots` merges them into it.
+    val onSlot = Set("signal", "type")
+    assert(
+      onSlot.subsetOf(pklProperties.getOrElse("Slot", Set.empty)),
+      clue = pklProperties.get("Slot")
+    )
+    check("Reading", SlotSource(), scalaOnly = Set("literal") ++ onSlot)
     // `provider` picks the decoder rather than filling a field.
     check(
       "HistoryFetch",

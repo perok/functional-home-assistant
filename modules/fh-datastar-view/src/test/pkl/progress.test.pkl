@@ -72,22 +72,22 @@ facts {
     parts(c.progress(inHouse("phone", "sensor.le2123_remaining_charge_time"))) == Map(
       "percent", null, "total", null, "status", "sensor.le2123_battery_state")
     // The device's name is the label.
-    c.progress(inHouse("washer", "sensor.electrolux_washing_machine_timetoend_2")).slots["label"]
+    c.progress(inHouse("washer", "sensor.electrolux_washing_machine_timetoend_2")).slotsByName["label"].value
       == house.devices["washer"].device_name
   }
 
   ["a countdown with nothing to divide by fills out of where it started, from its history"] {
     local left = minutes("rem", "time_to_end")
     local bar = barOf(c.progress(onDevice(left, List(words("ph", "cycle_phase")))))
-    (bar.slots["value"] as slotMod.Reading).entityId == "sensor.rem"
-    bar.slots["down"] == "1"
+    (bar.slotsByName["value"].value as slotMod.Reading).entityId == "sensor.rem"
+    bar.slotsByName["down"].value == "1"
     // The whole is a live CEL slot on the countdown, reading its history.
-    local whole = bar.slots["of"] as slotMod.Reading
+    local whole = bar.slotsByName["of"].value as slotMod.Reading
     whole.entityId == "sensor.rem"
     whole.transform.toString().contains("past.transformList")
     whole.values.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
     // A countdown on no device gets the same bar.
-    (barOf(c.progress(left)).slots["of"] as slotMod.Reading).values.toMap()
+    (barOf(c.progress(left)).slotsByName["of"].value as slotMod.Reading).values.toMap()
       == Map("past", p.history.of(left, p.history.raw(24.h)))
   }
 
@@ -153,7 +153,7 @@ facts {
     // Charging or not: a charge fills out of where its countdown started.
     local charging = c.progress(onDevice(minutes("ch", "charging_time_left"), List(battery)))
     charging.percent == null
-    (barOf(charging).slots["of"] as slotMod.Reading).values.toMap().containsKey("past")
+    (barOf(charging).slotsByName["of"].value as slotMod.Reading).values.toMap().containsKey("past")
   }
 
   ["the card shows what was found, and each builder overrides one part"] {
@@ -161,17 +161,17 @@ facts {
     local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "progress"; unit_of_measurement = "%" }
     local total = minutes("dur", "program_duration")
     local card = c.progress(onDevice(left, List(pct, total, words("st", "status"))))
-    card.slots["label"] == "Appliance"
-    card.slots["entity_id"] == "sensor.rem"
-    (card.slots["secondary"] as slotMod.Reading).entityId == "sensor.st"
-    (barOf(card).slots["value"] as slotMod.Reading).entityId == "sensor.pct"
+    card.slotsByName["label"].value == "Appliance"
+    card.slotsByName["entity_id"].value == "sensor.rem"
+    (card.slotsByName["secondary"].value as slotMod.Reading).entityId == "sensor.st"
+    (barOf(card).slotsByName["value"].value as slotMod.Reading).entityId == "sensor.pct"
     // `.total` asks for that bar, dropping the percent found.
-    (barOf(card.total(total)).slots["of"] as slotMod.Reading).entityId == "sensor.dur"
-    (card.status(left).slots["secondary"] as slotMod.Reading).entityId == "sensor.rem"
+    (barOf(card.total(total)).slotsByName["of"].value as slotMod.Reading).entityId == "sensor.dur"
+    (card.status(left).slotsByName["secondary"].value as slotMod.Reading).entityId == "sensor.rem"
     // A percentage given reads as itself.
     local vacuum = c.progress(pct)
-    vacuum.slots["entity_id"] == "sensor.pct"
-    (vacuum.slots["value"] as slotMod.Reading).transform != null
+    vacuum.slotsByName["entity_id"].value == "sensor.pct"
+    (vacuum.slotsByName["value"].value as slotMod.Reading).transform != null
   }
 
   ["the bar shows and the countdown has a value only while it runs; a battery's bar always"] {
@@ -185,7 +185,7 @@ facts {
     washer.running == cmp("sensor.rem", "gt", 0)
     // The bar is structure, gone while idle; the countdown is a value, empty.
     (washer.features[0] as surfacesMod.If).condition == washer.running
-    (washer.slots["value"] as slotMod.Reading).valueWhile == washer.running
+    (washer.slotsByName["value"].value as slotMod.Reading).valueWhile == washer.running
     // An author hides the whole card on the same rule.
     c.iff(washer.running).then(washer).condition == washer.running
     // A percentage, short of 100.
@@ -194,7 +194,7 @@ facts {
     // while it charges.
     local car = c.progress(onDevice(minutes("ch", "charging_time_left"), List(battery))).percent(battery)
     car.features[0] is barBaseMod.ProgressBar
-    (car.slots["value"] as slotMod.Reading).valueWhile == cmp("sensor.ch", "gt", 0)
+    (car.slotsByName["value"].value as slotMod.Reading).valueWhile == cmp("sensor.ch", "gt", 0)
     // A status in an idle state means idle, whatever the numbers say.
     (washer) { defaults { progress { idleStates { "off" } } } }.running
       == cmp("sensor.rem", "gt", 0).and(cmp("sensor.st", "ne", "off"))

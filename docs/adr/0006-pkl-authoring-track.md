@@ -119,6 +119,16 @@ finished, and are deleted (issue #23).
    node, never the template, so it caught neither a placeholder nobody fills
    nor a slot nobody reads.
 
+   **A slot is named once, as a handle.** A card module declares
+   `const local label = slotMod.slot("label")`; the template places it
+   (`\(label)` is `{{label}}`, `label.bind` is `{{{label.bind}}}`,
+   `label.ifSet(…)` a section on whether the node sets it) and
+   `slots { label.of(v) }` fills it, so a misspelt name is a Pkl error at its
+   line, in the editor too. `slots` is a `Listing<Slot>`, which the library's
+   `["slots"]` output converter (`nodes.wireSlots`) lowers to the name→value map
+   the backend decodes; the wire did not change. A handle holds the name only,
+   never a value: the template must be the same for every node of a card.
+
    **A dashboard's `cards` is the cards its tree uses**, read off the nodes
    (`core/node.pkl`'s `cardsIn`, over `card` and `surfaces`): every node
    carries its own `cardDef`, so walking the tree finds each card with no

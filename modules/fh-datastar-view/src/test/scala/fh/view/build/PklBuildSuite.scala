@@ -202,6 +202,8 @@ class PklBuildSuite extends munit.FunSuite {
     PklWorkspace.seedDump(tmp, source)
 
   private def evalProj(tmp: os.Path, entry: String) =
+    if os.read(tmp / entry).startsWith("module ") then
+      PklWorkspace.withWireOutput(tmp / entry)
     SourceEval.eval(tmp, entry)
 
   /** A minimal published package over http, speaking the
@@ -2142,14 +2144,14 @@ class PklBuildSuite extends munit.FunSuite {
     evalProj(tmp, "probe.pkl").isRight
   }
 
-  private def structuralCard(slot: String): String =
+  private def structuralCard(value: String, binding: String = ""): String =
     s"""class Probe extends nodes.Node {
        |  card = "probe"
        |  cardDef = new nodes.CardDef {
        |    regions = new Mapping { ["children"] = new nodes.Region {} }
        |    template = #"<div>{{temp}}{{{children}}}</div>"#
        |  }
-       |  slots { ["temp"] = $slot }
+       |  slots { (slotMod.slot("temp")) { value = $value$binding } }
        |}
        |node = new Probe {}""".stripMargin
 
@@ -2177,7 +2179,8 @@ class PklBuildSuite extends munit.FunSuite {
     assert(
       cardShapeAccepted(
         structuralCard(
-          """new slotMod.Reading { entityId = "sensor.t"; signal = "text" }"""
+          """new slotMod.Reading { entityId = "sensor.t" }""",
+          """; signal = "text""""
         )
       ),
       "a signal slot on structure is fine"

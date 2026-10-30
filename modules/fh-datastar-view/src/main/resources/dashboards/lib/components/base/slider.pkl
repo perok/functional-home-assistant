@@ -14,26 +14,44 @@ import "../../core/text.pkl" as textMod
 import "../../core/variable.pkl" as varMod
 import "button.pkl" as buttonMod
 
+// The slots a slider's head and text place; `Slot`-suffixed where the class
+// has an input of the same name.
+const local minSlot: slotMod.Slot = slotMod.slot("min")
+const local maxSlot: slotMod.Slot = slotMod.slot("max")
+const local valueSlot: slotMod.Slot = slotMod.slot("value")
+const local fillSlot: slotMod.Slot = slotMod.slot("fill")
+const local fillColorSlot: slotMod.Slot = slotMod.slot("fillColor")
+const local stateSlot: slotMod.Slot = slotMod.slot("state")
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
+const local dragPercent: slotMod.Slot = slotMod.slot("dragPercent")
+const local hueTrackSlot: slotMod.Slot = slotMod.slot("hueTrack")
+const local kelvinTrackSlot: slotMod.Slot = slotMod.slot("kelvinTrack")
+const local greyedSlot: slotMod.Slot = slotMod.slot("greyed")
+const local toggleSlot: slotMod.Slot = slotMod.slot("toggle")
+const local valueRestSlot: slotMod.Slot = slotMod.slot("valueRest")
+const local groupSlot: slotMod.Slot = slotMod.slot("group")
+
 // The dragged position as a percentage of the card's range, in JS. The range
 // comes through the `min`/`max` slots: `cardDef` is shared by every slider.
 // `evt.target.value`, not the bound signal: `data-bind` listens for the same
 // `input` and its earlier-registered listener runs first.
 const local function posFrom(v: String): String =
-  "((\(v) - {{min}}) * 100 / ({{max}} - {{min}}))"
+  "((\(v) - \(minSlot)) * 100 / (\(maxSlot) - \(minSlot)))"
 
 const local dragPos: String = posFrom("evt.target.value")
 
 /// A hue track's marker is painted in the hue under it, the same `hsl` the
 /// server's `fillColor` sends, so a drag recolours it before any commit.
 const local function hueMarker(hue: String): String =
-  "$\(slotMod.signalRef("fillColor")) = 'hsl(' + Math.round(\(hue)) + ',100%,50%)'"
+  "$\(fillColorSlot.signalName) = 'hsl(' + Math.round(\(hue)) + ',100%,50%)'"
 
 /// A kelvin track's marker, in the colour `sliderFillColourRamp` gives the
 /// server's `fillColor`. Below the range is no kelvin at all (a light in a
 /// colour mode reads `0`): `transparent`, the track's paint for none.
 const local function kelvinMarker(k: String): String =
   let (t = "(\(posFrom(k)) / 100)")
-    "$\(slotMod.signalRef("fillColor")) = (\(k) >= {{min}} ? 'rgb(' + Math.round(255 - 54 * \(t)) + ',' + Math.round(166 + 60 * \(t)) + ',' + Math.round(87 + 168 * \(t)) + ')' : 'transparent')"
+    "$\(fillColorSlot.signalName) = (\(k) >= \(minSlot) ? 'rgb(' + Math.round(255 - 54 * \(t)) + ',' + Math.round(166 + 60 * \(t)) + ',' + Math.round(87 + 168 * \(t)) + ')' : 'transparent')"
 
 /// What the control SHOWS: the finger during a gesture, the server's last word
 /// at rest. A second signal beside the value slot, because
@@ -44,19 +62,56 @@ const local slideSig: String = "_{{id}}__slide"
 /// Adopt what the device says, which is confirmation and correction alike (HA
 /// clamping a brightness needs no case of its own).
 const local adoptCommitted: String =
-  #"data-on-signal-patch-filter="{include:/^\#(slotMod.signalRef("value"))$/}" data-on-signal-patch="$\#(slideSig) = $\#(slotMod.signalRef("value"))""#
+  #"data-on-signal-patch-filter="{include:/^\#(valueSlot.signalName)$/}" data-on-signal-patch="$\#(slideSig) = $\#(valueSlot.signalName)""#
 
 // [[adoptCommitted]] for when no commit is coming. `fill` and `state` are
 // recomputed from the committed signal, so the three writes have no order
 // between them. Comma-separated: this splices inside a `&&`.
 const local rollbackToCommitted: String =
-  let (committed = "$" + slotMod.signalRef("value"))
+  let (committed = "$" + valueSlot.signalName)
     "$\(slideSig) = \(committed), " +
-      "$\(slotMod.signalRef("fill")) = (100 - \(posFrom(committed))) + '%'" +
-      "{{#dragPercent}}, $\(slotMod.signalRef("state")) = " +
-      "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}" +
-      "{{#hueTrack}}, \(hueMarker(committed)){{/hueTrack}}" +
-      "{{#kelvinTrack}}, \(kelvinMarker(committed)){{/kelvinTrack}}"
+      "$\(fillSlot.signalName) = (100 - \(posFrom(committed))) + '%'" +
+      dragPercent.ifTrue(", $\(stateSlot.signalName) = Math.round(\(posFrom(committed))) + ' %'") +
+      hueTrackSlot.ifTrue(", \(hueMarker(committed))") +
+      kelvinTrackSlot.ifTrue(", \(kelvinMarker(committed))")
+
+// The track's own classes: one `cardDef` serves every slider.
+const local trackClasses: String =
+  hueTrackSlot.ifTrue(" fh-track-hue") + kelvinTrackSlot.ifTrue(" fh-track-kelvin") + greyedSlot.ifTrue(" fh-slider-greyed")
+
+// What a drag paints before any commit: the fill, and the readout or marker
+// where they follow the position.
+const local dragPaint: String =
+  "$\(fillSlot.signalName) = (100 - \(dragPos)) + '%'"
+    + dragPercent.ifTrue("; $\(stateSlot.signalName) = Math.round(\(dragPos)) + ' %'")
+    + hueTrackSlot.ifTrue("; \(hueMarker("evt.target.value"))")
+    + kelvinTrackSlot.ifTrue("; \(kelvinMarker("evt.target.value"))")
+
+// The dragged number, led into a list where the key's value is one (a hue).
+const local dragged: String =
+  valueRestSlot.ifTrue("[") + "Number($\(slideSig))" + valueRestSlot.ifTrue("\(valueRestSlot)]")
+
+const local commitOnRelease: String =
+  "\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/\(tapMod.service.raw)/\(tapMod.targetKind)/\(tapMod.targetId)?node={{id}}', \(tapMod.withData("\(tapMod.dataKey)", dragged)))"
+
+const local rangeInput: String = """
+  <input type="range" min="\(minSlot)" max="\(maxSlot)" value="\(valueSlot)"
+        \(valueSlot.bind)
+        data-signals__ifmissing="{ \(slideSig): '\(valueSlot)' }"
+        data-bind="\(slideSig)"
+        \(adoptCommitted)
+        \(restoreOnDeadStream)
+        \(tapMod.busyAttrsChange)
+        data-on:input="\(dragPaint)"
+        data-on:change="\(commitOnRelease)" />
+  """
+
+const local toggleButton: String = """
+  <button type="button" class="fh-slider-toggle" aria-label="\(labelSlot)"
+        \(valueSlot.bind)
+        data-on:click="\(tapMod.busyGuardChange)\(tapMod.click)"
+        \(tapMod.busyAttrsChange)></button>
+  """
 
 /// The two ways an ask ends with no commit coming (ADR 0025): the stream is
 /// down, or the server refused (ADR 0024).
@@ -88,27 +143,16 @@ class SliderHead extends nodes.ActiveNode {
     }
     template = """
       <div class="fh-slider-body">
-        <div class="fh-slider-head{{#greyed}} fh-slider-greyed{{/greyed}}">
-          \(badgeMod.seat(" fh-slider-icon", "mdi {{icon}}", "{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}"))
+        <div class="fh-slider-head\(greyedSlot.ifTrue(" fh-slider-greyed"))">
+          \(badgeMod.seat(" fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifTrue(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
           {{{text}}}
-          \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
+          \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
           <div class="fh-slider-actions">{{{actions}}}</div>
         </div>
-        <div class="fh-slider{{#hueTrack}} fh-track-hue{{/hueTrack}}{{#kelvinTrack}} fh-track-kelvin{{/kelvinTrack}}{{#greyed}} fh-slider-greyed{{/greyed}}" \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
-          {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
-            \(slotMod.signalBind("value"))
-            data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
-            data-bind="\(slideSig)"
-            \(adoptCommitted)
-            \(restoreOnDeadStream)
-            \(tapMod.busyAttrsChange)
-            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}{{#hueTrack}}; \(hueMarker("evt.target.value")){{/hueTrack}}{{#kelvinTrack}}; \(kelvinMarker("evt.target.value")){{/kelvinTrack}}"
-            data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', \(tapMod.withData("{{dataKey}}", "{{#valueRest}}[{{/valueRest}}Number($\(slideSig)){{#valueRest}}{{valueRest}}]{{/valueRest}}")))" />{{/toggle}}
-          <span style="--fh-fill: {{fill}};background:{{fillColor}}" \(slotMod.signalBind("fill")) \(slotMod.signalBind("fillColor"))></span>
-          {{#toggle}}<button type="button" class="fh-slider-toggle" aria-label="{{label}}"
-            \(slotMod.signalBind("value"))
-            data-on:click="\(tapMod.busyGuardChange)\(tapMod.click)"
-            \(tapMod.busyAttrsChange)></button>{{/toggle}}
+        <div class="fh-slider\(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifTrue(" \(tapMod.busyClassChange)"))\(tapMod.busyVisual.ifFalse(tapMod.refusedClass))>
+          \(toggleSlot.ifFalse(rangeInput))
+          <span style="--fh-fill: \(fillSlot);background:\(fillColorSlot)" \(fillSlot.bind) \(fillColorSlot.bind)></span>
+          \(toggleSlot.ifTrue(toggleButton))
         </div>
       </div>
       """
@@ -125,7 +169,7 @@ class SliderText extends nodes.Node {
   cellClasses { "fh-slider-text" }
   cardDef = new nodes.CardDef {
     template = """
-      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>\(slotMod.ifSlot("secondary"))<span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))
+      <strong class="\(textMod.BOX)">\(textMod.run(labelSlot))</strong>\(secondarySlot.ifSet(#"<span class="fh-sub \#(textMod.BOX)">\#(textMod.liveRun(secondarySlot))</span>"#))
       """
     // Guarded by the slot's presence, not its value: a live one is blank in the
     // patch form, and a value guard would delete its element.
@@ -274,78 +318,60 @@ open class Slider extends nodes.Node {
   /// Disables the range (or the press) while it holds, ORed with the commit's
   /// own refusal, as `Button.disabled`.
   hidden disabled: nodes.BooleanInput? = null
-  hidden headSlots: Mapping<String, slotMod.Reading|String> = new {
-    when (subject != null) {
-      ["entity_id"] = subject!!
-    }
-    when (nodes.disabledSlot(disabled) != null) {
-      ["disabled"] = nodes.disabledSlot(disabled)!!
-    }
+  hidden headSlots: Listing<slotMod.Slot> = new {
+    slotMod.subject.of(subject)
+    nodes.disabledSlot(disabled)
     // `onRender`: an `aria-label` on a head that is never patched.
-    ["label"] = if (title is slotMod.Reading) (title as slotMod.Reading) { reads = "onRender" } else title
-    when (glyph != null) {
-      ["icon"] = glyph!!
-    }
-    for (k, v in badgeMod.slots(active)) {
-      [k] = v
-    }
+    labelSlot.of(if (title is slotMod.Reading) (title as slotMod.Reading) { reads = "onRender" } else title)
+    badgeMod.icon.of(glyph)
+    ...badgeMod.slots(active)
     when (busyVisual) {
-      ["busyVisual"] = "1"
+      tapMod.busyVisual.of("1")
     }
     // Absent rather than empty when there is no readout: a signal slot is blank
     // in the patch form, so a section over the value would drop the span.
     when (reading != null) {
-      ["state"] = (reading!!) { signal = slotMod.asText }
+      slotMod.signalled(stateSlot, reading!!, slotMod.asText)
     }
     // Placed only because every signal slot must place its bind: `data-bind`
     // makes `data-attr:value` inert from the first pass
     // (`DatastarMorphContractSuite`). The live position is [[slideSig]].
-    ["value"] = (position) { signal = slotMod.asAttr("value") }
+    slotMod.signalled(valueSlot, position, slotMod.asAttr("value"))
     // This and `fillColor` are on the span's own style, not the wrapper's, which
     // beer.min.js overwrites wholesale on every repaint.
-    ["fill"] = (fill) { signal = slotMod.asStyle("--fh-fill") }
-    ["fillColor"] =
-      if (fillColor != null)
-        (fillColor!!) {
+    slotMod.signalled(fillSlot, fill, slotMod.asStyle("--fh-fill"))
+    if (fillColor != null)
+      slotMod.signalled(fillColorSlot, (fillColor!!) {
           default = fillDefault
           bypassUnavailable = false
-          signal = slotMod.asStyle("background")
           reads = "live"
-        }
-      else fillDefault
+        }, slotMod.asStyle("background"))
+    else fillColorSlot.of(fillDefault)
     // Section flags, because one `cardDef` serves every slider on the page.
     when (readingFollowsDrag) {
-      ["dragPercent"] = "1"
+      dragPercent.of("1")
     }
     when (press != null) {
-      ["toggle"] = "1"
+      toggleSlot.of("1")
     }
-    when (valueRest != null) {
-      ["valueRest"] = valueRest!!
-    }
+    valueRestSlot.of(valueRest)
     when (hueTrack) {
-      ["hueTrack"] = "1"
+      hueTrackSlot.of("1")
     }
     when (kelvinTrack) {
-      ["kelvinTrack"] = "1"
+      kelvinTrackSlot.of("1")
     }
     when (greyed) {
-      ["greyed"] = "1"
+      greyedSlot.of("1")
     }
-    for (k, v in tapMod.tapRoute(press ?? commit ?? throw("A slider needs a commit or a press."))) {
-      [k] = v
-    }
-    ["min"] = "\(rangeMin)"
-    ["max"] = "\(rangeMax)"
+    ...tapMod.tapRoute(press ?? commit ?? throw("A slider needs a commit or a press."))
+    minSlot.of("\(rangeMin)")
+    maxSlot.of("\(rangeMax)")
   }
-  hidden textSlots: Mapping<String, slotMod.Reading|String> = new {
-    when (subject != null) {
-      ["entity_id"] = subject!!
-    }
-    ["label"] = title
-    when (secondary != null) {
-      ["secondary"] = slotMod.secondarySlot(secondary!!)
-    }
+  hidden textSlots: Listing<slotMod.Slot> = new {
+    slotMod.subject.of(subject)
+    labelSlot.of(title)
+    slotMod.secondary(secondarySlot, secondary)
   }
   /// The heads it switches between, the first shown before anyone chooses. One
   /// or none is the plain [[headNode]].
@@ -362,7 +388,7 @@ open class Slider extends nodes.Node {
   }
   slots {
     when (!members.isEmpty) {
-      ["group"] = "fh-slider-group"
+      groupSlot.of("fh-slider-group")
     }
   }
   // An author's values go on the slider, but its readings are on the head and
@@ -429,7 +455,7 @@ open class Slider extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
-      <article class="fh-card fh-slider-card{{#group}} {{group}}{{/group}}">{{{head}}}<div class="fh-slider-members">{{{children}}}</div></article>
+      <article class="fh-card fh-slider-card\(groupSlot.ifTrue(" \(groupSlot)"))">{{{head}}}<div class="fh-slider-members">{{{children}}}</div></article>
       """
     css = sliderCss
     script = sliderTouchScript

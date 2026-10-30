@@ -312,7 +312,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     val int = """new slotMod.Reading { transform = "n" }"""
     assert(
       yesNo(
-        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }"""
+        s"""liveClasses { ["x"] = $int }"""
       )
         .exists(_.contains(notBool))
     )

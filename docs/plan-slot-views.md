@@ -3,8 +3,8 @@
 Discussed in chat on 2026-10-29, after #654 and #655. Regions get the same treatment next, once this
 design settles; they are out of scope here.
 
-**State:** views built (the Scala half, the new spelling, `cell:class:`); the Pkl `Slot`/`Reading`
-handles next.
+**State:** built. Views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
+rename, and the Pkl `Slot` handles across the library; the wire snapshots are unchanged.
 
 ## Why
 
@@ -71,40 +71,57 @@ The classes follow `terminology.md`. A **Reading** is an input with no binding y
 `name`, `value` (a literal, a `Reading`, or null) and the binding, `signal` and `type`, which move
 off the reading because the card sets them where it binds it.
 
-A card holds each slot as a hidden property, and `slots` lists them:
+A card module names each slot once, as a module-level handle, and `slots` lists them filled:
 
 ```pkl
-hidden label: slotMod.Slot = new { name = "label"; value = slotMod.labelSlot(null, text) }
-hidden icon: slotMod.Slot = new { name = "icon"; value = glyph; signal = slotMod.asAttr("class") }  // null value: not set
-cardDef = new nodes.CardDef {
-  template = """
-    <span \(label.bind)>\(label)</span>
-    \(icon.ifSet("""
-      <i class="\(icon)" \(icon.bind)></i>
-      """))
-    """
+const local label = slotMod.slot("label")
+const local icon = slotMod.slot("icon")
+
+class Badge extends nodes.Node {
+  cardDef = new nodes.CardDef {
+    template = """
+      <span \(label.bind)>\(label)</span>
+      \(icon.ifSet("""
+        <i class="\(icon)"></i>
+        """))
+      """
+  }
+  slots {
+    slotMod.liveText(label, text)  // a reading becomes a text signal
+    icon.of(glyph)  // a null value: not set
+    ...tapMod.tapRoute(tapAction)
+  }
 }
-slots { label; icon; ...tapMod.tapRoute(tapAction) }
 ```
+
 
 - `toString` is the plain hole: `\(label)` is `{{label}}`. A Pkl class can override `toString`, and
   interpolation uses it (spiked on 0.32.1).
-- Views are properties (`bind`, `jsValue`, `signal`), so typing `label.` lists them; sections are
-  methods (`ifSet(body)`, `ifUnset(body)`), balanced by construction. These replace the seven
-  helpers in `core/slot.pkl`.
+- Views are properties (`bind`, `jsValue`, `signalName`, and `raw` for `{{{x}}}`), so typing
+  `label.` lists them; `signal` is taken by the binding. Sections are methods (`ifSet`/`ifUnset`
+  on `has`, `ifTrue`/`ifFalse` on the value), balanced by construction. `of(v)` fills one. These
+  replace `signalBind`, `signalRef`, `slotRead`, `ifSlot`/`endIfSlot`/`ifNoSlot`/`endIfNoSlot` and
+  `secondarySlot` in `core/slot.pkl`; `signalled`, `liveClass`, `liveText` and `secondary` take
+  a handle and return the filled slot.
 - A misspelt handle is `Cannot find property 'lable'` at its line, during evaluation and in the
   editor.
-- The template reads only the name, so every node of a card still produces the same template;
-  `cardsIn` fails loudly if one ever reads a value.
+- A handle is a constant, not a property of the node: the template reads only the name, so every
+  node of a card still produces the same template, and `cardsIn` fails loudly if one ever reads a
+  value.
 - `slots` is a `Listing`, and a slot whose value is null is left out, which replaces
-  `when (glyph != null) { ["icon"] = … }`. A subclass changes a slot by amending its property.
+  `when (glyph != null) { ["icon"] = … }`. `Node.slotsByName` is the set ones by name, for Pkl that
+  reads a slot back (tests, `valuesNamedIn`).
 - **Lowering, so the wire does not change:** a `["slots"]` path converter in the library's output
   renderer turns the Listing into the name→value map the backend decodes, a reading's entry
   carrying its slot's `signal` and `type` as today. Spiked with `PklBuild`'s
-  settings (JSON output, `evaluateOutputText`): it matches at every depth, drops nulls, and a
-  duplicate name fails. The converters are one constant in `core/node.pkl`, used by `site.pkl`'s
-  `output` and by the Pkl tests that render a node with a bare `new JsonRenderer {}`. Only
-  `Node.slots` carries that name. Authors still write no `output` block.
+  settings (JSON output, `evaluateOutputText`): it matches at every depth and drops nulls. The
+  lowering is one function, `nodes.wireSlots`, named by the `output` of `site.pkl` and `entry.pkl`;
+  a test probe module that renders nodes without amending either gets the same line from
+  `PklWorkspace.withWireOutput`. Only `Node.slots` carries that name. Authors still write no
+  `output` block.
+- A literal handed a `signal` fails in `wireSlots`: a signal needs a reading.
+- `valueWhile` is a bool by position: a reading carries no `type`, so the backend types that slot
+  itself.
 - Pkl code that reads `slots` as a Mapping moves to the Listing: `Node`'s structural-card
   constraint, `keepsLiveCell`, `valuesNamedIn`, and the slot-producing helpers (`tapRoute`,
   `guardSlots`, `badgeMod.slots`).
@@ -135,8 +152,19 @@ slots { label; icon; ...tapMod.tapRoute(tapAction) }
 
 ## Tests replaced
 
-Listed here as the code lands. Spelling rewrites are mechanical; a test of the suffix mechanism
-itself (`derivedFrom`, `__has` filled per slot) is replaced by a test of the view, never weakened.
+Spelling rewrites are mechanical; a test of the suffix mechanism itself (`derivedFrom`, `__has`
+filled per slot) is replaced by a test of the view, never weakened.
+
+- `TemplateReadsSuite`'s dotted-name test reads views instead (`x.bind` recorded as a view of `x`),
+  plus one for a binding inside its own slot's section.
+- `BuildPhaseSuite`: an unknown view and an old `__` spelling, `x.bind` in a section on `x`, and a
+  dotted slot name each fail the build.
+- Pkl tests read `slotsByName["x"].value` (`.signal`, `.type`) where they read `slots["x"]`.
+- `WireShapeSuite` compares `Reading` with `SlotSource` minus `signal`/`type`, and asserts the
+  `Slot` declares both.
+- `SignalSectionSuite` scanned the sources for `signalBind("x")` inside `{{#x}}`, a spelling that
+  no longer exists. It now compiles every card in `components.pkl`'s `cards` index and asserts
+  `boundInOwnSection` is empty, so shipped cards no test dashboard builds stay covered.
 
 ## Perf
 
@@ -164,6 +192,9 @@ Views, measured against main on the same machine; allocation is the steady numbe
 
 `pageSetTiles` and `pageWalkStream` first read 1–2% higher with 2 forks; with 4 they sit inside
 the spread between forks.
+
+Handles, Pkl evaluation of the starter site over the house fixture dump, 15 runs after 5 warm-up,
+three rounds against the pre-handles library: median 39–41 ms before, 34–37 ms after.
 
 ## Docs
 

@@ -16,6 +16,7 @@ module site
 
 import "entry.pkl"
 import "core/access.pkl" as accessMod
+import "core/node.pkl" as nodes
 
 /// Every dashboard, keyed by slug — the key is the route (`/d/<slug>`). Amend
 /// a key into existence (`["home"] { card = ... }`), or assign a module that
@@ -33,3 +34,6 @@ default: String? = null
 /// `c.access.public` makes a page open to anyone who can reach this server,
 /// with buttons that still act on the home.
 access: accessMod.Access = accessMod.authenticated
+
+// A node's `slots` reach the backend by name (`core/node.pkl`'s `wireSlots`).
+output { renderer { converters { ["slots"] = (ss) -> nodes.wireSlots(ss) } } }

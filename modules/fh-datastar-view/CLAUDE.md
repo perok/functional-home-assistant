@@ -239,10 +239,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
   when a light is off).
-- **Signal slots (ADR 0017)**: a slot with `signal = true` carries its value as a Datastar signal
+- **Signal slots (ADR 0017)**: a slot with a `signal` carries its value as a Datastar signal
   instead of as bytes in the element, so a change to it costs one
   `datastar-patch-signals` frame for the batch rather than a re-rendered card each. The card places
-  the renderer-supplied binding — `\(slot.signalBind("value"))` in Pkl, `{{{value.bind}}}` in the
+  the renderer-supplied binding — `\(value.bind)` in Pkl, `{{{value.bind}}}` in the
   emitted template — beside the ordinary `{{value}}` hole. A display signal is named by WHAT IT
   READS — `_e.<domain>.<object_id>.<transform>` — so one entity on three cards is one signal and one
   frame entry (#134); dots are PATH separators, so a frame carries nested JSON and never a flat

@@ -15,9 +15,11 @@ import "button.pkl" as buttonMod
 // a shared signal the press cannot write — the slider's committed/`_slide`
 // split.
 const local restoreSwitch: String =
-  tapMod.restoreOnRefusal(
-    "$" + slotMod.signalRef("checked") + " = $" + slotMod.signalRef("switched")
-  )
+  tapMod.restoreOnRefusal("$" + checked.signalName + " = $" + switched.signalName)
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local checked: slotMod.Slot = slotMod.slot("checked")
+const local switched: slotMod.Slot = slotMod.slot("switched")
 
 /// `fh-switch`, BeerCSS's `.switch` under the default theme: a checkbox styled
 /// as an MD3 switch. It must show which state it is in, so [[on]] is a live
@@ -29,10 +31,10 @@ open class Switch extends nodes.ActiveNode {
   card = "switch"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="fh-card fh-toggle fh-tile-card" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
-        <div class="fh-tile">\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.run("label"))</span></span>
+      <article class="fh-card fh-toggle fh-tile-card" \(switched.bind)\(tapMod.guardLook)>
+        <div class="fh-tile">\(badgeMod.seat("", "\(badgeMod.icon)", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.run(labelSlot))</span></span>
         <label class="fh-switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
+          <input type="checkbox" value="on" \(checked.ifTrue("checked")) \(checked.bind) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
         </label></div>
       </article>
@@ -58,26 +60,14 @@ open class Switch extends nodes.ActiveNode {
   /// See `Button.subject`.
   hidden subject: String? = null
   slots {
-    when (subject != null) {
-      ["entity_id"] = subject!!
-    }
-    ["label"] = slotMod.labelSlot(null, label)
-    when (glyph != null) {
-      ["icon"] =
-        if (glyph is slotMod.Reading) (glyph as slotMod.Reading) { signal = slotMod.asAttr("class") }
-        else glyph!!
-    }
-    ["checked"] = (on) { signal = slotMod.asBind }
-    ["switched"] = (on) { signal = slotMod.asAttr("data-switched") }
-    for (k, v in tapMod.tapRoute(tapAction)) {
-      [k] = v
-    }
-    for (k, v in tapMod.guardSlots(tapAction)) {
-      [k] = v
-    }
-    for (k, v in badgeMod.slots(active)) {
-      [k] = v
-    }
+    slotMod.subject.of(subject)
+    labelSlot.of(slotMod.labelSlot(null, label))
+    badgeMod.iconOf(glyph)
+    slotMod.signalled(checked, on, slotMod.asBind)
+    slotMod.signalled(switched, on, slotMod.asAttr("data-switched"))
+    ...tapMod.tapRoute(tapAction)
+    ...tapMod.guardSlots(tapAction)
+    ...badgeMod.slots(active)
   }
   function label(l: String|slotMod.Expr): Switch = let (self = this) (self) { label = l }
   function tapAction(a: tapMod.TapAction): Switch = let (self = this) (self) { tapAction = a }
