@@ -4,8 +4,9 @@ Discussed in chat on 2026-10-29, after #654 and #655. Regions get the same treat
 design settles; they are out of scope here.
 
 **State:** built: views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
-rename, and the Pkl `Slot` handles across the library; the wire snapshots are unchanged. Next:
-flags and signal writes (below), decided in chat on 2026-10-30.
+rename, the Pkl `Slot` handles across the library, and flags and signal writes (decided in chat on
+2026-10-30). `tapMod.disabled`'s literal `"1"` stays: it is a bool value read with `ifTrue`, live
+on other nodes, not a flag.
 
 ## Why
 
@@ -139,8 +140,9 @@ reinvents it).
   so `of(false)` meaning "absent" would be ambiguous.
 - `when (x != null) { s.of(x!!) }` becomes `s.of(x)`: `of(null)` already leaves the slot out.
 - `bar.pkl`'s `hasOf` goes: it is set exactly when `of` is, which `ofSlot.ifSet` already says.
-- `button.pkl`'s `sizeSmall`/`sizeMedium`/`sizeLarge` become one `sizeClass` slot holding the class:
-  three flags spelled one choice only because Mustache cannot compare.
+- `button.pkl`'s `sizeSmall`/`sizeMedium`/`sizeLarge` stay three flags: a theme rewrites class
+  tokens in the template text only (`theme.classes.rewriteTemplate`, ADR 0020), so a class held in
+  a slot value would escape it.
 - **Reads** of a signal become `x.jsValue`, which already prints `$<signal>` for a signal and the
   quoted value otherwise. **Writes** become **`x.assign(js)`**, printing `$<signal> = js`.
   `signalName` stays for the signal-patch filter regexes.
@@ -191,6 +193,10 @@ filled per slot) is replaced by a test of the view, never weakened.
 - Pkl tests read `slotsByName["x"].value` (`.signal`, `.type`) where they read `slots["x"]`.
 - `WireShapeSuite` compares `Reading` with `SlotSource` minus `signal`/`type`, and asserts the
   `Slot` declares both.
+- `components.test.pkl` facts that pin template text read the flags as `{{#x.has}}` and signal
+  reads as `{{{x.jsValue}}}`; wire snapshots change by exactly that respelling.
+- `BuildPhaseSuite`: `x.signal` is refused where it renders on a node whose `x` is not a signal,
+  and a section the node settles (`has`, a literal, an absent slot) decides whether it renders.
 - `SignalSectionSuite` scanned the sources for `signalBind("x")` inside `{{#x}}`, a spelling that
   no longer exists. It now compiles every card in `components.pkl`'s `cards` index and asserts
   `boundInOwnSection` is empty, so shipped cards no test dashboard builds stay covered.
@@ -221,6 +227,9 @@ Views, measured against main on the same machine; allocation is the steady numbe
 
 `pageSetTiles` and `pageWalkStream` first read 1–2% higher with 2 forks; with 4 they sit inside
 the spread between forks.
+
+Flags and signal writes: `Dashboard.validate` on the smoke dashboard, 200 runs after 200 warm-up,
+three rounds: median 8.0–9.7 ms with the `x.signal` check, 8.1–10.3 ms with its call removed.
 
 Handles, Pkl evaluation of the starter site over the house fixture dump, 15 runs after 5 warm-up,
 three rounds against the pre-handles library: median 39–41 ms before, 34–37 ms after.

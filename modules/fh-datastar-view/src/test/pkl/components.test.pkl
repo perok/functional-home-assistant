@@ -797,8 +797,8 @@ facts {
     !row.slotsByName.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
-    c.cards["sliderHead"].template.contains("{{#toggle}}<button type=\"button\" class=\"fh-slider-toggle\"")
-    c.cards["sliderHead"].template.contains("{{^toggle}}<input type=\"range\"")
+    c.cards["sliderHead"].template.contains("{{#toggle.has}}<button type=\"button\" class=\"fh-slider-toggle\"")
+    c.cards["sliderHead"].template.contains("{{^toggle.has}}<input type=\"range\"")
     // ...and a light that CAN dim is untouched by all of it — as is one that
     // says NOTHING about its modes, which is what an entity that was
     // unavailable when the dump was taken looks like.
@@ -1305,7 +1305,7 @@ facts {
     sw.slotsByName["switched"].signal == "attr:data-switched"
     // ...and the rollback copies one into the other, gated on the error signal.
     t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
-    t.contains("$_{{id}}__error && (${{checked.signal}} = ${{switched.signal}})")
+    t.contains("$_{{id}}__error && (${{checked.signal}} = {{{switched.jsValue}}})")
   }
 
   ["an appliance with no programme length fills out of where its countdown started"] {
@@ -1336,7 +1336,7 @@ facts {
     // slot reads one entity. The guard is the substance — a `total` reading
     // `unknown` makes NaN, and the bar sits empty rather than painting NaN%.
     local t = c.cards["progressBar"].template
-    t.contains("{{#down}}100 - {{/down}}")
+    t.contains("{{#down.has}}100 - {{/down.has}}")
     t.contains(")) || 0")
   }
 
@@ -1389,7 +1389,7 @@ facts {
   ["a percentage bar reads one entity and divides by nothing"] {
     local b = c.bar.percent(outside)
     (b.slotsByName["value"].value as slotMod.Reading).entityId == "sensor.outside"
-    !b.slotsByName.containsKey("hasOf")
+    !b.slotsByName.containsKey("of")
     !b.slotsByName.containsKey("down")
     // Its reading is a signal its own expression reads, so a tick is a frame
     // entry, never the bar's bytes.
@@ -1678,7 +1678,7 @@ facts {
     // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
     // on the server and on a rollback alike.
     (head.slotsByName["fillColor"].value as slotMod.Reading).default == "transparent"
-    head.cardDef.template.contains("{{#kelvinTrack}}, ${{fillColor.signal}} = (${{value.signal}} >= {{min}}")
+    head.cardDef.template.contains("{{#kelvinTrack.has}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}}")
     c.entitySlider(lamp).controls.map((m) -> m.head.slotsByName.containsKey("kelvinTrack"))
       == List(false, true, false)
   }

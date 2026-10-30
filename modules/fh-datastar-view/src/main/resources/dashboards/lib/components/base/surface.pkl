@@ -16,7 +16,7 @@ import "../../layout.pkl" as layout
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifTrue(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)">\#(labelSlot)</a>"#
+    template = #"<a data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)">\#(labelSlot)</a>"#
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
     // than shortened. Unwrapped, so a theme can style the bar's `> a`.
     wrapAsCell = false

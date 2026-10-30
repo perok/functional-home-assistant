@@ -15,7 +15,7 @@ import "button.pkl" as buttonMod
 // a shared signal the press cannot write — the slider's committed/`_slide`
 // split.
 const local restoreSwitch: String =
-  tapMod.restoreOnRefusal("$" + checked.signalName + " = $" + switched.signalName)
+  tapMod.restoreOnRefusal(checked.assign(switched.jsValue))
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 const local checked: slotMod.Slot = slotMod.slot("checked")

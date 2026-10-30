@@ -240,7 +240,12 @@ Mustache's `&#39;` decodes back to `'` before the JS runs and closes the string.
 `signalBind` answering `None` everywhere (issue #133) the slot falls back to its quoted literal and
 a state-dependent tap still works with no JS at all.
 
-Two `validate` rules, because both failures are silent:
+A card's own handler READS a signal slot through `jsValue` too, never by spelling `$` before its
+name, and WRITES one through the Pkl `x.assign(js)` (`$<signal> = js`): a drag painting the fill
+before the commit, a refusal copying the server's value back. `{{x.signal}}`, the bare name, is
+left for a signal-patch filter.
+
+Three `validate` rules, because each failure is silent:
 
 - A `Handler` slot must be READ — `{{{<slot>.jsValue}}}` or the bare `{{<slot>.signal}}` — where a
   painted kind must place `{{{<slot>.bind}}}`. It has no binding to place, so the existing rule
@@ -248,6 +253,12 @@ Two `validate` rules, because both failures are silent:
 - A slot read as `jsValue` must not be **live and non-signal**. That is the one shape with no
   answer, and refusing it is the rule rather than a gap: such a value moves in the element's bytes
   every tick, which is precisely what carrying it as a signal exists to stop.
+- `{{x.signal}}` (and so `assign`) must not render on a node where `x` is not a signal: it prints
+  nothing there, and a write becomes `$ = …`. The tree records the sections around each placement
+  (`Templates.Reads.signalPlacements`), and `validate` settles each per node — a `y.has` by whether
+  the node sets `y`, a section on a literal or absent `y` by its value — counting one only state
+  decides as open. So the slider's colour-track markers, which assign `fillColor` under `hueTrack`,
+  are checked against every slider that sets the flag.
 
 **"You send what you saw" is preserved, and is why this is safe.** The signal is patched in the
 same frame as the visible state, so at click time it holds what the user is looking at: the command

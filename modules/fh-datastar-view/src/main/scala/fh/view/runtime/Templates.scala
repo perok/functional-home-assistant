@@ -195,6 +195,10 @@ object Templates {
     *   patch form's withheld value closes (ADR 0017)
     * @param unknownViews
     *   the dotted names whose view is none of [[View]]
+    * @param signalPlacements
+    *   each `x.signal` with the sections around it, innermost first: it prints
+    *   nothing where `x` is not a signal, so validation decides per node
+    *   whether one could render there
     */
   final case class Reads(
       names: Set[String],
@@ -204,8 +208,12 @@ object Templates {
       misplacedRegions: Set[String],
       views: Set[(String, View)],
       boundInOwnSection: Set[String],
-      unknownViews: Set[String]
+      unknownViews: Set[String],
+      signalPlacements: Set[(String, List[Section])]
   )
+
+  /** A `{{#tag}}` section, or `{{^tag}}` when inverted. */
+  final case class Section(tag: String, inverted: Boolean)
 
   private object Reads:
     val empty: Reads = Reads(
@@ -213,6 +221,7 @@ object Templates {
       Set.empty,
       Set.empty,
       Map.empty,
+      Set.empty,
       Set.empty,
       Set.empty,
       Set.empty,
@@ -243,10 +252,14 @@ object Templates {
   private def readCodes(
       codes: Array[com.github.mustachejava.Code],
       regions: Set[String],
-      guards: List[String],
+      guards: List[Section],
       acc: Reads
   ): Reads =
-    import com.github.mustachejava.codes.{IterableCode, ValueCode}
+    import com.github.mustachejava.codes.{
+      IterableCode,
+      NotIterableCode,
+      ValueCode
+    }
     if codes == null then acc
     else
       codes.foldLeft(acc) { (acc, code) =>
@@ -256,7 +269,8 @@ object Templates {
               if regions.contains(s.getName) then
                 acc.copy(misplacedRegions = acc.misplacedRegions + s.getName)
               else read(s.getName, guards, value = false, raw = false, acc)
-            readCodes(s.getCodes(), regions, s.getName :: guards, here)
+            val section = Section(s.getName, s.isInstanceOf[NotIterableCode])
+            readCodes(s.getCodes(), regions, section :: guards, here)
           case v: ValueCode if regions.contains(v.getName) =>
             if v.isInstanceOf[FhValueCode] && guards.isEmpty then
               acc.copy(regionHoles =
@@ -279,7 +293,7 @@ object Templates {
   // `{{.}}` is the section's own value, and names nothing.
   private def read(
       tag: String,
-      guards: List[String],
+      guards: List[Section],
       value: Boolean,
       raw: Boolean,
       acc: Reads
@@ -299,9 +313,12 @@ object Templates {
           required = if required then acc.required + slot else acc.required,
           views = acc.views + (slot -> view),
           boundInOwnSection =
-            if view == View.Bind && guards.contains(slot) then
+            if view == View.Bind && guards.exists(_.tag == slot) then
               acc.boundInOwnSection + slot
-            else acc.boundInOwnSection
+            else acc.boundInOwnSection,
+          signalPlacements =
+            if view == View.Signal then acc.signalPlacements + (slot -> guards)
+            else acc.signalPlacements
         )
       case Some(Left(_)) => acc.copy(unknownViews = acc.unknownViews + tag)
 

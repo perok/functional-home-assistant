@@ -22,18 +22,16 @@ const onoff: slotMod.Slot = slotMod.slot("onoff")
 /// `<i>`'s class; `spin` is the card's busy splice, inside whatever section
 /// gates it: [[tapSpin]], or the slider head's, which spins on its commit.
 const function seat(extraClass: String, glyph: String, spin: String): String =
-  icon.ifSet(#"<span class="fh-badge fh-icon-shape\#(extraClass)\#(onoff.ifTrue(" fh-onoff"))"\#(spin)><i class="\#(glyph)" \#(icon.bind)></i></span>"#)
+  icon.ifSet(#"<span class="fh-badge fh-icon-shape\#(extraClass)\#(onoff.ifSet(" fh-onoff"))"\#(spin)><i class="\#(glyph)" \#(icon.bind)></i></span>"#)
 
 /// The slots a seat reads besides [[icon]]. The card lists them beside its own,
 /// `slots { ...badgeMod.slots(active) }`.
 const function slots(active: nodes.BooleanInput): Listing<slotMod.Slot> =
   new {
-    when (!(active is Boolean)) {
-      onoff.of("1")
-    }
+    onoff.setIf(!(active is Boolean))
   }
 
 /// The spin for a seat on a card with one tap (the tile, the switch): while
 /// that tap is busy, if it asks to be seen.
 const tapSpin: String =
-  tapMod.busy.ifTrue(tapMod.busyVisual.ifTrue(" " + tapMod.busyShapeClass))
+  tapMod.busy.ifSet(tapMod.busyVisual.ifSet(" " + tapMod.busyShapeClass))

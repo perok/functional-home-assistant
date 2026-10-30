@@ -44,14 +44,14 @@ const local dragPos: String = posFrom("evt.target.value")
 /// A hue track's marker is painted in the hue under it, the same `hsl` the
 /// server's `fillColor` sends, so a drag recolours it before any commit.
 const local function hueMarker(hue: String): String =
-  "$\(fillColorSlot.signalName) = 'hsl(' + Math.round(\(hue)) + ',100%,50%)'"
+  fillColorSlot.assign("'hsl(' + Math.round(\(hue)) + ',100%,50%)'")
 
 /// A kelvin track's marker, in the colour `sliderFillColourRamp` gives the
 /// server's `fillColor`. Below the range is no kelvin at all (a light in a
 /// colour mode reads `0`): `transparent`, the track's paint for none.
 const local function kelvinMarker(k: String): String =
   let (t = "(\(posFrom(k)) / 100)")
-    "$\(fillColorSlot.signalName) = (\(k) >= \(minSlot) ? 'rgb(' + Math.round(255 - 54 * \(t)) + ',' + Math.round(166 + 60 * \(t)) + ',' + Math.round(87 + 168 * \(t)) + ')' : 'transparent')"
+    fillColorSlot.assign("(\(k) >= \(minSlot) ? 'rgb(' + Math.round(255 - 54 * \(t)) + ',' + Math.round(166 + 60 * \(t)) + ',' + Math.round(87 + 168 * \(t)) + ')' : 'transparent')")
 
 /// What the control SHOWS: the finger during a gesture, the server's last word
 /// at rest. A second signal beside the value slot, because
@@ -62,30 +62,30 @@ const local slideSig: String = "_{{id}}__slide"
 /// Adopt what the device says, which is confirmation and correction alike (HA
 /// clamping a brightness needs no case of its own).
 const local adoptCommitted: String =
-  #"data-on-signal-patch-filter="{include:/^\#(valueSlot.signalName)$/}" data-on-signal-patch="$\#(slideSig) = $\#(valueSlot.signalName)""#
+  #"data-on-signal-patch-filter="{include:/^\#(valueSlot.signalName)$/}" data-on-signal-patch="$\#(slideSig) = \#(valueSlot.jsValue)""#
 
 // [[adoptCommitted]] for when no commit is coming. `fill` and `state` are
 // recomputed from the committed signal, so the three writes have no order
 // between them. Comma-separated: this splices inside a `&&`.
 const local rollbackToCommitted: String =
-  let (committed = "$" + valueSlot.signalName)
+  let (committed = valueSlot.jsValue)
     "$\(slideSig) = \(committed), " +
-      "$\(fillSlot.signalName) = (100 - \(posFrom(committed))) + '%'" +
-      dragPercent.ifTrue(", $\(stateSlot.signalName) = Math.round(\(posFrom(committed))) + ' %'") +
-      hueTrackSlot.ifTrue(", \(hueMarker(committed))") +
-      kelvinTrackSlot.ifTrue(", \(kelvinMarker(committed))")
+      fillSlot.assign("(100 - \(posFrom(committed))) + '%'") +
+      dragPercent.ifSet(", " + stateSlot.assign("Math.round(\(posFrom(committed))) + ' %'")) +
+      hueTrackSlot.ifSet(", \(hueMarker(committed))") +
+      kelvinTrackSlot.ifSet(", \(kelvinMarker(committed))")
 
 // The track's own classes: one `cardDef` serves every slider.
 const local trackClasses: String =
-  hueTrackSlot.ifTrue(" fh-track-hue") + kelvinTrackSlot.ifTrue(" fh-track-kelvin") + greyedSlot.ifTrue(" fh-slider-greyed")
+  hueTrackSlot.ifSet(" fh-track-hue") + kelvinTrackSlot.ifSet(" fh-track-kelvin") + greyedSlot.ifSet(" fh-slider-greyed")
 
 // What a drag paints before any commit: the fill, and the readout or marker
 // where they follow the position.
 const local dragPaint: String =
-  "$\(fillSlot.signalName) = (100 - \(dragPos)) + '%'"
-    + dragPercent.ifTrue("; $\(stateSlot.signalName) = Math.round(\(dragPos)) + ' %'")
-    + hueTrackSlot.ifTrue("; \(hueMarker("evt.target.value"))")
-    + kelvinTrackSlot.ifTrue("; \(kelvinMarker("evt.target.value"))")
+  fillSlot.assign("(100 - \(dragPos)) + '%'")
+    + dragPercent.ifSet("; " + stateSlot.assign("Math.round(\(dragPos)) + ' %'"))
+    + hueTrackSlot.ifSet("; \(hueMarker("evt.target.value"))")
+    + kelvinTrackSlot.ifSet("; \(kelvinMarker("evt.target.value"))")
 
 // The dragged number, led into a list where the key's value is one (a hue).
 const local dragged: String =
@@ -143,16 +143,16 @@ class SliderHead extends nodes.ActiveNode {
     }
     template = """
       <div class="fh-slider-body">
-        <div class="fh-slider-head\(greyedSlot.ifTrue(" fh-slider-greyed"))">
-          \(badgeMod.seat(" fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifTrue(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
+        <div class="fh-slider-head\(greyedSlot.ifSet(" fh-slider-greyed"))">
+          \(badgeMod.seat(" fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
           {{{text}}}
           \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
           <div class="fh-slider-actions">{{{actions}}}</div>
         </div>
-        <div class="fh-slider\(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifTrue(" \(tapMod.busyClassChange)"))\(tapMod.busyVisual.ifFalse(tapMod.refusedClass))>
-          \(toggleSlot.ifFalse(rangeInput))
+        <div class="fh-slider\(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange)"))\(tapMod.busyVisual.ifUnset(tapMod.refusedClass))>
+          \(toggleSlot.ifUnset(rangeInput))
           <span style="--fh-fill: \(fillSlot);background:\(fillColorSlot)" \(fillSlot.bind) \(fillColorSlot.bind)></span>
-          \(toggleSlot.ifTrue(toggleButton))
+          \(toggleSlot.ifSet(toggleButton))
         </div>
       </div>
       """
@@ -325,9 +325,7 @@ open class Slider extends nodes.Node {
     labelSlot.of(if (title is slotMod.Reading) (title as slotMod.Reading) { reads = "onRender" } else title)
     badgeMod.icon.of(glyph)
     ...badgeMod.slots(active)
-    when (busyVisual) {
-      tapMod.busyVisual.of("1")
-    }
+    tapMod.busyVisual.setIf(busyVisual)
     // Absent rather than empty when there is no readout: a signal slot is blank
     // in the patch form, so a section over the value would drop the span.
     when (reading != null) {
@@ -348,22 +346,12 @@ open class Slider extends nodes.Node {
         }, slotMod.asStyle("background"))
     else fillColorSlot.of(fillDefault)
     // Section flags, because one `cardDef` serves every slider on the page.
-    when (readingFollowsDrag) {
-      dragPercent.of("1")
-    }
-    when (press != null) {
-      toggleSlot.of("1")
-    }
+    dragPercent.setIf(readingFollowsDrag)
+    toggleSlot.setIf(press != null)
     valueRestSlot.of(valueRest)
-    when (hueTrack) {
-      hueTrackSlot.of("1")
-    }
-    when (kelvinTrack) {
-      kelvinTrackSlot.of("1")
-    }
-    when (greyed) {
-      greyedSlot.of("1")
-    }
+    hueTrackSlot.setIf(hueTrack)
+    kelvinTrackSlot.setIf(kelvinTrack)
+    greyedSlot.setIf(greyed)
     ...tapMod.tapRoute(press ?? commit ?? throw("A slider needs a commit or a press."))
     minSlot.of("\(rangeMin)")
     maxSlot.of("\(rangeMax)")

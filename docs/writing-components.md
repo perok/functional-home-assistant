@@ -64,7 +64,9 @@ The build holds the two halves to each other. A slot placed outside every
 section, like `message` here, must be one the banner sets. Wrap anything
 optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node
 sets it, and `ifUnset` is the other half. `ifTrue`/`ifFalse` test a yes/no
-value instead. A piece that is always there needs no section: set it as
+value instead. For a switch of your own card's, such as a size or a direction,
+`flag.setIf(isDown)` sets the slot only while it holds, and the template reads
+it with `flag.ifSet(…)`. A piece that is always there needs no section: set it as
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
 to `" °C"`. And every slot you set must be placed somewhere in the template.
 
@@ -251,7 +253,7 @@ slots {
 ```
 
 That is the whole thing. You do not write any signal names, and you do not need
-a `tapMod.busy.ifTrue(…)` section around anything — the pieces bring their own, so you
+a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their own, so you
 place them whether or not this particular card guards its tap.
 
 **Do not build the click yourself.** The slots carry more than the click: the
@@ -279,7 +281,7 @@ slow action, you place that yourself, in the icon's `class` (`glyph` being your
 icon's slot):
 
 ```pkl
-\(tapMod.busyVisual.ifTrue(glyph.ifTrue(" " + tapMod.busyShapeClass)))
+\(tapMod.busyVisual.ifSet(glyph.ifTrue(" " + tapMod.busyShapeClass)))
 ```
 
 The spinner is separate because its class name comes from the theme, and only

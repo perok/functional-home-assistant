@@ -9,6 +9,7 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
+  SignalBind,
   SlotSource,
   Surface,
   VarAt
@@ -143,6 +144,40 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(
       errs("{{#icon.has}}<i {{{icon.bind}}}>{{icon}}</i>{{/icon.has}}"),
+      Nil
+    )
+  }
+
+  test(
+    "validate: x.signal is refused wherever it renders on a node whose x is not a signal"
+  ) {
+    val notSignal = "slot 'x' is not a signal here"
+    def placed(section: String, slots: Map[String, SlotSource]) =
+      oneCard(s"<b>{{x}}</b>$section", slots).filter(_.contains(notSignal))
+    val write = "<i data-on:x=\"${{x.signal}} = 1\"></i>"
+    val live = SlotSource(entityId = Some("light.a"))
+    assertEquals(placed(write, Map("x" -> text)).length, 1)
+    // A section the node settles decides; one only state decides could open.
+    val under = (s: String) => s"{{$s}}$write{{/${s.drop(1)}}}"
+    assertEquals(placed(under("#flag"), Map("x" -> text)), Nil)
+    assertEquals(placed(under("^flag"), Map("x" -> text)).length, 1)
+    assertEquals(
+      placed(under("#flag"), Map("x" -> text, "flag" -> text)).length,
+      1
+    )
+    assertEquals(placed(under("#x.has"), Map("x" -> text)).length, 1)
+    assertEquals(
+      placed(under("#flag"), Map("x" -> text, "flag" -> live)).length,
+      1
+    )
+    assertEquals(
+      placed(
+        under("#flag"),
+        Map(
+          "x" -> live.copy(signal = Some(SignalBind.Handler)),
+          "flag" -> text
+        )
+      ),
       Nil
     )
   }

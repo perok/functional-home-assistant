@@ -138,7 +138,7 @@ const function withData(key: String, value: String): String =
 // What a card writes for a guarded tap:
 //
 //   data-on:click="\(tapMod.guardClick)\(tapMod.onclick.raw)"
-//   \(tapMod.guard)\(tapMod.busyVisual.ifTrue(glyph.ifTrue(" " + tapMod.busyShapeClass)))
+//   \(tapMod.guard)\(tapMod.busyVisual.ifSet(glyph.ifTrue(" " + tapMod.busyShapeClass)))
 //
 // [[guard]] and [[guardClick]] carry their own [[busy]] sections, so a card
 // places them unconditionally. Their signal names must match what the server
@@ -227,14 +227,14 @@ const guard: String = guardMechanism + guardLook
 /// Must sit on the element that ISSUES the action: [[failedOn]] filters on it,
 /// and the server answers the `data-fh-node` it sent.
 const guardMechanism: String =
-  busy.ifTrue(" " + indicatorOn(busySig) + " " + failedOn(errorSig) + #" data-fh-node="{{id}}""#)
+  busy.ifSet(" " + indicatorOn(busySig) + " " + failedOn(errorSig) + #" data-fh-node="{{id}}""#)
 
 /// Separate from [[guardMechanism]] for a card whose acting element is not its
 /// visible one: a BeerCSS switch hides its `<input>`, so an outline there is
 /// one nobody sees.
 const guardLook: String =
-  busyVisual.ifTrue(" " + inFlightOrRefused(busySig) + " " + failedClass(errorSig))
-    + busyVisual.ifFalse(refusedClass)
+  busyVisual.ifSet(" " + inFlightOrRefused(busySig) + " " + failedClass(errorSig))
+    + busyVisual.ifUnset(refusedClass)
 
 /// Puts an optimistic control back where the server last said it was, when an
 /// action on this node is refused: a refusal sends no state frame to correct
@@ -245,7 +245,7 @@ const function restoreOnRefusal(restore: String): String =
 /// [[guard]]'s half for INSIDE the click expression. Spliced into the template,
 /// not the expression: a tap's expression is a transform's output, inserted
 /// raw, so a `{{id}}` in it would never be filled.
-const guardClick: String = busy.ifTrue(guardOn(busySig))
+const guardClick: String = busy.ifSet(guardOn(busySig))
 
 /// How long an action may take before the spinner says it is taking a while.
 const busyDelayMs: Int = 300
@@ -360,9 +360,7 @@ const local function routeSlots(
     when (target is pred.Tally) {
       targetSet.of(jsonRenderer.renderValue(target))
     }
-    when (key != null) {
-      dataKey.of(key!!)
-    }
+    dataKey.of(key)
   }
 
 /// The route slots [[click]] reads, and the refusal with them, so no card can
@@ -376,9 +374,7 @@ const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
     new {
       when (t is Call) {
         ...routeSlots(t.service, t.target, t.dataKey)
-        when (t.dataValue != null) {
-          dataValue.of(t.dataValue!!)
-        }
+        dataValue.of(t.dataValue)
       } else {
         onclick.of((t as Click).onclick)
       }
@@ -398,8 +394,8 @@ const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).
 /// `slots { ...tapMod.tapSlots(tapAction) }`.
 const function tapSlots(t: TapAction?): Listing<slotMod.Slot> =
   new {
+    tappable.setIf(t != null)
     when (t != null) {
-      tappable.of("1")
       ...tapRoute(t!!)
       ...guardSlots(t!!)
     }
@@ -409,12 +405,8 @@ const function tapSlots(t: TapAction?): Listing<slotMod.Slot> =
 /// [[tapRoute]] rather than [[tapSlots]].
 const function guardSlots(t: TapAction): Listing<slotMod.Slot> =
   new {
-    when (t.busy) {
-      busy.of("1")
-    }
-    when (t.busy && t.busyVisual) {
-      busyVisual.of("1")
-    }
+    busy.setIf(t.busy)
+    busyVisual.setIf(t.busy && t.busyVisual)
   }
 
 /// A click expression built by a transform, which is the only way to read

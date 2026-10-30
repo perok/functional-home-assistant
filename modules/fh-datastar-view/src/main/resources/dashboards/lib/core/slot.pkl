@@ -95,9 +95,14 @@ class Slot {
   /// back as `'light/toggle'`, a signal as its `$…` read, so one template
   /// serves both. A live slot that is not a signal is a build error.
   fixed jsValue: String = "{{{" + name + ".jsValue}}}"
-  /// The signal's name, for an expression of the card's own (the slider's
-  /// commit URL). Signal-only.
+  /// The signal's name, for an expression of the card's own (a signal-patch
+  /// filter). A read is [[jsValue]] and a write [[assign]]. Signal-only: the
+  /// build refuses it where it could render on a node whose slot is not one.
   fixed signalName: String = "{{" + name + ".signal}}"
+
+  /// `$<signal> = js`: a write to this slot's signal from the card's own
+  /// handler (a drag painting the fill). Signal-only, as [[signalName]].
+  function assign(js: String): String = "$" + signalName + " = " + js
 
   /// `body` while the node sets this slot. Never `{{#name}}` around a signal's
   /// binding: the patch form withholds the value, so that section closes on the
@@ -110,6 +115,10 @@ class Slot {
 
   /// This slot holding `v`.
   function of(v: (String|Reading)?): Slot = let (self = this) (self) { value = v }
+  /// A flag: set while `b` holds, for a template that reads it with
+  /// [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
+  /// `false` (`attr:disabled`).
+  function setIf(b: Boolean): Slot = of(if (b) "1" else null)
 
   function toString(): String = "{{" + name + "}}"
 }

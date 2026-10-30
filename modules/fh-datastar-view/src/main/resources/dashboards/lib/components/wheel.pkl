@@ -28,13 +28,11 @@ const local hue: slotMod.Slot = slotMod.slot("hue")
 const local sat: slotMod.Slot = slotMod.slot("sat")
 const local paint: slotMod.Slot = slotMod.slot("paint")
 
-const local function server(s: slotMod.Slot): String = "$" + s.signalName
-
 /// The light's own colour onto the knob: on a server write, on a refusal, while
 /// the stream is down, and when the popup mounts it, since a closed popup's copy
 /// saw none of those.
 const local adopt: String =
-  "\(shownH) = \(server(hue)), \(shownS) = \(server(sat)), \(shownP) = \(server(paint))"
+  "\(shownH) = \(hue.jsValue), \(shownS) = \(sat.jsValue), \(shownP) = \(paint.jsValue)"
 
 const local move: String =
   "\(hs) = fhWheel(evt, el), " +
