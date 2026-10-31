@@ -9,13 +9,17 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
+  SignalBind,
   SlotSource,
+  TemplateSlot,
   Surface,
   VarAt
 }
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.DashboardBuilders.{classes, declared}
 import io.circe.{parser, Json}
+
+import scala.collection.immutable.ListMap
 
 class BuildPhaseSuite extends munit.FunSuite {
 
@@ -83,7 +87,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   private def oneCard(
       template: String,
-      slots: Map[String, SlotSource],
+      slots: Map[String, TemplateSlot],
       regions: Map[String, Region] = Map.empty,
       filled: Map[String, List[LayoutNode]] = Map.empty
   ): List[String] =
@@ -92,10 +96,11 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card" -> CardDef(template, regions = regions),
         "leaf" -> CardDef("<i></i>")
       ),
-      card = LayoutNode.Component("card", slots = slots, regions = filled)
+      card =
+        LayoutNode.Component("card", templateSlots = slots, regions = filled)
     ).validate()
 
-  private val text = SlotSource(literal = Some("x"))
+  private val text = TemplateSlot(SlotSource(literal = Some("x")))
 
   test("validate: a slot no template name reads is reported") {
     val errs =
@@ -108,9 +113,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("never reads slots: round")), clue = errs)
   }
 
-  test("validate: a derived name reads its slot; the route is the server's") {
+  test("validate: a view reads its slot; the route is the server's") {
     val errs = oneCard(
-      "<b {{{label__bind}}}></b>",
+      "<b {{{label.bind}}}></b>",
       Map(
         "label" -> text,
         Dashboard.ServiceSlot -> text,
@@ -118,6 +123,66 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
     assertEquals(errs, Nil)
+  }
+
+  test("validate: an unknown view is named") {
+    val errs = oneCard(
+      "<b {{{label.bnid}}}>{{label}}</b>",
+      Map("label" -> text)
+    )
+    assert(errs.exists(_.contains("reads 'label.bnid'")), clue = errs)
+  }
+
+  test("validate: a binding inside a section on its own value is rejected") {
+    def errs(tpl: String) = oneCard(tpl, Map("icon" -> text))
+    assert(
+      errs("{{#icon}}<i {{{icon.bind}}}></i>{{/icon}}")
+        .exists(_.contains("guard it with {{#icon.has}}")),
+      clue = errs("{{#icon}}<i {{{icon.bind}}}></i>{{/icon}}")
+    )
+    assertEquals(
+      errs("{{#icon.has}}<i {{{icon.bind}}}>{{icon}}</i>{{/icon.has}}"),
+      Nil
+    )
+  }
+
+  test(
+    "validate: x.signal is refused wherever it renders on a node whose x is not a signal"
+  ) {
+    val notSignal = "slot 'x' is not a signal here"
+    def placed(section: String, slots: Map[String, TemplateSlot]) =
+      oneCard(s"<b>{{x}}</b>$section", slots).filter(_.contains(notSignal))
+    val write = "<i data-on:x=\"${{x.signal}} = 1\"></i>"
+    val live = TemplateSlot(SlotSource(entityId = Some("light.a")))
+    assertEquals(placed(write, Map("x" -> text)).length, 1)
+    // A section the node settles decides; one only state decides could open.
+    val under = (s: String) => s"{{$s}}$write{{/${s.drop(1)}}}"
+    assertEquals(placed(under("#flag"), Map("x" -> text)), Nil)
+    assertEquals(placed(under("^flag"), Map("x" -> text)).length, 1)
+    assertEquals(
+      placed(under("#flag"), Map("x" -> text, "flag" -> text)).length,
+      1
+    )
+    assertEquals(placed(under("#x.has"), Map("x" -> text)).length, 1)
+    assertEquals(
+      placed(under("#flag"), Map("x" -> text, "flag" -> live)).length,
+      1
+    )
+    assertEquals(
+      placed(
+        under("#flag"),
+        Map(
+          "x" -> live.copy(signal = Some(SignalBind.Handler)),
+          "flag" -> text
+        )
+      ),
+      Nil
+    )
+  }
+
+  test("validate: a slot name with a '.' is rejected") {
+    val errs = oneCard("<b>{{a}}</b>", Map("a" -> text, "a.b" -> text))
+    assert(errs.exists(_.contains("slot 'a.b' has a '.'")), clue = errs)
   }
 
   test("validate: a region is placed once, as {{{name}}}, outside sections") {
@@ -165,7 +230,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     def cel(src: String) =
       oneCard(
         "{{v}}",
-        Map("v" -> SlotSource(Some("sensor.t"), transform = src))
+        Map("v" -> TemplateSlot(SlotSource(Some("sensor.t"), transform = src)))
       )
     assert(
       cel("[1, 2]").exists(_.contains("yields a list")),
@@ -208,12 +273,28 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> CardDef("""<div>x</div>""")),
       card = LayoutNode.Component(
         card = "card",
-        cell = Some(Cell(classes = List("fh-cols-3", """bad"><script""")))
+        cell = Some(classes("fh-cols-3", """bad"><script"""))
       )
     )
     val errs = d.validate()
     assert(errs.exists(_.contains("cell class")), clue = errs)
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
+  }
+
+  test("validate takes a set's literal cell classes and refuses any reading") {
+    // A set has no slots to bind a reading with, so the wire alone could ask.
+    val reading = SlotSource(entityId = Some("light.a"))
+    val cell = Cell(
+      classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
+      styles = ListMap("--x" -> reading)
+    )
+    val errs = Dashboard(
+      cards = Map("card" -> CardDef("<i></i>")),
+      card = LayoutNode.SetNode(cell = Some(cell))
+    ).validate()
+    assert(errs.exists(_.contains("cell class 'fh-on' reads state")), errs)
+    assert(errs.exists(_.contains("cell style '--x' reads state")), errs)
+    assert(!errs.exists(_.contains("fh-cols-3")), errs)
   }
 
   /** `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
@@ -230,7 +311,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                 "regions": { "children": [
                   { "kind": "Component", "card": "card" },
                   { "kind": "Component", "card": "button"$idField,
-                    "slots": { "onclick": "open @@NODE_ID@@_self" },
+                    "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                     "inlineSurfaces": { "self": {
                       "content": { "kind": "Component", "card": "card" } } } }
                 ] } } }
@@ -274,7 +355,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
                   { "node": { "kind": "Component", "card": "tile",
-                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } } }
                 ] } } }
@@ -342,14 +423,14 @@ class BuildPhaseSuite extends munit.FunSuite {
                       "regions": {
                         "actions": [
                           { "kind": "Component", "card": "sliderAction",
-                            "slots": { "onclick": "open @@NODE_ID@@_self" },
+                            "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                             "inlineSurfaces": { "self": {
                               "content": { "kind": "Component", "card": "card" } } } }
                         ] } }
                   ],
                   "children": [
                     { "kind": "Component", "card": "slider",
-                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } }
                   ] } }
@@ -379,7 +460,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       " }"
 
   private def tokenAt(name: String): String =
-    s""", "slots": { "g": "${DashboardBuild.declarerToken(name)}" }"""
+    s""", "templateSlots": { "g": "${DashboardBuild.declarerToken(name)}" }"""
 
   private def hoistCard(card: String, surfaces: String = "{}"): Json =
     DashboardBuild.hoistInlineSurfaces(
@@ -525,7 +606,7 @@ class BuildPhaseSuite extends munit.FunSuite {
               { "kind": "Component", "card": "button",
                 "params": { "label": "More" },
                 "entities": [],
-                "slots": { "onclick": { "entity": "",
+                "templateSlots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
                   "content": { "kind": "Component", "card": "card" } } } }
@@ -553,7 +634,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(
       trigger
-        .downField("slots")
+        .downField("templateSlots")
         .downField("onclick")
         .get[String]("transform")
         .toOption,
@@ -582,12 +663,12 @@ class BuildPhaseSuite extends munit.FunSuite {
         {
           "cards": {},
           "card": {
-            "kind": "Component", "card": "tabs", "entities": [], "slots": {},
+            "kind": "Component", "card": "tabs", "entities": [], "templateSlots": {},
             "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
             "regions": { "children": [
               { "kind": "Component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
-                "slots": { "onclick": { "entity": "",
+                "templateSlots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ] },
             "inlineSurfaces": {
@@ -636,7 +717,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(
       first
-        .downField("slots")
+        .downField("templateSlots")
         .downField("onclick")
         .get[String]("transform")
         .toOption,
@@ -887,7 +968,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(
       DashboardBuild.unresolvedTokens(
         json(
-          """{"card":{"slots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
+          """{"card":{"templateSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
             | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
         )
       ),
@@ -941,7 +1022,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("ok" -> CardDef("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
-        slots = Map("label" -> SlotSource(literal = Some("x")))
+        templateSlots =
+          Map("label" -> TemplateSlot(SlotSource(literal = Some("x"))))
       ),
       surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
     )
@@ -959,7 +1041,11 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> CardDef("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
-        slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
+        templateSlots = Map(
+          "state" -> TemplateSlot(
+            SlotSource(Some("e.x"), transform = "'unclosed")
+          )
+        )
       )
     )
     assert(

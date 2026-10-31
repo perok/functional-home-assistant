@@ -7,6 +7,7 @@ import fh.view.model.{
   LayoutNode,
   Reads,
   SlotSource,
+  TemplateSlot,
   Transform
 }
 import io.circe.Json
@@ -35,7 +36,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
       dashboard("kitchen").copy(
         card = LayoutNode.Component(
           card = "c",
-          slots = Map("onclick" -> SlotSource(transform = "state"))
+          templateSlots =
+            Map("onclick" -> TemplateSlot(SlotSource(transform = "state")))
         )
       ),
       "state"
@@ -113,7 +115,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "card" -> Json.obj(
         "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
-        "slots" -> Json.obj(
+        "templateSlots" -> Json.obj(
           "v" -> Json.obj(
             "transform" -> Json.obj(
               "kind" -> Json.fromString("Op"),
@@ -128,7 +130,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       validated.dashboard.card match {
         case c: LayoutNode.Component =>
           // The transform is the union: no parallel field.
-          c.slots("v").transform match {
+          c.templateSlots("v").transform match {
             case Transform.Simple.Suffix(" W", _) => ()
             case other => fail(s"expected the opted-in suffix, got $other")
           }
@@ -145,9 +147,11 @@ class TransformsSuite extends munit.CatsEffectSuite {
     val bad = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
-        slots = Map(
-          "onclick" -> SlotSource(
-            transform = Transform.Simple.Percent("brightness", 1.0, 1.0)
+        templateSlots = Map(
+          "onclick" -> TemplateSlot(
+            SlotSource(transform =
+              Transform.Simple.Percent("brightness", 1.0, 1.0)
+            )
           )
         )
       )
@@ -164,8 +168,10 @@ class TransformsSuite extends munit.CatsEffectSuite {
         .copy(card =
           LayoutNode.Component(
             card = "c",
-            slots = Map(
-              "onclick" -> SlotSource(transform = Transform.Simple.Duration(s))
+            templateSlots = Map(
+              "onclick" -> TemplateSlot(
+                SlotSource(transform = Transform.Simple.Duration(s))
+              )
             )
           )
         )
@@ -186,7 +192,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
         .copy(card =
           LayoutNode.Component(
             card = "c",
-            slots = Map("onclick" -> SlotSource(transform = m))
+            templateSlots =
+              Map("onclick" -> TemplateSlot(SlotSource(transform = m)))
           )
         )
         .validated()
@@ -238,8 +245,10 @@ class TransformsSuite extends munit.CatsEffectSuite {
       ),
       card = LayoutNode.Component(
         card = "c",
-        slots = Map(
-          "onclick" -> SlotSource(transform = tapUrl, reads = Reads.Once)
+        templateSlots = Map(
+          "onclick" -> TemplateSlot(
+            SlotSource(transform = tapUrl, reads = Reads.Once)
+          )
         )
       ),
       slug = slug
@@ -263,7 +272,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "card" -> Json.obj(
         "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
-        "slots" -> Json.obj(
+        "templateSlots" -> Json.obj(
           "onclick" -> Json.obj(
             "transform" -> Json.fromString(tapUrl),
             "reactive" -> Json.False
@@ -310,7 +319,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
     val plain = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
-        slots = Map("onclick" -> SlotSource(transform = "state"))
+        templateSlots =
+          Map("onclick" -> TemplateSlot(SlotSource(transform = "state")))
       )
     )
     assertEquals(

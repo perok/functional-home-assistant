@@ -22,8 +22,8 @@ class HistoryReadings extends nodes.Node {
   card = "historyReadings"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="fh-card fh-readings" data-signals:\(readingsSignal)="{{readings}}">
-        <header>\(textMod.hole("label"))</header>
+      <article class="fh-card fh-readings" data-signals:\(readingsSignal)="\(readings)">
+        <header>\(textMod.hole(label))</header>
         <dl>
           <div><dt>Now</dt><dd data-text="\(stat("p[p.length - 1]"))"></dd></div>
           <div><dt>Low</dt><dd data-text="\(stat("Math.min(...p)"))"></dd></div>
@@ -43,12 +43,12 @@ class HistoryReadings extends nodes.Node {
   hidden window: historyProv.Over = historyProv.presets["24h"]
 
   slots {
-    ["entity_id"] = entity.entity_id
-    ["label"] = slotMod.labelSlot(entity, null)
+    slotMod.subject.of(entity.entity_id)
+    label.of(slotMod.labelSlot(entity, null))
     // Finished, so the template places it bare: " °C", or "" for no unit.
-    ["postfix"] = entity.unit_of_measurement.ifNonNull((u) -> " " + u) ?? ""
+    postfix.of(entity.unit_of_measurement.ifNonNull((u) -> " " + u) ?? "")
     // No `transform`: a fetch slot's default stage is passthrough.
-    ["readings"] = new slotMod.Slot { fetch = historyProv.of(entity, window) }
+    readings.of(new slotMod.Reading { fetch = historyProv.of(entity, window) })
   }
 
   function over(w: providersMod.HistoryWindow): HistoryReadings =
@@ -57,13 +57,17 @@ class HistoryReadings extends nodes.Node {
     over(historyProv.chosen(historyMod.windowVar, historyProv.presets))
 }
 
+const local label: slotMod.Slot = slotMod.slot("label")
+const local postfix: slotMod.Slot = slotMod.slot("postfix")
+const local readings: slotMod.Slot = slotMod.slot("readings")
+
 // Named by the node, so two readings cards never share one signal.
 const local readingsSignal: String = "_hist_{{id}}"
 
 // One reading over the signal's values, rounded, with the unit; a dash when the
 // window holds nothing. `p` is the values, nulls dropped.
 const local function stat(of: String): String =
-  "(p => p.length ? Math.round(\(of) * 10) / 10 + '{{postfix}}' : '–')" +
+  "(p => p.length ? Math.round(\(of) * 10) / 10 + '\(postfix)' : '–')" +
     "($\(readingsSignal).points.map(x => x[1]).filter(v => v !== null))"
 
 // How many hours the answer spans, from the timestamps.

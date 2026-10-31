@@ -11,6 +11,7 @@ import fh.view.model.{
   Op,
   Predicate,
   SlotSource,
+  TemplateSlot,
   Surface,
   Theme
 }
@@ -246,7 +247,10 @@ class ResumeSuite extends ServerHarness {
             List(
               LayoutNode.SetClause(
                 Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-                LayoutNode.Component("pill", Map("state" -> SlotSource()))
+                LayoutNode.Component(
+                  "pill",
+                  Map("state" -> TemplateSlot(SlotSource()))
+                )
               )
             )
           )
@@ -337,7 +341,8 @@ class ResumeSuite extends ServerHarness {
       mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
         ),
         "c_1",
         1
@@ -380,7 +385,8 @@ class ResumeSuite extends ServerHarness {
         "det" -> Surface(
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some("sensor.b")))
+            templateSlots =
+              Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
           )
         )
       )
@@ -432,7 +438,8 @@ class ResumeSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "detail",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
         )
       )
     )
@@ -524,7 +531,8 @@ class ResumeSuite extends ServerHarness {
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
         ),
         "c_1",
         1

@@ -14,6 +14,7 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotSource,
+  TemplateSlot,
   Surface,
   Transform
 }
@@ -44,7 +45,7 @@ class SignalSlotSuite extends ServerHarness {
 
   private val cards = Map(
     "gauge" -> CardDef(
-      "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>"
+      "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>"
     )
   )
 
@@ -52,9 +53,9 @@ class SignalSlotSuite extends ServerHarness {
     LayoutNode.Component(
       "gauge",
       Map(
-        "entity_id" -> SlotSource(literal = Some(entity)),
-        "label" -> SlotSource(transform = friendlyRead),
-        "value" -> SlotSource(signal = Some(SignalBind.Text))
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some(entity))),
+        "label" -> TemplateSlot(SlotSource(transform = friendlyRead)),
+        "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text))
       )
     )
 
@@ -118,8 +119,8 @@ class SignalSlotSuite extends ServerHarness {
       LayoutNode.Component(
         "plain",
         Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.a")),
-          "value" -> SlotSource()
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
+          "value" -> TemplateSlot(SlotSource())
         )
       )
     )
@@ -212,16 +213,16 @@ class SignalSlotSuite extends ServerHarness {
     val two = Dashboard(
       Map(
         "pair" -> CardDef(
-          "<i {{{value__bind}}}>{{value}}</i><u {{{other__bind}}}>{{other}}</u>"
+          "<i {{{value.bind}}}>{{value}}</i><u {{{other.bind}}}>{{other}}</u>"
         )
       ),
       LayoutNode.Component(
         "pair",
         Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.a")),
-          "value" -> SlotSource(signal = Some(SignalBind.Text)),
-          "other" -> SlotSource(
-            transform = friendlyRead,
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
+          "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text)),
+          "other" -> TemplateSlot(
+            SlotSource(transform = friendlyRead),
             signal = Some(SignalBind.Text)
           )
         )
@@ -254,9 +255,14 @@ class SignalSlotSuite extends ServerHarness {
               LayoutNode.Component(
                 "gauge",
                 Map(
-                  "entity_id" -> SlotSource(literal = Some("light.a")),
-                  "label" -> SlotSource(transform = friendlyRead),
-                  "value" -> SlotSource(signal = Some(SignalBind.Text))
+                  "entity_id" -> TemplateSlot(
+                    SlotSource(literal = Some("light.a"))
+                  ),
+                  "label" -> TemplateSlot(SlotSource(transform = friendlyRead)),
+                  "value" -> TemplateSlot(
+                    SlotSource(),
+                    signal = Some(SignalBind.Text)
+                  )
                 )
               )
             )
@@ -281,31 +287,31 @@ class SignalSlotSuite extends ServerHarness {
   private val sliderish = Dashboard(
     Map(
       "slider" -> CardDef(
-        """<div class="slider" style="--_end: {{fill}}" {{{fill__bind}}}>""" +
-          """<span class="fh-reading" {{{state__bind}}}>{{state}}</span>""" +
-          """<input type="range" value="{{value}}" {{{value__bind}}}""" +
-          """ data-on:change="@post('x/' + ${{value__signal}})" />""" +
-          """<span style="background:{{tint}}" {{{tint__bind}}}></span></div>"""
+        """<div class="slider" style="--_end: {{fill}}" {{{fill.bind}}}>""" +
+          """<span class="fh-reading" {{{state.bind}}}>{{state}}</span>""" +
+          """<input type="range" value="{{value}}" {{{value.bind}}}""" +
+          """ data-on:change="@post('x/' + ${{value.signal}})" />""" +
+          """<span style="background:{{tint}}" {{{tint.bind}}}></span></div>"""
       )
     ),
     LayoutNode.Component(
       "slider",
       Map(
-        "entity_id" -> SlotSource(literal = Some("light.a")),
-        "state" -> SlotSource(
-          transform = brightnessRead,
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
+        "state" -> TemplateSlot(
+          SlotSource(transform = brightnessRead),
           signal = Some(SignalBind.Text)
         ),
-        "value" -> SlotSource(
-          transform = brightnessRead,
+        "value" -> TemplateSlot(
+          SlotSource(transform = brightnessRead),
           signal = Some(SignalBind.Bind)
         ),
-        "fill" -> SlotSource(
-          transform = fillPct,
+        "fill" -> TemplateSlot(
+          SlotSource(transform = fillPct),
           signal = Some(SignalBind.Style("--_end"))
         ),
-        "tint" -> SlotSource(
-          transform = rgbRead,
+        "tint" -> TemplateSlot(
+          SlotSource(transform = rgbRead),
           signal = Some(SignalBind.Attr("title"))
         )
       )
@@ -379,16 +385,15 @@ class SignalSlotSuite extends ServerHarness {
   private val boolDash = Dashboard(
     Map(
       "sw" -> CardDef(
-        """<button {{#off}}disabled{{/off}} {{{off__bind}}}>go</button>"""
+        """<button {{#off}}disabled{{/off}} {{{off.bind}}}>go</button>"""
       )
     ),
     LayoutNode.Component(
       "sw",
       Map(
-        "entity_id" -> SlotSource(literal = Some("light.a")),
-        "off" -> SlotSource(
-          transform = boolOff,
-          bypassUnavailable = false,
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
+        "off" -> TemplateSlot(
+          SlotSource(transform = boolOff, bypassUnavailable = false),
           signal = Some(SignalBind.Attr("disabled"))
         )
       )
@@ -426,16 +431,20 @@ class SignalSlotSuite extends ServerHarness {
     // truthy "false". A read mode says WHEN a value is read, never what it is.
     // Three plan shapes: a literal subject, none, and a transform subject.
     val subjects = List(
-      "literal" -> Map("entity_id" -> SlotSource(literal = Some("light.a"))),
-      "none" -> Map.empty[String, SlotSource],
+      "literal" -> Map(
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a")))
+      ),
+      "none" -> Map.empty[String, TemplateSlot],
       "transform" -> Map(
-        "entity_id" -> SlotSource(Some("light.a"), transform = "entity_id")
+        "entity_id" -> TemplateSlot(
+          SlotSource(Some("light.a"), transform = "entity_id")
+        )
       )
     )
-    // Of these, only a `once` slot may be read as `__read` (`readErrors`).
-    def dash(reads: String, subject: Map[String, SlotSource]): Dashboard =
+    // Of these, only a `once` slot may be read as `.jsValue` (`readErrors`).
+    def dash(reads: String, subject: Map[String, TemplateSlot]): Dashboard =
       val read =
-        if reads == Reads.Once then """ data-r="{{{on__read}}}"""" else ""
+        if reads == Reads.Once then """ data-r="{{{on.jsValue}}}"""" else ""
       Dashboard(
         Map(
           "flag" -> CardDef(
@@ -444,11 +453,13 @@ class SignalSlotSuite extends ServerHarness {
         ),
         LayoutNode.Component(
           "flag",
-          subject + ("on" -> SlotSource(
-            Some("light.a"),
-            transform = boolOff,
-            bypassUnavailable = false,
-            reads = reads
+          subject + ("on" -> TemplateSlot(
+            SlotSource(
+              Some("light.a"),
+              transform = boolOff,
+              bypassUnavailable = false,
+              reads = reads
+            )
           ))
         )
       )
@@ -475,7 +486,7 @@ class SignalSlotSuite extends ServerHarness {
     val boxed = Dashboard(
       Map(
         "box" -> CardDef(
-          """<div><b {{{state__bind}}}>{{state}}</b><i {{{bright__bind}}}>{{bright}}</i>{{{children}}}</div>""",
+          """<div><b {{{state.bind}}}>{{state}}</b><i {{{bright.bind}}}>{{bright}}</i>{{{children}}}</div>""",
           regions = Map("children" -> Region())
         ),
         "plain" -> CardDef("<p>x</p>")
@@ -483,10 +494,10 @@ class SignalSlotSuite extends ServerHarness {
       LayoutNode.Component(
         "box",
         Map(
-          "entity_id" -> SlotSource(literal = Some("light.a")),
-          "state" -> SlotSource(signal = Some(SignalBind.Text)),
-          "bright" -> SlotSource(
-            transform = brightnessRead,
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
+          "state" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text)),
+          "bright" -> TemplateSlot(
+            SlotSource(transform = brightnessRead),
             signal = Some(SignalBind.Text)
           )
         ),
@@ -550,18 +561,18 @@ class SignalSlotSuite extends ServerHarness {
 
   /** The template never learns which tier filled `service`. */
   private val lockCard = CardDef(
-    """<article data-on:click="@post('a/' + {{{service__read}}})">""" +
-      """<span {{{state__bind}}}>{{state}}</span></article>"""
+    """<article data-on:click="@post('a/' + {{{service.jsValue}}})">""" +
+      """<span {{{state.bind}}}>{{state}}</span></article>"""
   )
 
-  private def tile(service: SlotSource) = Dashboard(
+  private def tile(service: TemplateSlot) = Dashboard(
     Map("lock" -> lockCard),
     LayoutNode.Component(
       "lock",
       Map(
-        "entity_id" -> SlotSource(literal = Some("lock.front")),
-        "state" -> SlotSource(
-          transform = "state",
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("lock.front"))),
+        "state" -> TemplateSlot(
+          SlotSource(transform = "state"),
           signal = Some(SignalBind.Text)
         ),
         "service" -> service
@@ -570,7 +581,10 @@ class SignalSlotSuite extends ServerHarness {
   )
 
   private val lockish = tile(
-    SlotSource(transform = lockService, signal = Some(SignalBind.Handler))
+    TemplateSlot(
+      SlotSource(transform = lockService),
+      signal = Some(SignalBind.Handler)
+    )
   )
 
   private def lock(state: String) =
@@ -578,7 +592,7 @@ class SignalSlotSuite extends ServerHarness {
 
   test("one template serves a literal service and a signalled one") {
     val static = Renderer
-      .create(tile(SlotSource(literal = Some("light/toggle"))))
+      .create(tile(TemplateSlot(SlotSource(literal = Some("light/toggle")))))
       .renderPage(lock("locked"))
     assert(static.contains("""@post('a/' + 'light/toggle')"""), clue = static)
     assert(!static.contains("light/toggle'}"), clue = static)
@@ -700,8 +714,8 @@ class SignalSlotSuite extends ServerHarness {
     // was 9 entries under node-scoped names, of which 3 were distinct.
     val trio = Map(
       "trio" -> CardDef(
-        "<i {{{state__bind}}}>{{state}}</i><b {{{fill__bind}}}></b>" +
-          "<u {{{tint__bind}}}></u>"
+        "<i {{{state.bind}}}>{{state}}</i><b {{{fill.bind}}}></b>" +
+          "<u {{{tint.bind}}}></u>"
       ),
       "col" -> CardDef(
         "<div>{{{children}}}</div>",
@@ -711,14 +725,14 @@ class SignalSlotSuite extends ServerHarness {
     def place = LayoutNode.Component(
       "trio",
       Map(
-        "entity_id" -> SlotSource(literal = Some("light.a")),
-        "state" -> SlotSource(signal = Some(SignalBind.Text)),
-        "fill" -> SlotSource(
-          transform = fillPct,
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
+        "state" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text)),
+        "fill" -> TemplateSlot(
+          SlotSource(transform = fillPct),
           signal = Some(SignalBind.Style("--_end"))
         ),
-        "tint" -> SlotSource(
-          transform = rgbRead,
+        "tint" -> TemplateSlot(
+          SlotSource(transform = rgbRead),
           signal = Some(SignalBind.Attr("title"))
         )
       )
@@ -916,9 +930,9 @@ class SignalSlotSuite extends ServerHarness {
     def member(id: String) = LayoutNode.Component(
       "gauge",
       Map(
-        "entity_id" -> SlotSource(literal = Some(id)),
-        "label" -> SlotSource(transform = friendlyRead),
-        "value" -> SlotSource(signal = Some(SignalBind.Text))
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
+        "label" -> TemplateSlot(SlotSource(transform = friendlyRead)),
+        "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text))
       )
     )
     // Two candidates: one leaving an otherwise empty set takes the wholesale
@@ -988,8 +1002,8 @@ class SignalSlotSuite extends ServerHarness {
       LayoutNode.Component(
         "gauge",
         Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.a")),
-          "value" -> SlotSource(signal = Some(SignalBind.Text))
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
+          "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text))
         )
       )
     )
@@ -997,7 +1011,7 @@ class SignalSlotSuite extends ServerHarness {
       unbound.validate(),
       List(
         "c: card 'gauge' has slot 'value' marked as a signal slot, but no " +
-          "part of its template places {{{value__bind}}} — the value would " +
+          "part of its template places {{{value.bind}}} — the value would " +
           "stop updating"
       )
     )
@@ -1009,28 +1023,28 @@ class SignalSlotSuite extends ServerHarness {
       LayoutNode.Component(
         "t",
         Map(
-          "entity_id" -> SlotSource(literal = Some("lock.front")),
-          "service" -> SlotSource(
-            transform = lockService,
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("lock.front"))),
+          "service" -> TemplateSlot(
+            SlotSource(transform = lockService),
             signal = Some(SignalBind.Handler)
           )
         )
       )
     )
-    // There is no binding to place, so the `__bind` rule cannot be what checks
+    // There is no binding to place, so the `.bind` rule cannot be what checks
     // it.
     assertEquals(
       card("""<i data-on:click="@post('a')"></i>""").validate(),
       List(
         "c: card 't' has slot 'service' marked as a signal slot, but no part " +
-          "of its template places {{{service__read}}} or {{service__signal}} " +
+          "of its template places {{{service.jsValue}}} or {{service.signal}} " +
           "— the value would stop updating"
       )
     )
-    // `__read` is for composing a URL, `__signal` the bare name for anything
+    // `.jsValue` is for composing a URL, `.signal` the bare name for anything
     // else.
-    assertEquals(card("""<i x="{{{service__read}}}"></i>""").validate(), Nil)
-    assertEquals(card("""<i x="${{service__signal}}"></i>""").validate(), Nil)
+    assertEquals(card("""<i x="{{{service.jsValue}}}"></i>""").validate(), Nil)
+    assertEquals(card("""<i x="${{service.signal}}"></i>""").validate(), Nil)
   }
 
   test("a live non-signal slot cannot be read as a JS expression") {
@@ -1039,21 +1053,21 @@ class SignalSlotSuite extends ServerHarness {
     val bad = Dashboard(
       Map(
         "t" -> CardDef(
-          """<i x="{{{service__read}}}"></i>"""
+          """<i x="{{{service.jsValue}}}"></i>"""
         )
       ),
       LayoutNode.Component(
         "t",
         Map(
-          "entity_id" -> SlotSource(literal = Some("lock.front")),
-          "service" -> SlotSource(transform = lockService)
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("lock.front"))),
+          "service" -> TemplateSlot(SlotSource(transform = lockService))
         )
       )
     )
     assertEquals(
       bad.validate(),
       List(
-        "c: card 't' reads slot 'service' as {{{service__read}}}, but the " +
+        "c: card 't' reads slot 'service' as {{{service.jsValue}}}, but the " +
           "slot is live and not a signal — its value moves in the element's " +
           "bytes, so make it a signal slot or a literal"
       )
@@ -1066,9 +1080,9 @@ class SignalSlotSuite extends ServerHarness {
       LayoutNode.Component(
         "gauge",
         Map(
-          "label" -> SlotSource(literal = Some("Hall")),
-          "value" -> SlotSource(
-            literal = Some("21.4"),
+          "label" -> TemplateSlot(SlotSource(literal = Some("Hall"))),
+          "value" -> TemplateSlot(
+            SlotSource(literal = Some("21.4")),
             signal = Some(SignalBind.Text)
           )
         )
@@ -1091,17 +1105,17 @@ class SignalSlotSuite extends ServerHarness {
     val subject = Dashboard(
       Map(
         "gauge" -> CardDef(
-          "<i {{{entity_id__bind}}}>{{value}}</i>"
+          "<i {{{entity_id.bind}}}>{{value}}</i>"
         )
       ),
       LayoutNode.Component(
         "gauge",
         Map(
-          "entity_id" -> SlotSource(
-            transform = "state",
+          "entity_id" -> TemplateSlot(
+            SlotSource(transform = "state"),
             signal = Some(SignalBind.Text)
           ),
-          "value" -> SlotSource()
+          "value" -> TemplateSlot(SlotSource())
         )
       )
     )
@@ -1122,15 +1136,15 @@ class SignalSlotSuite extends ServerHarness {
     */
   private val structural = Dashboard(
     cards + ("frame" -> CardDef(
-      "<section {{{tint__bind}}}>{{{body}}}</section>",
+      "<section {{{tint.bind}}}>{{{body}}}</section>",
       regions = Map("body" -> Region())
     )),
     LayoutNode.Component(
       "frame",
       Map(
-        "entity_id" -> SlotSource(literal = Some("sensor.a")),
-        "tint" -> SlotSource(
-          transform = tintRead,
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
+        "tint" -> TemplateSlot(
+          SlotSource(transform = tintRead),
           signal = Some(SignalBind.Style("background"))
         )
       ),
@@ -1157,10 +1171,10 @@ class SignalSlotSuite extends ServerHarness {
     // patching the section, carrying the region's content with it.
     val bytes = structural.copy(card =
       structural.card.asComponent
-        .copy(slots =
+        .copy(templateSlots =
           Map(
-            "entity_id" -> SlotSource(literal = Some("sensor.a")),
-            "tint" -> SlotSource(transform = tintRead)
+            "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
+            "tint" -> TemplateSlot(SlotSource(transform = tintRead))
           )
         )
     )

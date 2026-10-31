@@ -25,11 +25,11 @@ local function wheelIn(t: Any): wheelMod.ColourWheel? =
 facts {
   ["the wheel reads hs_color and sets it, through the JSON body"] {
     local w = wheelMod.colourWheel(lamp)
-    (w.slots["hue"] as slotMod.Slot).transform.contains("attr[?'hs_color']")
+    (w.slotsByName["hue"].value as slotMod.Reading).transform.contains("attr[?'hs_color']")
     // The server's reading paints nothing itself: the knob shows the client's
     // copy, which the drag moves and a refusal, a dead stream, a cancelled
     // pointer and a mount put back to the light's.
-    (w.slots["hue"] as slotMod.Slot).signal == slotMod.asHandler
+    w.slotsByName["hue"].signal == slotMod.asHandler
     local t = w.cardDef.template
     t.contains(#"data-style:--fh-h="$_{{id}}__h""#)
     t.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")
@@ -37,9 +37,9 @@ facts {
     t.contains("data-on:pointercancel=")
     t.contains("data-init=")
     // What sets that error: the guard's mechanism, on the element that posts.
-    t.contains(tapMod.guardMechanism) && w.slots["busy"] == "1"
-    w.slots["service"] == "light/turn_on"
-    w.slots["dataKey"] == "hs_color"
+    t.contains(tapMod.guardMechanism) && w.slotsByName["busy"].value == "1"
+    w.slotsByName["service"].value == "light/turn_on"
+    w.slotsByName["dataKey"].value == "hs_color"
     w.cardDef.template.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
     // A light with no colour mode has no wheel.
     module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
@@ -51,7 +51,7 @@ facts {
     wheelIn(t)?.light?.entity_id == "light.lamp"
     t.icon == "mdi:palette-swatch"
     local p = c.pill(t)
-    p.slots["round"] == "1" && p.slots["name"] == "Colour"
+    p.slotsByName["round"].value == "1" && p.slotsByName["name"].value == "Colour"
     // A view tap: never lit by the light.
     p.active == false
     // A light without colour has no group to pass.
@@ -67,9 +67,9 @@ facts {
     local s = c.entitySlider(lamp)
       .buttons(List(c.tap.toggle(lamp), c.its.mainControl, c.view.colourWheel(lamp.colour!!)))
     local bs = s.children["head"][0].children.toList()[0].children["children"].toList()
-    bs[0].slots["glyph"] == "mdi-power"
+    bs[0].slotsByName["glyph"].value == "mdi-power"
     bs[1] is selectMod.VarSelectCycle
-    bs[2].slots["glyph"] == "mdi-palette-swatch"
+    bs[2].slotsByName["glyph"].value == "mdi-palette-swatch"
     // The heads carry none: they are the pill's.
     s.controls.every((m) -> m.head.children["actions"].isEmpty)
     // Without a switch there is one main control: the buttons are the plain head's.
@@ -101,7 +101,7 @@ facts {
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
     local function glyphsOn(l: hass.LightEntity) =
       c.entitySlider(l).buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel)).shownButtons
-        .filterNonNull().map((b) -> if (b is selectMod.Select) "switch" else c.pill(b as tapMod.TapAction).slots["glyph"])
+        .filterNonNull().map((b) -> if (b is selectMod.Select) "switch" else c.pill(b as tapMod.TapAction).slotsByName["glyph"].value)
     glyphsOn(lamp) == List("mdi-power", "switch", "mdi-palette-swatch")
     glyphsOn(warm) == List("mdi-power", "switch")
     glyphsOn(plug) == List("mdi-power")

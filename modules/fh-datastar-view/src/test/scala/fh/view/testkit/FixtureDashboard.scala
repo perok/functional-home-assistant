@@ -9,6 +9,7 @@ import fh.view.model.{
   Predicate,
   Region,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
@@ -73,13 +74,14 @@ object FixtureDashboard {
               when = guard,
               node = LayoutNode.Component(
                 "member",
-                slots = Map(
-                  "entity_id" -> SlotSource(literal = Some(id)),
-                  "name" -> SlotSource(
-                    transform =
+                templateSlots = Map(
+                  "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
+                  "name" -> TemplateSlot(
+                    SlotSource(transform =
                       "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                    )
                   ),
-                  "state" -> SlotSource()
+                  "state" -> TemplateSlot(SlotSource())
                 )
               )
             )
@@ -96,10 +98,12 @@ object FixtureDashboard {
   def reading(e: FixtureEntity): LayoutNode.Component =
     component(
       "reading",
-      "state" -> SlotSource(Some(e.entityId)),
-      "unit" -> SlotSource(
-        Some(e.entityId),
-        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+      "state" -> TemplateSlot(SlotSource(Some(e.entityId))),
+      "unit" -> TemplateSlot(
+        SlotSource(
+          Some(e.entityId),
+          "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+        )
       )
     )
 
@@ -107,7 +111,7 @@ object FixtureDashboard {
     component(
       "light",
       "name" -> lit(label),
-      "state" -> SlotSource(Some(e.entityId))
+      "state" -> TemplateSlot(SlotSource(Some(e.entityId)))
     )
 
   /** It names its entity: a state condition has no subject to supply (ADR

@@ -2,7 +2,7 @@ package fh.view.functional
 
 import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
-import fh.view.model.{Access, LayoutNode, SlotSource, Transform}
+import fh.view.model.{Access, LayoutNode, SlotSource, TemplateSlot, Transform}
 import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FixtureDashboard, HouseFixture, PklFixture, ServiceCall}
@@ -21,7 +21,9 @@ class GroupCallSuite extends FunctionalSuite {
     component(
       "light",
       "name" -> lit("Stue"),
-      "state" -> SlotSource(Some(HouseFixture.kitchenLight.entityId)),
+      "state" -> TemplateSlot(
+        SlotSource(Some(HouseFixture.kitchenLight.entityId))
+      ),
       "service" -> lit("light/turn_off"),
       "targetKind" -> lit("area"),
       "targetId" -> lit("stue")
@@ -106,10 +108,14 @@ class GroupCallSuite extends FunctionalSuite {
     component(
       "light",
       "name" -> lit("Door"),
-      "state" -> SlotSource(Some(HouseFixture.frontLock.entityId)),
-      "service" -> SlotSource(transform =
-        Transform.Simple
-          .Match(Map("locked" -> "lock/unlock"), "lock/lock")
+      "state" -> TemplateSlot(
+        SlotSource(Some(HouseFixture.frontLock.entityId))
+      ),
+      "service" -> TemplateSlot(
+        SlotSource(transform =
+          Transform.Simple
+            .Match(Map("locked" -> "lock/unlock"), "lock/lock")
+        )
       ),
       "targetKind" -> lit("entity"),
       "targetId" -> lit(HouseFixture.frontLock.entityId)

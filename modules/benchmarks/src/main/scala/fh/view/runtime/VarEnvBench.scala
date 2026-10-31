@@ -11,6 +11,7 @@ import fh.view.model.{
   Reads,
   Choice,
   SlotSource,
+  TemplateSlot,
   Transform
 }
 import fh.view.fetch.FetchSnapshot
@@ -93,12 +94,14 @@ object VarEnvBench {
     LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
-          ),
-          transform = Transform.Stage.Passthrough,
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          SlotSource(
+            fetch = Some(
+              FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
+            ),
+            transform = Transform.Stage.Passthrough,
+            reads = Reads.OnRender
+          )
         )
       )
     )

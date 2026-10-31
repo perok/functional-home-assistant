@@ -22,26 +22,27 @@ class ValueWhileSuite extends munit.FunSuite {
 
   private def above0(entity: Option[String]) = SlotSource(
     transform = Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity),
-    bypassUnavailable = false,
-    `type` = SlotType.Bool
+    bypassUnavailable = false
   )
 
   // The peak of the history: what the bar's whole reads.
-  private def peak(valueWhile: Option[SlotSource]) = SlotSource(
-    transform = "math.greatest(past.transformList(i, p, p[1]))",
-    signal = Some(SignalBind.Text),
-    values = Map("past" -> ExprValue.Fetched(history)),
-    valueWhileSlot = valueWhile
+  private def peak(valueWhile: Option[SlotSource]) = TemplateSlot(
+    SlotSource(
+      transform = "math.greatest(past.transformList(i, p, p[1]))",
+      values = Map("past" -> ExprValue.Fetched(history)),
+      valueWhileSlot = valueWhile
+    ),
+    signal = Some(SignalBind.Text)
   )
 
   private val bar = CardDef(
-    """<b {{{of__bind}}}>{{of}}</b>"""
+    """<b {{{of.bind}}}>{{of}}</b>"""
   )
 
-  private def node(of: SlotSource) = LayoutNode.Component(
+  private def node(of: TemplateSlot) = LayoutNode.Component(
     card = "bar",
-    slots = Map(
-      "entity_id" -> SlotSource(literal = Some("sensor.left")),
+    templateSlots = Map(
+      "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
       "of" -> of
     )
   )
@@ -109,12 +110,14 @@ class ValueWhileSuite extends munit.FunSuite {
     def chart(e: String) = LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(e, Choice.Fixed(Windows.day))
-          ),
-          transform = Transform.Stage.Passthrough,
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          SlotSource(
+            fetch = Some(
+              FetchTemplate(e, Choice.Fixed(Windows.day))
+            ),
+            transform = Transform.Stage.Passthrough,
+            reads = Reads.OnRender
+          )
         )
       )
     )
@@ -150,11 +153,8 @@ class ValueWhileSuite extends munit.FunSuite {
   }
 
   test("CEL decides it as well, when an author writes CEL") {
-    val cel = SlotSource(
-      transform = "double(state) > 0.0",
-      bypassUnavailable = false,
-      `type` = SlotType.Bool
-    )
+    val cel =
+      SlotSource(transform = "double(state) > 0.0", bypassUnavailable = false)
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
@@ -184,24 +184,26 @@ class ValueWhileSuite extends munit.FunSuite {
   }
 
   test("the build refuses one that reads a fetch, is not a bool, or is once") {
-    def errs(of: SlotSource) = dashboard(node(of)).validate().mkString("\n")
+    def errs(of: TemplateSlot) = dashboard(node(of)).validate().mkString("\n")
     val readsFetch = SlotSource(
       transform = "size(past) > 0",
-      `type` = SlotType.Bool,
       values = Map("past" -> ExprValue.Fetched(history))
     )
     assert(
       errs(peak(Some(readsFetch))).contains("valueWhile that reads a fetch")
     )
     assert(
-      errs(peak(Some(SlotSource(transform = "state", `type` = SlotType.Bool))))
+      errs(
+        peak(
+          Some(SlotSource(transform = "state"))
+        )
+      )
         .contains("'of.valueWhile' is a boolean slot")
     )
     assert(
       errs(
-        SlotSource(
-          reads = Reads.Once,
-          valueWhileSlot = Some(above0(None))
+        TemplateSlot(
+          SlotSource(reads = Reads.Once, valueWhileSlot = Some(above0(None)))
         )
       ).contains("has a valueWhile — it would keep its first answer")
     )

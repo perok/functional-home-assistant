@@ -6,9 +6,9 @@ import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 
 import scala.concurrent.duration.*
 
-/** A live cell class (`LayoutNode.classWhen`) and a button's own `disabled`,
-  * from a real Pkl entry: what the document carries, and what a state change
-  * sends.
+/** A live cell class (`LayoutNode.cellClassWhen`) and a button's own
+  * `disabled`, from a real Pkl entry: what the document carries, and what a
+  * state change sends.
   */
 class LiveCellClassSuite extends munit.CatsEffectSuite {
 
@@ -24,7 +24,7 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
        |import "@fh-dashboard/core/simple.pkl" as simpleMod
        |import "@fh-home/dump.pkl" as dump
        |
-       |local kitchenOn = new slotMod.Slot {
+       |local kitchenOn = new slotMod.Reading {
        |  entityId = dump.entities.${kitchen.dumpKey}.entity_id
        |  transform = simpleMod.stateIn(new Listing { "on" })
        |  bypassUnavailable = false
@@ -39,7 +39,7 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
 
   private val warmButton =
     s"""    c.button("Warm", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))
-       |      .classWhen("warm", kitchenOn)""".stripMargin
+       |      .cellClassWhen("warm", kitchenOn)""".stripMargin
 
   private def withServer[A](body: String)(f: TestServer => IO[A]): IO[A] =
     TestServer
@@ -124,7 +124,7 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
       "cell-class",
       entry(
         s"""    c.button("Warm", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))
-           |      .classWhen("not-a\\"token", kitchenOn)""".stripMargin
+           |      .cellClassWhen("not-a\\"token", kitchenOn)""".stripMargin
       )
     )
     val errs = d.validate()

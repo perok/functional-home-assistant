@@ -3,7 +3,7 @@
 A node **declares** named values; its slots' CEL **reads** them by name, as typed variables. A
 value is a literal, a **tally** (a static candidate list and which of it is present, counted
 live), or a **condition** (what `c.iff` takes, decided live). Every yes/no input on a card — a
-button's `active`, a `disabled`, a `classWhen` — takes a condition directly, and any node can set a
+button's `active`, a `disabled`, a `cellClassWhen` — takes a condition directly, and any node can set a
 live CSS custom property from a reading. The floor button this was built for:
 
 ```pkl
@@ -14,7 +14,7 @@ c.button(floor.floor_name, c.tap.lights.off(floor))
   .active(lit.any())
   .disabled(lit.none())
   .expressionValues(new Mapping { ["on"] = lit.count(); ["total"] = hass.lights(floor.all).length })
-  .cssProperty("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
+  .cellStyle("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
 ```
 
 Its tap can take the same set, `c.tap.lights.off(lit)`, so the press turns off exactly what the
@@ -121,7 +121,7 @@ or `bytes` is refused with a pointer to `str(…)`, since it would otherwise ren
 
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
-`q.entity(l).stateIs("on")`). `active`, `disabled` and `classWhen` all take one. A condition IS the
+`q.entity(l).stateIs("on")`). `active`, `disabled` and `cellClassWhen` all take one. A condition IS the
 bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by `Conditions` with
 no CEL and no name; a comparison that names no entity reads the slot's, and the build refuses one
 on a slot that has none. An aggregate the build can settle IS a `Boolean` —
@@ -162,13 +162,14 @@ and a slot behind it runs nothing.
 
 ### A live custom property on any node
 
-`.cssProperty(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
+`.cellStyle(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
 produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), an `Expr` may read the
-node's values. It is `classWhen`'s twin: a `cell.style:` slot beside `cell.class:`, the value inline
+node's values. It is `cellClassWhen`'s twin: both are cell slots (`cell.styles` beside `cell.classes`,
+ADR 0008), the value inline
 (`style="--x:…"`) in the document form and a `data-style:--x` binding after the wrapper's seed in
 both. Only a custom property (`--…`), since a plain property would fight the theme's framework,
 which writes `!important` utilities; a reading that is certainly a bool is refused — that is
-`classWhen`'s job.
+`cellClassWhen`'s job.
 
 It cannot drive the slider's own fill: the track's `<span>` declares its own `--fh-fill` inline, so
 a value inherited from the cell is shadowed. The slider keeps its element-level `style:--fh-fill`
@@ -214,7 +215,24 @@ alone sends nothing, because the frame is diffed against what each session holds
   included: the progress card's bar sits in one.
 - **"When it changes, do X" triggers.** That is an automation, and automations belong in HA.
 - **`cssVar` as the name.** "vars" already means three things here (`docs/terminology.md`), so the
-  builder is `cssProperty`.
+  builders are `cellClassWhen` and `cellStyle`, after the cell map each writes. Merging
+  `cellClass` and `cellClassWhen` into one `cellClass(name, when)` was out: Pkl has no
+  overloading, so a static class would read `cellClass("fh-wide", true)`.
+- **Live cell classes as the card's own slots under reserved names** (`cell:class:<name>`, the
+  first build). The class was said twice, in the name and in the signal, a check had to hold the
+  two together, and both sides parsed meaning out of a name. The two other ways to keep them in
+  `slots` failed alike: a placement field on each slot (`at: "cell"`) states per value what the
+  map states once per node, and reserved `class`/`style` keys collide with `Box`'s own `class`.
+  They are cell slots instead (ADR 0008).
+- **One server-side signal holding the cell's whole class string.** That slot would need several
+  readings, and `data-attr:class` replaces the wrapper's other classes, the theme's and
+  `fh-edit-hl` included; `data-class:<name>` switches one.
+- **Deriving a cell slot's signal in `bound` from a `SlotSource` that still decoded one.** A wrong
+  `signal` on the wire would decode and be silently replaced. `SlotSource` holds the reading only
+  (Pkl's `Reading`), and the signal and type sit on `TemplateSlot` (Pkl's `Slot`), so a cell slot
+  has no field to get wrong.
+- **A Simple `match` in place of `cellClassWhen`.** A `match` picks one of several literal values
+  by state; `cellClassWhen` ties one class to any yes/no input, a count above two included.
 
 ## Consequences
 
@@ -239,6 +257,6 @@ alone sends nothing, because the frame is diffed against what each session holds
 - `ExpressionValuesSuite` holds the behaviour from a real Pkl entry: the document, a flip sending a
   frame and not the line, a brightness tick sending nothing, shared and distinct signals, a popup,
   a candidate-set member, conditions as values, the boolean inputs (tint, disable, class, settled
-  at build), `disabled` on a tile and a slider, `cssProperty`, and the build refusals.
+  at build), `disabled` on a tile and a slider, `cellStyle`, and the build refusals.
   `LiveCellClassSmokeSuite` holds what only a browser shows: a live class, an ORed `disabled` and
   a live property each survive a morph of their node.

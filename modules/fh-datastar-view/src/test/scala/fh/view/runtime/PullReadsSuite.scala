@@ -15,6 +15,7 @@ import fh.view.model.{
   Region,
   SlotRead,
   SlotSource,
+  TemplateSlot,
   Surface,
   Transform
 }
@@ -30,8 +31,8 @@ class PullReadsSuite extends munit.FunSuite {
   private def plain(id: String) = LayoutNode.Component(
     "dot",
     Map(
-      "entity_id" -> SlotSource(literal = Some("light.a")),
-      "state" -> SlotSource()
+      "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
+      "state" -> TemplateSlot(SlotSource())
     ),
     id = Some(id)
   )
@@ -40,12 +41,14 @@ class PullReadsSuite extends munit.FunSuite {
     LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(entity, Choice.Fixed(Windows.day))
-          ),
-          transform = Transform.Stage.Chart(),
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          SlotSource(
+            fetch = Some(
+              FetchTemplate(entity, Choice.Fixed(Windows.day))
+            ),
+            transform = Transform.Stage.Chart(),
+            reads = Reads.OnRender
+          )
         )
       ),
       id = id

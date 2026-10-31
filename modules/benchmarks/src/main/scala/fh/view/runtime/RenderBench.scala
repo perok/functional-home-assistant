@@ -16,6 +16,7 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotSource,
+  TemplateSlot,
   Surface,
   Transform
 }
@@ -677,9 +678,9 @@ class RenderBench {
     }
   }
 
-  /** A condition filling a bool slot (`active`, `disabled`, `classWhen`), once
-    * per entity: decided directly, against [[conditionCel]]'s CEL reading the
-    * same decision through a named value.
+  /** A condition filling a bool slot (`active`, `disabled`, `cellClassWhen`),
+    * once per entity: decided directly, against [[conditionCel]]'s CEL reading
+    * the same decision through a named value.
     */
   @Benchmark
   def condition(bh: Blackhole): Unit = {
@@ -1776,7 +1777,7 @@ object RenderBench {
   def entityId(i: Int): String = s"light.tile_$i"
 
   /** An entity card shaped like the shipped ones: icon, name, state, a fill bar
-    * and a tap target. The `__bind` holes render empty for a slot that is not a
+    * and a tap target. The `.bind` holes render empty for a slot that is not a
     * signal slot, so ONE card set serves both dashboards and `signals` moves
     * only on the slot — which is what keeps [[RenderBench.page]] and
     * [[RenderBench.pageSignals]] a comparison of one variable.
@@ -1786,9 +1787,9 @@ object RenderBench {
       template = """<div class="fh-entity {{cls}}">""" +
         """<i class="fh-icon">{{icon}}</i>""" +
         """<div class="fh-body"><span class="fh-name">{{name}}</span>""" +
-        """<span class="fh-state" {{{state__bind}}}>{{state}}</span>""" +
-        """<div class="fh-bar" {{{fill__bind}}}></div>""" +
-        """<span class="fh-fillcolor" {{{fillColor__bind}}}></span>""" +
+        """<span class="fh-state" {{{state.bind}}}>{{state}}</span>""" +
+        """<div class="fh-bar" {{{fill.bind}}}></div>""" +
+        """<span class="fh-fillcolor" {{{fillColor.bind}}}></span>""" +
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
         """</div>"""
     ),
@@ -1818,34 +1819,44 @@ object RenderBench {
     LayoutNode.Component(
       "entity",
       Map(
-        "entity_id" -> SlotSource(literal = Some(entityId(i % distinct))),
-        "cls" -> SlotSource(literal = Some("fh-tile")),
+        "entity_id" -> TemplateSlot(
+          SlotSource(literal = Some(entityId(i % distinct)))
+        ),
+        "cls" -> TemplateSlot(SlotSource(literal = Some("fh-tile"))),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
-        "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
-        "name" ->
-          (if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
-           else
-             SlotSource(
-               // Opted in (ADR 0028) — see [[NameSlot]] on what this models
-               // and what the shipped card actually does.
-               transform = Transform.Simple.Attr("friendly_name")
-             )),
-        "state" -> SlotSource(
-          transform = Transform.Simple.SuffixUnit("unit_of_measurement"),
+        "icon" -> TemplateSlot(SlotSource(literal = Some("mdi:lightbulb"))),
+        "name" -> TemplateSlot(
+          if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
+          else
+            SlotSource(
+              // Opted in (ADR 0028) — see [[NameSlot]] on what this models
+              // and what the shipped card actually does.
+              transform = Transform.Simple.Attr("friendly_name")
+            )
+        ),
+        "state" -> TemplateSlot(
+          SlotSource(transform =
+            Transform.Simple.SuffixUnit("unit_of_measurement")
+          ),
           signal = Option.when(signals)(SignalBind.Text)
         ),
-        "fill" -> SlotSource(
-          transform = Transform.Simple.Fill("brightness", 1.0, 255.0),
+        "fill" -> TemplateSlot(
+          SlotSource(transform =
+            Transform.Simple.Fill("brightness", 1.0, 255.0)
+          ),
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
-        "fillColor" -> SlotSource(
-          transform =
-            if (valued) TransformFillColorValued else TransformFillColor,
+        "fillColor" -> TemplateSlot(
+          SlotSource(transform =
+            if (valued) TransformFillColorValued else TransformFillColor
+          ),
           signal = Option.when(signals)(SignalBind.Style("background"))
         ),
         // Every dashboard has action slots, and ADR 0016 made them build-time
         // literals; leaving the hole out would not match a shipped card.
-        "action" -> SlotSource(literal = Some(actionLiteral(i, distinct)))
+        "action" -> TemplateSlot(
+          SlotSource(literal = Some(actionLiteral(i, distinct)))
+        )
       ),
       values = if (valued) FillColorValues else Map.empty
     )

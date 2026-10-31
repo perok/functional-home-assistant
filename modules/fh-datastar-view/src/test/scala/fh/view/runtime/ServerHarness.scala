@@ -17,6 +17,7 @@ import fh.view.model.{
   Predicate,
   Region,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
@@ -171,7 +172,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
-        slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
+        templateSlots =
+          Map("state" -> TemplateSlot(SlotSource(Some(s"sensor.$name"))))
       )
     Dashboard(
       cards,
@@ -180,10 +182,13 @@ trait ServerHarness extends munit.CatsEffectSuite {
         regions = LayoutNode.kids(
           LayoutNode.Component(
             "btn",
-            Map("label" -> SlotSource(literal = Some("A")))
+            Map("label" -> TemplateSlot(SlotSource(literal = Some("A"))))
           ),
           LayoutNode
-            .Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
+            .Component(
+              "btn",
+              Map("label" -> TemplateSlot(SlotSource(literal = Some("B"))))
+            )
         ),
         vars = TabDeclared
       ),
@@ -241,7 +246,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.a")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
         )
       )
     )
@@ -256,7 +262,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     */
   def onSet(
       candidates: List[String],
-      clauses: List[(Option[Predicate], String, Map[String, SlotSource])]
+      clauses: List[(Option[Predicate], String, Map[String, TemplateSlot])]
   ): LayoutNode.SetNode =
     LayoutNode.SetNode(
       candidates = candidates,
@@ -268,7 +274,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
             ),
             node = LayoutNode.Component(
               card,
-              slots.updated("entity_id", SlotSource(literal = Some(id)))
+              slots.updated(
+                "entity_id",
+                TemplateSlot(SlotSource(literal = Some(id)))
+              )
             )
           )
         })
@@ -283,7 +292,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     // by authored order.
     card = onSet(
       List("light.a", "light.b", "light.c", "light.d", "light.z"),
-      List((None, "dot", Map("state" -> SlotSource())))
+      List((None, "dot", Map("state" -> TemplateSlot(SlotSource()))))
     )
   )
 
@@ -318,7 +327,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def branchCard(entity: String): LayoutNode.Component =
     LayoutNode.Component(
       "card",
-      slots = Map("state" -> SlotSource(Some(entity)))
+      templateSlots = Map("state" -> TemplateSlot(SlotSource(Some(entity))))
     )
 
   def stateMember(
@@ -381,7 +390,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
         ),
         LayoutNode.Component("tabs", vars = TabDeclared)
       )
@@ -390,7 +400,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "t0" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.a")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
         ),
         "c_1",
         0
@@ -657,7 +668,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
         ),
         LayoutNode.Component("tabs", vars = TabDeclared)
       )
@@ -666,7 +678,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "t0" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.a")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
         ),
         "c_1",
         0
@@ -674,7 +687,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
         ),
         "c_1",
         1

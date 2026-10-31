@@ -1,4 +1,4 @@
-/// What a FETCH slot's answer becomes — the third arm of [[slot.Slot.transform]].
+/// What a FETCH slot's answer becomes — the third arm of [[slot.Reading.transform]].
 ///
 /// A provider answers with data; a stage turns it into the hole's content. The
 /// core knows only the shape and [[passthrough]]; a stage that draws something

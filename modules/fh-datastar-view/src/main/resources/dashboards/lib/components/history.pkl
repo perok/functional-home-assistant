@@ -15,13 +15,15 @@ import "base/chart.pkl" as chartMod
 import "select.pkl" as selectMod
 import "../hass.pkl"
 
+const local chart: slotMod.Slot = slotMod.slot("chart")
+
 /// One entity's readings over one window. The SVG goes in a RAW hole
-/// (`{{{chart}}}`); the backend rejects an escaped one at build time.
+/// (`chart.raw`); the backend rejects an escaped one at build time.
 class HistoryChart extends nodes.Node {
   card = "historyChart"
   cardDef = new nodes.CardDef {
     template = """
-      <div class="fh-card fh-chart">{{{chart}}}</div>
+      <div class="fh-card fh-chart">\(chart.raw)</div>
       """
     // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled
     // by the browser to the cell.
@@ -43,10 +45,10 @@ class HistoryChart extends nodes.Node {
   hidden chartHeight: Int(isPositive)? = null
 
   slots {
-    ["chart"] = new slotMod.Slot {
+    chart.of(new slotMod.Reading {
       fetch = historyProv.of(entity, window)
       transform = chartMod.chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
-    }
+    })
   }
 
   /// A window from the providers, imported or handed in:

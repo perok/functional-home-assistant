@@ -20,10 +20,19 @@ string baked at build time) or a **transform** evaluated against live entity sta
 expression (the engine tier), or an opted-in **simple** structure (`simpleMod.attr(...)`, the fast
 tier: the closed set of atomic reads, each defined by its idiomatic CEL spelling and pinned
 byte-equal to it). The tier is the slot's own field; nothing infers one from expression spelling.
-"Slot" is the value; the template hole it fills has the same name.
+"Slot" is the value; the template hole it fills has the same name. In Pkl a slot is a
+`slotMod.Slot`: its name, its value (a literal or a **Reading**) and how the card binds it (`signal`,
+`type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
+places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`). That is a **template
+slot**; a **cell slot** is placed by the renderer on the node's **cell** instead, keyed by the class
+or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
+
+**View** — a way a template reaches a slot besides its value, spelled `x.view`: `bind` (a signal
+slot's binding), `has` (whether the node sets it), `jsValue` (the value as JavaScript), `signal`
+(the signal's name). ADR 0017.
 
 **Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
 so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's
@@ -51,7 +60,7 @@ hue. HA's own name (`more-info-light.ts`), switched by `c.its.mainControl` throu
 `control`. Not HA's colour MODES, the formats a light accepts (`hs`, `color_temp`), which the main
 controls are derived from.
 
-**Reading** — a slot used as an INPUT: a live read (`entityId` + transform) with no binding yet,
+**Reading** — a slot's value used as an INPUT (`slotMod.Reading`): a live read (`entityId` + transform) with no binding yet,
 which the card it is handed to binds where it belongs. It reads its entity's state (a fast read may
 name another), or the node's own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
 readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
@@ -61,7 +70,7 @@ component a reading that names its entity, since a base card has no subject to f
 `q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
 which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no transform.
 It is the fast tier's bool half (ADR 0028), so it can be a slot's transform, decided with no CEL,
-which is how every boolean input (`active`, `disabled`, `classWhen`) takes one directly. It can
+which is how every boolean input (`active`, `disabled`, `cellClassWhen`) takes one directly. It can
 also be an expression value, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
 
@@ -71,11 +80,13 @@ subclass that holds an `entity` and assigns the base's inputs from it, declaring
 or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
 
 **Slot type** / **boolean slot** — what a card reads a slot's value AS (`Slot.type`): text by
-default, or `bool` for a slot its template reads as on/off (a `disabled` ORed into
-`data-attr:disabled`, where the string `"false"` would be truthy). A boolean slot is one whose type
-is `bool`. The CARD sets the type where it binds the slot, beside `signal`, because a reading has no
-binding of its own; a `class:` binding (a live cell class) is a bool by kind. The build refuses a
-reading on a boolean slot that does not produce a bool.
+default, `bool` for a slot its template reads as on/off (a `disabled` ORed into
+`data-attr:disabled`, where the string `"false"` would be truthy), or `cssClass` for one placed in a
+`class` attribute, whose value the theme's class rules reach (ADR 0020). A boolean slot is one whose
+type is `bool`. The CARD sets the type where it binds the slot: on the handle for `cssClass`
+(`slotMod.cssClass(name)`), beside `signal` for `bool`, because a reading has no binding of its own;
+a `class:` binding (a live cell class) is a bool by kind. The build refuses a reading on a boolean
+slot that does not produce a bool.
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
 all. While it does not hold the value is `""`, and the slot's transform and fetches are not run.
@@ -84,11 +95,11 @@ content, a card's own part included.
 ADR 0034.
 
 **Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
-(`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
+(`LayoutNode.cellClassWhen`). The renderer binds it on the wrapper itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
 
 **Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
-and kept live (`LayoutNode.cssProperty`) — a live cell class's value-carrying twin, read by the
+and kept live (`LayoutNode.cellStyle`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
 **Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
@@ -107,7 +118,7 @@ named as a compiler names them:
   property is written as a slot.
 - **bind**: each name a slot's CEL reads is connected to its definition, an expression value, and
   so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
-  where a value lands (`signalBind`, `{{{slot__bind}}}`).
+  where a value lands (`x.bind` in Pkl, `{{{x.bind}}}` in the template).
 - **check**: the rules across fields and nodes (`validate`).
 - **compile**: CEL against the names and types binding gave it; each card's template, once, theme
   classes applied (`Templates.card`), which check reads its names off and the renderer runs.
@@ -148,8 +159,10 @@ beside the declaration would be a second, weaker copy of that, free to disagree 
 the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that
 emits the declaration and its control from one list.
 
-**Cell** — the wrapper element the renderer puts around every node, carrying the layout classes
-(`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`). Layout is the backend's job, not each card's.
+**Cell** — a node's cell is the wrapper element the renderer puts around it (`.fh-cell`), and the
+item the layout sizes: the grid or flex item that `columns(n)`, `hug()` and `grow()` act on. It
+carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`) and the node's cell
+slots (`cellClass`, `cellClassWhen`, `cellStyle`). Layout is the backend's job, not each card's.
 ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,

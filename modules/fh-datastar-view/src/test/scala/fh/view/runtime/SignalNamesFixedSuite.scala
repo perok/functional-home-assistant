@@ -7,7 +7,8 @@ import fh.view.model.{
   NodeId,
   Region,
   SignalBind,
-  SlotSource
+  SlotSource,
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit, st}
 import io.circe.Json
@@ -26,15 +27,18 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       regions = Map("children" -> Region())
     ),
     "card" -> CardDef(
-      """<span {{{value__bind}}}>{{value}}</span>"""
+      """<span {{{value.bind}}}>{{value}}</span>"""
     ),
     "two" -> CardDef(
-      """<span {{{a__bind}}} {{{b__bind}}}>{{a}}{{b}}</span>"""
+      """<span {{{a.bind}}} {{{b.bind}}}>{{a}}{{b}}</span>"""
     )
   )
 
   private def sig(entity: String, transform: String = "state") =
-    SlotSource(Some(entity), transform, signal = Some(SignalBind.Text))
+    TemplateSlot(
+      SlotSource(Some(entity), transform),
+      signal = Some(SignalBind.Text)
+    )
 
   private val dash = Dashboard(
     cards = cards,

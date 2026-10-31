@@ -146,7 +146,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/components_default.pkl` | The seeded workspace `components.pkl` ([[AddonBootstrap.starterComponents]]): amends the facade and sets the user's `defaults` (`lib/components/defaults.pkl`). Every workspace file imports it as `c`. **Adding a default — read ADR 0015's "Your components" first**: a card carries the whole object and the facade and recipes hand it over, so a facade-only default would miss the library's own sections |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
-| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
+| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string, or `{literal, type}` when typed) |
 
 A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
 renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
@@ -239,10 +239,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
   when a light is off).
-- **Signal slots (ADR 0017)**: a slot with `signal = true` carries its value as a Datastar signal
+- **Signal slots (ADR 0017)**: a slot with a `signal` carries its value as a Datastar signal
   instead of as bytes in the element, so a change to it costs one
   `datastar-patch-signals` frame for the batch rather than a re-rendered card each. The card places
-  the renderer-supplied binding — `\(slot.signalBind("value"))` in Pkl, `{{{value__bind}}}` in the
+  the renderer-supplied binding — `\(value.bind)` in Pkl, `{{{value.bind}}}` in the
   emitted template — beside the ordinary `{{value}}` hole. A display signal is named by WHAT IT
   READS — `_e.<domain>.<object_id>.<transform>` — so one entity on three cards is one signal and one
   frame entry (#134); dots are PATH separators, so a frame carries nested JSON and never a flat
@@ -372,11 +372,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
-  the button/tile/slider, `classWhen`: a Boolean, a reading, an `Expr` or a condition directly —
+  the button/tile/slider, `cellClassWhen`: a Boolean, a reading, an `Expr` or a condition directly —
   `.disabled(lit.none())` — the condition is the bool slot's transform, decided without CEL; `Slot.type = "bool"`
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
-  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cssProperty("--x",
-  reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which the
+  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
+  reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus

@@ -123,7 +123,7 @@ conditional — that is the trigger to watch, not the row count.
 **You send what you saw, and this is deliberate.** A tap names only its SERVICE;
 the card's template assembles the URL around it (`tap.serviceClick`). A
 build-time service is a literal slot and a state-dependent one is a **handler
-signal** (ADR 0017), and the card reads both through `service__read` — so the
+signal** (ADR 0017), and the card reads both through `service.jsValue` — so the
 four rows here cost no card a branch, and the markup is constant either way:
 
 ```

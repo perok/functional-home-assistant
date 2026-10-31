@@ -34,7 +34,7 @@ class Toggle extends switchMod.Switch {
   hidden entity: hass.Entity
   label = entity.friendly_name ?? entity.entity_id
   // No unavailable bypass: an unavailable entity renders unchecked.
-  on = new slotMod.Slot {
+  on = new slotMod.Reading {
     transform = simpleMod.enumOf("on", "on", "")
     default = ""
     bypassUnavailable = false

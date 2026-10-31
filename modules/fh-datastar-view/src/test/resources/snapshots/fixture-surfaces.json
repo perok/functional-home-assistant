@@ -7,9 +7,12 @@
         {
           "card" : "tabs",
           "cell" : {
-            "classes" : [
-              "fh-cols-full"
-            ]
+            "classes" : {
+              "fh-cols-full" : "1"
+            },
+            "styles" : {
+              
+            }
           },
           "inlineSurfaces" : {
             "t0" : {
@@ -45,9 +48,12 @@
                                       {
                                         "card" : "tile",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "entity_id" : "sensor.outside_temp",
-                                          "icon" : "mdi mdi-thermometer",
+                                          "icon" : {
+                                            "literal" : "mdi mdi-thermometer",
+                                            "type" : "cssClass"
+                                          },
                                           "label" : "Outside Temperature",
                                           "value" : {
                                             "bypassUnavailable" : true,
@@ -66,9 +72,12 @@
                                       {
                                         "card" : "chooser",
                                         "cell" : {
-                                          "classes" : [
-                                            "fh-cols-full"
-                                          ]
+                                          "classes" : {
+                                            "fh-cols-full" : "1"
+                                          },
+                                          "styles" : {
+                                            
+                                          }
                                         },
                                         "kind" : "Component",
                                         "regions" : {
@@ -81,7 +90,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -98,7 +107,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -115,7 +124,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -132,7 +141,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -148,7 +157,7 @@
                                                   }
                                                 ]
                                               },
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 
                                               },
                                               "vars" : [
@@ -159,7 +168,7 @@
                                             {
                                               "card" : "historyChart",
                                               "kind" : "Component",
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 "chart" : {
                                                   "bypassUnavailable" : true,
                                                   "fetch" : {
@@ -210,7 +219,7 @@
                                             }
                                           ]
                                         },
-                                        "slots" : {
+                                        "templateSlots" : {
                                           
                                         },
                                         "vars" : [
@@ -224,7 +233,7 @@
                                       {
                                         "card" : "entityInfo",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "attributes" : {
                                             "bypassUnavailable" : true,
                                             "default" : "",
@@ -239,17 +248,20 @@
                                       {
                                         "card" : "button",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
-                                          "sizeLarge" : "1"
+                                          "size" : {
+                                            "literal" : "fh-size-large",
+                                            "type" : "cssClass"
+                                          }
                                         },
                                         "vars" : [
                                         ]
                                       }
                                     ]
                                   },
-                                  "slots" : {
+                                  "templateSlots" : {
                                     
                                   },
                                   "vars" : [
@@ -257,7 +269,7 @@
                                 }
                               ]
                             },
-                            "slots" : {
+                            "templateSlots" : {
                               
                             },
                             "vars" : [
@@ -266,11 +278,14 @@
                         }
                       },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
                         "entity_id" : "sensor.outside_temp",
-                        "icon" : "mdi mdi-thermometer",
+                        "icon" : {
+                          "literal" : "mdi mdi-thermometer",
+                          "type" : "cssClass"
+                        },
                         "label" : "Outside Temperature",
                         "onclick" : {
                           "bypassUnavailable" : false,
@@ -294,7 +309,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -319,28 +334,36 @@
                   "children" : [
                     {
                       "card" : "tile",
+                      "cell" : {
+                        "classes" : {
+                          "fh-active" : {
+                            "bypassUnavailable" : false,
+                            "entityId" : "light.kitchen",
+                            "reads" : "live",
+                            "transform" : {
+                              "cases" : {
+                                "off" : false,
+                                "unavailable" : false,
+                                "unknown" : false
+                              },
+                              "kind" : "Match",
+                              "otherwise" : true
+                            }
+                          }
+                        },
+                        "styles" : {
+                          
+                        }
+                      },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
-                        "cell.class:fh-active" : {
-                          "bypassUnavailable" : false,
-                          "entityId" : "light.kitchen",
-                          "reads" : "live",
-                          "signal" : "class:fh-active",
-                          "transform" : {
-                            "cases" : {
-                              "off" : false,
-                              "unavailable" : false,
-                              "unknown" : false
-                            },
-                            "kind" : "Match",
-                            "otherwise" : true
-                          },
-                          "type" : "bool"
-                        },
                         "entity_id" : "light.kitchen",
-                        "icon" : "mdi mdi-lightbulb",
+                        "icon" : {
+                          "literal" : "mdi mdi-lightbulb",
+                          "type" : "cssClass"
+                        },
                         "label" : "Kitchen",
                         "onoff" : "1",
                         "service" : "light/toggle",
@@ -376,7 +399,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -390,7 +413,7 @@
               {
                 "card" : "tab",
                 "kind" : "Component",
-                "slots" : {
+                "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
                   "busy" : "1",
                   "busyVisual" : "1",
@@ -407,7 +430,7 @@
               {
                 "card" : "tab",
                 "kind" : "Component",
-                "slots" : {
+                "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
                   "busy" : "1",
                   "busyVisual" : "1",
@@ -423,7 +446,7 @@
               }
             ]
           },
-          "slots" : {
+          "templateSlots" : {
             
           },
           "vars" : [
@@ -437,9 +460,12 @@
         {
           "card" : "ifhost",
           "cell" : {
-            "classes" : [
-              "fh-cols-full"
-            ]
+            "classes" : {
+              "fh-cols-full" : "1"
+            },
+            "styles" : {
+              
+            }
           },
           "inlineSurfaces" : {
             "else" : {
@@ -476,9 +502,12 @@
                                       {
                                         "card" : "tile",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "entity_id" : "sensor.outside_temp",
-                                          "icon" : "mdi mdi-thermometer",
+                                          "icon" : {
+                                            "literal" : "mdi mdi-thermometer",
+                                            "type" : "cssClass"
+                                          },
                                           "label" : "Outside Temperature",
                                           "value" : {
                                             "bypassUnavailable" : true,
@@ -497,9 +526,12 @@
                                       {
                                         "card" : "chooser",
                                         "cell" : {
-                                          "classes" : [
-                                            "fh-cols-full"
-                                          ]
+                                          "classes" : {
+                                            "fh-cols-full" : "1"
+                                          },
+                                          "styles" : {
+                                            
+                                          }
                                         },
                                         "kind" : "Component",
                                         "regions" : {
@@ -512,7 +544,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -529,7 +561,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -546,7 +578,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -563,7 +595,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -579,7 +611,7 @@
                                                   }
                                                 ]
                                               },
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 
                                               },
                                               "vars" : [
@@ -590,7 +622,7 @@
                                             {
                                               "card" : "historyChart",
                                               "kind" : "Component",
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 "chart" : {
                                                   "bypassUnavailable" : true,
                                                   "fetch" : {
@@ -641,7 +673,7 @@
                                             }
                                           ]
                                         },
-                                        "slots" : {
+                                        "templateSlots" : {
                                           
                                         },
                                         "vars" : [
@@ -655,7 +687,7 @@
                                       {
                                         "card" : "entityInfo",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "attributes" : {
                                             "bypassUnavailable" : true,
                                             "default" : "",
@@ -670,17 +702,20 @@
                                       {
                                         "card" : "button",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
-                                          "sizeLarge" : "1"
+                                          "size" : {
+                                            "literal" : "fh-size-large",
+                                            "type" : "cssClass"
+                                          }
                                         },
                                         "vars" : [
                                         ]
                                       }
                                     ]
                                   },
-                                  "slots" : {
+                                  "templateSlots" : {
                                     
                                   },
                                   "vars" : [
@@ -688,7 +723,7 @@
                                 }
                               ]
                             },
-                            "slots" : {
+                            "templateSlots" : {
                               
                             },
                             "vars" : [
@@ -697,11 +732,14 @@
                         }
                       },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
                         "entity_id" : "sensor.outside_temp",
-                        "icon" : "mdi mdi-thermometer",
+                        "icon" : {
+                          "literal" : "mdi mdi-thermometer",
+                          "type" : "cssClass"
+                        },
                         "label" : "Outside Temperature",
                         "onclick" : {
                           "bypassUnavailable" : false,
@@ -725,7 +763,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -753,28 +791,36 @@
                   "children" : [
                     {
                       "card" : "tile",
+                      "cell" : {
+                        "classes" : {
+                          "fh-active" : {
+                            "bypassUnavailable" : false,
+                            "entityId" : "light.kitchen",
+                            "reads" : "live",
+                            "transform" : {
+                              "cases" : {
+                                "off" : false,
+                                "unavailable" : false,
+                                "unknown" : false
+                              },
+                              "kind" : "Match",
+                              "otherwise" : true
+                            }
+                          }
+                        },
+                        "styles" : {
+                          
+                        }
+                      },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
-                        "cell.class:fh-active" : {
-                          "bypassUnavailable" : false,
-                          "entityId" : "light.kitchen",
-                          "reads" : "live",
-                          "signal" : "class:fh-active",
-                          "transform" : {
-                            "cases" : {
-                              "off" : false,
-                              "unavailable" : false,
-                              "unknown" : false
-                            },
-                            "kind" : "Match",
-                            "otherwise" : true
-                          },
-                          "type" : "bool"
-                        },
                         "entity_id" : "light.kitchen",
-                        "icon" : "mdi mdi-lightbulb",
+                        "icon" : {
+                          "literal" : "mdi mdi-lightbulb",
+                          "type" : "cssClass"
+                        },
                         "label" : "Kitchen",
                         "onoff" : "1",
                         "service" : "light/toggle",
@@ -810,7 +856,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -819,7 +865,7 @@
             }
           },
           "kind" : "Component",
-          "slots" : {
+          "templateSlots" : {
             
           },
           "vars" : [
@@ -827,7 +873,7 @@
         }
       ]
     },
-    "slots" : {
+    "templateSlots" : {
       
     },
     "vars" : [
@@ -835,7 +881,7 @@
   },
   "cards" : {
     "button" : {
-      "template" : "{{#href}}<a class=\"fh-button {{#round}}fh-circle{{/round}}{{^round}}fh-press{{#glyph__has}} fh-badged{{/glyph__has}}{{#sizeSmall}} fh-size-small{{/sizeSmall}}{{#sizeMedium}} fh-size-medium{{/sizeMedium}}{{#sizeLarge}} fh-size-large{{/sizeLarge}}{{/round}}{{#current}} fh-current-dashboard{{/current}}\"{{#current}} aria-current=\"page\"{{/current}} href=\"{{{href}}}\">{{#glyph__has}}{{#round}}<i class=\"{{glyph}}\" {{{glyph__bind}}}></i>{{/round}}{{^round}}<span class=\"fh-badge\"><i class=\"{{glyph}}\" {{{glyph__bind}}}></i></span>{{/round}}{{/glyph__has}}{{#secondary__has}}<span class=\"fh-lines\">{{/secondary__has}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}{{#secondary__has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span></span>{{/secondary__has}}</a>{{/href}}{{^href}}<button class=\"{{#round}}fh-circle{{/round}}{{^round}}fh-press{{#glyph__has}} fh-badged{{/glyph__has}}{{#sizeSmall}} fh-size-small{{/sizeSmall}}{{#sizeMedium}} fh-size-medium{{/sizeMedium}}{{#sizeLarge}} fh-size-large{{/sizeLarge}}{{/round}}\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#tapDisabled__has}}{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}} ? '' : {{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}}{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}} ? '' : {{/disabled__has}}{{/tapDisabled__has}}{{#service__has}}@post('sse/call/{{dashboardSlug}}/' + {{{service__read}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey__has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey__has}}{{^dataKey__has}}{filterSignals:{exclude:'.*'}}{{/dataKey__has}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled__has}} data-attr:disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} data-attr:disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/disabled__has}}{{/tapDisabled__has}}{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/disabled__has}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/disabled__has}}{{/tapDisabled__has}}{{/busyVisual}}{{#busyVisual}}{{#glyph__has}}{{#round}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/round}}{{/glyph__has}}{{/busyVisual}}>{{#glyph__has}}{{#round}}<i class=\"{{glyph}}\" {{{glyph__bind}}}></i>{{/round}}{{^round}}<span class=\"fh-badge fh-icon-shape\"{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual}}><i class=\"{{glyph}}\" {{{glyph__bind}}}></i></span>{{/round}}{{/glyph__has}}{{#secondary__has}}<span class=\"fh-lines\">{{/secondary__has}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}{{#secondary__has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span></span>{{/secondary__has}}</button>{{/href}}"
+      "template" : "{{#href}}<a class=\"fh-button {{#round.has}}fh-circle{{/round.has}}{{^round.has}}fh-press {{size}} {{#glyph.has}}fh-badged{{/glyph.has}}{{/round.has}} {{#current}}fh-current-dashboard{{/current}}\"{{#current}} aria-current=\"page\"{{/current}} href=\"{{{href}}}\">{{#glyph.has}}{{#round.has}}<i class=\"{{glyph}}\" {{{glyph.bind}}}></i>{{/round.has}}{{^round.has}}<span class=\"fh-badge\"><i class=\"{{glyph}}\" {{{glyph.bind}}}></i></span>{{/round.has}}{{/glyph.has}}{{#secondary.has}}<span class=\"fh-lines\">{{/secondary.has}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>{{/secondary.has}}</a>{{/href}}{{^href}}<button class=\"{{#round.has}}fh-circle{{/round.has}}{{^round.has}}fh-press {{size}} {{#glyph.has}}fh-badged{{/glyph.has}}{{/round.has}}\" data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}}{{#glyph.has}}{{#round.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/round.has}}{{/glyph.has}}{{/busyVisual.has}}>{{#glyph.has}}{{#round.has}}<i class=\"{{glyph}}\" {{{glyph.bind}}}></i>{{/round.has}}{{^round.has}}<span class=\"fh-badge fh-icon-shape\"{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}><i class=\"{{glyph}}\" {{{glyph.bind}}}></i></span>{{/round.has}}{{/glyph.has}}{{#secondary.has}}<span class=\"fh-lines\">{{/secondary.has}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>{{/secondary.has}}</button>{{/href}}"
     },
     "chooser" : {
       "regions" : {
@@ -857,7 +903,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{{children}}}</div>"
+      "template" : "<div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
     },
     "fhrow" : {
       "regions" : {
@@ -865,7 +911,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{{children}}}</div>"
+      "template" : "<div class=\"fh-row {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
     },
     "historyChart" : {
       "template" : "<div class=\"fh-card fh-chart\">{{{chart}}}</div>"
@@ -895,7 +941,7 @@
       "template" : "<div class=\"fh-tabs fh-select\">{{{children}}}</div>"
     },
     "tab" : {
-      "template" : "<a data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/disabled__has}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/disabled__has}}{{/tapDisabled__has}}{{/busyVisual}}{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>",
+      "template" : "<a data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{{onclick}}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>",
       "wrapAsCell" : false
     },
     "tabs" : {
@@ -915,7 +961,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<article class=\"fh-card fh-entity fh-tile-card\">\n  <div class=\"fh-tile{{#tappable}} fh-tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} fh-disabled{{/disabled}}{{/tapDisabled}}\"{{#tappable}}\n  data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#tapDisabled__has}}{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}} ? '' : {{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}}{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}} ? '' : {{/disabled__has}}{{/tapDisabled__has}}{{#service__has}}@post('sse/call/{{dashboardSlug}}/' + {{{service__read}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey__has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey__has}}{{^dataKey__has}}{filterSignals:{exclude:'.*'}}{{/dataKey__has}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{/tappable}}{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} || {{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}{{/disabled__has}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/tapDisabled__has}}{{^tapDisabled__has}}{{#disabled__has}} data-class:fh-disabled=\"{{#tapDisabled__has}}{{{tapDisabled__read}}}{{/tapDisabled__has}}{{#tapDisabled__has}}{{#disabled__has}} || {{/disabled__has}}{{/tapDisabled__has}}{{#disabled__has}}{{{disabled__read}}}{{/disabled__has}}\"{{/disabled__has}}{{/tapDisabled__has}}{{/busyVisual}}>{{#icon__has}}<span class=\"fh-badge fh-icon-shape{{#onoff}} fh-onoff{{/onoff}}\"{{#busy}}{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual}}{{/busy}}><i class=\"{{icon}}\" {{{icon__bind}}}></i></span>{{/icon__has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\" {{{label__bind}}}>{{label}}</span></span>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value__bind}}}>{{value}}</span></span>{{#secondary__has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span>{{/secondary__has}}</span></div>{{{features}}}\n</article>"
+      "template" : "<article class=\"fh-card fh-entity fh-tile-card\">\n  <div class=\"fh-tile {{#tappable.has}}fh-tappable{{/tappable.has}} {{#tapDisabled}}fh-disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}fh-disabled{{/disabled}}{{/tapDisabled}}\"{{#tappable.has}}\n  data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{/tappable.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\" {{{label.bind}}}>{{label}}</span></span>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value.bind}}}>{{value}}</span></span>{{#secondary.has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</span></div>{{{features}}}\n</article>"
     }
   },
   "surfaces" : {

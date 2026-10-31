@@ -2,20 +2,22 @@
 module components.base.text
 
 import "../../core/node.pkl" as nodes
+import "../../core/slot.pkl" as slotMod
 import "../../core/text.pkl" as textMod
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local toneSlot: slotMod.Slot = slotMod.slot("tone")
 
 /// Static title text (not bound to an entity).
 class SectionTitle extends nodes.Node {
   card = "sectionTitle"
   cardDef = new nodes.CardDef {
     template = """
-      <h2 class="fh-section \(textMod.BOX)">\(textMod.run("label"))</h2>
+      <h2 class="fh-section \(textMod.BOX)">\(textMod.run(labelSlot))</h2>
       """
   }
   hidden text: String
-  slots {
-    ["label"] = text
-  }
+  slots { labelSlot.of(text) }
 }
 
 /// Static title text as a call: `c.title("Active now")`.
@@ -26,13 +28,13 @@ function title(t: String): SectionTitle = new SectionTitle { text = t }
 class Label extends nodes.Node {
   card = "label"
   cardDef = new nodes.CardDef {
-    template = textMod.label("{{tone}}", "{{label}}")
+    template = textMod.label("\(toneSlot)", "\(labelSlot)")
   }
   hidden text: String
   hidden tone: textMod.Tone = "normal"
   slots {
-    ["label"] = text
-    ["tone"] = tone
+    labelSlot.of(text)
+    toneSlot.of(tone)
   }
 }
 

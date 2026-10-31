@@ -10,7 +10,8 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Region,
-  SlotSource
+  SlotSource,
+  TemplateSlot
 }
 import fh.view.testkit.TestIds.given
 
@@ -37,7 +38,7 @@ class SharedPassSuite extends ServerHarness {
         List("sensor.a", "sensor.b").map(e =>
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some(e)))
+            templateSlots = Map("state" -> TemplateSlot(SlotSource(Some(e))))
           )
         )*
       )

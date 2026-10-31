@@ -67,12 +67,12 @@ class ProgressCard extends entityMod.EntityCard {
   label = entity.device?.device_name
   reading =
     if (value != null) slotMod.valueSlot(value)
-    else if (scale != null) new slotMod.Slot { transform = simpleMod.duration(scale!!); valueWhile = running }
+    else if (scale != null) new slotMod.Reading { transform = simpleMod.duration(scale!!); valueWhile = running }
     else if (isPercent(entity)) slotMod.valueSlot(slotMod.readingOf(entity))
     else if (entity.isDuration) ""
     else throw("c.progress(\(entity.entity_id)) takes a countdown (a duration sensor) or a percentage (a % sensor)")
   secondary =
-    if (status != null) new slotMod.Slot { entityId = status!!.entity_id; transform = simpleMod.state() }
+    if (status != null) new slotMod.Reading { entityId = status!!.entity_id; transform = simpleMod.state() }
     else null
   // A bar that is gone reads no history, and its empty cell collapses.
   features =

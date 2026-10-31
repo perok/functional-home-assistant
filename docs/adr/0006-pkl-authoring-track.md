@@ -75,7 +75,8 @@ finished, and are deleted (issue #23).
    to the default rule rather than to public (`SiteAccessSuite`). Pkl class names are the
    author's API and keep theirs (`Node`, `PAnd`); only `Simple`'s operator classes are named as
    their case, so a class name equals its `op`. A slot is a bare string
-   (literal) or the `SlotSource` object form. **Literal slots must be JSON
+   (literal), `{literal, type}` for a typed literal (a `cssClass`), or the `SlotSource` object
+   form. **Literal slots must be JSON
    strings, never numbers** (the slot decoder rejects numbers) — numeric config
    like the slider's `min`/`max` is stringified.
 6. **Cards are classes with call-style factories.** The class is the
@@ -118,6 +119,34 @@ finished, and are deleted (issue #23).
    hand-written list of names was dropped: it was checked only against the
    node, never the template, so it caught neither a placeholder nobody fills
    nor a slot nobody reads.
+
+   **A slot is named once, as a handle.** A card module declares
+   `const local label = slotMod.slot("label")`; the template places it
+   (`\(label)` is `{{label}}`, `label.bind` is `{{{label.bind}}}`,
+   `label.ifSet(…)` a section on whether the node sets it) and
+   `slots { label.of(v) }` fills it, so a misspelt name is a Pkl error at its
+   line, in the editor too. `slots` is a hidden `Listing<Slot>`, and the node's
+   `templateSlots` is computed from it as the name→value map the backend
+   decodes, as `regions` is from `children` and `cell` from the cell builders.
+   An output converter did that job first; it had to be installed by every
+   module that renders nodes (`site.pkl`, `entry.pkl`, a test's probe module),
+   and a bare `JsonRenderer` skipped it. A handle holds the name only,
+   never a value: the template must be the same for every node of a card.
+   The handle is a `slotMod.Slot` and what it holds when live is a
+   `slotMod.Reading`, `terminology.md`'s own split; Scala mirrors the pair as
+   `TemplateSlot` and `SlotSource`, which `WireShapeSuite` holds to the Pkl
+   classes. A name listed twice is refused on the node, naming card and slot
+   (the map's own duplicate-key error names only the slot), and a literal given a
+   `signal` is refused in `wireSlots`, since a value that never moves has
+   nothing to patch. A handle must not share a name with a property of its
+   card: inside the class, the property wins.
+
+   **The fills and sections are methods on the handle.** `of(v)` fills a slot
+   and `of(null)` leaves it out; a flag is `setIf(b)`, not `of(Boolean)`,
+   because a slot's value can be a real `false` (ADR 0017's `attr:disabled`).
+   A section's two halves are one call, `ifSetElse`/`ifTrueElse`: Pkl has
+   neither overloading nor default parameters, so a second argument to `ifSet`
+   was not available.
 
    **A dashboard's `cards` is the cards its tree uses**, read off the nodes
    (`core/node.pkl`'s `cardsIn`, over `card` and `surfaces`): every node

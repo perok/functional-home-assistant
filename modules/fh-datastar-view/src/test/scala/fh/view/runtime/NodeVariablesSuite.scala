@@ -28,14 +28,19 @@ class NodeVariablesSuite extends munit.FunSuite {
   private val chosen: Choice[Window] = Choice.Chosen("window", Windows.presets)
 
   private def chartSlot(param: Choice[Window] = chosen) =
-    SlotSource(
-      fetch = Some(FetchTemplate("sensor.t", param)),
-      transform = Transform.Stage.Chart(ChartStyle(width = 600)),
-      reads = Reads.OnRender
+    TemplateSlot(
+      SlotSource(
+        fetch = Some(FetchTemplate("sensor.t", param)),
+        transform = Transform.Stage.Chart(ChartStyle(width = 600)),
+        reads = Reads.OnRender
+      )
     )
 
   private def chartNode(param: Choice[Window] = chosen) =
-    LayoutNode.Component("chart", slots = Map("chart" -> chartSlot(param)))
+    LayoutNode.Component(
+      "chart",
+      templateSlots = Map("chart" -> chartSlot(param))
+    )
 
   private def box(
       vars: Map[String, String],
@@ -112,7 +117,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d = dash(
       LayoutNode.Component(
         "chart",
-        slots = Map("chart" -> chartSlot()),
+        templateSlots = Map("chart" -> chartSlot()),
         vars = declared("window" -> "7d")
       )
     )

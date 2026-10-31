@@ -3,7 +3,7 @@ package fh.view.runtime
 import com.github.mustachejava.Mustache
 import fh.view.FHError
 import fh.view.build.LibPackage
-import fh.view.fetch.FetchSnapshot
+import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.history.Series
 import fh.view.model.{
   CallReach,
@@ -19,8 +19,10 @@ import fh.view.model.{
   NodeId,
   Reads,
   SlotAsk,
+  SlotKey,
   SlotRead,
   SlotShape,
+  SlotType,
   SetId,
   Transform,
   SignalBind,
@@ -144,7 +146,7 @@ class Renderer(validated: Dashboard.Validated) {
   // value.
   val access: Access = validated.access
 
-  private val themeClasses = dashboard.theme.classes
+  val themeClasses: ThemeClasses = dashboard.theme.classes
   private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
   private val groupOpen =
     s"""<div class="${themeClasses.expandAll("fh-cell fh-group")}"""
@@ -1035,10 +1037,11 @@ class Renderer(validated: Dashboard.Validated) {
         else {
           val b = Map.newBuilder[String, String]
           plan.dynamic.foreach { case (slot, srcEntity, source) =>
+            // A live cell slot is always a signal, so only names reach here.
             if (!plan.signalSlots.contains(slot))
               b += (
                 (
-                  slot,
+                  SlotKey.label(slot),
                   resolveSlot(srcEntity, source, states, fragments, plan.id)
                 )
               )
@@ -1331,9 +1334,10 @@ class Renderer(validated: Dashboard.Validated) {
       // target inside it; the root has no rendering.
       case s: LayoutNode.SetNode =>
         val setId = SetId.of(id, s)
+        out.append(groupOpen)
+        // `validate` refuses a set's live cell slot.
+        cellClassesInto(out, s.cell, null)
         out
-          .append(groupOpen)
-          .append(Renderer.cellClasses(s.cell, themeClasses))
           .append("""" id="""")
           .append(setId)
           .append("\">")
@@ -1369,7 +1373,7 @@ class Renderer(validated: Dashboard.Validated) {
         .append('"')
       if (!form.isPatch)
         Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
-      cellBindingsInto(buf, resolved)
+      cellBindingsInto(buf, c.cell, resolved)
       // On the declarer, so a param lives as long as what it chooses for, not
       // as long as a control choosing it (ADR 0005).
       c.vars.filter(_.inUrl).sortBy(_.name).foreach { d =>
@@ -1408,16 +1412,18 @@ class Renderer(validated: Dashboard.Validated) {
     * @param structural
     *   constants from the node's position (ids, inherited entity)
     * @param constants
-    *   literal and identity-`once` slot values, plus every slot's `__has`
-    * @param bindings
-    *   the `__bind`/`__signal` strings (constant subject)
+    *   literal and identity-`once` slot values
+    * @param jsConstants
+    *   their `x.jsValue`, quoted
+    * @param signalled
+    *   each signal slot's views: the plan's for a constant subject, built per
+    *   paint for a dynamic one, whose signal names can change
+    * @param slots
+    *   every slot the node sets, which is what `x.has` asks
     * @param paint
     *   the live slot values — empty when the card has none
     * @param bake
     *   the client's bake selection (empty off bake groups)
-    * @param liveBindings
-    *   the direct path's `__bind`/`__signal` strings — the subject is dynamic
-    *   there, so the names cannot be precomputed
     * @param signalSlots
     *   slots withheld (blanked) in the patch form
     * @param signals
@@ -1425,19 +1431,38 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private case class Resolved(
       structural: Map[String, String],
-      constants: Map[String, SlotValue],
-      bindings: Map[String, String],
-      paint: Map[String, SlotValue],
+      constants: Map[SlotKey, SlotValue],
+      jsConstants: Map[SlotKey, String],
+      signalled: Map[SlotKey, Signalled],
+      slots: Map[SlotKey, Planned],
+      paint: Map[SlotKey, SlotValue],
       bake: Map[String, String],
-      liveBindings: Map[String, String],
-      signalSlots: Set[String],
+      signalSlots: Set[SlotKey],
       signals: Map[SignalId, SlotValue]
   )
 
-  /** A component's `<div class="fh-cell …"`, its live classes and custom
-    * properties ([[Dashboard.CellClassPrefix]], [[Dashboard.CellStylePrefix]])
-    * inline in the document form only, where signal values are not withheld.
-    * Their bindings are [[cellBindingsInto]].
+  /** A signal slot's views. `bind` is in both forms: a morph that dropped it
+    * would leave the element inert; only the value is withheld.
+    */
+  private final case class Signalled(
+      bind: String,
+      signal: SignalId,
+      jsValue: String
+  )
+
+  private def signalledOf(signal: SignalId, kind: SignalBind): Signalled =
+    Signalled(
+      Datastar.binding(signal, kind, themeClasses),
+      signal,
+      // The value as a JS expression whatever the tier, so one template serves
+      // a static tap and a state-dependent one (issue #133).
+      s"$$$signal"
+    )
+
+  /** A component's `<div class="fh-cell …"` from its cell slots: a literal
+    * class always, a live class or style inline in the document form only,
+    * where signal values are not withheld. Their bindings are
+    * [[cellBindingsInto]].
     */
   private def cellOpenInto(
       buf: Sink,
@@ -1445,55 +1470,64 @@ class Renderer(validated: Dashboard.Validated) {
       r: Resolved,
       form: SlotForm
   ): Unit = {
-    buf.append(cellOpen).append(Renderer.cellClasses(cell, themeClasses))
-    if (!form.isPatch)
-      cellSlots(r, Dashboard.CellClassPrefix)
-        .filter(slot => r.paint.get(slot).exists(SlotValue.truthy))
-        .foreach { slot =>
-          buf
-            .append(' ')
-            .append(
-              themeClasses
-                .expandAll(slot.stripPrefix(Dashboard.CellClassPrefix))
-            )
-        }
+    buf.append(cellOpen)
+    cellClassesInto(buf, cell, if (form.isPatch) null else r.paint)
     val _ = buf.append('"')
-    if (!form.isPatch) {
-      val props = cellSlots(r, Dashboard.CellStylePrefix).toList.flatMap(slot =>
-        r.paint
-          .get(slot)
-          .map(v =>
-            slot.stripPrefix(Dashboard.CellStylePrefix) + ":" + SlotValue.text(
-              v
-            )
-          )
-      )
-      if (props.nonEmpty)
-        val _ = buf
-          .append(""" style="""")
-          .append(Server.escapeHtml(props.mkString(";")))
-          .append('"')
-    }
+    cell match
+      case Some(c) if !form.isPatch && c.styleSlots.nonEmpty =>
+        val props = c.styleSlots.flatMap(e =>
+          r.paint.get(e.key).map(v => e.name + ":" + SlotValue.text(v))
+        )
+        if (props.nonEmpty)
+          val _ = buf
+            .append(""" style="""")
+            .append(Server.escapeHtml(props.mkString(";")))
+            .append('"')
+      case _ => ()
   }
+
+  /** Each with its leading space; `validate` checks they are plain class
+    * tokens. A live class only where `paint` is given and holds it truthy.
+    */
+  private def cellClassesInto(
+      buf: Sink,
+      cell: Option[Cell],
+      paint: Map[SlotKey, SlotValue] | Null
+  ): Unit = cell match
+    case Some(c) =>
+      c.classSlots.foreach { e =>
+        val on = e.literal.isDefined || (paint != null && {
+          val v: SlotValue | Null = paint.getOrElse(e.key, null)
+          v != null && SlotValue.truthy(v)
+        })
+        if (on)
+          themeClasses.expand(e.name).foreach(x => buf.append(' ').append(x))
+      }
+    case None => ()
 
   /** In both forms, and AFTER the wrapper's own `data-signals`: the bundle
     * applies an element's attributes in order, so a binding ahead of the seed
     * reads a signal that does not exist yet (`Cannot read properties of
     * undefined`, the first `LiveCellClassSmokeSuite` run).
     */
-  private def cellBindingsInto(buf: Sink, r: Resolved): Unit = {
-    def bind(slot: String): Unit = {
-      val key = slot + "__bind"
-      r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
-        buf.append(' ').append(b)
+  private def cellBindingsInto(
+      buf: Sink,
+      cell: Option[Cell],
+      r: Resolved
+  ): Unit = {
+    def bind(e: Cell.Entry): Unit =
+      if (e.literal.isEmpty) {
+        val s: Signalled | Null = r.signalled.getOrElse(e.key, null)
+        if (s != null) {
+          val _ = buf.append(' ').append(s.bind)
+        }
       }
-    }
-    cellSlots(r, Dashboard.CellClassPrefix).foreach(bind)
-    cellSlots(r, Dashboard.CellStylePrefix).foreach(bind)
+    cell match
+      case Some(c) =>
+        c.classSlots.foreach(bind)
+        c.styleSlots.foreach(bind)
+      case None => ()
   }
-
-  private def cellSlots(r: Resolved, prefix: String): Set[String] =
-    r.signalSlots.filter(_.startsWith(prefix))
 
   /** The template context, read in place. Not a `java.util.Map`: mustache.java
     * resolves those through `entrySet`, so a get-only map answers every name
@@ -1517,12 +1551,9 @@ class Renderer(validated: Dashboard.Validated) {
         //
         // `AnyRef` because `paint` can hold a boxed `Boolean`, which must
         // reach mustache as one: the string "false" is a truthy section.
-        var v: AnyRef | Null = resolved.bindings.getOrElse(name, null)
-        if (v == null) v = resolved.liveBindings.getOrElse(name, null)
-        if (v == null) {
-          val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
-          if (p != null) v = SlotValue.scoped(p)
-        }
+        var v: AnyRef | Null = null
+        val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
+        if (p != null) v = SlotValue.scoped(p)
         if (v == null) {
           val c: SlotValue | Null = resolved.constants.getOrElse(name, null)
           if (c != null) v = SlotValue.scoped(c)
@@ -1531,6 +1562,27 @@ class Renderer(validated: Dashboard.Validated) {
         if (v == null) v = resolved.structural.getOrElse(name, null)
         v
       }
+
+    override def fhView(slot: String, view: Templates.View): AnyRef =
+      view match
+        case Templates.View.Has =>
+          java.lang.Boolean.valueOf(resolved.slots.contains(slot))
+        case Templates.View.Bind =>
+          val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
+          if (s == null) null else s.bind
+        case Templates.View.Signal =>
+          val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
+          if (s == null) null else s.signal
+        case Templates.View.JsValue =>
+          val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
+          if (s != null) s.jsValue
+          else {
+            val c: String | Null = resolved.jsConstants.getOrElse(slot, null)
+            if (c != null) c
+            else
+              // A dynamic subject's `once` value, resolved per paint.
+              resolved.paint.get(slot).map(Datastar.jsValue).orNull
+          }
   }
 
   /** What a paint cannot change about one node, derived once per renderer so a
@@ -1541,12 +1593,14 @@ class Renderer(validated: Dashboard.Validated) {
       node: LayoutNode.Component,
       tpl: Mustache,
       structural: Map[String, String],
-      constants: Map[String, SlotValue],
-      dynamic: List[(String, Option[String], Planned)],
-      // Every slot, for a subject that is itself a transform ([[resolveDirect]]).
-      slots: Map[String, Planned],
-      bindings: Map[String, String],
-      signalNameBySlot: Map[String, SignalId],
+      constants: Map[SlotKey, SlotValue],
+      jsConstants: Map[SlotKey, String],
+      dynamic: List[(SlotKey, Option[String], Planned)],
+      // Every slot: what `x.has` asks, and for a subject that is itself a
+      // transform ([[resolveDirect]]), what it resolves.
+      slots: Map[SlotKey, Planned],
+      signalled: Map[SlotKey, Signalled],
+      signalNameBySlot: Map[SlotKey, SignalId],
       // The address variables are looked up by, never their values: a plan is
       // shared across sessions.
       id: NodeId,
@@ -1558,7 +1612,7 @@ class Renderer(validated: Dashboard.Validated) {
       nodeCount: Int
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
-    val signalSlots: Set[String] = signalNameBySlot.keysIterator.toSet
+    val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
   }
 
   /** A slot and its CEL program, looked up once when its node is planned, so a
@@ -1622,20 +1676,16 @@ class Renderer(validated: Dashboard.Validated) {
         case Some(s) if s.literal.isDefined => Some(s.literal)
         case Some(_)                        => None
       }
-    val constB = Map.newBuilder[String, SlotValue]
-    val dynB = List.newBuilder[(String, Option[String], Planned)]
+    val constB = Map.newBuilder[SlotKey, SlotValue]
+    val jsB = Map.newBuilder[SlotKey, String]
+    val dynB = List.newBuilder[(SlotKey, Option[String], Planned)]
     slots.foreach { case (slot, planned) =>
       val source = planned.source
-      // The section guard (ADR 0017), for every slot: a withheld signal value
-      // is a false section, so `{{#value}}` would delete its own element and
-      // binding on the first patch. Uniform because a card may not know its
-      // tier (`EntityCard`'s icon is a signal for some domains only).
-      constB += ((slot + "__has", "1"))
       source.literal match {
-        case Some(text) =>
+        case Some(literal) =>
+          val text = classed(source, literal)
           constB += ((slot, text))
-          // The value as a JS expression; see `bindings` below.
-          constB += ((slot + "__read", Datastar.jsLiteral(text)))
+          jsB += ((slot, Datastar.jsLiteral(text)))
         case None =>
           subjectConst match {
             case Some(subject) =>
@@ -1660,15 +1710,14 @@ class Renderer(validated: Dashboard.Validated) {
                         )
                     )
                     constB += ((slot, once))
-                    constB += ((slot + "__read", Datastar.jsValue(once)))
+                    jsB += ((slot, Datastar.jsValue(once)))
                   } else dynB += ((slot, srcEntity, planned))
             case None => ()
           }
       }
     }
-    // The binding is in both forms (a morph that dropped it would leave the
-    // element inert); only the value is withheld. A signal slot is always
-    // `live` and non-literal, so its name is constant per node.
+    // A signal slot is always `live` and non-literal, so its name is constant
+    // per node.
     val named = subjectConst match {
       case Some(subject) =>
         c.bound.toList.flatMap { case (slot, src) =>
@@ -1678,7 +1727,7 @@ class Renderer(validated: Dashboard.Validated) {
               kind,
               Renderer.signalName(
                 id,
-                slot,
+                SlotKey.label(slot),
                 src.entityId.orElse(subject),
                 src.valueKey,
                 kind
@@ -1693,18 +1742,11 @@ class Renderer(validated: Dashboard.Validated) {
       tpl = templateOf(c.card),
       structural = structuralVars(id, states),
       constants = constB.result(),
+      jsConstants = jsB.result(),
       dynamic = dynB.result(),
       slots = slots,
-      bindings = named.flatMap { case (slot, kind, signal) =>
-        List(
-          s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
-          // For a card composing the signal into its own expression; such a
-          // card relies on a signal the plain form does not have.
-          s"${slot}__signal" -> signal,
-          // The value as a JS expression whatever the tier, so one template
-          // serves a static tap and a state-dependent one (issue #133).
-          s"${slot}__read" -> s"$$$signal"
-        )
+      signalled = named.map { case (slot, kind, signal) =>
+        slot -> signalledOf(signal, kind)
       }.toMap,
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
@@ -1737,7 +1779,7 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: FetchSnapshot
   ): Resolved = {
     // The only map a paint builds.
-    val paintB = Map.newBuilder[String, SlotValue]
+    val paintB = Map.newBuilder[SlotKey, SlotValue]
     paintB.sizeHint(plan.dynamic.size)
     val signalB =
       if (plan.signalNameBySlot.isEmpty) None
@@ -1753,10 +1795,11 @@ class Renderer(validated: Dashboard.Validated) {
     Resolved(
       plan.structural,
       plan.constants,
-      plan.bindings,
+      plan.jsConstants,
+      plan.signalled,
+      plan.slots,
       paint = paintB.result(),
       bake = bakeIndex,
-      liveBindings = Map.empty,
       plan.signalSlots,
       signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
@@ -1779,10 +1822,10 @@ class Renderer(validated: Dashboard.Validated) {
           resolveStateSlot(s.source.entityId, s, states)
         )
       }
-    val resolved: Map[String, SlotValue] = slots.map { case (slot, planned) =>
+    val resolved: Map[SlotKey, SlotValue] = slots.map { case (slot, planned) =>
       val source = planned.source
       val value: SlotValue = source.literal match {
-        case Some(text) => text
+        case Some(text) => classed(source, text)
         case None       =>
           val srcEntity =
             if (slot == Dashboard.SubjectSlot) source.entityId
@@ -1813,27 +1856,23 @@ class Renderer(validated: Dashboard.Validated) {
         kind,
         Renderer.signalName(
           id,
-          slot,
+          SlotKey.label(slot),
           src.entityId.orElse(subject),
           src.valueKey,
           kind
         )
       )
     }
-    val bindings = named.flatMap { case (slot, kind, signal) =>
-      List(
-        s"${slot}__bind" -> Datastar.binding(signal, kind, themeClasses),
-        s"${slot}__signal" -> signal,
-        s"${slot}__read" -> s"$$$signal"
-      )
-    }
     Resolved(
       structural = plan.structural,
       constants = plan.constants,
-      bindings = plan.bindings,
+      jsConstants = plan.jsConstants,
+      signalled = named.map { case (slot, kind, signal) =>
+        slot -> signalledOf(signal, kind)
+      }.toMap,
+      slots = plan.slots,
       paint = resolved,
       bake = bakeIndex,
-      liveBindings = bindings.toMap,
       named.map(_._1).toSet,
       named.map { case (slot, _, signal) => signal -> resolved(slot) }.toMap
     )
@@ -1909,7 +1948,13 @@ class Renderer(validated: Dashboard.Validated) {
         val src = planned.source
         val entity = src.entityId.orElse(subject)
         val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
-        Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
+        Renderer.signalName(
+          id,
+          SlotKey.label(slot),
+          entity,
+          src.valueKey,
+          kind
+        ) ->
           resolveStateSlotValue(
             entity,
             planned,
@@ -1961,8 +2006,14 @@ class Renderer(validated: Dashboard.Validated) {
     case SlotShape.Fetch(_) if withheld(source, srcEntity, states) =>
       ""
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
-    case SlotShape.Fetch(ask) => fragments.value(node, ask)
-    case SlotShape.State(_)   =>
+    case SlotShape.Fetch(ask) =>
+      val answer = fragments.staged(node, ask)
+      // The failure is the runtime's own markup (`Fetches.label`), whose
+      // `fh-` classes the theme renames as it does a card's.
+      if (answer.version == Staged.FailedVersion)
+        themeClasses.rewriteTemplate(answer.value)
+      else answer.value
+    case SlotShape.State(_) =>
       resolveStateSlotValue(
         srcEntity,
         source,
@@ -2022,11 +2073,16 @@ class Renderer(validated: Dashboard.Validated) {
       }
       out match {
         case b: Boolean              => b
-        case s: String if s.nonEmpty => s
-        case _                       => source.default.getOrElse("")
+        case s: String if s.nonEmpty => classed(source, s)
+        case _ => classed(source, source.default.getOrElse(""))
       }
     }
   }
+
+  /** The one swap of a `CssClass` value's classes, wherever it resolves. */
+  private def classed(source: BoundSlot, value: String): String =
+    if (source.`type` == SlotType.CssClass) themeClasses.expandAll(value)
+    else value
 }
 
 object Renderer {
@@ -2198,13 +2254,6 @@ object Renderer {
 
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)
-
-  // Leading space included; `validate` checks they are plain class tokens.
-  private def cellClasses(cell: Option[Cell], classes: ThemeClasses): String =
-    cell
-      .map(_.classes.flatMap(classes.expand))
-      .filter(_.nonEmpty)
-      .fold("")(_.mkString(" ", " ", ""))
 
   private[runtime] def perRegion[A](children: Map[String, List[LayoutNode]])(
       f: (LayoutNode, LayoutNode.Step) => A
