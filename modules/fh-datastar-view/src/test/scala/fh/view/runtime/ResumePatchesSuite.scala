@@ -2,7 +2,15 @@ package fh.view.runtime
 
 import fh.view.fetch.FetchSnapshot
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Op,
+  Predicate,
+  SlotSource,
+  TemplateSlot
+}
 import fh.view.model.NodeId
 import fh.view.testkit.TestIds.{setId, given}
 import cats.effect.IO
@@ -30,8 +38,8 @@ class ResumePatchesSuite extends munit.FunSuite {
                 LayoutNode.Component(
                   "dot",
                   Map(
-                    "entity_id" -> SlotSource(literal = Some(id)),
-                    "state" -> SlotSource()
+                    "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
+                    "state" -> TemplateSlot(SlotSource())
                   )
                 )
               )

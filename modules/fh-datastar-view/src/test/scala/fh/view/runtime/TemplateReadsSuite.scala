@@ -85,7 +85,10 @@ class TemplateReadsSuite extends munit.FunSuite:
           """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
         )
       ),
-      LayoutNode.Component("card", slots = Map("state" -> SlotSource()))
+      LayoutNode.Component(
+        "card",
+        slots = Map("state" -> TemplateSlot(SlotSource()))
+      )
     )
     assertEquals(d.validate(), Nil)
   }

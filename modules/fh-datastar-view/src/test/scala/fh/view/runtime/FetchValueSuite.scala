@@ -28,15 +28,13 @@ class FetchValueSuite extends munit.FunSuite {
         "past" -> ExprValue.Fetched(history)
       ),
       reads: String = Reads.Live
-  ) = SlotSource(
-    transform = peak,
-    signal = Some(SignalBind.Handler),
-    values = values,
-    reads = reads
+  ) = TemplateSlot(
+    SlotSource(transform = peak, values = values, reads = reads),
+    signal = Some(SignalBind.Handler)
   )
 
   private def dashboard(
-      ofSlot: SlotSource = of(),
+      ofSlot: TemplateSlot = of(),
       nodeValues: Map[String, ExprValue] = Map.empty
   ) = Dashboard(
     cards = Map(
@@ -47,8 +45,8 @@ class FetchValueSuite extends munit.FunSuite {
     card = LayoutNode.Component(
       card = "bar",
       slots = Map(
-        "entity_id" -> SlotSource(literal = Some("sensor.left")),
-        "value" -> SlotSource(transform = "state"),
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
+        "value" -> TemplateSlot(SlotSource(transform = "state")),
         "of" -> ofSlot
       ),
       values = nodeValues

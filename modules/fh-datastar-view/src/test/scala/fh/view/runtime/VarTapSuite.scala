@@ -14,6 +14,7 @@ import fh.view.model.{
   Choice,
   Region,
   SlotSource,
+  TemplateSlot,
   Transform
 }
 import fh.view.history.Windows
@@ -46,12 +47,14 @@ class VarTapSuite extends ServerHarness {
   private val chartNode = LayoutNode.Component(
     "chart",
     slots = Map(
-      "chart" -> SlotSource(
-        fetch = Some(
-          FetchTemplate("sensor.a", Choice.Chosen("window", Windows.presets))
-        ),
-        transform = Transform.Stage.Passthrough,
-        reads = Reads.OnRender
+      "chart" -> TemplateSlot(
+        SlotSource(
+          fetch = Some(
+            FetchTemplate("sensor.a", Choice.Chosen("window", Windows.presets))
+          ),
+          transform = Transform.Stage.Passthrough,
+          reads = Reads.OnRender
+        )
       )
     )
   )
@@ -74,12 +77,14 @@ class VarTapSuite extends ServerHarness {
       regions = LayoutNode.kids(
         chartNode.copy(slots =
           Map(
-            "chart" -> SlotSource(
-              fetch = Some(
-                FetchTemplate("sensor.b", Choice.Chosen("w", Windows.presets))
-              ),
-              transform = Transform.Stage.Passthrough,
-              reads = Reads.OnRender
+            "chart" -> TemplateSlot(
+              SlotSource(
+                fetch = Some(
+                  FetchTemplate("sensor.b", Choice.Chosen("w", Windows.presets))
+                ),
+                transform = Transform.Stage.Passthrough,
+                reads = Reads.OnRender
+              )
             )
           )
         ),
@@ -262,15 +267,17 @@ class VarTapSuite extends ServerHarness {
         LayoutNode.SetClause(node =
           chartNode.copy(slots =
             Map(
-              "chart" -> SlotSource(
-                fetch = Some(
-                  FetchTemplate(
-                    entity,
-                    Choice.Chosen("window", Windows.presets)
-                  )
-                ),
-                transform = Transform.Stage.Passthrough,
-                reads = Reads.OnRender
+              "chart" -> TemplateSlot(
+                SlotSource(
+                  fetch = Some(
+                    FetchTemplate(
+                      entity,
+                      Choice.Chosen("window", Windows.presets)
+                    )
+                  ),
+                  transform = Transform.Stage.Passthrough,
+                  reads = Reads.OnRender
+                )
               )
             )
           )
@@ -543,7 +550,7 @@ class VarTapSuite extends ServerHarness {
         LayoutNode.Component(
           "both",
           slots = chartNode.slots +
-            ("state" -> SlotSource(entityId = Some("sensor.a")))
+            ("state" -> TemplateSlot(SlotSource(entityId = Some("sensor.a"))))
         )
       ),
       id = Some("panel"),

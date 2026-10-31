@@ -92,19 +92,21 @@ case class TemplateSlot(source: SlotSource, signal: Option[SignalBind], `type`: 
 
 ### Step 2: cell slots
 
-- **Wire:** `Cell(classes: Map[String, SlotSource], styles: Map[String, SlotSource])`, read by the
-  same `Decoder[SlotSource]`.
-- **Keys as a type:** `Component.bound` and `Resolved`'s maps key by
+- **Wire:** `Cell(classes: ListMap[String, SlotSource], styles: ListMap[String, SlotSource])`,
+  read by the same `Decoder[SlotSource]`, in wire order (the class attribute's).
+- **Keys as a type:** `Component.bound` and the renderer's per-node maps key by
 
   ```scala
-  enum SlotKey derives CanEqual:
-    case Named(name: String)          // a template slot
-    case CellClass(name: String)
-    case CellStyle(property: String)
+  type SlotKey = String | CellKey   // a template slot by its name
+  enum CellKey:
+    case Class(name: String)
+    case Style(property: String)
   ```
 
-  so the template check ("every slot must be named") looks at `Named` only, and the cell needs no
-  exemption. The ~14 readers of `bound` change their key type.
+  A template's lookup by name is a `String` and allocates nothing on the render path; a cell key
+  never equals one, so a template cannot see a cell slot, and the template check ("every slot must
+  be named") reads `slots`, which holds none. Readers that walk every slot (the reverse index,
+  fetches, the once-cache) see cell slots without change.
 - **Signal and type from the key:** `bound` builds a cell class reading as `Class(name)` and bool,
   a cell style as `Style(property)` and text. A literal class gets no signal; it is a static class.
 - **Rendering:** the wrapper's `class` holds every literal class plus the live ones that hold at
@@ -131,15 +133,17 @@ case class TemplateSlot(source: SlotSource, signal: Option[SignalBind], `type`: 
 - **A Simple `match` instead of `classWhen`**: no. A `match` picks one of several literal classes
   by state; `classWhen` ties one class to any yes/no input, such as a count above two.
 
-## Open
+## The verbs
 
-- The verbs: keep `cellClass`/`classWhen`/`cssProperty` (recommended: the design, not a name,
-  makes the intent plain), or rename `cssProperty` to `cellStyle` after the map it writes. One
-  `cellClass(name, when)` is out: Pkl has no overloading ("Duplicate definition of member"), so a
-  static class would read `cellClass("fh-wide", true)`.
+`cellClass` and `classWhen` keep their names; `cssProperty` becomes `cellStyle`, after the map it
+writes. One `cellClass(name, when)` is out: Pkl has no overloading ("Duplicate definition of
+member"), so a static class would read `cellClass("fh-wide", true)`.
 
-Not this plan: rejecting unknown wire fields (the model's decoders ignore them,
-`Configuration.default.withDefaults`) is a later task.
+## Later
+
+- Whether `cellStyle` is needed at all: no shipped card calls it. Looked at once this lands.
+- Rejecting unknown wire fields: the model's decoders ignore them
+  (`Configuration.default.withDefaults`).
 
 ## Costs and checks
 

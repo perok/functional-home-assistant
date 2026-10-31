@@ -10,7 +10,8 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
-  SlotSource
+  SlotSource,
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
@@ -48,8 +49,8 @@ class SetNodeSuite extends ServerHarness {
     LayoutNode.Component(
       "tile",
       Map(
-        "entity_id" -> SlotSource(literal = Some(id)),
-        "state" -> SlotSource()
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
+        "state" -> TemplateSlot(SlotSource())
       )
     )
 
@@ -278,8 +279,10 @@ class SetNodeSuite extends ServerHarness {
         LayoutNode.Component(
           "tile",
           Map(
-            "entity_id" -> SlotSource(literal = Some("sensor.temp")),
-            "state" -> SlotSource()
+            "entity_id" -> TemplateSlot(
+              SlotSource(literal = Some("sensor.temp"))
+            ),
+            "state" -> TemplateSlot(SlotSource())
           )
         )
       )

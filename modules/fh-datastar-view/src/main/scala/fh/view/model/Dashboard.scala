@@ -28,9 +28,6 @@ given Configuration =
   *   - `entityId`: `None` inherits the card's `entity_id`.
   *   - `literal`: a verbatim value, authored as a bare string, or as
   *     `{literal, type}` when typed (a `cssClass`); all else unused.
-  *   - `signal`: carry the value as a Datastar signal, so a change is one
-  *     signal frame rather than a re-rendered card (ADR 0017). The card puts
-  *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
   *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
   *     ([[SlotShape]]).
   *   - `values`: expression values of this slot alone, beside the node's
@@ -44,19 +41,12 @@ case class SlotSource(
     bypassUnavailable: Boolean = true,
     literal: Option[String] = None,
     reads: String = Reads.Live,
-    signal: Option[SignalBind] = None,
-    // What the card reads the value AS, set where it binds the slot. Declared
-    // where the binding cannot say it: a `class:` binding is a bool by kind.
-    `type`: SlotType = SlotType.Text,
     fetch: Option[FetchTemplate] = None,
     values: Map[String, ExprValue] = Map.empty,
     // A `bool` slot over the same subject: while it is not `true` this slot is
     // `""`, decided before its transform runs or any of its fetches is read.
     valueWhileSlot: Option[SlotSource] = None
 ) {
-
-  def isBool: Boolean =
-    `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
 
   /** Total so `validate` can call it; `validate` rejects a fetch slot whose
     * transform is not a stage, so the fallback never renders.
@@ -77,15 +67,19 @@ case class SlotSource(
   }
 }
 
-/** A slot with the expression values its CEL names, the node's and its own: the
-  * build's bind pass, run lazily on the node ([[LayoutNode.Component.bound]]).
-  * It fixes each name's definition and type, not its value, which is resolved
-  * per render.
+/** A template slot: what to read, and how the card places it (Pkl's `Slot`).
+  * The wire is flat, the reading's fields beside these two.
+  *
+  *   - `signal`: carry the value as a Datastar signal, so a change is one
+  *     signal frame rather than a re-rendered card (ADR 0017). The card puts
+  *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
+  *   - `type`: what the card reads the value AS. Declared where the binding
+  *     cannot say it: a `class:` binding is a bool by kind.
   */
-final case class BoundSlot(
+case class TemplateSlot(
     source: SlotSource,
-    values: Map[String, ExprValue],
-    valueWhile: Option[BoundSlot] = None
+    signal: Option[SignalBind] = None,
+    `type`: SlotType = SlotType.Text
 ):
   export source.{
     entityId,
@@ -94,12 +88,48 @@ final case class BoundSlot(
     bypassUnavailable,
     literal,
     reads,
-    signal,
-    `type`,
     fetch,
-    isBool,
+    values,
+    valueWhileSlot,
+    valueKey
+  }
+
+object TemplateSlot:
+  given Decoder[TemplateSlot] = Decoder.instance(c =>
+    if (c.value.isString) c.as[SlotSource].map(TemplateSlot(_))
+    else
+      (
+        c.as[SlotSource],
+        c.getOrElse[Option[SignalBind]]("signal")(None),
+        c.getOrElse[SlotType]("type")(SlotType.Text)
+      ).mapN(TemplateSlot.apply)
+  )
+
+/** A slot with the expression values its CEL names, the node's and its own: the
+  * build's bind pass, run lazily on the node ([[LayoutNode.Component.bound]]).
+  * It fixes each name's definition and type, not its value, which is resolved
+  * per render.
+  */
+final case class BoundSlot(
+    source: SlotSource,
+    values: Map[String, ExprValue],
+    valueWhile: Option[BoundSlot] = None,
+    signal: Option[SignalBind] = None,
+    `type`: SlotType = SlotType.Text
+):
+  export source.{
+    entityId,
+    transform,
+    default,
+    bypassUnavailable,
+    literal,
+    reads,
+    fetch,
     stage
   }
+
+  def isBool: Boolean =
+    `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
 
   /** What the compiled program is keyed by: one source compiles differently
     * against a different set of typed names. None for a literal, which runs no
@@ -152,23 +182,33 @@ final case class BoundSlot(
       .map((n, v) => s"|$n=${ExprValue.key(v)}")
       .mkString + valueWhile.fold("")(w =>
       s"|while=${w.entityId.getOrElse("")}:${w.valueKey}"
-    ) + (if (source.`type` == SlotType.CssClass) "|cssClass" else "")
+    ) + (if (`type` == SlotType.CssClass) "|cssClass" else "")
 
 object BoundSlot:
   /** By the identifiers the expression PARSES to, so a name inside a string
     * literal is not a read.
     */
-  def bind(values: Map[String, ExprValue])(s: SlotSource): BoundSlot =
+  def bind(values: Map[String, ExprValue])(s: TemplateSlot): BoundSlot =
+    bindAs(values, s.signal, s.`type`)(s.source)
+
+  /** `s` placed as `signal` and read as `tpe`: a template slot's own, or what
+    * its position says, which has nothing on the wire to disagree with.
+    */
+  def bindAs(
+      values: Map[String, ExprValue],
+      signal: Option[SignalBind],
+      tpe: SlotType
+  )(s: SlotSource): BoundSlot =
     // The slot's own win a clash, which `validate` refuses anyway.
     val all = values ++ s.values
-    // A bool by position: its reading carries no type of its own.
     val valueWhile =
-      s.valueWhileSlot.map(w => bind(values)(w.copy(`type` = SlotType.Bool)))
-    s.transform match
+      s.valueWhileSlot.map(bindAs(values, None, SlotType.Bool))
+    val named = s.transform match
       case t: String if all.nonEmpty && s.literal.isEmpty =>
         val read = Cel.identifiers(t)
-        BoundSlot(s, all.filter((n, _) => read.contains(n)), valueWhile)
-      case _ => BoundSlot(s, Map.empty, valueWhile)
+        all.filter((n, _) => read.contains(n))
+      case _ => Map.empty[String, ExprValue]
+    BoundSlot(s, named, valueWhile, signal, tpe)
 
 /** A named input of a node's or a slot's expressions (`expressionValues`): a
   * literal the build wrote down, a [[Predicate.Tally]] counted live, a
@@ -689,7 +729,7 @@ object LayoutNode:
     */
   case class Component(
       card: String,
-      slots: Map[String, SlotSource] = Map.empty,
+      slots: Map[String, TemplateSlot] = Map.empty,
       regions: Map[String, List[LayoutNode]] = Map.empty,
       cell: Option[Cell] = None,
       // Replaces the position-derived id and roots its descendants' — see
@@ -1122,7 +1162,10 @@ case class Dashboard(
         kind <- lit(Dashboard.TargetKindSlot).toList
         id <- lit(Dashboard.TargetIdSlot).toList
         target <- TapCall.targetOf(kind, id).toList
-        service <- c.slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
+        service <- c.slots
+          .get(Dashboard.ServiceSlot)
+          .toList
+          .flatMap(s => services(s.source))
       } yield Dashboard.Declared(
         TapCall(service, target, lit(Dashboard.DataKeySlot)),
         c.card,

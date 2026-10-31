@@ -16,6 +16,7 @@ import fh.view.model.{
   Region,
   SlotRead,
   SlotSource,
+  TemplateSlot,
   Surface,
   Transform
 }
@@ -164,12 +165,14 @@ object FetchBench {
     LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(entity, Choice.Fixed(Windows.day))
-          ),
-          transform = Transform.Stage.Chart(),
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          SlotSource(
+            fetch = Some(
+              FetchTemplate(entity, Choice.Fixed(Windows.day))
+            ),
+            transform = Transform.Stage.Chart(),
+            reads = Reads.OnRender
+          )
         )
       ),
       id = id

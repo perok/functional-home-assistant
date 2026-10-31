@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{Dashboard, LayoutNode, SlotSource}
+import fh.view.model.{Dashboard, LayoutNode, SlotSource, TemplateSlot}
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -37,12 +37,12 @@ object DashboardBuilders {
     defaults.toList.map(Dashboard.Declaration(_, _))
 
   /** A constant literal slot (a bare value, no entity/transform). */
-  def lit(s: String): SlotSource = SlotSource(literal = Some(s))
+  def lit(s: String): TemplateSlot = TemplateSlot(SlotSource(literal = Some(s)))
 
   /** A leaf/container component referencing `card` with the given slots. */
   def component(
       card: String,
-      slots: (String, SlotSource)*
+      slots: (String, TemplateSlot)*
   ): LayoutNode.Component =
     LayoutNode.Component(card, slots.toMap)
 

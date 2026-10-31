@@ -16,6 +16,7 @@ import fh.view.model.{
   Region,
   SlotRead,
   SlotSource,
+  TemplateSlot,
   Surface,
   Transform
 }
@@ -71,12 +72,14 @@ class FetchDriftSuite extends munit.FunSuite {
     def chart(e: String) = LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(e, Choice.Fixed(Windows.day))
-          ),
-          transform = Transform.Stage.Chart(),
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          SlotSource(
+            fetch = Some(
+              FetchTemplate(e, Choice.Fixed(Windows.day))
+            ),
+            transform = Transform.Stage.Chart(),
+            reads = Reads.OnRender
+          )
         )
       )
     )
@@ -98,8 +101,8 @@ class FetchDriftSuite extends munit.FunSuite {
     val plain = LayoutNode.Component(
       "dot",
       Map(
-        "entity_id" -> SlotSource(literal = Some("light.a")),
-        "state" -> SlotSource()
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
+        "state" -> TemplateSlot(SlotSource())
       )
     )
     val d = Dashboard(

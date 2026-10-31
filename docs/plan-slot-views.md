@@ -205,8 +205,7 @@ filled per slot) is replaced by a test of the view, never weakened.
 - `BuildPhaseSuite`: an unknown view and an old `__` spelling, `x.bind` in a section on `x`, and a
   dotted slot name each fail the build.
 - Pkl tests read `slotsByName["x"].value` (`.signal`, `.type`) where they read `slots["x"]`.
-- `WireShapeSuite` compares `Reading` with `SlotSource` minus `signal`/`type`, and asserts the
-  `Slot` declares both.
+- `WireShapeSuite` compares `Reading` with `SlotSource` and `Slot` with `TemplateSlot`.
 - `components.test.pkl` facts that pin template text read the flags as `{{#x.has}}` and signal
   reads as `{{{x.jsValue}}}`; wire snapshots change by exactly that respelling.
 - `BuildPhaseSuite`: `x.signal` is refused where it renders on a node whose `x` is not a signal,

@@ -12,6 +12,7 @@ import fh.view.model.{
   Predicate,
   Region,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.fetch.FetchSnapshot
@@ -40,7 +41,10 @@ class MemberNodesSuite extends ServerHarness {
 
   private def tile(id: String) = LayoutNode.Component(
     "tile",
-    Map("entity_id" -> SlotSource(literal = Some(id)), "state" -> SlotSource())
+    Map(
+      "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
+      "state" -> TemplateSlot(SlotSource())
+    )
   )
 
   private def col(children: LayoutNode*) =
@@ -174,7 +178,10 @@ class MemberNodesSuite extends ServerHarness {
     val ids = List("light.a", "light.b")
     def panel(member: String, i: Int, text: String) = Surface(
       LayoutNode
-        .Component("text", Map("text" -> SlotSource(literal = Some(text)))),
+        .Component(
+          "text",
+          Map("text" -> TemplateSlot(SlotSource(literal = Some(text))))
+        ),
       bakeInto = Some(member),
       bakeAs = Some("panel"),
       bakeIndex = Some(i),
@@ -197,7 +204,11 @@ class MemberNodesSuite extends ServerHarness {
                     None,
                     LayoutNode.Component(
                       "host",
-                      Map("entity_id" -> SlotSource(literal = Some(id)))
+                      Map(
+                        "entity_id" -> TemplateSlot(
+                          SlotSource(literal = Some(id))
+                        )
+                      )
                     )
                   )
                 )

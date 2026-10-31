@@ -16,6 +16,7 @@ import fh.view.model.{
   Region,
   SignalBind,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, lit, st}
@@ -64,10 +65,12 @@ class RenderInputsSuite extends munit.FunSuite {
   private def bound(entity: String) = LayoutNode.Component(
     "card",
     slots = Map(
-      "state" -> SlotSource(Some(entity)),
-      "unit" -> SlotSource(
-        Some(entity),
-        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+      "state" -> TemplateSlot(SlotSource(Some(entity))),
+      "unit" -> TemplateSlot(
+        SlotSource(
+          Some(entity),
+          "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+        )
       )
     )
   )
@@ -98,7 +101,7 @@ class RenderInputsSuite extends munit.FunSuite {
           "bar" -> List(
             LayoutNode.Component(
               "bannerBar",
-              slots = Map("title" -> SlotSource(Some("sensor.t")))
+              slots = Map("title" -> TemplateSlot(SlotSource(Some("sensor.t"))))
             )
           )
         )
@@ -114,7 +117,7 @@ class RenderInputsSuite extends munit.FunSuite {
                   "btn",
                   Map(
                     "entity_id" -> lit(id),
-                    "label" -> SlotSource(None, "state")
+                    "label" -> TemplateSlot(SlotSource(None, "state"))
                   )
                 )
               ),
@@ -132,9 +135,9 @@ class RenderInputsSuite extends munit.FunSuite {
       LayoutNode.Component(
         "gauge",
         slots = Map(
-          "state" -> SlotSource(Some("sensor.t")),
-          "live" -> SlotSource(
-            Some("sensor.other"),
+          "state" -> TemplateSlot(SlotSource(Some("sensor.t"))),
+          "live" -> TemplateSlot(
+            SlotSource(Some("sensor.other")),
             signal = Some(SignalBind.Text)
           )
         )
@@ -311,8 +314,8 @@ class RenderInputsSuite extends munit.FunSuite {
       LayoutNode.Component(
         "signalBanner",
         slots = Map(
-          "title" -> SlotSource(
-            Some("sensor.t"),
+          "title" -> TemplateSlot(
+            SlotSource(Some("sensor.t")),
             signal = Some(SignalBind.Text)
           )
         ),

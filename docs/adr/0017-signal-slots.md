@@ -13,7 +13,7 @@ already has the mechanism: a signal, and an element bound to it.
 
 ## Decision
 
-**A slot opts in — `SlotSource.signal = true` — and its value then travels as a Datastar signal
+**A slot opts in — `TemplateSlot.signal`, a `SignalBind` — and its value then travels as a Datastar signal
 instead of as bytes inside the node's element.** A change to it costs one
 `datastar-patch-signals` frame for the whole batch rather than a re-rendered card each.
 

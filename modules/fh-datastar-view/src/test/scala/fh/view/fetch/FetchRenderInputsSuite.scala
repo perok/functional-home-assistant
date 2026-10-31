@@ -21,6 +21,7 @@ import fh.view.model.{
   Region,
   SlotShape,
   SlotSource,
+  TemplateSlot,
   Surface,
   Transform
 }
@@ -63,19 +64,21 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     SlotRead(resolved(window), drawn(width))
 
   private def chartSource(window: String = "24h", width: Int = 600) =
-    SlotSource(
-      fetch = Some(chart(window)),
-      transform = drawn(width),
-      reads = Reads.OnRender
+    TemplateSlot(
+      SlotSource(
+        fetch = Some(chart(window)),
+        transform = drawn(width),
+        reads = Reads.OnRender
+      )
     )
 
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
       card = "historyChart",
       slots = Map(
-        "entity_id" -> SlotSource(literal = Some("sensor.t")),
+        "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
         "chart" -> chartSource(window),
-        "name" -> SlotSource(transform = "state")
+        "name" -> TemplateSlot(SlotSource(transform = "state"))
       )
     )
 
@@ -90,7 +93,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         .Component(
           card = "historyChart",
           slots = Map(
-            "entity_id" -> SlotSource(literal = Some("sensor.t")),
+            "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
             "chart" -> chartSource()
           )
         )
@@ -102,11 +105,14 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   test("a fetch slot is not a signal slot, whatever it says") {
     // A `SlotShape.Fetch` has no signal to read, so the signal path cannot
     // reach it; no rule is needed.
-    val src = chartSource().copy(
-      signal = Some(SignalBind.Text),
-      reads = Reads.Live
+    val src = TemplateSlot(
+      chartSource().source.copy(reads = Reads.Live),
+      signal = Some(SignalBind.Text)
     )
-    assertEquals(BoundSlot(src, Map.empty).shape, SlotShape.Fetch(ask()))
+    assertEquals(
+      BoundSlot.bind(Map.empty)(src).shape,
+      SlotShape.Fetch(ask())
+    )
     assertEquals(
       LayoutNode
         .Component(card = "c", slots = Map("chart" -> src))
@@ -332,10 +338,12 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
                 LayoutNode.Component(
                   card = "chart",
                   slots = Map(
-                    "chart" -> SlotSource(
-                      fetch = Some(chart()),
-                      transform = drawn(),
-                      reads = Reads.OnRender
+                    "chart" -> TemplateSlot(
+                      SlotSource(
+                        fetch = Some(chart()),
+                        transform = drawn(),
+                        reads = Reads.OnRender
+                      )
                     )
                   )
                 )
@@ -427,7 +435,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(windows("t1", light("off")), Set("7d", "30d"))
   }
 
-  private def dashboard(src: SlotSource) =
+  private def dashboard(src: TemplateSlot) =
     Dashboard(
       cards = Map("chart" -> CardDef("""<div id="{{id}}">{{{chart}}}</div>""")),
       card = LayoutNode.Component(card = "chart", slots = Map("chart" -> src))
@@ -468,7 +476,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // Inert, since a `SlotShape.Fetch` never reads it: this keeps the wire from
     // lying. The Pkl default derives `onRender` from the fetch.
     val errs = dashboard(
-      chartSource().copy(reads = Reads.Live)
+      TemplateSlot(chartSource().source.copy(reads = Reads.Live))
     ).validate()
     assert(errs.exists(_.contains("never pushed")), clue = errs)
   }
@@ -477,15 +485,17 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // HA answers `hour` over one hour with nothing (measured), so the chart
     // would be blank forever.
     val errs = dashboard(
-      SlotSource(
-        fetch = Some(
-          FetchTemplate(
-            "sensor.t",
-            Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
-          )
-        ),
-        transform = drawn(),
-        reads = Reads.OnRender
+      TemplateSlot(
+        SlotSource(
+          fetch = Some(
+            FetchTemplate(
+              "sensor.t",
+              Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
+            )
+          ),
+          transform = drawn(),
+          reads = Reads.OnRender
+        )
       )
     ).validate()
     assert(errs.exists(_.contains("shorter than the span")), clue = errs)

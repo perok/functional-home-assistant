@@ -11,6 +11,7 @@ import fh.view.model.{
   NodeId,
   Region,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{declared, st}
@@ -56,7 +57,9 @@ class RenderCacheContentionSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "card",
-                slots = Map("state" -> SlotSource(Some("sensor.shared")))
+                slots = Map(
+                  "state" -> TemplateSlot(SlotSource(Some("sensor.shared")))
+                )
               )
             )
           ),
@@ -68,7 +71,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t0" -> Surface(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.a")))
+          slots = Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -78,7 +81,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t1" -> Surface(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          slots = Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -101,7 +104,8 @@ class RenderCacheContentionSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          slots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
         )
       )
     )

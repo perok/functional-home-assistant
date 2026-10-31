@@ -11,6 +11,7 @@ import fh.view.model.{
   Region,
   SignalBind,
   SlotSource,
+  TemplateSlot,
   Surface,
   VarAt
 }
@@ -84,7 +85,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   private def oneCard(
       template: String,
-      slots: Map[String, SlotSource],
+      slots: Map[String, TemplateSlot],
       regions: Map[String, Region] = Map.empty,
       filled: Map[String, List[LayoutNode]] = Map.empty
   ): List[String] =
@@ -96,7 +97,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       card = LayoutNode.Component("card", slots = slots, regions = filled)
     ).validate()
 
-  private val text = SlotSource(literal = Some("x"))
+  private val text = TemplateSlot(SlotSource(literal = Some("x")))
 
   test("validate: a slot no template name reads is reported") {
     val errs =
@@ -152,10 +153,10 @@ class BuildPhaseSuite extends munit.FunSuite {
     "validate: x.signal is refused wherever it renders on a node whose x is not a signal"
   ) {
     val notSignal = "slot 'x' is not a signal here"
-    def placed(section: String, slots: Map[String, SlotSource]) =
+    def placed(section: String, slots: Map[String, TemplateSlot]) =
       oneCard(s"<b>{{x}}</b>$section", slots).filter(_.contains(notSignal))
     val write = "<i data-on:x=\"${{x.signal}} = 1\"></i>"
-    val live = SlotSource(entityId = Some("light.a"))
+    val live = TemplateSlot(SlotSource(entityId = Some("light.a")))
     assertEquals(placed(write, Map("x" -> text)).length, 1)
     // A section the node settles decides; one only state decides could open.
     val under = (s: String) => s"{{$s}}$write{{/${s.drop(1)}}}"
@@ -232,7 +233,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     def cel(src: String) =
       oneCard(
         "{{v}}",
-        Map("v" -> SlotSource(Some("sensor.t"), transform = src))
+        Map("v" -> TemplateSlot(SlotSource(Some("sensor.t"), transform = src)))
       )
     assert(
       cel("[1, 2]").exists(_.contains("yields a list")),
@@ -1008,7 +1009,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("ok" -> CardDef("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
-        slots = Map("label" -> SlotSource(literal = Some("x")))
+        slots = Map("label" -> TemplateSlot(SlotSource(literal = Some("x"))))
       ),
       surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
     )
@@ -1026,7 +1027,11 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> CardDef("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
-        slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
+        slots = Map(
+          "state" -> TemplateSlot(
+            SlotSource(Some("e.x"), transform = "'unclosed")
+          )
+        )
       )
     )
     assert(

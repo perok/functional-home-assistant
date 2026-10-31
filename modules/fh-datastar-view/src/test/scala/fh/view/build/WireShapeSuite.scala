@@ -10,6 +10,7 @@ import fh.view.model.{
   FetchTemplate,
   Predicate,
   SlotSource,
+  TemplateSlot,
   Theme,
   Transform,
   VarAt
@@ -195,14 +196,17 @@ class WireShapeSuite extends munit.FunSuite {
     // `Reading` is `SlotSource` in Scala: "reading" is the authoring word, "source"
     // the model's. `literal` is Scala-only because a constant slot is authored
     // as a bare string (`Reading|String`), or `{literal, type}` when typed, that
-    // the decoder maps into it: an encoding, not drift. `signal` and `type` are on the `Slot` holding the
-    // reading, and `nodes.wireSlots` merges them into it.
-    val onSlot = Set("signal", "type")
-    assert(
-      onSlot.subsetOf(pklProperties.getOrElse("Slot", Set.empty)),
-      clue = pklProperties.get("Slot")
+    // the decoder maps into it: an encoding, not drift.
+    check("Reading", SlotSource(), scalaOnly = Set("literal"))
+    // `Slot` is `TemplateSlot`: its `name` is the map key, and its `value` is the
+    // `source`, whose fields `nodes.wireSlots` writes beside `signal` and `type`.
+    // The fixed properties are a template's spellings of the handle.
+    check(
+      "Slot",
+      TemplateSlot(SlotSource()),
+      scalaOnly = Set("source"),
+      pklOnly = Set("name", "value", "raw", "bind", "jsValue", "signalName")
     )
-    check("Reading", SlotSource(), scalaOnly = Set("literal") ++ onSlot)
     // `provider` picks the decoder rather than filling a field.
     check(
       "HistoryFetch",

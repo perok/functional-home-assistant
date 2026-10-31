@@ -39,7 +39,8 @@ class TabVariableSuite extends ServerHarness {
       activation = Activation.Var("tab")
     )
 
-  private def lit(s: String) = fh.view.model.SlotSource(literal = Some(s))
+  private def lit(s: String) =
+    fh.view.model.TemplateSlot(fh.view.model.SlotSource(literal = Some(s)))
 
   private def barNode(vars: Map[String, String]) =
     LayoutNode.Component("bar", id = Some("bar"), vars = declared(vars.toList*))

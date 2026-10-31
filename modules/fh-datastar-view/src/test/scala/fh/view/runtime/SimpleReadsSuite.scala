@@ -13,20 +13,19 @@ class SimpleReadsSuite extends munit.FunSuite {
   private val card =
     CardDef("""<b {{{v.bind}}}>{{v}}</b>""")
 
-  private def slot(t: Transform.Simple, bool: Boolean = false) = SlotSource(
-    transform = t,
+  private def slot(t: Transform.Simple, bool: Boolean = false) = TemplateSlot(
+    SlotSource(transform = t, bypassUnavailable = false),
     signal = Some(SignalBind.Text),
-    `type` = if (bool) SlotType.Bool else SlotType.Text,
-    bypassUnavailable = false
+    `type` = if (bool) SlotType.Bool else SlotType.Text
   )
 
-  private def dashboard(v: SlotSource, subject: Boolean = true) = Dashboard(
+  private def dashboard(v: TemplateSlot, subject: Boolean = true) = Dashboard(
     cards = Map("c" -> card),
     card = LayoutNode.Component(
       card = "c",
       slots = Map("v" -> v) ++
         Option.when(subject)(
-          "entity_id" -> SlotSource(literal = Some("sensor.a"))
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a")))
         )
     )
   )
@@ -142,9 +141,10 @@ class SimpleReadsSuite extends munit.FunSuite {
   test(
     "the build refuses a once slot naming another entity, and a free condition with no entity"
   ) {
-    val once = dashboard(
-      slot(Transform.Simple.State(Some("sensor.b"))).copy(reads = Reads.Once)
-    ).validate().mkString("\n")
+    val s = slot(Transform.Simple.State(Some("sensor.b")))
+    val once = dashboard(s.copy(source = s.source.copy(reads = Reads.Once)))
+      .validate()
+      .mkString("\n")
     assert(
       once.contains("reads another entity but is read 'once'"),
       clue = once

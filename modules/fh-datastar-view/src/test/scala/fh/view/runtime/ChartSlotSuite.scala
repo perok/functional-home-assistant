@@ -11,6 +11,7 @@ import fh.view.model.{
   Choice,
   SlotRead,
   SlotSource,
+  TemplateSlot,
   Theme,
   ThemeClasses,
   Transform
@@ -43,13 +44,15 @@ class ChartSlotSuite extends munit.FunSuite {
       card = LayoutNode.Component(
         card = "chart",
         slots = Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.t")),
-          "chart" -> SlotSource(
-            fetch = Some(chartFetch),
-            transform = stage,
-            reads = Reads.OnRender
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
+          "chart" -> TemplateSlot(
+            SlotSource(
+              fetch = Some(chartFetch),
+              transform = stage,
+              reads = Reads.OnRender
+            )
           ),
-          "name" -> SlotSource(transform = "state")
+          "name" -> TemplateSlot(SlotSource(transform = "state"))
         )
       )
     )
