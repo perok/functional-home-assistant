@@ -215,7 +215,24 @@ alone sends nothing, because the frame is diffed against what each session holds
   included: the progress card's bar sits in one.
 - **"When it changes, do X" triggers.** That is an automation, and automations belong in HA.
 - **`cssVar` as the name.** "vars" already means three things here (`docs/terminology.md`), so the
-  builder is `cellStyle`, after the cell map it writes.
+  builders are `cellClassWhen` and `cellStyle`, after the cell map each writes. Merging
+  `cellClass` and `cellClassWhen` into one `cellClass(name, when)` was out: Pkl has no
+  overloading, so a static class would read `cellClass("fh-wide", true)`.
+- **Live cell classes as the card's own slots under reserved names** (`cell:class:<name>`, the
+  first build). The class was said twice, in the name and in the signal, a check had to hold the
+  two together, and both sides parsed meaning out of a name. The two other ways to keep them in
+  `slots` failed alike: a placement field on each slot (`at: "cell"`) states per value what the
+  map states once per node, and reserved `class`/`style` keys collide with `Box`'s own `class`.
+  They are cell slots instead (ADR 0008).
+- **One server-side signal holding the cell's whole class string.** That slot would need several
+  readings, and `data-attr:class` replaces the wrapper's other classes, the theme's and
+  `fh-edit-hl` included; `data-class:<name>` switches one.
+- **Deriving a cell slot's signal in `bound` from a `SlotSource` that still decoded one.** A wrong
+  `signal` on the wire would decode and be silently replaced. `SlotSource` holds the reading only
+  (Pkl's `Reading`), and the signal and type sit on `TemplateSlot` (Pkl's `Slot`), so a cell slot
+  has no field to get wrong.
+- **A Simple `match` in place of `cellClassWhen`.** A `match` picks one of several literal values
+  by state; `cellClassWhen` ties one class to any yes/no input, a count above two included.
 
 ## Consequences
 

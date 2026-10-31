@@ -242,6 +242,10 @@ Mustache's `&#39;` decodes back to `'` before the JS runs and closes the string.
 `signalBind` answering `None` everywhere (issue #133) the slot falls back to its quoted literal and
 a state-dependent tap still works with no JS at all.
 
+The name holds for both rows, since `$<signal>` evaluates to the value. Not `jsReference`: half
+the time it is a literal, and **Reference** is already a defined term (`terminology.md`). Not
+`read` either, which is a Pkl reserved word (ADR 0006).
+
 A card's own handler READS a signal slot through `jsValue` too, never by spelling `$` before its
 name, and WRITES one through the Pkl `x.assign(js)` (`$<signal> = js`): a drag painting the fill
 before the commit, a refusal copying the server's value back. `{{x.signal}}`, the bare name, is

@@ -100,7 +100,10 @@ renderer emits. A class can also arrive as a slot's VALUE (a `Box`'s author
 class, a button's size, a glyph): a slot placed in a `class` attribute is typed
 `cssClass` (`slotMod.cssClass(name)`), and the renderer expands its value wherever
 it resolves — a literal once per renderer, a reading each time, a signal's value
-included. The markup Scala writes itself goes through the same rewrite: the
+included. The value is a whole class name (`fh-size-small`, not a `small` the
+template completes), because the theme maps whole names. A `cssClass` value gets
+no token check: `{{x}}` escapes it, where the cell's classes, written unescaped,
+need one (ADR 0008). The markup Scala writes itself goes through the same rewrite: the
 page's connection banners and a failed fetch's label. `dashboard.json` shows the
 rules beside unrewritten templates and values, which is the "what is going on" a
 reader needs.

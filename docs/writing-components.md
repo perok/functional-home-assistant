@@ -65,9 +65,12 @@ section, like `message` here, must be one the banner sets. Wrap anything
 optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node
 sets it, and `ifUnset` is the other half. `ifTrue`/`ifFalse` test a yes/no
 value instead. Where one is the other's alternative, write both in one call:
-`icon.ifSetElse("<i>\(icon)</i>", "<span>\(label)</span>")`, or `ifTrueElse`. For a switch of your own card's, such as a size or a direction,
+`icon.ifSetElse("<i>\(icon)</i>", "<span>\(label)</span>")`, or `ifTrueElse`.
+For a switch of your own card's, such as a size or a direction,
 `flag.setIf(isDown)` sets the slot only while it holds, and the template reads
-it with `flag.ifSet(…)`. A piece that is always there needs no section: set it as
+it with `flag.ifSet(…)`. Inside `class="…"`, put the separating space before a
+section, never inside it: `"my-card \(flag.ifSet("my-card-down"))"`. A section
+that does not show leaves a trailing space, which HTML ignores. A piece that is always there needs no section: set it as
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
 to `" °C"`. And every slot you set must be placed somewhere in the template.
 
