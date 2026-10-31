@@ -1094,9 +1094,11 @@ case class Surface(
   def group: Option[NodeId] = bakeInto.map(Surface.groupId(_, clause))
 
   /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
-    * popup host.
+    * popup host. Once: a flip scans every surface for its host
+    * (`SurfaceGraph.surfacesAt`), which was most of
+    * `RenderBench.publishSetIfsFlip`'s allocation.
     */
-  def hostId: DomId = (bakeInto, bakeAs) match
+  lazy val hostId: DomId = (bakeInto, bakeAs) match
     case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
     case _                      => Dashboard.PopupHostId
 
