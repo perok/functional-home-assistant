@@ -70,7 +70,7 @@ component a reading that names its entity, since a base card has no subject to f
 `q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
 which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no transform.
 It is the fast tier's bool half (ADR 0028), so it can be a slot's transform, decided with no CEL,
-which is how every boolean input (`active`, `disabled`, `classWhen`) takes one directly. It can
+which is how every boolean input (`active`, `disabled`, `cellClassWhen`) takes one directly. It can
 also be an expression value, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
 
@@ -95,7 +95,7 @@ content, a card's own part included.
 ADR 0034.
 
 **Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
-(`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
+(`LayoutNode.cellClassWhen`). The renderer binds it on the wrapper itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
 
 **Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
@@ -162,7 +162,7 @@ emits the declaration and its control from one list.
 **Cell** — a node's cell is the wrapper element the renderer puts around it (`.fh-cell`), and the
 item the layout sizes: the grid or flex item that `columns(n)`, `hug()` and `grow()` act on. It
 carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`) and the node's cell
-slots (`cellClass`, `classWhen`, `cellStyle`). Layout is the backend's job, not each card's.
+slots (`cellClass`, `cellClassWhen`, `cellStyle`). Layout is the backend's job, not each card's.
 ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,

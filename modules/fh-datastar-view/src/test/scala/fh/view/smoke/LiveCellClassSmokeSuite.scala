@@ -39,7 +39,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |    // class's own signal stands still.
          |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
          |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
-         |    }).classWhen("warm", kitchenOn)
+         |    }).cellClassWhen("warm", kitchenOn)
          |    (c.button("Lock", c.tap.toggle(dump.entities.${lock.dumpKey}))) {
          |      disabled = kitchenOn
          |    }

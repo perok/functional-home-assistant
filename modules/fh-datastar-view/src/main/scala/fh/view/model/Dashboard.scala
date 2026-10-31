@@ -1869,7 +1869,7 @@ case class Dashboard(
         Option
           .when(Dashboard.onlyBool(src))(
             s"$nodeId: cellStyle '$property' reads a bool, which is no CSS " +
-              "value — use classWhen for an on/off look"
+              "value — use cellClassWhen for an on/off look"
           )
           .toList
 

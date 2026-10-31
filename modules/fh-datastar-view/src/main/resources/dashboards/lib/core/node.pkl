@@ -76,7 +76,7 @@ abstract class LayoutNode {
   /// from [[cellClasses]], which a builder replaces whole, so an input set
   /// after `.columns(3)` still lands.
   hidden stateClasses: Listing<String> = new {}
-  /// The live cell classes and styles ([[classWhen]], [[cellStyle]]). A set has
+  /// The live cell classes and styles ([[cellClassWhen]], [[cellStyle]]). A set has
   /// no slots to bind them with, so the builders refuse them there.
   hidden liveClasses: Mapping<String, slotMod.Reading> = new {}
   hidden liveStyles: Mapping<String, slotMod.Reading> = new {}
@@ -115,12 +115,12 @@ abstract class LayoutNode {
   /// [[cellClass]] while `when` holds, bound on the wrapper so no template
   /// places it:
   ///
-  ///     c.entityButton(l).classWhen("warm", c.isOn(l))   // css: .fh-cell.warm>button
-  ///     c.button(…).classWhen("fh-some", lit.any())
-  function classWhen(cls: String, `when`: BooleanInput): LayoutNode =
+  ///     c.entityButton(l).cellClassWhen("warm", c.isOn(l))   // css: .fh-cell.warm>button
+  ///     c.button(…).cellClassWhen("fh-some", lit.any())
+  function cellClassWhen(cls: String, `when`: BooleanInput): LayoutNode =
     let (self = this)
       if (`when` is Boolean) (if (`when`) self.addCellClass(cls) else self)
-      else if (!(self is Node)) throw("classWhen: a live class is a slot, which only a card node has — put it on the clause's node")
+      else if (!(self is Node)) throw("cellClassWhen: a live class is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveClasses { [cls] = booleanReading(`when`) } }
   /// A custom property on the wrapper, set from a reading and kept live, for
   /// the card's CSS to read by inheritance:

@@ -372,11 +372,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
-  the button/tile/slider, `classWhen`: a Boolean, a reading, an `Expr` or a condition directly —
+  the button/tile/slider, `cellClassWhen`: a Boolean, a reading, an `Expr` or a condition directly —
   `.disabled(lit.none())` — the condition is the bool slot's transform, decided without CEL; `Slot.type = "bool"`
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
   tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
-  reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which the
+  reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus

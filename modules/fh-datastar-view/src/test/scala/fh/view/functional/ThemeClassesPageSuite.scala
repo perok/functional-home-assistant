@@ -33,7 +33,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |card = (c.grid) {
        |  children {
        |    c.button("Warm", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))
-       |      .classWhen("fh-warm", kitchenOn)
+       |      .cellClassWhen("fh-warm", kitchenOn)
        |      .columns(3)
        |    c.entityButton(dump.entities.${kitchen.dumpKey})
        |    c.entityCard(dump.entities.${kitchen.dumpKey})

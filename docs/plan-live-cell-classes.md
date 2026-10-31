@@ -132,13 +132,13 @@ case class TemplateSlot(source: SlotSource, signal: Option[SignalBind], `type`: 
   and `data-attr:class` replaces the wrapper's other classes.
 - **Deriving the signal in `bound` over today's `SlotSource`**: a wrong `signal` on the wire would
   decode and be silently replaced. Step 1 removes the field instead.
-- **A Simple `match` instead of `classWhen`**: no. A `match` picks one of several literal classes
-  by state; `classWhen` ties one class to any yes/no input, such as a count above two.
+- **A Simple `match` instead of `cellClassWhen`**: no. A `match` picks one of several literal
+  classes by state; `cellClassWhen` ties one class to any yes/no input, such as a count above two.
 
 ## The verbs
 
-`cellClass` and `classWhen` keep their names; `cssProperty` becomes `cellStyle`, after the map it
-writes. One `cellClass(name, when)` is out: Pkl has no overloading ("Duplicate definition of
+Named after the cell map they write: `cellClass` keeps its name, `classWhen` becomes
+`cellClassWhen` and `cssProperty` becomes `cellStyle`. One `cellClass(name, when)` is out: Pkl has no overloading ("Duplicate definition of
 member"), so a static class would read `cellClass("fh-wide", true)`.
 
 ## Later

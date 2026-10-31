@@ -678,9 +678,9 @@ class RenderBench {
     }
   }
 
-  /** A condition filling a bool slot (`active`, `disabled`, `classWhen`), once
-    * per entity: decided directly, against [[conditionCel]]'s CEL reading the
-    * same decision through a named value.
+  /** A condition filling a bool slot (`active`, `disabled`, `cellClassWhen`),
+    * once per entity: decided directly, against [[conditionCel]]'s CEL reading
+    * the same decision through a named value.
     */
   @Benchmark
   def condition(bh: Blackhole): Unit = {

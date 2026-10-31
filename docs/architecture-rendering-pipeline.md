@@ -1277,7 +1277,7 @@ instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapp
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
 wrapper also carries the node's cell slots (`Cell`, ADR 0008): its classes, static or live
-(`LayoutNode.classWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
+(`LayoutNode.cellClassWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
 key's (`class:<name>`, `style:--…`): the renderer places the bindings on the wrapper in both forms,
 and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`

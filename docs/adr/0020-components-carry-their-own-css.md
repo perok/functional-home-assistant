@@ -91,7 +91,7 @@ no case the content cannot spell.
 **The server applies the rules, not the registry.** A card's markup is a
 class-level `cardDef` default, so Pkl can only reach it once the registry is
 built — but the classes that most need a theme's word are not all in templates.
-The `.fh-cell` wrapper, its `.columns(n)` spans and its `classWhen` live classes
+The `.fh-cell` wrapper, its `.columns(n)` spans and its `cellClassWhen` live classes
 are emitted by `Renderer`, so a Pkl-side rewrite would cover half the markup and
 leave a second mechanism for the rest. `Theme.classes` therefore rides the wire,
 and `ThemeClasses` rewrites every card template once, when it is compiled

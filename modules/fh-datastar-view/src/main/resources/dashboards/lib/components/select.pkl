@@ -148,7 +148,7 @@ abstract class Select extends nodes.Node {
         else surfaces.tabButton(t, ch.value, ch.label)
       else if (cyc)
         buttonMod.pill((entityCall(t, pick.value)) { icon = ch.icon; label = ch.label })
-          .classWhen("fh-chosen", entityChosen(t, ch.value))
+          .cellClassWhen("fh-chosen", entityChosen(t, ch.value))
       else
         new EntityOption {
           label = ch.label

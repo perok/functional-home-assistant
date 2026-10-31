@@ -406,13 +406,13 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("classWhen takes a condition and an expression over values") {
+  test("cellClassWhen takes a condition and an expression over values") {
     val body =
       s"""    c.button("Stue", c.view.closePopup())
          |      .secondary(c.expr("string(n) + ' on'"))
          |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
-         |      .classWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
-         |      .classWhen("fh-many", c.expr("n > 1"))""".stripMargin
+         |      .cellClassWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
+         |      .cellClassWhen("fh-many", c.expr("n > 1"))""".stripMargin
     withServer(body) { ts =>
       for {
         html <- ts.page()

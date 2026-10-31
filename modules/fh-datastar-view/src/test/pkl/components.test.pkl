@@ -1076,12 +1076,12 @@ facts {
   }
 
   ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
-    local lit = c.button("x", c.tap.toggle(kitchen)).classWhen("warm", c.isOn(kitchen))
+    local lit = c.button("x", c.tap.toggle(kitchen)).cellClassWhen("warm", c.isOn(kitchen))
     liveOn.apply(lit, "warm")
     lit.cellStyle("--x", c.expr("'1'")).cell.styles["--x"] is Map
-    liveOn.apply(new OwnSlots {}.classWhen("warm", c.isOn(kitchen)), "warm")
+    liveOn.apply(new OwnSlots {}.cellClassWhen("warm", c.isOn(kitchen)), "warm")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
-    module.catch(() -> set.classWhen("warm", c.isOn(kitchen))).contains("only a card node has")
+    module.catch(() -> set.cellClassWhen("warm", c.isOn(kitchen))).contains("only a card node has")
     module.catch(() -> set.cellStyle("--x", c.expr("'1'"))).contains("only a card node has")
   }
 

@@ -3,7 +3,7 @@
 A node **declares** named values; its slots' CEL **reads** them by name, as typed variables. A
 value is a literal, a **tally** (a static candidate list and which of it is present, counted
 live), or a **condition** (what `c.iff` takes, decided live). Every yes/no input on a card — a
-button's `active`, a `disabled`, a `classWhen` — takes a condition directly, and any node can set a
+button's `active`, a `disabled`, a `cellClassWhen` — takes a condition directly, and any node can set a
 live CSS custom property from a reading. The floor button this was built for:
 
 ```pkl
@@ -121,7 +121,7 @@ or `bytes` is refused with a pointer to `str(…)`, since it would otherwise ren
 
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
-`q.entity(l).stateIs("on")`). `active`, `disabled` and `classWhen` all take one. A condition IS the
+`q.entity(l).stateIs("on")`). `active`, `disabled` and `cellClassWhen` all take one. A condition IS the
 bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by `Conditions` with
 no CEL and no name; a comparison that names no entity reads the slot's, and the build refuses one
 on a slot that has none. An aggregate the build can settle IS a `Boolean` —
@@ -164,12 +164,12 @@ and a slot behind it runs nothing.
 
 `.cellStyle(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
 produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), an `Expr` may read the
-node's values. It is `classWhen`'s twin: both are cell slots (`cell.styles` beside `cell.classes`,
+node's values. It is `cellClassWhen`'s twin: both are cell slots (`cell.styles` beside `cell.classes`,
 ADR 0008), the value inline
 (`style="--x:…"`) in the document form and a `data-style:--x` binding after the wrapper's seed in
 both. Only a custom property (`--…`), since a plain property would fight the theme's framework,
 which writes `!important` utilities; a reading that is certainly a bool is refused — that is
-`classWhen`'s job.
+`cellClassWhen`'s job.
 
 It cannot drive the slider's own fill: the track's `<span>` declares its own `--fh-fill` inline, so
 a value inherited from the cell is shadowed. The slider keeps its element-level `style:--fh-fill`
