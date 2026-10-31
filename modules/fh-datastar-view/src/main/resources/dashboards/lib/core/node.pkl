@@ -46,11 +46,13 @@ const function disabledSlot(d: BooleanInput?): slotMod.Slot =
       signal = slotMod.asHandler
     }
 
-/// The static classes on a node's `.fh-cell` wrapper. Authors use the
-/// [[LayoutNode]] builders rather than writing one. The live ones are slots
-/// ([[Node.slots]]).
+/// What the renderer places on a node's `.fh-cell` wrapper: its cell slots,
+/// keyed by the class name or the custom property. A class is `"1"` (always
+/// there) or a reading; a style is a reading. Authors use the [[LayoutNode]]
+/// builders rather than writing one.
 class Cell {
-  classes: Listing<String> = new {}
+  classes: Mapping<String, String|Map<String, Any>> = new {}
+  styles: Mapping<String, Map<String, Any>> = new {}
 }
 
 /// Every layout-tree node. `kind` is the wire discriminator.
@@ -74,11 +76,24 @@ abstract class LayoutNode {
   /// from [[cellClasses]], which a builder replaces whole, so an input set
   /// after `.columns(3)` still lands.
   hidden stateClasses: Listing<String> = new {}
-  /// Derived from [[cellClasses]] and [[stateClasses]]. Setting it directly replaces whatever
-  /// the builders would have added.
+  /// The live cell classes and styles ([[classWhen]], [[cellStyle]]). A set has
+  /// no slots to bind them with, so the builders refuse them there.
+  hidden liveClasses: Mapping<String, slotMod.Reading> = new {}
+  hidden liveStyles: Mapping<String, slotMod.Reading> = new {}
+  /// Derived from the four above. Setting it directly replaces whatever the
+  /// builders would have added.
   cell: Cell? =
-    if (cellClasses.isEmpty && stateClasses.isEmpty) null
-    else new Cell { classes = (cellClasses.toList() + stateClasses.toList()).toListing() }
+    let (static = (cellClasses.toList() + stateClasses.toList()).distinct)
+      if (static.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty) null
+      else new Cell {
+        classes {
+          for (c in static) { [c] = "1" }
+          for (c, r in liveClasses) { [c] = wireReading(r) }
+        }
+        styles {
+          for (p, r in liveStyles) { [p] = wireReading(r) }
+        }
+      }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
   /// [[Grid]] or a group.
   function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
@@ -110,17 +125,17 @@ abstract class LayoutNode {
   /// A custom property on the wrapper, set from a reading and kept live, for
   /// the card's CSS to read by inheritance:
   ///
-  ///     c.button(…).cssProperty("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
+  ///     c.button(…).cellStyle("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
   ///     // css: .fh-cell>button { background-size: var(--fh-fill) 100% }
   ///
   /// Only `--…`: a plain property would fight the theme's framework.
-  function cssProperty(name: String(startsWith("--")), reading: slotMod.Reading|slotMod.Expr): LayoutNode =
+  function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading|slotMod.Expr): LayoutNode =
     let (self = this)
     let (s = if (reading is slotMod.Expr)
         new slotMod.Reading { entityId = reading.entityId; transform = reading.transform }
       else reading as slotMod.Reading)
-      if (!(self is Node)) throw("cssProperty: a live property is a slot, which only a card node has — put it on the clause's node")
-      else (self) { liveProperties { [name] = s } }
+      if (!(self is Node)) throw("cellStyle: a live style is a slot, which only a card node has — put it on the clause's node")
+      else (self) { liveStyles { [name] = s } }
   // One class per family (`fh-cols-*`, `fh-text-*`, hug or grow, one edge): two
   // would be decided by stylesheet order, not by the author's last word. This is
   // also what lets a card default its span, or a pill its hug, and still be
@@ -151,17 +166,9 @@ abstract class Node extends LayoutNode {
   // reference instance properties beyond a slot's name. Keep each HTML
   // attribute value on one line.
   hidden cardDef: CardDef
-  /// The live cell classes and properties ([[LayoutNode.classWhen]],
-  /// [[LayoutNode.cssProperty]]), which [[slots]] carries. A set has no slots,
-  /// so the builders refuse them there.
-  hidden liveClasses: Mapping<String, slotMod.Reading> = new {}
-  hidden liveProperties: Mapping<String, slotMod.Reading> = new {}
   // The structural check mirrors `LayoutNode.Component.liveEntitiesAsBytes`.
-  /// What this node's card reads ([[slotMod.Slot]]). Amend it, `slots { label.of(…) }`:
-  /// it already holds the node's live cell classes and properties
-  /// ([[LayoutNode.classWhen]], [[LayoutNode.cssProperty]]), and replacing it with
-  /// `slots = new { … }` drops them, which the build refuses. A slot with no
-  /// value is not set; [[wireSlots]] is what reaches the backend.
+  /// What this node's card reads ([[slotMod.Slot]]): `slots { label.of(…) }`. A
+  /// slot with no value is not set; [[wireSlots]] is what reaches the backend.
   ///
   /// On a structural card (one with regions) a live slot read as bytes is refused,
   /// since its patch would carry everything the card holds: put live markup in a
@@ -172,16 +179,8 @@ abstract class Node extends LayoutNode {
       s.value is slotMod.Reading && s.value.reads == "live" && s.signal == null &&
         (s.value.entityId != null ||
         toList().any((t) -> t.name == "entity_id" && t.value is String))),
-    keepsLiveCell(this, card, liveClasses, liveProperties),
     namedOnce(this, card)
-  ) = new {
-    for (cls, r in liveClasses) {
-      new slotMod.Slot { name = cellClassPrefix + cls; value = r; signal = slotMod.asClass(cls); type = "bool" }
-    }
-    for (p, r in liveProperties) {
-      new slotMod.Slot { name = cellStylePrefix + p; value = r; signal = slotMod.asStyle(p) }
-    }
-  }
+  ) = new {}
   /// [[slots]] that are set, by name.
   hidden slotsByName: Map<String, slotMod.Slot> =
     slots.toList().filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
@@ -279,12 +278,6 @@ class Region {
 /// the backend.
 const defaultRegion: String = "children"
 
-/// The slot-name prefixes of a live cell class and property;
-/// `Dashboard.CellClassPrefix` / `CellStylePrefix` in the backend. The `:` keeps
-/// them out of any name a template could place.
-const cellClassPrefix: String = "cell:class:"
-const cellStylePrefix: String = "cell:style:"
-
 /// A card's markup. A card is a LEAF (no regions) or STRUCTURE (regions), and a
 /// patch replaces a node's own element, so structure is never a patch target
 /// (ADR 0012). A card that wants its own bytes to change puts that markup in a
@@ -317,20 +310,6 @@ class CardDef {
 
 const local function isStructure(d: CardDef): Boolean = d.regions != null
 
-// Throws rather than returning false, so the message names what was dropped.
-const local function keepsLiveCell(
-  slots: Listing<slotMod.Slot>,
-  card: String,
-  classes: Mapping<String, slotMod.Reading>,
-  properties: Mapping<String, slotMod.Reading>
-): Boolean =
-  let (names = slots.toList().map((s) -> s.name).toSet())
-  let (lost =
-      classes.keys.toList().filter((c) -> !names.contains(cellClassPrefix + c)).map((c) -> "class '\(c)'")
-      + properties.keys.toList().filter((p) -> !names.contains(cellStylePrefix + p)).map((p) -> "property '\(p)'"))
-    if (lost.isEmpty) true
-    else throw("card '\(card)': `slots = new { … }` drops its live cell \(lost.join(", ")); amend with `slots { … }`, which keeps them")
-
 // The wire is keyed by name, so a second slot of one name would silently win.
 const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Boolean =
   let (twice = slots.toList().map((s) -> s.name).groupBy((n) -> n).filter((_, ns) -> ns.length > 1).keys)
@@ -341,12 +320,16 @@ const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Bool
 /// only, a reading carrying its slot's `signal` and `type`, and a literal its
 /// `type` when it has one (a `cssClass`), else a bare string. The library's
 /// `output` renders every `slots` through it (`site.pkl`, `entry.pkl`).
+/// A reading as the wire holds it: its set fields.
+const function wireReading(r: slotMod.Reading): Map<String, Any> =
+  r.toMap().filter((_, v) -> v != null)
+
 const function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = new {
   for (s in slots) {
     when (s.value != null) {
       [s.name] =
         if (s.value is slotMod.Reading)
-          (s.value as slotMod.Reading).toMap().filter((_, v) -> v != null)
+          wireReading(s.value as slotMod.Reading)
             + (if (s.signal != null) Map("signal", s.signal) else Map())
             + (if (s.type != null) Map("type", s.type) else Map())
         else if (s.signal != null)

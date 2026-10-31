@@ -22,6 +22,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.DashboardBuilders.{
   asComponent,
+  classes,
   col,
   declared,
   lit,
@@ -455,7 +456,7 @@ class RendererSuite extends munit.FunSuite {
       LayoutNode.Component(
         "naked",
         slots = Map("state" -> lit("42")),
-        cell = Some(Cell(classes = List("fh-cols-3")))
+        cell = Some(classes("fh-cols-3"))
       )
     )
     assert(
@@ -480,7 +481,7 @@ class RendererSuite extends munit.FunSuite {
     val sized = LayoutNode.Component(
       "btn",
       Map("label" -> lit("Go")),
-      cell = Some(Cell(classes = List("fh-cols-3", "hero")))
+      cell = Some(classes("fh-cols-3", "hero"))
     )
     assertEquals(
       renderer(sized)
@@ -492,9 +493,9 @@ class RendererSuite extends munit.FunSuite {
     val dyn = onSet(
       List("light.a"),
       List(
-        (None, "btn", Map("label" -> lit("L")), Some(Cell(List("fh-cols-4"))))
+        (None, "btn", Map("label" -> lit("L")), Some(classes("fh-cols-4")))
       )
-    ).copy(cell = Some(Cell(classes = List("fh-cols-full"))))
+    ).copy(cell = Some(classes("fh-cols-full")))
     // A member container composes its members, so it has no rendering of its
     // own.
     val html = renderer(dyn).renderBody(Map("light.a" -> st("light.a", "on")))

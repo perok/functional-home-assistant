@@ -23,7 +23,9 @@ byte-equal to it). The tier is the slot's own field; nothing infers one from exp
 "Slot" is the value; the template hole it fills has the same name. In Pkl a slot is a
 `slotMod.Slot`: its name, its value (a literal or a **Reading**) and how the card binds it (`signal`,
 `type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
-places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`).
+places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`). That is a **template
+slot**; a **cell slot** is placed by the renderer on the node's **cell** instead, keyed by the class
+or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
@@ -97,7 +99,7 @@ ADR 0034.
 no template places it. A button's `active` is one (`fh-active`).
 
 **Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
-and kept live (`LayoutNode.cssProperty`) — a live cell class's value-carrying twin, read by the
+and kept live (`LayoutNode.cellStyle`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
 **Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
@@ -157,8 +159,10 @@ beside the declaration would be a second, weaker copy of that, free to disagree 
 the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that
 emits the declaration and its control from one list.
 
-**Cell** — the wrapper element the renderer puts around every node, carrying the layout classes
-(`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`). Layout is the backend's job, not each card's.
+**Cell** — a node's cell is the wrapper element the renderer puts around it (`.fh-cell`), and the
+item the layout sizes: the grid or flex item that `columns(n)`, `hug()` and `grow()` act on. It
+carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`) and the node's cell
+slots (`cellClass`, `classWhen`, `cellStyle`). Layout is the backend's job, not each card's.
 ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,

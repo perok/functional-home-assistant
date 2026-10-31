@@ -375,7 +375,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   the button/tile/slider, `classWhen`: a Boolean, a reading, an `Expr` or a condition directly —
   `.disabled(lit.none())` — the condition is the bool slot's transform, decided without CEL; `Slot.type = "bool"`
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
-  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cssProperty("--x",
+  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
   reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:

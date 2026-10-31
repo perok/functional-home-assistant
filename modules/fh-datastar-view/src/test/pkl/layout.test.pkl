@@ -23,7 +23,7 @@ local function declared(body: String): Set<String> =
   body.split(";").map((d) -> d.trim()).filter((d) -> d.startsWith("--fh-cell-"))
     .map((d) -> d.takeWhile((ch) -> ch != ":")).toSet()
 
-local function classes(n: nodes.LayoutNode): List<String> = n.cell?.classes?.toList() ?? List()
+local function classes(n: nodes.LayoutNode): List<String> = n.cell?.classes?.keys?.toList() ?? List()
 
 facts {
   ["a row is start-packed and one line until told otherwise"] {

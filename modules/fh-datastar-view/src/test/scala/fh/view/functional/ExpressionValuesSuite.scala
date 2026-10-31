@@ -524,10 +524,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
        |      $property""".stripMargin
 
-  test("a cssProperty is inline in the document and moves by one frame") {
+  test("a cellStyle is inline in the document and moves by one frame") {
     val body =
       propertyButton(
-        """.cssProperty("--fh-fill", c.expr("string(n * 50) + '%'"))"""
+        """.cellStyle("--fh-fill", c.expr("string(n * 50) + '%'"))"""
       )
     withServer(body) { ts =>
       for {
@@ -545,26 +545,26 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a cssProperty takes a Simple reading, on the fast tier") {
+  test("a cellStyle takes a Simple reading, on the fast tier") {
     val body = propertyButton(
-      s""".cssProperty("--fh-name", new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+      s""".cellStyle("--fh-name", new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
     )
     withServer(body)(_.page()).map { html =>
       assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)
     }
   }
 
-  test("a cssProperty that reads a bool fails the build") {
+  test("a cellStyle that reads a bool fails the build") {
     val isOn = propertyButton(
-      s""".cssProperty("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
+      s""".cellStyle("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
     )
     assert(errorsOf(isOn).exists(_.contains("reads a bool")), errorsOf(isOn))
-    val cmp = propertyButton(""".cssProperty("--fh-on", c.expr("n > 0"))""")
+    val cmp = propertyButton(""".cellStyle("--fh-on", c.expr("n > 0"))""")
     assert(errorsOf(cmp).exists(_.contains("reads a bool")), errorsOf(cmp))
   }
 
-  test("a cssProperty must be a custom property") {
-    val body = propertyButton(""".cssProperty("color", c.expr("'red'"))""")
+  test("a cellStyle must be a custom property") {
+    val body = propertyButton(""".cellStyle("color", c.expr("'red'"))""")
     val err =
       scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
     assert(err.contains("""startsWith("--")"""), clue = err)

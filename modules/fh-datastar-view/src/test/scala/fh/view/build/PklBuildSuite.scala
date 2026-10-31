@@ -1703,7 +1703,7 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |builder = c.entityCard(x).columns(3).cellClass("hero")
         |amend = (c.entityCard(x)) {
-        |  cell = new c.Cell { classes { "fh-cols-3"; "hero" } }
+        |  cell = new c.Cell { classes { ["fh-cols-3"] = "1"; ["hero"] = "1" } }
         |}
         |full = c.entityCard(x).fullWidth()
         |custom = c.entityCard(x).cellClass("my-hero")
@@ -1728,8 +1728,14 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
+    // The ones always there, in wire order.
     def classes(k: String) =
-      cur.downField(k).downField("cell").get[List[String]]("classes").toOption
+      cur
+        .downField(k)
+        .downField("cell")
+        .get[io.circe.JsonObject]("classes")
+        .toOption
+        .map(_.toList.collect { case (c, v) if v.asString.contains("1") => c })
     assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
     assertEquals(classes("full"), Some(List("fh-cols-full")))
     assertEquals(classes("custom"), Some(List("my-hero")))
@@ -1793,13 +1799,31 @@ class PklBuildSuite extends munit.FunSuite {
       .head
       .node
       .asComponent
-    assertEquals(node.cell.map(_.classes), Some(List("fh-cols-full")))
+    assertEquals(
+      node.cell.map(
+        _.classes
+          .collect {
+            case (c, s) if s.literal.isDefined => c
+          }
+          .toList
+      ),
+      Some(List("fh-cols-full"))
+    )
     val sized = probeSet(
       """node = (q.from(hass.lights(dump.areas.stue.all))
         |  .render((e) -> c.entityCard(e))
         |  .build()).fullWidth()""".stripMargin
     )
-    assertEquals(sized.cell.map(_.classes), Some(List("fh-cols-full")))
+    assertEquals(
+      sized.cell.map(
+        _.classes
+          .collect {
+            case (c, s) if s.literal.isDefined => c
+          }
+          .toList
+      ),
+      Some(List("fh-cols-full"))
+    )
     assertEquals(
       sized
         .members("light.taklys")
@@ -1808,8 +1832,9 @@ class PklBuildSuite extends munit.FunSuite {
         .node
         .asComponent
         .cell
-        .map(_.classes),
-      None
+        .toList
+        .flatMap(_.classes.collect { case (c, s) if s.literal.isDefined => c }),
+      Nil
     )
   }
 
@@ -2068,10 +2093,15 @@ class PklBuildSuite extends munit.FunSuite {
         "max",
         "icon",
         "busyVisual",
-        "onoff",
-        "cell:class:fh-active"
+        "onoff"
       ),
       clue = rowOf(plain).slots.keySet
+    )
+    // Its on look rides the cell, as a reading the renderer binds.
+    assert(
+      rowOf(plain).cell
+        .exists(_.classes.get("fh-active").exists(_.literal.isEmpty)),
+      clue = rowOf(plain).cell
     )
     assertEquals(plain.slots.keySet, Set.empty[String])
     assertEquals(rowOf(plain).slots("state").valueKey, "state")

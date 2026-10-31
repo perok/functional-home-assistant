@@ -3,7 +3,9 @@
 Raised in chat on 2026-10-30, during #657 (slot views); the design was settled in chat on
 2026-10-31.
 
-**State:** design agreed; not built.
+**State:** built. Step 1 kept the wire byte-identical; step 2's snapshot diff is the nine
+`cell:class:fh-active` slots moving to `cell.classes` (no `signal`, no `type`), the static lists
+becoming `"name": "1"` maps, and an empty `styles` on each cell.
 
 ## Why
 
@@ -83,9 +85,9 @@ case class TemplateSlot(source: SlotSource, signal: Option[SignalBind], `type`: 
 
 - The wire stays flat: `TemplateSlot`'s decoder reads the `SlotSource` from the same object, then
   `signal` and `type`. No wire change, so the snapshots stay byte-identical.
-- `Component.slots` holds `TemplateSlot`s. `BoundSlot` carries the source plus the signal and
-  type, and keeps exporting them, so its readers stay put; code reading `signal`/`type` off a
-  `SlotSource` moves.
+- `Component.slots` holds `TemplateSlot`s, which export their source's fields as `BoundSlot`
+  does. `BoundSlot` carries the source plus the signal and type, so its readers stay put; code
+  reading `signal`/`type` off a `SlotSource` moves.
 - `valueWhileSlot`'s bool comes from its position, built in `bind`, not overwritten.
 - `WireShapeSuite` checks `Reading` against `SlotSource` and `Slot` against `TemplateSlot`; the
   `onSlot` exclusion goes.

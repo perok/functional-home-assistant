@@ -131,7 +131,7 @@ abstract class Select extends nodes.Node {
         cellClasses = self.cellClasses
         stateClasses = self.stateClasses
         liveClasses = self.liveClasses
-        liveProperties = self.liveProperties
+        liveStyles = self.liveStyles
         id = self.id
         vars = self.vars
         expressionValues = self.expressionValues

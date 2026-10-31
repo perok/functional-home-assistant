@@ -54,9 +54,12 @@
                           {
                             "card" : "chooser",
                             "cell" : {
-                              "classes" : [
-                                "fh-cols-full"
-                              ]
+                              "classes" : {
+                                "fh-cols-full" : "1"
+                              },
+                              "styles" : {
+                                
+                              }
                             },
                             "kind" : "Component",
                             "regions" : {
@@ -288,26 +291,31 @@
         },
         {
           "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "bypassUnavailable" : false,
+                "entityId" : "light.kitchen",
+                "reads" : "live",
+                "transform" : {
+                  "cases" : {
+                    "off" : false,
+                    "unavailable" : false,
+                    "unknown" : false
+                  },
+                  "kind" : "Match",
+                  "otherwise" : true
+                }
+              }
+            },
+            "styles" : {
+              
+            }
+          },
           "kind" : "Component",
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
-            "cell:class:fh-active" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "class:fh-active",
-              "transform" : {
-                "cases" : {
-                  "off" : false,
-                  "unavailable" : false,
-                  "unknown" : false
-                },
-                "kind" : "Match",
-                "otherwise" : true
-              },
-              "type" : "bool"
-            },
             "entity_id" : "light.kitchen",
             "icon" : {
               "literal" : "mdi mdi-lightbulb",
@@ -348,6 +356,27 @@
         },
         {
           "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "bypassUnavailable" : false,
+                "entityId" : "light.kitchen",
+                "reads" : "live",
+                "transform" : {
+                  "cases" : {
+                    "off" : false,
+                    "unavailable" : false,
+                    "unknown" : false
+                  },
+                  "kind" : "Match",
+                  "otherwise" : true
+                }
+              }
+            },
+            "styles" : {
+              
+            }
+          },
           "inlineSurfaces" : {
             "self" : {
               "content" : {
@@ -362,26 +391,31 @@
                         "children" : [
                           {
                             "card" : "tile",
+                            "cell" : {
+                              "classes" : {
+                                "fh-active" : {
+                                  "bypassUnavailable" : false,
+                                  "entityId" : "light.kitchen",
+                                  "reads" : "live",
+                                  "transform" : {
+                                    "cases" : {
+                                      "off" : false,
+                                      "unavailable" : false,
+                                      "unknown" : false
+                                    },
+                                    "kind" : "Match",
+                                    "otherwise" : true
+                                  }
+                                }
+                              },
+                              "styles" : {
+                                
+                              }
+                            },
                             "kind" : "Component",
                             "slots" : {
                               "busy" : "1",
                               "busyVisual" : "1",
-                              "cell:class:fh-active" : {
-                                "bypassUnavailable" : false,
-                                "entityId" : "light.kitchen",
-                                "reads" : "live",
-                                "signal" : "class:fh-active",
-                                "transform" : {
-                                  "cases" : {
-                                    "off" : false,
-                                    "unavailable" : false,
-                                    "unknown" : false
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : true
-                                },
-                                "type" : "bool"
-                              },
                               "entity_id" : "light.kitchen",
                               "icon" : {
                                 "literal" : "mdi mdi-lightbulb",
@@ -427,26 +461,31 @@
                               "children" : [
                                 {
                                   "card" : "tile",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-active" : {
+                                        "bypassUnavailable" : false,
+                                        "entityId" : "light.kitchen",
+                                        "reads" : "live",
+                                        "transform" : {
+                                          "cases" : {
+                                            "off" : false,
+                                            "unavailable" : false,
+                                            "unknown" : false
+                                          },
+                                          "kind" : "Match",
+                                          "otherwise" : true
+                                        }
+                                      }
+                                    },
+                                    "styles" : {
+                                      
+                                    }
+                                  },
                                   "kind" : "Component",
                                   "slots" : {
                                     "busy" : "1",
                                     "busyVisual" : "1",
-                                    "cell:class:fh-active" : {
-                                      "bypassUnavailable" : false,
-                                      "entityId" : "light.kitchen",
-                                      "reads" : "live",
-                                      "signal" : "class:fh-active",
-                                      "transform" : {
-                                        "cases" : {
-                                          "off" : false,
-                                          "unavailable" : false,
-                                          "unknown" : false
-                                        },
-                                        "kind" : "Match",
-                                        "otherwise" : true
-                                      },
-                                      "type" : "bool"
-                                    },
                                     "entity_id" : "light.kitchen",
                                     "icon" : {
                                       "literal" : "mdi mdi-lightbulb",
@@ -544,22 +583,6 @@
           "slots" : {
             "busy" : "1",
             "busyVisual" : "1",
-            "cell:class:fh-active" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "class:fh-active",
-              "transform" : {
-                "cases" : {
-                  "off" : false,
-                  "unavailable" : false,
-                  "unknown" : false
-                },
-                "kind" : "Match",
-                "otherwise" : true
-              },
-              "type" : "bool"
-            },
             "entity_id" : "light.kitchen",
             "icon" : {
               "literal" : "mdi mdi-lightbulb",
@@ -597,9 +620,26 @@
               {
                 "card" : "sliderHead",
                 "cell" : {
-                  "classes" : [
-                    "fh-slider-head-cell"
-                  ]
+                  "classes" : {
+                    "fh-active" : {
+                      "bypassUnavailable" : false,
+                      "entityId" : "light.kitchen",
+                      "reads" : "live",
+                      "transform" : {
+                        "cases" : {
+                          "off" : false,
+                          "unavailable" : false,
+                          "unknown" : false
+                        },
+                        "kind" : "Match",
+                        "otherwise" : true
+                      }
+                    },
+                    "fh-slider-head-cell" : "1"
+                  },
+                  "styles" : {
+                    
+                  }
                 },
                 "kind" : "Component",
                 "regions" : {
@@ -609,9 +649,12 @@
                     {
                       "card" : "sliderText",
                       "cell" : {
-                        "classes" : [
-                          "fh-slider-text"
-                        ]
+                        "classes" : {
+                          "fh-slider-text" : "1"
+                        },
+                        "styles" : {
+                          
+                        }
                       },
                       "kind" : "Component",
                       "slots" : {
@@ -625,22 +668,6 @@
                 },
                 "slots" : {
                   "busyVisual" : "1",
-                  "cell:class:fh-active" : {
-                    "bypassUnavailable" : false,
-                    "entityId" : "light.kitchen",
-                    "reads" : "live",
-                    "signal" : "class:fh-active",
-                    "transform" : {
-                      "cases" : {
-                        "off" : false,
-                        "unavailable" : false,
-                        "unknown" : false
-                      },
-                      "kind" : "Match",
-                      "otherwise" : true
-                    },
-                    "type" : "bool"
-                  },
                   "dataKey" : "brightness",
                   "entity_id" : "light.kitchen",
                   "fill" : {
@@ -725,26 +752,31 @@
                 {
                   "node" : {
                     "card" : "tile",
+                    "cell" : {
+                      "classes" : {
+                        "fh-active" : {
+                          "bypassUnavailable" : false,
+                          "entityId" : "light.kitchen",
+                          "reads" : "live",
+                          "transform" : {
+                            "cases" : {
+                              "off" : false,
+                              "unavailable" : false,
+                              "unknown" : false
+                            },
+                            "kind" : "Match",
+                            "otherwise" : true
+                          }
+                        }
+                      },
+                      "styles" : {
+                        
+                      }
+                    },
                     "kind" : "Component",
                     "slots" : {
                       "busy" : "1",
                       "busyVisual" : "1",
-                      "cell:class:fh-active" : {
-                        "bypassUnavailable" : false,
-                        "entityId" : "light.kitchen",
-                        "reads" : "live",
-                        "signal" : "class:fh-active",
-                        "transform" : {
-                          "cases" : {
-                            "off" : false,
-                            "unavailable" : false,
-                            "unknown" : false
-                          },
-                          "kind" : "Match",
-                          "otherwise" : true
-                        },
-                        "type" : "bool"
-                      },
                       "entity_id" : "light.kitchen",
                       "icon" : {
                         "literal" : "mdi mdi-lightbulb",
@@ -797,26 +829,31 @@
                 {
                   "node" : {
                     "card" : "tile",
+                    "cell" : {
+                      "classes" : {
+                        "fh-active" : {
+                          "bypassUnavailable" : false,
+                          "entityId" : "light.living_room",
+                          "reads" : "live",
+                          "transform" : {
+                            "cases" : {
+                              "off" : false,
+                              "unavailable" : false,
+                              "unknown" : false
+                            },
+                            "kind" : "Match",
+                            "otherwise" : true
+                          }
+                        }
+                      },
+                      "styles" : {
+                        
+                      }
+                    },
                     "kind" : "Component",
                     "slots" : {
                       "busy" : "1",
                       "busyVisual" : "1",
-                      "cell:class:fh-active" : {
-                        "bypassUnavailable" : false,
-                        "entityId" : "light.living_room",
-                        "reads" : "live",
-                        "signal" : "class:fh-active",
-                        "transform" : {
-                          "cases" : {
-                            "off" : false,
-                            "unavailable" : false,
-                            "unknown" : false
-                          },
-                          "kind" : "Match",
-                          "otherwise" : true
-                        },
-                        "type" : "bool"
-                      },
                       "entity_id" : "light.living_room",
                       "icon" : {
                         "literal" : "mdi mdi-lightbulb",
@@ -1113,9 +1150,12 @@
                               {
                                 "card" : "chooser",
                                 "cell" : {
-                                  "classes" : [
-                                    "fh-cols-full"
-                                  ]
+                                  "classes" : {
+                                    "fh-cols-full" : "1"
+                                  },
+                                  "styles" : {
+                                    
+                                  }
                                 },
                                 "kind" : "Component",
                                 "regions" : {

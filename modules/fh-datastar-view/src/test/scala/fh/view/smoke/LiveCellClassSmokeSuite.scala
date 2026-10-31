@@ -64,7 +64,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |  children {
          |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
          |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
-         |    }).cssProperty("--fh-level", new slotMod.Reading {
+         |    }).cellStyle("--fh-level", new slotMod.Reading {
          |      entityId = dump.entities.${kitchen.dumpKey}.entity_id
          |      transform = simpleMod.attr("brightness")
          |    })
@@ -86,7 +86,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
     )
 
   test(
-    "a live cssProperty follows its reading, and survives a morph of its node"
+    "a live cellStyle follows its reading, and survives a morph of its node"
   ) {
     withPage(propertyScene) { (page, ts) =>
       def dimmed(name: String, b: Int) =

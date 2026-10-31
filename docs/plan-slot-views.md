@@ -3,7 +3,7 @@
 Discussed in chat on 2026-10-29, after #654 and #655. Regions get the same treatment next, once this
 design settles; they are out of scope here.
 
-**State:** built: views (the Scala half, the new spelling, `cell:class:`), the `Slot` → `Reading`
+**State:** built: views (the Scala half, the new spelling), the `Slot` → `Reading`
 rename, the Pkl `Slot` handles across the library, and flags and signal writes (decided in chat on
 2026-10-30), and `ifSetElse`/`ifTrueElse` (agreed the same day). `tapMod.disabled`'s literal `"1"` stays: it is a bool value read with `ifTrue`, live
 on other nodes, not a flag.
@@ -58,12 +58,8 @@ template then serves both. Its three uses (`service`, `tapDisabled`, `disabled`)
 
 ### The live cell slots
 
-`cell.class:<name>` and `cell.style:<property>` become `cell:class:<name>` and
-`cell:style:<property>`, leaving `.` to views; `Dashboard.CellClassPrefix`/`CellStylePrefix` and
-`node.pkl`'s `cellClassPrefix`/`cellStylePrefix` change with them. They are the live cell modifiers (`classWhen`,
-`cssProperty`), lowered into slots to share slot resolution and signals; the renderer binds them on
-the cell, and no template places them. The rest of the name already follows Datastar's
-`data-class:<name>`.
+They leave the node's `slots` for its `cell` (`docs/plan-live-cell-classes.md`), so no slot name
+holds a `.` or a prefix.
 
 ### Pkl: a slot is one object, named once
 
@@ -125,7 +121,7 @@ class Badge extends nodes.Node {
 - `valueWhile` is a bool by position: a reading carries no `type`, so the backend types that slot
   itself.
 - Pkl code that reads `slots` as a Mapping moves to the Listing: `Node`'s structural-card
-  constraint, `keepsLiveCell`, `valuesNamedIn`, and the slot-producing helpers (`tapRoute`,
+  constraint, `valuesNamedIn`, and the slot-producing helpers (`tapRoute`,
   `guardSlots`, `badgeMod.slots`).
 
 ### Flags and signal writes
@@ -176,7 +172,6 @@ stay for the one-sided cases.
   `$<signal>` evaluates to it. Not `jsReference` or `clientReference`: half the time it is a
   literal, `terminology.md` already defines **Reference** (a node variable's read), and
   "client-owned" names the browser's own signals.
-- **`cell:class:`** for the cell slots.
 - **`Slot` and `Reading`**, the vocabulary's own split, over a `NamedSlot` beside today's `Slot`.
 - **A duplicate slot name is reported by a check on `Node`**, naming the node's card and the slot,
   so the author can find it; the converter's own error names only the slot.

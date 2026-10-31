@@ -16,8 +16,10 @@ import fh.view.model.{
   VarAt
 }
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.DashboardBuilders.{classes, declared}
 import io.circe.{parser, Json}
+
+import scala.collection.immutable.ListMap
 
 class BuildPhaseSuite extends munit.FunSuite {
 
@@ -276,12 +278,28 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> CardDef("""<div>x</div>""")),
       card = LayoutNode.Component(
         card = "card",
-        cell = Some(Cell(classes = List("fh-cols-3", """bad"><script""")))
+        cell = Some(classes("fh-cols-3", """bad"><script"""))
       )
     )
     val errs = d.validate()
     assert(errs.exists(_.contains("cell class")), clue = errs)
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
+  }
+
+  test("validate takes a set's literal cell classes and refuses any reading") {
+    // A set has no slots to bind a reading with, so the wire alone could ask.
+    val reading = SlotSource(entityId = Some("light.a"))
+    val cell = Cell(
+      classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
+      styles = ListMap("--x" -> reading)
+    )
+    val errs = Dashboard(
+      cards = Map("card" -> CardDef("<i></i>")),
+      card = LayoutNode.SetNode(cell = Some(cell))
+    ).validate()
+    assert(errs.exists(_.contains("cell class 'fh-on' reads state")), errs)
+    assert(errs.exists(_.contains("cell style '--x' reads state")), errs)
+    assert(!errs.exists(_.contains("fh-cols-3")), errs)
   }
 
   /** `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id

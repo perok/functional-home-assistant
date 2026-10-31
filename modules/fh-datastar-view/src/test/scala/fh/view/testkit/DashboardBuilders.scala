@@ -1,6 +1,8 @@
 package fh.view.testkit
 
-import fh.view.model.{Dashboard, LayoutNode, SlotSource, TemplateSlot}
+import fh.view.model.{Cell, Dashboard, LayoutNode, SlotSource, TemplateSlot}
+
+import scala.collection.immutable.ListMap
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -38,6 +40,12 @@ object DashboardBuilders {
 
   /** A constant literal slot (a bare value, no entity/transform). */
   def lit(s: String): TemplateSlot = TemplateSlot(SlotSource(literal = Some(s)))
+
+  /** A cell holding these classes, each always there. */
+  def classes(names: String*): Cell =
+    Cell(classes =
+      ListMap.from(names.map(_ -> SlotSource(literal = Some("1"))))
+    )
 
   /** A leaf/container component referencing `card` with the given slots. */
   def component(

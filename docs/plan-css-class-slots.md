@@ -90,10 +90,10 @@ Two more places write `fh-` classes that no swap reaches, outside any slot. Both
 
 ## Not in scope
 
-- The live cell classes and properties (`classWhen`, `cssProperty`): their API is
+- The live cell classes and properties (`classWhen`, `cellStyle`): their API is
   `docs/plan-live-cell-classes.md`, picked up after this.
 - Swapping the cell's static classes once per plan instead of per render
-  (`Renderer.cellClasses`): a render-speed change unrelated to slots, for its own RenderBench
+  (`Renderer.cellClassesInto`): a render-speed change unrelated to slots, for its own RenderBench
   pass.
 - A `bool` type on the handle; `booleanSlot` sets it per fill today.
 

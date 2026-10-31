@@ -34,6 +34,10 @@ import "../../main/resources/dashboards/lib/hass/light.pkl" as hassLight
 
 /// A node's declarations as name -> default.
 local defaults = (n: nodes.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> d.default)
+// Whether `n`'s cell carries `cls` as a reading, which the renderer binds.
+local liveOn = (n: nodes.LayoutNode, cls: String) -> n.cell?.classes?.getOrNull(cls) is Map
+// The classes `n`'s cell always carries.
+local staticOn = (n: nodes.LayoutNode) -> n.cell.classes.toMap().filter((_, v) -> v == "1").keys.toList()
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -236,17 +240,17 @@ facts {
   }
 
   ["layout builders put fh- contract classes on the wrapper"] {
-    c.title("x").columns(3).cell.classes.toList() == List("fh-cols-3")
-    c.title("x").fullWidth().cell.classes.toList() == List("fh-cols-full")
-    c.title("x").hug().cell.classes.toList() == List("fh-hug")
-    c.title("x").cellClass("my-thing").cell.classes.toList() == List("my-thing")
+    c.title("x").columns(3).cell.classes.keys.toList() == List("fh-cols-3")
+    c.title("x").fullWidth().cell.classes.keys.toList() == List("fh-cols-full")
+    c.title("x").hug().cell.classes.keys.toList() == List("fh-hug")
+    c.title("x").cellClass("my-thing").cell.classes.keys.toList() == List("my-thing")
   }
 
   ["ONE SPAN PER NODE: a later fh-cols-* drops the earlier one"] {
-    c.title("x").columns(3).columns(7).cell.classes.toList() == List("fh-cols-7")
-    c.title("x").columns(3).fullWidth().cell.classes.toList() == List("fh-cols-full")
+    c.title("x").columns(3).columns(7).cell.classes.keys.toList() == List("fh-cols-7")
+    c.title("x").columns(3).fullWidth().cell.classes.keys.toList() == List("fh-cols-full")
     // a non-span class is additive, not a replacement
-    c.title("x").columns(3).hug().cell.classes.toList() == List("fh-cols-3", "fh-hug")
+    c.title("x").columns(3).hug().cell.classes.keys.toList() == List("fh-cols-3", "fh-hug")
   }
 
   // ---- more-info (#106) ----
@@ -724,11 +728,11 @@ facts {
     // under it — and it is ONE per node: asking twice replaces, it does not
     // stack two modes whose winner would be stylesheet order.
     local scrolling = c.entityCard(kitchen).textOverflow("scroll")
-    scrolling.cell.classes.toList() == List("fh-text-scroll")
-    scrolling.textOverflow("wrap").cell.classes.toList() == List("fh-text-wrap")
+    staticOn.apply(scrolling) == List("fh-text-scroll")
+    staticOn.apply(scrolling.textOverflow("wrap")) == List("fh-text-wrap")
     // ...and it composes with the other cell answers, which are a different
     // question and keep their own slot.
-    c.entityCard(kitchen).columns(3).textOverflow("clip").cell.classes.toList()
+    staticOn.apply(c.entityCard(kitchen).columns(3).textOverflow("clip"))
       == List("fh-cols-3", "fh-text-clip")
     // The default is what a dashboard emits at :root, so a node that says
     // nothing inherits it rather than each card carrying a copy.
@@ -944,7 +948,7 @@ facts {
     power.slotsByName["round"].value == "1"
     power.slotsByName["name"].value == "Toggle"
     // A toggle's pill is lit while its entity is on; other calls' are not.
-    power.slotsByName["cell:class:fh-active"].value.entityId == kitchen.entity_id
+    power.liveClasses["fh-active"].entityId == kitchen.entity_id
     c.pill(c.tap.call("light/turn_on", kitchen).with("effect", "x")).label("x").active == false
     // A tap with no icon shows its label; an author's label is always shown.
     local evening: hass.SceneEntity = new { entity_id = "scene.kveld"; friendly_name = "Kveld" }
@@ -990,8 +994,7 @@ facts {
     // reflect a state — and rides the CELL, which the button card paints.
     glyphOnly.cell == null
     c.entityButton(kitchen).cell == null
-    c.entityButton(kitchen).active(c.isOn(kitchen)).slotsByName["cell:class:fh-active"].signal
-      == "class:fh-active"
+    liveOn.apply(c.entityButton(kitchen).active(c.isOn(kitchen)), "fh-active")
     c.cards["button"].css.contains(".fh-cell.fh-active>")
   }
 
@@ -1066,21 +1069,20 @@ facts {
     local after = c.button("x", tap).columns(3).active(c.isOn(kitchen))
     local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
     after.cell == before.cell
-    after.cell.classes.toList() == List("fh-cols-3")
-    after.slotsByName.containsKey("cell:class:fh-active")
-    c.button("x", tap).active(true).columns(3).cell.classes.toList().sort()
-      == List("fh-active", "fh-cols-3")
+    after.cell.classes["fh-cols-3"] == "1"
+    liveOn.apply(after, "fh-active")
+    c.button("x", tap).active(true).columns(3).cell.classes.toMap()
+      == Map("fh-cols-3", "1", "fh-active", "1")
   }
 
-  ["a live cell class is a slot: replacing a card's slots cannot drop it, and a set has none"] {
+  ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
     local lit = c.button("x", c.tap.toggle(kitchen)).classWhen("warm", c.isOn(kitchen))
-    lit.slotsByName["cell:class:warm"].signal == "class:warm"
-    lit.cssProperty("--x", c.expr("'1'")).slotsByName.containsKey("cell:style:--x")
-    module.catch(() -> new OwnSlots {}.classWhen("warm", c.isOn(kitchen)).slots)
-      .contains("card 'ownSlots': `slots = new { … }` drops its live cell class 'warm'")
+    liveOn.apply(lit, "warm")
+    lit.cellStyle("--x", c.expr("'1'")).cell.styles["--x"] is Map
+    liveOn.apply(new OwnSlots {}.classWhen("warm", c.isOn(kitchen)), "warm")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
     module.catch(() -> set.classWhen("warm", c.isOn(kitchen))).contains("only a card node has")
-    module.catch(() -> set.cssProperty("--x", c.expr("'1'"))).contains("only a card node has")
+    module.catch(() -> set.cellStyle("--x", c.expr("'1'"))).contains("only a card node has")
   }
 
   ["an entity button is a base button with its inputs filled, and nothing more"] {
@@ -1146,17 +1148,15 @@ facts {
   }
 
   ["an entity card's badge fills while its entity is on, by HA's rule for the domain"] {
-    local litSlot = c.entityCard(kitchen).slotsByName["cell:class:fh-active"]
-    local lit = litSlot.value
-    litSlot.signal == "class:fh-active"
+    local lit = c.entityCard(kitchen).liveClasses["fh-active"]
+    liveOn.apply(c.entityCard(kitchen), "fh-active")
     lit.entityId == kitchen.entity_id
-    litSlot.type == "bool"
     // `off` and the two unavailable states are off; any other state is on.
     local light = lit.transform as simpleMod.SimpleMatch
     light.cases.toMap() == Map("unavailable", false, "unknown", false, "off", false)
     light.otherwise == true
     // A lock is on while it is not locked: HA's reading, not `on`.
-    (c.entityCard(plainLock).slotsByName["cell:class:fh-active"].value.transform as simpleMod.SimpleMatch)
+    (c.entityCard(plainLock).liveClasses["fh-active"].transform as simpleMod.SimpleMatch)
       .cases.toMap()["locked"] == false
     // A reading has no off, so a sensor carries no live class at all.
     c.entityCard(outside).cell == null
@@ -1180,21 +1180,21 @@ facts {
     local paints = Regex(#"\.fh-badge[^{,]*\{[^}]*(background|color):"#)
     c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button")
     // On is the cell's; whether there is an off is the badge's.
-    c.toggle(kitchen).slotsByName.containsKey("cell:class:fh-active")
+    liveOn.apply(c.toggle(kitchen), "fh-active")
     c.toggle(kitchen).slotsByName["onoff"].value == "1"
     c.entityCard(kitchen).slotsByName["onoff"].value == "1"
     !c.entityCard(outside).slotsByName.containsKey("onoff")
     local head = c.entitySlider(kitchen).children["head"][0]
-    head.slotsByName.containsKey("cell:class:fh-active")
+    liveOn.apply(head, "fh-active")
     head.slotsByName["onoff"].value == "1"
     // One meaning of on: a toggle's pill reads HA's rule, as the tile.
-    c.pill(c.tap.toggle(kitchen)).slotsByName["cell:class:fh-active"].value.transform
-      == c.entityCard(kitchen).slotsByName["cell:class:fh-active"].value.transform
+    c.pill(c.tap.toggle(kitchen)).liveClasses["fh-active"].transform
+      == c.entityCard(kitchen).liveClasses["fh-active"].transform
   }
 
   ["a card's own on state survives a builder that ran before it"] {
     // `.columns(n)` replaces the builder classes whole; `active` is not one.
-    c.button("x", c.tap.toggle(kitchen)).columns(3).active(true).cell.classes.toList().sort()
+    c.button("x", c.tap.toggle(kitchen)).columns(3).active(true).cell.classes.keys.toList().sort()
       == List("fh-active", "fh-cols-3")
   }
 
@@ -1234,8 +1234,8 @@ facts {
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
     c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
     // A toggle's pill is lit by its entity; a view tap's binds no class signal.
-    acts[0].slotsByName.containsKey("cell:class:fh-active")
-    !acts[1].slotsByName.containsKey("cell:class:fh-active")
+    liveOn.apply(acts[0], "fh-active")
+    !liveOn.apply(acts[1], "fh-active")
     // A popup action carries its OWN surfaces, so the popup hangs off the
     // button that opens it rather than off the slider.
     acts[1].inlineSurfaces != null
