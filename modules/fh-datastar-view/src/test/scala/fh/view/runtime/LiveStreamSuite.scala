@@ -113,7 +113,7 @@ class LiveStreamSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots =
+          templateSlots =
             Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
         ),
         LayoutNode.Component("ifhost")
@@ -545,7 +545,7 @@ class LiveStreamSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "bar",
-                slots =
+                templateSlots =
                   Map("title" -> TemplateSlot(SlotSource(Some("sensor.title"))))
               )
             )
@@ -753,11 +753,13 @@ class LiveStreamSuite extends ServerHarness {
         regions = LayoutNode.kids(
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
+            templateSlots =
+              Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
           ),
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+            templateSlots =
+              Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
           )
         )
       )

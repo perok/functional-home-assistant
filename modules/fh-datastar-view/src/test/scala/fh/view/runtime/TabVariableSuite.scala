@@ -32,7 +32,7 @@ class TabVariableSuite extends ServerHarness {
 
   private def panel(i: Int, text: String) =
     Surface(
-      LayoutNode.Component("text", slots = Map("text" -> lit(text))),
+      LayoutNode.Component("text", templateSlots = Map("text" -> lit(text))),
       bakeInto = Some("bar"),
       bakeAs = Some("panel"),
       bakeIndex = Some(i),

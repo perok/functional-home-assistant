@@ -48,7 +48,7 @@
                                       {
                                         "card" : "tile",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : {
                                             "literal" : "mdi mdi-thermometer",
@@ -90,7 +90,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -107,7 +107,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -124,7 +124,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -141,7 +141,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -157,7 +157,7 @@
                                                   }
                                                 ]
                                               },
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 
                                               },
                                               "vars" : [
@@ -168,7 +168,7 @@
                                             {
                                               "card" : "historyChart",
                                               "kind" : "Component",
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 "chart" : {
                                                   "bypassUnavailable" : true,
                                                   "fetch" : {
@@ -219,7 +219,7 @@
                                             }
                                           ]
                                         },
-                                        "slots" : {
+                                        "templateSlots" : {
                                           
                                         },
                                         "vars" : [
@@ -233,7 +233,7 @@
                                       {
                                         "card" : "entityInfo",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "attributes" : {
                                             "bypassUnavailable" : true,
                                             "default" : "",
@@ -248,7 +248,7 @@
                                       {
                                         "card" : "button",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
                                           "size" : {
@@ -261,7 +261,7 @@
                                       }
                                     ]
                                   },
-                                  "slots" : {
+                                  "templateSlots" : {
                                     
                                   },
                                   "vars" : [
@@ -269,7 +269,7 @@
                                 }
                               ]
                             },
-                            "slots" : {
+                            "templateSlots" : {
                               
                             },
                             "vars" : [
@@ -278,7 +278,7 @@
                         }
                       },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
                         "entity_id" : "sensor.outside_temp",
@@ -309,7 +309,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -356,7 +356,7 @@
                         }
                       },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
                         "entity_id" : "light.kitchen",
@@ -399,7 +399,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -413,7 +413,7 @@
               {
                 "card" : "tab",
                 "kind" : "Component",
-                "slots" : {
+                "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
                   "busy" : "1",
                   "busyVisual" : "1",
@@ -430,7 +430,7 @@
               {
                 "card" : "tab",
                 "kind" : "Component",
-                "slots" : {
+                "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
                   "busy" : "1",
                   "busyVisual" : "1",
@@ -446,7 +446,7 @@
               }
             ]
           },
-          "slots" : {
+          "templateSlots" : {
             
           },
           "vars" : [
@@ -502,7 +502,7 @@
                                       {
                                         "card" : "tile",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : {
                                             "literal" : "mdi mdi-thermometer",
@@ -544,7 +544,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -561,7 +561,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -578,7 +578,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -595,7 +595,7 @@
                                                   {
                                                     "card" : "tab",
                                                     "kind" : "Component",
-                                                    "slots" : {
+                                                    "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
                                                       "busy" : "1",
                                                       "busyVisual" : "1",
@@ -611,7 +611,7 @@
                                                   }
                                                 ]
                                               },
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 
                                               },
                                               "vars" : [
@@ -622,7 +622,7 @@
                                             {
                                               "card" : "historyChart",
                                               "kind" : "Component",
-                                              "slots" : {
+                                              "templateSlots" : {
                                                 "chart" : {
                                                   "bypassUnavailable" : true,
                                                   "fetch" : {
@@ -673,7 +673,7 @@
                                             }
                                           ]
                                         },
-                                        "slots" : {
+                                        "templateSlots" : {
                                           
                                         },
                                         "vars" : [
@@ -687,7 +687,7 @@
                                       {
                                         "card" : "entityInfo",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "attributes" : {
                                             "bypassUnavailable" : true,
                                             "default" : "",
@@ -702,7 +702,7 @@
                                       {
                                         "card" : "button",
                                         "kind" : "Component",
-                                        "slots" : {
+                                        "templateSlots" : {
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
                                           "size" : {
@@ -715,7 +715,7 @@
                                       }
                                     ]
                                   },
-                                  "slots" : {
+                                  "templateSlots" : {
                                     
                                   },
                                   "vars" : [
@@ -723,7 +723,7 @@
                                 }
                               ]
                             },
-                            "slots" : {
+                            "templateSlots" : {
                               
                             },
                             "vars" : [
@@ -732,7 +732,7 @@
                         }
                       },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
                         "entity_id" : "sensor.outside_temp",
@@ -763,7 +763,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -813,7 +813,7 @@
                         }
                       },
                       "kind" : "Component",
-                      "slots" : {
+                      "templateSlots" : {
                         "busy" : "1",
                         "busyVisual" : "1",
                         "entity_id" : "light.kitchen",
@@ -856,7 +856,7 @@
                     }
                   ]
                 },
-                "slots" : {
+                "templateSlots" : {
                   
                 },
                 "vars" : [
@@ -865,7 +865,7 @@
             }
           },
           "kind" : "Component",
-          "slots" : {
+          "templateSlots" : {
             
           },
           "vars" : [
@@ -873,7 +873,7 @@
         }
       ]
     },
-    "slots" : {
+    "templateSlots" : {
       
     },
     "vars" : [

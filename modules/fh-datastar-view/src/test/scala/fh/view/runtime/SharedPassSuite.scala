@@ -38,7 +38,7 @@ class SharedPassSuite extends ServerHarness {
         List("sensor.a", "sensor.b").map(e =>
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> TemplateSlot(SlotSource(Some(e))))
+            templateSlots = Map("state" -> TemplateSlot(SlotSource(Some(e))))
           )
         )*
       )

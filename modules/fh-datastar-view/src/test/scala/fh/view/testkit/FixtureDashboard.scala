@@ -74,7 +74,7 @@ object FixtureDashboard {
               when = guard,
               node = LayoutNode.Component(
                 "member",
-                slots = Map(
+                templateSlots = Map(
                   "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
                   "name" -> TemplateSlot(
                     SlotSource(transform =

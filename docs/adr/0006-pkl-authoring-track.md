@@ -125,15 +125,18 @@ finished, and are deleted (issue #23).
    (`\(label)` is `{{label}}`, `label.bind` is `{{{label.bind}}}`,
    `label.ifSet(…)` a section on whether the node sets it) and
    `slots { label.of(v) }` fills it, so a misspelt name is a Pkl error at its
-   line, in the editor too. `slots` is a `Listing<Slot>`, which the library's
-   `["slots"]` output converter (`nodes.wireSlots`) lowers to the name→value map
-   the backend decodes; the wire did not change. A handle holds the name only,
+   line, in the editor too. `slots` is a hidden `Listing<Slot>`, and the node's
+   `templateSlots` is computed from it as the name→value map the backend
+   decodes, as `regions` is from `children` and `cell` from the cell builders.
+   An output converter did that job first; it had to be installed by every
+   module that renders nodes (`site.pkl`, `entry.pkl`, a test's probe module),
+   and a bare `JsonRenderer` skipped it. A handle holds the name only,
    never a value: the template must be the same for every node of a card.
    The handle is a `slotMod.Slot` and what it holds when live is a
    `slotMod.Reading`, `terminology.md`'s own split; Scala mirrors the pair as
    `TemplateSlot` and `SlotSource`, which `WireShapeSuite` holds to the Pkl
    classes. A name listed twice is refused on the node, naming card and slot
-   (the converter's own error names only the slot), and a literal given a
+   (the map's own duplicate-key error names only the slot), and a literal given a
    `signal` is refused in `wireSlots`, since a value that never moves has
    nothing to patch. A handle must not share a name with a property of its
    card: inside the class, the property wins.

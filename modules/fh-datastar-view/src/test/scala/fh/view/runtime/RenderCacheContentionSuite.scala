@@ -57,7 +57,7 @@ class RenderCacheContentionSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "card",
-                slots = Map(
+                templateSlots = Map(
                   "state" -> TemplateSlot(SlotSource(Some("sensor.shared")))
                 )
               )
@@ -71,7 +71,8 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t0" -> Surface(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -81,7 +82,8 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t1" -> Surface(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -104,7 +106,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots =
+          templateSlots =
             Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
         )
       )

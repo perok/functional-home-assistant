@@ -555,7 +555,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           bogus <- push(
             "bogus",
             """{"cards":{},"card":{"kind":"Component","card":"nosuchcard",
-              |"children":[],"slots":{}}}""".stripMargin
+              |"children":[],"templateSlots":{}}}""".stripMargin
           )
           bogusBody <- bogus.body.through(fs2.text.utf8.decode).compile.string
           notJson <- push("bad", "not json at all")

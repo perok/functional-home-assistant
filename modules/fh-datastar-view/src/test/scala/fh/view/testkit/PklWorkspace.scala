@@ -54,19 +54,6 @@ object PklWorkspace {
     cache
   }
 
-  /** A probe module renders nodes without amending `entry.pkl`, so it takes the
-    * library's `slots` lowering (`core/node.pkl`'s `wireSlots`) from this line,
-    * appended. `import(…)`, the expression form, because it lands after
-    * members.
-    */
-  def withWireOutput(module: os.Path): Unit =
-    if !os.read(module).contains("output {") then
-      os.write.append(
-        module,
-        "\noutput { renderer { converters { [\"slots\"] = (ss) -> " +
-          "import(\"@fh-dashboard/core/node.pkl\").wireSlots(ss) } } }\n"
-      )
-
   /** The test equivalent of a dump refresh. */
   def seedDump(tmp: os.Path, dumpText: String): Unit = {
     val _ = DumpPackage.seedFromText(tmp, dumpText)

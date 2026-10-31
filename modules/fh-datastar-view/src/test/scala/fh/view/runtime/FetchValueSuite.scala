@@ -44,7 +44,7 @@ class FetchValueSuite extends munit.FunSuite {
     ),
     card = LayoutNode.Component(
       card = "bar",
-      slots = Map(
+      templateSlots = Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
         "value" -> TemplateSlot(SlotSource(transform = "state")),
         "of" -> ofSlot

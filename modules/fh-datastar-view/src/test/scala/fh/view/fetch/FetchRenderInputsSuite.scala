@@ -75,7 +75,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
       card = "historyChart",
-      slots = Map(
+      templateSlots = Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
         "chart" -> chartSource(window),
         "name" -> TemplateSlot(SlotSource(transform = "state"))
@@ -92,7 +92,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       LayoutNode
         .Component(
           card = "historyChart",
-          slots = Map(
+          templateSlots = Map(
             "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
             "chart" -> chartSource()
           )
@@ -115,7 +115,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     )
     assertEquals(
       LayoutNode
-        .Component(card = "c", slots = Map("chart" -> src))
+        .Component(card = "c", templateSlots = Map("chart" -> src))
         .liveEntitiesAsBytes,
       Nil
     )
@@ -125,7 +125,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(chartNode().fetches, List(ask()))
     val two = LayoutNode.Component(
       card = "twoCharts",
-      slots = Map(
+      templateSlots = Map(
         "a" -> chartSource("1h"),
         "b" -> chartSource("1h"),
         "c" -> chartSource("30d")
@@ -337,7 +337,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
               "children" -> List(
                 LayoutNode.Component(
                   card = "chart",
-                  slots = Map(
+                  templateSlots = Map(
                     "chart" -> TemplateSlot(
                       SlotSource(
                         fetch = Some(chart()),
@@ -370,7 +370,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     def panel(w: String) =
       LayoutNode.Component(
         card = "chart",
-        slots = Map("chart" -> chartSource(w))
+        templateSlots = Map("chart" -> chartSource(w))
       )
     def host(id: String) = LayoutNode.Component(card = "host", id = Some(id))
     def baked(into: String, idx: Int, w: String, activation: Activation) =
@@ -438,7 +438,10 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   private def dashboard(src: TemplateSlot) =
     Dashboard(
       cards = Map("chart" -> CardDef("""<div id="{{id}}">{{{chart}}}</div>""")),
-      card = LayoutNode.Component(card = "chart", slots = Map("chart" -> src))
+      card = LayoutNode.Component(
+        card = "chart",
+        templateSlots = Map("chart" -> src)
+      )
     )
 
   test("an unknown provider fails the decode, naming the ones that exist") {
@@ -458,7 +461,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
-          slots = Map(
+          templateSlots = Map(
             "chart" -> chartSource()
           )
         )

@@ -119,7 +119,7 @@ as a signal slot whose template places no `{{{x.bind}}}` at all.
 `bind`, `has`, `jsValue` and `signal` are a slot's **views**, spelled with Mustache's own
 namespacing, `x.view`. The template's compiled tree records which views of which slot it reads
 (`Templates.Reads.views`), so every rule here is a question about that tree, never a search of the
-template text, and an unknown view or a pre-views `x__bind` is a build error naming its spelling.
+template text, and an unknown view is a build error naming its spelling.
 The renderer splits a view once, when mustache binds the name (`FhObjectHandler.createBinding`;
 mustache.java's own lookup splits a dotted name at every call), and answers it by slot and view. A
 slot name may not contain `.`.

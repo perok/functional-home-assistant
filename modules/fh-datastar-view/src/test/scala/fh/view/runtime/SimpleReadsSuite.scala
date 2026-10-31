@@ -23,7 +23,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     cards = Map("c" -> card),
     card = LayoutNode.Component(
       card = "c",
-      slots = Map("v" -> v) ++
+      templateSlots = Map("v" -> v) ++
         Option.when(subject)(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a")))
         )

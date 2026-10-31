@@ -1171,7 +1171,7 @@ class SignalSlotSuite extends ServerHarness {
     // patching the section, carrying the region's content with it.
     val bytes = structural.copy(card =
       structural.card.asComponent
-        .copy(slots =
+        .copy(templateSlots =
           Map(
             "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
             "tint" -> TemplateSlot(SlotSource(transform = tintRead))

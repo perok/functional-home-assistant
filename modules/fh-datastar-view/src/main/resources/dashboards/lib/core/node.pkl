@@ -168,19 +168,21 @@ abstract class Node extends LayoutNode {
   hidden cardDef: CardDef
   // The structural check mirrors `LayoutNode.Component.liveEntitiesAsBytes`.
   /// What this node's card reads ([[slotMod.Slot]]): `slots { label.of(…) }`. A
-  /// slot with no value is not set; [[wireSlots]] is what reaches the backend.
+  /// slot with no value is not set; [[templateSlots]] is what reaches the backend.
   ///
   /// On a structural card (one with regions) a live slot read as bytes is refused,
   /// since its patch would carry everything the card holds: put live markup in a
   /// region as a node, or make it a signal slot. `once` and `onRender` reads are
   /// fine.
-  slots: Listing<slotMod.Slot>(
+  hidden slots: Listing<slotMod.Slot>(
     !isStructure(cardDef) || !toList().any((s) ->
       s.value is slotMod.Reading && s.value.reads == "live" && s.signal == null &&
         (s.value.entityId != null ||
         toList().any((t) -> t.name == "entity_id" && t.value is String))),
     namedOnce(this, card)
   ) = new {}
+  /// [[slots]] as the wire holds them, by name.
+  fixed templateSlots: Mapping<String, Any> = wireSlots(slots)
   /// [[slots]] that are set, by name.
   hidden slotsByName: Map<String, slotMod.Slot> =
     slots.toList().filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
@@ -316,15 +318,13 @@ const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Bool
     if (twice.isEmpty) true
     else throw("card '\(card)': slot \(twice.toList().map((n) -> "'\(n)'").join(", ")) is listed twice in `slots`")
 
-/// A node's [[Node.slots]] as the backend decodes them: by name, set ones
-/// only, a reading carrying its slot's `signal` and `type`, and a literal its
-/// `type` when it has one (a `cssClass`), else a bare string. The library's
-/// `output` renders every `slots` through it (`site.pkl`, `entry.pkl`).
-/// A reading as the wire holds it: its set fields.
-const function wireReading(r: slotMod.Reading): Map<String, Any> =
+// A reading as the wire holds it: its set fields.
+const local function wireReading(r: slotMod.Reading): Map<String, Any> =
   r.toMap().filter((_, v) -> v != null)
 
-const function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = new {
+// By name, set ones only, a reading carrying its slot's `signal` and `type`,
+// and a literal its `type` when it has one (a `cssClass`), else a bare string.
+const local function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = new {
   for (s in slots) {
     when (s.value != null) {
       [s.name] =

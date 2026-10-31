@@ -46,7 +46,7 @@ class VarTapSuite extends ServerHarness {
 
   private val chartNode = LayoutNode.Component(
     "chart",
-    slots = Map(
+    templateSlots = Map(
       "chart" -> TemplateSlot(
         SlotSource(
           fetch = Some(
@@ -75,7 +75,7 @@ class VarTapSuite extends ServerHarness {
     card = LayoutNode.Component(
       "panel",
       regions = LayoutNode.kids(
-        chartNode.copy(slots =
+        chartNode.copy(templateSlots =
           Map(
             "chart" -> TemplateSlot(
               SlotSource(
@@ -265,7 +265,7 @@ class VarTapSuite extends ServerHarness {
     def chartOf(entity: String) = LayoutNode.SetMember(
       List(
         LayoutNode.SetClause(node =
-          chartNode.copy(slots =
+          chartNode.copy(templateSlots =
             Map(
               "chart" -> TemplateSlot(
                 SlotSource(
@@ -549,7 +549,7 @@ class VarTapSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "both",
-          slots = chartNode.slots +
+          templateSlots = chartNode.templateSlots +
             ("state" -> TemplateSlot(SlotSource(entityId = Some("sensor.a"))))
         )
       ),

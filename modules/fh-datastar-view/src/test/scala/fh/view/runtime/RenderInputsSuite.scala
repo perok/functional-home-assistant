@@ -64,7 +64,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   private def bound(entity: String) = LayoutNode.Component(
     "card",
-    slots = Map(
+    templateSlots = Map(
       "state" -> TemplateSlot(SlotSource(Some(entity))),
       "unit" -> TemplateSlot(
         SlotSource(
@@ -101,7 +101,8 @@ class RenderInputsSuite extends munit.FunSuite {
           "bar" -> List(
             LayoutNode.Component(
               "bannerBar",
-              slots = Map("title" -> TemplateSlot(SlotSource(Some("sensor.t"))))
+              templateSlots =
+                Map("title" -> TemplateSlot(SlotSource(Some("sensor.t"))))
             )
           )
         )
@@ -134,7 +135,7 @@ class RenderInputsSuite extends munit.FunSuite {
       ),
       LayoutNode.Component(
         "gauge",
-        slots = Map(
+        templateSlots = Map(
           "state" -> TemplateSlot(SlotSource(Some("sensor.t"))),
           "live" -> TemplateSlot(
             SlotSource(Some("sensor.other")),
@@ -313,7 +314,7 @@ class RenderInputsSuite extends munit.FunSuite {
       )),
       LayoutNode.Component(
         "signalBanner",
-        slots = Map(
+        templateSlots = Map(
           "title" -> TemplateSlot(
             SlotSource(Some("sensor.t")),
             signal = Some(SignalBind.Text)

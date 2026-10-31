@@ -43,7 +43,7 @@ class ChartSlotSuite extends munit.FunSuite {
       ),
       card = LayoutNode.Component(
         card = "chart",
-        slots = Map(
+        templateSlots = Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
           "chart" -> TemplateSlot(
             SlotSource(

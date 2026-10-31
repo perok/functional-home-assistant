@@ -772,7 +772,7 @@ object LayoutNode:
     */
   case class Component(
       card: String,
-      slots: Map[String, TemplateSlot] = Map.empty,
+      templateSlots: Map[String, TemplateSlot] = Map.empty,
       regions: Map[String, List[LayoutNode]] = Map.empty,
       cell: Option[Cell] = None,
       // Replaces the position-derived id and roots its descendants' — see
@@ -787,9 +787,9 @@ object LayoutNode:
       values: Map[String, ExprValue] = Map.empty
   ) extends LayoutNode:
 
-    /** [[slots]] and the [[cell]]'s, each with the expression values its CEL
-      * names. A cell slot's binding and type are its key's: a class is a bool,
-      * bound by name unless it is a literal, which is always there.
+    /** [[templateSlots]] and the [[cell]]'s, each with the expression values
+      * its CEL names. A cell slot's binding and type are its key's: a class is
+      * a bool, bound by name unless it is a literal, which is always there.
       */
     lazy val bound: Map[SlotKey, BoundSlot] =
       val cellSlots = cell.toList.flatMap { cl =>
@@ -803,7 +803,7 @@ object LayoutNode:
           CellKey.Style(p) -> at(SignalBind.Style(p), SlotType.Text)(s)
         )
       }
-      slots.map((n, s) => (n: SlotKey) -> BoundSlot.bind(values)(s)) ++
+      templateSlots.map((n, s) => (n: SlotKey) -> BoundSlot.bind(values)(s)) ++
         cellSlots
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -818,7 +818,7 @@ object LayoutNode:
 
     /** Only a literal `entity_id`: a transform one resolves at render time. */
     lazy val subjectEntity: Option[String] =
-      slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
+      templateSlots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
     /** The reverse index. Empty means static HTML, never patched. */
     lazy val liveEntities: List[String] =
@@ -1209,7 +1209,7 @@ case class Dashboard(
       })
 
     def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
-      def lit(name: String) = c.slots.get(name).flatMap(_.literal)
+      def lit(name: String) = c.templateSlots.get(name).flatMap(_.literal)
       def reachOf(target: ServiceTarget | CallSet): Option[CallReach] =
         target match {
           case t: ServiceTarget => Some(t)
@@ -1222,7 +1222,7 @@ case class Dashboard(
         kind <- lit(Dashboard.TargetKindSlot).toList
         id <- lit(Dashboard.TargetIdSlot).toList
         target <- TapCall.targetOf(kind, id).toList
-        service <- c.slots
+        service <- c.templateSlots
           .get(Dashboard.ServiceSlot)
           .toList
           .flatMap(s => services(s.source))
@@ -1335,8 +1335,7 @@ case class Dashboard(
             Option.when(cd.bakedRegions.nonEmpty)(Dashboard.BakeIndexVar)
           val unset = names.toList
             .flatMap(_.required)
-            // An old spelling is the card's error ([[viewErrors]]), once.
-            .filterNot(n => known(n) || Dashboard.oldSpelling(n).isDefined)
+            .filterNot(known)
             .sorted
           val read = names.toList.flatMap(_.names).toSet
           val unread = names.toList.flatMap(_ =>
@@ -1548,7 +1547,7 @@ case class Dashboard(
                   "does not name — name it with q.entity(e)"
               )
             case _ => Nil
-      } ++ c.slots.toList.sortBy(_._1).flatMap { (slot, src) =>
+      } ++ c.templateSlots.toList.sortBy(_._1).flatMap { (slot, src) =>
         val read = c.bound.get(slot).fold(Set.empty[String])(_.values.keySet)
         src.values.keys.toList.sorted.flatMap { name =>
           if (
@@ -1586,7 +1585,7 @@ case class Dashboard(
             s"it '${Reads.Live}'"
         case (slot, src)
             if src.entityId.isEmpty &&
-              !c.slots.contains(Dashboard.SubjectSlot) &&
+              !c.templateSlots.contains(Dashboard.SubjectSlot) &&
               (src.transform match
                 case p: Predicate => Predicate.hasFreeSubject(p)
                 case _ => false) =>
@@ -1926,7 +1925,7 @@ case class Dashboard(
             valueWhileErrors(
               nodeId,
               c.bound,
-              c.slots.contains(Dashboard.SubjectSlot)
+              c.templateSlots.contains(Dashboard.SubjectSlot)
             ) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
@@ -2035,10 +2034,6 @@ case class Dashboard(
           reads.unknownViews.toList.sorted.map(t =>
             s"card '$name': its template reads '$t', but a slot's views are " +
               Templates.View.values.map("." + _.spelling).mkString(", ")
-          ) ++ reads.names.toList.sorted.flatMap(n =>
-            Dashboard
-              .oldSpelling(n)
-              .map(fix => s"card '$name': its template reads '$n' — write $fix")
           ) ++ reads.boundInOwnSection.toList.sorted.map(s =>
             // ADR 0017: the patch form withholds a signal's value, a false
             // section, which would take its element and binding with it.
@@ -2682,21 +2677,6 @@ object Dashboard:
     case Templates.View.Has    => s"{{#$slot.has}}…{{/$slot.has}}"
     case Templates.View.Signal => s"{{$slot.signal}}"
     case v                     => s"{{{$slot.${v.spelling}}}}"
-
-  // The `__` spellings views replaced, named in the error that meets one.
-  private val oldSuffixes = Map(
-    "__bind" -> Templates.View.Bind,
-    "__has" -> Templates.View.Has,
-    "__read" -> Templates.View.JsValue,
-    "__signal" -> Templates.View.Signal
-  )
-
-  /** The view an old `label__bind` meant, spelled as it is now. */
-  def oldSpelling(name: String): Option[String] =
-    oldSuffixes.collectFirst {
-      case (s, view) if name.endsWith(s) && name.length > s.length =>
-        spell(name.dropRight(s.length), view)
-    }
 
   /** Slots the server reads itself, so no template need name them: the subject
     * and a tap's route ([[calls]]).

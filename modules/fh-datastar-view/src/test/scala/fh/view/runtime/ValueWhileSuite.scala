@@ -41,7 +41,7 @@ class ValueWhileSuite extends munit.FunSuite {
 
   private def node(of: TemplateSlot) = LayoutNode.Component(
     card = "bar",
-    slots = Map(
+    templateSlots = Map(
       "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
       "of" -> of
     )

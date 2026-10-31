@@ -57,6 +57,3 @@ access: accessMod.Access? = null
 /// `card` but its value is undefined" with the caret on THIS line, not yours;
 /// the trailing "rendering path `dashboards[<slug>].card`" names the dashboard.
 card: c.Node
-
-// A node's `slots` reach the backend by name (`core/node.pkl`'s `wireSlots`).
-output { renderer { converters { ["slots"] = (ss) -> nodes.wireSlots(ss) } } }
