@@ -133,10 +133,13 @@ case class TemplateSlot(source: SlotSource, signal: Option[SignalBind], `type`: 
 
 ## Open
 
-- The verbs: keep `cellClass`/`classWhen`/`cssProperty`, or rename to `cellClass(name, when)` and
-  `cellStyle(prop, r)`.
-- Strict decoding: the model's decoders ignore unknown fields (`Configuration.default.withDefaults`).
-  A model-wide question, not this plan's.
+- The verbs: keep `cellClass`/`classWhen`/`cssProperty` (recommended: the design, not a name,
+  makes the intent plain), or rename `cssProperty` to `cellStyle` after the map it writes. One
+  `cellClass(name, when)` is out: Pkl has no overloading ("Duplicate definition of member"), so a
+  static class would read `cellClass("fh-wide", true)`.
+
+Not this plan: rejecting unknown wire fields (the model's decoders ignore them,
+`Configuration.default.withDefaults`) is a later task.
 
 ## Costs and checks
 
@@ -144,7 +147,7 @@ case class TemplateSlot(source: SlotSource, signal: Option[SignalBind], `type`: 
 - Step 2: a wire change (decoder, `WireShapeSuite`, snapshots regenerated with
   `dashboardSnapshotsUpdate` and the diff read); RenderBench before and after.
 - Tests that read `cell.classes` or the prefixed slots (the layout tests, `LiveCellClassSuite`,
-  `FailedDashboardSuite`) need the maintainer's approval to change.
+  `FailedDashboardSuite`) move to the new shape; approved on 2026-10-31.
 - Docs in the same commits: ADR 0008 (the cell), ADR 0034 (live cell classes and properties),
   `terminology.md` (**Slot**: cell slot vs template slot; **Cell**), the architecture doc, and
   `writing-components.md` if the verbs change.
