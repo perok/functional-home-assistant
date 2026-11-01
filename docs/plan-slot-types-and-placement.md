@@ -3,8 +3,8 @@
 Discussed in chat on 2026-10-31 and 2026-11-01, reviewing #657 (slot views). Lands on the same
 branch.
 
-**State:** P1 and P4 agreed; P2 and P3 proposed, waiting on a yes. P3's shape is still being
-discussed: derived from the template, or a value step its handle injects. No code yet.
+**State:** P1, P2 and P4 built (0d25e25a, 12fb1c8a, aca159c9). P3 waits on its shape, still being
+discussed: derived from the template, or a value step its handle injects.
 
 ## Why
 
