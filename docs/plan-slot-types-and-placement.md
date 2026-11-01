@@ -1,18 +1,19 @@
-# Plan: a slot's type says what it holds; the template says where it sits
+# Plan: a slot's type says what it holds, and a literal is its own case
 
 Discussed in chat on 2026-10-31 and 2026-11-01, reviewing #657 (slot views). Lands on the same
 branch.
 
-**State:** P1, P2 and P4 built (0d25e25a, 12fb1c8a, aca159c9). P3 waits on its shape, still being
-discussed: derived from the template, or a value step its handle injects.
+**State:** P1, P2 and P4 built (0d25e25a, 12fb1c8a, aca159c9). P3 (a value step) and P5 are next,
+waiting on a go.
 
 ## Why
 
 The slot model makes a card author, or a function, state things the code already knows:
 
-- `SlotType` mixes two facts. `text` and `bool` say what the value IS; `cssClass` says where the
-  card PUTS it (in a `class` attribute, so the theme's class rules reach it, ADR 0020). The template
-  already says the second.
+- `SlotType` mixes two facts. `text` and `bool` say what the value IS; `cssClass` is something
+  done to it, the theme's class swap (ADR 0020).
+- `SlotSource` is one flat case class, so a literal carries a transform nothing reads, and every
+  consumer tests `literal` first.
 - `bool` is set at fill time (`node.pkl`'s `booleanSlot`, `tap.pkl`'s `current`), where
   `cssClass` is on the handle.
 - `BoundSlot.bindAs(values, signal, tpe)` takes a placement by position, and the cell's caller
@@ -58,32 +59,43 @@ a render appends a string; a set's wrapper and the live classes share it. Wire o
 byte moves. Kept only if RenderBench shows a gain; otherwise it becomes an
 `experiments.md` entry.
 
-### P3. `type` is what the value is; a class attribute decides the swap
+### P3. `type` is what the value is; the theme's swap is a step on the value
 
 - `SlotType` is `text | bool`, on both sides. `slotMod.bool(name)` declares a bool handle:
   `tapMod.disabled` and `tapMod.current` use it and are filled with `of`, so `booleanSlot` and the
   fill-time `type = "bool"` in `tap.pkl` go.
-- **A slot with a hole inside a `class="…"` value gets the theme's swap.** A hole is `{{x}}` or
-  `{{{x}}}`. Sections (`{{#x.has}}`) and views (`{{{x.bind}}}`) are not holes; a section's literal
-  text (`fh-badged`) is template text, swapped as today. `Templates.card` finds the holes with the
-  scan `ThemeClasses.rewriteTemplate` already makes (one shared regex), whether or not a theme is
-  set. A slot signalled as `attr:class` (`slotMod.liveClass`) is class-placed too: its signal
-  replaces the class attribute.
-- The swap stays per slot, where the value resolves (ADR 0020). One value feeds the hole, the seed
-  and every frame, and a swap is not idempotent: a content that keeps its class
-  (`fh-busy-spin` → `fh-busy-spin` plus the framework's) grows on a second pass. So a slot with holes
-  both inside and outside a class attribute is a build error.
-- Only the renderer sees a node and its card's template together, so the flag lives in the node
-  plan (`Planned`), and the signal name's `|cssClass` suffix is taken from there.
-  `Renderer.scala:1849` names signals off `plan.node.bound` and must read the plan's slots instead.
-- `slotMod.cssClass` and `SlotType.CssClass` go. Their five callers (the button's glyph and size,
-  the select's glyph, the badge's icon, `layout.pkl`'s class) become `slotMod.slot`. A scan of the
-  snapshot templates finds exactly those holes in class attributes, so the rule reproduces
-  today's declarations.
-- A literal never carries a type. Only the swap read one, and both bool checks skip literals
-  (`Dashboard.scala:1638`, `1644`). `wireSlots` writes every literal as a bare string, so the
-  `{literal, type}` form and its WireShapeSuite exception go. A bool reading still carries
-  `"type": "bool"`: the Scala build checks the reading's CEL type, which Pkl cannot.
+- **The theme's class swap is a step on the slot's resolved value**, whichever kind it is: a
+  literal is swapped once per renderer and inlined, a reading runs its transform and the result is
+  swapped, a signal's value included. Pkl cannot see where a template puts a hole, so the card says
+  it on the handle: `slotMod.cssClass(name)` sets the step, and every fill (`of`, `setIf`,
+  `liveClass`) keeps it, as `type` is kept today. Its five callers stay as they are.
+- One step, so one field: `themeClasses` beside `signal` and `type`, on the wire and on
+  `TemplateSlot`; `Placement` carries it into `BoundSlot`, where `classed` and the signal name's
+  suffix read it in place of `type == CssClass`. `SlotType.CssClass` goes. A list of steps waits
+  for a second step.
+- A literal never carries a `type`: both bool checks skip literals (`Dashboard.scala:1638`, `1644`).
+  `wireSlots` writes a literal as a bare string, or `{literal, themeClasses}` with the step; the
+  WireShapeSuite exception is renamed with it. A bool reading still carries `"type": "bool"`: the
+  Scala build checks the reading's CEL type, which Pkl cannot.
+
+### P5. `SlotSource` is `Literal | Reading`
+
+- Today one flat case class: a literal still carries an unused default `transform`
+  (`Simple.State()`), and 24 lines of `Dashboard` and `Renderer` test `literal` before reading
+  anything else. As a sum, a literal with a transform cannot be built, and those tests become
+  matches on the case.
+- `Literal(value)` is what can be inlined: baked into the node plan once, no entity, no signal,
+  never recomputed.
+- `Reading` keeps every field it has: `entityId`, `transform`, `default`, `bypassUnavailable`,
+  `reads`, `fetch`, `values`, `valueWhile`. What wakes it still comes from what it reads, not from
+  the case: its entity or the card's subject, the entities its Simple names (a Simple may read
+  another entity), those behind its expression values (a tally, a condition), and its
+  `valueWhile`'s. `reads` says what a move does: `live` re-runs it, `once` runs it once per entity
+  identity, `onRender` on every render.
+- The wire does not change: a bare string or a `{literal, …}` object decodes to `Literal`,
+  anything else to `Reading`. Pkl's `value: String|Reading` is already this split.
+- About 100 test lines build `SlotSource(literal = Some(…))`; they become `SlotSource.Literal(…)`,
+  a mechanical change asked for with this step.
 
 ### P4. `x.ifSignal(body)` and a template rule replace the per-node check
 
@@ -115,8 +127,8 @@ byte moves. Kept only if RenderBench shows a gain; otherwise it becomes an
 
 ## Wire and snapshots
 
-P3: the literal glyph, size, icon and class slots become bare strings, and `"type": "cssClass"`
-goes. P4: the slider, onoff and wheel templates gain their guards; where the slots are signals
+P3: `"type": "cssClass"` becomes `"themeClasses": true`, and a bool literal loses its `type`. P5:
+none. P4: the slider, onoff and wheel templates gain their guards; where the slots are signals
 the rendered bytes do not move. Regenerated with `dashboardSnapshotsUpdate`; the diff is read
 before the commit.
 
@@ -126,20 +138,18 @@ Approval for these is asked with this plan.
 
 - BuildPhaseSuite, "x.signal is refused wherever it renders on a node whose x is not a signal",
   becomes the template rule's test (P4).
-- `components.test.pkl:1142`, `large.type == "cssClass"`: the swap is asserted on the rendered
-  button instead (P3).
-- ThemeClassesPageSuite's test card: `slotMod.cssClass("look")` becomes `slotMod.slot("look")`,
-  same assertions (P3).
+- `components.test.pkl:1142`, `large.type == "cssClass"`, reads `large.themeClasses` (P3).
 - Wire JSON where a literal was `{literal, type}` (P3, mechanical).
+- Test fixtures building `SlotSource(literal = Some(…))` (P5, mechanical).
 
 ## Docs
 
-ADR 0006 (handle constructors, `ifSignal`), ADR 0017 (the signal guard), ADR 0020 (a class
-attribute decides the swap), ADR 0034 (`Placement`, cell entries), `terminology.md` (the slot type
-entry), `writing-components.md` (no `cssClass`; `ifSignal` and its separator rule), and the
-architecture doc where the node plan's shape moves.
+ADR 0006 (handle constructors, `ifSignal`, `SlotSource`'s two cases), ADR 0017 (the signal
+guard), ADR 0020 (the swap is a step the handle sets), ADR 0034 (`Placement`, cell entries),
+`terminology.md` (the slot type entry), `writing-components.md` (`ifSignal` and its separator
+rule), and the architecture doc where the node plan's shape moves.
 
 ## Checks
 
 Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`.
-RenderBench before and after P1 to P3; validate timing for P4.
+RenderBench before and after P1 to P3 and P5; validate timing for P4.
