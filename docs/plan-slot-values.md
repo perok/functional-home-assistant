@@ -3,7 +3,7 @@
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
 **State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1 and S2
-built.
+built; S3 in progress.
 
 ## Why
 
@@ -49,7 +49,8 @@ enum Lit:
 
 enum Value:
   case Literal(v: Lit)                      // a bare JSON string, number or bool
-  case Entity(id: EntityId, part: Part = Part.State,
+  case Entity(of: Option[EntityId] = None,  // None: the entity this is about (the card's subject)
+              part: Part = Part.State,
               reads: Reads = Reads.Live, bypassUnavailable: Boolean = true)
   case Fetch(fetch: FetchTemplate)          // a series
   case Present(tally: Predicate.Tally)      // the candidates present, a list
@@ -100,16 +101,23 @@ and styles hold `ValueExpr`s.
   When the source is an entity, CEL also keeps its `state`, `attr` and `entity_id`, so today's
   expressions keep working. With one input, that input is the source:
   `Present(lights) → Count → Cel("string(value) + ' on'")`.
-- **Pkl writes every entity id.** A reading that names no entity gets the node's subject when
-  Pkl builds the wire, nested readings included (named inputs, `valueWhile`, cell slots); Scala
-  inherits nothing. The subject is the card's own `subject` (`String?`, which an HA card sets from
-  its `entity`), placed as the `entity_id` slot. An entity read (a part, a Format step) on a card
-  with no subject throws in Pkl, naming the slot, where today it reads nothing. A CEL gets the
-  subject as its source where the card has one, since it may read `state`; with none, or where
-  the library knows it reads no entity (the click transforms, which read only `dashboard_slug`),
-  its source is `None`, and it compiles in an environment without `state`, `attr`, `entity_id`
-  and `domain`, so reading one is CEL's own "undeclared reference" error at build. The `entity_id` slot stays: the template shows it and the server reads it
-  as the node's subject.
+- **The subject is named once per node.** The card's own `subject` (`String?`, which an HA card
+  sets from its `entity`) is the literal `entity_id` slot; the template shows it and the server
+  reads it as the node's subject. A reading of it is `Entity(of = None)`, so the wire does not
+  repeat the id per reading (S2 had Pkl copy it, 1.7–2.7% of each wire at fixture id lengths).
+  `Component.bound` resolves `None` to the subject, in the one place values and placement are
+  already bound, so a bound slot always holds a concrete id and no consumer inherits; anything
+  keyed by content (signals, the once-cache, programs) keys from the bound form. An
+  `Entity(of = None)` on a card with no subject is a `validate` error naming the slot, in place of
+  S2's Pkl throw. Two `None`s, two meanings, one level apart and never confused: `source = None`
+  reads no entity, `Entity(of = None)` reads the subject.
+- **A CEL with no source** (where the card has no subject, or the library knows it reads none: the
+  click transforms, which read only `dashboard_slug`) compiles in an environment without `state`,
+  `attr`, `entity_id` and `domain`, so reading one is CEL's own "undeclared reference" error at
+  build. Where the card has a subject, a CEL's source is `Entity()`, since it may read `state`.
+- **A `valueWhile` naming no entity reads the card's subject**, where S2 and before it read its
+  own slot's entity. They differ only on a slot that names another entity with a free-subject
+  `valueWhile`; the library's one `valueWhile` (`progress.pkl`) is on a subject reading.
 - **A computed subject is removed** (`resolveDirect`, `NodePlan.subjectDynamic`,
   `DynamicSubjectSuite`): no card builds one. If one is ever needed, it is an `Entity` whose id is
   itself a `ValueExpr`.
@@ -154,8 +162,9 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
   comes with `source` in S3.
 - **S3. The value model** for template and cell slots: `Value`, `ValueExpr`, `Step`, Simple split
   into parts and Format steps, `SignalBind` and `Part` as objects, Pkl classes and helpers,
-  `WireShapeSuite`'s pairs. The new decoders reject unknown fields from the start (#657's open
-  item).
+  `WireShapeSuite`'s pairs. `Entity(of = None)` replaces S2's copied ids, resolved in
+  `Component.bound` (S2's Pkl fill and the test helper `memberSlots` go). The new decoders reject
+  unknown fields from the start (#657's open item).
 - **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present` and
   `Value.Condition`; the node's `values` likewise.
 - **S5. Types:** typed literals and defaults, `SlotType` with `slotMod.bool`, the binding's type
@@ -179,8 +188,9 @@ candidate sets:
 - **Operations:** `Compare(op, to)` on a value; `Not`, `And(with)`, `Or(with)` on a bool;
   `AnyOf`, `AllOf`, `NoneOf`, `First` on a `Present` list. An operand is then a `ValueExpr` (a
   plain value is one with no steps), which widens O1.
-- **`Value.Member(part)`**: the candidate an expression is decided for, where one expression serves
-  every member (a set's clauses and order terms).
+- **No `Value.Member`:** `Entity(of = None)` already means "the entity this is about", which for a
+  set's clause or order term is the member it is decided for. Today's free-subject `Cmp` is the
+  same reference, so the model has one.
 - **`Part.Registry(name)`**, for today's `reg:<name>`.
 - **Reused machinery:** what decides presence, branches and order (`Conditions`) becomes the
   evaluator of bool and sort `ValueExpr`s, and the entity index comes from the same walk over a
@@ -197,8 +207,9 @@ candidate sets:
 - **Shared reads.** Several things are shared by what they read: a display signal per entity and
   key (#134), the once-cache, a fetch asked once per render however many slots read it
   (`SlotAsk`; two sizes of one chart share the fetch, not the bytes), a compiled CEL program per
-  source and environment. Each now takes its key from the `ValueExpr`: the whole key for signals
-  and the once-cache, the `Fetch` source and its `Chart` step for the ask.
+  source and environment. Each now takes its key from the bound `ValueExpr` (the subject
+  resolved): the whole key for signals and the once-cache, the `Fetch` source and its `Chart` step
+  for the ask.
 - **Render cost.** The fast tier is one `match` today. A live pipeline must not walk a `List` or
   allocate intermediates per render (S6); RenderBench's `simple`, `direct`, `cel`, `tickRender` and
   `page` hold. `ThemeClasses` on a live value runs per resolve, as today: a memo per value would be
