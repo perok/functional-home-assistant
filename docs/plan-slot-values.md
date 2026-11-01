@@ -51,11 +51,13 @@ final case class ValueExpr(value: Option[Value], steps: List[Transform], default
 
 ## Open
 
-- **O1. Splitting Simple.** `State` and `Attr(name)` create a value, so they become
+- **O1, decided: Simple splits.** `State` and `Attr(name)` create a value, so they become
   `Value.Entity`'s `part`, and each op's own `entity` goes with them. The rest (`Prefix`,
-  `Suffix`, `Percent`, `Fill`, `Duration`, `Match`) become steps over the incoming value;
-  `SuffixUnit`/`AttrUnit` read the unit as a named input. ADR 0028 pins each Simple to its CEL
-  spelling; a split op is pinned against CEL over `value`.
+  `Suffix`, `Percent`, `Fill`, `Duration`, `Match`) become steps over the incoming value, and an
+  op's other operands are `Value`s, so a suffix is a literal or another part alike.
+  `SuffixUnit` and `AttrUnit` become one step, `WithUnit(unit: Value)`: the value, a space and the
+  unit, unless the unit is absent. ADR 0028 pins each Simple to its CEL spelling; a split op is
+  pinned against CEL over `value`.
 - **O2. Conditions and counts are operations.** The set or entity they read is a `Value`; the
   comparison, `where`, `count` and `any` are steps; `and`/`or` name their operands as inputs. Today
   all of it is one `Predicate` AST (ADRs 0003, 0028), used by `c.iff`, candidate sets and slots
