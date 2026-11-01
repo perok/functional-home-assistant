@@ -150,6 +150,12 @@ class Renderer(validated: Dashboard.Validated) {
   private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
   private val groupOpen =
     s"""<div class="${themeClasses.expandAll("fh-cell fh-group")}"""
+  // A cell's classes are fixed, so each is swapped once per renderer rather
+  // than per paint: `expand` allocates for every class the theme leaves alone.
+  private val cellClassTexts =
+    new java.util.concurrent.ConcurrentHashMap[String, String]()
+  private val expandCell: java.util.function.Function[String, String] =
+    cls => themeClasses.expand(cls).map(" " + _).mkString
 
   private class Index(root: LayoutNode, val idPrefix: String) {
 
@@ -1500,8 +1506,9 @@ class Renderer(validated: Dashboard.Validated) {
           val v: SlotValue | Null = paint.getOrElse(e.key, null)
           v != null && SlotValue.truthy(v)
         })
-        if (on)
-          themeClasses.expand(e.name).foreach(x => buf.append(' ').append(x))
+        if (on) {
+          val _ = buf.append(cellClassTexts.computeIfAbsent(e.name, expandCell))
+        }
       }
     case None => ()
 

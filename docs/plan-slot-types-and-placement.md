@@ -115,9 +115,10 @@ byte moves. Kept only if RenderBench shows a gain; otherwise it becomes an
 
 ## Wire and snapshots
 
-P3 only: the literal glyph, size, icon and class slots become bare strings, and
-`"type": "cssClass"` goes. Regenerated with `dashboardSnapshotsUpdate`; the diff is read before
-the commit.
+P3: the literal glyph, size, icon and class slots become bare strings, and `"type": "cssClass"`
+goes. P4: the slider, onoff and wheel templates gain their guards; where the slots are signals
+the rendered bytes do not move. Regenerated with `dashboardSnapshotsUpdate`; the diff is read
+before the commit.
 
 ## Tests that change
 
