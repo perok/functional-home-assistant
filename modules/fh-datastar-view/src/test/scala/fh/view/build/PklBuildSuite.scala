@@ -13,10 +13,12 @@ import fh.view.model.{
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
 import fh.view.testkit.{
   FixtureEntity,
+  FixtureEntries,
   HouseFixture,
   PklFixture,
   PklWorkspace,
-  SmokeDashboard
+  SmokeDashboard,
+  TextSnapshot
 }
 import io.circe.Json
 
@@ -1210,77 +1212,6 @@ class PklBuildSuite extends munit.FunSuite {
     )
   }
 
-  // Test-owned entries, not the shipped dashboards, which are free to evolve.
-  // They set a dummy theme, so theme CSS is out of scope here.
-
-  private val fixtureFeatures =
-    s"""amends "@fh-dashboard/entry.pkl"
-       |
-       |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/query.pkl" as q
-       |import "@fh-home/dump.pkl" as dump
-       |import "@fh-dashboard/theme.pkl" as th
-       |
-       |theme = ${PklFixture.dummyTheme}
-       |
-       |surfaces {
-       |  ["detail"] {
-       |    body {
-       |      c.title("Detail")
-       |      c.entityCard(dump.entities.sensor_outside_temp)
-       |      c.button("Close", c.view.closePopup())
-       |    }
-       |  }
-       |}
-       |
-       |card = (c.column) {
-       |  children {
-       |    c.title("Features")
-       |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.call("homeassistant/toggle", dump.entities.light_kitchen))
-       |    c.entityCard(dump.entities.light_kitchen) |> c.informative
-       |    c.entitySlider(dump.entities.light_kitchen)
-       |    q.from(dump.lights.all)
-       |      .where(q.eq(q.stateProp, "on"))
-       |      .render((e) -> c.entityCard(e))
-       |      .build()
-       |    c.button("Detail…", c.view.openPopup("detail"))
-       |    c.button("Inline…", c.view.openPopupInline(new c.Column {
-       |      children {
-       |        c.title("Inline")
-       |        c.button("Close", c.view.closePopup())
-       |      }
-       |    }))
-       |  }
-       |}
-       |""".stripMargin
-
-  /** The two inline-surface hoist paths: tab panels and branches. */
-  private val fixtureSurfaces =
-    s"""amends "@fh-dashboard/entry.pkl"
-       |
-       |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/query.pkl" as q
-       |import "@fh-home/dump.pkl" as dump
-       |import "@fh-dashboard/theme.pkl" as th
-       |
-       |theme = ${PklFixture.dummyTheme}
-       |
-       |card = (c.column) {
-       |  children {
-       |    (c.tabs) {
-       |      tabs {
-       |        ["Temp"] { c.entityCard(dump.entities.sensor_outside_temp) }
-       |        ["Light"] { c.entityCard(dump.entities.light_kitchen) }
-       |      }
-       |    }
-       |    c.iff(q.entity(dump.entities.light_kitchen).stateIs("on"))
-       |      .then(c.entityCard(dump.entities.light_kitchen))
-       |      .`else`(c.entityCard(dump.entities.sensor_outside_temp))
-       |  }
-       |}
-       |""".stripMargin
-
   /** The shipped starter, against a house that populates its "Low battery"
     * section, which `HouseFixture` does not.
     *
@@ -1366,7 +1297,7 @@ class PklBuildSuite extends munit.FunSuite {
   test(
     "fixture-features builds through the full pipeline into a valid Dashboard"
   ) {
-    val built = PklFixture.eval("fixture-features", fixtureFeatures)
+    val built = PklFixture.eval("fixture-features", FixtureEntries.features)
     val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
@@ -1422,7 +1353,7 @@ class PklBuildSuite extends munit.FunSuite {
   test(
     "fixture-surfaces builds tabs + If into hoisted surfaces that validate"
   ) {
-    val built = PklFixture.eval("fixture-surfaces", fixtureSurfaces)
+    val built = PklFixture.eval("fixture-surfaces", FixtureEntries.surfaces)
     val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
@@ -2363,24 +2294,21 @@ class PklBuildSuite extends munit.FunSuite {
   // Wire snapshots: the fixture entries' evaluated `{cards, card, surfaces}`
   // JSON, before normalize/hoist/decode, minus `theme`, with sorted keys.
   // Regenerate with `sbt dashboardSnapshotsUpdate` and review the diff.
-  //
-  // The gate is read in the persistent sbt server's JVM. Anything that leaves
-  // FH_UPDATE_SNAPSHOTS set there (a shell export, a `; put ; test ; remove`
-  // chain whose `remove` is skipped when the test fails) keeps it regenerating,
-  // and every later run passes while rewriting files.
 
-  private val snapshotDir =
-    os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "snapshots"
+  private def checkSnapshot(name: String, actual: String): Unit =
+    TextSnapshot.check(
+      TextSnapshot.resources / "snapshots" / s"$name.json",
+      actual
+    )
 
   private def fixtureWire(slug: String, entry: String): String =
-    PklFixture
-      .eval(slug, entry)
-      .value
-      .mapObject { o =>
-        val bare = o.remove("theme").remove("css")
-        o("cards").fold(bare)(cards => bare.add("cards", stripCardCss(cards)))
-      }
-      .spaces2SortKeys
+    bareWire(PklFixture.eval(slug, entry).value)
+
+  private def bareWire(dashboard: Json): String =
+    dashboard.mapObject { o =>
+      val bare = o.remove("theme").remove("css")
+      o("cards").fold(bare)(cards => bare.add("cards", stripCardCss(cards)))
+    }.spaces2SortKeys
 
   /** Stripped like `theme`: CSS arrives in three places (ADR 0020), and every
     * rule tweak would churn the snapshot. The CSS layers are asserted in
@@ -2390,39 +2318,6 @@ class PklBuildSuite extends munit.FunSuite {
     cards.asObject.fold(cards)(o =>
       Json.fromJsonObject(o.mapValues(_.mapObject(_.remove("css"))))
     )
-
-  /** With `FH_UPDATE_SNAPSHOTS=1` it rewrites `name.json` and passes; otherwise
-    * it asserts byte identity and writes the actual output to a temp file.
-    */
-  private def checkSnapshot(name: String, actual: String): Unit = {
-    val file = snapshotDir / s"$name.json"
-    val updating =
-      sys.env.get("FH_UPDATE_SNAPSHOTS").contains("1") ||
-        sys.props.get("FH_UPDATE_SNAPSHOTS").contains("1")
-    if (updating) {
-      os.makeDir.all(snapshotDir)
-      os.write.over(file, actual)
-    } else {
-      val expected =
-        if (os.exists(file)) os.read(file)
-        else
-          fail(
-            s"missing snapshot $file — regenerate with " +
-              "sbt dashboardSnapshotsUpdate"
-          )
-      if (expected != actual) {
-        val actualFile = os.temp.dir() / s"$name.actual.json"
-        os.write(actualFile, actual)
-      }
-      assertEquals(
-        actual,
-        expected,
-        clue = s"wire-format snapshot for $name.json changed. If intended, " +
-          "regenerate with 'sbt dashboardSnapshotsUpdate' " +
-          "(actual output also written to a temp *.actual.json next to the diff)."
-      )
-    }
-  }
 
   // A capability is a nullable group (ADR 0013), so a control takes the group
   // as its parameter and the site's `!= null` guard is the same fact.
@@ -2654,14 +2549,38 @@ class PklBuildSuite extends munit.FunSuite {
   test("fixture-features wire JSON matches the checked-in snapshot") {
     checkSnapshot(
       "fixture-features",
-      fixtureWire("fixture-features", fixtureFeatures)
+      fixtureWire("fixture-features", FixtureEntries.features)
     )
   }
 
   test("fixture-surfaces wire JSON matches the checked-in snapshot") {
     checkSnapshot(
       "fixture-surfaces",
-      fixtureWire("fixture-surfaces", fixtureSurfaces)
+      fixtureWire("fixture-surfaces", FixtureEntries.surfaces)
+    )
+  }
+
+  test("fixture-slots wire JSON matches the checked-in snapshot") {
+    checkSnapshot(
+      "fixture-slots",
+      fixtureWire("fixture-slots", FixtureEntries.slots)
+    )
+  }
+
+  /** The shipped starter is the house-shaped one, so its size is the measure of
+    * what a wire change costs a real dashboard.
+    */
+  test("the starter's wire JSON matches the checked-in snapshot") {
+    val site = PklFixture.eval("site", AddonBootstrap.starterSite).value
+    checkSnapshot(
+      "starter",
+      bareWire(
+        site.hcursor
+          .downField("dashboards")
+          .downField("home")
+          .focus
+          .getOrElse(fail("the starter names no dashboard 'home'"))
+      )
     )
   }
 

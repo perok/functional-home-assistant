@@ -138,10 +138,14 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
 
 ## Steps, one commit each, the suite green at each
 
-- **S1. Rendered goldens.** Check in the rendered pages of the fixture dashboards, document and
-  patch forms, and assert them in a suite, with each signal name's transform hash normalised. The
-  wire snapshots change wholesale from S3 on and cannot be read as a diff; the goldens prove every
-  later step renders the same bytes apart from the names, or name the bytes that change.
+- **S1. Rendered goldens.** `RenderGoldenSuite` checks in what the test dashboards render (the
+  three `FixtureEntries`, the starter and the smoke dashboards): each body, surface and node
+  patch, at the house as fixtured and flipped, with each transform hash numbered by first
+  appearance. `fixture-slots` is new, for the slot shapes the others miss (CEL with and without
+  an entity, attribute reads, bool inputs, cell slots, a count read by name, charts, a chooser);
+  it and the starter get wire snapshots too. The wire snapshots change wholesale from S3 on and
+  cannot be read as a diff; the goldens prove every later step renders the same bytes apart from
+  the names, or name the bytes that change.
 - **S2. Entity ids written by Pkl;** Scala's inheritance and the computed subject go.
 - **S3. The value model** for template and cell slots: `Value`, `ValueExpr`, `Step`, Simple split
   into parts and Format steps, `SignalBind` and `Part` as objects, Pkl classes and helpers,
@@ -197,8 +201,15 @@ candidate sets:
 - **Typed literals move bytes.** A literal flag becomes `true` where it was `"1"`: a `jsValue`
   prints `true` for `'1'`, and a cell's literal class carries `true`. Behaviour is the same; the
   goldens name each such diff in S5.
-- **Pkl evaluation time.** The nested shape is larger, which is accepted; building it runs at boot
-  and on every dump refresh, so the starter site's evaluation time is measured before and after S3.
+- **Wire size grows by a constant factor, not faster.** The nested shape costs bytes per slot,
+  which is accepted. What is not: bytes that grow with how often a thing is used, such as one
+  `Present`'s candidate list repeated in every slot that reads it because the design leaves Pkl no
+  way to share it. Each wire snapshot's compact size, and the bytes per non-literal slot, are
+  measured before and after S3, S4 and S5 (S1's baseline: 131–158 B per slot object across the
+  four snapshots); a dashboard whose growth departs from the others' gets looked at before the
+  next step.
+- **Pkl evaluation time.** Building the wire runs at boot and on every dump refresh, so the
+  starter site's evaluation time is measured before and after S3.
 - **`WithUnit` merges two rules that differ at the edge.** `AttrUnit` leaves the unit off an empty
   value; `SuffixUnit` does not, printing `" W"` for an empty state. The merged step leaves it off,
   a byte change the goldens name.
@@ -234,4 +245,5 @@ bind); `terminology.md` (Slot, Reading, Slot type, Expression value, Value while
 
 Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`, S1's
 goldens. RenderBench and `validate` timing before and after S3, S5 and S6; the starter site's Pkl
-evaluation time before and after S3.
+evaluation time before and after S3; `dashboard.json` size and bytes per slot before and after S3,
+S4 and S5.
