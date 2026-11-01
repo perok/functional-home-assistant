@@ -1,8 +1,8 @@
-# Plan: a slot's value is something read, and the steps run on it
+# Plan: a slot's value is a source, and the steps run on it
 
-Branch `slot-values`, stacked on `slot-views` (#657). Discussed in chat on 2026-11-01.
+Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design in discussion (O1–O5 open); no code. Steps are written once those settle.
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. No code.
 
 ## Why
 
@@ -11,75 +11,224 @@ Branch `slot-values`, stacked on `slot-views` (#657). Discussed in chat on 2026-
 - **What the value is read from**: a `literal`, an `entityId`, or a `fetch`, each with fields only
   it uses. `bypassUnavailable` and `reads` are the entity's; a literal still carries a `transform`
   nothing reads, so every consumer tests `literal` first.
-- **How it is transformed**: `transform` is a CEL string, a Simple op or a fetch's `Stage`, exactly
-  one, so a value cannot be computed and then shaped (a glyph's `Match`, then the theme's swap).
-- **Its CEL's named inputs** (`values`, `ExprValue`): a second, smaller model of the same thing:
-  typed literals, a count, a condition, a fetch.
-- A gate (`valueWhileSlot`) and a fallback (`default`).
+- **How it is transformed**: exactly one `transform` (a CEL string, a Simple op, a fetch's `Stage`),
+  so a value cannot be computed and then shaped (a glyph's `Match`, then the theme's swap). Simple
+  ops each name their own `entity` besides the slot's `entityId`.
+- **Its CEL's named inputs** (`values`, `ExprValue`): a second, smaller model of the same thing.
+- Which entity a reading reads when it names none is resolved in Scala, per node plan, by
+  inheriting the card's subject.
 
-And `SlotType.CssClass` spells the theme's class swap as a type (#657's P3), while a literal's swap
-and a reading's run in different places.
+And the theme's class swap is a type (`SlotType.CssClass`), while the binding kind is a parsed
+string (`"style:--fh-fill"`) and so is an entity's property in a condition (`"attr:x"`).
 
-## The model
+## The model (part A, this PR)
 
 ```scala
-enum Value:                          // one value, read from somewhere
-  case Literal(v: Lit)               // typed: Text | Whole | Real | Flag
-  case Entity(id: Option[EntityId], part: Part, reads: Reads, bypassUnavailable: Boolean)
-  case Fetch(fetch: FetchTemplate)
+final case class TemplateSlot(
+    expr: ValueExpr,
+    valueWhile: Option[ValueExpr] = None,   // must produce Bool
+    signal: Option[SignalBind] = None,
+    `type`: SlotType = SlotType.Text        // what `expr` must produce
+)
 
-enum Transform:                      // one step; a ValueExpr runs a list of them, in order
-  case Cel(src: String, inputs: Map[String, ValueExpr])   // the previous step is `value`
-  case Simple(op: SimpleOp)          // the fast tier, over the previous step
-  case Stage(s: Builtin)             // a step the renderer provides: Chart, ThemeClasses
+final case class ValueExpr(
+    source: Option[Value],                  // None: a CEL that reads no entity
+    steps: List[Step] = Nil,                // run in order, each typed
+    default: Option[Lit] = None             // when the result is empty; typed by the slot's type
+)
 
-final case class ValueExpr(value: Option[Value], steps: List[Transform], default: Option[String])
+enum SlotType:                              // what a literal is, and what a slot may produce
+  case Text, Bool, Number                   // a slot declaring Number waits for slot-views point 4
+
+enum Lit:
+  case Text(v: String)
+  case Bool(v: Boolean)
+  case Whole(v: Long)                       // Whole and Real are both Number:
+  case Real(v: Double)                      // CEL's compiler types them apart
+
+enum Value:
+  case Literal(v: Lit)                      // a bare JSON string, number or bool
+  case Entity(id: EntityId, part: Part = Part.State,
+              reads: Reads = Reads.Live, bypassUnavailable: Boolean = true)
+  case Fetch(fetch: FetchTemplate)          // a series
+  case Present(tally: Predicate.Tally)      // the candidates present, a list
+  case Condition(p: Predicate)              // decides itself, over the entities it names
+
+// in Predicate, so a condition's own `count()` and a Present share one shape
+final case class Tally(candidates: ListMap[EntityId, Option[Predicate]])
+
+enum Part:
+  case State
+  case Attr(name: String)
+
+sealed trait Step
+final case class Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty) extends Step
+
+sealed trait Format extends Step            // one value in, one out
+final case class Prefix(text: Value) extends Format
+final case class Suffix(text: Value) extends Format
+final case class WithUnit(unit: Value) extends Format       // SuffixUnit and AttrUnit, merged
+final case class Percent(min: Value, max: Value) extends Format
+final case class Fill(min: Value, max: Value) extends Format
+final case class Duration(scale: Double) extends Format
+final case class Match(cases: Map[String, Lit], otherwise: Lit) extends Format
+
+case object Count extends Step              // the size of a Present list
+
+sealed trait Stage extends Step             // the renderer's own steps
+final case class Chart(style: ChartStyle) extends Stage
+case object ThemeClasses extends Stage
+
+enum SignalBind:                            // an object on the wire, no string to parse
+  case Text, Bind, Handler
+  case Style(property: String)
+  case Attr(name: String)
+  case Class(name: String)
 ```
 
-- **Typed in order.** Each value and step has a type: a literal its own, an entity part what the
-  dump says it is, a fetch a series, CEL what its compiler infers, a Simple op and a stage fixed
-  ones. Bind checks the list in order; the slot's `type` is what the last step must produce. Pkl
-  has no user generics, so there the type stays a field.
-- **Named inputs are `ValueExpr`s**, which replaces `ExprValue`. `valueWhile` is an
-  `Option[ValueExpr]` that must produce a bool.
-- **Compile.** The node plan's `Planned` is `Constant(value: SlotValue) | Live(…)`. A literal
-  whose steps are all pure (a stage, a CEL over constants) folds once per renderer into a
-  `Constant`, typed by the slot's type; anything else is `Live`, woken by its entity, the entities
-  its steps name and its `valueWhile`'s.
-- **Absorbs #657's P3 and P5:** `SlotType` is `text | bool` with `slotMod.bool(name)`; the class
-  swap is the `ThemeClasses` stage that `slotMod.cssClass` adds; a literal is its own case.
+On the wire every enum and sealed trait is `{"kind": "<Case>", …fields}`; a bare JSON primitive is
+a literal `ValueExpr`. The node's `values` become `Map[String, ValueExpr]`, and a `Cell`'s classes
+and styles hold `ValueExpr`s.
 
-## Open
+- **Typed in order.** A literal has its own type, `State` is text, an `Attr` is dynamic, a fetch
+  is a series, `Present` a list of ids (CEL gains a list kind for it, `size(lights)`), `Count` a
+  whole number, CEL what its compiler infers, a Format step and a stage fixed ones. Bind checks the list in order; the last step must produce
+  the slot's `type`. The binding checks it too, instead of implying it: `Class` needs a bool,
+  `Text` and `Style` text, `Attr` text or a bool, `Handler` anything.
+- **CEL's running value is `value`**, reserved, so no input may take the name (none does today).
+  When the source is an entity, CEL also keeps its `state`, `attr` and `entity_id`, so today's
+  expressions keep working. With one input, that input is the source:
+  `Present(lights) → Count → Cel("string(value) + ' on'")`.
+- **Pkl writes every entity id.** A reading that names no entity gets the node's subject when
+  Pkl builds the wire, nested readings included (named inputs, `valueWhile`, cell slots); Scala
+  inherits nothing. An entity read (a part, a Format step) on a card with no subject is a build
+  error, where today it reads nothing. A CEL gets the subject as its source where the card has
+  one, since it may read `state`; with none, or where the library knows it reads no entity (the
+  click transforms, which read only `dashboard_slug`), its source is `None`, and one that then
+  reads `state`, `attr` or `entity_id` is a bind error. The `entity_id` slot stays: the template shows it and the server reads it
+  as the node's subject.
+- **A computed subject is removed** (`resolveDirect`, `NodePlan.subjectDynamic`,
+  `DynamicSubjectSuite`): no card builds one. If one is ever needed, it is an `Entity` whose id is
+  itself a `ValueExpr`.
+- **`Present` is one ordered map**: the order decides a tie (`first()`, a set's stable sort), and an
+  unguarded candidate is always present (`Conditions.scala:79`). `Cell` already decodes a
+  `ListMap` in wire order.
+- **The fast tier owns its steps** (ADR 0028 rule 4): a step is pinned to a CEL spelling where one
+  exists and held by tests of its own otherwise. `terminology.md`'s "each pinned byte-equal" is
+  corrected.
+- **Compile.** The node plan's slot is `Planned.Constant(value: SlotValue)` or `Planned.Live`. A
+  pipeline with no live input folds once per renderer into a constant: a literal through a stage,
+  and a source-less CEL whose inputs are constants and renderer bindings, which is every click
+  transform today (now `reads: once` readings in the identity cache). A live pipeline is composed
+  once into one function, so a render walks no step list.
+- **Absorbs #657's P3 and P5:** `slotMod.bool(name)` declares a bool handle, `slotMod.cssClass`
+  adds the `ThemeClasses` stage, and a literal is its own case.
 
-- **O1, decided: Simple splits.** `State` and `Attr(name)` create a value, so they become
-  `Value.Entity`'s `part`, and each op's own `entity` goes with them. The rest (`Prefix`,
-  `Suffix`, `Percent`, `Fill`, `Duration`, `Match`) become steps over the incoming value, and an
-  op's other operands are `Value`s, so a suffix is a literal or another part alike.
-  `SuffixUnit` and `AttrUnit` become one step, `WithUnit(unit: Value)`: the value, a space and the
-  unit, unless the unit is absent. ADR 0028 pins each Simple to its CEL spelling; a split op is
-  pinned against CEL over `value`.
-- **O2. Conditions and counts are operations.** The set or entity they read is a `Value`; the
-  comparison, `where`, `count` and `any` are steps; `and`/`or` name their operands as inputs. Today
-  all of it is one `Predicate` AST (ADRs 0003, 0028), used by `c.iff`, candidate sets and slots
-  alike: how far to split it here is open.
-- **O3. `reads` stays the entity's.** It says when a value is read again: `live` on a change,
-  `onRender` on every render, `once` per entity. A fetch has no such choice today: it is asked
-  whenever its node renders and wakes nothing (ADR 0034), so the field moves to `Fetch` only when
-  one needs `once`.
-- **O4. Stages are the renderer's own steps**, as opposed to an author's CEL or a Simple op. With
-  steps a list, anything producing a series can feed `Chart`.
-- **O5. Names and shape.** `Value`, `Transform`, `ValueExpr`; whether **Reading** stays the term
-  for a `ValueExpr` over live state; the wire and the Pkl authoring shape. Dashboard authors
-  keep `c.attr`, `c.expr` and `c.isOn`.
+## Pkl
+
+One set of Pkl classes mirrors the Scala ones, paired by `WireShapeSuite`; there is no second
+copy and no lowering layer. Pkl has no user generics, so a type is a field. The helpers keep their
+call sites: `c.attr`, `c.expr`, `c.isOn`, `p.history.of`, `q.from(…).count()`, `slotMod.asStyle`,
+`x.of(…)`. What changes: `Reading` becomes the Pkl `ValueExpr`, with `source` and `steps` in place
+of `entityId` and `transform`; `simpleMod`'s functions build steps; the 31 hand-built
+`new slotMod.Reading { … }` in the library, and the example in `writing-components.md`, change
+shape. A component of a user's own that builds a `Reading` by hand breaks; pre-v1, the guide is the
+migration.
+
+## Steps, one commit each, the suite green at each
+
+- **S1. Rendered goldens.** Check in the rendered pages of the fixture dashboards, document and
+  patch forms, and assert them in a suite. The wire snapshots change wholesale from S3 on and
+  cannot be read as a diff; the goldens prove every later step renders the same bytes, or name
+  the ones that change.
+- **S2. Entity ids written by Pkl;** Scala's inheritance and the computed subject go.
+- **S3. The value model** for template and cell slots: `Value`, `ValueExpr`, `Step`, Simple split
+  into parts and Format steps, `SignalBind` and `Part` as objects, Pkl classes and helpers,
+  `WireShapeSuite`'s pairs. The new decoders reject unknown fields from the start (#657's open
+  item).
+- **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present` and
+  `Value.Condition`; the node's `values` likewise.
+- **S5. Types:** typed literals and defaults, `SlotType` with `slotMod.bool`, the binding's type
+  check, and the `ThemeClasses` stage in place of `SlotType.CssClass`.
+- **S6. Compile:** `Planned = Constant | Live`, live pipelines composed once.
+- **S7. Docs.**
+
+## Part B: the next stacked PR
+
+`Predicate` dissolves into the step model, so one condition language serves slots, `c.iff` and
+candidate sets:
+
+| Where | Today | In B |
+|---|---|---|
+| a bool slot, a CEL input | `Value.Condition(p)` (A) | a bool `ValueExpr` |
+| a tally's guards | `Present`'s `Predicate`s | bool `ValueExpr`s |
+| a candidate set's clauses | `SetClause.when` | a bool `ValueExpr` per clause |
+| `c.iff`'s branch | `Activation.State(condition)` | a bool `ValueExpr` |
+| a set's order | `SortKey.Holds(p)` / `SortKey.Prop("attr:x")` | a `ValueExpr` per term |
+
+- **Operations:** `Compare(op, to)` on a value; `Not`, `And(with)`, `Or(with)` on a bool;
+  `AnyOf`, `AllOf`, `NoneOf`, `First` on a `Present` list. An operand is then a `ValueExpr` (a
+  plain value is one with no steps), which widens O1.
+- **`Value.Member(part)`**: the candidate an expression is decided for, where one expression serves
+  every member (a set's clauses and order terms).
+- **`Part.Registry(name)`**, for today's `reg:<name>`.
+- **Reused machinery:** what decides presence, branches and order (`Conditions`) becomes the
+  evaluator of bool and sort `ValueExpr`s, and the entity index comes from the same walk over a
+  `ValueExpr`'s references a slot's bind uses. `Activation.Var` (a viewer's selection) stays.
+- **Regions** compose with it: the value model decides whether and which, a region is where the
+  content lands.
+- ADRs 0003 and 0007, `query.pkl`'s builders and the presence evaluation move with it.
+
+## Review: what the design has to watch
+
+- **Signal names.** A display signal is named by its entity and a hash of its transform's key
+  (`Renderer.displayPath`, `transformSegment`). A pipeline equivalent to today's Simple op keeps
+  today's key string, so S1's goldens stay byte-identical; a pipeline with no equivalent gets a new
+  key.
+- **Render cost.** The fast tier is one `match` today. A live pipeline must not walk a `List` or
+  allocate intermediates per render (S6); RenderBench's `simple`, `direct`, `cel`, `tickRender` and
+  `page` hold. `ThemeClasses` on a live value runs per resolve, as today: a memo per value would be
+  unbounded for arbitrary text.
+- **Typed literals move bytes.** A literal flag becomes `true` where it was `"1"`: a `jsValue`
+  prints `true` for `'1'`, and a cell's literal class carries `true`. Behaviour is the same; the
+  goldens name each such diff in S5.
+- **Wire size and evaluation.** The nested shape is larger: `dashboard.json` size and the starter
+  site's Pkl evaluation time are measured before and after S3.
+- **`WithUnit` merges two rules that differ at the edge.** `AttrUnit` leaves the unit off an empty
+  value; `SuffixUnit` does not, printing `" W"` for an empty state. The merged step leaves it off,
+  a byte change the goldens name.
+- **Fetch sharing.** A fetch is asked with its stage (`SlotAsk`), so two sizes of one chart share
+  the fetch and not the bytes; the ask now comes from the `Fetch` source and the `Chart` step.
+- **Conditions keep their strings in A.** `Present`'s guards and `Value.Condition` are still
+  `Predicate`, whose properties are `"attr:x"` strings, until B.
+- **`bypassUnavailable`** yields the raw state, text, so it stays refused on a slot that must
+  produce a bool, as `validate` does today.
+- **Names** (`Value`, `ValueExpr`, `Present`) are working names, settled in S3. **Reading** stays
+  the term for a `ValueExpr` over live state, and the source field is `source`, since Pkl's
+  `Slot.value` and CEL's `value` already use the word.
+
+## Tests that change
+
+Approval for these is asked with this plan. About 283 test lines build `SlotSource` or
+`TemplateSlot` (S3, mechanical); `DynamicSubjectSuite` is deleted with the feature (S2); the
+library's Pkl tests follow the new classes; the wire snapshots are regenerated with
+`dashboardSnapshotsUpdate` and the goldens hold. S1 adds the goldens.
+
+## Docs
+
+ADRs 0006 (the handle and its value), 0017 (`SignalBind` objects, the binding's type check), 0020
+(the `ThemeClasses` stage), 0028 (the split, pinning where a spelling exists), 0034 (named inputs,
+bind); `terminology.md` (Slot, Reading, Slot type, Expression value, Value while, the tiers);
+`writing-components.md`; the architecture doc's node plan; the module `CLAUDE.md`'s slot lines.
 
 ## Not in this plan
 
-- A `number` type with slot-views point 4 (a `{{x}}` inside a Datastar expression must be a
-  number, a bool or `x.jsValue`): it waits on the tap call design below.
+- Part B, above: the next stacked PR.
+- A `number` slot type with slot-views point 4: it waits on the tap call design.
 - The tap call design round: a declared call id in place of the URL a template spells out.
 
 ## Checks
 
-Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`.
-RenderBench and `validate` timing before and after; snapshots regenerated with
-`dashboardSnapshotsUpdate` and read before each commit.
+Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`, S1's
+goldens. RenderBench and `validate` timing before and after S3, S5 and S6; the starter site's Pkl
+evaluation time and `dashboard.json` size before and after S3.
