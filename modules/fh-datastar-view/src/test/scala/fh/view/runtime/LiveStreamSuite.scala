@@ -8,6 +8,7 @@ import fh.view.model.{
   NodeId,
   Region,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.FixtureEntity
@@ -112,7 +113,8 @@ class LiveStreamSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          templateSlots =
+            Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
         ),
         LayoutNode.Component("ifhost")
       )
@@ -543,7 +545,8 @@ class LiveStreamSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "bar",
-                slots = Map("title" -> SlotSource(Some("sensor.title")))
+                templateSlots =
+                  Map("title" -> TemplateSlot(SlotSource(Some("sensor.title"))))
               )
             )
           ),
@@ -750,11 +753,13 @@ class LiveStreamSuite extends ServerHarness {
         regions = LayoutNode.kids(
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some("sensor.a")))
+            templateSlots =
+              Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
           ),
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some("sensor.b")))
+            templateSlots =
+              Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
           )
         )
       )

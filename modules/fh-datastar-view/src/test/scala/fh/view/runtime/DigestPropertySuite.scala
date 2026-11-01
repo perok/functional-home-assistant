@@ -41,13 +41,16 @@ class DigestPropertySuite extends HedgehogSuite {
       "beta" -> EntityState("beta", v, Map.empty)
     )
 
-  private def valueSlot(signal: Boolean): SlotSource =
-    SlotSource(signal = if signal then Some(SignalBind.Text) else None)
+  private def valueSlot(signal: Boolean): TemplateSlot =
+    TemplateSlot(
+      SlotSource(),
+      signal = if signal then Some(SignalBind.Text) else None
+    )
 
   // A signal slot is placed by its bind; without one the value never updates.
   private def card(signal: Boolean): CardDef =
     CardDef(
-      if signal then """<b {{{v__bind}}} data-t="{{v}}">{{v}}</b>"""
+      if signal then """<b {{{v.bind}}} data-t="{{v}}">{{v}}</b>"""
       else """<b data-t="{{v}}">{{v}}</b>"""
     )
 
@@ -57,7 +60,7 @@ class DigestPropertySuite extends HedgehogSuite {
       LayoutNode.Component(
         "card",
         Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.a")),
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
           "v" -> valueSlot(signal)
         )
       )
@@ -71,7 +74,7 @@ class DigestPropertySuite extends HedgehogSuite {
             node = LayoutNode.Component(
               "card",
               Map(
-                "entity_id" -> SlotSource(literal = Some(e)),
+                "entity_id" -> TemplateSlot(SlotSource(literal = Some(e))),
                 "v" -> valueSlot(signal)
               )
             )

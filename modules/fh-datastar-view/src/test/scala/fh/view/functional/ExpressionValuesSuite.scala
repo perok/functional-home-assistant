@@ -208,7 +208,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
-        |    }).secondary(new slotMod.Slot { transform = "string(n)"; reads = "once" })""".stripMargin
+        |    }).secondary(new slotMod.Reading { transform = "string(n)"; reads = "once" })""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would show the first count forever")), errs)
   }
@@ -309,10 +309,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private val notBool = "does not produce a bool"
 
   test("a boolean slot whose CEL is not a bool fails the build") {
-    val int = """new slotMod.Slot { transform = "n" }"""
+    val int = """new slotMod.Reading { transform = "n" }"""
     assert(
       yesNo(
-        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }"""
+        s"""liveClasses { ["x"] = $int }"""
       )
         .exists(_.contains(notBool))
     )
@@ -321,14 +321,14 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a boolean slot whose Simple shape is text fails the build") {
     val text =
-      s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
+      s"""new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
     assert(yesNo(s"disabled = $text").exists(_.contains(notBool)))
   }
 
   test(
     "a comparison, a boolean match and a condition all fill a boolean slot"
   ) {
-    val cmp = """new slotMod.Slot { transform = "n > 0" }"""
+    val cmp = """new slotMod.Reading { transform = "n > 0" }"""
     assertEquals(
       yesNo(s"disabled = $cmp").filter(_.contains(notBool)),
       Nil
@@ -401,18 +401,18 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
       assertEquals(classSignals(html), Nil, clue = html)
       assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
-      assert(html.contains("<button class=\"fh-press large\""), clue = html)
+      assert(html.contains("<button class=\"fh-press large \""), clue = html)
       assert(staticallyDisabled(html), clue = html)
     }
   }
 
-  test("classWhen takes a condition and an expression over values") {
+  test("cellClassWhen takes a condition and an expression over values") {
     val body =
       s"""    c.button("Stue", c.view.closePopup())
          |      .secondary(c.expr("string(n) + ' on'"))
          |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
-         |      .classWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
-         |      .classWhen("fh-many", c.expr("n > 1"))""".stripMargin
+         |      .cellClassWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
+         |      .cellClassWhen("fh-many", c.expr("n > 1"))""".stripMargin
     withServer(body) { ts =>
       for {
         html <- ts.page()
@@ -524,10 +524,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
        |      $property""".stripMargin
 
-  test("a cssProperty is inline in the document and moves by one frame") {
+  test("a cellStyle is inline in the document and moves by one frame") {
     val body =
       propertyButton(
-        """.cssProperty("--fh-fill", c.expr("string(n * 50) + '%'"))"""
+        """.cellStyle("--fh-fill", c.expr("string(n * 50) + '%'"))"""
       )
     withServer(body) { ts =>
       for {
@@ -545,26 +545,26 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a cssProperty takes a Simple reading, on the fast tier") {
+  test("a cellStyle takes a Simple reading, on the fast tier") {
     val body = propertyButton(
-      s""".cssProperty("--fh-name", new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+      s""".cellStyle("--fh-name", new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
     )
     withServer(body)(_.page()).map { html =>
       assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)
     }
   }
 
-  test("a cssProperty that reads a bool fails the build") {
+  test("a cellStyle that reads a bool fails the build") {
     val isOn = propertyButton(
-      s""".cssProperty("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
+      s""".cellStyle("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
     )
     assert(errorsOf(isOn).exists(_.contains("reads a bool")), errorsOf(isOn))
-    val cmp = propertyButton(""".cssProperty("--fh-on", c.expr("n > 0"))""")
+    val cmp = propertyButton(""".cellStyle("--fh-on", c.expr("n > 0"))""")
     assert(errorsOf(cmp).exists(_.contains("reads a bool")), errorsOf(cmp))
   }
 
-  test("a cssProperty must be a custom property") {
-    val body = propertyButton(""".cssProperty("color", c.expr("'red'"))""")
+  test("a cellStyle must be a custom property") {
+    val body = propertyButton(""".cellStyle("color", c.expr("'red'"))""")
     val err =
       scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
     assert(err.contains("""startsWith("--")"""), clue = err)

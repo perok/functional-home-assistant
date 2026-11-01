@@ -9,6 +9,7 @@ import fh.view.model.{
   Predicate,
   Region,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.st
@@ -49,9 +50,9 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          Map("state" -> SlotSource())
+          Map("state" -> TemplateSlot(SlotSource()))
         ),
-        (None, "dim", Map("state" -> SlotSource()))
+        (None, "dim", Map("state" -> TemplateSlot(SlotSource())))
       )
     )
   )
@@ -71,8 +72,8 @@ class SetMembershipSuite extends ServerHarness {
           None,
           "dot",
           Map(
-            "state" -> SlotSource(),
-            "extra" -> SlotSource(Some("sensor.outside"))
+            "state" -> TemplateSlot(SlotSource()),
+            "extra" -> TemplateSlot(SlotSource(Some("sensor.outside")))
           )
         )
       )
@@ -94,9 +95,13 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          Map("state" -> SlotSource())
+          Map("state" -> TemplateSlot(SlotSource()))
         ),
-        (None, "plain", Map("label" -> SlotSource(literal = Some("off-duty"))))
+        (
+          None,
+          "plain",
+          Map("label" -> TemplateSlot(SlotSource(literal = Some("off-duty"))))
+        )
       )
     )
   )
@@ -268,9 +273,9 @@ class SetMembershipSuite extends ServerHarness {
               None,
               "dot",
               Map(
-                "state" -> SlotSource(),
-                "level" -> SlotSource(transform =
-                  "'level' in attr ? attr['level'] : ''"
+                "state" -> TemplateSlot(SlotSource()),
+                "level" -> TemplateSlot(
+                  SlotSource(transform = "'level' in attr ? attr['level'] : ''")
                 )
               )
             )
@@ -332,7 +337,13 @@ class SetMembershipSuite extends ServerHarness {
                     regions = LayoutNode.kids(
                       onSet(
                         List("light.a", "light.b"),
-                        List((None, "dot", Map("state" -> SlotSource())))
+                        List(
+                          (
+                            None,
+                            "dot",
+                            Map("state" -> TemplateSlot(SlotSource()))
+                          )
+                        )
                       )
                     )
                   )

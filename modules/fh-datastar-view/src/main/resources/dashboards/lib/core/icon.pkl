@@ -32,9 +32,9 @@ const function iconFor(e: hass.Entity?): String? =
 /// A card's glyph for `e`, as the `<i>`'s whole class: live where the domain's
 /// glyph follows its state (a lock), else the literal the registry decides.
 /// `mdiName`, an author's override, wins over both, as in HA.
-const function glyphOf(e: hass.Entity, mdiName: String?): (String|slotMod.Slot)? =
+const function glyphOf(e: hass.Entity, mdiName: String?): (String|slotMod.Reading)? =
   if (mdiName == null && stateIconFor(e) != null)
-    new slotMod.Slot { transform = stateIconFor(e)!!; bypassUnavailable = false }
+    new slotMod.Reading { transform = stateIconFor(e)!!; bypassUnavailable = false }
   else if (mdiName != null) "mdi " + mdiClass(mdiName)
   else if (iconFor(e) != null) "mdi " + iconFor(e)!!
   else null

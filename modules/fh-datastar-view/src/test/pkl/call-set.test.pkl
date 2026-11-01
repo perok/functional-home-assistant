@@ -25,13 +25,13 @@ local litByDay = lit.where((e) ->
   if (e == lampe) q.not(q.entity(sun).stateIs("below_horizon")) else true)
 
 local function setOf(n: nodes.Node): Mapping =
-  new json.Parser { useMapping = true }.parse(n.slots["targetSet"] as String) as Mapping
+  new json.Parser { useMapping = true }.parse(n.slotsByName["targetSet"].value as String) as Mapping
 
 facts {
   ["a set call routes by an id and carries the set it filters"] {
     let (b = c.button("Av", c.tap.call("light/turn_off", lit)))
-      b.slots["targetKind"] == "set"
-      && (b.slots["targetId"] as String).matches(Regex("[0-9a-f]{16}"))
+      b.slotsByName["targetKind"].value == "set"
+      && (b.slotsByName["targetId"].value as String).matches(Regex("[0-9a-f]{16}"))
       && (setOf(b)["candidates"] as Listing).toList() == List("light.taklys", "light.lampe")
   }
   ["a guard naming another entity rides in the tally"] {
@@ -40,7 +40,7 @@ facts {
         (p as Mapping)["kind"] == "Not" && ((p as Mapping)["item"] as Mapping)["entity"] == "sun.sun")
   }
   ["equal sets share an id, different ones do not"] {
-    let (idOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).slots["targetId"])
+    let (idOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).slotsByName["targetId"].value)
       idOf.apply(lit) == idOf.apply(q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on")))
       && idOf.apply(lit) != idOf.apply(litByDay)
   }
@@ -51,10 +51,10 @@ facts {
         c.pill(t),
         new tileMod.Tile { title = "Av"; tapAction = t },
         new switchMod.Switch { label = "Av"; tapAction = t; on = new { entityId = "light.lampe" } }
-      ).every((n) -> n.slots["targetKind"] == "set" && setOf(n) == setOf(c.button("Av", t)))
+      ).every((n) -> n.slotsByName["targetKind"].value == "set" && setOf(n) == setOf(c.button("Av", t)))
   }
   ["an entity call carries no set"] {
-    !c.button("Av", c.tap.lights.off(taklys)).slots.containsKey("targetSet")
+    !c.button("Av", c.tap.lights.off(taklys)).slotsByName.containsKey("targetSet")
   }
   ["a set of another domain is a build error, naming the strays"] {
     module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys, bryter))))

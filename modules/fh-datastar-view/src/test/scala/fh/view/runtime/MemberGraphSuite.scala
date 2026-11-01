@@ -7,7 +7,8 @@ import fh.view.model.{
   Op,
   Predicate,
   SetId,
-  SlotSource
+  SlotSource,
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{lit, st}
 import io.circe.Json
@@ -399,12 +400,12 @@ class MemberGraphSuite extends munit.FunSuite {
       Map(
         "entity_id" -> lit("light.a"),
         // This is what makes the tile itself track light.a.
-        "state" -> SlotSource(entityId = Some("light.a"))
+        "state" -> TemplateSlot(SlotSource(entityId = Some("light.a")))
       ),
       LayoutNode.kids(
         LayoutNode.Component(
           "row",
-          Map("x" -> SlotSource(entityId = Some("sensor.k")))
+          Map("x" -> TemplateSlot(SlotSource(entityId = Some("sensor.k"))))
         ),
         set(List("light.deep"))
       )

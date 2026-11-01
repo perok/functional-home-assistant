@@ -16,6 +16,7 @@ import fh.view.model.{
   Region,
   SignalBind,
   SlotSource,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, lit, st}
@@ -57,17 +58,19 @@ class RenderInputsSuite extends munit.FunSuite {
     // The signal's entity reaches the patch form only as a binding (ADR 0017),
     // the asymmetry the key must reflect.
     "gauge" -> CardDef(
-      """<div><span>{{state}}</span><em {{{live__bind}}}>{{live}}</em></div>"""
+      """<div><span>{{state}}</span><em {{{live.bind}}}>{{live}}</em></div>"""
     )
   )
 
   private def bound(entity: String) = LayoutNode.Component(
     "card",
-    slots = Map(
-      "state" -> SlotSource(Some(entity)),
-      "unit" -> SlotSource(
-        Some(entity),
-        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+    templateSlots = Map(
+      "state" -> TemplateSlot(SlotSource(Some(entity))),
+      "unit" -> TemplateSlot(
+        SlotSource(
+          Some(entity),
+          "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+        )
       )
     )
   )
@@ -98,7 +101,8 @@ class RenderInputsSuite extends munit.FunSuite {
           "bar" -> List(
             LayoutNode.Component(
               "bannerBar",
-              slots = Map("title" -> SlotSource(Some("sensor.t")))
+              templateSlots =
+                Map("title" -> TemplateSlot(SlotSource(Some("sensor.t"))))
             )
           )
         )
@@ -114,7 +118,7 @@ class RenderInputsSuite extends munit.FunSuite {
                   "btn",
                   Map(
                     "entity_id" -> lit(id),
-                    "label" -> SlotSource(None, "state")
+                    "label" -> TemplateSlot(SlotSource(None, "state"))
                   )
                 )
               ),
@@ -131,10 +135,10 @@ class RenderInputsSuite extends munit.FunSuite {
       ),
       LayoutNode.Component(
         "gauge",
-        slots = Map(
-          "state" -> SlotSource(Some("sensor.t")),
-          "live" -> SlotSource(
-            Some("sensor.other"),
+        templateSlots = Map(
+          "state" -> TemplateSlot(SlotSource(Some("sensor.t"))),
+          "live" -> TemplateSlot(
+            SlotSource(Some("sensor.other")),
             signal = Some(SignalBind.Text)
           )
         )
@@ -306,13 +310,13 @@ class RenderInputsSuite extends munit.FunSuite {
     Dashboard(
       cards + ("signalBanner" -> cards("banner").copy(
         template = cards("banner").template
-          .replace("<i>", "<b {{{title__bind}}}></b><i>")
+          .replace("<i>", "<b {{{title.bind}}}></b><i>")
       )),
       LayoutNode.Component(
         "signalBanner",
-        slots = Map(
-          "title" -> SlotSource(
-            Some("sensor.t"),
+        templateSlots = Map(
+          "title" -> TemplateSlot(
+            SlotSource(Some("sensor.t")),
             signal = Some(SignalBind.Text)
           )
         ),

@@ -324,7 +324,7 @@ and so cannot depend on either tool's cleverness.
   mechanism itself wraps with it (`PopupSurface`, `openPopupInline`), so putting
   it in `components/` would point a kernel module at the component tier.
 - Shared helpers had to become public for the families to reach them —
-  `labelSlot`/`valueSlot`/`secondarySlot` (`core/slot.pkl`), icon resolution
+  `labelSlot`/`valueSlot`/`secondary` (`core/slot.pkl`), icon resolution
   (`core/icon.pkl`), `noSignals` (`core/tap.pkl`). That is a gain: a third-party
   card can now look like a shipped one without copying its expressions.
 
