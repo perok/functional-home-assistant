@@ -27,7 +27,8 @@ given Configuration =
   *     initialiser like `{bri: {{x}}}` valid while a light is off.
   *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
   *     running the transform. Off for an action, a label or a slider position.
-  *   - `entityId`: `None` inherits the card's `entity_id`.
+  *   - `entityId`: the entity read. Pkl names the card's `entity_id` on a slot
+  *     that names none, so `None` reads no entity.
   *   - `literal`: a verbatim value, authored as a bare string, or as
   *     `{literal, type}` when typed (a `cssClass`); all else unused.
   *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
@@ -157,11 +158,11 @@ final case class BoundSlot(
   def celKeys: List[Transform.CelKey] =
     celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
 
-  /** Its [[valueWhile]] over the entity it is decided over: its own, else the
-    * slot's. The one rule the pre-read and the paint share.
+  /** Its [[valueWhile]] over the entity it is decided over, which Pkl names.
+    * The one rule the pre-read and the paint share.
     */
-  def gate(slotEntity: Option[String]): Option[Fetching.Gate] =
-    valueWhile.map(w => Fetching.Gate(w, w.entityId.orElse(slotEntity)))
+  def gate: Option[Fetching.Gate] =
+    valueWhile.map(w => Fetching.Gate(w, w.entityId))
 
   /** Every entity that can move this slot besides its own: those its transform
     * names, those of the live values it reads, and its [[valueWhile]]'s.
@@ -825,7 +826,7 @@ object LayoutNode:
     lazy val defaults: Map[String, String] =
       vars.map(d => d.name -> d.default).toMap
 
-    /** Only a literal `entity_id`: a transform one resolves at render time. */
+    /** `validate` holds `entity_id` to a literal. */
     lazy val subjectEntity: Option[String] =
       templateSlots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
@@ -833,9 +834,7 @@ object LayoutNode:
     lazy val liveEntities: List[String] =
       stateSlots
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
-        .flatMap(s =>
-          s.entityId.orElse(subjectEntity).toList ++ s.valueEntities
-        )
+        .flatMap(s => s.entityId.toList ++ s.valueEntities)
         .distinct
 
     /** Minus entities reached only through signal slots: what the render key
@@ -847,9 +846,7 @@ object LayoutNode:
         .filter(s =>
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
         )
-        .flatMap(s =>
-          s.entityId.orElse(subjectEntity).toList ++ s.valueEntities
-        )
+        .flatMap(s => s.entityId.toList ++ s.valueEntities)
         .distinct
 
     /** Every ask, whatever the `valueWhile`s decide: what a variable's value is
@@ -861,8 +858,7 @@ object LayoutNode:
     /** Per slot, each with the `valueWhile` it waits for. In the render key but
       * not [[liveEntities]]: otherwise a sensor ticking every second would
       * refetch its history every second. Ungated without an entity to decide
-      * over: a dynamic subject is known only per paint, and asking too much is
-      * safe where too little raises.
+      * over: asking too much is safe where too little raises.
       */
     lazy val fetching: List[Fetching] =
       bound.values.toList.flatMap { s =>
@@ -872,7 +868,7 @@ object LayoutNode:
         Option.when(asks.nonEmpty)(
           Fetching(
             asks,
-            s.gate(s.entityId.orElse(subjectEntity)).filter(_.entity.isDefined)
+            s.gate.filter(_.entity.isDefined)
           )
         )
       }
@@ -1592,9 +1588,14 @@ case class Dashboard(
           s"$nodeId: slot '$slot' reads another entity but is read " +
             s"'${Reads.Once}' — it would show its first state forever; read " +
             s"it '${Reads.Live}'"
+        // Pkl names every entity a slot reads from it, so it cannot move.
+        case (slot, src)
+            if slot == Dashboard.SubjectSlot && src.literal.isEmpty =>
+          s"$nodeId: slot '${Dashboard.SubjectSlot}' must be a literal — it " +
+            "names the entity the card's other slots read, which is a " +
+            "build-time fact"
         case (slot, src)
             if src.entityId.isEmpty &&
-              !c.templateSlots.contains(Dashboard.SubjectSlot) &&
               (src.transform match
                 case p: Predicate => Predicate.hasFreeSubject(p)
                 case _ => false) =>
@@ -1604,8 +1605,7 @@ case class Dashboard(
 
     def valueWhileErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot],
-        hasSubject: Boolean
+        slots: Map[SlotKey, BoundSlot]
     ): List[String] =
       labelled(slots).flatMap { (_, name, src) =>
         src.valueWhile.toList.flatMap { w =>
@@ -1623,9 +1623,7 @@ case class Dashboard(
               .toList ++
             Option
               .when(
-                src
-                  .gate(src.entityId)
-                  .exists(_.entity.isEmpty) && !hasSubject &&
+                w.entityId.isEmpty &&
                   (w.transform match
                     case p: Predicate => Predicate.hasFreeSubject(p)
                     case _            => false)
@@ -1738,15 +1736,6 @@ case class Dashboard(
         List(
           s"$nodeId: slot '$name' is a constant literal and cannot be a " +
             "signal slot — a value that never moves has nothing to patch"
-        )
-      else if (name == Dashboard.SubjectSlot)
-        // A signal moves only in the browser, so the server would resolve the
-        // card against one subject while the DOM claimed another.
-        List(
-          s"$nodeId: slot '${Dashboard.SubjectSlot}' cannot be a signal " +
-            "slot — it names " +
-            "the entity the card's other slots read, which is a build-time " +
-            "fact, not a value that moves"
         )
       else
         // The card must place the value's consumer, or the patch form
@@ -1894,11 +1883,7 @@ case class Dashboard(
           ) ++ slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
             valueErrors(nodeId, c) ++
-            valueWhileErrors(
-              nodeId,
-              c.bound,
-              c.templateSlots.contains(Dashboard.SubjectSlot)
-            ) ++
+            valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
@@ -2548,9 +2533,9 @@ object Dashboard:
       */
     def celKey: Transform.CelKey = Transform.CelKey(transform)
 
-  /** The slot naming a card's subject, which every other slot inherits. Not
-    * HA's `entity_id` field or the CEL `entity_id` binding, which share only
-    * the spelling.
+  /** The slot naming a card's subject, which Pkl names on every other slot that
+    * names no entity. Not HA's `entity_id` field or the CEL `entity_id`
+    * binding, which share only the spelling.
     */
   val SubjectSlot: String = "entity_id"
 

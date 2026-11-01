@@ -39,6 +39,7 @@
                               "label" : "Outside Temperature",
                               "value" : {
                                 "bypassUnavailable" : true,
+                                "entityId" : "sensor.outside_temp",
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
@@ -219,6 +220,7 @@
                               "attributes" : {
                                 "bypassUnavailable" : true,
                                 "default" : "",
+                                "entityId" : "sensor.outside_temp",
                                 "reads" : "live",
                                 "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                               },
@@ -271,12 +273,14 @@
             "label" : "Outside Temperature",
             "onclick" : {
               "bypassUnavailable" : false,
+              "entityId" : "sensor.outside_temp",
               "reads" : "once",
               "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
             },
             "tappable" : "1",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "sensor.outside_temp",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -342,6 +346,7 @@
             "targetKind" : "entity",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "light.kitchen",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -442,6 +447,7 @@
                               "targetKind" : "entity",
                               "value" : {
                                 "bypassUnavailable" : true,
+                                "entityId" : "light.kitchen",
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
@@ -512,6 +518,7 @@
                                     "targetKind" : "entity",
                                     "value" : {
                                       "bypassUnavailable" : true,
+                                      "entityId" : "light.kitchen",
                                       "reads" : "live",
                                       "signal" : "text",
                                       "transform" : {
@@ -539,6 +546,7 @@
                               "attributes" : {
                                 "bypassUnavailable" : true,
                                 "default" : "",
+                                "entityId" : "light.kitchen",
                                 "reads" : "live",
                                 "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                               },
@@ -591,6 +599,7 @@
             "label" : "Kitchen",
             "onclick" : {
               "bypassUnavailable" : false,
+              "entityId" : "light.kitchen",
               "reads" : "once",
               "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
             },
@@ -598,6 +607,7 @@
             "tappable" : "1",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "light.kitchen",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -673,6 +683,7 @@
                   "fill" : {
                     "bypassUnavailable" : false,
                     "default" : "100%",
+                    "entityId" : "light.kitchen",
                     "reads" : "live",
                     "signal" : "style:--fh-fill",
                     "transform" : {
@@ -695,6 +706,7 @@
                   "service" : "light/turn_on",
                   "state" : {
                     "bypassUnavailable" : true,
+                    "entityId" : "light.kitchen",
                     "reads" : "live",
                     "signal" : "text",
                     "transform" : {
@@ -720,6 +732,7 @@
                   "value" : {
                     "bypassUnavailable" : false,
                     "default" : "0",
+                    "entityId" : "light.kitchen",
                     "reads" : "live",
                     "signal" : "attr:value",
                     "transform" : {
@@ -803,6 +816,7 @@
                       "targetKind" : "entity",
                       "value" : {
                         "bypassUnavailable" : true,
+                        "entityId" : "light.kitchen",
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
@@ -880,6 +894,7 @@
                       "targetKind" : "entity",
                       "value" : {
                         "bypassUnavailable" : true,
+                        "entityId" : "light.living_room",
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
@@ -1135,6 +1150,7 @@
                                   "label" : "Outside Temperature",
                                   "value" : {
                                     "bypassUnavailable" : true,
+                                    "entityId" : "sensor.outside_temp",
                                     "reads" : "live",
                                     "signal" : "text",
                                     "transform" : {
@@ -1315,6 +1331,7 @@
                                   "attributes" : {
                                     "bypassUnavailable" : true,
                                     "default" : "",
+                                    "entityId" : "sensor.outside_temp",
                                     "reads" : "live",
                                     "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                   },
@@ -1367,12 +1384,14 @@
                 "label" : "Outside Temperature",
                 "onclick" : {
                   "bypassUnavailable" : false,
+                  "entityId" : "sensor.outside_temp",
                   "reads" : "once",
                   "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                 },
                 "tappable" : "1",
                 "value" : {
                   "bypassUnavailable" : true,
+                  "entityId" : "sensor.outside_temp",
                   "reads" : "live",
                   "signal" : "text",
                   "transform" : {

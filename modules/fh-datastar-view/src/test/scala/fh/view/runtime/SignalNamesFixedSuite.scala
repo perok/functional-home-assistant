@@ -13,11 +13,10 @@ import fh.view.model.{
 import fh.view.testkit.DashboardBuilders.{col, component, lit, st}
 import io.circe.Json
 
-/** For a node with a constant subject, its signal names are fixed; only values
-  * move. True by construction in `Renderer.buildPlan`, asserted anyway because
-  * `Datastar.SignalSeed` bakes the names into a skeleton, and drift would nest
-  * the wrong paths in a well-formed attribute, silently killing every binding.
-  * Dynamic subjects are excluded: [[DynamicSubjectSuite]].
+/** A node's signal names are fixed; only values move. True by construction in
+  * `Renderer.buildPlan`, asserted anyway because `Datastar.SignalSeed` bakes
+  * the names into a skeleton, and drift would nest the wrong paths in a
+  * well-formed attribute, silently killing every binding.
   */
 class SignalNamesFixedSuite extends munit.FunSuite {
 

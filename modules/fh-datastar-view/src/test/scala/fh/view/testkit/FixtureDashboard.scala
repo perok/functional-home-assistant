@@ -77,11 +77,13 @@ object FixtureDashboard {
                 templateSlots = Map(
                   "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
                   "name" -> TemplateSlot(
-                    SlotSource(transform =
-                      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                    SlotSource(
+                      Some(id),
+                      transform =
+                        "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
                     )
                   ),
-                  "state" -> TemplateSlot(SlotSource())
+                  "state" -> TemplateSlot(SlotSource(Some(id)))
                 )
               )
             )

@@ -52,7 +52,9 @@ class ChartSlotSuite extends munit.FunSuite {
               reads = Reads.OnRender
             )
           ),
-          "name" -> TemplateSlot(SlotSource(transform = "state"))
+          "name" -> TemplateSlot(
+            SlotSource(Some("sensor.t"), transform = "state")
+          )
         )
       )
     )

@@ -1018,10 +1018,9 @@ class Renderer(validated: Dashboard.Validated) {
     * give the saving back: 0.28 µs against a 5.45 µs render
     * (`RenderBench.byteSlotResolve` vs `tickRender`).
     *
-    * `None` means "cannot answer cheaply", never "unchanged": a member, or a
-    * dynamic subject (which decides every slot's entity). A bake owner raises
-    * instead: it is structure and never cached, and a quiet `None` here would
-    * serve stale bytes.
+    * `None` means "cannot answer cheaply", never "unchanged": a member. A bake
+    * owner raises instead: it is structure and never cached, and a quiet `None`
+    * here would serve stale bytes.
     */
   private[runtime] def byteSlotValues(
       id: NodeId,
@@ -1039,21 +1038,18 @@ class Renderer(validated: Dashboard.Validated) {
               "than tolerated."
           )
         val plan = planOf(id, c, states)
-        if (plan.subjectDynamic) None
-        else {
-          val b = Map.newBuilder[String, String]
-          plan.dynamic.foreach { case (slot, srcEntity, source) =>
-            // A live cell slot is always a signal, so only names reach here.
-            if (!plan.signalSlots.contains(slot))
-              b += (
-                (
-                  SlotKey.label(slot),
-                  resolveSlot(srcEntity, source, states, fragments, plan.id)
-                )
+        val b = Map.newBuilder[String, String]
+        plan.dynamic.foreach { case (slot, srcEntity, source) =>
+          // A live cell slot is always a signal, so only names reach here.
+          if (!plan.signalSlots.contains(slot))
+            b += (
+              (
+                SlotKey.label(slot),
+                resolveSlot(srcEntity, source, states, fragments, plan.id)
               )
-          }
-          Some(b.result())
+            )
         }
+        Some(b.result())
       case _ => None
     }
 
@@ -1586,9 +1582,7 @@ class Renderer(validated: Dashboard.Validated) {
           else {
             val c: String | Null = resolved.jsConstants.getOrElse(slot, null)
             if (c != null) c
-            else
-              // A dynamic subject's `once` value, resolved per paint.
-              resolved.paint.get(slot).map(Datastar.jsValue).orNull
+            else resolved.paint.get(slot).map(Datastar.jsValue).orNull
           }
   }
 
@@ -1603,8 +1597,7 @@ class Renderer(validated: Dashboard.Validated) {
       constants: Map[SlotKey, SlotValue],
       jsConstants: Map[SlotKey, String],
       dynamic: List[(SlotKey, Option[String], Planned)],
-      // Every slot: what `x.has` asks, and for a subject that is itself a
-      // transform ([[resolveDirect]]), what it resolves.
+      // Every slot: what `x.has` asks.
       slots: Map[SlotKey, Planned],
       signalled: Map[SlotKey, Signalled],
       signalNameBySlot: Map[SlotKey, SignalId],
@@ -1612,7 +1605,6 @@ class Renderer(validated: Dashboard.Validated) {
       // shared across sessions.
       id: NodeId,
       signalSeed: Datastar.SignalSeed,
-      subjectDynamic: Boolean,
       ownRendering: Boolean,
       declaresSignals: Boolean,
       wrapped: Boolean,
@@ -1635,10 +1627,9 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def withheld(
       planned: Planned,
-      srcEntity: Option[String],
       states: Map[String, EntityState]
   ): Boolean =
-    planned.source.gate(srcEntity).exists(!gateHolds(_, states))
+    planned.source.gate.exists(!gateHolds(_, states))
 
   /** The asks whose slot has a value now. */
   private def asked(
@@ -1675,14 +1666,6 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState]
   ): NodePlan = {
     val slots = c.bound.view.mapValues(planned).toMap
-    // `None`: the subject is a transform and can change per paint, the one
-    // shape a plan cannot precompute ([[resolveDirect]]).
-    val subjectConst: Option[Option[String]] =
-      c.bound.get(Dashboard.SubjectSlot) match {
-        case None                           => Some(None)
-        case Some(s) if s.literal.isDefined => Some(s.literal)
-        case Some(_)                        => None
-      }
     val constB = Map.newBuilder[SlotKey, SlotValue]
     val jsB = Map.newBuilder[SlotKey, String]
     val dynB = List.newBuilder[(SlotKey, Option[String], Planned)]
@@ -1694,55 +1677,44 @@ class Renderer(validated: Dashboard.Validated) {
           constB += ((slot, text))
           jsB += ((slot, Datastar.jsLiteral(text)))
         case None =>
-          subjectConst match {
-            case Some(subject) =>
-              // The subject never inherits; every other slot inherits it.
-              val srcEntity =
-                if (slot == Dashboard.SubjectSlot) source.entityId
-                else source.entityId.orElse(subject)
-              // `once` reads only identity, so the plan holds it; the memo is
-              // keyed by entity, which is why a fetch slot never enters it.
-              source.shape match
-                case SlotShape.Fetch(_)  => dynB += ((slot, srcEntity, planned))
-                case SlotShape.State(st) =>
-                  if (st.reads == Reads.Once) {
-                    val once = identityCache.computeIfAbsent(
-                      (srcEntity.getOrElse(""), st.valueKey),
-                      _ =>
-                        resolveStateSlotValue(
-                          srcEntity,
-                          planned,
-                          states,
-                          noFetch
-                        )
+          val srcEntity = source.entityId
+          // `once` reads only identity, so the plan holds it; the memo is
+          // keyed by entity, which is why a fetch slot never enters it.
+          source.shape match
+            case SlotShape.Fetch(_)  => dynB += ((slot, srcEntity, planned))
+            case SlotShape.State(st) =>
+              if (st.reads == Reads.Once) {
+                val once = identityCache.computeIfAbsent(
+                  (srcEntity.getOrElse(""), st.valueKey),
+                  _ =>
+                    resolveStateSlotValue(
+                      srcEntity,
+                      planned,
+                      states,
+                      noFetch
                     )
-                    constB += ((slot, once))
-                    jsB += ((slot, Datastar.jsValue(once)))
-                  } else dynB += ((slot, srcEntity, planned))
-            case None => ()
-          }
+                )
+                constB += ((slot, once))
+                jsB += ((slot, Datastar.jsValue(once)))
+              } else dynB += ((slot, srcEntity, planned))
       }
     }
     // A signal slot is always `live` and non-literal, so its name is constant
     // per node.
-    val named = subjectConst match {
-      case Some(subject) =>
-        c.bound.toList.flatMap { case (slot, src) =>
-          Renderer.signalBind(src).map { kind =>
-            (
-              slot,
-              kind,
-              Renderer.signalName(
-                id,
-                SlotKey.label(slot),
-                src.entityId.orElse(subject),
-                src.valueKey,
-                kind
-              )
-            )
-          }
-        }
-      case None => Nil
+    val named = c.bound.toList.flatMap { case (slot, src) =>
+      Renderer.signalBind(src).map { kind =>
+        (
+          slot,
+          kind,
+          Renderer.signalName(
+            id,
+            SlotKey.label(slot),
+            src.entityId,
+            src.valueKey,
+            kind
+          )
+        )
+      }
     }
     NodePlan(
       node = c,
@@ -1760,7 +1732,6 @@ class Renderer(validated: Dashboard.Validated) {
       }.toMap,
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
-      subjectDynamic = subjectConst.isEmpty,
       ownRendering = ownRenderingOf(c),
       declaresSignals = c.bound.values.exists(Renderer.isSignalSlot),
       wrapped = !noWrapCards(c.card),
@@ -1770,16 +1741,6 @@ class Renderer(validated: Dashboard.Validated) {
   }
 
   private def resolvePlanned(
-      plan: NodePlan,
-      states: Map[String, EntityState],
-      bakeIndex: Map[String, String],
-      fragments: FetchSnapshot
-  ): Resolved = {
-    if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex, fragments)
-    else resolvePlannedSubject(plan, states, bakeIndex, fragments)
-  }
-
-  private def resolvePlannedSubject(
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
@@ -1812,79 +1773,6 @@ class Renderer(validated: Dashboard.Validated) {
     )
   }
 
-  /** For a subject that is itself a transform: every inherited entity, signal
-    * name and binding can change per paint.
-    */
-  private def resolveDirect(
-      plan: NodePlan,
-      states: Map[String, EntityState],
-      bakeIndex: Map[String, String],
-      fragments: FetchSnapshot
-  ): Resolved = {
-    val injected = plan.structural ++ bakeIndex
-    val slots = plan.slots
-    val subject: Option[String] =
-      slots.get(Dashboard.SubjectSlot).map { s =>
-        s.source.literal.getOrElse(
-          resolveStateSlot(s.source.entityId, s, states)
-        )
-      }
-    val resolved: Map[SlotKey, SlotValue] = slots.map { case (slot, planned) =>
-      val source = planned.source
-      val value: SlotValue = source.literal match {
-        case Some(text) => classed(source, text)
-        case None       =>
-          val srcEntity =
-            if (slot == Dashboard.SubjectSlot) source.entityId
-            else source.entityId.orElse(subject)
-          if (source.reads == Reads.Once)
-            identityCache.computeIfAbsent(
-              (srcEntity.getOrElse(""), source.valueKey),
-              _ =>
-                resolveStateSlotValue(
-                  srcEntity,
-                  planned,
-                  states,
-                  noFetch
-                )
-            )
-          else
-            resolveSlotValue(srcEntity, planned, states, fragments, plan.id)
-      }
-      slot -> value
-    }
-    val signalled = plan.node.bound.toList.flatMap { case (slot, src) =>
-      Renderer.signalBind(src).map((slot, src, _))
-    }
-    val id = NodeId.derived(injected.getOrElse("id", ""))
-    val named = signalled.map { case (slot, src, kind) =>
-      (
-        slot,
-        kind,
-        Renderer.signalName(
-          id,
-          SlotKey.label(slot),
-          src.entityId.orElse(subject),
-          src.valueKey,
-          kind
-        )
-      )
-    }
-    Resolved(
-      structural = plan.structural,
-      constants = plan.constants,
-      jsConstants = plan.jsConstants,
-      signalled = named.map { case (slot, kind, signal) =>
-        slot -> signalledOf(signal, kind)
-      }.toMap,
-      slots = plan.slots,
-      paint = resolved,
-      bake = bakeIndex,
-      named.map(_._1).toSet,
-      named.map { case (slot, _, signal) => signal -> resolved(slot) }.toMap
-    )
-  }
-
   /** The signal values one node carries (ADR 0017), never its children's:
     * descending would name a child's signal under its parent and leave the
     * child's binding on a signal nothing writes.
@@ -1911,10 +1799,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Map[SignalId, SlotValue] = node match {
     case c: LayoutNode.Component =>
       val plan = planOf(id, c, states)
-      // A dynamic subject's plan holds no names, not because it has no
-      // signals.
-      if (plan.subjectDynamic) directSignalsOfSlots(id, plan, states, fragments)
-      else if (plan.signalNameBySlot.isEmpty) Map.empty
+      if (plan.signalNameBySlot.isEmpty) Map.empty
       else {
         val b = Map.newBuilder[SignalId, SlotValue]
         b.sizeHint(plan.signalNameBySlot.size)
@@ -1938,39 +1823,6 @@ class Renderer(validated: Dashboard.Validated) {
     case _: LayoutNode.SetNode => Map.empty
   }
 
-  private def directSignalsOfSlots(
-      id: NodeId,
-      plan: NodePlan,
-      states: Map[String, EntityState],
-      fragments: FetchSnapshot
-  ): Map[SignalId, SlotValue] = {
-    val subject = plan.slots
-      .get(Dashboard.SubjectSlot)
-      .map(s =>
-        s.source.literal
-          .getOrElse(resolveStateSlot(s.source.entityId, s, states))
-      )
-    plan.slots.collect {
-      case (slot, planned) if Renderer.isSignalSlot(planned.source) =>
-        val src = planned.source
-        val entity = src.entityId.orElse(subject)
-        val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
-        Renderer.signalName(
-          id,
-          SlotKey.label(slot),
-          entity,
-          src.valueKey,
-          kind
-        ) ->
-          resolveStateSlotValue(
-            entity,
-            planned,
-            states,
-            fetchedIn(fragments, id)
-          )
-    }
-  }
-
   /** Resolves before any state arrives, so a `domain` action still works. */
   private def resolveSlot(
       srcEntity: Option[String],
@@ -1983,23 +1835,6 @@ class Renderer(validated: Dashboard.Validated) {
       resolveSlotValue(srcEntity, source, states, fragments, node)
     )
 
-  /** For sites that can never hold a fetch slot (subject, `once`, signal):
-    * taking no snapshot means a site that gains one stops compiling.
-    */
-  private def resolveStateSlot(
-      srcEntity: Option[String],
-      source: Planned,
-      states: Map[String, EntityState]
-  ): String =
-    SlotValue.text(
-      resolveStateSlotValue(
-        srcEntity,
-        source,
-        states,
-        noFetch
-      )
-    )
-
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
     * `default`.
     */
@@ -2010,7 +1845,7 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: FetchSnapshot,
       node: NodeId
   ): SlotValue = source.source.shape match {
-    case SlotShape.Fetch(_) if withheld(source, srcEntity, states) =>
+    case SlotShape.Fetch(_) if withheld(source, states) =>
       ""
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
     case SlotShape.Fetch(ask) =>
@@ -2038,7 +1873,7 @@ class Renderer(validated: Dashboard.Validated) {
     )
 
   /** For sites `validate` keeps from reading a fetch (a `once` slot, a
-    * subject), so one that does is loud rather than an empty series.
+    * `valueWhile`), so one that does is loud rather than an empty series.
     */
   private val noFetch: FetchTemplate => Object = f =>
     throw FHError.internal(
@@ -2056,7 +1891,7 @@ class Renderer(validated: Dashboard.Validated) {
       srcEntity
         .flatMap(states.get)
         .getOrElse(EntityState(srcEntity.getOrElse(""), "", Map.empty))
-    if (withheld(planned, srcEntity, states)) ""
+    if (withheld(planned, states)) ""
     // The bypass, not the transform, keeps an unavailable entity readable.
     else if (source.bypassUnavailable && st.unavailable) st.state
     else {

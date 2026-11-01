@@ -6,6 +6,7 @@
 module core.node
 
 import "predicate.pkl" as predMod
+import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
 import "tap.pkl" as tapMod
@@ -84,14 +85,15 @@ abstract class LayoutNode {
   /// builders would have added.
   cell: Cell? =
     let (static = (cellClasses.toList() + stateClasses.toList()).distinct)
+    let (subjectId = if (this is Node) subjectOf(this.slots) else null)
       if (static.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty) null
       else new Cell {
         classes {
           for (c in static) { [c] = "1" }
-          for (c, r in liveClasses) { [c] = wireReading(r) }
+          for (c, r in liveClasses) { [c] = wireReading(r, subjectId, "cell class '\(c)'") }
         }
         styles {
-          for (p, r in liveStyles) { [p] = wireReading(r) }
+          for (p, r in liveStyles) { [p] = wireReading(r, subjectId, "cell style '\(p)'") }
         }
       }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
@@ -182,7 +184,7 @@ abstract class Node extends LayoutNode {
     namedOnce(this, card)
   ) = new {}
   /// [[slots]] as the wire holds them, by name.
-  fixed templateSlots: Mapping<String, Any> = wireSlots(slots)
+  fixed templateSlots: Mapping<String, Any> = wireSlots(slots, subjectOf(slots))
   /// [[slots]] that are set, by name.
   hidden slotsByName: Map<String, slotMod.Slot> =
     slots.toList().filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
@@ -318,18 +320,37 @@ const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Bool
     if (twice.isEmpty) true
     else throw("card '\(card)': slot \(twice.toList().map((n) -> "'\(n)'").join(", ")) is listed twice in `slots`")
 
-// A reading as the wire holds it: its set fields.
-const local function wireReading(r: slotMod.Reading): Map<String, Any> =
-  r.toMap().filter((_, v) -> v != null)
+// The entity a reading that names none reads: the card's `entity_id` literal.
+const local function subjectOf(slots: Listing<slotMod.Slot>): String? =
+  let (s = slots.toList().findOrNull((t) -> t.name == slotMod.subject.name))
+    if (s?.value is String) s.value as String else null
+
+// A reading as the wire holds it: its set fields, every entity it reads named.
+// One that names none reads `subject`; its `valueWhile` reads the reading's. A
+// fetch reads its provider's answer, so it takes no entity.
+const local function wireReading(r: slotMod.Reading, subject: String?, where: String): Map<String, Any> =
+  let (own = r.entityId ?? (if (r.fetch == null) subject else null))
+  let (vw = r.valueWhileSlot)
+    if (own == null && r.fetch == null && readsSlotEntity(r.transform))
+      throw("\(where) reads the card's entity, and the card has none: name one, as `c.exprOf(e, …)` or `q.entity(e)` does")
+    else
+      r.toMap().filter((k, v) -> v != null && k != "valueWhileSlot")
+        + (if (own != null) Map("entityId", own) else Map())
+        + (if (vw != null) Map("valueWhileSlot", wireReading(vw, own ?? subject, where)) else Map())
+
+// A simple op with no `entity` of its own reads the slot's; a CEL may read
+// none, which the build's compile says.
+const local function readsSlotEntity(t: Any): Boolean =
+  (t is simpleMod.SimpleValue || t is simpleMod.SimpleMatch) && t.entity == null
 
 // By name, set ones only, a reading carrying its slot's `signal` and `type`,
 // and a literal its `type` when it has one (a `cssClass`), else a bare string.
-const local function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = new {
+const local function wireSlots(slots: Listing<slotMod.Slot>, subject: String?): Mapping<String, Any> = new {
   for (s in slots) {
     when (s.value != null) {
       [s.name] =
         if (s.value is slotMod.Reading)
-          wireReading(s.value as slotMod.Reading)
+          wireReading(s.value as slotMod.Reading, subject, "slot '\(s.name)'")
             + (if (s.signal != null) Map("signal", s.signal) else Map())
             + (if (s.type != null) Map("type", s.type) else Map())
         else if (s.signal != null)

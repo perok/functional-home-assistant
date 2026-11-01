@@ -54,8 +54,13 @@ class SignalSlotSuite extends ServerHarness {
       "gauge",
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some(entity))),
-        "label" -> TemplateSlot(SlotSource(transform = friendlyRead)),
-        "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text))
+        "label" -> TemplateSlot(
+          SlotSource(Some(entity), transform = friendlyRead)
+        ),
+        "value" -> TemplateSlot(
+          SlotSource(Some(entity)),
+          signal = Some(SignalBind.Text)
+        )
       )
     )
 
@@ -132,7 +137,8 @@ class SignalSlotSuite extends ServerHarness {
     val patch =
       r.renderNodeById(leaf, at("21.4"), fragments = FetchSnapshot.empty).get
     assert(patch.contains(assigned), clue = patch)
-    val plain = guarded(TemplateSlot(SlotSource())).renderPage(at("21.4"))
+    val plain =
+      guarded(TemplateSlot(SlotSource(Some("sensor.a")))).renderPage(at("21.4"))
     assert(plain.contains("data-on:x=\"\""), clue = plain)
   }
 
@@ -143,7 +149,7 @@ class SignalSlotSuite extends ServerHarness {
         "plain",
         Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
-          "value" -> TemplateSlot(SlotSource())
+          "value" -> TemplateSlot(SlotSource(Some("sensor.a")))
         )
       )
     )
@@ -243,9 +249,12 @@ class SignalSlotSuite extends ServerHarness {
         "pair",
         Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
-          "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text)),
+          "value" -> TemplateSlot(
+            SlotSource(Some("sensor.a")),
+            signal = Some(SignalBind.Text)
+          ),
           "other" -> TemplateSlot(
-            SlotSource(transform = friendlyRead),
+            SlotSource(Some("sensor.a"), transform = friendlyRead),
             signal = Some(SignalBind.Text)
           )
         )
@@ -281,9 +290,11 @@ class SignalSlotSuite extends ServerHarness {
                   "entity_id" -> TemplateSlot(
                     SlotSource(literal = Some("light.a"))
                   ),
-                  "label" -> TemplateSlot(SlotSource(transform = friendlyRead)),
+                  "label" -> TemplateSlot(
+                    SlotSource(Some("light.a"), transform = friendlyRead)
+                  ),
                   "value" -> TemplateSlot(
-                    SlotSource(),
+                    SlotSource(Some("light.a")),
                     signal = Some(SignalBind.Text)
                   )
                 )
@@ -322,19 +333,19 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
         "state" -> TemplateSlot(
-          SlotSource(transform = brightnessRead),
+          SlotSource(Some("light.a"), transform = brightnessRead),
           signal = Some(SignalBind.Text)
         ),
         "value" -> TemplateSlot(
-          SlotSource(transform = brightnessRead),
+          SlotSource(Some("light.a"), transform = brightnessRead),
           signal = Some(SignalBind.Bind)
         ),
         "fill" -> TemplateSlot(
-          SlotSource(transform = fillPct),
+          SlotSource(Some("light.a"), transform = fillPct),
           signal = Some(SignalBind.Style("--_end"))
         ),
         "tint" -> TemplateSlot(
-          SlotSource(transform = rgbRead),
+          SlotSource(Some("light.a"), transform = rgbRead),
           signal = Some(SignalBind.Attr("title"))
         )
       )
@@ -416,7 +427,11 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
         "off" -> TemplateSlot(
-          SlotSource(transform = boolOff, bypassUnavailable = false),
+          SlotSource(
+            Some("light.a"),
+            transform = boolOff,
+            bypassUnavailable = false
+          ),
           signal = Some(SignalBind.Attr("disabled"))
         )
       )
@@ -452,17 +467,12 @@ class SignalSlotSuite extends ServerHarness {
   test("a boolean slot is boolean on every read path") {
     // The `once` memo held text, so its `false` reached a section as the
     // truthy "false". A read mode says WHEN a value is read, never what it is.
-    // Three plan shapes: a literal subject, none, and a transform subject.
+    // Two plan shapes: a literal subject, and none.
     val subjects = List(
       "literal" -> Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a")))
       ),
-      "none" -> Map.empty[String, TemplateSlot],
-      "transform" -> Map(
-        "entity_id" -> TemplateSlot(
-          SlotSource(Some("light.a"), transform = "entity_id")
-        )
-      )
+      "none" -> Map.empty[String, TemplateSlot]
     )
     // Of these, only a `once` slot may be read as `.jsValue` (`readErrors`).
     def dash(reads: String, subject: Map[String, TemplateSlot]): Dashboard =
@@ -518,9 +528,12 @@ class SignalSlotSuite extends ServerHarness {
         "box",
         Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
-          "state" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text)),
+          "state" -> TemplateSlot(
+            SlotSource(Some("light.a")),
+            signal = Some(SignalBind.Text)
+          ),
           "bright" -> TemplateSlot(
-            SlotSource(transform = brightnessRead),
+            SlotSource(Some("light.a"), transform = brightnessRead),
             signal = Some(SignalBind.Text)
           )
         ),
@@ -595,7 +608,7 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("lock.front"))),
         "state" -> TemplateSlot(
-          SlotSource(transform = "state"),
+          SlotSource(Some("lock.front"), transform = "state"),
           signal = Some(SignalBind.Text)
         ),
         "service" -> service
@@ -605,7 +618,7 @@ class SignalSlotSuite extends ServerHarness {
 
   private val lockish = tile(
     TemplateSlot(
-      SlotSource(transform = lockService),
+      SlotSource(Some("lock.front"), transform = lockService),
       signal = Some(SignalBind.Handler)
     )
   )
@@ -749,13 +762,16 @@ class SignalSlotSuite extends ServerHarness {
       "trio",
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
-        "state" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text)),
+        "state" -> TemplateSlot(
+          SlotSource(Some("light.a")),
+          signal = Some(SignalBind.Text)
+        ),
         "fill" -> TemplateSlot(
-          SlotSource(transform = fillPct),
+          SlotSource(Some("light.a"), transform = fillPct),
           signal = Some(SignalBind.Style("--_end"))
         ),
         "tint" -> TemplateSlot(
-          SlotSource(transform = rgbRead),
+          SlotSource(Some("light.a"), transform = rgbRead),
           signal = Some(SignalBind.Attr("title"))
         )
       )
@@ -954,8 +970,11 @@ class SignalSlotSuite extends ServerHarness {
       "gauge",
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
-        "label" -> TemplateSlot(SlotSource(transform = friendlyRead)),
-        "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text))
+        "label" -> TemplateSlot(SlotSource(Some(id), transform = friendlyRead)),
+        "value" -> TemplateSlot(
+          SlotSource(Some(id)),
+          signal = Some(SignalBind.Text)
+        )
       )
     )
     // Two candidates: one leaving an otherwise empty set takes the wholesale
@@ -1026,7 +1045,10 @@ class SignalSlotSuite extends ServerHarness {
         "gauge",
         Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
-          "value" -> TemplateSlot(SlotSource(), signal = Some(SignalBind.Text))
+          "value" -> TemplateSlot(
+            SlotSource(Some("sensor.a")),
+            signal = Some(SignalBind.Text)
+          )
         )
       )
     )
@@ -1048,7 +1070,7 @@ class SignalSlotSuite extends ServerHarness {
         Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("lock.front"))),
           "service" -> TemplateSlot(
-            SlotSource(transform = lockService),
+            SlotSource(Some("lock.front"), transform = lockService),
             signal = Some(SignalBind.Handler)
           )
         )
@@ -1088,7 +1110,9 @@ class SignalSlotSuite extends ServerHarness {
         "t",
         Map(
           "entity_id" -> TemplateSlot(SlotSource(literal = Some("lock.front"))),
-          "service" -> TemplateSlot(SlotSource(transform = lockService))
+          "service" -> TemplateSlot(
+            SlotSource(Some("lock.front"), transform = lockService)
+          )
         )
       )
     )
@@ -1125,11 +1149,10 @@ class SignalSlotSuite extends ServerHarness {
     )
   }
 
-  test("the subject slot cannot be a signal slot") {
-    // `entity_id` is what every other slot resolves against, and a signal moves
-    // in the browser alone, so the server would keep resolving against the old
-    // entity. The two halves of the renderer disagreed about it, so neither
-    // reading is right and it is a build error.
+  test("the subject slot must be a literal") {
+    // `entity_id` names the entity Pkl gives every other slot, so it cannot
+    // move: as a signal it would move in the browser alone, and the server
+    // would keep resolving against the old entity.
     val subject = Dashboard(
       Map(
         "gauge" -> CardDef(
@@ -1150,9 +1173,8 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       subject.validate(),
       List(
-        "c: slot 'entity_id' cannot be a signal slot — it names the entity " +
-          "the card's other slots read, which is a build-time fact, not a " +
-          "value that moves"
+        "c: slot 'entity_id' must be a literal — it names the entity the " +
+          "card's other slots read, which is a build-time fact"
       )
     )
   }
@@ -1172,7 +1194,7 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
         "tint" -> TemplateSlot(
-          SlotSource(transform = tintRead),
+          SlotSource(Some("sensor.a"), transform = tintRead),
           signal = Some(SignalBind.Style("background"))
         )
       ),
@@ -1202,7 +1224,9 @@ class SignalSlotSuite extends ServerHarness {
         .copy(templateSlots =
           Map(
             "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
-            "tint" -> TemplateSlot(SlotSource(transform = tintRead))
+            "tint" -> TemplateSlot(
+              SlotSource(Some("sensor.a"), transform = tintRead)
+            )
           )
         )
     )

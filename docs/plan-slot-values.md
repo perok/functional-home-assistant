@@ -2,7 +2,8 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. No code.
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1 and S2
+built.
 
 ## Why
 
@@ -146,7 +147,11 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
   it and the starter get wire snapshots too. The wire snapshots change wholesale from S3 on and
   cannot be read as a diff; the goldens prove every later step renders the same bytes apart from
   the names, or name the bytes that change.
-- **S2. Entity ids written by Pkl;** Scala's inheritance and the computed subject go.
+- **S2. Entity ids written by Pkl;** Scala's inheritance and the computed subject go, and
+  `validate` holds `entity_id` to a literal. Pkl writes exactly what Scala inherited, so the
+  goldens hold and the wire gains only the `entityId`s. A reading with no entity still compiles
+  its CEL in the full environment; the one without `state`, `attr`, `entity_id` and `domain`
+  comes with `source` in S3.
 - **S3. The value model** for template and cell slots: `Value`, `ValueExpr`, `Step`, Simple split
   into parts and Format steps, `SignalBind` and `Part` as objects, Pkl classes and helpers,
   `WireShapeSuite`'s pairs. The new decoders reject unknown fields from the start (#657's open

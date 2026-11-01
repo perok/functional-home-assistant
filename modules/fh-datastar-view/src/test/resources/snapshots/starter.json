@@ -102,6 +102,7 @@
                             "fill" : {
                               "bypassUnavailable" : false,
                               "default" : "100%",
+                              "entityId" : "light.kitchen",
                               "reads" : "live",
                               "signal" : "style:--fh-fill",
                               "transform" : {
@@ -124,6 +125,7 @@
                             "service" : "light/turn_on",
                             "state" : {
                               "bypassUnavailable" : true,
+                              "entityId" : "light.kitchen",
                               "reads" : "live",
                               "signal" : "text",
                               "transform" : {
@@ -149,6 +151,7 @@
                             "value" : {
                               "bypassUnavailable" : false,
                               "default" : "0",
+                              "entityId" : "light.kitchen",
                               "reads" : "live",
                               "signal" : "attr:value",
                               "transform" : {
@@ -230,6 +233,7 @@
                       "targetKind" : "entity",
                       "value" : {
                         "bypassUnavailable" : true,
+                        "entityId" : "light.kitchen",
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
@@ -311,6 +315,7 @@
                             "fill" : {
                               "bypassUnavailable" : false,
                               "default" : "100%",
+                              "entityId" : "light.living_room",
                               "reads" : "live",
                               "signal" : "style:--fh-fill",
                               "transform" : {
@@ -333,6 +338,7 @@
                             "service" : "light/turn_on",
                             "state" : {
                               "bypassUnavailable" : true,
+                              "entityId" : "light.living_room",
                               "reads" : "live",
                               "signal" : "text",
                               "transform" : {
@@ -358,6 +364,7 @@
                             "value" : {
                               "bypassUnavailable" : false,
                               "default" : "0",
+                              "entityId" : "light.living_room",
                               "reads" : "live",
                               "signal" : "attr:value",
                               "transform" : {
@@ -439,6 +446,7 @@
                       "targetKind" : "entity",
                       "value" : {
                         "bypassUnavailable" : true,
+                        "entityId" : "light.living_room",
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {

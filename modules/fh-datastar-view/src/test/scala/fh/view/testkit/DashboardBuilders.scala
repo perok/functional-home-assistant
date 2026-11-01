@@ -41,6 +41,25 @@ object DashboardBuilders {
   /** A constant literal slot (a bare value, no entity/transform). */
   def lit(s: String): TemplateSlot = TemplateSlot(SlotSource(literal = Some(s)))
 
+  /** A candidate's slots as Pkl's `render` builds them, one node per candidate:
+    * each reads `id` unless it names another entity, is a literal or a fetch.
+    */
+  def memberSlots(
+      id: String,
+      slots: Map[String, TemplateSlot]
+  ): Map[String, TemplateSlot] =
+    slots.view
+      .mapValues { s =>
+        val src = s.source
+        if (
+          src.entityId.isDefined || src.literal.isDefined || src.fetch.isDefined
+        )
+          s
+        else s.copy(source = src.copy(entityId = Some(id)))
+      }
+      .toMap
+      .updated("entity_id", lit(id))
+
   /** A cell holding these classes, each always there. */
   def classes(names: String*): Cell =
     Cell(classes =

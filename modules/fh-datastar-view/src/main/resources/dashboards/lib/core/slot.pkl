@@ -142,8 +142,8 @@ const function slot(n: String): Slot = new { name = n }
 /// literal or a reading, filled with [[Slot.of]] like any other.
 const function cssClass(n: String): Slot = new { name = n; type = "cssClass" }
 
-/// The entity a card is about, which its other slots read unless they name
-/// their own (`Dashboard.SubjectSlot`).
+/// The entity a card is about, a literal: the build names it on every other
+/// reading that names none (`Dashboard.SubjectSlot`).
 const subject: Slot = slot("entity_id")
 
 /// A read of a named provider. Each provider's component module declares its

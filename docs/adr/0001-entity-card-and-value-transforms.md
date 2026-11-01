@@ -61,10 +61,11 @@ separate "computed" concept. A hardcoded value is a **literal** slot (a bare
 JSON string) — no entity, no expression, no compilation.
 
 **`entity_id` is the magical slot.** A component is `(card, slots, regions)`;
-the card's subject entity is the slot *named* `entity_id` (normally a literal;
-a transform form grounds indirection on its own entity). It is the single slot
-that does **not** inherit the subject — it *defines* it. Every other slot with
-`entityId = None` inherits it. The only non-slot template vars are
+the card's subject entity is the slot *named* `entity_id`, always a literal
+(`validate` refuses anything else). It *defines* the subject: when Pkl builds
+the wire it names that entity as the `entityId` of every other reading that
+names none, so the runtime reads each slot's own `entityId` and inherits
+nothing. The only non-slot template vars are
 backend-injected: the stable node `id` (plus the matched `entity_id` inside a
 dynamic case).
 

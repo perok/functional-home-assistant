@@ -13,8 +13,12 @@ class SimpleReadsSuite extends munit.FunSuite {
   private val card =
     CardDef("""<b {{{v.bind}}}>{{v}}</b>""")
 
-  private def slot(t: Transform.Simple, bool: Boolean = false) = TemplateSlot(
-    SlotSource(transform = t, bypassUnavailable = false),
+  private def slot(
+      t: Transform.Simple,
+      bool: Boolean = false,
+      entity: Option[String] = None
+  ) = TemplateSlot(
+    SlotSource(entity, transform = t, bypassUnavailable = false),
     signal = Some(SignalBind.Text),
     `type` = if (bool) SlotType.Bool else SlotType.Text
   )
@@ -61,7 +65,11 @@ class SimpleReadsSuite extends munit.FunSuite {
 
   test("a condition naming no entity reads the slot's") {
     val d = dashboard(
-      slot(Predicate.Cmp("state", Op.Gt, Json.fromInt(0)), bool = true)
+      slot(
+        Predicate.Cmp("state", Op.Gt, Json.fromInt(0)),
+        bool = true,
+        entity = Some("sensor.a")
+      )
     )
     assertEquals(d.validate(), Nil)
     assertEquals(value(d, states("on")), List[SlotValue](true))

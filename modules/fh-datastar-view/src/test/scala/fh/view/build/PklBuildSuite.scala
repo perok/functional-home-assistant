@@ -1855,7 +1855,44 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
         |node = new c.EntityCard { entity = light; value = c.expr("state") }""".stripMargin
     )
-    assertEquals(plain.templateSlots("value").entityId, None)
+    // Pkl names the card's own entity on a reading that names none.
+    assertEquals(plain.templateSlots("value").entityId, Some("light.kitchen"))
+  }
+
+  test(
+    "a card with no entity refuses a reading of its entity, cell slots too"
+  ) {
+    def eval(node: String) = {
+      val tmp = os.temp.dir()
+      copyLib(tmp)
+      os.write(
+        tmp / "probe.pkl",
+        s"""module probe
+           |
+           |import "@fh-dashboard/components.pkl" as c
+           |
+           |node = c.button("Go", c.view.navigate("x"))$node
+           |""".stripMargin
+      )
+      evalProj(tmp, "probe.pkl")
+    }
+    for (
+      (chain, where) <- List(
+        """.secondary(c.attr("device_class"))""" -> "slot 'secondary'",
+        """.cellStyle("--fh-x", c.attr("brightness"))""" ->
+          "cell style '--fh-x'"
+      )
+    ) {
+      val result = eval(chain)
+      assert(
+        result.left.exists(
+          _.contains(s"$where reads the card's entity, and the card has none")
+        ),
+        clue = result
+      )
+    }
+    // A CEL may read no entity; whether it does is the build's compile.
+    assert(eval(""".secondary(c.expr("dashboard_slug"))""").isRight)
   }
 
   test("a navigating button is an anchor: `href`, and no onclick at all") {

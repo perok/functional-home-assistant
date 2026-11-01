@@ -20,7 +20,9 @@ class ValueWhileSuite extends munit.FunSuite {
     Map(read -> Staged(7L, """{"points":[[0,0.0],[60000,101.0]]}"""))
   )
 
+  // Pkl names the slot's entity on its valueWhile; `entity` is the condition's.
   private def above0(entity: Option[String]) = SlotSource(
+    Some("sensor.left"),
     transform = Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity),
     bypassUnavailable = false
   )
@@ -28,6 +30,7 @@ class ValueWhileSuite extends munit.FunSuite {
   // The peak of the history: what the bar's whole reads.
   private def peak(valueWhile: Option[SlotSource]) = TemplateSlot(
     SlotSource(
+      Some("sensor.left"),
       transform = "math.greatest(past.transformList(i, p, p[1]))",
       values = Map("past" -> ExprValue.Fetched(history)),
       valueWhileSlot = valueWhile
@@ -154,7 +157,11 @@ class ValueWhileSuite extends munit.FunSuite {
 
   test("CEL decides it as well, when an author writes CEL") {
     val cel =
-      SlotSource(transform = "double(state) > 0.0", bypassUnavailable = false)
+      SlotSource(
+        Some("sensor.left"),
+        transform = "double(state) > 0.0",
+        bypassUnavailable = false
+      )
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)

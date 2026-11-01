@@ -32,6 +32,7 @@
             "checked" : {
               "bypassUnavailable" : false,
               "default" : "",
+              "entityId" : "light.kitchen",
               "reads" : "live",
               "signal" : "bind",
               "transform" : {
@@ -53,6 +54,7 @@
             "switched" : {
               "bypassUnavailable" : false,
               "default" : "",
+              "entityId" : "light.kitchen",
               "reads" : "live",
               "signal" : "attr:data-switched",
               "transform" : {
@@ -103,6 +105,7 @@
               "--fh-x" : {
                 "bypassUnavailable" : true,
                 "default" : "",
+                "entityId" : "light.kitchen",
                 "reads" : "live",
                 "transform" : {
                   "attribute" : "brightness",
@@ -303,6 +306,7 @@
                               "label" : "Outside Temperature",
                               "value" : {
                                 "bypassUnavailable" : true,
+                                "entityId" : "sensor.outside_temp",
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
@@ -483,6 +487,7 @@
                               "attributes" : {
                                 "bypassUnavailable" : true,
                                 "default" : "",
+                                "entityId" : "sensor.outside_temp",
                                 "reads" : "live",
                                 "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                               },
@@ -535,12 +540,14 @@
             "label" : "Outside Temperature",
             "onclick" : {
               "bypassUnavailable" : false,
+              "entityId" : "sensor.outside_temp",
               "reads" : "once",
               "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
             },
             "secondary" : {
               "bypassUnavailable" : true,
               "default" : "",
+              "entityId" : "sensor.outside_temp",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -552,6 +559,7 @@
             "tappable" : "1",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "sensor.outside_temp",
               "reads" : "live",
               "signal" : "text",
               "transform" : "str(math.round(num(state) * 10.0) / 10.0) + ' ' + attr[?'unit_of_measurement'].orValue('')"
@@ -619,6 +627,7 @@
             "targetKind" : "entity",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "light.kitchen",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -719,6 +728,7 @@
                               "targetKind" : "entity",
                               "value" : {
                                 "bypassUnavailable" : true,
+                                "entityId" : "light.kitchen",
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
@@ -789,6 +799,7 @@
                                     "targetKind" : "entity",
                                     "value" : {
                                       "bypassUnavailable" : true,
+                                      "entityId" : "light.kitchen",
                                       "reads" : "live",
                                       "signal" : "text",
                                       "transform" : {
@@ -816,6 +827,7 @@
                               "attributes" : {
                                 "bypassUnavailable" : true,
                                 "default" : "",
+                                "entityId" : "light.kitchen",
                                 "reads" : "live",
                                 "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                               },
@@ -868,6 +880,7 @@
             "label" : "Kitchen",
             "onclick" : {
               "bypassUnavailable" : false,
+              "entityId" : "light.kitchen",
               "reads" : "once",
               "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
             },
@@ -875,6 +888,7 @@
             "tappable" : "1",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "light.kitchen",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -940,6 +954,7 @@
             "targetKind" : "entity",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "climate.hallway",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -1021,6 +1036,7 @@
                               "onoff" : "1",
                               "value" : {
                                 "bypassUnavailable" : true,
+                                "entityId" : "binary_sensor.front_door",
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
@@ -1040,6 +1056,7 @@
                               "attributes" : {
                                 "bypassUnavailable" : true,
                                 "default" : "",
+                                "entityId" : "binary_sensor.front_door",
                                 "reads" : "live",
                                 "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                               },
@@ -1092,6 +1109,7 @@
             "label" : "Front Door",
             "onclick" : {
               "bypassUnavailable" : false,
+              "entityId" : "binary_sensor.front_door",
               "reads" : "once",
               "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
             },
@@ -1099,6 +1117,7 @@
             "tappable" : "1",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "binary_sensor.front_door",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -1165,6 +1184,7 @@
             "targetKind" : "entity",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "media_player.tv",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -1203,6 +1223,7 @@
                               "label" : "Washing Machine",
                               "value" : {
                                 "bypassUnavailable" : true,
+                                "entityId" : "sensor.washer_remaining",
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
@@ -1383,6 +1404,7 @@
                               "attributes" : {
                                 "bypassUnavailable" : true,
                                 "default" : "",
+                                "entityId" : "sensor.washer_remaining",
                                 "reads" : "live",
                                 "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                               },
@@ -1515,6 +1537,7 @@
             "label" : "Washing Machine",
             "onclick" : {
               "bypassUnavailable" : false,
+              "entityId" : "sensor.washer_remaining",
               "reads" : "once",
               "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
             },
@@ -1531,6 +1554,7 @@
             "tappable" : "1",
             "value" : {
               "bypassUnavailable" : true,
+              "entityId" : "sensor.washer_remaining",
               "reads" : "live",
               "signal" : "text",
               "transform" : {
@@ -1540,6 +1564,7 @@
               },
               "valueWhileSlot" : {
                 "bypassUnavailable" : false,
+                "entityId" : "sensor.washer_remaining",
                 "reads" : "live",
                 "transform" : {
                   "entity" : "sensor.washer_remaining",

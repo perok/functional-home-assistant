@@ -78,7 +78,9 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       templateSlots = Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
         "chart" -> chartSource(window),
-        "name" -> TemplateSlot(SlotSource(transform = "state"))
+        "name" -> TemplateSlot(
+          SlotSource(Some("sensor.t"), transform = "state")
+        )
       )
     )
 

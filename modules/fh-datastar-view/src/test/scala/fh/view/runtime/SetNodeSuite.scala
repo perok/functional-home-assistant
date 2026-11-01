@@ -50,7 +50,7 @@ class SetNodeSuite extends ServerHarness {
       "tile",
       Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
-        "state" -> TemplateSlot(SlotSource())
+        "state" -> TemplateSlot(SlotSource(Some(id)))
       )
     )
 
@@ -282,7 +282,7 @@ class SetNodeSuite extends ServerHarness {
             "entity_id" -> TemplateSlot(
               SlotSource(literal = Some("sensor.temp"))
             ),
-            "state" -> TemplateSlot(SlotSource())
+            "state" -> TemplateSlot(SlotSource(Some("sensor.temp")))
           )
         )
       )

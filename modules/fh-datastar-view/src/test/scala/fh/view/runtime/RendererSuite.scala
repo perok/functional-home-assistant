@@ -26,6 +26,7 @@ import fh.view.testkit.DashboardBuilders.{
   col,
   declared,
   lit,
+  memberSlots,
   row,
   st
 }
@@ -144,10 +145,7 @@ class RendererSuite extends munit.FunSuite {
               },
               node = LayoutNode.Component(
                 card,
-                slots.updated(
-                  "entity_id",
-                  TemplateSlot(SlotSource(literal = Some(id)))
-                ),
+                memberSlots(id, slots),
                 cell = cl
               )
             )
@@ -666,8 +664,10 @@ class RendererSuite extends munit.FunSuite {
                 Map(
                   "entity_id" -> lit("light.a"),
                   "label" -> TemplateSlot(
-                    SlotSource(transform =
-                      "'friendly_name' in attr ? attr['friendly_name'] : entity_id"
+                    SlotSource(
+                      Some("light.a"),
+                      transform =
+                        "'friendly_name' in attr ? attr['friendly_name'] : entity_id"
                     )
                   )
                 )
@@ -683,7 +683,7 @@ class RendererSuite extends munit.FunSuite {
                 "card",
                 Map(
                   "entity_id" -> lit("sensor.b"),
-                  "state" -> TemplateSlot(SlotSource())
+                  "state" -> TemplateSlot(SlotSource(Some("sensor.b")))
                 )
               )
             )
@@ -697,7 +697,7 @@ class RendererSuite extends munit.FunSuite {
                 "card",
                 Map(
                   "entity_id" -> lit("sensor.c"),
-                  "state" -> TemplateSlot(SlotSource())
+                  "state" -> TemplateSlot(SlotSource(Some("sensor.c")))
                 )
               )
             )

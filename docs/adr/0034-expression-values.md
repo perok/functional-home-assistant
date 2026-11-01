@@ -148,8 +148,8 @@ doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gate` b
 rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
 their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
 render key, the paint and the signal path ask the same decisions, so none decides it again. A
-slot whose subject only a paint knows (a transform subject) is asked ungated, because asking too
-much is safe and asking too little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
+`valueWhile` over no entity is asked ungated, because asking too much is safe and asking too
+little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). The build refuses one that
 reads a fetch (it decides whether fetches are read), one that does not produce a bool, and one on
 a `once` slot, whose memo would keep its first answer.
@@ -244,8 +244,8 @@ alone sends nothing, because the frame is diffed against what each session holds
   candidate as present, so no build-time fold is needed. Those candidates still wake the node —
   a recompute whose unchanged result the frame diff swallows — the same cost a settled `Count`
   has.
-- A condition value on a card with a subject is named under that entity's signal path, since the
-  slot inherits the subject; its own `valueKey` keeps it distinct.
+- A condition value on a card with a subject is named under that entity's signal path, since Pkl
+  names the subject on the slot; its own `valueKey` keeps it distinct.
 - Values are node-local. An author's values go on the card, and the card hands each part the ones
   that part's slots name (`nodes.valuesNamedIn`): a slider's second line reads them on its text
   node, its readout on its head. It matches names with a regex, since Pkl cannot run the CEL

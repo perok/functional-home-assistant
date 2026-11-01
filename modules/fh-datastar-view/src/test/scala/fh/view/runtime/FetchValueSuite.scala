@@ -29,7 +29,12 @@ class FetchValueSuite extends munit.FunSuite {
       ),
       reads: String = Reads.Live
   ) = TemplateSlot(
-    SlotSource(transform = peak, values = values, reads = reads),
+    SlotSource(
+      Some("sensor.left"),
+      transform = peak,
+      values = values,
+      reads = reads
+    ),
     signal = Some(SignalBind.Handler)
   )
 
@@ -46,7 +51,9 @@ class FetchValueSuite extends munit.FunSuite {
       card = "bar",
       templateSlots = Map(
         "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
-        "value" -> TemplateSlot(SlotSource(transform = "state")),
+        "value" -> TemplateSlot(
+          SlotSource(Some("sensor.left"), transform = "state")
+        ),
         "of" -> ofSlot
       ),
       values = nodeValues

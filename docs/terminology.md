@@ -42,9 +42,10 @@ server truth to share — a drag position, an optimistic selection, a busy indic
 scoped to the node that owns the control (`_<nodeId>__<slotName>`). Sharing an interaction signal
 would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 
-**Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot. Other
-slots on the same node read it unless they name an entity of their own. A base component has none
-unless the HA layer gives it one (`subject`).
+**Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot, always a
+literal. Other slots on the same node read it unless they name an entity of their own: Pkl writes
+it into each of them when it builds the wire, so nothing at runtime inherits it. A base component
+has none unless the HA layer gives it one (`subject`).
 
 **Its button** — a button that names no target: the card holding it fills it in from its
 **subject entity**, and shows nothing where that entity cannot do it. Written through `c.its`

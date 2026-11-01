@@ -43,7 +43,7 @@ class MemberNodesSuite extends ServerHarness {
     "tile",
     Map(
       "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
-      "state" -> TemplateSlot(SlotSource())
+      "state" -> TemplateSlot(SlotSource(Some(id)))
     )
   )
 

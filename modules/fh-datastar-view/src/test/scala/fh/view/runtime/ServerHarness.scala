@@ -21,7 +21,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
-import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.DashboardBuilders.{declared, memberSlots, st}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
@@ -272,13 +272,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
             when = Some(
               extra.fold[Predicate](isOn)(e => Predicate.And(List(isOn, e)))
             ),
-            node = LayoutNode.Component(
-              card,
-              slots.updated(
-                "entity_id",
-                TemplateSlot(SlotSource(literal = Some(id)))
-              )
-            )
+            node = LayoutNode.Component(card, memberSlots(id, slots))
           )
         })
       }.toMap
