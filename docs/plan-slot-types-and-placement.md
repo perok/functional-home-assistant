@@ -3,7 +3,8 @@
 Discussed in chat on 2026-10-31 and 2026-11-01, reviewing #657 (slot views). Lands on the same
 branch.
 
-**State:** steps 1 and 4 agreed; steps 2 and 3 proposed, waiting on a yes. No code yet.
+**State:** P1 and P4 agreed; P2 and P3 proposed, waiting on a yes. P3's shape is still being
+discussed: derived from the template, or a value step its handle injects. No code yet.
 
 ## Why
 
@@ -26,7 +27,7 @@ The slot model makes a card author, or a function, state things the code already
 
 ## Steps, one commit each
 
-### 1. A `Placement` replaces `bindAs`
+### P1. A `Placement` replaces `bindAs`
 
 ```scala
 final case class Placement(signal: Option[SignalBind], `type`: SlotType)
@@ -49,14 +50,14 @@ enum CellKey:
 
 No wire change.
 
-### 2. The cell's literal classes are swapped once
+### P2. The cell's literal classes are swapped once
 
 `cellClassesInto` runs each literal class through `themeClasses.expand` on every render. Each
 entry's expanded text is computed once per node instead, and a render appends it. Wire order is
 kept, so no byte moves. Kept only if RenderBench shows a gain; otherwise it becomes an
 `experiments.md` entry.
 
-### 3. `type` is what the value is; a class attribute decides the swap
+### P3. `type` is what the value is; a class attribute decides the swap
 
 - `SlotType` is `text | bool`, on both sides. `slotMod.bool(name)` declares a bool handle:
   `tapMod.disabled` and `tapMod.current` use it and are filled with `of`, so `booleanSlot` and the
@@ -83,7 +84,7 @@ kept, so no byte moves. Kept only if RenderBench shows a gain; otherwise it beco
   `{literal, type}` form and its WireShapeSuite exception go. A bool reading still carries
   `"type": "bool"`: the Scala build checks the reading's CEL type, which Pkl cannot.
 
-### 4. `x.ifSignal(body)` and a template rule replace the per-node check
+### P4. `x.ifSignal(body)` and a template rule replace the per-node check
 
 - `function ifSignal(body: String): String = "{{#\(name).signal}}\(body){{/\(name).signal}}"`. The
   signal's name is in both render forms, so unlike `{{#x}}` the section never closes on the first
@@ -106,13 +107,14 @@ kept, so no byte moves. Kept only if RenderBench shows a gain; otherwise it beco
 - A `number` type, together with slot-views point 4 (a `{{x}}` inside a Datastar expression must
   be a number, a bool, or `x.jsValue`). The bare holes in expressions today are the slider's
   `min`/`max` (literal numbers Pkl already types) and text: the call route's pieces, `dataValue`,
-  `valueRest`. The check is clean only once the call route stops putting those in templates.
-- A call route keyed by node. Own plan (ADRs 0016, 0023, 0024).
+  `valueRest`. The check is clean only once a tap's call is no longer spelled out in templates.
+- How a tap's call reaches the server: a declared call id in place of the spelled-out URL. Its
+  own design round first, then its own plan (ADRs 0016, 0023, 0024).
 - `cellStyle` stays: a live custom property on the cell, for any author.
 
 ## Wire and snapshots
 
-Step 3 only: the literal glyph, size, icon and class slots become bare strings, and
+P3 only: the literal glyph, size, icon and class slots become bare strings, and
 `"type": "cssClass"` goes. Regenerated with `dashboardSnapshotsUpdate`; the diff is read before
 the commit.
 
@@ -121,12 +123,12 @@ the commit.
 Approval for these is asked with this plan.
 
 - BuildPhaseSuite, "x.signal is refused wherever it renders on a node whose x is not a signal",
-  becomes the template rule's test (step 4).
+  becomes the template rule's test (P4).
 - `components.test.pkl:1142`, `large.type == "cssClass"`: the swap is asserted on the rendered
-  button instead (step 3).
+  button instead (P3).
 - ThemeClassesPageSuite's test card: `slotMod.cssClass("look")` becomes `slotMod.slot("look")`,
-  same assertions (step 3).
-- Wire JSON where a literal was `{literal, type}` (step 3, mechanical).
+  same assertions (P3).
+- Wire JSON where a literal was `{literal, type}` (P3, mechanical).
 
 ## Docs
 
@@ -138,4 +140,4 @@ architecture doc where the node plan's shape moves.
 ## Checks
 
 Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`.
-RenderBench before and after steps 1 to 3; validate timing for step 4.
+RenderBench before and after P1 to P3; validate timing for P4.
