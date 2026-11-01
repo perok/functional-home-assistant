@@ -297,6 +297,19 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(!errs.exists(_.contains("fh-cols-3")), errs)
   }
 
+  test("validate refuses a literal cell style, which nothing would write") {
+    // A literal class is written as it is; a literal style is no cell slot.
+    val cell = Cell(styles = ListMap("--x" -> SlotSource(literal = Some("1"))))
+    val errs = Dashboard(
+      cards = Map("card" -> CardDef("<i></i>")),
+      card = LayoutNode.Component("card", cell = Some(cell))
+    ).validate()
+    assert(
+      errs.exists(_.contains("cellStyle '--x' must read live state")),
+      errs
+    )
+  }
+
   /** `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
     * moving the button renames the popup. Naming the button pins it, and makes
     * it referenceable at all: `@@NODE_ID@@` resolves only to a node's own id.

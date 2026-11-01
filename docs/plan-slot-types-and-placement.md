@@ -40,8 +40,8 @@ enum CellKey:
     case Style(p) => Placement(Some(SignalBind.Style(p)), SlotType.Text)
 ```
 
-- `TemplateSlot.placement` comes from its wire fields; `BoundSlot.bind(values, at: Placement)(s)`
-  binds a `SlotSource`; `valueWhile` binds with `Placement(None, SlotType.Bool)`.
+- `TemplateSlot.placement` comes from its wire fields; `BoundSlot.bindAt(values, at)(s)` binds a
+  `SlotSource` (`bind` still takes a template slot); `valueWhile` binds at `Placement.Bool`.
 - `Component.bound` holds the cell's live entries only. A literal class stays in `Cell`, where
   `cellClassesInto` already reads it, and the node plan's constants lose their `CellKey` entries,
   which no lookup reads (a template looks up by name, `Renderer.scala:1558`).
@@ -53,8 +53,9 @@ No wire change.
 ### P2. The cell's literal classes are swapped once
 
 `cellClassesInto` runs each literal class through `themeClasses.expand` on every render. Each
-entry's expanded text is computed once per node instead, and a render appends it. Wire order is
-kept, so no byte moves. Kept only if RenderBench shows a gain; otherwise it becomes an
+class's expanded text, leading space included, is computed once per renderer and kept by name, so
+a render appends a string; a set's wrapper and the live classes share it. Wire order is kept, so no
+byte moves. Kept only if RenderBench shows a gain; otherwise it becomes an
 `experiments.md` entry.
 
 ### P3. `type` is what the value is; a class attribute decides the swap

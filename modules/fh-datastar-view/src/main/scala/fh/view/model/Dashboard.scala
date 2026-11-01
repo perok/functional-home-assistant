@@ -96,6 +96,8 @@ case class TemplateSlot(
     valueKey
   }
 
+  def placement: Placement = Placement(signal, `type`)
+
 object TemplateSlot:
   given Decoder[TemplateSlot] = Decoder.instance(c =>
     if (c.value.isString) c.as[SlotSource].map(TemplateSlot(_))
@@ -106,6 +108,16 @@ object TemplateSlot:
         c.getOrElse[SlotType]("type")(SlotType.Text)
       ).mapN(TemplateSlot.apply)
   )
+
+/** How a card places a slot: the signal it is bound as, and what it reads the
+  * value as. A template slot's comes off the wire, a cell slot's from its key
+  * ([[CellKey.placement]]).
+  */
+final case class Placement(signal: Option[SignalBind], `type`: SlotType)
+
+object Placement:
+  /** A `valueWhile`: decided before the slot it gates, never bound. */
+  val Bool: Placement = Placement(None, SlotType.Bool)
 
 /** A slot with the expression values its CEL names, the node's and its own: the
   * build's bind pass, run lazily on the node ([[LayoutNode.Component.bound]]).
@@ -187,30 +199,24 @@ final case class BoundSlot(
     ) + (if (`type` == SlotType.CssClass) "|cssClass" else "")
 
 object BoundSlot:
+  def bind(values: Map[String, ExprValue])(s: TemplateSlot): BoundSlot =
+    bindAt(values, s.placement)(s.source)
+
   /** By the identifiers the expression PARSES to, so a name inside a string
     * literal is not a read.
     */
-  def bind(values: Map[String, ExprValue])(s: TemplateSlot): BoundSlot =
-    bindAs(values, s.signal, s.`type`)(s.source)
-
-  /** `s` placed as `signal` and read as `tpe`: a template slot's own, or what
-    * its position says, which has nothing on the wire to disagree with.
-    */
-  def bindAs(
-      values: Map[String, ExprValue],
-      signal: Option[SignalBind],
-      tpe: SlotType
-  )(s: SlotSource): BoundSlot =
+  def bindAt(values: Map[String, ExprValue], at: Placement)(
+      s: SlotSource
+  ): BoundSlot =
     // The slot's own win a clash, which `validate` refuses anyway.
     val all = values ++ s.values
-    val valueWhile =
-      s.valueWhileSlot.map(bindAs(values, None, SlotType.Bool))
+    val valueWhile = s.valueWhileSlot.map(bindAt(values, Placement.Bool))
     val named = s.transform match
       case t: String if all.nonEmpty && s.literal.isEmpty =>
         val read = Cel.identifiers(t)
         all.filter((n, _) => read.contains(n))
       case _ => Map.empty[String, ExprValue]
-    BoundSlot(s, named, valueWhile, signal, tpe)
+    BoundSlot(s, named, valueWhile, at.signal, at.`type`)
 
 /** A named input of a node's or a slot's expressions (`expressionValues`): a
   * literal the build wrote down, a [[Predicate.Tally]] counted live, a
@@ -573,6 +579,14 @@ case class Cell(
   lazy val styleSlots: List[Cell.Entry] =
     styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.literal))
 
+  /** The entries that read: a literal class the renderer writes as it is. */
+  def live: List[(CellKey, SlotSource)] =
+    classes.toList.collect {
+      case (n, s) if s.literal.isEmpty => CellKey.Class(n) -> s
+    } ++ styles.toList.collect {
+      case (p, s) if s.literal.isEmpty => CellKey.Style(p) -> s
+    }
+
 object Cell:
   final case class Entry(name: String, key: CellKey, literal: Option[String])
 
@@ -593,6 +607,11 @@ type SlotKey = String | CellKey
 enum CellKey:
   case Class(name: String)
   case Style(property: String)
+
+  /** A class is on while its bool holds; a style carries its text. */
+  def placement: Placement = this match
+    case Class(n) => Placement(Some(SignalBind.Class(n)), SlotType.Bool)
+    case Style(p) => Placement(Some(SignalBind.Style(p)), SlotType.Text)
 
 object CellKey:
   given CanEqual[SlotKey, SlotKey] = CanEqual.derived
@@ -787,24 +806,14 @@ object LayoutNode:
       values: Map[String, ExprValue] = Map.empty
   ) extends LayoutNode:
 
-    /** [[templateSlots]] and the [[cell]]'s, each with the expression values
-      * its CEL names. A cell slot's binding and type are its key's: a class is
-      * a bool, bound by name unless it is a literal, which is always there.
+    /** [[templateSlots]] and the [[cell]]'s live ones, each with the expression
+      * values its CEL names; a cell slot is placed by its key.
       */
     lazy val bound: Map[SlotKey, BoundSlot] =
-      val cellSlots = cell.toList.flatMap { cl =>
-        def at(signal: SignalBind, tpe: SlotType)(s: SlotSource) =
-          BoundSlot.bindAs(values, Option.when(s.literal.isEmpty)(signal), tpe)(
-            s
-          )
-        cl.classes.toList.map((name, s) =>
-          CellKey.Class(name) -> at(SignalBind.Class(name), SlotType.Bool)(s)
-        ) ++ cl.styles.toList.map((p, s) =>
-          CellKey.Style(p) -> at(SignalBind.Style(p), SlotType.Text)(s)
-        )
-      }
       templateSlots.map((n, s) => (n: SlotKey) -> BoundSlot.bind(values)(s)) ++
-        cellSlots
+        cell.toList
+          .flatMap(_.live)
+          .map((k, s) => k -> BoundSlot.bindAt(values, k.placement)(s))
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[LayoutNode] =
@@ -1818,17 +1827,24 @@ case class Dashboard(
         )
         .toList
 
+    // A literal style is no cell slot, so nothing would ever write it.
     def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
-      cell.toList.flatMap(_.classes.keys).flatMap(classTokenErrors(nodeId, _))
+      cell.toList
+        .flatMap(_.classes.keys)
+        .flatMap(classTokenErrors(nodeId, _)) ++
+        cell.toList.flatMap(_.styles.collect {
+          case (p, s) if s.literal.isDefined =>
+            s"$nodeId: cellStyle '$p' must read live state — anything else " +
+              "is never bound"
+        })
 
     // A set has no slots to bind a reading with; Pkl's builders refuse one too.
     def setCellErrors(setId: String, cell: Option[Cell]): List[String] =
       cellErrors(setId, cell) ++ cell.toList
-        .flatMap(cl =>
-          cl.classes.collect {
-            case (cls, s) if s.literal.isEmpty => s"cell class '$cls'"
-          } ++ cl.styles.keys.map(p => s"cell style '$p'")
-        )
+        .flatMap(_.live.map {
+          case (CellKey.Class(cls), _) => s"cell class '$cls'"
+          case (CellKey.Style(p), _)   => s"cell style '$p'"
+        })
         .map(what =>
           s"$setId: a set's $what reads state, which only a card node can " +
             "bind — put it on the clause's node"
@@ -1842,7 +1858,7 @@ case class Dashboard(
         src: BoundSlot
     ): List[String] =
       Option
-        .when(src.literal.isEmpty && src.reads != Reads.Live)(
+        .when(src.reads != Reads.Live)(
           s"$nodeId: live cell class '$cls' must read live state — anything " +
             "else is never bound"
         )
@@ -1860,7 +1876,7 @@ case class Dashboard(
         )
         .toList ++
         Option
-          .when(src.literal.isDefined || src.reads != Reads.Live)(
+          .when(src.reads != Reads.Live)(
             s"$nodeId: cellStyle '$property' must read live state — " +
               "anything else is never bound"
           )

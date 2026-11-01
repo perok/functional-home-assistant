@@ -66,9 +66,11 @@ count the same thing.
 
 **Bound on the node.** Binding is the build pass that connects a name to its definition and type
 (`docs/terminology.md`). `LayoutNode.Component.bound` runs it lazily, once per node: it pairs each
-slot, live cell classes and properties included (Pkl writes those as slots), with the values its
-CEL names, by the identifiers the expression PARSES to, so a word inside a string literal is not a
-read. It is derived from the decoded node rather than written back into it, so no slot can be seen
+slot, live cell classes and properties included, with the values its CEL names, by the identifiers
+the expression PARSES to, so a word inside a string literal is not a read. A slot binds at a
+`Placement`, its signal binding and the type it is read as: a template slot's comes off the wire,
+and a cell slot's from its key (`CellKey.placement`: a class is a bool bound by name, a property
+text). A literal cell class is not bound at all: the renderer writes it straight from the cell. It is derived from the decoded node rather than written back into it, so no slot can be seen
 before it is bound, or bound twice, and the decoder only decodes. The bound slot says alone what it
 reads: the compile key, the signal name and the watched entities all come off it, and no render
 path takes the node's values as an argument. The binding fixes each name's type, not its value,
