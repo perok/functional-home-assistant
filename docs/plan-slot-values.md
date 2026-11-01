@@ -101,11 +101,13 @@ and styles hold `ValueExpr`s.
   `Present(lights) → Count → Cel("string(value) + ' on'")`.
 - **Pkl writes every entity id.** A reading that names no entity gets the node's subject when
   Pkl builds the wire, nested readings included (named inputs, `valueWhile`, cell slots); Scala
-  inherits nothing. An entity read (a part, a Format step) on a card with no subject is a build
-  error, where today it reads nothing. A CEL gets the subject as its source where the card has
-  one, since it may read `state`; with none, or where the library knows it reads no entity (the
-  click transforms, which read only `dashboard_slug`), its source is `None`, and one that then
-  reads `state`, `attr` or `entity_id` is a bind error. The `entity_id` slot stays: the template shows it and the server reads it
+  inherits nothing. The subject is the card's own `subject` (`String?`, which an HA card sets from
+  its `entity`), placed as the `entity_id` slot. An entity read (a part, a Format step) on a card
+  with no subject throws in Pkl, naming the slot, where today it reads nothing. A CEL gets the
+  subject as its source where the card has one, since it may read `state`; with none, or where
+  the library knows it reads no entity (the click transforms, which read only `dashboard_slug`),
+  its source is `None`, and it compiles in an environment without `state`, `attr`, `entity_id`
+  and `domain`, so reading one is CEL's own "undeclared reference" error at build. The `entity_id` slot stays: the template shows it and the server reads it
   as the node's subject.
 - **A computed subject is removed** (`resolveDirect`, `NodePlan.subjectDynamic`,
   `DynamicSubjectSuite`): no card builds one. If one is ever needed, it is an `Entity` whose id is
@@ -132,15 +134,14 @@ call sites: `c.attr`, `c.expr`, `c.isOn`, `p.history.of`, `q.from(…).count()`,
 `x.of(…)`. What changes: `Reading` becomes the Pkl `ValueExpr`, with `source` and `steps` in place
 of `entityId` and `transform`; `simpleMod`'s functions build steps; the 31 hand-built
 `new slotMod.Reading { … }` in the library, and the example in `writing-components.md`, change
-shape. A component of a user's own that builds a `Reading` by hand breaks; pre-v1, the guide is the
-migration.
+shape. A component of a user's own that builds a `Reading` by hand breaks, accepted pre-v1.
 
 ## Steps, one commit each, the suite green at each
 
 - **S1. Rendered goldens.** Check in the rendered pages of the fixture dashboards, document and
-  patch forms, and assert them in a suite. The wire snapshots change wholesale from S3 on and
-  cannot be read as a diff; the goldens prove every later step renders the same bytes, or name
-  the ones that change.
+  patch forms, and assert them in a suite, with each signal name's transform hash normalised. The
+  wire snapshots change wholesale from S3 on and cannot be read as a diff; the goldens prove every
+  later step renders the same bytes apart from the names, or name the bytes that change.
 - **S2. Entity ids written by Pkl;** Scala's inheritance and the computed subject go.
 - **S3. The value model** for template and cell slots: `Value`, `ValueExpr`, `Step`, Simple split
   into parts and Format steps, `SignalBind` and `Part` as objects, Pkl classes and helpers,
@@ -181,10 +182,14 @@ candidate sets:
 
 ## Review: what the design has to watch
 
-- **Signal names.** A display signal is named by its entity and a hash of its transform's key
-  (`Renderer.displayPath`, `transformSegment`). A pipeline equivalent to today's Simple op keeps
-  today's key string, so S1's goldens stay byte-identical; a pipeline with no equivalent gets a new
-  key.
+- **Signal names change, accepted.** A display signal is named by its entity and a hash of its
+  transform's key (`Renderer.displayPath`, `transformSegment`), and the key is now the
+  `ValueExpr`'s, so the hashes move. S1's goldens normalise them.
+- **Shared reads.** Several things are shared by what they read: a display signal per entity and
+  key (#134), the once-cache, a fetch asked once per render however many slots read it
+  (`SlotAsk`; two sizes of one chart share the fetch, not the bytes), a compiled CEL program per
+  source and environment. Each now takes its key from the `ValueExpr`: the whole key for signals
+  and the once-cache, the `Fetch` source and its `Chart` step for the ask.
 - **Render cost.** The fast tier is one `match` today. A live pipeline must not walk a `List` or
   allocate intermediates per render (S6); RenderBench's `simple`, `direct`, `cel`, `tickRender` and
   `page` hold. `ThemeClasses` on a live value runs per resolve, as today: a memo per value would be
@@ -192,13 +197,11 @@ candidate sets:
 - **Typed literals move bytes.** A literal flag becomes `true` where it was `"1"`: a `jsValue`
   prints `true` for `'1'`, and a cell's literal class carries `true`. Behaviour is the same; the
   goldens name each such diff in S5.
-- **Wire size and evaluation.** The nested shape is larger: `dashboard.json` size and the starter
-  site's Pkl evaluation time are measured before and after S3.
+- **Pkl evaluation time.** The nested shape is larger, which is accepted; building it runs at boot
+  and on every dump refresh, so the starter site's evaluation time is measured before and after S3.
 - **`WithUnit` merges two rules that differ at the edge.** `AttrUnit` leaves the unit off an empty
   value; `SuffixUnit` does not, printing `" W"` for an empty state. The merged step leaves it off,
   a byte change the goldens name.
-- **Fetch sharing.** A fetch is asked with its stage (`SlotAsk`), so two sizes of one chart share
-  the fetch and not the bytes; the ask now comes from the `Fetch` source and the `Chart` step.
 - **Conditions keep their strings in A.** `Present`'s guards and `Value.Condition` are still
   `Predicate`, whose properties are `"attr:x"` strings, until B.
 - **`bypassUnavailable`** yields the raw state, text, so it stays refused on a slot that must
@@ -231,4 +234,4 @@ bind); `terminology.md` (Slot, Reading, Slot type, Expression value, Value while
 
 Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`, S1's
 goldens. RenderBench and `validate` timing before and after S3, S5 and S6; the starter site's Pkl
-evaluation time and `dashboard.json` size before and after S3.
+evaluation time before and after S3.
