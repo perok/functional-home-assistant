@@ -260,6 +260,7 @@ bind); `terminology.md` (Slot, Reading, Slot type, Expression value, Value while
 ## Checks
 
 Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`, S1's
-goldens. RenderBench and `validate` timing before and after S3, S5 and S6; the starter site's Pkl
+goldens, and every benchmark run once (`-f 1 -wi 0 -i 1`): CI only compiles them, and S2 left
+`RenderBench`'s setup failing. RenderBench and `validate` timing before and after S3, S5 and S6; the starter site's Pkl
 evaluation time before and after S3; `dashboard.json` size and bytes per slot before and after S3,
 S4 and S5.

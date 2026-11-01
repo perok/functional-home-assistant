@@ -1815,13 +1815,13 @@ object RenderBench {
       valued: Boolean = false
   )(
       i: Int
-  ): LayoutNode.Component =
+  ): LayoutNode.Component = {
+    // Pkl names the card's entity on every reading of it.
+    val subject = Some(entityId(i % distinct))
     LayoutNode.Component(
       "entity",
       Map(
-        "entity_id" -> TemplateSlot(
-          SlotSource(literal = Some(entityId(i % distinct)))
-        ),
+        "entity_id" -> TemplateSlot(SlotSource(literal = subject)),
         "cls" -> TemplateSlot(SlotSource(literal = Some("fh-tile"))),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
         "icon" -> TemplateSlot(SlotSource(literal = Some("mdi:lightbulb"))),
@@ -1829,26 +1829,31 @@ object RenderBench {
           if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
           else
             SlotSource(
+              subject,
               // Opted in (ADR 0028) — see [[NameSlot]] on what this models
               // and what the shipped card actually does.
               transform = Transform.Simple.Attr("friendly_name")
             )
         ),
         "state" -> TemplateSlot(
-          SlotSource(transform =
-            Transform.Simple.SuffixUnit("unit_of_measurement")
+          SlotSource(
+            subject,
+            transform = Transform.Simple.SuffixUnit("unit_of_measurement")
           ),
           signal = Option.when(signals)(SignalBind.Text)
         ),
         "fill" -> TemplateSlot(
-          SlotSource(transform =
-            Transform.Simple.Fill("brightness", 1.0, 255.0)
+          SlotSource(
+            subject,
+            transform = Transform.Simple.Fill("brightness", 1.0, 255.0)
           ),
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
         "fillColor" -> TemplateSlot(
-          SlotSource(transform =
-            if (valued) TransformFillColorValued else TransformFillColor
+          SlotSource(
+            subject,
+            transform =
+              if (valued) TransformFillColorValued else TransformFillColor
           ),
           signal = Option.when(signals)(SignalBind.Style("background"))
         ),
@@ -1860,6 +1865,7 @@ object RenderBench {
       ),
       values = if (valued) FillColorValues else Map.empty
     )
+  }
 
   /** `leaves` leaves under columns of `branching` children each, stacked until
     * one root remains.
