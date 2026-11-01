@@ -97,13 +97,21 @@ class Slot {
   /// serves both. A live slot that is not a signal is a build error.
   fixed jsValue: String = "{{{" + name + ".jsValue}}}"
   /// The signal's name, for an expression of the card's own (a signal-patch
-  /// filter). A read is [[jsValue]] and a write [[assign]]. Signal-only: the
-  /// build refuses it where it could render on a node whose slot is not one.
+  /// filter). A read is [[jsValue]] and a write [[assign]]. Only inside
+  /// [[ifSignal]], which the build checks: elsewhere it prints nothing on a
+  /// node whose slot is not a signal.
   fixed signalName: String = "{{" + name + ".signal}}"
 
   /// `$<signal> = js`: a write to this slot's signal from the card's own
-  /// handler (a drag painting the fill). Signal-only, as [[signalName]].
+  /// handler (a drag painting the fill). Only inside [[ifSignal]], as
+  /// [[signalName]].
   function assign(js: String): String = "$" + signalName + " = " + js
+
+  /// `body` while this slot is a signal on the node. Its name is in both
+  /// render forms, so unlike [[ifTrue]] it never closes on the first patch. A
+  /// separator goes inside: `ifSignal(", " + assign(js))`, since a leftover
+  /// `a, ` is broken JavaScript.
+  function ifSignal(body: String): String = "{{#\(name).signal}}\(body){{/\(name).signal}}"
 
   /// `body` while the node sets this slot. Never `{{#name}}` around a signal's
   /// binding: the patch form withholds the value, so that section closes on the

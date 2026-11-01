@@ -146,38 +146,24 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  test(
-    "validate: x.signal is refused wherever it renders on a node whose x is not a signal"
-  ) {
-    val notSignal = "slot 'x' is not a signal here"
-    def placed(section: String, slots: Map[String, TemplateSlot]) =
-      oneCard(s"<b>{{x}}</b>$section", slots).filter(_.contains(notSignal))
+  test("validate: x.signal is refused outside a section on x.signal") {
+    val unguarded = "places {{x.signal}} outside {{#x.signal}}"
+    // The rule reads the template alone: a signal slot is held to it too.
+    val signal = TemplateSlot(
+      SlotSource(entityId = Some("light.a")),
+      signal = Some(SignalBind.Handler)
+    )
+    def placed(tpl: String) =
+      oneCard(s"<b>{{x}}</b>$tpl", Map("x" -> signal))
+        .filter(_.contains(unguarded))
     val write = "<i data-on:x=\"${{x.signal}} = 1\"></i>"
-    val live = TemplateSlot(SlotSource(entityId = Some("light.a")))
-    assertEquals(placed(write, Map("x" -> text)).length, 1)
-    // A section the node settles decides; one only state decides could open.
     val under = (s: String) => s"{{$s}}$write{{/${s.drop(1)}}}"
-    assertEquals(placed(under("#flag"), Map("x" -> text)), Nil)
-    assertEquals(placed(under("^flag"), Map("x" -> text)).length, 1)
-    assertEquals(
-      placed(under("#flag"), Map("x" -> text, "flag" -> text)).length,
-      1
-    )
-    assertEquals(placed(under("#x.has"), Map("x" -> text)).length, 1)
-    assertEquals(
-      placed(under("#flag"), Map("x" -> text, "flag" -> live)).length,
-      1
-    )
-    assertEquals(
-      placed(
-        under("#flag"),
-        Map(
-          "x" -> live.copy(signal = Some(SignalBind.Handler)),
-          "flag" -> text
-        )
-      ),
-      Nil
-    )
+    assertEquals(placed(write).length, 1)
+    assertEquals(placed(under("#x.signal")), Nil)
+    assertEquals(placed(s"{{#flag}}${under("#x.signal")}{{/flag}}"), Nil)
+    // Only its own, not inverted: anything else could still print nothing.
+    for s <- List("#flag", "#x.has", "#x", "^x.signal", "#y.signal") do
+      assertEquals(placed(under(s)).length, 1, clue = s)
   }
 
   test("validate: a slot name with a '.' is rejected") {

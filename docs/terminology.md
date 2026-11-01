@@ -32,7 +32,7 @@ baked into re-rendered HTML, so it can change without the card being re-rendered
 
 **View** — a way a template reaches a slot besides its value, spelled `x.view`: `bind` (a signal
 slot's binding), `has` (whether the node sets it), `jsValue` (the value as JavaScript), `signal`
-(the signal's name). ADR 0017.
+(the signal's name, placed only inside `x.ifSignal(…)`, a section on it). ADR 0017.
 
 **Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
 so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's

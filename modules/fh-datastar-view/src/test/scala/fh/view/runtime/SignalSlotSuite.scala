@@ -113,6 +113,29 @@ class SignalSlotSuite extends ServerHarness {
     assert(patch.contains("data-text=\"$_e.sensor.a.state\""), clue = patch)
   }
 
+  test("x.ifSignal renders its body in both forms, and only where x is one") {
+    val write =
+      """<u data-on:x="{{#value.signal}}${{value.signal}} = 1{{/value.signal}}"></u>"""
+    def guarded(value: TemplateSlot) = Renderer.create(
+      Dashboard(
+        Map("gauge" -> CardDef(cards("gauge").template + write)),
+        gauge("sensor.a").copy(templateSlots =
+          gauge("sensor.a").templateSlots + ("value" -> value)
+        )
+      )
+    )
+    val r = guarded(gauge("sensor.a").templateSlots("value"))
+    val assigned = "data-on:x=\"$_e.sensor.a.state = 1\""
+    val page = r.renderPage(at("21.4"))
+    assert(page.contains(assigned), clue = page)
+    // The patch form withholds the value, not the name: the section stays open.
+    val patch =
+      r.renderNodeById(leaf, at("21.4"), fragments = FetchSnapshot.empty).get
+    assert(patch.contains(assigned), clue = patch)
+    val plain = guarded(TemplateSlot(SlotSource())).renderPage(at("21.4"))
+    assert(plain.contains("data-on:x=\"\""), clue = plain)
+  }
+
   test("a node with no signal slot renders one form, by reference") {
     val plain = Dashboard(
       Map("plain" -> CardDef("<b>{{value}}</b>")),
@@ -290,7 +313,7 @@ class SignalSlotSuite extends ServerHarness {
         """<div class="slider" style="--_end: {{fill}}" {{{fill.bind}}}>""" +
           """<span class="fh-reading" {{{state.bind}}}>{{state}}</span>""" +
           """<input type="range" value="{{value}}" {{{value.bind}}}""" +
-          """ data-on:change="@post('x/' + ${{value.signal}})" />""" +
+          """ data-on:change="{{#value.signal}}@post('x/' + ${{value.signal}}){{/value.signal}}" />""" +
           """<span style="background:{{tint}}" {{{tint.bind}}}></span></div>"""
       )
     ),
@@ -1044,7 +1067,12 @@ class SignalSlotSuite extends ServerHarness {
     // `.jsValue` is for composing a URL, `.signal` the bare name for anything
     // else.
     assertEquals(card("""<i x="{{{service.jsValue}}}"></i>""").validate(), Nil)
-    assertEquals(card("""<i x="${{service.signal}}"></i>""").validate(), Nil)
+    assertEquals(
+      card(
+        """<i x="{{#service.signal}}${{service.signal}}{{/service.signal}}"></i>"""
+      ).validate(),
+      Nil
+    )
   }
 
   test("a live non-signal slot cannot be read as a JS expression") {

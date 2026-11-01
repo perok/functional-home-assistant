@@ -195,10 +195,9 @@ object Templates {
     *   patch form's withheld value closes (ADR 0017)
     * @param unknownViews
     *   the dotted names whose view is none of [[View]]
-    * @param signalPlacements
-    *   each `x.signal` with the sections around it, innermost first: it prints
-    *   nothing where `x` is not a signal, so validation decides per node
-    *   whether one could render there
+    * @param unguardedSignals
+    *   the slots whose `x.signal` sits outside `{{#x.signal}}`, where it would
+    *   print nothing on a node whose `x` is not a signal
     */
   final case class Reads(
       names: Set[String],
@@ -209,7 +208,7 @@ object Templates {
       views: Set[(String, View)],
       boundInOwnSection: Set[String],
       unknownViews: Set[String],
-      signalPlacements: Set[(String, List[Section])]
+      unguardedSignals: Set[String]
   )
 
   /** A `{{#tag}}` section, or `{{^tag}}` when inverted. */
@@ -316,9 +315,11 @@ object Templates {
             if view == View.Bind && guards.exists(_.tag == slot) then
               acc.boundInOwnSection + slot
             else acc.boundInOwnSection,
-          signalPlacements =
-            if view == View.Signal then acc.signalPlacements + (slot -> guards)
-            else acc.signalPlacements
+          unguardedSignals =
+            if view == View.Signal && value &&
+              !guards.contains(Section(tag, inverted = false))
+            then acc.unguardedSignals + slot
+            else acc.unguardedSignals
         )
       case Some(Left(_)) => acc.copy(unknownViews = acc.unknownViews + tag)
 

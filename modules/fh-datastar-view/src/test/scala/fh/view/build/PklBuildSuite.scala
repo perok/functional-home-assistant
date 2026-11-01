@@ -1606,7 +1606,7 @@ class PklBuildSuite extends munit.FunSuite {
         // `validate` rejects a card that declares one without placing its
         // binding — or, for a handler, its read (ADR 0017).
         "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>" +
-          "<u data-on:click=\"{{tapDisabled.signal}}\"></u>" +
+          "<u data-on:click=\"{{#tapDisabled.signal}}{{tapDisabled.signal}}{{/tapDisabled.signal}}\"></u>" +
           // The rest of what the library tile reads, so every slot is read.
           "{{#icon}}{{#onoff}}{{#tappable}}{{#busy}}{{#busyVisual}}" +
           "{{/busyVisual}}{{/busy}}{{/tappable}}{{/onoff}}{{/icon}}"

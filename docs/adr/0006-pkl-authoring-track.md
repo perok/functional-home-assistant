@@ -146,7 +146,9 @@ finished, and are deleted (issue #23).
    because a slot's value can be a real `false` (ADR 0017's `attr:disabled`).
    A section's two halves are one call, `ifSetElse`/`ifTrueElse`: Pkl has
    neither overloading nor default parameters, so a second argument to `ifSet`
-   was not available.
+   was not available. `ifSignal(body)` is the section on whether the slot is a
+   signal on this node, the guard every `assign` and `signalName` sits inside
+   (ADR 0017).
 
    **A dashboard's `cards` is the cards its tree uses**, read off the nodes
    (`core/node.pkl`'s `cardsIn`, over `card` and `surfaces`): every node

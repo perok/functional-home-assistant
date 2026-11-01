@@ -1675,7 +1675,7 @@ facts {
     // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
     // on the server and on a rollback alike.
     (head.slotsByName["fillColor"].value as slotMod.Reading).default == "transparent"
-    head.cardDef.template.contains("{{#kelvinTrack.has}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}}")
+    head.cardDef.template.contains("{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}}")
     c.entitySlider(lamp).controls.map((m) -> m.head.slotsByName.containsKey("kelvinTrack"))
       == List(false, true, false)
   }

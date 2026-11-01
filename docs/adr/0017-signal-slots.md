@@ -259,12 +259,14 @@ Three `validate` rules, because each failure is silent:
 - A slot read as `jsValue` must not be **live and non-signal**. That is the one shape with no
   answer, and refusing it is the rule rather than a gap: such a value moves in the element's bytes
   every tick, which is precisely what carrying it as a signal exists to stop.
-- `{{x.signal}}` (and so `assign`) must not render on a node where `x` is not a signal: it prints
-  nothing there, and a write becomes `$ = …`. The tree records the sections around each placement
-  (`Templates.Reads.signalPlacements`), and `validate` settles each per node — a `y.has` by whether
-  the node sets `y`, a section on a literal or absent `y` by its value — counting one only state
-  decides as open. So the slider's colour-track markers, which assign `fillColor` under `hueTrack`,
-  are checked against every slider that sets the flag.
+- `{{x.signal}}` (and so `assign`) must sit inside `x.ifSignal(…)`, the section `{{#x.signal}}`:
+  the name prints nothing where `x` is not a signal, and a write there would be `$ = …`. The
+  name is in both render forms, so unlike `{{#x}}` the section never closes on the first patch. A
+  rule on the template alone (`Templates.Reads.unguardedSignals`), checked once per card. It
+  replaced settling each node's sections around each placement, at a price: a card whose author
+  forgot `signal = …` now gets a write that paints nothing, where the build used to name the
+  slot. A separator goes inside the section (`", " + x.assign(js)`), since a leftover `a, ` is
+  broken JavaScript.
 
 **"You send what you saw" is preserved, and is why this is safe.** The signal is patched in the
 same frame as the visible state, so at click time it holds what the user is looking at: the command

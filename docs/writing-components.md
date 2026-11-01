@@ -181,6 +181,14 @@ and the build refuses the binding inside `temperature.ifTrue(…)`: a signal
 slot's value is blank between redraws, so that section would vanish with the
 binding that refills it. `ifSet` is safe.
 
+Your card's own JavaScript can write a signal slot too, such as a drag that
+paints the fill before the device answers: `fill.assign("'40%'")` is
+`$<its signal> = '40%'`. Wrap every write in `fill.ifSignal(…)`, which keeps it
+out of a node where `fill` is not a signal; the build refuses one outside it.
+Put a separator inside that section, the opposite of the class rule above,
+because a leftover `a, ` is broken JavaScript:
+`"a = 1" + fill.ifSignal(", " + fill.assign(js))`.
+
 ### Reading an entity's history
 
 An expression can also read what a sensor (`hass.SensorEntity`) has recorded,

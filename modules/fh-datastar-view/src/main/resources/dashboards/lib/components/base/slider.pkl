@@ -62,18 +62,18 @@ const local slideSig: String = "_{{id}}__slide"
 /// Adopt what the device says, which is confirmation and correction alike (HA
 /// clamping a brightness needs no case of its own).
 const local adoptCommitted: String =
-  #"data-on-signal-patch-filter="{include:/^\#(valueSlot.signalName)$/}" data-on-signal-patch="$\#(slideSig) = \#(valueSlot.jsValue)""#
+  valueSlot.ifSignal(#"data-on-signal-patch-filter="{include:/^\#(valueSlot.signalName)$/}" data-on-signal-patch="$\#(slideSig) = \#(valueSlot.jsValue)""#)
 
 // [[adoptCommitted]] for when no commit is coming. `fill` and `state` are
 // recomputed from the committed signal, so the three writes have no order
 // between them. Comma-separated: this splices inside a `&&`.
 const local rollbackToCommitted: String =
   let (committed = valueSlot.jsValue)
-    "$\(slideSig) = \(committed), " +
-      fillSlot.assign("(100 - \(posFrom(committed))) + '%'") +
-      dragPercent.ifSet(", " + stateSlot.assign("Math.round(\(posFrom(committed))) + ' %'")) +
-      hueTrackSlot.ifSet(", \(hueMarker(committed))") +
-      kelvinTrackSlot.ifSet(", \(kelvinMarker(committed))")
+    "$\(slideSig) = \(committed)" +
+      fillSlot.ifSignal(", " + fillSlot.assign("(100 - \(posFrom(committed))) + '%'")) +
+      dragPercent.ifSet(stateSlot.ifSignal(", " + stateSlot.assign("Math.round(\(posFrom(committed))) + ' %'"))) +
+      hueTrackSlot.ifSet(fillColorSlot.ifSignal(", \(hueMarker(committed))")) +
+      kelvinTrackSlot.ifSet(fillColorSlot.ifSignal(", \(kelvinMarker(committed))"))
 
 // The track's own classes: one `cardDef` serves every slider.
 const local trackClasses: String =
@@ -82,10 +82,10 @@ const local trackClasses: String =
 // What a drag paints before any commit: the fill, and the readout or marker
 // where they follow the position.
 const local dragPaint: String =
-  fillSlot.assign("(100 - \(dragPos)) + '%'")
-    + dragPercent.ifSet("; " + stateSlot.assign("Math.round(\(dragPos)) + ' %'"))
-    + hueTrackSlot.ifSet("; \(hueMarker("evt.target.value"))")
-    + kelvinTrackSlot.ifSet("; \(kelvinMarker("evt.target.value"))")
+  fillSlot.ifSignal(fillSlot.assign("(100 - \(dragPos)) + '%'"))
+    + dragPercent.ifSet(stateSlot.ifSignal("; " + stateSlot.assign("Math.round(\(dragPos)) + ' %'")))
+    + hueTrackSlot.ifSet(fillColorSlot.ifSignal("; \(hueMarker("evt.target.value"))"))
+    + kelvinTrackSlot.ifSet(fillColorSlot.ifSignal("; \(kelvinMarker("evt.target.value"))"))
 
 // The dragged number, led into a list where the key's value is one (a hue).
 const local dragged: String =

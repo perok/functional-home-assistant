@@ -1713,49 +1713,6 @@ case class Dashboard(
               "element's bytes, so make it a signal slot or a literal"
           )
 
-    /** `x.signal` prints nothing on a node where `x` is not a signal, so a
-      * write like `$ = …` would ship. A section the node settles (a `has`, an
-      * absent or non-empty literal) decides whether the placement renders; one
-      * only state decides could open.
-      */
-    def signalPlacementErrors(
-        nodeId: String,
-        cardName: String,
-        bound: Map[SlotKey, BoundSlot]
-    ): List[String] =
-      def opens(sec: Templates.Section): Boolean =
-        val truthy = Templates.View.parse(sec.tag) match
-          case Some(Right((y, Templates.View.Has))) => Some(bound.contains(y))
-          case Some(_)                              => None
-          case None                                 =>
-            bound.get(sec.tag) match
-              case None if Dashboard.injectedStatic(sec.tag) => None
-              case None                                      => Some(false)
-              case Some(src)                                 =>
-                Option.when(src.literal.exists(_.nonEmpty))(true)
-        truthy.forall(_ != sec.inverted)
-      cardReads
-        .get(cardName)
-        .flatMap(_.toOption)
-        .toList
-        .flatMap(_.signalPlacements)
-        .collect {
-          case (x, sections)
-              if !bound.get(x).exists(_.signal.isDefined) &&
-                sections.forall(opens) =>
-            val under =
-              if sections.isEmpty then ""
-              else
-                " under " + sections.reverse
-                  .map(s => s"{{${if s.inverted then "^" else "#"}${s.tag}}}")
-                  .mkString(" ")
-            s"$nodeId: card '$cardName' places {{$x.signal}}$under, which " +
-              s"renders on this node, but slot '$x' is not a signal here — it " +
-              "would print nothing, leaving a bare `$`"
-        }
-        .distinct
-        .sorted
-
     def viewsOf(cardName: String): List[Set[(String, Templates.View)]] =
       cardReads.get(cardName).flatMap(_.toOption).map(_.views).toList
 
@@ -1935,7 +1892,6 @@ case class Dashboard(
             slots.keySet,
             c.regions.keySet
           ) ++ slotErrors(nodeId, card, checked, here) ++
-            signalPlacementErrors(nodeId, card, c.bound) ++
             varErrors(nodeId, vars) ++
             valueErrors(nodeId, c) ++
             valueWhileErrors(
@@ -2056,6 +2012,10 @@ case class Dashboard(
             s"card '$name': places {{{$s.bind}}} inside a section on '$s' " +
               s"itself, which the first patch closes — guard it with " +
               s"{{#$s.has}}"
+          ) ++ reads.unguardedSignals.toList.sorted.map(s =>
+            s"card '$name': places {{$s.signal}} outside {{#$s.signal}}, so " +
+              s"a node whose '$s' is not a signal prints a bare `$$` — wrap " +
+              s"it in $s.ifSignal(…)"
           )
         }
       }

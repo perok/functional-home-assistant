@@ -39,7 +39,7 @@ class FetchValueSuite extends munit.FunSuite {
   ) = Dashboard(
     cards = Map(
       "bar" -> CardDef(
-        """<div data-of="{{of.signal}}">{{value}}</div>"""
+        """<div data-of="{{#of.signal}}{{of.signal}}{{/of.signal}}">{{value}}</div>"""
       )
     ),
     card = LayoutNode.Component(
