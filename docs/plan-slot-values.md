@@ -2,7 +2,7 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S5
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S6
 built.
 
 ## Why

@@ -1616,16 +1616,97 @@ class Renderer(validated: Dashboard.Validated) {
     val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
   }
 
-  /** A slot and its CEL program, looked up once when its node is planned, so a
-    * paint runs the program and looks nothing up.
+  /** A slot's composed source and steps, over its entity, the states and its
+    * fetches' answers.
     */
-  private final case class Planned(
-      source: BoundSlot,
-      program: Option[Transform.Compiled]
-  )
+  private type Run =
+    (EntityState, Map[String, EntityState], FetchTemplate => Object) => Any
+
+  /** A slot and its source and steps composed into one function when its node
+    * is planned, so a paint walks no step list and looks nothing up.
+    */
+  private final case class Planned(source: BoundSlot, run: Run)
 
   private def planned(source: BoundSlot): Planned =
-    Planned(source, source.celKey.map(programs))
+    Planned(source, compose(source, source.celKey.map(programs)))
+
+  private def compose(
+      source: BoundSlot,
+      program: Option[Transform.Compiled]
+  ): Run = {
+    val read: Run = source.expr.source match
+      case Some(Value.Entity(_, part, _, _)) =>
+        (st, _, _) => Transform.read(part, st)
+      case Some(Value.Condition(p)) =>
+        (st, states, _) => Conditions.matchesIn(p, st, states)
+      case Some(Value.Literal(l)) =>
+        val v = l.raw
+        (_, _, _) => v
+      case Some(Value.Present(t)) =>
+        (_, states, _) => Conditions.presentOf(t, states)
+      case _ => (_, _, _) => ""
+    source.expr.steps.foldLeft(read) { (prev, step) =>
+      step match
+        // CEL reads the entity, not the value before it.
+        case _: Step.Cel =>
+          program.fold(prev)(p =>
+            (st, states, fetched) =>
+              Transform.runValue(
+                p,
+                st,
+                dashboard.slug,
+                Conditions.resolve(source.values, states, fetched)
+              )
+          )
+        case f: Step.Format =>
+          Step.operands(f).map(operand) match
+            case Nil =>
+              (st, states, fetched) =>
+                Transform.formatWith(f, prev(st, states, fetched), null, null)
+            case List(a) =>
+              (st, states, fetched) =>
+                Transform.formatWith(
+                  f,
+                  prev(st, states, fetched),
+                  a(st, states),
+                  null
+                )
+            case a :: b :: _ =>
+              (st, states, fetched) =>
+                Transform.formatWith(
+                  f,
+                  prev(st, states, fetched),
+                  a(st, states),
+                  b(st, states)
+                )
+        case Step.Count =>
+          (st, states, fetched) =>
+            prev(st, states, fetched) match
+              case xs: List[?] => xs.size.toLong
+              case _           => 0L
+        case _: Step.Chart | Step.ThemeClasses => prev
+    }
+  }
+
+  /** A step's operand: a literal, read once here, or a read of the entity it
+    * names (a condition over the slot's).
+    */
+  private def operand(
+      v: Value
+  ): (EntityState, Map[String, EntityState]) => Any =
+    v match
+      case Value.Literal(l) =>
+        val c = l.raw
+        (_, _) => c
+      case Value.Entity(Some(id), part, _, _) =>
+        (_, states) =>
+          Transform.read(
+            part,
+            states.getOrElse(id, EntityState(id, "", Map.empty))
+          )
+      case Value.Condition(p) =>
+        (st, states) => Conditions.matchesIn(p, st, states)
+      case _ => (_, _) => ""
 
   private def withheld(
       planned: Planned,
@@ -1900,36 +1981,7 @@ class Renderer(validated: Dashboard.Validated) {
     // The bypass, not the transform, keeps an unavailable entity readable.
     else if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      var value: Any = source.expr.source match
-        case Some(Value.Entity(_, part, _, _)) => Transform.read(part, st)
-        case Some(Value.Condition(p)) => Conditions.matchesIn(p, st, states)
-        case Some(Value.Literal(l))   => l.raw
-        case Some(Value.Present(t))   => Conditions.presentOf(t, states)
-        case _                        => ""
-      // The form is the tier (ADR 0028): a CEL step is the one with a
-      // program. A loop, not a fold: this is the hottest read of a page.
-      var steps = source.expr.steps
-      while (steps.nonEmpty) {
-        value = steps.head match
-          case _: Step.Cel =>
-            planned.program.fold(value)(program =>
-              Transform.runValue(
-                program,
-                st,
-                dashboard.slug,
-                Conditions.resolve(source.values, states, fetched)
-              )
-            )
-          case f: Step.Format =>
-            Transform.format(f, value, operandIn(states, st))
-          case Step.Count =>
-            value match
-              case xs: List[?] => xs.size.toLong
-              case _           => 0L
-          case _: Step.Chart | Step.ThemeClasses => value
-        steps = steps.tail
-      }
-      value match {
+      planned.run(st, states, fetched) match {
         case b: Boolean => b
         case v          =>
           val s = Transform.text(v)
@@ -1940,23 +1992,6 @@ class Renderer(validated: Dashboard.Validated) {
               case d => classed(source, d.fold("")(l => Transform.text(l.raw)))
       }
     }
-  }
-
-  /** A step's operand: a literal, or a read of the entity it names (a condition
-    * over `subject`, the slot's).
-    */
-  private def operandIn(
-      states: Map[String, EntityState],
-      subject: EntityState
-  ): Value => Any = {
-    case Value.Literal(l)                   => l.raw
-    case Value.Entity(Some(id), part, _, _) =>
-      Transform.read(
-        part,
-        states.getOrElse(id, EntityState(id, "", Map.empty))
-      )
-    case Value.Condition(p) => Conditions.matchesIn(p, subject, states)
-    case _                  => ""
   }
 
   /** The one swap of a themed value's classes, wherever it resolves. */

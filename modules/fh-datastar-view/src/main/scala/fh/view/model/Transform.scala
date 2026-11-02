@@ -42,21 +42,33 @@ object Transform {
 
   /** One format step over `value`, an operand read by `operand`. */
   def format(step: Step.Format, value: Any, operand: Value => Any): SlotValue =
+    val ops = Step.operands(step)
+    formatWith(
+      step,
+      value,
+      ops.lift(0).fold(null: Any)(operand),
+      ops.lift(1).fold(null: Any)(operand)
+    )
+
+  /** [[format]] over its operands already read, in [[Step.operands]] order:
+    * what a composed pipeline calls, so a render builds no reader.
+    */
+  def formatWith(step: Step.Format, value: Any, a: Any, b: Any): SlotValue =
     step match
-      case Step.Prefix(t)   => text(operand(t)) + text(value)
-      case Step.Suffix(t)   => text(value) + text(operand(t))
-      case Step.WithUnit(u) =>
+      case Step.Prefix(_)   => text(a) + text(value)
+      case Step.Suffix(_)   => text(value) + text(a)
+      case Step.WithUnit(_) =>
         val v = text(value)
-        operand(u) match
+        a match
           case unit: String if v.nonEmpty => v + " " + unit
           case _                          => v
-      case Step.Percent(lo, hi) =>
-        (num(value), num(operand(lo)), num(operand(hi))) match
+      case Step.Percent(_, _) =>
+        (num(value), num(a), num(b)) match
           case (Some(v), Some(min), Some(max)) =>
             Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
           case _ => "0 %"
-      case Step.Fill(lo, hi) =>
-        (num(value), num(operand(lo)), num(operand(hi))) match
+      case Step.Fill(_, _) =>
+        (num(value), num(a), num(b)) match
           case (Some(v), Some(min), Some(max)) =>
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
           case _ => "100%"
@@ -69,14 +81,14 @@ object Transform {
             else if (t >= 60) s"${t / 60}m"
             else s"${t}s"
           case None => ""
-      case Step.Match(cases, otherwise) =>
+      case Step.Match(cases, _) =>
         cases.get(text(value)) match
-          case Some(Lit.Bool(b)) => b
-          case Some(lit)         => text(lit.raw)
-          case None              =>
-            operand(otherwise) match
-              case b: Boolean => b
-              case other      => text(other)
+          case Some(Lit.Bool(flag)) => flag
+          case Some(lit)            => text(lit.raw)
+          case None                 =>
+            a match
+              case flag: Boolean => flag
+              case other         => text(other)
 
   /** As CEL's `double()` accepts; anything else is the absent form. */
   private def num(v: Any): Option[Double] = v match

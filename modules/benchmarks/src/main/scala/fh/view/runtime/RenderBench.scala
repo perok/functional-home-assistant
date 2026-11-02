@@ -1743,27 +1743,32 @@ object RenderBench {
   final val BrightnessRead: Probe = Probe(Part.Attr("brightness"))
 
   /** A read and its format steps, without the engine. */
-  final case class Probe(part: Part, steps: Step.Format*)
+  /** A slot's read and format steps, composed once as the renderer composes
+    * one, its operands read off the same entity.
+    */
+  final case class Probe(part: Part, steps: Step.Format*):
+    val run: EntityState => Any =
+      steps.foldLeft[EntityState => Any](e => Transform.read(part, e)) {
+        (prev, f) =>
+          val ops = Step.operands(f).map(operand)
+          val a = ops.lift(0).getOrElse(absent)
+          val b = ops.lift(1).getOrElse(absent)
+          e => Transform.formatWith(f, prev(e), a(e), b(e))
+      }
+
+  private val absent: EntityState => Any = _ => null
+  private def operand(v: Value): EntityState => Any = v match
+    case Value.Literal(l) =>
+      val c = l.raw
+      _ => c
+    case Value.Entity(_, part, _, _) => e => Transform.read(part, e)
+    case _                           => _ => ""
 
   private val unit = Part.Attr("unit_of_measurement")
   private def text(s: String) = Value.Literal(Lit.Text(s))
   private def real(d: Double) = Value.Literal(Lit.Real(d))
 
-  /** The renderer's step loop over one entity, its operands read off it. */
-  def runProbe(p: Probe, e: EntityState): String = {
-    val operand: Value => Any = {
-      case Value.Literal(l)            => l.raw
-      case Value.Entity(_, part, _, _) => Transform.read(part, e)
-      case _                           => ""
-    }
-    var value: Any = Transform.read(p.part, e)
-    var steps = p.steps
-    while (steps.nonEmpty) {
-      value = Transform.format(steps.head, value, operand)
-      steps = steps.tail
-    }
-    Transform.text(value)
-  }
+  def runProbe(p: Probe, e: EntityState): String = Transform.text(p.run(e))
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
