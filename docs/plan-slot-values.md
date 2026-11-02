@@ -2,8 +2,8 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S7
-built; S8 (docs) next.
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S8
+built.
 
 ## Why
 
@@ -283,6 +283,8 @@ ADRs 0006 (the handle and its value), 0017 (`SignalBind` objects, the binding's 
 (the `ThemeClasses` stage), 0028 (the split, pinning where a spelling exists), 0034 (named inputs,
 bind); `terminology.md` (Slot, Reading, Slot type, Expression value, Value while, the tiers);
 `writing-components.md`; the architecture doc's node plan; the module `CLAUDE.md`'s slot lines.
+ADRs 0001, 0004, 0012, 0027, 0031 and 0033 named `SlotSource`, `Transform.Simple` or the fixed CEL
+names, and are corrected where they did.
 
 ## Not in this plan
 

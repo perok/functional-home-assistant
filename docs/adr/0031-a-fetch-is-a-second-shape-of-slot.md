@@ -2,7 +2,7 @@
 
 A slot whose value comes from a provider is a different SHAPE from a slot that reads state —
 not a state slot with extra fields. And a provider FETCHES: how its answer becomes what the
-card puts in the hole is the slot's `transform`, not the provider's business.
+card puts in the hole is the slot's step, not the provider's business.
 
 ## Context
 
@@ -15,9 +15,9 @@ Two decisions came out of fitting that into the pipeline. They are here together
 second only became visible after the first shipped, and reading either alone gives a misleading
 picture of why the types look as they do.
 
-## Decision 1 — the wire keeps one `SlotSource`; validation produces two shapes
+## Decision 1 — a fetch is a source; validation produces two shapes
 
-`SlotSource` gains `fetch: Option[FetchTemplate]`. `Dashboard.validate` turns that into
+A fetch is a reading's source, `Value.Fetch(FetchTemplate)`. `Dashboard.validate` turns a slot into
 
 ```scala
 enum SlotShape:
@@ -26,13 +26,6 @@ enum SlotShape:
 ```
 
 and every site that classifies a slot matches on it.
-
-### Why not a discriminated sum on the wire
-
-The obvious alternative, and worse: circe's `withDiscriminator` stamps a `"type"` tag onto
-**every** slot and churns every byte-identity snapshot in `PklBuildSuite`, for a distinction only
-the runtime cares about. `SlotSource`'s decoder already carries one special case (a bare string is
-a literal); this adds no second one.
 
 ### Why a shape and not fields
 
@@ -72,30 +65,17 @@ The division was already written down without the types being able to act on it:
 `window` are the question; the rest is how it is drawn.*
 
 So: `FetchResolver.answer` returns `Answer(version, json)`, `FetchRequest.History` is
-`(entityId, window)`, and `width`/`height`/`unit` moved to the slot's `transform`.
+`(entityId, window)`, and `width`/`height`/`unit` moved to the slot's chart step.
 
-### Why the same field, and not a new one
+### Why a step, and not a new field
 
-`transform` already answers *how does this value become what the card puts in the hole*. What
-differs between the shapes is the SUBJECT: a CEL string and a `Transform.Simple` read an ENTITY, a
-`Transform.Stage` reads a provider's answer. A fetch slot does not get a second field for the same
-question, and `SlotShape` keeps each arm on the shape that can use it.
-
-Two spellings were rejected:
-
-- **a bare string** (`transform = "passthrough"`) — a bare string in that field means a CEL
-  expression, so it would compile as one and die on an undeclared identifier;
-- **a member of `Transform.Simple`** — that type's documented membership rule is "a static lookup
-  and TOTAL", evaluated without the engine. A chart renderer is neither, and putting it there
-  would falsify the rule its own scaladoc states.
-
-### Why the default is derived
-
-`transform` defaults to `"state"`, which is the identity for a STATE slot and means nothing beside
-a fetch. So the Pkl default is derived from the shape — `if (fetch == null) "state" else
-passthrough` — exactly as `reads` is, and for the same reason: a fixed default makes the wire lie
-on one of the two shapes. The evidence is in the snapshots this change regenerated, where a fetch
-slot had been carrying `"transform": "state"`, which was never true of it.
+A step already answers *how does this value become what the card puts in the hole*. What differs
+between the shapes is the SOURCE: an entity, or a provider's answer. A fetch slot's one step is a
+`Step.Chart`, a `Stage` the renderer runs, and with none the answer passes through as JSON;
+`SlotShape` keeps each on the shape that can use it. A chart is not a simple step: that tier's
+rule is "a static lookup and TOTAL", evaluated without the engine, and a chart renderer is
+neither. Its type says so too: a chart takes a series and gives markup, which only a raw hole
+takes (`Ty.Markup`).
 
 ### What the split bought
 
@@ -127,7 +107,7 @@ None of this was designed separately; all of it fell out.
 ## Decision 3 — a fetch is also a CEL input
 
 A fetch can be read by name in a STATE slot's CEL, as an expression value (ADR 0034): the slot
-keeps its entity, its wake and its signal, and its expression gets the answer beside `state`. A
+keeps its entity, its wake and its signal, and its expression gets the answer beside `value`. A
 fetch slot is the case with no entity, its answer staged into the hole; a value fetch is the case
 with one, its answer read as data. One fetch, one provider and one cache serve both. A value fetch
 is a `SlotAsk` with the passthrough stage, counted among the node's fetches, so the pre-read and

@@ -16,10 +16,12 @@ class; the backend knows it as a template plus a list of slot names it expects.
 **Node** — one placed instance of a card in a dashboard's layout tree. Nodes nest.
 
 **Slot** — one named value a card's markup needs, filled per node. Either a **literal** (a constant
-string baked at build time) or a **transform** evaluated against live entity state — a CEL
-expression (the engine tier), or an opted-in **simple** structure (`simpleMod.attr(...)`, the fast
-tier: the closed set of atomic reads, each defined by its idiomatic CEL spelling and pinned
-byte-equal to it). The tier is the slot's own field; nothing infers one from expression spelling.
+baked at build time) or a value read from a **source** (an entity's state, an attribute or the whole
+entity, a fetch, a condition, the candidates present, or a CEL computed from nothing) with **steps**
+run on it in order (`ValueExpr`). A step is CEL (the engine tier), the fast tier's (`Prefix`,
+`Percent`, `Match`, …: static and total, each pinned to its CEL spelling where it has one and held
+by tests of its own otherwise), or a **stage** the renderer runs (a chart, the theme's class swap).
+The tier is each step's own form; nothing infers one from expression spelling.
 "Slot" is the value; the template hole it fills has the same name. In Pkl a slot is a
 `slotMod.Slot`: its name, its value (a literal or a **Reading**) and how the card binds it (`signal`,
 `type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
@@ -61,16 +63,18 @@ hue. HA's own name (`more-info-light.ts`), switched by `c.its.mainControl` throu
 `control`. Not HA's colour MODES, the formats a light accepts (`hs`, `color_temp`), which the main
 controls are derived from.
 
-**Reading** — a slot's value used as an INPUT (`slotMod.Reading`): a live read (`entityId` + transform) with no binding yet,
-which the card it is handed to binds where it belongs. It reads its entity's state (a fast read may
-name another), or the node's own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
+**Reading** — a slot's value used as an INPUT (`slotMod.Reading`, the wire's `ValueExpr`): a source
+and its steps with no binding yet, which the card it is handed to binds where it belongs. It reads
+its entity (a read may name another), or the node's own expression values (`c.expr("on > 2")`), or
+both. CEL in it reads `value`, what came before it: `value.state` and `value.attr` on a reading of
+the whole entity, as `c.expr` is. `c.isOn(l)` and `c.stateIn(l, states)` are
 readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
 component a reading that names its entity, since a base card has no subject to fall back on.
 
 **Condition** — the yes/no thing `c.iff` takes (`pred.Predicate`: `q.from(xs).where(…).any()`,
 `q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
-which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no transform.
-It is the fast tier's bool half (ADR 0028), so it can be a slot's transform, decided with no CEL,
+which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no steps.
+It is the fast tier's bool half (ADR 0028), so it can be a slot's source, decided with no CEL,
 which is how every boolean input (`active`, `disabled`, `cellClassWhen`) takes one directly. It can
 also be an expression value, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
@@ -81,16 +85,17 @@ subclass that holds an `entity` and assigns the base's inputs from it, declaring
 or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
 
 **Slot type** / **boolean slot** — what a card reads a slot's value AS (`Slot.type`): text by
-default, `bool` for a slot its template reads as on/off (a `disabled` ORed into
-`data-attr:disabled`, where the string `"false"` would be truthy), or `cssClass` for one placed in a
-`class` attribute, whose value the theme's class rules reach (ADR 0020). A boolean slot is one whose
-type is `bool`. The CARD sets the type where it binds the slot: on the handle for `cssClass`
-(`slotMod.cssClass(name)`), beside `signal` for `bool`, because a reading has no binding of its own;
-a `class:` binding (a live cell class) is a bool by kind. The build refuses a reading on a boolean
-slot that does not produce a bool.
+default, or `bool` for a slot its template reads as on/off (a `disabled` ORed into
+`data-attr:disabled`, where the string `"false"` would be truthy). A boolean slot is one whose type
+is `bool`. The CARD sets the type on the handle (`slotMod.bool(name)`), because a reading has no
+binding of its own; a `class:` binding (a live cell class) is a bool by kind. A value placed in a
+`class` attribute is text with the theme's class swap as its last step (`slotMod.cssClass(name)`,
+ADR 0020). Every source and step has a type, checked in order (`Ty`), and the build refuses a
+reading whose last step does not produce its slot's type: a bool in a text slot, text in a boolean
+one.
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
-all. While it does not hold the value is `""`, and the slot's transform and fetches are not run.
+all. While it does not hold the value is `""`, and the slot's steps and fetches are not run.
 Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hides a region's
 content, a card's own part included.
 ADR 0034.
@@ -104,9 +109,10 @@ and kept live (`LayoutNode.cellStyle`) — a live cell class's value-carrying tw
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
 **Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
-variable (`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static
-candidate list and which of it is present, counted live, the same thing a state condition's `Count`
-compares — a **condition**, decided live, or a **fetch**, its provider's answer read on demand.
+variable (`expressionValues` in Pkl, each a `ValueExpr` on the wire): a literal, a **tally** — a
+static candidate list and which of it is present, counted live, the same thing a state condition's
+`Count` compares — a **condition**, decided live, a **fetch**, its provider's answer read on demand,
+or an **entity**, read whole (`kitchen.attr.brightness`).
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
 **Build passes** — what turns a dashboard's JSON into `Dashboard.Validated`, once per evaluation,
@@ -148,7 +154,7 @@ What a variable holds, highest first:
 
 - **Choice** — what the viewer picked: a write, a `v.` URL param, a link.
 - **Initial value** — what the declaration's **initial transform** gave this session: CEL over one
-  entity's state (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
+  whole entity as `value` (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
   page opens. Not a choice (no URL param) and not a flip (it never follows the entity). A slider's
   `opensOn` is one.
 - **Default** — the value it holds before anybody chooses (`defaultingTo`).
@@ -457,9 +463,8 @@ order decided live, and reaches no network. Two words because the two get discus
 
 **Fetch slot** — a slot whose value comes from a fetch rather than from live state. It is the
 other half of `SlotShape`, opposite a state slot, and it has no `reads` and no signal: where a value
-comes from and when it is read are not separate questions for one. It DOES have a `transform` — the
-one field both shapes carry, reading a different arm on each. Only a component author writes a fetch
-slot.
+comes from and when it is read are not separate questions for one. Its one step, if any, is a
+chart. Only a component author writes a fetch slot.
 
 **Provider** — the named thing that answers a fetch, and the read counterpart of `ServiceCalls`. It
 exists as a seam because HA scopes recorder data per user, so who is reading is a property of the
@@ -473,9 +478,9 @@ with no content cannot be written. The version says AS OF WHEN this content beca
 non-decreasing, and doubles as the caching policy — a stable one is shared by every viewer, one that
 moves every call is uncached by construction.
 
-**Stage** — what an answer BECOMES, and the third arm of a slot's `transform`. `chart` draws SVG;
-`passthrough` is the absence of a transform — the provider's JSON, which is the contract a third
-party writing their own chart library reads against. A fetch slot's default is derived from its
+**Stage** — a step the renderer runs itself (`Step.Stage`): a fetch's `Chart`, which draws its answer
+as SVG, and `ThemeClasses`, the theme's class swap. A fetch slot with no chart passes the provider's
+JSON through, which is the contract a third party writing their own chart library reads against. A fetch slot's default is derived from its
 shape, the same rule `reads` follows, so the wire states which tier is in play rather than leaving a
 reader to infer it.
 

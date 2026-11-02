@@ -22,9 +22,8 @@ count shows (ADR 0003); `floor` reaches whatever HA puts on the floor instead.
 
 ## Context
 
-A slot reads ONE entity: its CEL sees that entity's `state`, `attr`, `entity_id`, `domain` and the
-`dashboard_slug`, and a card is woken only by the entities its slots name
-(`Component.liveEntities`). "3 of 5 lights on" had no spelling. The count already existed —
+A slot read ONE entity: its CEL saw that entity and `dashboard_slug`, and a card is woken only by
+the entities its slots name (`Component.liveEntities`). "3 of 5 lights on" had no spelling. The count already existed —
 `q.from(xs).where(…).count()` folds to a static candidate list with a per-candidate residual (ADR
 0003) — but only as half of a COMPARISON, for `c.iff` (ADR 0007) and the aggregates. And a yes/no
 input could only read one entity (`c.isOn(l)`), so "disabled while no light on this floor is on"
@@ -40,19 +39,23 @@ node-level declaration, and each slot is bound to the ones its CEL reads (`Bound
 below builds on that one path, and nothing gains a second evaluator.
 
 **Declaration.** `Node.expressionValues: Mapping<String, ExpressionValue>`, where
-`ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate|slot.Fetch`, written as an amend or with
-the `expressionValues(m)` builder. On the wire it is `Component.values`, absent when empty. Two
+`ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate|slot.Fetch|hass.Entity`, written as an amend or with
+the `expressionValues(m)` builder. On the wire it is `Component.values`, each a `ValueExpr`
+(`slotMod.wireInput`: a literal bare, anything else as the source it reads), absent when empty. Two
 properties, because a `Mapping?` defaulting to null can be neither amended nor `new {}`'d — both
 infer `Dynamic` (measured) — and an always-present `{}` would sit on every node's wire.
 
 **A value is a typed CEL variable** of that node's expressions: String → `string`, Int → `int`,
-Float → `double`, Boolean → `bool`, a tally → `int`, a condition → `bool`, a fetch → its provider's
-answer (history's points, `list(list(double))` of `[epochMillis, value]`). Numbers decode by their
-SPELLING, as Pkl wrote them, since a `Float` 2.0 and an `Int` 2 have one value; a condition is the
-object that carries a `kind`, a fetch the one that carries a `provider`, a tally neither. The expression compiles against the
-fixed names plus the node's (`Transform.CelKey`: source and typed names), so a typo, an unknown
-name or `lights_on + ' on'` (no `int + string` overload) fails the BUILD. Refused too: a name that
-is not a CEL identifier, one hiding `state`/`attr`/`entity_id`/`domain`/`dashboard_slug`/`time_zone`, a value
+Float → `double`, Boolean → `bool`, a tally → `int` (a `Present` source and a `Count` step; the
+present ids alone are a `list(string)`), a condition → `bool`, a fetch → its provider's answer
+(history's points, `list(list(double))` of `[epochMillis, value]`), an entity → the struct
+`fh.Entity` (`kitchen.attr.brightness`). Numbers decode by their SPELLING, as Pkl wrote them, since
+a `Float` 2.0 and an `Int` 2 have one value. The type is `ValueExpr.inputTy`; another shape is
+refused, so no input is computed by CEL and inputs cannot form a cycle. The expression compiles
+against `value`, `dashboard_slug`, `time_zone` and the node's names (`Transform.CelKey`: source,
+typed names and `value`'s type), so a typo, an unknown name or `lights_on + ' on'` (no
+`int + string` overload) fails the BUILD. Refused too: a name that is not a CEL identifier, one
+hiding `value`/`dashboard_slug`/`time_zone`, a value
 no slot reads, a slot read `once` that reads a count or a condition (the once-cache keys by what a
 value IS, so it would show the first answer forever; a fetch too), and a condition comparing an entity it does
 not name — a value is shared by content across nodes, so it has no subject, as a state condition
@@ -111,15 +114,16 @@ rather than a per-card list of boolean slots, so another type is one more case: 
 signal can carry a JSON number (a slot value is `String | Boolean` today).
 
 The build refuses a reading on a boolean slot that does not produce a bool, because the template
-reads it by truthiness and the string `"false"` is ON. Per tier: CEL by its checked result type
-(`dyn` passes, since `state` is `dyn` and refusing it would refuse `state == 'on'`); `Simple`
-exactly, since every shape's result is known at build time — a condition, or an all-Boolean
-`match` (what `c.isOn`/`c.stateIn` build), is a bool.
+reads it by truthiness and the string `"false"` is ON. Every source and step has a type (`Ty`),
+checked in order, a CEL step's by its compiler with `value` declared as the type before it: a
+condition, or an all-Boolean `match` (what `c.isOn`/`c.stateIn` build), is a bool, and `dyn`
+passes (an attribute, a CEL `dyn`), except an attribute read bare, which is text or a number far
+more often.
 
-A text slot's CEL must check to something a template can print: `string`, `int`, `uint`,
-`double`, `bool`, `null`, an `optional` of one, or `dyn`. A `list`, `map`, `timestamp`, `duration`
-or `bytes` is refused with a pointer to `str(…)`, since it would otherwise render as Java's
-`toString` (#637).
+A text slot must produce something a template can print: text, a number, or `dyn`; a bool is
+refused, since a template reads one by truthiness. A CEL `list`, `map`, `timestamp`, `duration` or
+`bytes` is refused with a pointer to `str(…)`, since it would otherwise render as Java's
+`toString` (#637); an `optional` is `dyn`.
 
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
@@ -229,8 +233,8 @@ alone sends nothing, because the frame is diffed against what each session holds
 - **One server-side signal holding the cell's whole class string.** That slot would need several
   readings, and `data-attr:class` replaces the wrapper's other classes, the theme's and
   `fh-edit-hl` included; `data-class:<name>` switches one.
-- **Deriving a cell slot's signal in `bound` from a `SlotSource` that still decoded one.** A wrong
-  `signal` on the wire would decode and be silently replaced. `SlotSource` holds the reading only
+- **Deriving a cell slot's signal in `bound` from a `ValueExpr` that still decoded one.** A wrong
+  `signal` on the wire would decode and be silently replaced. `ValueExpr` holds the reading only
   (Pkl's `Reading`), and the signal and type sit on `TemplateSlot` (Pkl's `Slot`), so a cell slot
   has no field to get wrong.
 - **A Simple `match` in place of `cellClassWhen`.** A `match` picks one of several literal values

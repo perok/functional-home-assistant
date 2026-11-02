@@ -163,22 +163,26 @@ binding pointed at a signal nothing ever writes — silent, and permanent.
 ### Six binding kinds, because a value does not always land in text
 
 `signal`'s value says **where** the value lands — the one thing the renderer cannot infer. It is a
-renderer-side enumeration (`SignalBind`, one string on the wire) rather than an attribute the card
-writes, which is what keeps the plain form reachable: a card that wrote `data-text` itself could not
-have it un-written.
+renderer-side enumeration (`SignalBind`, an object on the wire whose `kind` names its case, built by
+`slotMod.asText`, `asStyle(p)`, …) rather than an attribute the card writes, which is what keeps the
+plain form reachable: a card that wrote `data-text` itself could not have it un-written.
 
 | kind | attribute | for |
 |---|---|---|
-| `text` | `data-text="$sig"` | a reading, a label, a state |
-| `style:<prop>` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
-| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute — a String value fills it, a BOOLEAN sets or removes it |
-| `class:<name>` | `data-class:<name>="$sig"` | one class, present while the value is truthy |
-| `bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
-| `handler` | none | a value nothing paints — an event handler reads it by name (see below) |
+| `Text` | `data-text="$sig"` | a reading, a label, a state |
+| `Style(property)` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
+| `Attr(name)` | `data-attr:<name>="$sig"` | one attribute — a String value fills it, a BOOLEAN sets or removes it |
+| `Class(name)` | `data-class:<name>="$sig"` | one class, present while the value is truthy |
+| `Bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
+| `Handler` | none | a value nothing paints — an event handler reads it by name (see below) |
+
+The binding is checked against the slot's type rather than implying it: a `Class` needs a bool
+slot, a `Text` or `Style` refuses one (it would print `true`), an `Attr` takes either, and a
+`Handler` anything.
 
 Every kind reads the signal **bare**, with no expression around it, because the value carries
 whatever it needs — a fill arrives as `39.37%`, a colour as `#ffb46b`. An expression in the
-attribute would be a second place a value's shape is decided, and the transform already decides it.
+attribute would be a second place a value's shape is decided, and the reading already decides it.
 
 ### Which runtime evaluates a state-dependent value
 
@@ -296,7 +300,7 @@ string SETS, and while `""` was the only falsy value a slot could produce, `attr
 boolean attribute on and never off again.
 
 A real `false` is what turns it off, so `SlotValue = String | Boolean`
-(`Transform.Simple.Match`'s arms, and any CEL expression whose result is a `bool`). The binding
+(`Step.Match`'s arms, and any CEL expression whose result is a `bool`). The binding
 stays bare, and the mechanism is the plugin's own branch rather than anything invented here.
 
 **Both ends have to carry it, and they fail independently:**

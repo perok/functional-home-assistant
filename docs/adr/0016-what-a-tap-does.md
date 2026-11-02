@@ -105,7 +105,7 @@ the part of ADR 0001 that carries over unchanged.
 A lock needs `lock/unlock` when locked and `lock/lock` when not, so its service
 is genuinely not a build-time literal. Three shapes were weighed:
 
-- **(a) a conditional transform** on the click slot — `state == 'locked' ? … : …`;
+- **(a) a conditional transform** on the click slot — `value.state == 'locked' ? … : …`;
 - **(b) a server-side intent route** (`POST /sse/toggle/<entity_id>`) resolving
   domain + state in Scala;
 - **(c) both**, literals where a real `toggle` exists and a route where it does not.
