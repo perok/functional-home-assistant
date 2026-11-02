@@ -38,9 +38,9 @@ final case class TemplateSlot(
   def literal: Option[String] = expr.literal
 
   /** The expression values its CEL step declares, beside its node's. */
-  def values: Map[String, ExprValue] =
+  def values: Map[String, ValueExpr] =
     expr.steps
-      .collectFirst { case c: Step.Cel => c.values }
+      .collectFirst { case c: Step.Cel => c.inputs }
       .getOrElse(Map.empty)
 
   def placement: Placement = Placement(signal, `type`)
@@ -80,7 +80,7 @@ object Placement:
   */
 final case class BoundSlot(
     expr: ValueExpr,
-    values: Map[String, ExprValue],
+    values: Map[String, ValueExpr],
     valueWhile: Option[BoundSlot] = None,
     signal: Option[SignalBind] = None,
     `type`: SlotType = SlotType.Text,
@@ -128,7 +128,7 @@ final case class BoundSlot(
     * against a different set of typed names, and without an entity to read.
     */
   lazy val celKey: Option[Transform.CelKey] = cel.map(c =>
-    Transform.CelKey(c.src, ExprValue.env(values), expr.source.isDefined)
+    Transform.CelKey(c.src, ValueExpr.env(values), expr.source.isDefined)
   )
 
   def celKeys: List[Transform.CelKey] =
@@ -160,7 +160,7 @@ final case class BoundSlot(
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
-      values.values.toList.collect { case ExprValue.Fetched(f) =>
+      values.values.toList.flatMap(_.source).collect { case Value.Fetch(f) =>
         SlotAsk(f, Transform.Stage.Passthrough)
       }
 
@@ -171,13 +171,13 @@ final case class BoundSlot(
   lazy val valueKey: String =
     expr.key + values.toList
       .sortBy(_._1)
-      .map((n, v) => s"|$n=${ExprValue.key(v)}")
+      .map((n, v) => s"|$n=${v.inputKey}")
       .mkString + valueWhile.fold("")(w =>
       s"|while=${w.entityId.getOrElse("")}:${w.valueKey}"
     ) + (if (`type` == SlotType.CssClass) "|cssClass" else "")
 
 object BoundSlot:
-  def bind(values: Map[String, ExprValue], subject: Option[String])(
+  def bind(values: Map[String, ValueExpr], subject: Option[String])(
       s: TemplateSlot
   ): BoundSlot =
     bindAt(values, s.placement, subject)(s.expr, s.valueWhile)
@@ -186,7 +186,7 @@ object BoundSlot:
     * literal is not a read.
     */
   def bindAt(
-      values: Map[String, ExprValue],
+      values: Map[String, ValueExpr],
       at: Placement,
       subject: Option[String]
   )(e: ValueExpr, valueWhile: Option[ValueExpr] = None): BoundSlot =
@@ -194,12 +194,12 @@ object BoundSlot:
     val named = expr.steps.collectFirst { case c: Step.Cel => c } match
       case Some(c) =>
         // The slot's own win a clash, which `validate` refuses anyway.
-        val all = values ++ c.values
-        if (all.isEmpty) Map.empty[String, ExprValue]
+        val all = values ++ c.inputs
+        if (all.isEmpty) Map.empty[String, ValueExpr]
         else
           val read = Cel.identifiers(c.src)
           all.filter((n, _) => read.contains(n))
-      case None => Map.empty[String, ExprValue]
+      case None => Map.empty[String, ValueExpr]
     BoundSlot(
       expr,
       named,
@@ -208,86 +208,6 @@ object BoundSlot:
       at.`type`,
       subject
     )
-
-/** A named input of a node's or a slot's expressions (`expressionValues`): a
-  * literal the build wrote down, a [[Predicate.Tally]] counted live, a
-  * condition decided live — `c.iff`'s, read as a `bool` — or a fetch, read as
-  * its provider's answer.
-  */
-enum ExprValue derives CanEqual:
-  case Text(value: String)
-  // A Pkl `Int`; a `Float` is `Real` even when whole, decoded by spelling.
-  case Whole(value: Long)
-  case Real(value: Double)
-  case Flag(value: Boolean)
-  case Count(tally: Predicate.Tally)
-  case Holds(condition: Predicate)
-  case Fetched(fetch: FetchTemplate)
-
-  def kind: ExprValue.Kind = this match
-    case _: Text             => ExprValue.Kind.Str
-    case _: Whole | _: Count => ExprValue.Kind.Int
-    case _: Real             => ExprValue.Kind.Dbl
-    case _: Flag | _: Holds  => ExprValue.Kind.Bool
-    // `history` is the one provider (`FetchTemplate`).
-    case _: Fetched => ExprValue.Kind.Series
-
-  /** Live: what it answers moves, so a once-read cannot hold it. */
-  def isLive: Boolean = this match
-    case _: Count | _: Holds | _: Fetched => true
-    case _                                => false
-
-  /** Every entity that can move it. */
-  def entities: List[String] = this match
-    case Count(t) => t.referencedEntities
-    case Holds(p) => Predicate.referencedEntities(p)
-    case _        => Nil
-
-object ExprValue:
-
-  /** The CEL type a value is declared as. `Series` is a history answer's
-    * points, `list(list(double))` of `[epochMillis, value]`.
-    */
-  enum Kind derives CanEqual:
-    case Str, Int, Dbl, Bool, Series
-
-  def env(values: Map[String, ExprValue]): List[(String, Kind)] =
-    values.toList.sortBy(_._1).map((n, v) => n -> v.kind)
-
-  /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
-  def key(v: ExprValue): String = v match
-    case Text(s)    => s"s:$s"
-    case Whole(n)   => s"i:$n"
-    case Real(d)    => s"d:$d"
-    case Flag(b)    => s"b:$b"
-    case Count(t)   => s"t:${Predicate.tallyKey(t)}"
-    case Holds(p)   => s"p:${Predicate.key(p)}"
-    case Fetched(f) => s"f:${f.key}"
-
-  given Decoder[ExprValue] = Decoder.instance { c =>
-    c.value.fold(
-      Left(DecodingFailure("an expression value cannot be null", c.history)),
-      b => Right(Flag(b)),
-      // By SPELLING, as Pkl wrote it: a `Float` 2.0 and an `Int` 2 have one
-      // value, and an expression typed against the wrong one fails its build.
-      n =>
-        Right(
-          if (n.toString.exists(ch => ch == '.' || ch == 'e' || ch == 'E'))
-            Real(n.toDouble)
-          else n.toLong.fold(Real(n.toDouble))(Whole(_))
-        ),
-      s => Right(Text(s)),
-      _ =>
-        Left(
-          DecodingFailure("an expression value cannot be a list", c.history)
-        ),
-      // A condition carries its `kind`, a fetch its `provider`; a tally neither.
-      o =>
-        if (o.contains("kind")) c.as[Predicate].map(Holds(_))
-        else if (o.contains("provider")) c.as[FetchTemplate].map(Fetched(_))
-        else c.as[Predicate.Tally].map(Count(_))
-    )
-  }
 
 /** A value written down, or picked by a node variable from a table the build
   * checked whole (issue #209). A variable's value lives in a URL and a signal,
@@ -767,7 +687,7 @@ object LayoutNode:
       vars: List[Dashboard.Declaration] = Nil,
       // Expression values, this node's alone: never resolved up the
       // ancestors, and bound to the slots that read them ([[bound]]).
-      values: Map[String, ExprValue] = Map.empty
+      values: Map[String, ValueExpr] = Map.empty
   ) extends LayoutNode:
 
     /** [[templateSlots]] and the [[cell]]'s live ones, each with the expression
@@ -1424,9 +1344,12 @@ case class Dashboard(
         stepErrors ++ signalErrors(nodeId, cardName, key, src) ++
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, cardName, name, src, scope) ++
-          src.values.values.toList.collect { case ExprValue.Fetched(f) =>
-            askErrors(nodeId, name, f, scope)
-          }.flatten
+          src.values.values.toList
+            .flatMap(_.source)
+            .collect { case Value.Fetch(f) =>
+              askErrors(nodeId, name, f, scope)
+            }
+            .flatten
       }
 
     /** A fetch's references are declared above it, its declared values pick an
@@ -1502,6 +1425,14 @@ case class Dashboard(
           rawHole.toList
       }
 
+    // Only a hand-written wire gets here: Pkl writes these four.
+    def shapeError(nodeId: String, what: String, v: ValueExpr): List[String] =
+      Option
+        .when(v.inputKind.isEmpty)(
+          s"$nodeId: $what is not a literal, a count, a condition or a fetch"
+        )
+        .toList
+
     /** At the declaration, so an unreferenced variable is still wrong loudly.
       */
     // Bound to every slot that reads one, so "read by no slot" is the
@@ -1527,12 +1458,13 @@ case class Dashboard(
         else
           c.values(name) match
             // A value is shared by content across nodes, so it has no subject.
-            case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
+            case ValueExpr(Some(Value.Condition(p)), _, _)
+                if Predicate.hasFreeSubject(p) =>
               List(
                 s"$nodeId: expression value '$name' compares an entity it " +
                   "does not name — name it with q.entity(e)"
               )
-            case _ => Nil
+            case v => shapeError(nodeId, s"expression value '$name'", v)
       } ++ c.templateSlots.toList.sortBy(_._1).flatMap { (slot, src) =>
         val read = c.bound.get(slot).fold(Set.empty[String])(_.values.keySet)
         src.values.keys.toList.sorted.flatMap { name =>
@@ -1555,7 +1487,12 @@ case class Dashboard(
               s"$nodeId: slot '$slot' has an expression value '$name' its " +
                 "expression does not read"
             )
-          else Nil
+          else
+            shapeError(
+              nodeId,
+              s"slot '$slot' has an expression value '$name' that",
+              src.values(name)
+            )
         }
       } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {
         // The once-cache keys by what a value IS, not by what it counts now.

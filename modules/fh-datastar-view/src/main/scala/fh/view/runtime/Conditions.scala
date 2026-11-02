@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{ExprValue, FetchTemplate, Op, Predicate}
+import fh.view.model.{FetchTemplate, Lit, Op, Predicate, Value, ValueExpr}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
   * conditions, counts and a condition filling a slot (`Value.Condition`).
@@ -35,29 +35,30 @@ private[view] object Conditions {
         compare(propertyOf(property, st), StateStore.jsonToString(value), op)
     }
 
-  /** Expression values as CEL reads them; a tally is how many are present now,
-    * a fetch its answer (`fetched`).
+  /** Named inputs as CEL reads them: a literal as written, a count how many are
+    * present now, a fetch its answer (`fetched`).
     */
   def resolve(
-      values: Map[String, ExprValue],
+      inputs: Map[String, ValueExpr],
       states: Map[String, EntityState],
       fetched: FetchTemplate => Object
   ): Map[String, Object] =
-    if (values.isEmpty) Map.empty
+    if (inputs.isEmpty) Map.empty
     else
-      values.view
-        .mapValues[Object] {
-          case ExprValue.Text(s)  => s
-          case ExprValue.Whole(n) => java.lang.Long.valueOf(n)
-          case ExprValue.Real(d)  => java.lang.Double.valueOf(d)
-          case ExprValue.Flag(b)  => java.lang.Boolean.valueOf(b)
-          case ExprValue.Count(t) =>
+      inputs.view
+        .mapValues[Object](_.source match
+          case Some(Value.Literal(Lit.Text(s)))  => s
+          case Some(Value.Literal(Lit.Bool(b)))  => java.lang.Boolean.valueOf(b)
+          case Some(Value.Literal(Lit.Whole(n))) => java.lang.Long.valueOf(n)
+          case Some(Value.Literal(Lit.Real(d)))  => java.lang.Double.valueOf(d)
+          case Some(Value.Present(t))            =>
             java.lang.Long.valueOf(present(t, states).toLong)
           // Subject-free (`validate`), as a state condition is.
-          case ExprValue.Holds(p) =>
+          case Some(Value.Condition(p)) =>
             java.lang.Boolean.valueOf(matchesIn(p, EntityState.none, states))
-          case ExprValue.Fetched(f) => fetched(f)
-        }
+          case Some(Value.Fetch(f)) => fetched(f)
+          // `validate` refuses any other shape (`ValueExpr.inputKind`).
+          case _ => "")
         .toMap
 
   /** Unguarded means present, as for a set member. */

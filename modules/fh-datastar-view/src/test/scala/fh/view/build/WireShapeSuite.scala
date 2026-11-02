@@ -243,6 +243,7 @@ class WireShapeSuite extends munit.FunSuite {
       "ConditionRead",
       Value.Condition(Predicate.Cmp("state", Op.Eq, Json.Null))
     )
+    check("PresentRead", Value.Present(Predicate.Tally(Nil, Map.empty)))
     check("Attr", Part.Attr("x"))
     check("Cel", Step.Cel("value"))
     check("Prefix", Step.Prefix(lit))
@@ -253,6 +254,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("Duration", Step.Duration(1.0))
     check("Match", Step.Match(Map.empty, lit))
     check("ChartStage", Step.Chart())
+    check("CountStep", Step.Count)
   }
 
   test("each signal binding agrees with its case on both sides") {
@@ -283,7 +285,8 @@ class WireShapeSuite extends munit.FunSuite {
       caseNames[Activation] ->
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
-      caseNames[Value] -> Set("EntityRead", "FetchRead", "ConditionRead"),
+      caseNames[Value] ->
+        Set("EntityRead", "FetchRead", "PresentRead", "ConditionRead"),
       (caseNames[Step] - "Format" ++ caseNames[Step.Format]) -> Set(
         "Cel",
         "Prefix",
@@ -293,7 +296,8 @@ class WireShapeSuite extends munit.FunSuite {
         "Fill",
         "Duration",
         "Match",
-        "ChartStage"
+        "ChartStage",
+        "CountStep"
       ),
       caseNames[Part] -> Set("Attr"),
       caseNames[SignalBind] -> Set(

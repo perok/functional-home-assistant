@@ -301,24 +301,34 @@
           },
           "values" : {
             "lit" : {
-              "candidates" : [
-                "light.kitchen",
-                "light.living_room"
-              ],
-              "when" : {
-                "light.kitchen" : {
-                  "kind" : "Cmp",
-                  "op" : "eq",
-                  "property" : "state",
-                  "value" : "on"
-                },
-                "light.living_room" : {
-                  "kind" : "Cmp",
-                  "op" : "eq",
-                  "property" : "state",
-                  "value" : "on"
+              "source" : {
+                "kind" : "Present",
+                "tally" : {
+                  "candidates" : [
+                    "light.kitchen",
+                    "light.living_room"
+                  ],
+                  "when" : {
+                    "light.kitchen" : {
+                      "kind" : "Cmp",
+                      "op" : "eq",
+                      "property" : "state",
+                      "value" : "on"
+                    },
+                    "light.living_room" : {
+                      "kind" : "Cmp",
+                      "op" : "eq",
+                      "property" : "state",
+                      "value" : "on"
+                    }
+                  }
                 }
-              }
+              },
+              "steps" : [
+                {
+                  "kind" : "Count"
+                }
+              ]
             }
           },
           "vars" : [

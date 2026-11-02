@@ -2,7 +2,7 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S3
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S4
 built.
 
 ## Why
@@ -168,7 +168,8 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
   names none reads its source's entity. The new decoders reject unknown fields from the start
   (#657's open item). The goldens change only in signal names; the wire loses the click
   transforms' entity source.
-- **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present`; the node's
+- **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present` and `Count`; an
+  input is a literal, a count, a condition or a fetch until S5 types the rest; the node's
   `values` likewise.
 - **S5. Types:** typed literals and defaults, `SlotType` with `slotMod.bool`, the binding's type
   check, and the `ThemeClasses` stage in place of `SlotType.CssClass`.

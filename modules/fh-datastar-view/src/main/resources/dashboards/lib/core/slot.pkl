@@ -103,6 +103,21 @@ class ConditionRead extends Value {
   predicate: predMod.Predicate
 }
 
+/// The candidates of a set present now, a list a [[simpleMod.CountStep]] counts.
+class PresentRead extends Value {
+  kind: "Present" = "Present"
+  tally: predMod.Tally
+}
+
+/// A named input as the wire holds it (`fh.view.model.ValueExpr`): a literal
+/// as itself, anything else as the source it reads.
+const function wireInput(v: nodes.ExpressionValue): Any =
+  if (v is predMod.Tally)
+    Map("source", new PresentRead { tally = v }, "steps", List(new simpleMod.CountStep {}))
+  else if (v is predMod.Predicate) Map("source", new ConditionRead { predicate = v })
+  else if (v is Fetch) Map("source", new FetchRead { fetch = v })
+  else v
+
 /// One named value a card's template places, filled per node. The template
 /// reaches it through this object, so its name is written once:
 ///

@@ -386,7 +386,7 @@ open class Slider extends nodes.Node {
     let (ownRead = nodes.valuesNamedIn(expressionValues, slots))
     let (own = expressionValues.toMap().filter((name, _) ->
         ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
-      if (own.isEmpty) null else own.toMapping()
+      if (own.isEmpty) null else own.mapValues((_, v) -> slotMod.wireInput(v))
   /// This slider's own row; a slider with [[controls]] shows one of theirs.
   hidden headNode: SliderHead =
     let (headActive = active) (new SliderHead {}) {

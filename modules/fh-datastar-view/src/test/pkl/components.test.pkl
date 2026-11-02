@@ -881,10 +881,12 @@ facts {
     }
     b.values["lights_total"] == 1
     b.values["floor"] == "Stue"
-    // A count goes out as its tally: what the runtime counts, live.
-    local on = b.values["lights_on"] as pred.Tally
-    on.candidates.toList() == List("light.kitchen")
-    on.`when`["light.kitchen"].property == "state"
+    // A count goes out as its tally, counted: what the runtime counts, live.
+    local on = b.values["lights_on"] as Map
+    local tally = (on["source"] as slotMod.PresentRead).tally
+    tally.candidates.toList() == List("light.kitchen")
+    tally.`when`["light.kitchen"].property == "state"
+    on["steps"] == List(new simpleMod.CountStep {})
   }
 
   ["the expressionValues builder is the amend, as a chain step"] {

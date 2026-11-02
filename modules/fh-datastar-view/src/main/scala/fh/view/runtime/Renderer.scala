@@ -1901,6 +1901,7 @@ class Renderer(validated: Dashboard.Validated) {
         case Some(Value.Entity(_, part, _, _)) => Transform.read(part, st)
         case Some(Value.Condition(p)) => Conditions.matchesIn(p, st, states)
         case Some(Value.Literal(l))   => l.raw
+        case Some(Value.Present(t))   => Conditions.presentOf(t, states)
         case _                        => ""
       // The form is the tier (ADR 0028): a CEL step is the one with a
       // program. A loop, not a fold: this is the hottest read of a page.
@@ -1918,6 +1919,10 @@ class Renderer(validated: Dashboard.Validated) {
             )
           case f: Step.Format =>
             Transform.format(f, value, operandIn(states, st))
+          case Step.Count =>
+            value match
+              case xs: List[?] => xs.size.toLong
+              case _           => 0L
           case _: Step.Chart => value
         steps = steps.tail
       }

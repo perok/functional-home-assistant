@@ -218,8 +218,9 @@ abstract class Node extends LayoutNode {
   ///     }
   ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
   hidden expressionValues: Mapping<String, ExpressionValue> = new {}
-  values: Mapping<String, ExpressionValue>? =
-    if (expressionValues.isEmpty) null else expressionValues
+  values: Map<String, Any>? =
+    if (expressionValues.isEmpty) null
+    else expressionValues.toMap().mapValues((_, v) -> slotMod.wireInput(v))
   // Lifted into the top-level `surfaces` by the build's hoist, keyed
   // `<node-id>_<localKey>`, with the node's id spliced into every [[NODE_ID]].
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null

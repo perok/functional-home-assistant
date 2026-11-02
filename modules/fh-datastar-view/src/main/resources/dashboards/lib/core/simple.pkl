@@ -27,7 +27,13 @@ class Cel extends Step {
   /// Named inputs of this expression alone, beside its node's
   /// ([[nodes.Node.expressionValues]]): the same kinds, a fetch included
   /// (`p.history.of(e, w)`). A name in both is a build error.
-  values: Mapping<String, nodes.ExpressionValue>? = null
+  hidden values: Mapping<String, nodes.ExpressionValue>? = null
+  inputs: Map<String, Any>? = values?.toMap()?.mapValues((_, v) -> slotMod.wireInput(v))
+}
+
+/// The size of a [[slotMod.PresentRead]] list.
+class CountStep extends Step {
+  kind: "Count" = "Count"
 }
 
 /// One value in, one text out, over operands that are themselves values.

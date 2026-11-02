@@ -7,7 +7,6 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  ExprValue,
   LayoutNode,
   NodeId,
   Op,
@@ -290,7 +289,9 @@ class RenderBench {
   private var conditionViaCel: Transform.Compiled = null
   private lazy val isOn =
     Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
-  private lazy val isOnValue = Map("on" -> ExprValue.Holds(isOn))
+  private lazy val isOnValue = Map(
+    "on" -> ValueExpr(Some(Value.Condition(isOn)))
+  )
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -395,7 +396,7 @@ class RenderBench {
         cparse
       )
     conditionViaCel = Transform
-      .parse(Transform.CelKey("on", List("on" -> ExprValue.Kind.Bool)))
+      .parse(Transform.CelKey("on", List("on" -> ValueExpr.Kind.Bool)))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
@@ -1782,8 +1783,11 @@ object RenderBench {
     */
   final val TransformFillColorValued =
     TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
-  final val FillColorValues: Map[String, ExprValue] =
-    Map("lo" -> ExprValue.Real(2000.0), "span" -> ExprValue.Real(4500.0))
+  final val FillColorValues: Map[String, ValueExpr] =
+    Map(
+      "lo" -> ValueExpr(Some(real(2000.0))),
+      "span" -> ValueExpr(Some(real(4500.0)))
+    )
 
   /** A tap's action as the builder bakes it for one entity (ADR 0016): a
     * build-time literal per entity, so the card's action hole stays filled but

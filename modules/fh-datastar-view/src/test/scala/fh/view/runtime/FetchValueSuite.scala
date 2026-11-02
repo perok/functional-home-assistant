@@ -24,8 +24,8 @@ class FetchValueSuite extends munit.FunSuite {
       "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))"
 
   private def of(
-      values: Map[String, ExprValue] = Map(
-        "past" -> ExprValue.Fetched(history)
+      values: Map[String, ValueExpr] = Map(
+        "past" -> ValueExpr(Some(Value.Fetch(history)))
       ),
       reads: String = Reads.Live
   ) = TemplateSlot(
@@ -38,7 +38,7 @@ class FetchValueSuite extends munit.FunSuite {
 
   private def dashboard(
       ofSlot: TemplateSlot = of(),
-      nodeValues: Map[String, ExprValue] = Map.empty
+      nodeValues: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
     cards = Map(
       "bar" -> CardDef(
@@ -103,7 +103,7 @@ class FetchValueSuite extends munit.FunSuite {
   test("a node's fetch value reaches the slot that reads it") {
     val d = dashboard(
       ofSlot = of(values = Map.empty),
-      nodeValues = Map("past" -> ExprValue.Fetched(history))
+      nodeValues = Map("past" -> ValueExpr(Some(Value.Fetch(history))))
     )
     assertEquals(d.validate(), Nil)
     assert(
@@ -119,7 +119,11 @@ class FetchValueSuite extends munit.FunSuite {
   test("a slot's values are checked as a node's are") {
     def errs(d: Dashboard) = d.validate().mkString("\n")
     assert(
-      errs(dashboard(nodeValues = Map("past" -> ExprValue.Whole(1))))
+      errs(
+        dashboard(nodeValues =
+          Map("past" -> ValueExpr(Some(Value.Literal(Lit.Whole(1)))))
+        )
+      )
         .contains("and so does its node")
     )
     assert(
@@ -127,8 +131,8 @@ class FetchValueSuite extends munit.FunSuite {
         dashboard(ofSlot =
           of(values =
             Map(
-              "past" -> ExprValue.Fetched(history),
-              "unread" -> ExprValue.Whole(1)
+              "past" -> ValueExpr(Some(Value.Fetch(history))),
+              "unread" -> ValueExpr(Some(Value.Literal(Lit.Whole(1))))
             )
           )
         )
@@ -143,22 +147,23 @@ class FetchValueSuite extends munit.FunSuite {
     assert(
       errs(
         dashboard(ofSlot =
-          of(values = Map("past" -> ExprValue.Fetched(undeclared)))
+          of(values = Map("past" -> ValueExpr(Some(Value.Fetch(undeclared)))))
         )
       ).contains("reads the variable 'window', which no ancestor declares")
     )
   }
 
-  test("the wire spells a fetch value by its provider") {
+  test("the wire spells a fetch value as a fetch source") {
     val slot = decode[TemplateSlot](
-      """{"steps": [{"kind": "Cel", "src": "size(past)", "values": {"past": {
+      """{"steps": [{"kind": "Cel", "src": "size(past)", "inputs": {"past": {
+        |  "source": {"kind": "Fetch", "fetch": {
         |  "provider": "history", "entity": "sensor.left", "window": {
         |  "kind": "Statistics", "span": 86400, "period": "5minute",
-        |  "fallback": true}}}}]}""".stripMargin
+        |  "fallback": true}}}}}}]}""".stripMargin
     )
     assertEquals(
       slot.map(_.values),
-      Right(Map("past" -> ExprValue.Fetched(history)))
+      Right(Map("past" -> ValueExpr(Some(Value.Fetch(history)))))
     )
   }
 }

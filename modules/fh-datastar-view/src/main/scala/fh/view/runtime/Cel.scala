@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{ExprValue, SlotValue}
+import fh.view.model.{SlotValue, ValueExpr}
 
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.ast.CelExpr
@@ -191,7 +191,7 @@ object Cel {
     */
   def parse(
       src: String,
-      env: List[(String, ExprValue.Kind)] = Nil,
+      env: List[(String, ValueExpr.Kind)] = Nil,
       entity: Boolean = true
   ): Either[String, Program] = {
     val trimmed = src.trim
@@ -209,7 +209,7 @@ object Cel {
     */
   def yieldsBool(
       src: String,
-      env: List[(String, ExprValue.Kind)],
+      env: List[(String, ValueExpr.Kind)],
       entity: Boolean = true
   ): Boolean =
     resultType(src, env, entity).forall(t =>
@@ -219,7 +219,7 @@ object Cel {
   /** Typed `bool` exactly — not `dyn`, which may be anything. */
   def isBoolTyped(
       src: String,
-      env: List[(String, ExprValue.Kind)],
+      env: List[(String, ValueExpr.Kind)],
       entity: Boolean = true
   ): Boolean =
     resultType(src, env, entity).contains(SimpleType.BOOL)
@@ -230,7 +230,7 @@ object Cel {
     */
   def nonTextType(
       src: String,
-      env: List[(String, ExprValue.Kind)],
+      env: List[(String, ValueExpr.Kind)],
       entity: Boolean = true
   ): Option[String] =
     resultType(src, env, entity).filterNot(isText).map(_.name)
@@ -252,14 +252,14 @@ object Cel {
   /** None when it does not compile; [[parse]] reports that. */
   private def resultType(
       src: String,
-      env: List[(String, ExprValue.Kind)],
+      env: List[(String, ValueExpr.Kind)],
       entity: Boolean
   ): Option[CelType] =
     val result = compilerWith(env, entity).compile(src.trim)
     Option.when(!result.hasError)(result.getAst.getResultType)
 
   private def compilerWith(
-      env: List[(String, ExprValue.Kind)],
+      env: List[(String, ValueExpr.Kind)],
       entity: Boolean
   ): CelCompiler =
     val base = if (entity) compiler else baseCompiler
@@ -271,12 +271,12 @@ object Cel {
         }
         .build()
 
-  private def celType(k: ExprValue.Kind): CelType = k match
-    case ExprValue.Kind.Str    => SimpleType.STRING
-    case ExprValue.Kind.Int    => SimpleType.INT
-    case ExprValue.Kind.Dbl    => SimpleType.DOUBLE
-    case ExprValue.Kind.Bool   => SimpleType.BOOL
-    case ExprValue.Kind.Series =>
+  private def celType(k: ValueExpr.Kind): CelType = k match
+    case ValueExpr.Kind.Str    => SimpleType.STRING
+    case ValueExpr.Kind.Int    => SimpleType.INT
+    case ValueExpr.Kind.Dbl    => SimpleType.DOUBLE
+    case ValueExpr.Kind.Bool   => SimpleType.BOOL
+    case ValueExpr.Kind.Series =>
       ListType.create(ListType.create(SimpleType.DOUBLE))
 
   private val parser = CelParserFactory.standardCelParserBuilder().build()

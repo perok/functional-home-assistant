@@ -94,7 +94,7 @@ object Transform {
     */
   case class CelKey(
       src: String,
-      env: List[(String, ExprValue.Kind)] = Nil,
+      env: List[(String, ValueExpr.Kind)] = Nil,
       entity: Boolean = true
   )
 

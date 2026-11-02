@@ -34,7 +34,7 @@ class ValueWhileSuite extends munit.FunSuite {
       List(
         Step.Cel(
           "math.greatest(past.transformList(i, p, p[1]))",
-          Map("past" -> ExprValue.Fetched(history))
+          Map("past" -> ValueExpr(Some(Value.Fetch(history))))
         )
       )
     ),
@@ -194,7 +194,10 @@ class ValueWhileSuite extends munit.FunSuite {
     val readsFetch = ValueExpr(
       None,
       List(
-        Step.Cel("size(past) > 0", Map("past" -> ExprValue.Fetched(history)))
+        Step.Cel(
+          "size(past) > 0",
+          Map("past" -> ValueExpr(Some(Value.Fetch(history))))
+        )
       )
     )
     assert(

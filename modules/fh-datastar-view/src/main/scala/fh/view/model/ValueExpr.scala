@@ -54,12 +54,52 @@ final case class ValueExpr(
   /** Injective, for signal names and the once-cache. The source's own entity is
     * not in it: the signal path names that entity.
     */
-  lazy val key: String =
-    source.fold("none")(Value.sourceKey) +
+  lazy val key: String = keyBy(Value.sourceKey)
+
+  /** As a named input, whose entity no signal path names. */
+  lazy val inputKey: String = keyBy(Value.key)
+
+  private def keyBy(src: Value => String): String =
+    source.fold("none")(src) +
       steps.map(s => "|" + Step.key(s)).mkString +
       default.fold("")(d => s"|default=${d.length}:$d")
 
+  /** The CEL type it is declared as when a named input: a literal, a count, a
+    * condition or a fetch. `None` for any other shape, which `validate`
+    * refuses.
+    */
+  def inputKind: Option[ValueExpr.Kind] = (source, steps) match
+    case (Some(Value.Literal(l)), Nil) =>
+      Some(l match
+        case Lit.Text(_)  => ValueExpr.Kind.Str
+        case Lit.Bool(_)  => ValueExpr.Kind.Bool
+        case Lit.Whole(_) => ValueExpr.Kind.Int
+        case Lit.Real(_)  => ValueExpr.Kind.Dbl)
+    case (Some(Value.Present(_)), List(Step.Count)) => Some(ValueExpr.Kind.Int)
+    case (Some(Value.Condition(_)), Nil)            => Some(ValueExpr.Kind.Bool)
+    case (Some(Value.Fetch(_)), Nil) => Some(ValueExpr.Kind.Series)
+    case _                           => None
+
+  /** Live: what it answers moves, so a once-read cannot hold it. */
+  def isLive: Boolean = source.exists {
+    case Value.Literal(_) => false
+    case _                => true
+  }
+
+  /** Every entity that can move it. */
+  def entities: List[String] =
+    source.toList.flatMap(Value.entityOf) ++ operandEntities
+
 object ValueExpr:
+
+  /** The CEL type a named input is declared as. `Series` is a history answer's
+    * points, `list(list(double))` of `[epochMillis, value]`.
+    */
+  enum Kind derives CanEqual:
+    case Str, Int, Dbl, Bool, Series
+
+  def env(inputs: Map[String, ValueExpr]): List[(String, Kind)] =
+    inputs.toList.sortBy(_._1).flatMap((n, v) => v.inputKind.map(n -> _))
 
   def literal(s: String): ValueExpr = ValueExpr(
     Some(Value.Literal(Lit.Text(s)))
@@ -135,6 +175,9 @@ enum Value derives CanEqual:
   )
   case Fetch(fetch: FetchTemplate)
 
+  /** The candidates present now, which a [[Step.Count]] counts. */
+  case Present(tally: Predicate.Tally)
+
   /** Decides itself, over the entities it names; a comparison that names none
     * reads the subject.
     */
@@ -149,6 +192,7 @@ object Value:
   def entityOf(v: Value): List[String] = v match
     case Entity(of, _, _, _) => of.toList
     case Condition(p)        => Predicate.referencedEntities(p)
+    case Present(t)          => t.referencedEntities
     case _                   => Nil
 
   /** A source's key, its entity left out ([[ValueExpr.key]]). A plain state
@@ -159,6 +203,7 @@ object Value:
     case Entity(_, part, _, bypass) =>
       Part.key(part) + (if (bypass) "" else "!b")
     case Fetch(f)     => s"fetch:${f.key}"
+    case Present(t)   => s"t:${Predicate.tallyKey(t)}"
     case Condition(p) => s"p:${Predicate.key(p)}"
 
   /** An operand's key, which does name its entity. */
@@ -184,13 +229,17 @@ object Value:
         case "Fetch" =>
           Strict.only(c, Set("kind", "fetch")) *>
             c.get[FetchTemplate]("fetch").map(Fetch(_))
+        case "Present" =>
+          Strict.only(c, Set("kind", "tally")) *>
+            c.get[Predicate.Tally]("tally").map(Present(_))
         case "Condition" =>
           Strict.only(c, Set("kind", "predicate")) *>
             c.get[Predicate]("predicate").map(Condition(_))
         case other =>
           Left(
             DecodingFailure(
-              s"unknown value kind '$other' — Entity, Fetch or Condition, " +
+              s"unknown value kind '$other' — Entity, Fetch, Present or " +
+                "Condition, " +
                 "or a bare literal",
               c.history
             )
@@ -216,10 +265,13 @@ sealed trait Step derives CanEqual
 object Step:
 
   /** CEL over the source's entity (`state`, `attr`, `entity_id`, `domain`, when
-    * there is one), the renderer's bindings and its named `values`.
+    * there is one), the renderer's bindings and its named `inputs`.
     */
-  final case class Cel(src: String, values: Map[String, ExprValue] = Map.empty)
+  final case class Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty)
       extends Step
+
+  /** The size of a [[Value.Present]] list. */
+  case object Count extends Step
 
   /** One value in, one text out, over operands that are themselves values. */
   sealed trait Format extends Step
@@ -301,6 +353,7 @@ object Step:
           .map((k, v) => sized(k) + Lit.key(v))
           .mkString
         s"match:${cases.size}:$body:${Value.key(o)}"
+      case Count        => "count"
       case Chart(style) => s"chart:$style"
 
   given Decoder[Step] =
