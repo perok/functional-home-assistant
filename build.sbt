@@ -511,7 +511,7 @@ lazy val `fh-datastar-view` = project
       // CEL for per-slot value transforms (compile-once/eval-many planner
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
-      "dev.cel" % "cel" % "0.14.0",
+      "dev.cel" % "cel" % "0.15.0",
       // already a runtime dep of cel; explicit so Digest can use murmur3 (keep
       // version in lockstep with what cel resolves)
       "com.google.guava" % "guava" % "33.7.2-jre",
@@ -608,7 +608,7 @@ lazy val benchmarks = project
       // Dev-tooling only: the shipped runtime is `fh-datastar-view`.
       // Bundles the extension libraries (strings/lists/math/
       // bindings/comprehensions) in the same jar.
-      "dev.cel" % "cel" % "0.14.0"
+      "dev.cel" % "cel" % "0.15.0"
     )
   )
 
