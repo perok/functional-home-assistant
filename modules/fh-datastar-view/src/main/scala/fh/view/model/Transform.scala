@@ -18,8 +18,8 @@ object Transform {
   type Compiled = Cel.Program
 
   /** The engine-free tier (ADR 0028), selected by form alone: a source read and
-    * its [[Step.Format]]s are fast-path work, a [[Step.Cel]] engine work, and
-    * nothing infers one from the other. A [[Predicate]] source is its bool
+    * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
+    * and nothing infers one from the other. A [[Predicate]] source is its bool
     * half, so a condition fills a slot as directly as it decides a `c.iff`.
     *
     * A step belongs here when it is a static lookup and TOTAL over every value
@@ -40,8 +40,8 @@ object Transform {
     case null      => ""
     case other     => Cel.stringify(other)
 
-  /** One format step over `value`, an operand read by `operand`. */
-  def format(step: Step.Format, value: Any, operand: Value => Any): SlotValue =
+  /** One simple step over `value`, an operand read by `operand`. */
+  def format(step: Step.Simple, value: Any, operand: Value => Any): Any =
     val ops = Step.operands(step)
     formatWith(
       step,
@@ -53,8 +53,12 @@ object Transform {
   /** [[format]] over its operands already read, in [[Step.operands]] order:
     * what a composed pipeline calls, so a render builds no reader.
     */
-  def formatWith(step: Step.Format, value: Any, a: Any, b: Any): SlotValue =
+  def formatWith(step: Step.Simple, value: Any, a: Any, b: Any): Any =
     step match
+      case Step.Count =>
+        value match
+          case xs: List[?] => xs.size.toLong
+          case _           => 0L
       case Step.Prefix(_)   => text(a) + text(value)
       case Step.Suffix(_)   => text(value) + text(a)
       case Step.WithUnit(_) =>

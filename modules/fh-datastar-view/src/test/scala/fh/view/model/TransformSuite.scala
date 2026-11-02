@@ -326,7 +326,7 @@ class TransformSuite extends munit.FunSuite {
     }
     val start: Any = shape.source.fold("")(operand)
     Transform.text(shape.steps.foldLeft(start) {
-      case (v, f: Step.Format) => Transform.format(f, v, operand)
+      case (v, f: Step.Simple) => Transform.format(f, v, operand)
       case (v, _)              => v
     })
 

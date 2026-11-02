@@ -1746,7 +1746,7 @@ object RenderBench {
   /** A slot's read and format steps, composed once as the renderer composes
     * one, its operands read off the same entity.
     */
-  final case class Probe(part: Part, steps: Step.Format*):
+  final case class Probe(part: Part, steps: Step.Simple*):
     val run: EntityState => Any =
       steps.foldLeft[EntityState => Any](e => Transform.read(part, e)) {
         (prev, f) =>

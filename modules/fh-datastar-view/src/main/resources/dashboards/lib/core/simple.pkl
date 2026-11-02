@@ -38,41 +38,42 @@ class ThemeClassesStage extends Step {
 }
 
 /// The size of a [[slotMod.PresentRead]] list.
-class CountStep extends Step {
+class CountStep extends Simple {
   kind: "Count" = "Count"
 }
 
-/// One value in, one text out, over operands that are themselves values.
-abstract class Format extends Step {}
+/// The simple tier: total, run without the engine, over operands that are
+/// themselves values.
+abstract class Simple extends Step {}
 
-class Prefix extends Format {
+class Prefix extends Simple {
   kind: "Prefix" = "Prefix"
   text: slotMod.Operand
 }
 
-class Suffix extends Format {
+class Suffix extends Simple {
   kind: "Suffix" = "Suffix"
   text: slotMod.Operand
 }
 
-class WithUnit extends Format {
+class WithUnit extends Simple {
   kind: "WithUnit" = "WithUnit"
   unit: slotMod.Operand
 }
 
-class Percent extends Format {
+class Percent extends Simple {
   kind: "Percent" = "Percent"
   min: slotMod.Operand
   max: slotMod.Operand
 }
 
-class Fill extends Format {
+class Fill extends Simple {
   kind: "Fill" = "Fill"
   min: slotMod.Operand
   max: slotMod.Operand
 }
 
-class Duration extends Format {
+class Duration extends Simple {
   kind: "Duration" = "Duration"
   scale: Number
 }
@@ -85,7 +86,7 @@ class Duration extends Format {
 /// type across a map's values. `otherwise` is required because HA adds states
 /// to a domain after it ships, and an unmatched one must degrade, not blank. It
 /// may be a read, `attrOf("effect")` to show an unlabelled value as itself.
-class Match extends Format {
+class Match extends Simple {
   kind: "Match" = "Match"
   cases: Mapping<String, String|Boolean>
   otherwise: slotMod.Operand

@@ -278,56 +278,61 @@ object Step:
   final case class Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty)
       extends Step
 
-  /** The size of a [[Value.Present]] list. */
-  case object Count extends Step
+  /** The simple tier (ADR 0028): total, and run without the engine, over
+    * operands that are themselves values.
+    */
+  sealed trait Simple extends Step
 
-  /** One value in, one text out, over operands that are themselves values. */
-  sealed trait Format extends Step
+  /** The size of a [[Value.Present]] list. */
+  case object Count extends Simple
 
   /** `text` then the value. */
-  final case class Prefix(text: Value) extends Format
+  final case class Prefix(text: Value) extends Simple
 
   /** The value then `text`. */
-  final case class Suffix(text: Value) extends Format
+  final case class Suffix(text: Value) extends Simple
 
   /** The value, a space and `unit` when the unit is text: CEL's
     * `value + attr[?'u'].optMap(u, ' ' + u).orValue('')`, except that an empty
     * value stays empty, so a slot's default applies.
     */
-  final case class WithUnit(unit: Value) extends Format
+  final case class WithUnit(unit: Value) extends Simple
 
   /** CEL:
     * `str(math.round((double(value) - min) * 100.0 / (max - min))) + ' %'`,
     * rounding half away from zero like `math.round`. Numbers or numeric
     * strings, as `double()` takes; unparseable renders `0 %` (CEL would error).
     */
-  final case class Percent(min: Value, max: Value) extends Format
+  final case class Percent(min: Value, max: Value) extends Simple
 
   /** CEL: `str(100.0 - ((double(value) - min) * 100.0 / (max - min))) + '%'`,
     * for a right-anchored track. Unparseable renders `100%`.
     */
-  final case class Fill(min: Value, max: Value) extends Format
+  final case class Fill(min: Value, max: Value) extends Simple
 
   /** Seconds per unit of the value, coarsened: `0s`, `45s`, `12m`, `1h 5m`.
     * Unparseable renders `""`: a dishwasher between programmes reports
     * `unknown`, and `0s` would claim it just finished.
     */
-  final case class Duration(scale: Double) extends Format
+  final case class Duration(scale: Double) extends Simple
 
   /** The case the value names, else `otherwise`. A map, so duplicate keys and
     * first-match questions are unrepresentable; `otherwise` is required, since
     * HA adds states to a domain after it ships.
     */
   final case class Match(cases: Map[String, Lit], otherwise: Value)
-      extends Format
+      extends Simple
+
+  /** The renderer's own steps. */
+  sealed trait Stage extends Step
 
   /** The theme's class rules over the value, which sits in a `class` attribute
     * (ADR 0020). Last, so a default is swapped too.
     */
-  case object ThemeClasses extends Step
+  case object ThemeClasses extends Stage
 
   /** A fetch's answer drawn as SVG (ADR 0032). */
-  final case class Chart(style: ChartStyle = ChartStyle()) extends Step
+  final case class Chart(style: ChartStyle = ChartStyle()) extends Stage
 
   def about(subject: Option[String])(s: Step): Step =
     val v = Value.about(subject)

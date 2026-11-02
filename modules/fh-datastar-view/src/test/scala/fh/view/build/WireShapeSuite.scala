@@ -288,7 +288,9 @@ class WireShapeSuite extends munit.FunSuite {
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
       caseNames[Value] ->
         Set("EntityRead", "FetchRead", "PresentRead", "ConditionRead"),
-      (caseNames[Step] - "Format" ++ caseNames[Step.Format]) -> Set(
+      (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
+        Step.Simple
+      ] ++ caseNames[Step.Stage]) -> Set(
         "Cel",
         "Prefix",
         "Suffix",

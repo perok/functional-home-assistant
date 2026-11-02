@@ -1685,7 +1685,7 @@ class Renderer(validated: Dashboard.Validated) {
                 Conditions.resolve(source.values, states, fetched)
               )
           )
-        case f: Step.Format =>
+        case f: Step.Simple =>
           Step.operands(f).map(operand) match
             case Nil =>
               (st, states, fetched) =>
@@ -1706,12 +1706,7 @@ class Renderer(validated: Dashboard.Validated) {
                   a(st, states),
                   b(st, states)
                 )
-        case Step.Count =>
-          (st, states, fetched) =>
-            prev(st, states, fetched) match
-              case xs: List[?] => xs.size.toLong
-              case _           => 0L
-        case _: Step.Chart | Step.ThemeClasses => prev
+        case _: Step.Stage => prev
     }
   }
 
