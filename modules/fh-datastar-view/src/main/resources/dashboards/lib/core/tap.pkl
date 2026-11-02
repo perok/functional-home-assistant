@@ -38,12 +38,12 @@ const dataValue: slotMod.Slot = slotMod.slot("dataValue")
 const onclick: slotMod.Slot = slotMod.slot("onclick")
 /// The tap's own refusal ([[refusedStates]]) and the card's (`nodes.disabledSlot`).
 const tapDisabled: slotMod.Slot = slotMod.slot("tapDisabled")
-const disabled: slotMod.Slot = slotMod.slot("disabled")
+const disabled: slotMod.Slot = slotMod.bool("disabled")
 /// Set on any card that has a tap.
 const tappable: slotMod.Slot = slotMod.slot("tappable")
 const busy: slotMod.Slot = slotMod.slot("busy")
 const busyVisual: slotMod.Slot = slotMod.slot("busyVisual")
-const current: slotMod.Slot = slotMod.slot("current")
+const current: slotMod.Slot = slotMod.bool("current")
 
 /// A [[Call]] or a [[Click]], rendered in one place ([[tapRoute]]).
 ///
@@ -500,7 +500,6 @@ const function currentSlots(t: TapAction): Listing<slotMod.Slot> = new {
           simpleMod.cel("dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'")
         }
       }
-      type = "bool"
     }
   }
 }

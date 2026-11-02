@@ -2,7 +2,7 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S4
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S5
 built.
 
 ## Why
@@ -39,7 +39,7 @@ final case class ValueExpr(
 )
 
 enum SlotType:                              // what a literal is, and what a slot may produce
-  case Text, Bool, Number                   // a slot declaring Number waits for slot-views point 4
+  case Text, Bool                           // Number joins with slot-views point 4
 
 enum Lit:
   case Text(v: String)
@@ -56,8 +56,8 @@ enum Value:
   case Present(tally: Predicate.Tally)      // the candidates present, a list
   case Condition(p: Predicate)              // decides itself, over the entities it names
 
-// in Predicate, so a condition's own `count()` and a Present share one shape
-final case class Tally(candidates: ListMap[EntityId, Option[Predicate]])
+// in Predicate, so a condition's own `count()` and a Present share one shape; as today
+final case class Tally(candidates: List[EntityId], when: Map[EntityId, Predicate])
 
 enum Part:
   case State
@@ -121,9 +121,9 @@ and styles hold `ValueExpr`s.
 - **A computed subject is removed** (`resolveDirect`, `NodePlan.subjectDynamic`,
   `DynamicSubjectSuite`): no card builds one. If one is ever needed, it is an `Entity` whose id is
   itself a `ValueExpr`.
-- **`Present` is one ordered map**: the order decides a tie (`first()`, a set's stable sort), and an
-  unguarded candidate is always present (`Conditions.scala:79`). `Cell` already decodes a
-  `ListMap` in wire order.
+- **`Present` keeps `Tally` as it is**: the candidate list's order decides a tie (`first()`, a
+  set's stable sort), and a candidate with no guard in `when` is always present. A `ListMap` would
+  hold the same facts.
 - **The fast tier owns its steps** (ADR 0028 rule 4): a step is pinned to a CEL spelling where one
   exists and held by tests of its own otherwise. `terminology.md`'s "each pinned byte-equal" is
   corrected.
@@ -169,7 +169,7 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
   (#657's open item). The goldens change only in signal names; the wire loses the click
   transforms' entity source.
 - **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present` and `Count`; an
-  input is a literal, a count, a condition or a fetch until S5 types the rest; the node's
+  input is a literal, a count, a condition or a fetch, another shape waiting for a use; the node's
   `values` likewise.
 - **S5. Types:** typed literals and defaults, `SlotType` with `slotMod.bool`, the binding's type
   check, and the `ThemeClasses` stage in place of `SlotType.CssClass`.

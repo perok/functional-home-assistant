@@ -15,7 +15,7 @@ class SimpleReadsSuite extends munit.FunSuite {
 
   private def slot(expr: ValueExpr, bool: Boolean = false) = TemplateSlot(
     expr,
-    signal = Some(SignalBind.Text),
+    signal = Some(if (bool) SignalBind.Attr("hidden") else SignalBind.Text),
     `type` = if (bool) SlotType.Bool else SlotType.Text
   )
 

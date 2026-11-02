@@ -51,7 +51,8 @@ class Reading {
         bypassUnavailable = if (r.bypassUnavailable) null else false
       }
   steps: Listing<simpleMod.Step> = new {}
-  default: String? = null
+  /// What an empty result shows instead, of the slot's type.
+  default: (String|Boolean)? = null
   /// When this slot has a value at all; otherwise it is `""`, its steps do not
   /// run and its fetches are not read:
   ///
@@ -133,16 +134,18 @@ const function wireInput(v: nodes.ExpressionValue): Any =
 class Slot {
   name: String(!contains("."))
   /// A literal, a [[Reading]], or null: not set.
-  value: (String|Reading)? = null
+  value: (String|Boolean|Reading)? = null
   /// Carry the value as a Datastar signal rather than bytes, so a change costs a
   /// frame entry instead of a re-render (ADR 0017). The template must place
   /// [[bind]]; the backend rejects it otherwise. Only a [[Reading]] moves.
   signal: SignalBind? = null
   /// `"bool"` for a slot the template reads as on/off, where the string
   /// `"false"` would be truthy; the build refuses a reading that is not one.
-  /// `"cssClass"` for one placed in a `class` attribute ([[cssClass]]). Null is
-  /// text; a `class:` binding is a bool by kind.
+  /// Null is text. A class binding needs `"bool"` ([[bool]]).
   type: SlotType? = null
+  /// Its value is classes in a `class` attribute, which the theme's class rules
+  /// reach as a last step of it ([[cssClass]]).
+  hidden themed: Boolean = false
 
   /// `{{{name}}}`, unescaped: markup the value already is (a chart).
   fixed raw: String = "{{{" + name + "}}}"
@@ -184,21 +187,25 @@ class Slot {
   function ifTrueElse(yes: String, no: String): String = ifTrue(yes) + ifFalse(no)
 
   /// This slot holding `v`.
-  function of(v: (String|Reading)?): Slot = let (self = this) (self) { value = v }
+  function of(v: (String|Boolean|Reading)?): Slot = let (self = this) (self) { value = v }
   /// A flag: set while `b` holds, for a template that reads it with
   /// [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
   /// `false` (`attr:disabled`).
-  function setIf(b: Boolean): Slot = of(if (b) "1" else null)
+  function setIf(b: Boolean): Slot = of(if (b) true else null)
 
   function toString(): String = "{{" + name + "}}"
 }
 
 const function slot(n: String): Slot = new { name = n }
 
+/// A slot the template reads as on or off, where the string `"false"` would
+/// be truthy: a Boolean, or a reading the build checks yields one.
+const function bool(n: String): Slot = new { name = n; type = "bool" }
+
 /// A slot whose value is classes, placed in a `class` attribute: the theme's
 /// class rules reach its value as they reach the template (ADR 0020). A
 /// literal or a reading, filled with [[Slot.of]] like any other.
-const function cssClass(n: String): Slot = new { name = n; type = "cssClass" }
+const function cssClass(n: String): Slot = new { name = n; themed = true }
 
 /// The entity a card is about, a literal: the build names it on every other
 /// reading that names none (`Dashboard.SubjectSlot`).
@@ -210,7 +217,7 @@ abstract class Fetch {
   provider: String
 }
 
-typealias SlotType = "text"|"bool"|"cssClass"
+typealias SlotType = "text"|"bool"
 
 /// Where a signal slot's value lands in the DOM (`fh.view.model.SignalBind`,
 /// whose case `kind` names). Build one with the `as…` helpers below.

@@ -31,6 +31,12 @@ class Cel extends Step {
   inputs: Map<String, Any>? = values?.toMap()?.mapValues((_, v) -> slotMod.wireInput(v))
 }
 
+/// The theme's class rules over the value, for one placed in a `class`
+/// attribute: last, so a default is swapped too. [[slotMod.cssClass]] adds it.
+class ThemeClassesStage extends Step {
+  kind: "ThemeClasses" = "ThemeClasses"
+}
+
 /// The size of a [[slotMod.PresentRead]] list.
 class CountStep extends Step {
   kind: "Count" = "Count"

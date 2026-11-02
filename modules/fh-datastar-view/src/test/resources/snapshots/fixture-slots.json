@@ -30,8 +30,8 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "checked" : {
               "default" : "",
               "signal" : {
@@ -54,10 +54,14 @@
             "entity_id" : "light.kitchen",
             "icon" : {
               "source" : "mdi mdi-lightbulb",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Kitchen",
-            "onoff" : "1",
+            "onoff" : true,
             "service" : "light/toggle",
             "switched" : {
               "default" : "",
@@ -138,18 +142,26 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "light.kitchen",
             "glyph" : {
               "source" : "mdi mdi-lightbulb",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Kitchen",
             "service" : "light/toggle",
             "size" : {
               "source" : "fh-size-large",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "tapDisabled" : {
               "signal" : {
@@ -196,7 +208,7 @@
                   }
                 ]
               },
-              "fh-hug" : "1"
+              "fh-hug" : true
             },
             "styles" : {
               
@@ -204,15 +216,19 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "glyph" : {
               "source" : "mdi-power",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "",
             "name" : "Toggle",
-            "round" : "1",
+            "round" : true,
             "service" : "light/toggle",
             "tapDisabled" : {
               "signal" : {
@@ -243,8 +259,8 @@
           "card" : "button",
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "disabled" : {
               "signal" : {
                 "kind" : "Handler"
@@ -293,7 +309,11 @@
             "service" : "light/turn_off",
             "size" : {
               "source" : "fh-size-large",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "targetId" : "c2047bed3d53a7e1",
             "targetKind" : "set",
@@ -355,7 +375,11 @@
                               "entity_id" : "sensor.outside_temp",
                               "icon" : {
                                 "source" : "mdi mdi-thermometer",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               },
                               "label" : "Outside Temperature",
                               "value" : {
@@ -386,7 +410,7 @@
                             "card" : "chooser",
                             "cell" : {
                               "classes" : {
-                                "fh-cols-full" : "1"
+                                "fh-cols-full" : true
                               },
                               "styles" : {
                                 
@@ -405,8 +429,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "1h",
                                           "onclick" : {
                                             "steps" : [
@@ -425,8 +449,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "24h",
                                           "onclick" : {
                                             "steps" : [
@@ -445,8 +469,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "7d",
                                           "onclick" : {
                                             "steps" : [
@@ -465,8 +489,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "30d",
                                           "onclick" : {
                                             "steps" : [
@@ -587,7 +611,11 @@
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
                                 "source" : "fh-size-large",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -613,12 +641,16 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "sensor.outside_temp",
             "icon" : {
               "source" : "mdi mdi-thermometer",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Outside Temperature",
             "onclick" : {
@@ -642,7 +674,7 @@
                 }
               }
             },
-            "tappable" : "1",
+            "tappable" : true,
             "value" : {
               "signal" : {
                 "kind" : "Text"
@@ -689,12 +721,16 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "light.kitchen",
             "icon" : {
               "source" : "mdi mdi-lightbulb",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : {
               "signal" : {
@@ -712,7 +748,7 @@
                 }
               ]
             },
-            "onoff" : "1",
+            "onoff" : true,
             "service" : "light/toggle",
             "tapDisabled" : {
               "signal" : {
@@ -732,7 +768,7 @@
                 }
               ]
             },
-            "tappable" : "1",
+            "tappable" : true,
             "targetId" : "light.kitchen",
             "targetKind" : "entity",
             "value" : {
@@ -825,15 +861,19 @@
                             },
                             "kind" : "Component",
                             "templateSlots" : {
-                              "busy" : "1",
-                              "busyVisual" : "1",
+                              "busy" : true,
+                              "busyVisual" : true,
                               "entity_id" : "light.kitchen",
                               "icon" : {
                                 "source" : "mdi mdi-lightbulb",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               },
                               "label" : "Kitchen",
-                              "onoff" : "1",
+                              "onoff" : true,
                               "service" : "light/toggle",
                               "tapDisabled" : {
                                 "signal" : {
@@ -853,7 +893,7 @@
                                   }
                                 ]
                               },
-                              "tappable" : "1",
+                              "tappable" : true,
                               "targetId" : "light.kitchen",
                               "targetKind" : "entity",
                               "value" : {
@@ -913,15 +953,19 @@
                                   },
                                   "kind" : "Component",
                                   "templateSlots" : {
-                                    "busy" : "1",
-                                    "busyVisual" : "1",
+                                    "busy" : true,
+                                    "busyVisual" : true,
                                     "entity_id" : "light.kitchen",
                                     "icon" : {
                                       "source" : "mdi mdi-lightbulb",
-                                      "type" : "cssClass"
+                                      "steps" : [
+                                        {
+                                          "kind" : "ThemeClasses"
+                                        }
+                                      ]
                                     },
                                     "label" : "Kitchen",
-                                    "onoff" : "1",
+                                    "onoff" : true,
                                     "service" : "homeassistant/toggle",
                                     "tapDisabled" : {
                                       "signal" : {
@@ -941,7 +985,7 @@
                                         }
                                       ]
                                     },
-                                    "tappable" : "1",
+                                    "tappable" : true,
                                     "targetId" : "light.kitchen",
                                     "targetKind" : "entity",
                                     "value" : {
@@ -1005,7 +1049,11 @@
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
                                 "source" : "fh-size-large",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -1031,12 +1079,16 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "light.kitchen",
             "icon" : {
               "source" : "mdi mdi-lightbulb",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Kitchen",
             "onclick" : {
@@ -1047,8 +1099,8 @@
                 }
               ]
             },
-            "onoff" : "1",
-            "tappable" : "1",
+            "onoff" : true,
+            "tappable" : true,
             "value" : {
               "signal" : {
                 "kind" : "Text"
@@ -1101,15 +1153,19 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "climate.hallway",
             "icon" : {
               "source" : "mdi mdi-thermostat",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Hallway",
-            "onoff" : "1",
+            "onoff" : true,
             "service" : "climate/toggle",
             "tapDisabled" : {
               "signal" : {
@@ -1129,7 +1185,7 @@
                 }
               ]
             },
-            "tappable" : "1",
+            "tappable" : true,
             "targetId" : "climate.hallway",
             "targetKind" : "entity",
             "value" : {
@@ -1225,10 +1281,14 @@
                               "entity_id" : "binary_sensor.front_door",
                               "icon" : {
                                 "source" : "mdi mdi-door-open",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               },
                               "label" : "Front Door",
-                              "onoff" : "1",
+                              "onoff" : true,
                               "value" : {
                                 "signal" : {
                                   "kind" : "Text"
@@ -1282,7 +1342,11 @@
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
                                 "source" : "fh-size-large",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -1308,12 +1372,16 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "binary_sensor.front_door",
             "icon" : {
               "source" : "mdi mdi-door-open",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Front Door",
             "onclick" : {
@@ -1324,8 +1392,8 @@
                 }
               ]
             },
-            "onoff" : "1",
-            "tappable" : "1",
+            "onoff" : true,
+            "tappable" : true,
             "value" : {
               "signal" : {
                 "kind" : "Text"
@@ -1379,15 +1447,19 @@
           },
           "kind" : "Component",
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "media_player.tv",
             "icon" : {
               "source" : "mdi mdi-speaker",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Living Room TV",
-            "onoff" : "1",
+            "onoff" : true,
             "service" : "media_player/toggle",
             "tapDisabled" : {
               "signal" : {
@@ -1407,7 +1479,7 @@
                 }
               ]
             },
-            "tappable" : "1",
+            "tappable" : true,
             "targetId" : "media_player.tv",
             "targetKind" : "entity",
             "value" : {
@@ -1455,7 +1527,11 @@
                               "entity_id" : "sensor.washer_remaining",
                               "icon" : {
                                 "source" : "mdi mdi-progress-clock",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               },
                               "label" : "Washing Machine",
                               "value" : {
@@ -1486,7 +1562,7 @@
                             "card" : "chooser",
                             "cell" : {
                               "classes" : {
-                                "fh-cols-full" : "1"
+                                "fh-cols-full" : true
                               },
                               "styles" : {
                                 
@@ -1505,8 +1581,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "1h",
                                           "onclick" : {
                                             "steps" : [
@@ -1525,8 +1601,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "24h",
                                           "onclick" : {
                                             "steps" : [
@@ -1545,8 +1621,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "7d",
                                           "onclick" : {
                                             "steps" : [
@@ -1565,8 +1641,8 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                          "busy" : "1",
-                                          "busyVisual" : "1",
+                                          "busy" : true,
+                                          "busyVisual" : true,
                                           "label" : "30d",
                                           "onclick" : {
                                             "steps" : [
@@ -1687,7 +1763,11 @@
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
                                 "source" : "fh-size-large",
-                                "type" : "cssClass"
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -1718,7 +1798,7 @@
                 "card" : "ifhost",
                 "cell" : {
                   "classes" : {
-                    "fh-cols-full" : "1"
+                    "fh-cols-full" : true
                   },
                   "styles" : {
                     
@@ -1748,7 +1828,7 @@
                             "card" : "progressBar",
                             "kind" : "Component",
                             "templateSlots" : {
-                              "down" : "1",
+                              "down" : true,
                               "of" : {
                                 "signal" : {
                                   "kind" : "Handler"
@@ -1791,12 +1871,16 @@
             ]
           },
           "templateSlots" : {
-            "busy" : "1",
-            "busyVisual" : "1",
+            "busy" : true,
+            "busyVisual" : true,
             "entity_id" : "sensor.washer_remaining",
             "icon" : {
               "source" : "mdi mdi-progress-clock",
-              "type" : "cssClass"
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
             },
             "label" : "Washing Machine",
             "onclick" : {
@@ -1816,7 +1900,7 @@
                 "of" : "sensor.washer_status"
               }
             },
-            "tappable" : "1",
+            "tappable" : true,
             "value" : {
               "signal" : {
                 "kind" : "Text"
@@ -1882,7 +1966,7 @@
           "card" : "chooser",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -1901,8 +1985,8 @@
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "label" : "1h",
                         "onclick" : {
                           "steps" : [
@@ -1921,8 +2005,8 @@
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "label" : "24h",
                         "onclick" : {
                           "steps" : [
@@ -1941,8 +2025,8 @@
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "label" : "7d",
                         "onclick" : {
                           "steps" : [
@@ -1961,8 +2045,8 @@
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "label" : "30d",
                         "onclick" : {
                           "steps" : [
@@ -2084,7 +2168,7 @@
           "card" : "chooser",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -2103,8 +2187,8 @@
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'simple'",
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "label" : "simple",
                         "onclick" : {
                           "steps" : [
@@ -2123,8 +2207,8 @@
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'detail'",
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "label" : "detail",
                         "onclick" : {
                           "steps" : [
@@ -2152,7 +2236,7 @@
                 "card" : "ifhost",
                 "cell" : {
                   "classes" : {
-                    "fh-cols-full" : "1"
+                    "fh-cols-full" : true
                   },
                   "styles" : {
                     

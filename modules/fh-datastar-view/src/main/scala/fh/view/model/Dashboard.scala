@@ -26,8 +26,8 @@ given Configuration =
   *   - `signal`: carry the value as a Datastar signal, so a change is one
   *     signal frame rather than a re-rendered card (ADR 0017). The card puts
   *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
-  *   - `type`: what the card reads the value AS. Declared where the binding
-  *     cannot say it: a `class:` binding is a bool by kind.
+  *   - `type`: what the card reads the value AS, which the binding is checked
+  *     against: a `Class` needs a bool, a `Text` or `Style` text.
   */
 final case class TemplateSlot(
     expr: ValueExpr,
@@ -88,7 +88,12 @@ final case class BoundSlot(
 ):
   def literal: Option[String] = expr.literal
 
-  def default: Option[String] = expr.default
+  def constant: Option[SlotValue] = expr.constant
+
+  def default: Option[Lit] = expr.default
+
+  /** Its value is classes the theme swaps ([[Step.ThemeClasses]]). */
+  lazy val themed: Boolean = expr.steps.lastOption.contains(Step.ThemeClasses)
 
   def fetch: Option[FetchTemplate] = expr.source match
     case Some(Value.Fetch(f)) => Some(f)
@@ -121,8 +126,7 @@ final case class BoundSlot(
       .collectFirst { case Step.Chart(s) => Transform.Stage.Chart(s) }
       .getOrElse(Transform.Stage.Passthrough)
 
-  def isBool: Boolean =
-    `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
+  def isBool: Boolean = `type` == SlotType.Bool
 
   /** What the compiled program is keyed by: one source compiles differently
     * against a different set of typed names, and without an entity to read.
@@ -165,8 +169,8 @@ final case class BoundSlot(
       }
 
   /** What the renderer keys a value by (signal names, the once-cache): two
-    * nodes saying the same thing over the same values share a signal. A
-    * `CssClass` value is the theme's swap of it, so it never shares with text.
+    * nodes saying the same thing over the same values share a signal. A themed
+    * value's key has its [[Step.ThemeClasses]], so it never shares with text.
     */
   lazy val valueKey: String =
     expr.key + values.toList
@@ -174,7 +178,7 @@ final case class BoundSlot(
       .map((n, v) => s"|$n=${v.inputKey}")
       .mkString + valueWhile.fold("")(w =>
       s"|while=${w.entityId.getOrElse("")}:${w.valueKey}"
-    ) + (if (`type` == SlotType.CssClass) "|cssClass" else "")
+    )
 
 object BoundSlot:
   def bind(values: Map[String, ValueExpr], subject: Option[String])(
@@ -351,19 +355,16 @@ object Reads:
 
 /** What a card reads a slot's value as. A `Bool` slot decides a class or an
   * attribute by truthiness, where the string `"false"` is ON, so the build
-  * refuses a reading on one that does not produce a bool. A `CssClass` slot
-  * sits in a `class` attribute, so the renderer passes its value through the
-  * theme's class rules (ADR 0020).
+  * refuses a reading on one that does not produce a bool.
   */
 enum SlotType derives CanEqual:
-  case Text, Bool, CssClass
+  case Text, Bool
 
 object SlotType:
   given Decoder[SlotType] = Decoder[String].emap {
-    case "text"     => Right(Text)
-    case "bool"     => Right(Bool)
-    case "cssClass" => Right(CssClass)
-    case other      => Left(s"unknown slot type: $other")
+    case "text" => Right(Text)
+    case "bool" => Right(Bool)
+    case other  => Left(s"unknown slot type: $other")
   }
 
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the
@@ -459,20 +460,24 @@ case class Cell(
   // Keyed once for the render walk: a `ListMap` iterates by building a list,
   // and each wrapper of each paint walks both.
   lazy val classSlots: List[Cell.Entry] =
-    classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.literal))
+    classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.constant))
   lazy val styleSlots: List[Cell.Entry] =
-    styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.literal))
+    styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.constant))
 
   /** The entries that read: a literal class the renderer writes as it is. */
   def live: List[(CellKey, ValueExpr)] =
     classes.toList.collect {
-      case (n, s) if s.literal.isEmpty => CellKey.Class(n) -> s
+      case (n, s) if s.constant.isEmpty => CellKey.Class(n) -> s
     } ++ styles.toList.collect {
-      case (p, s) if s.literal.isEmpty => CellKey.Style(p) -> s
+      case (p, s) if s.constant.isEmpty => CellKey.Style(p) -> s
     }
 
 object Cell:
-  final case class Entry(name: String, key: CellKey, literal: Option[String])
+  final case class Entry(
+      name: String,
+      key: CellKey,
+      constant: Option[SlotValue]
+  )
 
   private given Decoder[ListMap[String, ValueExpr]] = Decoder.instance(c =>
     c.as[JsonObject]
@@ -720,7 +725,7 @@ object LayoutNode:
     /** The reverse index. Empty means static HTML, never patched. */
     lazy val liveEntities: List[String] =
       stateSlots
-        .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
+        .filter(s => s.reads == Reads.Live && s.constant.isEmpty)
         .flatMap(s => s.entityId.toList ++ s.valueEntities)
         .distinct
 
@@ -731,7 +736,7 @@ object LayoutNode:
     lazy val liveEntitiesAsBytes: List[String] =
       stateSlots
         .filter(s =>
-          s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
+          s.reads == Reads.Live && s.constant.isEmpty && s.signal.isEmpty
         )
         .flatMap(s => s.entityId.toList ++ s.valueEntities)
         .distinct
@@ -1561,13 +1566,13 @@ case class Dashboard(
     ): List[String] =
       labelled(slots).collect {
         case (_, name, src)
-            if src.isBool && src.literal.isEmpty && src.fetch.isEmpty &&
+            if src.isBool && src.constant.isEmpty && src.fetch.isEmpty &&
               !Dashboard.yieldsBool(src) =>
           s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
             "produce a bool — compare it (`on > 0`), or use a condition"
       } ++ labelled(slots).flatMap { case (_, name, src) =>
         Option
-          .when(!src.isBool && src.literal.isEmpty && src.fetch.isEmpty)(
+          .when(!src.isBool && src.constant.isEmpty && src.fetch.isEmpty)(
             src.celKey.flatMap(Transform.nonTextType)
           )
           .flatten
@@ -1575,6 +1580,23 @@ case class Dashboard(
             s"$nodeId: slot '$name' yields a $t, which a card cannot show — " +
               "make it text, `str(…)` or `string(…)`"
           )
+      } ++ labelled(slots).collect {
+        case (_, name, src)
+            if src.signal.exists(_.isInstanceOf[SignalBind.Class]) &&
+              !src.isBool =>
+          s"$nodeId: slot '$name' binds a class, which is on or off — " +
+            "declare the slot bool"
+        case (_, name, src) if src.isBool && src.signal.exists {
+              case SignalBind.Text | _: SignalBind.Style => true
+              case _                                     => false
+            } =>
+          s"$nodeId: slot '$name' is a bool, which a text or style binding " +
+            "prints as `true` — bind it as a class or an attribute"
+        case (_, name, src)
+            if src.default.exists(_.isInstanceOf[Lit.Bool]) != src.isBool &&
+              src.default.isDefined =>
+          s"$nodeId: slot '$name' has a default of another type than the " +
+            s"slot's (${if (src.isBool) "bool" else "text"})"
       }
 
     def varErrors(
@@ -1618,7 +1640,7 @@ case class Dashboard(
         src: BoundSlot
     ): List[String] =
       if (
-        src.literal.isDefined || src.signal.isDefined ||
+        src.constant.isDefined || src.signal.isDefined ||
         src.reads == Reads.Once
       ) Nil
       else
@@ -1651,7 +1673,7 @@ case class Dashboard(
         src: BoundSlot
     ): List[String] =
       if (src.signal.isEmpty) Nil
-      else if (src.literal.isDefined)
+      else if (src.constant.isDefined)
         List(
           s"$nodeId: slot '$name' is a constant literal and cannot be a " +
             "signal slot — a value that never moves has nothing to patch"
@@ -1698,7 +1720,7 @@ case class Dashboard(
         .flatMap(_.classes.keys)
         .flatMap(classTokenErrors(nodeId, _)) ++
         cell.toList.flatMap(_.styles.collect {
-          case (p, s) if s.literal.isDefined =>
+          case (p, s) if s.constant.isDefined =>
             s"$nodeId: cellStyle '$p' must read live state — anything else " +
               "is never bound"
         })

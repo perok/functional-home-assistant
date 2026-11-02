@@ -81,7 +81,7 @@ facts {
     local left = minutes("rem", "time_to_end")
     local bar = barOf(c.progress(onDevice(left, List(words("ph", "cycle_phase")))))
     (bar.slotsByName["value"].value as slotMod.Reading).entityId == "sensor.rem"
-    bar.slotsByName["down"].value == "1"
+    bar.slotsByName["down"].value == true
     // The whole is a live CEL slot on the countdown, reading its history.
     local whole = bar.slotsByName["of"].value as slotMod.Reading
     whole.entityId == "sensor.rem"

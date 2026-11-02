@@ -13,18 +13,26 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   *   `None` reads no entity: a CEL over its inputs and the renderer's bindings
   *   alone.
   * @param default
-  *   what an empty result shows instead.
+  *   what an empty result shows instead, typed as the slot is.
   */
 final case class ValueExpr(
     source: Option[Value],
     steps: List[Step] = Nil,
-    default: Option[String] = None
+    default: Option[Lit] = None
 ) derives CanEqual:
 
-  /** A text literal with nothing run on it: what the renderer writes as is. */
-  def literal: Option[String] = (source, steps) match
-    case (Some(Value.Literal(Lit.Text(s))), Nil) => Some(s)
-    case _                                       => None
+  /** A literal with nothing run on it but the theme's swap, which the renderer
+    * applies as it paints: a value that never moves. A number is its text.
+    */
+  def constant: Option[SlotValue] = (source, steps) match
+    case (Some(Value.Literal(l)), Nil | List(Step.ThemeClasses)) =>
+      Some(l match
+        case Lit.Bool(b) => b
+        case other       => Transform.text(other.raw))
+    case _ => None
+
+  /** A [[constant]] that is text. */
+  def literal: Option[String] = constant.collect { case s: String => s }
 
   /** The subject resolved: a source [[Value.Entity]] that names none reads
     * `subject`, and a step's operand that names none its source's entity, else
@@ -62,7 +70,7 @@ final case class ValueExpr(
   private def keyBy(src: Value => String): String =
     source.fold("none")(src) +
       steps.map(s => "|" + Step.key(s)).mkString +
-      default.fold("")(d => s"|default=${d.length}:$d")
+      default.fold("")(d => s"|default=${Lit.key(d)}")
 
   /** The CEL type it is declared as when a named input: a literal, a count, a
     * condition or a fetch. `None` for any other shape, which `validate`
@@ -118,7 +126,7 @@ object ValueExpr:
     (
       c.getOrElse[Option[Value]]("source")(None),
       c.getOrElse[List[Step]]("steps")(Nil),
-      c.getOrElse[Option[String]]("default")(None)
+      c.getOrElse[Option[Lit]]("default")(None)
     ).mapN(ValueExpr.apply)
 
 /** A literal as Pkl wrote it. A number is typed by its spelling: a Pkl `Float`
@@ -313,6 +321,11 @@ object Step:
   final case class Match(cases: Map[String, Lit], otherwise: Value)
       extends Format
 
+  /** The theme's class rules over the value, which sits in a `class` attribute
+    * (ADR 0020). Last, so a default is swapped too.
+    */
+  case object ThemeClasses extends Step
+
   /** A fetch's answer drawn as SVG (ADR 0032). */
   final case class Chart(style: ChartStyle = ChartStyle()) extends Step
 
@@ -354,6 +367,7 @@ object Step:
           .mkString
         s"match:${cases.size}:$body:${Value.key(o)}"
       case Count        => "count"
+      case ThemeClasses => "themeClasses"
       case Chart(style) => s"chart:$style"
 
   given Decoder[Step] =

@@ -639,7 +639,7 @@ class RendererSuite extends munit.FunSuite {
           ValueExpr(
             Some(Value.Entity(Some("light.x"))),
             List(Step.Cel("'brightness' in attr ? attr['brightness'] : null")),
-            default = Some("0")
+            default = Some(fh.view.model.Lit.Text("0"))
           )
         )
       )

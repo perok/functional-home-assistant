@@ -1651,7 +1651,7 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |builder = c.entityCard(x).columns(3).cellClass("hero")
         |amend = (c.entityCard(x)) {
-        |  cell = new c.Cell { classes { ["fh-cols-3"] = "1"; ["hero"] = "1" } }
+        |  cell = new c.Cell { classes { ["fh-cols-3"] = true; ["hero"] = true } }
         |}
         |full = c.entityCard(x).fullWidth()
         |custom = c.entityCard(x).cellClass("my-hero")
@@ -1683,7 +1683,9 @@ class PklBuildSuite extends munit.FunSuite {
         .downField("cell")
         .get[io.circe.JsonObject]("classes")
         .toOption
-        .map(_.toList.collect { case (c, v) if v.asString.contains("1") => c })
+        .map(_.toList.collect {
+          case (c, v) if v.asBoolean.contains(true) => c
+        })
     assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
     assertEquals(classes("full"), Some(List("fh-cols-full")))
     assertEquals(classes("custom"), Some(List("my-hero")))
@@ -1751,7 +1753,7 @@ class PklBuildSuite extends munit.FunSuite {
       node.cell.map(
         _.classes
           .collect {
-            case (c, s) if s.literal.isDefined => c
+            case (c, s) if s.constant.isDefined => c
           }
           .toList
       ),
@@ -1766,7 +1768,7 @@ class PklBuildSuite extends munit.FunSuite {
       sized.cell.map(
         _.classes
           .collect {
-            case (c, s) if s.literal.isDefined => c
+            case (c, s) if s.constant.isDefined => c
           }
           .toList
       ),
@@ -1781,7 +1783,9 @@ class PklBuildSuite extends munit.FunSuite {
         .asComponent
         .cell
         .toList
-        .flatMap(_.classes.collect { case (c, s) if s.literal.isDefined => c }),
+        .flatMap(_.classes.collect {
+          case (c, s) if s.constant.isDefined => c
+        }),
       Nil
     )
   }
@@ -1994,7 +1998,7 @@ class PklBuildSuite extends munit.FunSuite {
         Value.Entity(None, Part.Attr("brightness"), bypassUnavailable = false)
       )
     )
-    assertEquals(slots("value").expr.default, Some("0"))
+    assertEquals(slots("value").expr.default, Some(fh.view.model.Lit.Text("0")))
   }
 
   test("a slider with children is the same card, holding ordinary nodes") {
@@ -2006,7 +2010,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
-    assertEquals(group.templateSlots("group").literal, Some("1"))
+    assertEquals(group.templateSlots("group").expr.constant, Some(true))
     // A head does not repeat a readout its rows carry.
     assert(
       !rowOf(group).templateSlots.contains("state"),
@@ -2039,7 +2043,7 @@ class PklBuildSuite extends munit.FunSuite {
       Some("light.lys")
     )
     assertEquals(actions.head.templateSlots("glyph").literal, Some("mdi-power"))
-    assertEquals(actions.head.templateSlots("round").literal, Some("1"))
+    assertEquals(actions.head.templateSlots("round").expr.constant, Some(true))
 
     // `allChildren` would include the head.
     val members =
@@ -2065,8 +2069,8 @@ class PklBuildSuite extends munit.FunSuite {
     // That reading is the position, so a drag moves it locally. The head reads
     // out nothing, so its `data-on:input` paints the fill alone.
     assertEquals(
-      rowOf(members.head).templateSlots("dragPercent").literal,
-      Some("1")
+      rowOf(members.head).templateSlots("dragPercent").expr.constant,
+      Some(true)
     )
     assert(
       !rowOf(group).templateSlots.contains("dragPercent"),
@@ -2544,7 +2548,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("tile"))
-    assertEquals(kids.head.templateSlots("tappable").literal, Some("1"))
+    assertEquals(kids.head.templateSlots("tappable").expr.constant, Some(true))
   }
 
   test("a generated entity reaches THROUGH its group with no null-proof") {

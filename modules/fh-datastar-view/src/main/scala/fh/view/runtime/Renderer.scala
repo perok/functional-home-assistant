@@ -22,7 +22,7 @@ import fh.view.model.{
   SlotKey,
   SlotRead,
   SlotShape,
-  SlotType,
+  Lit,
   SetId,
   Transform,
   SignalBind,
@@ -1500,7 +1500,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Unit = cell match
     case Some(c) =>
       c.classSlots.foreach { e =>
-        val on = e.literal.isDefined || (paint != null && {
+        val on = e.constant.exists(SlotValue.truthy) || (paint != null && {
           val v: SlotValue | Null = paint.getOrElse(e.key, null)
           v != null && SlotValue.truthy(v)
         })
@@ -1521,7 +1521,7 @@ class Renderer(validated: Dashboard.Validated) {
       r: Resolved
   ): Unit = {
     def bind(e: Cell.Entry): Unit =
-      if (e.literal.isEmpty) {
+      if (e.constant.isEmpty) {
         val s: Signalled | Null = r.signalled.getOrElse(e.key, null)
         if (s != null) {
           val _ = buf.append(' ').append(s.bind)
@@ -1673,8 +1673,11 @@ class Renderer(validated: Dashboard.Validated) {
     val dynB = List.newBuilder[(SlotKey, Option[String], Planned)]
     slots.foreach { case (slot, planned) =>
       val source = planned.source
-      source.literal match {
-        case Some(literal) =>
+      source.constant match {
+        case Some(flag: Boolean) =>
+          constB += ((slot, flag))
+          jsB += ((slot, Datastar.jsValue(flag)))
+        case Some(literal: String) =>
           val text = classed(source, literal)
           constB += ((slot, text))
           jsB += ((slot, Datastar.jsLiteral(text)))
@@ -1923,7 +1926,7 @@ class Renderer(validated: Dashboard.Validated) {
             value match
               case xs: List[?] => xs.size.toLong
               case _           => 0L
-          case _: Step.Chart => value
+          case _: Step.Chart | Step.ThemeClasses => value
         steps = steps.tail
       }
       value match {
@@ -1931,7 +1934,10 @@ class Renderer(validated: Dashboard.Validated) {
         case v          =>
           val s = Transform.text(v)
           if (s.nonEmpty) classed(source, s)
-          else classed(source, source.default.getOrElse(""))
+          else
+            source.default match
+              case Some(Lit.Bool(b)) => b
+              case d => classed(source, d.fold("")(l => Transform.text(l.raw)))
       }
     }
   }
@@ -1953,9 +1959,9 @@ class Renderer(validated: Dashboard.Validated) {
     case _                  => ""
   }
 
-  /** The one swap of a `CssClass` value's classes, wherever it resolves. */
+  /** The one swap of a themed value's classes, wherever it resolves. */
   private def classed(source: BoundSlot, value: String): String =
-    if (source.`type` == SlotType.CssClass) themeClasses.expandAll(value)
+    if (source.themed) themeClasses.expandAll(value)
     else value
 }
 
@@ -2122,7 +2128,7 @@ object Renderer {
     * plain form (ADR 0017).
     */
   def signalBind(src: BoundSlot): Option[SignalBind] =
-    src.signal.filter(_ => src.literal.isEmpty && src.reads == Reads.Live)
+    src.signal.filter(_ => src.constant.isEmpty && src.reads == Reads.Live)
 
   def isSignalSlot(src: BoundSlot): Boolean = signalBind(src).isDefined
 

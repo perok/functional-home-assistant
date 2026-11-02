@@ -98,7 +98,7 @@ facts {
       .options(List(new selectMod.Choice { value = "a"; label = "Aa"; icon = "mdi:palette" }, "b"))
       .style("cycle"))
     local face = iconic[0].first as buttonMod.Pill
-    face.slotsByName["glyph"].value == "mdi-palette" && face.slotsByName["name"].value == "Aa" && face.slotsByName["round"].value == "1"
+    face.slotsByName["glyph"].value == "mdi-palette" && face.slotsByName["name"].value == "Aa" && face.slotsByName["round"].value == true
     !(iconic[1].first as buttonMod.Pill).slotsByName.containsKey("glyph")
   }
 

@@ -8,7 +8,7 @@
           "card" : "tabs",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -52,7 +52,11 @@
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : {
                                             "source" : "mdi mdi-thermometer",
-                                            "type" : "cssClass"
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           },
                                           "label" : "Outside Temperature",
                                           "value" : {
@@ -83,7 +87,7 @@
                                         "card" : "chooser",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-cols-full" : "1"
+                                            "fh-cols-full" : true
                                           },
                                           "styles" : {
                                             
@@ -102,8 +106,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "1h",
                                                       "onclick" : {
                                                         "steps" : [
@@ -122,8 +126,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "24h",
                                                       "onclick" : {
                                                         "steps" : [
@@ -142,8 +146,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "7d",
                                                       "onclick" : {
                                                         "steps" : [
@@ -162,8 +166,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "30d",
                                                       "onclick" : {
                                                         "steps" : [
@@ -284,7 +288,11 @@
                                           "onclick" : "$ui_popups && history.back()",
                                           "size" : {
                                             "source" : "fh-size-large",
-                                            "type" : "cssClass"
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -310,12 +318,16 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "entity_id" : "sensor.outside_temp",
                         "icon" : {
                           "source" : "mdi mdi-thermometer",
-                          "type" : "cssClass"
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Outside Temperature",
                         "onclick" : {
@@ -326,7 +338,7 @@
                             }
                           ]
                         },
-                        "tappable" : "1",
+                        "tappable" : true,
                         "value" : {
                           "signal" : {
                             "kind" : "Text"
@@ -404,15 +416,19 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "entity_id" : "light.kitchen",
                         "icon" : {
                           "source" : "mdi mdi-lightbulb",
-                          "type" : "cssClass"
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Kitchen",
-                        "onoff" : "1",
+                        "onoff" : true,
                         "service" : "light/toggle",
                         "tapDisabled" : {
                           "signal" : {
@@ -432,7 +448,7 @@
                             }
                           ]
                         },
-                        "tappable" : "1",
+                        "tappable" : true,
                         "targetId" : "light.kitchen",
                         "targetKind" : "entity",
                         "value" : {
@@ -477,8 +493,8 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
-                  "busy" : "1",
-                  "busyVisual" : "1",
+                  "busy" : true,
+                  "busyVisual" : true,
                   "label" : "Temp",
                   "onclick" : {
                     "steps" : [
@@ -497,8 +513,8 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
-                  "busy" : "1",
-                  "busyVisual" : "1",
+                  "busy" : true,
+                  "busyVisual" : true,
                   "label" : "Light",
                   "onclick" : {
                     "steps" : [
@@ -529,7 +545,7 @@
           "card" : "ifhost",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -574,7 +590,11 @@
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : {
                                             "source" : "mdi mdi-thermometer",
-                                            "type" : "cssClass"
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           },
                                           "label" : "Outside Temperature",
                                           "value" : {
@@ -605,7 +625,7 @@
                                         "card" : "chooser",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-cols-full" : "1"
+                                            "fh-cols-full" : true
                                           },
                                           "styles" : {
                                             
@@ -624,8 +644,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "1h",
                                                       "onclick" : {
                                                         "steps" : [
@@ -644,8 +664,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "24h",
                                                       "onclick" : {
                                                         "steps" : [
@@ -664,8 +684,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "7d",
                                                       "onclick" : {
                                                         "steps" : [
@@ -684,8 +704,8 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : true,
+                                                      "busyVisual" : true,
                                                       "label" : "30d",
                                                       "onclick" : {
                                                         "steps" : [
@@ -806,7 +826,11 @@
                                           "onclick" : "$ui_popups && history.back()",
                                           "size" : {
                                             "source" : "fh-size-large",
-                                            "type" : "cssClass"
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -832,12 +856,16 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "entity_id" : "sensor.outside_temp",
                         "icon" : {
                           "source" : "mdi mdi-thermometer",
-                          "type" : "cssClass"
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Outside Temperature",
                         "onclick" : {
@@ -848,7 +876,7 @@
                             }
                           ]
                         },
-                        "tappable" : "1",
+                        "tappable" : true,
                         "value" : {
                           "signal" : {
                             "kind" : "Text"
@@ -929,15 +957,19 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : true,
+                        "busyVisual" : true,
                         "entity_id" : "light.kitchen",
                         "icon" : {
                           "source" : "mdi mdi-lightbulb",
-                          "type" : "cssClass"
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Kitchen",
-                        "onoff" : "1",
+                        "onoff" : true,
                         "service" : "light/toggle",
                         "tapDisabled" : {
                           "signal" : {
@@ -957,7 +989,7 @@
                             }
                           ]
                         },
-                        "tappable" : "1",
+                        "tappable" : true,
                         "targetId" : "light.kitchen",
                         "targetKind" : "entity",
                         "value" : {

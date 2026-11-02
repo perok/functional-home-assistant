@@ -8,7 +8,7 @@
           "card" : "sectionTitle",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -28,7 +28,7 @@
           ],
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -67,7 +67,7 @@
                                   }
                                 ]
                               },
-                              "fh-slider-head-cell" : "1"
+                              "fh-slider-head-cell" : true
                             },
                             "styles" : {
                               
@@ -82,7 +82,7 @@
                                 "card" : "sliderText",
                                 "cell" : {
                                   "classes" : {
-                                    "fh-slider-text" : "1"
+                                    "fh-slider-text" : true
                                   },
                                   "styles" : {
                                     
@@ -99,7 +99,7 @@
                             ]
                           },
                           "templateSlots" : {
-                            "busyVisual" : "1",
+                            "busyVisual" : true,
                             "dataKey" : "brightness",
                             "entity_id" : "light.kitchen",
                             "fill" : {
@@ -127,12 +127,16 @@
                             "fillColor" : "currentcolor",
                             "icon" : {
                               "source" : "mdi-lightbulb",
-                              "type" : "cssClass"
+                              "steps" : [
+                                {
+                                  "kind" : "ThemeClasses"
+                                }
+                              ]
                             },
                             "label" : "Kitchen",
                             "max" : "255",
                             "min" : "1",
-                            "onoff" : "1",
+                            "onoff" : true,
                             "service" : "light/turn_on",
                             "state" : {
                               "signal" : {
@@ -225,15 +229,19 @@
                     },
                     "kind" : "Component",
                     "templateSlots" : {
-                      "busy" : "1",
-                      "busyVisual" : "1",
+                      "busy" : true,
+                      "busyVisual" : true,
                       "entity_id" : "light.kitchen",
                       "icon" : {
                         "source" : "mdi mdi-lightbulb",
-                        "type" : "cssClass"
+                        "steps" : [
+                          {
+                            "kind" : "ThemeClasses"
+                          }
+                        ]
                       },
                       "label" : "Kitchen",
-                      "onoff" : "1",
+                      "onoff" : true,
                       "service" : "light/toggle",
                       "tapDisabled" : {
                         "signal" : {
@@ -253,7 +261,7 @@
                           }
                         ]
                       },
-                      "tappable" : "1",
+                      "tappable" : true,
                       "targetId" : "light.kitchen",
                       "targetKind" : "entity",
                       "value" : {
@@ -314,7 +322,7 @@
                                   }
                                 ]
                               },
-                              "fh-slider-head-cell" : "1"
+                              "fh-slider-head-cell" : true
                             },
                             "styles" : {
                               
@@ -329,7 +337,7 @@
                                 "card" : "sliderText",
                                 "cell" : {
                                   "classes" : {
-                                    "fh-slider-text" : "1"
+                                    "fh-slider-text" : true
                                   },
                                   "styles" : {
                                     
@@ -346,7 +354,7 @@
                             ]
                           },
                           "templateSlots" : {
-                            "busyVisual" : "1",
+                            "busyVisual" : true,
                             "dataKey" : "brightness",
                             "entity_id" : "light.living_room",
                             "fill" : {
@@ -374,12 +382,16 @@
                             "fillColor" : "currentcolor",
                             "icon" : {
                               "source" : "mdi-lightbulb",
-                              "type" : "cssClass"
+                              "steps" : [
+                                {
+                                  "kind" : "ThemeClasses"
+                                }
+                              ]
                             },
                             "label" : "Living Room",
                             "max" : "255",
                             "min" : "1",
-                            "onoff" : "1",
+                            "onoff" : true,
                             "service" : "light/turn_on",
                             "state" : {
                               "signal" : {
@@ -472,15 +484,19 @@
                     },
                     "kind" : "Component",
                     "templateSlots" : {
-                      "busy" : "1",
-                      "busyVisual" : "1",
+                      "busy" : true,
+                      "busyVisual" : true,
                       "entity_id" : "light.living_room",
                       "icon" : {
                         "source" : "mdi mdi-lightbulb",
-                        "type" : "cssClass"
+                        "steps" : [
+                          {
+                            "kind" : "ThemeClasses"
+                          }
+                        ]
                       },
                       "label" : "Living Room",
-                      "onoff" : "1",
+                      "onoff" : true,
                       "service" : "light/toggle",
                       "tapDisabled" : {
                         "signal" : {
@@ -500,7 +516,7 @@
                           }
                         ]
                       },
-                      "tappable" : "1",
+                      "tappable" : true,
                       "targetId" : "light.living_room",
                       "targetKind" : "entity",
                       "value" : {
@@ -538,7 +554,7 @@
           "card" : "sectionTitle",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -556,7 +572,7 @@
           ],
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -573,7 +589,7 @@
           "card" : "sectionTitle",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -591,7 +607,7 @@
           ],
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               

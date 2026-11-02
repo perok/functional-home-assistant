@@ -37,7 +37,7 @@ local defaults = (n: nodes.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> 
 // Whether `n`'s cell carries `cls` as a reading, which the renderer binds.
 local liveOn = (n: nodes.LayoutNode, cls: String) -> n.cell?.classes?.getOrNull(cls) is Map
 // The classes `n`'s cell always carries.
-local staticOn = (n: nodes.LayoutNode) -> n.cell.classes.toMap().filter((_, v) -> v == "1").keys.toList()
+local staticOn = (n: nodes.LayoutNode) -> n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -327,7 +327,7 @@ facts {
     bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
     bar.map((n) -> (n as nodes.Node).slotsByName["label"].value) == List("1h", "24h", "7d", "30d")
     // Per node, so one window's answer never clears another's guard (ADR 0019).
-    bar.every((n) -> (n as nodes.Node).slotsByName["busy"].value == "1")
+    bar.every((n) -> (n as nodes.Node).slotsByName["busy"].value == true)
     // A window names the chooser by the token, never by an id it cannot know.
     let (week = bar[2] as nodes.Node)
       (week.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src.contains(
@@ -474,7 +474,7 @@ facts {
     local card = c.entityCard(outside)
     // Still tappable — but it opens the popup rather than posting a service
     // call HA would reject. This is the flip the more-info work gated.
-    card.slotsByName["tappable"].value == "1"
+    card.slotsByName["tappable"].value == true
     card.inlineSurfaces.containsKey("self")
     !(card.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src.contains("sse/action")
     (card.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src.contains("/open/")
@@ -539,8 +539,8 @@ facts {
     !tapMod.closePopup().busy
     // The tab card takes its guard from its tap, like every other card.
     local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } } }).children.toList().first as nodes.Node
-    tab.slotsByName["busy"].value == "1"
-    tab.slotsByName["busyVisual"].value == "1"
+    tab.slotsByName["busy"].value == true
+    tab.slotsByName["busyVisual"].value == true
   }
 
   ["every pressable card places the guard exactly when its tap asks for it"] {
@@ -776,7 +776,7 @@ facts {
     // have to, which of a group's lights can dim.
     local row = (c.entitySlider(switchOnly)).readout("percent")
     row.toggleOnly
-    row.headNode.slotsByName["toggle"].value == "1"
+    row.headNode.slotsByName["toggle"].value == true
     // The whole track posts the domain's own toggle.
     row.headNode.slotsByName["service"].value == "light/toggle"
     // All or nothing, in the theme's switch-fill rather than in the text colour
@@ -814,7 +814,7 @@ facts {
     (dim.headNode.slotsByName["state"].value as slotMod.Reading).part.name == "brightness"
     statePercent.min == 1
     statePercent.max == 255
-    dim.headNode.slotsByName["dragPercent"].value == "1"
+    dim.headNode.slotsByName["dragPercent"].value == true
   }
 
   ["a card's structure travels with the card"] {
@@ -944,7 +944,7 @@ facts {
     local power = c.pill(c.tap.toggle(kitchen))
     power.slotsByName["glyph"].value == "mdi-power"
     power.slotsByName["label"].value == ""
-    power.slotsByName["round"].value == "1"
+    power.slotsByName["round"].value == true
     power.slotsByName["name"].value == "Toggle"
     // A toggle's pill is lit while its entity is on; other calls' are not.
     power.liveClasses["fh-active"].entityId == kitchen.entity_id
@@ -956,7 +956,7 @@ facts {
     both.slotsByName["label"].value == "Kjøkken" && both.slotsByName["glyph"].value == "mdi-power"
     !both.slotsByName.containsKey("round") && !both.slotsByName.containsKey("name")
     // An emoji is text, and short text is round too.
-    c.pill(c.view.navigate("under")).label("🔥").slotsByName["round"].value == "1"
+    c.pill(c.view.navigate("under")).label("🔥").slotsByName["round"].value == true
     !c.pill(c.view.navigate("under")).label("Under").slotsByName.containsKey("round")
     c.pill(c.tap.toggle(kitchen)).label("Kveld").noIcon().slotsByName.containsKey("glyph") == false
     // A tap with no look of its own needs one from the author.
@@ -976,7 +976,7 @@ facts {
     glyphOnly.slotsByName["glyph"].value == "mdi mdi-power"
     // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
     // as a label that failed to render.
-    glyphOnly.slotsByName["round"].value == "1"
+    glyphOnly.slotsByName["round"].value == true
     glyphOnly.slotsByName["label"].value == ""
 
     // Both together stay rectangular — that is an ordinary button with an icon.
@@ -1065,10 +1065,10 @@ facts {
     local after = c.button("x", tap).columns(3).active(c.isOn(kitchen))
     local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
     after.cell == before.cell
-    after.cell.classes["fh-cols-3"] == "1"
+    after.cell.classes["fh-cols-3"] == true
     liveOn.apply(after, "fh-active")
     c.button("x", tap).active(true).columns(3).cell.classes.toMap()
-      == Map("fh-cols-3", "1", "fh-active", "1")
+      == Map("fh-cols-3", true, "fh-active", true)
   }
 
   ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
@@ -1131,11 +1131,11 @@ facts {
   }
 
   ["a button's size is a class token a theme can map"] {
-    // The `size` slot holds the whole class, typed `cssClass`, so a theme's
-    // class rules reach its value, and BeerCSS maps every one.
+    // The `size` slot holds the whole class, themed, so a theme's class rules
+    // reach its value, and BeerCSS maps every one.
     local large = c.button("x", c.view.closePopup()).slotsByName["size"]
     large.value == "fh-size-large"
-    large.type == "cssClass"
+    large.themed
     c.button("x", c.view.closePopup()).size("small").slotsByName["size"].value == "fh-size-small"
     List("small", "medium", "large").every((sz) -> beerMod.theme.classes.containsKey("fh-size-\(sz)"))
     // The base heights are fallbacks; under BeerCSS the height is its own.
@@ -1177,12 +1177,12 @@ facts {
     c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button")
     // On is the cell's; whether there is an off is the badge's.
     liveOn.apply(c.toggle(kitchen), "fh-active")
-    c.toggle(kitchen).slotsByName["onoff"].value == "1"
-    c.entityCard(kitchen).slotsByName["onoff"].value == "1"
+    c.toggle(kitchen).slotsByName["onoff"].value == true
+    c.entityCard(kitchen).slotsByName["onoff"].value == true
     !c.entityCard(outside).slotsByName.containsKey("onoff")
     local head = c.entitySlider(kitchen).children["head"][0]
     liveOn.apply(head, "fh-active")
-    head.slotsByName["onoff"].value == "1"
+    head.slotsByName["onoff"].value == true
     // One meaning of on: a toggle's pill reads HA's rule, as the tile.
     c.pill(c.tap.toggle(kitchen)).liveClasses["fh-active"].steps
       == c.entityCard(kitchen).liveClasses["fh-active"].steps
@@ -1225,7 +1225,7 @@ facts {
     // They are ordinary pills, not a card of this module's own. What the
     // slider adds is only WHERE they sit.
     acts.toList().every((a) -> a.card == "pill")
-    acts.toList().every((a) -> a.slotsByName["round"].value == "1")
+    acts.toList().every((a) -> a.slotsByName["round"].value == true)
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
     c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
@@ -1322,7 +1322,7 @@ facts {
     local bar = barOf(dishwasher)
     (bar.slotsByName["value"].value as slotMod.Reading).entityId == "sensor.timetoend"
     (bar.slotsByName["of"].value as slotMod.Reading).entityId == "sensor.programduration"
-    bar.slotsByName["down"].value == "1"
+    bar.slotsByName["down"].value == true
     // Same unit both sides, so no factor rides along.
     !bar.slotsByName.containsKey("scale")
     // The fill is a function of TWO entities, so it cannot be a transform: a
@@ -1542,7 +1542,7 @@ facts {
     narrowed.headNode.slotsByName["dataKey"].value == "brightness"
     // A plug has no main controls at all, and is still the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
-    c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headNode.slotsByName["toggle"].value == "1"
+    c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headNode.slotsByName["toggle"].value == true
   }
 
   ["a slider following a chooser has no switch of its own"] {
@@ -1653,7 +1653,7 @@ facts {
     paint.reads == "live"
     (paint.steps.toList().last.src).contains("'hsl(' + str(math.round(h)) + ',100%,50%)'")
     // A drag repaints it with the same hsl, before any commit.
-    head.slotsByName["hueTrack"].value == "1"
+    head.slotsByName["hueTrack"].value == true
   }
 
   ["a colour temperature track is painted warm to cold, only on that axis"] {
@@ -1666,7 +1666,7 @@ facts {
     // In a colour mode HA reports no kelvin, so the fill is empty and the band
     // is what says this track sets a temperature.
     local head = c.entitySlider(lamp.colourTemp!!).headNode
-    head.slotsByName["kelvinTrack"].value == "1"
+    head.slotsByName["kelvinTrack"].value == true
     // A marker, as the hue's: no kelvin paints it `transparent`, which hides it,
     // on the server and on a rollback alike.
     (head.slotsByName["fillColor"].value as slotMod.Reading).default == "transparent"

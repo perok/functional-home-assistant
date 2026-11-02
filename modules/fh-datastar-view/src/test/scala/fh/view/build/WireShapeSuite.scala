@@ -255,6 +255,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("Match", Step.Match(Map.empty, lit))
     check("ChartStage", Step.Chart())
     check("CountStep", Step.Count)
+    check("ThemeClassesStage", Step.ThemeClasses)
   }
 
   test("each signal binding agrees with its case on both sides") {
@@ -297,7 +298,8 @@ class WireShapeSuite extends munit.FunSuite {
         "Duration",
         "Match",
         "ChartStage",
-        "CountStep"
+        "CountStep",
+        "ThemeClassesStage"
       ),
       caseNames[Part] -> Set("Attr"),
       caseNames[SignalBind] -> Set(
