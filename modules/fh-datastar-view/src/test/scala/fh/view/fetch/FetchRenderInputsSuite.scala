@@ -4,6 +4,7 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
+  Part,
   Activation,
   BoundSlot,
   CardDef,
@@ -69,7 +70,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def chartSource(window: String = "24h", width: Int = 600) =
     TemplateSlot(
-      ValueExpr(Some(Value.Fetch(chart(window))), List(drawnStep(width)))
+      ValueExpr(Value.Fetch(chart(window)), List(drawnStep(width)))
     )
 
   private def chartNode(window: String = "24h") =
@@ -80,8 +81,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         "chart" -> chartSource(window),
         "name" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Entity(Some("sensor.t"))),
-            List(Step.Cel("state"))
+            Value.Entity(Some("sensor.t"), Part.Whole),
+            List(Step.Cel("value.state"))
           )
         )
       )
@@ -342,7 +343,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
                   templateSlots = Map(
                     "chart" -> TemplateSlot(
                       ValueExpr(
-                        Some(Value.Fetch(chart())),
+                        Value.Fetch(chart()),
                         List(drawnStep())
                       )
                     )
@@ -482,12 +483,10 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     val errs = dashboard(
       TemplateSlot(
         ValueExpr(
-          Some(
-            Value.Fetch(
-              FetchTemplate(
-                "sensor.t",
-                Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
-              )
+          Value.Fetch(
+            FetchTemplate(
+              "sensor.t",
+              Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
             )
           ),
           List(drawnStep())

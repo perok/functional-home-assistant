@@ -40,7 +40,7 @@ class SharedPassSuite extends ServerHarness {
           LayoutNode.Component(
             "card",
             templateSlots = Map(
-              "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(e)))))
+              "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e))))
             )
           )
         )*

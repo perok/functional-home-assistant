@@ -1,6 +1,7 @@
 package fh.view.build
 
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Cell,
@@ -152,7 +153,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val unguarded = "places {{x.signal}} outside {{#x.signal}}"
     // The rule reads the template alone: a signal slot is held to it too.
     val signal = TemplateSlot(
-      ValueExpr(Some(Value.Entity(Some("light.a")))),
+      ValueExpr(Value.Entity(Some("light.a"))),
       signal = Some(SignalBind.Handler)
     )
     def placed(tpl: String) =
@@ -220,7 +221,10 @@ class BuildPhaseSuite extends munit.FunSuite {
         "{{v}}",
         Map(
           "v" -> TemplateSlot(
-            ValueExpr(Some(Value.Entity(Some("sensor.t"))), List(Step.Cel(src)))
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel(src))
+            )
           )
         )
       )
@@ -232,8 +236,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       cel("{'a': 1}").exists(_.contains("yields a map")),
       clue = cel("{'a': 1}")
     )
-    assertEquals(cel("attr['x']"), Nil)
-    assertEquals(cel("num(state) * 2.0"), Nil)
+    assertEquals(cel("value.attr['x']"), Nil)
+    assertEquals(cel("num(value.state) * 2.0"), Nil)
   }
 
   test("validate names a surface's node by the id it renders with") {
@@ -275,7 +279,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate takes a set's literal cell classes and refuses any reading") {
     // A set has no slots to bind a reading with, so the wire alone could ask.
-    val reading = ValueExpr(Some(Value.Entity(Some("light.a"))))
+    val reading = ValueExpr(Value.Entity(Some("light.a")))
     val cell = Cell(
       classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
       styles = ListMap("--x" -> reading)
@@ -1048,7 +1052,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         templateSlots = Map(
           "state" -> TemplateSlot(
             ValueExpr(
-              Some(Value.Entity(Some("e.x"))),
+              Value.Entity(Some("e.x"), Part.Whole),
               List(Step.Cel("'unclosed"))
             )
           )

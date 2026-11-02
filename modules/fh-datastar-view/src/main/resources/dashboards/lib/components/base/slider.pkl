@@ -253,7 +253,7 @@ class SliderControls extends nodes.Node {
 ///
 ///   (c.entitySlider(dump.entities.light_lys)) {
 ///     icon = "mdi:lightbulb-group"
-///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
+///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"value.state + ' °C'"#)
 ///     buttons = List(c.tap.toggle(dump.entities.light_lys))
 ///     members { c.entitySlider(a).readout("percent") c.entitySlider(b).readout("percent") }
 ///   }

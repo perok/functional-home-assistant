@@ -40,7 +40,7 @@ class ResumePatchesSuite extends munit.FunSuite {
                   "dot",
                   Map(
                     "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-                    "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None))))
+                    "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
                   )
                 )
               )

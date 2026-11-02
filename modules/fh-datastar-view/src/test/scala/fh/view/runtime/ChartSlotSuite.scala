@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.history.Windows
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.{
+  Part,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -48,14 +49,14 @@ class ChartSlotSuite extends munit.FunSuite {
           "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
           "chart" -> TemplateSlot(
             ValueExpr(
-              Some(Value.Fetch(chartFetch)),
+              Value.Fetch(chartFetch),
               List(Step.Chart(ChartStyle(width = 600)))
             )
           ),
           "name" -> TemplateSlot(
             ValueExpr(
-              Some(Value.Entity(Some("sensor.t"))),
-              List(Step.Cel("state"))
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel("value.state"))
             )
           )
         )

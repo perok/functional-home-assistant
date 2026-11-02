@@ -21,16 +21,16 @@ class FetchValueSuite extends munit.FunSuite {
   private val peak =
     "cel.bind(zeros, past.transformList(i, p, p[1] <= 0.0, p[0]), " +
       "cel.bind(since, size(zeros) == 0 ? 0.0 : math.greatest(zeros), " +
-      "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))"
+      "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(value.state)])))"
 
   private def of(
       values: Map[String, ValueExpr] = Map(
-        "past" -> ValueExpr(Some(Value.Fetch(history)))
+        "past" -> ValueExpr(Value.Fetch(history))
       ),
       reads: String = Reads.Live
   ) = TemplateSlot(
     ValueExpr(
-      Some(Value.Entity(Some("sensor.left"), reads = reads)),
+      Value.Entity(Some("sensor.left"), reads = reads, part = Part.Whole),
       List(Step.Cel(peak, values))
     ),
     signal = Some(SignalBind.Handler)
@@ -51,8 +51,8 @@ class FetchValueSuite extends munit.FunSuite {
         "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
         "value" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Entity(Some("sensor.left"))),
-            List(Step.Cel("state"))
+            Value.Entity(Some("sensor.left"), Part.Whole),
+            List(Step.Cel("value.state"))
           )
         ),
         "of" -> ofSlot
@@ -103,7 +103,7 @@ class FetchValueSuite extends munit.FunSuite {
   test("a node's fetch value reaches the slot that reads it") {
     val d = dashboard(
       ofSlot = of(values = Map.empty),
-      nodeValues = Map("past" -> ValueExpr(Some(Value.Fetch(history))))
+      nodeValues = Map("past" -> ValueExpr(Value.Fetch(history)))
     )
     assertEquals(d.validate(), Nil)
     assert(
@@ -121,7 +121,7 @@ class FetchValueSuite extends munit.FunSuite {
     assert(
       errs(
         dashboard(nodeValues =
-          Map("past" -> ValueExpr(Some(Value.Literal(Lit.Whole(1)))))
+          Map("past" -> ValueExpr(Value.Literal(Lit.Whole(1))))
         )
       )
         .contains("and so does its node")
@@ -131,8 +131,8 @@ class FetchValueSuite extends munit.FunSuite {
         dashboard(ofSlot =
           of(values =
             Map(
-              "past" -> ValueExpr(Some(Value.Fetch(history))),
-              "unread" -> ValueExpr(Some(Value.Literal(Lit.Whole(1))))
+              "past" -> ValueExpr(Value.Fetch(history)),
+              "unread" -> ValueExpr(Value.Literal(Lit.Whole(1)))
             )
           )
         )
@@ -147,7 +147,7 @@ class FetchValueSuite extends munit.FunSuite {
     assert(
       errs(
         dashboard(ofSlot =
-          of(values = Map("past" -> ValueExpr(Some(Value.Fetch(undeclared)))))
+          of(values = Map("past" -> ValueExpr(Value.Fetch(undeclared))))
         )
       ).contains("reads the variable 'window', which no ancestor declares")
     )
@@ -155,7 +155,7 @@ class FetchValueSuite extends munit.FunSuite {
 
   test("the wire spells a fetch value as a fetch source") {
     val slot = decode[TemplateSlot](
-      """{"steps": [{"kind": "Cel", "src": "size(past)", "inputs": {"past": {
+      """{"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "size(past)", "inputs": {"past": {
         |  "source": {"kind": "Fetch", "fetch": {
         |  "provider": "history", "entity": "sensor.left", "window": {
         |  "kind": "Statistics", "span": 86400, "period": "5minute",
@@ -163,7 +163,7 @@ class FetchValueSuite extends munit.FunSuite {
     )
     assertEquals(
       slot.map(_.values),
-      Right(Map("past" -> ValueExpr(Some(Value.Fetch(history)))))
+      Right(Map("past" -> ValueExpr(Value.Fetch(history))))
     )
   }
 }

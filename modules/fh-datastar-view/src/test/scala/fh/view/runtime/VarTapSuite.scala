@@ -48,12 +48,10 @@ class VarTapSuite extends ServerHarness {
     templateSlots = Map(
       "chart" -> TemplateSlot(
         ValueExpr(
-          Some(
-            Value.Fetch(
-              FetchTemplate(
-                "sensor.a",
-                Choice.Chosen("window", Windows.presets)
-              )
+          Value.Fetch(
+            FetchTemplate(
+              "sensor.a",
+              Choice.Chosen("window", Windows.presets)
             )
           )
         )
@@ -81,12 +79,10 @@ class VarTapSuite extends ServerHarness {
           Map(
             "chart" -> TemplateSlot(
               ValueExpr(
-                Some(
-                  Value.Fetch(
-                    FetchTemplate(
-                      "sensor.b",
-                      Choice.Chosen("w", Windows.presets)
-                    )
+                Value.Fetch(
+                  FetchTemplate(
+                    "sensor.b",
+                    Choice.Chosen("w", Windows.presets)
                   )
                 )
               )
@@ -274,12 +270,10 @@ class VarTapSuite extends ServerHarness {
             Map(
               "chart" -> TemplateSlot(
                 ValueExpr(
-                  Some(
-                    Value.Fetch(
-                      FetchTemplate(
-                        entity,
-                        Choice.Chosen("window", Windows.presets)
-                      )
+                  Value.Fetch(
+                    FetchTemplate(
+                      entity,
+                      Choice.Chosen("window", Windows.presets)
                     )
                   )
                 )
@@ -556,7 +550,7 @@ class VarTapSuite extends ServerHarness {
           "both",
           templateSlots = chartNode.templateSlots +
             ("state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.a"))))
+              ValueExpr(Value.Entity(Some("sensor.a")))
             ))
         )
       ),

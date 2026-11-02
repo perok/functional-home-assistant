@@ -37,7 +37,7 @@ const dataKey: slotMod.Slot = slotMod.slot("dataKey")
 const dataValue: slotMod.Slot = slotMod.slot("dataValue")
 const onclick: slotMod.Slot = slotMod.slot("onclick")
 /// The tap's own refusal ([[refusedStates]]) and the card's (`nodes.disabledSlot`).
-const tapDisabled: slotMod.Slot = slotMod.slot("tapDisabled")
+const tapDisabled: slotMod.Slot = slotMod.bool("tapDisabled")
 const disabled: slotMod.Slot = slotMod.bool("disabled")
 /// Set on any card that has a tap.
 const tappable: slotMod.Slot = slotMod.slot("tappable")
@@ -412,8 +412,7 @@ const function guardSlots(t: TapAction): Listing<slotMod.Slot> =
 /// constant, which also resolves on an unavailable entity, the one you most
 /// want to click.
 const function clickSlot(transformExpr: String): slotMod.Reading = new {
-  source = null
-  steps { simpleMod.cel(transformExpr) }
+  source = new slotMod.CelRead { src = transformExpr }
 }
 
 // A transform rather than a constant, because only a transform can read
@@ -495,9 +494,8 @@ const function currentSlots(t: TapAction): Listing<slotMod.Slot> = new {
   when (t.page != null) {
     (current) {
       value = new slotMod.Reading {
-        source = null
-        steps {
-          simpleMod.cel("dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'")
+        source = new slotMod.CelRead {
+          src = "dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
         }
       }
     }

@@ -126,17 +126,19 @@ readings that need no expression engine — `simpleMod.attr("battery")`,
 entity than the card's: a condition names its own, and a reading takes
 `entityId`, as in `(simpleMod.attr("battery")) { entityId = phone.entity_id }`.
 
-For anything more, a step is a small expression (CEL) over the entity's
-`state` and `attr`:
+For anything more, a step is a small expression (CEL) over `value`, what the
+step before it gave: the state, on a plain reading. To read more of the entity,
+read the whole of it, as `slotMod.celReading` does, and write `value.state` and
+`value.attr`:
 
 ```pkl
-steps { simpleMod.cel("state + ' °C'") }
-steps { simpleMod.cel("attr['friendly_name']") }
-steps { simpleMod.cel("state == 'on' ? 'Running' : 'Idle'") }
+steps { simpleMod.cel("value + ' °C'") }
+slotMod.celReading("value.attr[?'friendly_name'].orValue('')")
+slotMod.celReading("value.state == 'on' ? 'Running' : 'Idle'")
 ```
 
 It is checked when the dashboard is built, names and types both, so
-`state + 1` fails there rather than on the page. What it gives back must be
+`value.state + 1` fails there rather than on the page. What it gives back must be
 something a card can show: text, a number or a true/false. A list or a map
 fails the build; `str(…)` turns one into text.
 

@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
+  Part,
   CardDef,
   Dashboard,
   NodeId,
@@ -37,10 +38,12 @@ class SignalNamesFixedSuite extends munit.FunSuite {
 
   private def sig(entity: String, transform: String = "state") =
     TemplateSlot(
-      ValueExpr(
-        Some(Value.Entity(Some(entity))),
-        if (transform == "state") Nil else List(Step.Cel(transform))
-      ),
+      if (transform == "state") ValueExpr(Value.Entity(Some(entity)))
+      else
+        ValueExpr(
+          Value.Entity(Some(entity), Part.Whole),
+          List(Step.Cel(transform))
+        ),
       signal = Some(SignalBind.Text)
     )
 
@@ -50,7 +53,7 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       component("card", "value" -> sig("sensor.a")),
       component(
         "two",
-        "a" -> sig("sensor.a", "attr.brightness"),
+        "a" -> sig("sensor.a", "value.attr.brightness"),
         "b" -> sig("sensor.b")
       ),
       component("card", "value" -> lit("constant"))

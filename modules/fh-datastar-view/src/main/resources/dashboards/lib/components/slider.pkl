@@ -28,14 +28,14 @@ const domainAxes: Mapping<String, hass.Axis> = new {
 // anything else the theme's paint. A hue axis has no fill, only a marker over
 // a track painted with the hues (`hueTrack`).
 //
-// Every read keeps a presence guard (`attr[?'x']…orValue('')`): capability is a
+// Every read keeps a presence guard (`value.attr[?'x']…orValue('')`): capability is a
 // build-time fact but a live state may drop the attribute, and in CEL a missing
 // key throws. Kelvin arrives as a Long and CEL's double overloads take no Long,
 // hence `double(k)`. The strings ship as written; only the indent and the edge
 // newline go.
 const local sliderFillColourRgb: String =
   #"""
-  attr[?'rgb_color'].optMap(rgb,
+  value.attr[?'rgb_color'].optMap(rgb,
     size(rgb) == 3
       ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
       : '').orValue('')
@@ -44,7 +44,7 @@ const local sliderFillColourRgb: String =
 // `\(minK).0`: the double literal CEL needs, from whole kelvin.
 const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
-  attr[?'color_temp_kelvin'].optMap(k,
+  value.attr[?'color_temp_kelvin'].optMap(k,
     cel.bind(t,
       (double(k) - \(minK).0) < 0.0 ? 0.0 :
       ((double(k) - \(minK).0) > \(maxK - minK).0
@@ -112,8 +112,8 @@ class EntitySlider extends sliderBase.Slider {
     // The binding is named for the attribute (`hs`), as the hue's always was.
     if (element != null)
       let (b = valueAttr.split("_").first)
-        "attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
-    else "attr[?'\(valueAttr)']"
+        "value.attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
+    else "value.attr[?'\(valueAttr)']"
   rangeMin = min
   rangeMax = max
   /// The range as CEL double literals, since `/` on two ints divides as
@@ -140,8 +140,8 @@ class EntitySlider extends sliderBase.Slider {
   /// range, nothing, or an [[Expr]]. The names are shorthands for readings that
   /// need the axis config, which is exposed for splicing:
   ///
-  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
-  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
+  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + value.state") }
+  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"value.state + ' W'"#) }
   ///
   /// A head with member rows reads out nothing; the rows carry their own.
   hidden readout: (Readout|slotMod.Expr) = if (members.isEmpty) "state" else "none"
@@ -273,7 +273,7 @@ class EntitySlider extends sliderBase.Slider {
         if (a.inUseWhen == null) "'\(a.name)'"
         else
           let (w = a.inUseWhen!!)
-            "(attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
+            "(value.attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
   controlDeclaration =
     if (openingExpr == null) super.controlDeclaration
     else super.controlDeclaration.withInitialTransform(entity, openingExpr!!)

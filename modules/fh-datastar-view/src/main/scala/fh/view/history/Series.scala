@@ -55,9 +55,8 @@ object Series {
 
   val empty: Series = Series(Vector.empty)
 
-  /** An answer as CEL reads it (`ValueExpr.Kind.Series`): `[epochMillis,
-    * value]` doubles. One that does not decode, a failed read's `""` included,
-    * has no points.
+  /** An answer as CEL reads it (`Ty.Series`): `[epochMillis, value]` doubles.
+    * One that does not decode, a failed read's `""` included, has no points.
     */
   def celPoints(
       json: String

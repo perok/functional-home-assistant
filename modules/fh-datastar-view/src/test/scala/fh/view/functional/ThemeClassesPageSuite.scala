@@ -139,7 +139,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |    new Probe {
        |      word = new slotMod.Reading {
        |        entityId = dump.entities.${kitchen.dumpKey}.entity_id
-       |        steps { simpleMod.cel("state == 'on' ? 'fh-lit' : 'fh-dark'") }
+       |        steps { simpleMod.cel("value == 'on' ? 'fh-lit' : 'fh-dark'") }
        |      }
        |    }
        |  }

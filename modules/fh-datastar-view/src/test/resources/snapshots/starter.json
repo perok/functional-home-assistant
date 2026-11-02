@@ -162,7 +162,8 @@
                                   "kind" : "Match",
                                   "otherwise" : false
                                 }
-                              ]
+                              ],
+                              "type" : "bool"
                             },
                             "targetId" : "light.kitchen",
                             "targetKind" : "entity",
@@ -259,7 +260,8 @@
                             "kind" : "Match",
                             "otherwise" : false
                           }
-                        ]
+                        ],
+                        "type" : "bool"
                       },
                       "tappable" : true,
                       "targetId" : "light.kitchen",
@@ -417,7 +419,8 @@
                                   "kind" : "Match",
                                   "otherwise" : false
                                 }
-                              ]
+                              ],
+                              "type" : "bool"
                             },
                             "targetId" : "light.living_room",
                             "targetKind" : "entity",
@@ -514,7 +517,8 @@
                             "kind" : "Match",
                             "otherwise" : false
                           }
-                        ]
+                        ],
+                        "type" : "bool"
                       },
                       "tappable" : true,
                       "targetId" : "light.living_room",

@@ -37,11 +37,8 @@ final case class TemplateSlot(
 ):
   def literal: Option[String] = expr.literal
 
-  /** The expression values its CEL step declares, beside its node's. */
-  def values: Map[String, ValueExpr] =
-    expr.steps
-      .collectFirst { case c: Step.Cel => c.inputs }
-      .getOrElse(Map.empty)
+  /** The named inputs its CEL declares, beside its node's. */
+  def values: Map[String, ValueExpr] = expr.celInputs
 
   def placement: Placement = Placement(signal, `type`)
 
@@ -96,30 +93,27 @@ final case class BoundSlot(
   lazy val themed: Boolean = expr.steps.lastOption.contains(Step.ThemeClasses)
 
   def fetch: Option[FetchTemplate] = expr.source match
-    case Some(Value.Fetch(f)) => Some(f)
-    case _                    => None
+    case Value.Fetch(f) => Some(f)
+    case _              => None
 
   /** The entity it reads, or a condition is decided over. */
   def entityId: Option[String] = expr.source match
-    case Some(Value.Entity(of, _, _, _)) => of
-    case Some(Value.Condition(_))        => subject
-    case _                               => None
+    case Value.Entity(of, _, _, _) => of
+    case Value.Condition(_)        => subject
+    case _                         => None
 
-  /** A fetch's answer is never pushed, and a CEL with no source and no live
-    * input is a constant, held like a `once` read.
+  /** A fetch's answer is never pushed, and a CEL source with no live input is a
+    * constant, held like a `once` read.
     */
   def reads: String = expr.source match
-    case Some(e: Value.Entity)                   => e.reads
-    case Some(_: Value.Fetch)                    => Reads.OnRender
-    case None if !values.values.exists(_.isLive) => Reads.Once
-    case _                                       => Reads.Live
+    case e: Value.Entity                                 => e.reads
+    case _: Value.Fetch                                  => Reads.OnRender
+    case _: Value.Cel if !values.values.exists(_.isLive) => Reads.Once
+    case _                                               => Reads.Live
 
   def bypassUnavailable: Boolean = expr.source match
-    case Some(e: Value.Entity) => e.bypassUnavailable
-    case _                     => false
-
-  /** The CEL step, which the build compiles. */
-  def cel: Option[Step.Cel] = expr.steps.collectFirst { case c: Step.Cel => c }
+    case e: Value.Entity => e.bypassUnavailable
+    case _               => false
 
   def stage: Transform.Stage =
     expr.steps
@@ -128,15 +122,14 @@ final case class BoundSlot(
 
   def isBool: Boolean = `type` == SlotType.Bool
 
-  /** What the compiled program is keyed by: one source compiles differently
-    * against a different set of typed names, and without an entity to read.
+  /** Its type checked in order, and the key of each CEL it compiles: one source
+    * compiles differently against other typed names or `value`.
     */
-  lazy val celKey: Option[Transform.CelKey] = cel.map(c =>
-    Transform.CelKey(c.src, ValueExpr.env(values), expr.source.isDefined)
-  )
+  lazy val typed: Either[ValueExpr.Mistyped, ValueExpr.Typed] =
+    expr.typed(ValueExpr.env(values))
 
   def celKeys: List[Transform.CelKey] =
-    celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
+    typed.fold(_ => Nil, _.keys) ++ valueWhile.toList.flatMap(_.celKeys)
 
   /** Its [[valueWhile]] over the entity it is decided over. The one rule the
     * pre-read and the paint share.
@@ -150,8 +143,8 @@ final case class BoundSlot(
     */
   def valueEntities: List[String] =
     (expr.source match
-      case Some(Value.Condition(p)) => Predicate.referencedEntities(p)
-      case _                        => Nil
+      case Value.Condition(p) => Predicate.referencedEntities(p)
+      case _                  => Nil
     ) ++ expr.operandEntities ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
@@ -164,7 +157,7 @@ final case class BoundSlot(
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
-      values.values.toList.flatMap(_.source).collect { case Value.Fetch(f) =>
+      values.values.toList.map(_.source).collect { case Value.Fetch(f) =>
         SlotAsk(f, Transform.Stage.Passthrough)
       }
 
@@ -195,15 +188,15 @@ object BoundSlot:
       subject: Option[String]
   )(e: ValueExpr, valueWhile: Option[ValueExpr] = None): BoundSlot =
     val expr = e.about(subject)
-    val named = expr.steps.collectFirst { case c: Step.Cel => c } match
-      case Some(c) =>
+    val named = expr.celSources match
+      case Nil  => Map.empty[String, ValueExpr]
+      case srcs =>
         // The slot's own win a clash, which `validate` refuses anyway.
-        val all = values ++ c.inputs
+        val all = values ++ expr.celInputs
         if (all.isEmpty) Map.empty[String, ValueExpr]
         else
-          val read = Cel.identifiers(c.src)
+          val read = srcs.flatMap(Cel.identifiers).toSet
           all.filter((n, _) => read.contains(n))
-      case None => Map.empty[String, ValueExpr]
     BoundSlot(
       expr,
       named,
@@ -1329,14 +1322,6 @@ case class Dashboard(
                     "boolean arms — pick one; a boolean arm is for a boolean " +
                     "attribute (disabled, hidden), a string for everything else"
                 )
-              case Step.Cel(t, _) =>
-                src.celKey
-                  .flatMap(Transform.parse(_).left.toOption)
-                  .map { err =>
-                    val at =
-                      locateTransform(t).fold("")(loc => s" (at $loc)")
-                    s"$nodeId: slot '$name' has an invalid transform$at: $err"
-                  }
               // Only a hand-written wire gets here.
               case _: Step.Chart =>
                 Some(
@@ -1350,7 +1335,7 @@ case class Dashboard(
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, cardName, name, src, scope) ++
           src.values.values.toList
-            .flatMap(_.source)
+            .map(_.source)
             .collect { case Value.Fetch(f) =>
               askErrors(nodeId, name, f, scope)
             }
@@ -1403,8 +1388,8 @@ case class Dashboard(
           case _                         =>
             Some(
               s"$nodeId: slot '$name' reads a fetch, so its one step may be " +
-                "a chart — a CEL expression and a format both read an " +
-                "entity's state, and a fetch slot has none"
+                "a chart — for CEL over it, name the fetch as an input of a " +
+                "slot that reads state"
             )
         }
         val rawHole =
@@ -1430,11 +1415,12 @@ case class Dashboard(
           rawHole.toList
       }
 
-    // Only a hand-written wire gets here: Pkl writes these four.
+    // Only a hand-written wire gets here: Pkl writes only these.
     def shapeError(nodeId: String, what: String, v: ValueExpr): List[String] =
       Option
-        .when(v.inputKind.isEmpty)(
-          s"$nodeId: $what is not a literal, a count, a condition or a fetch"
+        .when(v.inputTy.isEmpty)(
+          s"$nodeId: $what is not a literal, a count, the ids present, a " +
+            "condition, a fetch or an entity it names"
         )
         .toList
 
@@ -1463,7 +1449,7 @@ case class Dashboard(
         else
           c.values(name) match
             // A value is shared by content across nodes, so it has no subject.
-            case ValueExpr(Some(Value.Condition(p)), _, _)
+            case ValueExpr(Value.Condition(p), _, _)
                 if Predicate.hasFreeSubject(p) =>
               List(
                 s"$nodeId: expression value '$name' compares an entity it " +
@@ -1520,7 +1506,7 @@ case class Dashboard(
         case (slot, src)
             if src.entityId.isEmpty &&
               (src.expr.source match
-                case Some(Value.Condition(p)) => Predicate.hasFreeSubject(p)
+                case Value.Condition(p) => Predicate.hasFreeSubject(p)
                 case _ => false) =>
           s"$nodeId: slot '$slot' compares an entity it does not name, and " +
             "has no entity of its own — name it with q.entity(e)"
@@ -1548,7 +1534,7 @@ case class Dashboard(
               .when(
                 w.entityId.isEmpty &&
                   (w.expr.source match
-                    case Some(Value.Condition(p)) =>
+                    case Value.Condition(p) =>
                       Predicate.hasFreeSubject(p)
                     case _ => false)
               )(
@@ -1560,26 +1546,38 @@ case class Dashboard(
         }
       }
 
+    // A literal is its own type, and a fetch slot's steps are
+    // `fetchErrors`' to check.
     def typeErrors(
         nodeId: String,
         slots: Map[SlotKey, BoundSlot]
     ): List[String] =
-      labelled(slots).collect {
-        case (_, name, src)
-            if src.isBool && src.constant.isEmpty && src.fetch.isEmpty &&
-              !Dashboard.yieldsBool(src) =>
-          s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
-            "produce a bool — compare it (`on > 0`), or use a condition"
-      } ++ labelled(slots).flatMap { case (_, name, src) =>
-        Option
-          .when(!src.isBool && src.constant.isEmpty && src.fetch.isEmpty)(
-            src.celKey.flatMap(Transform.nonTextType)
-          )
-          .flatten
-          .map(t =>
-            s"$nodeId: slot '$name' yields a $t, which a card cannot show — " +
-              "make it text, `str(…)` or `string(…)`"
-          )
+      // An attribute is `dyn` to CEL, but read bare it is text or a number far
+      // more often than a bool.
+      def bareAttr(src: BoundSlot) = (src.expr.source, src.expr.steps) match
+        case (Value.Entity(_, _: Part.Attr, _, _), Nil) => true
+        case _                                          => false
+      labelled(slots).flatMap { case (_, name, src) =>
+        if (src.constant.isDefined || src.fetch.isDefined) Nil
+        else
+          src.typed match
+            case Left(ValueExpr.Mistyped(err, Some(t))) =>
+              val at = locateTransform(t).fold("")(loc => s" (at $loc)")
+              List(s"$nodeId: slot '$name' has an invalid transform$at: $err")
+            case Left(ValueExpr.Mistyped(err, None)) =>
+              List(s"$nodeId: slot '$name' $err")
+            case Right(t)
+                if !Ty.fits(t.out, src.`type`) || src.isBool && bareAttr(src) =>
+              List(
+                if (src.isBool)
+                  s"$nodeId: slot '$name' is a boolean slot, but its reading " +
+                    s"does not produce a bool (a ${t.out.name}) — compare it " +
+                    "(`on > 0`), or use a condition"
+                else
+                  s"$nodeId: slot '$name' yields a ${t.out.name}, which a " +
+                    "card cannot show — make it text, `str(…)` or `string(…)`"
+              )
+            case _ => Nil
       } ++ labelled(slots).collect {
         case (_, name, src)
             if src.signal.exists(_.isInstanceOf[SignalBind.Class]) &&
@@ -1769,7 +1767,7 @@ case class Dashboard(
           )
           .toList ++
         Option
-          .when(Dashboard.onlyBool(src))(
+          .when(src.typed.exists(_.out == Ty.Bool))(
             s"$nodeId: cellStyle '$property' reads a bool, which is no CSS " +
               "value — use cellClassWhen for an on/off look"
           )
@@ -2475,45 +2473,14 @@ object Dashboard:
     def celKey: Transform.CelKey = Transform.CelKey(transform)
 
   /** The slot naming a card's subject, which Pkl names on every other slot that
-    * names no entity. Not HA's `entity_id` field or the CEL `entity_id`
-    * binding, which share only the spelling.
+    * names no entity. Not HA's `entity_id` field or `fh.Entity`'s, which share
+    * only the spelling.
     */
   val SubjectSlot: String = "entity_id"
 
   /** A CEL identifier. A reserved word fails the expression's compile. */
   val ExpressionValueName: scala.util.matching.Regex =
     "[A-Za-z_][A-Za-z0-9_]*".r
-
-  /** By the last step: CEL by its checked type, a `match` whose every outcome
-    * is a Boolean; with none, a condition or a fetch. Every other shape is
-    * text.
-    */
-  def yieldsBool(src: BoundSlot): Boolean = src.expr.steps.lastOption match
-    case Some(_: Step.Cel)   => src.celKey.forall(Transform.yieldsBool)
-    case Some(m: Step.Match) => allBoolean(m)
-    case Some(_)             => false
-    case None                =>
-      src.expr.source match
-        case Some(_: Value.Condition | _: Value.Fetch) => true
-        case _                                         => false
-
-  /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), a
-    * condition, or a `match` whose every outcome is a Boolean.
-    */
-  def onlyBool(src: BoundSlot): Boolean = src.expr.steps.lastOption match
-    case Some(_: Step.Cel)   => src.celKey.exists(Transform.isBoolTyped)
-    case Some(m: Step.Match) => allBoolean(m)
-    case Some(_)             => false
-    case None                =>
-      src.expr.source match
-        case Some(_: Value.Condition) => true
-        case _                        => false
-
-  private def allBoolean(m: Step.Match): Boolean =
-    (m.otherwise match
-      case Value.Literal(_: Lit.Bool) => true
-      case _                          => false
-    ) && m.cases.values.forall(_.isInstanceOf[Lit.Bool])
 
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r

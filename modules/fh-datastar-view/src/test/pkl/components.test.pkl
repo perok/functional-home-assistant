@@ -260,9 +260,9 @@ facts {
     t.inlineSurfaces.containsKey("self")
     // A transform, not a constant: the route carries `dashboard_slug`, which
     // only a transform can read.
-    (t.onclick as slotMod.Reading).steps.toList().last.src.contains("sse/surface/")
-    (t.onclick as slotMod.Reading).steps.toList().last.src.contains("/open/\(nodes.NODE_ID)_self")
-    (t.onclick as slotMod.Reading).steps.toList().last.src.contains("dashboard_slug")
+    (t.onclick as slotMod.Reading).source.src.contains("sse/surface/")
+    (t.onclick as slotMod.Reading).source.src.contains("/open/\(nodes.NODE_ID)_self")
+    (t.onclick as slotMod.Reading).source.src.contains("dashboard_slug")
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
@@ -330,7 +330,7 @@ facts {
     bar.every((n) -> (n as nodes.Node).slotsByName["busy"].value == true)
     // A window names the chooser by the token, never by an id it cannot know.
     let (week = bar[2] as nodes.Node)
-      (week.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src.contains(
+      (week.slotsByName["onclick"].value as slotMod.Reading).source.src.contains(
         "/" + historyMod.windowVar.declarer + "/window/7d?group=" + historyMod.windowVar.below.group + "'"
       )
       && (week.slotsByName["active"].value as String).endsWith("=== '7d'")
@@ -476,8 +476,8 @@ facts {
     // call HA would reject. This is the flip the more-info work gated.
     card.slotsByName["tappable"].value == true
     card.inlineSurfaces.containsKey("self")
-    !(card.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src.contains("sse/action")
-    (card.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src.contains("/open/")
+    !(card.slotsByName["onclick"].value as slotMod.Reading).source.src.contains("sse/action")
+    (card.slotsByName["onclick"].value as slotMod.Reading).source.src.contains("/open/")
   }
 
   ["the more-info body's own card does NOT default to more-info"] {
@@ -1104,7 +1104,7 @@ facts {
     )
     links.every((n) ->
       let (s = n.slotsByName["current"]) let (cur = s.value as slotMod.Reading)
-        cur.steps.toList().last.src == "dashboard_slug == 'home'" && cur.source == null
+        (cur.source as slotMod.CelRead).src == "dashboard_slug == 'home'" && cur.steps.isEmpty
           && s.type == "bool" && s.signal == null)
     List("button", "pill").every((k) ->
       let (t = c.cards[k].template)
@@ -1112,7 +1112,7 @@ facts {
     // A service tap is no link, so it has nothing to mark.
     !c.button("x", c.tap.toggle(kitchen)).slotsByName.containsKey("current")
     // A slug is a key the author wrote, so a quote in it stays in the string.
-    (c.button("x", c.view.navigate("it's")).slotsByName["current"].value as slotMod.Reading).steps.toList().last.src
+    (c.button("x", c.view.navigate("it's")).slotsByName["current"].value as slotMod.Reading).source.src
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
     cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
@@ -1512,7 +1512,7 @@ facts {
     // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
     local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
-      .map((n) -> (n.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src)
+      .map((n) -> (n.slotsByName["onclick"].value as slotMod.Reading).source.src)
     steps.length == 3
     steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
     // A dimmer, or a capability axis, is one head and no pill.
@@ -1602,9 +1602,9 @@ facts {
     // The mode axes, in the order given, else the first control.
     local byMode = startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colourTemp, lamp.colour)))!!
     byMode.entityId == "light.lamp"
-    byMode.transform == "(attr[?'color_mode'].orValue('') in ['color_temp'] ? 'colourTemp' : (attr[?'color_mode'].orValue('') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] ? 'colour' : 'brightness'))"
+    byMode.transform == "(value.attr[?'color_mode'].orValue('') in ['color_temp'] ? 'colourTemp' : (value.attr[?'color_mode'].orValue('') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] ? 'colour' : 'brightness'))"
     // The order given; brightness is always in use, so nothing after it is tried.
-    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour, lamp.colourTemp)))!!.transform.startsWith("(attr[?'color_mode'].orValue('') in ['hs'")
+    startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour, lamp.colourTemp)))!!.transform.startsWith("(value.attr[?'color_mode'].orValue('') in ['hs'")
     startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.brightness, lamp.colour))) == null
     // An axis the switch does not offer is not tried.
     startOf.apply(c.entitySlider(lamp).opensOn(List(lamp.colour)).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))) == null
@@ -1625,7 +1625,7 @@ facts {
     }
     local floor = new GroundFloor { areas = List(new StueArea { allWithHidden = List(lamp) }) }
     local opensOnMode = (s: c.EntitySlider) ->
-      s.vars.toList().findOrNull((d) -> d.name == "control")?.initialTransform?.transform?.startsWith("(attr[?'color_mode'].orValue('') in ['color_temp']") ?? false
+      s.vars.toList().findOrNull((d) -> d.name == "control")?.initialTransform?.transform?.startsWith("(value.attr[?'color_mode'].orValue('') in ['color_temp']") ?? false
     local recipeSlider = (r: c.Column) -> (r.children[0] as c.Column).children[1] as c.EntitySlider
     // Every way the workspace's `c` builds one.
     opensOnMode.apply(ws.entitySlider(lamp))

@@ -22,19 +22,17 @@ class ValueWhileSuite extends munit.FunSuite {
 
   // A comparison that names no entity reads the card's subject.
   private def above0(entity: Option[String]) = ValueExpr(
-    Some(
-      Value.Condition(Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity))
-    )
+    Value.Condition(Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity))
   )
 
   // The peak of the history: what the bar's whole reads.
   private def peak(valueWhile: Option[ValueExpr]) = TemplateSlot(
     ValueExpr(
-      Some(Value.Entity(Some("sensor.left"))),
+      Value.Entity(Some("sensor.left"), Part.Whole),
       List(
         Step.Cel(
           "math.greatest(past.transformList(i, p, p[1]))",
-          Map("past" -> ValueExpr(Some(Value.Fetch(history))))
+          Map("past" -> ValueExpr(Value.Fetch(history)))
         )
       )
     ),
@@ -119,7 +117,7 @@ class ValueWhileSuite extends munit.FunSuite {
       Map(
         "chart" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))))
+            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day)))
           )
         )
       )
@@ -158,8 +156,12 @@ class ValueWhileSuite extends munit.FunSuite {
   test("CEL decides it as well, when an author writes CEL") {
     val cel =
       ValueExpr(
-        Some(Value.Entity(Some("sensor.left"), bypassUnavailable = false)),
-        List(Step.Cel("double(state) > 0.0"))
+        Value.Entity(
+          Some("sensor.left"),
+          bypassUnavailable = false,
+          part = Part.Whole
+        ),
+        List(Step.Cel("double(value.state) > 0.0"))
       )
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
@@ -192,12 +194,9 @@ class ValueWhileSuite extends munit.FunSuite {
   test("the build refuses one that reads a fetch, is not a bool, or is once") {
     def errs(of: TemplateSlot) = dashboard(node(of)).validate().mkString("\n")
     val readsFetch = ValueExpr(
-      None,
-      List(
-        Step.Cel(
-          "size(past) > 0",
-          Map("past" -> ValueExpr(Some(Value.Fetch(history))))
-        )
+      Value.Cel(
+        "size(past) > 0",
+        Map("past" -> ValueExpr(Value.Fetch(history)))
       )
     )
     assert(
@@ -208,8 +207,8 @@ class ValueWhileSuite extends munit.FunSuite {
         peak(
           Some(
             ValueExpr(
-              Some(Value.Entity(Some("sensor.left"))),
-              List(Step.Cel("state"))
+              Value.Entity(Some("sensor.left"), Part.Whole),
+              List(Step.Cel("value.state"))
             )
           )
         )
@@ -220,7 +219,7 @@ class ValueWhileSuite extends munit.FunSuite {
       errs(
         TemplateSlot(
           ValueExpr(
-            Some(Value.Entity(Some("sensor.left"), reads = Reads.Once))
+            Value.Entity(Some("sensor.left"), reads = Reads.Once)
           ),
           valueWhile = Some(above0(None))
         )
@@ -231,7 +230,7 @@ class ValueWhileSuite extends munit.FunSuite {
   test("the wire nests it as a value beside the slot's") {
     assertEquals(
       decode[TemplateSlot](
-        """{"source": {"kind": "Entity"}, "valueWhile": {"steps": [{"kind": "Cel", "src": "on"}]}}"""
+        """{"source": {"kind": "Entity"}, "valueWhile": {"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "on"}]}}"""
       ).map(_.valueWhile.map(_.steps)),
       Right(Some(List(Step.Cel("on"))))
     )

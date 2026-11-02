@@ -5,6 +5,7 @@
 /// node in an id'd `.fh-cell`, which the layout builders here put classes on.
 module core.node
 
+import "../hass.pkl"
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
@@ -13,7 +14,7 @@ import "tap.pkl" as tapMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate|slotMod.Fetch
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate|slotMod.Fetch|hass.Entity
 
 /// What fills a boolean slot: a `Boolean` the build knows, a reading
 /// (`c.isOn(l)`), an `Expr` (`c.expr("on > 2")`), or a condition
@@ -172,7 +173,7 @@ abstract class Node extends LayoutNode {
   /// fine.
   hidden slots: Listing<slotMod.Slot>(
     !isStructure(cardDef) || !toList().any((s) ->
-      s.value is slotMod.Reading && s.value.source != null && s.value.reads == "live" && s.signal == null &&
+      s.value is slotMod.Reading && !(s.value.source is slotMod.CelRead) && s.value.reads == "live" && s.signal == null &&
         (s.value.entityId != null ||
         toList().any((t) -> t.name == "entity_id" && t.value is String))),
     namedOnce(this, card)
@@ -324,21 +325,23 @@ const local function subjectOf(slots: Listing<slotMod.Slot>): String? =
 
 // A reading as the wire holds it: its set fields, an empty `steps` left out,
 // and its `valueWhileSlot` under the wire's name. The card's own entity is not
-// named, since a read that names none reads it, and on a card with none a CEL
-// reads no entity rather than a missing one. A `themed` one ends with the
-// theme's class swap.
+// named, since a read that names none reads it, and on a card with none a
+// leading CEL is the source, reading no entity rather than a missing one. A
+// `themed` one ends with the theme's class swap.
 const local function wireReading(r: slotMod.Reading, subject: String?, themed: Boolean): Map<String, Any> =
   let (src = r.source)
   let (own =
     if (src is slotMod.EntityRead && src.of != null && src.of == subject) (src) { of = null }
     else src)
-  let (cel = r.steps.toList().any((s) -> s is simpleMod.Cel))
+  let (first = r.steps.toList().firstOrNull)
+  let (celSource = subject == null && first is simpleMod.Cel && own is slotMod.EntityRead && own.of == null)
   let (source =
-    if (subject == null && cel && own is slotMod.EntityRead && own.of == null) null
+    if (celSource) let (c = first as simpleMod.Cel) new slotMod.CelRead { src = c.src; values = c.values }
     else own)
   let (vw = r.valueWhileSlot)
-  let (steps = r.steps.toList() + (if (themed) List(themeStage) else List()))
-    (if (source != null) Map("source", source) else Map())
+  let (steps = (if (celSource) r.steps.toList().drop(1) else r.steps.toList())
+    + (if (themed) List(themeStage) else List()))
+    Map("source", source)
       + (if (steps.isEmpty) Map() else Map("steps", steps))
       + (if (r.default != null) Map("default", r.default) else Map())
       + (if (vw != null) Map("valueWhile", wireReading(vw, subject, false)) else Map())

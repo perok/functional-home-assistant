@@ -89,7 +89,7 @@ class TemplateReadsSuite extends munit.FunSuite:
         "card",
         templateSlots = Map(
           "state" -> TemplateSlot(
-            ValueExpr(Some(Value.Entity(Some("sensor.a"))))
+            ValueExpr(Value.Entity(Some("sensor.a")))
           )
         )
       )

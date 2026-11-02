@@ -197,7 +197,7 @@ class StateSurfaceSuite extends ServerHarness {
         (
           None,
           "dot",
-          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         )
       )
     )

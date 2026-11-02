@@ -40,7 +40,7 @@ class EntityInfo extends nodes.Node {
   hidden entity: hass.Entity
   slots {
     slotMod.subject.of(entity.entity_id)
-    attributes.of(new slotMod.Reading { steps { simpleMod.cel(ATTR_LINES) }; default = "" })
+    attributes.of((slotMod.celReading(ATTR_LINES)) { default = "" })
   }
 }
 
@@ -51,7 +51,7 @@ function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
 // Sorted, because HA's attribute order is not stable. `transformList` over a
 // map walks its entries (CEL's transformations extension).
 const local ATTR_LINES =
-  #"attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
+  #"value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
 
 /// What a more-info popup holds. A light adds its controls and a lock its
 /// buttons ([[lock.moreInfoCard]]). The chart is

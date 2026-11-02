@@ -71,9 +71,9 @@ object Scene {
         slots: Map[String, TemplateSlot],
         subject: Option[String]
     ): List[String] =
-      slots.values.toList.flatMap(_.expr.source.collect {
+      slots.values.toList.map(_.expr.source).collect {
         case Value.Entity(Some(id), _, _, _) => id
-      }) ++ subject.toList
+      } ++ subject.toList
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>

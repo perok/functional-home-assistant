@@ -43,7 +43,7 @@ class DigestPropertySuite extends HedgehogSuite {
 
   private def valueSlot(signal: Boolean): TemplateSlot =
     TemplateSlot(
-      ValueExpr(Some(Value.Entity(None))),
+      ValueExpr(Value.Entity(None)),
       signal = if signal then Some(SignalBind.Text) else None
     )
 

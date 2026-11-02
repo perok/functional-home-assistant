@@ -74,7 +74,7 @@ class FetchDriftSuite extends munit.FunSuite {
       Map(
         "chart" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day)))),
+            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
             List(Step.Chart())
           )
         )
@@ -99,7 +99,7 @@ class FetchDriftSuite extends munit.FunSuite {
       "dot",
       Map(
         "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-        "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None))))
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
       )
     )
     val d = Dashboard(

@@ -1631,7 +1631,10 @@ class Renderer(validated: Dashboard.Validated) {
     case Live(source: BoundSlot, run: Run)
 
   private def live(source: BoundSlot): Planned.Live =
-    Planned.Live(source, compose(source, source.celKey.map(programs)))
+    Planned.Live(
+      source,
+      compose(source, source.typed.fold(_ => Nil, _.keys).map(programs))
+    )
 
   /** `once` reads only identity, so the plan holds it; the memo is keyed by
     * entity, which is why a fetch slot never enters it.
@@ -1657,34 +1660,43 @@ class Renderer(validated: Dashboard.Validated) {
   private val gateRuns =
     new java.util.concurrent.ConcurrentHashMap[String, Planned.Live]()
 
+  /** `programs`: each CEL's, in order, as [[BoundSlot.typed]] keys them. */
   private def compose(
       source: BoundSlot,
-      program: Option[Transform.Compiled]
+      programs: List[Transform.Compiled]
   ): Run = {
+    val cels = programs.iterator
+    def inputs(
+        states: Map[String, EntityState],
+        fetched: FetchTemplate => Object
+    ) =
+      Conditions.resolve(source.values, states, fetched)
     val read: Run = source.expr.source match
-      case Some(Value.Entity(_, part, _, _)) =>
+      case Value.Entity(_, part, _, _) =>
         (st, _, _) => Transform.read(part, st)
-      case Some(Value.Condition(p)) =>
+      case Value.Condition(p) =>
         (st, states, _) => Conditions.matchesIn(p, st, states)
-      case Some(Value.Literal(l)) =>
+      case Value.Literal(l) =>
         val v = l.raw
         (_, _, _) => v
-      case Some(Value.Present(t)) =>
+      case Value.Present(t) =>
         (_, states, _) => Conditions.presentOf(t, states)
-      case _ => (_, _, _) => ""
+      case _: Value.Cel =>
+        val p = cels.next()
+        (_, states, fetched) =>
+          Cel.eval(p, null, dashboard.slug, inputs(states, fetched))
+      case _: Value.Fetch => (_, _, _) => ""
     source.expr.steps.foldLeft(read) { (prev, step) =>
       step match
-        // CEL reads the entity, not the value before it.
         case _: Step.Cel =>
-          program.fold(prev)(p =>
-            (st, states, fetched) =>
-              Transform.runValue(
-                p,
-                st,
-                dashboard.slug,
-                Conditions.resolve(source.values, states, fetched)
-              )
-          )
+          val p = cels.next()
+          (st, states, fetched) =>
+            Cel.eval(
+              p,
+              prev(st, states, fetched),
+              dashboard.slug,
+              inputs(states, fetched)
+            )
         case f: Step.Simple =>
           Step.operands(f).map(operand) match
             case Nil =>

@@ -2,8 +2,8 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S6
-built; S7 (CEL reads `value`) agreed 2026-11-02, the struct type spiked.
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S7
+built; S8 (docs) next.
 
 ## Why
 
@@ -107,7 +107,9 @@ and styles hold `ValueExpr`s.
   `Text`; `Match` any to `Text` or `Bool`; `Count` a `List` to `Int`; `Chart` `List(List(Real))`
   to `Markup`, which only a raw hole takes; `ThemeClasses` `Text` to `Text`. Bind checks the list
   in order, and the last must produce the slot's `type`: `Text` takes `Text`, `Int`, `Real` or
-  `Dyn`, `Bool` takes `Bool` or `Dyn`. The binding checks it too, instead of implying it: `Class`
+  `Dyn`, `Bool` takes `Bool` or `Dyn`; a literal is its own type and is not checked, as before. A
+  CEL result no step takes (a map, a timestamp) fails at its compile, and an optional is `Dyn`.
+  The binding checks it too, instead of implying it: `Class`
   needs a bool, `Text` and `Style` text, `Attr` text or a bool, `Handler` anything. A list is not
   `Dyn`: a series typed as one would turn a build error into error text on a wall panel.
 - **CEL reads `value`.** In a step it is the value before it, declared as that step's type; a CEL
@@ -123,7 +125,8 @@ and styles hold `ValueExpr`s.
   library is rewritten, and a user's own CEL breaks, accepted pre-v1.
 - **CEL computed from nothing is a source.** `Value.Cel` is a CEL that reads no running value: the
   click transforms, which read only `dashboard_slug`, and a CEL over inputs alone. So `source` is
-  never absent. A step's operand may not be a `Value.Cel` (`validate`), and a CEL input's own CEL
+  never absent. On a card with no subject, Pkl writes a reading's leading CEL step as this source
+  (`c.expr("dashboard_slug")` on a plain button), where a read of the missing entity was dropped. A step's operand may not be a `Value.Cel` (`validate`), and a CEL input's own CEL
   sees no other input, so inputs cannot form a cycle.
 - **The subject is named once per node.** The card's own `subject` (`String?`, which an HA card
   sets from its `entity`) is the literal `entity_id` slot; the template shows it and the server

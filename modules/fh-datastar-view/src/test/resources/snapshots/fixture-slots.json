@@ -99,7 +99,8 @@
                   "kind" : "Match",
                   "otherwise" : false
                 }
-              ]
+              ],
+              "type" : "bool"
             },
             "targetId" : "light.kitchen",
             "targetKind" : "entity"
@@ -179,7 +180,8 @@
                   "kind" : "Match",
                   "otherwise" : false
                 }
-              ]
+              ],
+              "type" : "bool"
             },
             "targetId" : "light.kitchen",
             "targetKind" : "entity"
@@ -247,7 +249,8 @@
                   "kind" : "Match",
                   "otherwise" : false
                 }
-              ]
+              ],
+              "type" : "bool"
             },
             "targetId" : "light.kitchen",
             "targetKind" : "entity"
@@ -299,12 +302,10 @@
               "signal" : {
                 "kind" : "Text"
               },
-              "steps" : [
-                {
-                  "kind" : "Cel",
-                  "src" : "string(lit) + ' on'"
-                }
-              ]
+              "source" : {
+                "kind" : "Cel",
+                "src" : "string(lit) + ' on'"
+              }
             },
             "service" : "light/turn_off",
             "size" : {
@@ -433,12 +434,10 @@
                                           "busyVisual" : true,
                                           "label" : "1h",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -453,12 +452,10 @@
                                           "busyVisual" : true,
                                           "label" : "24h",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -473,12 +470,10 @@
                                           "busyVisual" : true,
                                           "label" : "7d",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -493,12 +488,10 @@
                                           "busyVisual" : true,
                                           "label" : "30d",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -589,12 +582,15 @@
                               "attributes" : {
                                 "default" : "",
                                 "source" : {
-                                  "kind" : "Entity"
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
                                 },
                                 "steps" : [
                                   {
                                     "kind" : "Cel",
-                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                   }
                                 ]
                               },
@@ -654,12 +650,10 @@
             },
             "label" : "Outside Temperature",
             "onclick" : {
-              "steps" : [
-                {
-                  "kind" : "Cel",
-                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-                }
-              ]
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
             },
             "secondary" : {
               "default" : "",
@@ -680,12 +674,15 @@
                 "kind" : "Text"
               },
               "source" : {
-                "kind" : "Entity"
+                "kind" : "Entity",
+                "part" : {
+                  "kind" : "Whole"
+                }
               },
               "steps" : [
                 {
                   "kind" : "Cel",
-                  "src" : "str(math.round(num(state) * 10.0) / 10.0) + ' ' + attr[?'unit_of_measurement'].orValue('')"
+                  "src" : "str(math.round(num(value.state) * 10.0) / 10.0) + ' ' + value.attr[?'unit_of_measurement'].orValue('')"
                 }
               ]
             }
@@ -739,12 +736,15 @@
               "source" : {
                 "bypassUnavailable" : false,
                 "kind" : "Entity",
-                "of" : "light.living_room"
+                "of" : "light.living_room",
+                "part" : {
+                  "kind" : "Whole"
+                }
               },
               "steps" : [
                 {
                   "kind" : "Cel",
-                  "src" : "state"
+                  "src" : "value.state"
                 }
               ]
             },
@@ -766,7 +766,8 @@
                   "kind" : "Match",
                   "otherwise" : false
                 }
-              ]
+              ],
+              "type" : "bool"
             },
             "tappable" : true,
             "targetId" : "light.kitchen",
@@ -891,7 +892,8 @@
                                     "kind" : "Match",
                                     "otherwise" : false
                                   }
-                                ]
+                                ],
+                                "type" : "bool"
                               },
                               "tappable" : true,
                               "targetId" : "light.kitchen",
@@ -983,7 +985,8 @@
                                           "kind" : "Match",
                                           "otherwise" : false
                                         }
-                                      ]
+                                      ],
+                                      "type" : "bool"
                                     },
                                     "tappable" : true,
                                     "targetId" : "light.kitchen",
@@ -1027,12 +1030,15 @@
                               "attributes" : {
                                 "default" : "",
                                 "source" : {
-                                  "kind" : "Entity"
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
                                 },
                                 "steps" : [
                                   {
                                     "kind" : "Cel",
-                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                   }
                                 ]
                               },
@@ -1092,12 +1098,10 @@
             },
             "label" : "Kitchen",
             "onclick" : {
-              "steps" : [
-                {
-                  "kind" : "Cel",
-                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-                }
-              ]
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
             },
             "onoff" : true,
             "tappable" : true,
@@ -1183,7 +1187,8 @@
                   "kind" : "Match",
                   "otherwise" : false
                 }
-              ]
+              ],
+              "type" : "bool"
             },
             "tappable" : true,
             "targetId" : "climate.hallway",
@@ -1320,12 +1325,15 @@
                               "attributes" : {
                                 "default" : "",
                                 "source" : {
-                                  "kind" : "Entity"
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
                                 },
                                 "steps" : [
                                   {
                                     "kind" : "Cel",
-                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                   }
                                 ]
                               },
@@ -1385,12 +1393,10 @@
             },
             "label" : "Front Door",
             "onclick" : {
-              "steps" : [
-                {
-                  "kind" : "Cel",
-                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-                }
-              ]
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
             },
             "onoff" : true,
             "tappable" : true,
@@ -1477,7 +1483,8 @@
                   "kind" : "Match",
                   "otherwise" : false
                 }
-              ]
+              ],
+              "type" : "bool"
             },
             "tappable" : true,
             "targetId" : "media_player.tv",
@@ -1585,12 +1592,10 @@
                                           "busyVisual" : true,
                                           "label" : "1h",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -1605,12 +1610,10 @@
                                           "busyVisual" : true,
                                           "label" : "24h",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -1625,12 +1628,10 @@
                                           "busyVisual" : true,
                                           "label" : "7d",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -1645,12 +1646,10 @@
                                           "busyVisual" : true,
                                           "label" : "30d",
                                           "onclick" : {
-                                            "steps" : [
-                                              {
-                                                "kind" : "Cel",
-                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
-                                              }
-                                            ]
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                            }
                                           }
                                         },
                                         "vars" : [
@@ -1741,12 +1740,15 @@
                               "attributes" : {
                                 "default" : "",
                                 "source" : {
-                                  "kind" : "Entity"
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
                                 },
                                 "steps" : [
                                   {
                                     "kind" : "Cel",
-                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                   }
                                 ]
                               },
@@ -1884,12 +1886,10 @@
             },
             "label" : "Washing Machine",
             "onclick" : {
-              "steps" : [
-                {
-                  "kind" : "Cel",
-                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-                }
-              ]
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
             },
             "secondary" : {
               "signal" : {
@@ -1989,12 +1989,10 @@
                         "busyVisual" : true,
                         "label" : "1h",
                         "onclick" : {
-                          "steps" : [
-                            {
-                              "kind" : "Cel",
-                              "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
-                            }
-                          ]
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                          }
                         }
                       },
                       "vars" : [
@@ -2009,12 +2007,10 @@
                         "busyVisual" : true,
                         "label" : "24h",
                         "onclick" : {
-                          "steps" : [
-                            {
-                              "kind" : "Cel",
-                              "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
-                            }
-                          ]
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                          }
                         }
                       },
                       "vars" : [
@@ -2029,12 +2025,10 @@
                         "busyVisual" : true,
                         "label" : "7d",
                         "onclick" : {
-                          "steps" : [
-                            {
-                              "kind" : "Cel",
-                              "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
-                            }
-                          ]
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                          }
                         }
                       },
                       "vars" : [
@@ -2049,12 +2043,10 @@
                         "busyVisual" : true,
                         "label" : "30d",
                         "onclick" : {
-                          "steps" : [
-                            {
-                              "kind" : "Cel",
-                              "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
-                            }
-                          ]
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                          }
                         }
                       },
                       "vars" : [
@@ -2191,12 +2183,10 @@
                         "busyVisual" : true,
                         "label" : "simple",
                         "onclick" : {
-                          "steps" : [
-                            {
-                              "kind" : "Cel",
-                              "src" : "\"$_var_@@VAR:view@@__view__pending = 'simple'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/simple?group=var_@@VAR:view@@__view')\""
-                            }
-                          ]
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:view@@__view__pending = 'simple'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/simple?group=var_@@VAR:view@@__view')\""
+                          }
                         }
                       },
                       "vars" : [
@@ -2211,12 +2201,10 @@
                         "busyVisual" : true,
                         "label" : "detail",
                         "onclick" : {
-                          "steps" : [
-                            {
-                              "kind" : "Cel",
-                              "src" : "\"$_var_@@VAR:view@@__view__pending = 'detail'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/detail?group=var_@@VAR:view@@__view')\""
-                            }
-                          ]
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:view@@__view__pending = 'detail'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/detail?group=var_@@VAR:view@@__view')\""
+                          }
                         }
                       },
                       "vars" : [

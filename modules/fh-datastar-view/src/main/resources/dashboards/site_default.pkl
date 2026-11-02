@@ -77,7 +77,7 @@ dashboards {
           .where(q.eq(q.optional(q.prop("device_class")), "battery"))
           .where(q.lt(q.stateProp, 20))
           .render((e) -> (c.entityCard(e)) {
-            label = c.expr(#"attr[?'friendly_name'].orValue('') + ' — ' + state + '%'"#)
+            label = c.expr(#"value.attr[?'friendly_name'].orValue('') + ' — ' + value.state + '%'"#)
             secondary = c.attr("device_class")
           })
           .build()

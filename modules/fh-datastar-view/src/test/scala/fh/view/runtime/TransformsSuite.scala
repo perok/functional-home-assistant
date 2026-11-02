@@ -7,11 +7,13 @@ import fh.view.model.{
   LayoutNode,
   Lit,
   Part,
+  SlotType,
   Step,
   Value,
   ValueExpr,
   TemplateSlot,
-  Transform
+  Transform,
+  Ty
 }
 import io.circe.Json
 
@@ -42,14 +44,14 @@ class TransformsSuite extends munit.CatsEffectSuite {
           templateSlots = Map(
             "onclick" -> TemplateSlot(
               ValueExpr(
-                Some(Value.Entity(Some("sensor.a"))),
-                List(Step.Cel("state"))
+                Value.Entity(Some("sensor.a"), Part.Whole),
+                List(Step.Cel("value.state"))
               )
             )
           )
         )
       ),
-      "state"
+      "value.state"
     )
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
@@ -81,27 +83,29 @@ class TransformsSuite extends munit.CatsEffectSuite {
       scala.util
         .Try(program.eval(new dev.cel.runtime.CelVariableResolver {
           def find(name: String): java.util.Optional[Object] =
-            if (name == "attr") java.util.Optional.of(attr)
+            if (name == "value") java.util.Optional.of(attr)
             else java.util.Optional.empty()
         }))
         .toEither
         .left
         .map(_.getClass.getName)
     List(
-      "'brightness' in attr",
-      "'gone' in attr",
-      "attr['brightness']",
-      "attr.brightness",
-      "attr[?'nope'].orValue('none')",
-      "attr['rgb_color'][1]",
-      "size(attr['effect_list'])",
-      "attr['dynamics']['speed']",
-      "attr['on'] ? 'y' : 'n'",
-      "size(attr)",
-      "attr.transformList(k, v, k).sort().join(',')",
-      "attr['nope']"
+      "'brightness' in value",
+      "'gone' in value",
+      "value['brightness']",
+      "value.brightness",
+      "value[?'nope'].orValue('none')",
+      "value['rgb_color'][1]",
+      "size(value['effect_list'])",
+      "value['dynamics']['speed']",
+      "value['on'] ? 'y' : 'n'",
+      "size(value)",
+      "value.transformList(k, v, k).sort().join(',')",
+      "value['nope']"
     ).foreach { src =>
-      val p = Transform.parse(src).fold(e => fail(e), identity)
+      val p = Transform
+        .parse(Transform.CelKey(src, Nil, Some(Ty.Dyn)))
+        .fold(e => fail(e), identity)
       assertEquals(
         read(p, entity.javaAttributes),
         read(p, plain),
@@ -167,10 +171,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
         templateSlots = Map(
           "onclick" -> TemplateSlot(
             ValueExpr(
-              Some(
-                Value
-                  .Entity(Some("light.kitchen"), part = Part.Attr("brightness"))
-              ),
+              Value
+                .Entity(Some("light.kitchen"), part = Part.Attr("brightness")),
               List(
                 Step.Percent(
                   Value.Literal(Lit.Real(1.0)),
@@ -197,7 +199,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
             templateSlots = Map(
               "onclick" -> TemplateSlot(
                 ValueExpr(
-                  Some(Value.Entity(Some("light.kitchen"))),
+                  Value.Entity(Some("light.kitchen")),
                   List(Step.Duration(s))
                 )
               )
@@ -222,8 +224,11 @@ class TransformsSuite extends munit.CatsEffectSuite {
           LayoutNode.Component(
             card = "c",
             templateSlots = Map(
+              // A bool's slot is typed bool, or the type check refuses it.
               "onclick" -> TemplateSlot(
-                ValueExpr(Some(Value.Entity(Some("light.kitchen"))), List(m))
+                ValueExpr(Value.Entity(Some("light.kitchen")), List(m)),
+                `type` =
+                  if (Step.allBoolean(m)) SlotType.Bool else SlotType.Text
               )
             )
           )
@@ -266,7 +271,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
   // entity from bindings, `noSignals` inside the string.
   private val tapUrl =
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
-      "+ \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""
+      "+ \"/\" + value.entity_id + \"', {filterSignals:{exclude:'.*'}})\""
 
   private def programOf(d: Dashboard, src: String): Transform.Compiled =
     d.validated()
@@ -282,7 +287,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         templateSlots = Map(
           "onclick" -> TemplateSlot(
             ValueExpr(
-              Some(Value.Entity(Some("light.kitchen"))),
+              Value.Entity(Some("light.kitchen"), Part.Whole),
               List(Step.Cel(tapUrl))
             )
           )
@@ -313,7 +318,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
           "onclick" -> Json.obj(
             "source" -> Json.obj(
               "kind" -> Json.fromString("Entity"),
-              "of" -> Json.fromString("light.kitchen")
+              "of" -> Json.fromString("light.kitchen"),
+              "part" -> Json.obj("kind" -> Json.fromString("Whole"))
             ),
             "steps" -> Json.arr(
               Json.obj(
@@ -367,15 +373,15 @@ class TransformsSuite extends munit.CatsEffectSuite {
         templateSlots = Map(
           "onclick" -> TemplateSlot(
             ValueExpr(
-              Some(Value.Entity(Some("light.kitchen"))),
-              List(Step.Cel("state"))
+              Value.Entity(Some("light.kitchen"), Part.Whole),
+              List(Step.Cel("value.state"))
             )
           )
         )
       )
     )
     assertEquals(
-      Transform.run(programOf(plain, "state"), state, "x"),
+      Transform.run(programOf(plain, "value.state"), state, "x"),
       "on"
     )
   }

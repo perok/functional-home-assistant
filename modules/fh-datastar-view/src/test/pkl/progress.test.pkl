@@ -172,7 +172,7 @@ facts {
     // A percentage given reads as itself.
     local vacuum = c.progress(pct)
     vacuum.slotsByName["entity_id"].value == "sensor.pct"
-    (vacuum.slotsByName["value"].value as slotMod.Reading).source != null
+    (vacuum.slotsByName["value"].value as slotMod.Reading).source is slotMod.EntityRead
   }
 
   ["the bar shows and the countdown has a value only while it runs; a battery's bar always"] {

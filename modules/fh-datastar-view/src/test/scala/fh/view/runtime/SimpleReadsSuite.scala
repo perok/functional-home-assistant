@@ -19,7 +19,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     `type` = if (bool) SlotType.Bool else SlotType.Text
   )
 
-  private def condition(p: Predicate) = ValueExpr(Some(Value.Condition(p)))
+  private def condition(p: Predicate) = ValueExpr(Value.Condition(p))
 
   private def reading(
       of: Option[String],
@@ -27,7 +27,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       reads: String = Reads.Live
   )(steps: Step*) =
     ValueExpr(
-      Some(Value.Entity(of, part, reads, bypassUnavailable = false)),
+      Value.Entity(of, part, reads, bypassUnavailable = false),
       steps.toList
     )
 
@@ -206,16 +206,16 @@ class SimpleReadsSuite extends munit.FunSuite {
       decode[ValueExpr](
         """{"source": {"kind": "Condition", "predicate": {"kind": "Cmp", "property": "state", "op": "eq", "value": "on", "entity": "binary_sensor.door"}}}"""
       ).map(_.source),
-      Right(Some(Value.Condition(doorOpen)))
+      Right(Value.Condition(doorOpen))
     )
     assertEquals(
       decode[ValueExpr](
         """{"source": {"kind": "Entity", "of": "sensor.b", "part": {"kind": "Attr", "name": "battery"}}}"""
       ).map(_.source),
-      Right(Some(Value.Entity(Some("sensor.b"), Part.Attr("battery"))))
+      Right(Value.Entity(Some("sensor.b"), Part.Attr("battery")))
     )
     def matchWith(otherwise: String) = decode[ValueExpr](
-      s"""{"steps": [{"kind": "Match", "cases": {}, "otherwise": $otherwise}]}"""
+      s"""{"source": {"kind": "Entity"}, "steps": [{"kind": "Match", "cases": {}, "otherwise": $otherwise}]}"""
     ).map(_.steps)
     assertEquals(
       matchWith("""{"kind": "Entity"}"""),
@@ -224,7 +224,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     assert(matchWith("""{"kind": "Entity", "off": "x"}""").isLeft)
     assert(
       decode[ValueExpr](
-        """{"steps": [{"kind": "Match", "cases": {}}]}"""
+        """{"source": {"kind": "Entity"}, "steps": [{"kind": "Match", "cases": {}}]}"""
       ).isLeft
     )
   }

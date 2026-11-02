@@ -60,7 +60,7 @@ class RenderCacheContentionSuite extends ServerHarness {
                 "card",
                 templateSlots = Map(
                   "state" -> TemplateSlot(
-                    ValueExpr(Some(Value.Entity(Some("sensor.shared"))))
+                    ValueExpr(Value.Entity(Some("sensor.shared")))
                   )
                 )
               )
@@ -76,7 +76,7 @@ class RenderCacheContentionSuite extends ServerHarness {
           "card",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.a"))))
+              ValueExpr(Value.Entity(Some("sensor.a")))
             )
           )
         ),
@@ -90,7 +90,7 @@ class RenderCacheContentionSuite extends ServerHarness {
           "card",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+              ValueExpr(Value.Entity(Some("sensor.b")))
             )
           )
         ),
@@ -117,7 +117,7 @@ class RenderCacheContentionSuite extends ServerHarness {
           "card",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.shared"))))
+              ValueExpr(Value.Entity(Some("sensor.shared")))
             )
           )
         )

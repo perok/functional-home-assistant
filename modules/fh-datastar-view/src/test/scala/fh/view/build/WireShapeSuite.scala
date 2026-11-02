@@ -202,7 +202,7 @@ class WireShapeSuite extends munit.FunSuite {
     // beside the expression's fields.
     check(
       "Reading",
-      ValueExpr(Some(Value.Entity())),
+      ValueExpr(Value.Entity()),
       pklOnly = Set("valueWhileSlot")
     )
     // `Slot` is `TemplateSlot`: its `name` is the map key, and its `value` the
@@ -210,7 +210,7 @@ class WireShapeSuite extends munit.FunSuite {
     // fixed properties are a template's spellings of the handle.
     check(
       "Slot",
-      TemplateSlot(ValueExpr(Some(Value.Entity()))),
+      TemplateSlot(ValueExpr(Value.Entity())),
       scalaOnly = Set("expr", "valueWhile"),
       pklOnly = Set("name", "value", "raw", "bind", "jsValue", "signalName")
     )
@@ -245,6 +245,8 @@ class WireShapeSuite extends munit.FunSuite {
     )
     check("PresentRead", Value.Present(Predicate.Tally(Nil, Map.empty)))
     check("Attr", Part.Attr("x"))
+    check("Whole", Part.Whole)
+    check("CelRead", Value.Cel("dashboard_slug"))
     check("Cel", Step.Cel("value"))
     check("Prefix", Step.Prefix(lit))
     check("Suffix", Step.Suffix(lit))
@@ -287,7 +289,13 @@ class WireShapeSuite extends munit.FunSuite {
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
       caseNames[Value] ->
-        Set("EntityRead", "FetchRead", "PresentRead", "ConditionRead"),
+        Set(
+          "EntityRead",
+          "FetchRead",
+          "PresentRead",
+          "ConditionRead",
+          "CelRead"
+        ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple
       ] ++ caseNames[Step.Stage]) -> Set(
@@ -303,7 +311,7 @@ class WireShapeSuite extends munit.FunSuite {
         "CountStep",
         "ThemeClassesStage"
       ),
-      caseNames[Part] -> Set("Attr"),
+      caseNames[Part] -> Set("Attr", "Whole"),
       caseNames[SignalBind] -> Set(
         "BindText",
         "BindTwoWay",

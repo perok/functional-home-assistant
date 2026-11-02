@@ -9,14 +9,11 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * it in order (`docs/plan-slot-values.md`). On the wire a bare JSON primitive
   * is a literal, and every other shape an object whose `kind` names its case.
   *
-  * @param source
-  *   `None` reads no entity: a CEL over its inputs and the renderer's bindings
-  *   alone.
   * @param default
   *   what an empty result shows instead, typed as the slot is.
   */
 final case class ValueExpr(
-    source: Option[Value],
+    source: Value,
     steps: List[Step] = Nil,
     default: Option[Lit] = None
 ) derives CanEqual:
@@ -25,7 +22,7 @@ final case class ValueExpr(
     * applies as it paints: a value that never moves. A number is its text.
     */
   def constant: Option[SlotValue] = (source, steps) match
-    case (Some(Value.Literal(l)), Nil | List(Step.ThemeClasses)) =>
+    case (Value.Literal(l), Nil | List(Step.ThemeClasses)) =>
       Some(l match
         case Lit.Bool(b) => b
         case other       => Transform.text(other.raw))
@@ -39,10 +36,10 @@ final case class ValueExpr(
     * `subject`. `None` leaves one unnamed, which `validate` refuses.
     */
   def about(subject: Option[String]): ValueExpr =
-    val src = source.map(Value.about(subject))
+    val src = Value.about(subject)(source)
     val own = src match
-      case Some(Value.Entity(of, _, _, _)) => of
-      case _                               => subject
+      case Value.Entity(of, _, _, _) => of
+      case _                         => subject
     if (subject.isEmpty && own.isEmpty) this
     else ValueExpr(src, steps.map(Step.about(own)), default)
 
@@ -54,7 +51,7 @@ final case class ValueExpr(
 
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
-    (source.toList ++ steps.flatMap(Step.operands)).exists {
+    (source :: steps.flatMap(Step.operands)).exists {
       case Value.Entity(None, _, _, _) => true
       case _                           => false
     }
@@ -68,66 +65,173 @@ final case class ValueExpr(
   lazy val inputKey: String = keyBy(Value.key)
 
   private def keyBy(src: Value => String): String =
-    source.fold("none")(src) +
+    src(source) +
       steps.map(s => "|" + Step.key(s)).mkString +
       default.fold("")(d => s"|default=${Lit.key(d)}")
 
-  /** The CEL type it is declared as when a named input: a literal, a count, a
-    * condition or a fetch. `None` for any other shape, which `validate`
-    * refuses.
+  /** Every CEL's named inputs, its source's and its steps'. */
+  def celInputs: Map[String, ValueExpr] =
+    (source match
+      case Value.Cel(_, in) => in
+      case _                => Map.empty
+    ) ++ steps.collect { case c: Step.Cel => c.inputs }.flatten
+
+  /** Every CEL source, in order. */
+  def celSources: List[String] =
+    (source match
+      case Value.Cel(src, _) => List(src)
+      case _                 => Nil
+    ) ++ steps.collect { case c: Step.Cel => c.src }
+
+  /** The type it is declared as when a named input: a literal, a count, the ids
+    * present, a condition, a fetch, or an entity it names. `None` for any other
+    * shape, which `validate` refuses.
     */
-  def inputKind: Option[ValueExpr.Kind] = (source, steps) match
-    case (Some(Value.Literal(l)), Nil) =>
-      Some(l match
-        case Lit.Text(_)  => ValueExpr.Kind.Str
-        case Lit.Bool(_)  => ValueExpr.Kind.Bool
-        case Lit.Whole(_) => ValueExpr.Kind.Int
-        case Lit.Real(_)  => ValueExpr.Kind.Dbl)
-    case (Some(Value.Present(_)), List(Step.Count)) => Some(ValueExpr.Kind.Int)
-    case (Some(Value.Condition(_)), Nil)            => Some(ValueExpr.Kind.Bool)
-    case (Some(Value.Fetch(_)), Nil) => Some(ValueExpr.Kind.Series)
-    case _                           => None
+  def inputTy: Option[Ty] = (source, steps) match
+    case (Value.Present(_), List(Step.Count)) => Some(Ty.Int)
+    case (_: Value.Cel, _) | (Value.Entity(None, _, _, _), _) | (_, _ :: _) =>
+      None
+    case (v, Nil) => Some(Ty.of(v))
+
+  /** Its type checked in order: each CEL compiled with `value` declared as the
+    * type before it, beside the named inputs `env` types, and what the last
+    * step produces.
+    */
+  def typed(
+      env: List[(String, Ty)]
+  ): Either[ValueExpr.Mistyped, ValueExpr.Typed] =
+    def cel(src: String, value: Option[Ty], keys: List[Transform.CelKey]) =
+      val k = Transform.CelKey(src, env, value)
+      Transform
+        .resultTy(k)
+        .left
+        .map(ValueExpr.Mistyped(_, Some(src)))
+        .map(ValueExpr.Typed(keys :+ k, _))
+    val start = source match
+      case Value.Cel(src, _) => cel(src, None, Nil)
+      case v                 => Right(ValueExpr.Typed(Nil, Ty.of(v)))
+    steps.foldLeft(start)((acc, step) =>
+      acc.flatMap(t =>
+        step match
+          case Step.Cel(src, _) => cel(src, Some(t.out), t.keys)
+          case s                =>
+            Ty.after(s, t.out)
+              .left
+              .map(ValueExpr.Mistyped(_))
+              .map(o => t.copy(out = o))
+      )
+    )
 
   /** Live: what it answers moves, so a once-read cannot hold it. */
-  def isLive: Boolean = source.exists {
-    case Value.Literal(_) => false
-    case _                => true
-  }
+  def isLive: Boolean = source match
+    case Value.Literal(_)     => false
+    case Value.Cel(_, inputs) => inputs.values.exists(_.isLive)
+    case _                    => true
 
   /** Every entity that can move it. */
   def entities: List[String] =
-    source.toList.flatMap(Value.entityOf) ++ operandEntities
+    Value.entityOf(source) ++ operandEntities
 
 object ValueExpr:
 
-  /** The CEL type a named input is declared as. `Series` is a history answer's
-    * points, `list(list(double))` of `[epochMillis, value]`.
+  /** [[ValueExpr.typed]]'s answer: the CEL it compiles, in order, and its type.
     */
-  enum Kind derives CanEqual:
-    case Str, Int, Dbl, Bool, Series
+  final case class Typed(keys: List[Transform.CelKey], out: Ty)
 
-  def env(inputs: Map[String, ValueExpr]): List[(String, Kind)] =
-    inputs.toList.sortBy(_._1).flatMap((n, v) => v.inputKind.map(n -> _))
+  /** Why it does not type; `cel` is the CEL source at fault, if one is. */
+  final case class Mistyped(message: String, cel: Option[String] = None)
 
-  def literal(s: String): ValueExpr = ValueExpr(
-    Some(Value.Literal(Lit.Text(s)))
-  )
+  def env(inputs: Map[String, ValueExpr]): List[(String, Ty)] =
+    inputs.toList.sortBy(_._1).flatMap((n, v) => v.inputTy.map(n -> _))
+
+  def literal(s: String): ValueExpr = ValueExpr(Value.Literal(Lit.Text(s)))
 
   val fieldNames: Set[String] = Set("source", "steps", "default")
 
   /** A bare primitive, or `{source, steps, default}`. */
   given Decoder[ValueExpr] = Decoder.instance(c =>
-    if (!c.value.isObject) c.as[Lit].map(l => ValueExpr(Some(Value.Literal(l))))
+    if (!c.value.isObject) c.as[Lit].map(l => ValueExpr(Value.Literal(l)))
     else Strict.only(c, fieldNames) *> fields(c)
   )
 
   /** The fields of an object that may hold others (a template slot's). */
   def fields(c: ACursor): Decoder.Result[ValueExpr] =
     (
-      c.getOrElse[Option[Value]]("source")(None),
+      c.get[Value]("source"),
       c.getOrElse[List[Step]]("steps")(Nil),
       c.getOrElse[Option[Lit]]("default")(None)
     ).mapN(ValueExpr.apply)
+
+/** What a source or step produces, checked in order through a [[ValueExpr]]'s
+  * steps. A list is not [[Dyn]]: a series typed as one would turn a build error
+  * into error text on a wall panel.
+  */
+enum Ty derives CanEqual:
+  case Text, Bool, Int, Real, Dyn, Entity
+
+  /** A chart's SVG, which only a raw hole takes. */
+  case Markup
+  case List(of: Ty)
+
+  def name: String = this match
+    case List(of) => s"list of ${of.name}"
+    case Entity   => "whole entity"
+    case Markup   => "markup"
+    case other    => other.toString.toLowerCase
+
+object Ty:
+
+  /** A fetch's answer: `[epochMillis, value]` pairs. */
+  val Series: Ty = List(List(Real))
+
+  private val numberLike = Set[Ty](Text, Int, Real, Dyn)
+
+  def of(l: Lit): Ty = l match
+    case Lit.Text(_)  => Text
+    case Lit.Bool(_)  => Bool
+    case Lit.Whole(_) => Int
+    case Lit.Real(_)  => Real
+
+  /** A source's type; a CEL source's is its compiler's, which
+    * [[ValueExpr.typed]] asks.
+    */
+  def of(v: Value): Ty = v match
+    case Value.Literal(l)                    => of(l)
+    case Value.Entity(_, Part.State, _, _)   => Text
+    case Value.Entity(_, _: Part.Attr, _, _) => Dyn
+    case Value.Entity(_, Part.Whole, _, _)   => Entity
+    case Value.Fetch(_)                      => Series
+    case Value.Present(_)                    => List(Text)
+    case Value.Condition(_)                  => Bool
+    case Value.Cel(_, _)                     => Dyn
+
+  /** What a step other than CEL makes of `in`. */
+  def after(step: Step, in: Ty): Either[String, Ty] =
+    def takes(ok: Boolean, what: String, out: Ty) =
+      Either.cond(
+        ok,
+        out,
+        s"has a ${Step.label(step)} step, which takes $what, after a ${in.name}"
+      )
+    step match
+      case _: Step.Prefix | _: Step.Suffix | _: Step.WithUnit => Right(Text)
+      case _: Step.Percent | _: Step.Fill | _: Step.Duration  =>
+        takes(numberLike(in), "a number or text", Text)
+      case m: Step.Match =>
+        Right(if (Step.allBoolean(m)) Bool else Text)
+      case Step.Count =>
+        takes(in match { case List(_) => true; case _ => false }, "a list", Int)
+      case _: Step.Chart     => takes(in == Series, "a fetch's series", Markup)
+      case Step.ThemeClasses => takes(in == Text, "text", Text)
+      case _: Step.Cel       => Right(Dyn)
+
+  /** What a slot of `slotType` may produce: a text slot shows a number as its
+    * text, and `dyn` passes either, since an attribute or CEL's `dyn` may be
+    * anything.
+    */
+  def fits(out: Ty, slotType: SlotType): Boolean = slotType match
+    case SlotType.Text => numberLike(out) || out == Markup
+    case SlotType.Bool => out == Bool || out == Dyn
 
 /** A literal as Pkl wrote it. A number is typed by its spelling: a Pkl `Float`
   * `2.0` and an `Int` `2` are one value, and CEL's compiler types them apart.
@@ -191,6 +295,11 @@ enum Value derives CanEqual:
     */
   case Condition(predicate: Predicate)
 
+  /** Computed from nothing before it: CEL over its named inputs and the
+    * renderer's bindings, with no `value`.
+    */
+  case Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty)
+
 object Value:
 
   def about(subject: Option[String])(v: Value): Value = v match
@@ -213,6 +322,8 @@ object Value:
     case Fetch(f)     => s"fetch:${f.key}"
     case Present(t)   => s"t:${Predicate.tallyKey(t)}"
     case Condition(p) => s"p:${Predicate.key(p)}"
+    // Its inputs are keyed beside it, as a step's are (`BoundSlot.valueKey`).
+    case Cel(src, _) => s"cel:${src.length}:$src"
 
   /** An operand's key, which does name its entity. */
   def key(v: Value): String = v match
@@ -243,12 +354,16 @@ object Value:
         case "Condition" =>
           Strict.only(c, Set("kind", "predicate")) *>
             c.get[Predicate]("predicate").map(Condition(_))
+        case "Cel" =>
+          Strict.only(c, Set("kind", "src", "inputs")) *> (
+            c.get[String]("src"),
+            c.getOrElse[Map[String, ValueExpr]]("inputs")(Map.empty)
+          ).mapN(Cel.apply)
         case other =>
           Left(
             DecodingFailure(
-              s"unknown value kind '$other' — Entity, Fetch, Present or " +
-                "Condition, " +
-                "or a bare literal",
+              s"unknown value kind '$other' — Entity, Fetch, Present, " +
+                "Condition or Cel, or a bare literal",
               c.history
             )
           )
@@ -260,10 +375,14 @@ enum Part derives CanEqual:
   case State
   case Attr(name: String)
 
+  /** The entity itself, CEL's `fh.Entity` struct. */
+  case Whole
+
 object Part:
   def key(p: Part): String = p match
     case State      => "state"
     case Attr(name) => s"attr:$name"
+    case Whole      => "whole"
 
   given Decoder[Part] = ConfiguredDecoder.derived(using Strict.configuration)
 
@@ -272,8 +391,8 @@ sealed trait Step derives CanEqual
 
 object Step:
 
-  /** CEL over the source's entity (`state`, `attr`, `entity_id`, `domain`, when
-    * there is one), the renderer's bindings and its named `inputs`.
+  /** CEL over `value`, the value before it, beside its named `inputs` and the
+    * renderer's bindings.
     */
   final case class Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty)
       extends Step
@@ -344,6 +463,27 @@ object Step:
       case Fill(a, b)    => Fill(v(a), v(b))
       case Match(cs, o)  => Match(cs, v(o))
       case other         => other
+
+  /** Its outcomes are all Booleans. */
+  def allBoolean(m: Match): Boolean =
+    (m.otherwise match
+      case Value.Literal(_: Lit.Bool) => true
+      case _                          => false
+    ) && m.cases.values.forall(_.isInstanceOf[Lit.Bool])
+
+  /** For a message. */
+  def label(s: Step): String = s match
+    case _: Cel       => "CEL"
+    case _: Prefix    => "prefix"
+    case _: Suffix    => "suffix"
+    case _: WithUnit  => "unit"
+    case _: Percent   => "percent"
+    case _: Fill      => "fill"
+    case _: Duration  => "duration"
+    case _: Match     => "match"
+    case Count        => "count"
+    case ThemeClasses => "theme classes"
+    case _: Chart     => "chart"
 
   def operands(s: Step): List[Value] = s match
     case Prefix(t)     => List(t)

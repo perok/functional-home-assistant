@@ -252,7 +252,7 @@ class ResumeSuite extends ServerHarness {
                   "pill",
                   Map(
                     "state" -> TemplateSlot(
-                      ValueExpr(Some(Value.Entity(Some("light.a"))))
+                      ValueExpr(Value.Entity(Some("light.a")))
                     )
                   )
                 )
@@ -348,7 +348,7 @@ class ResumeSuite extends ServerHarness {
           "card",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+              ValueExpr(Value.Entity(Some("sensor.b")))
             )
           )
         ),
@@ -395,7 +395,7 @@ class ResumeSuite extends ServerHarness {
             "card",
             templateSlots = Map(
               "state" -> TemplateSlot(
-                ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+                ValueExpr(Value.Entity(Some("sensor.b")))
               )
             )
           )
@@ -451,7 +451,7 @@ class ResumeSuite extends ServerHarness {
           "detail",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+              ValueExpr(Value.Entity(Some("sensor.b")))
             )
           )
         )
@@ -547,7 +547,7 @@ class ResumeSuite extends ServerHarness {
           "card",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+              ValueExpr(Value.Entity(Some("sensor.b")))
             )
           )
         ),

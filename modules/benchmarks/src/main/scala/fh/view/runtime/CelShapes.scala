@@ -19,48 +19,48 @@ package fh.view.runtime
   *     strips the `.0` and renders `[a, b]` lists.
   *   - '''Ternary arms must share a type.''' CEL has no `? x : null`, so the
   *     kelvin-absent arm of the fill colour is `''`.
-  *   - '''Presence is `'k' in attr`.''' Raw `attr['k']` on an absent key is an
-  *     evaluation error, so every attribute read is gated — and an empty-string
-  *     value is PRESENT to `in`.
+  *   - '''Presence is `'k' in value.attr`.''' Raw `value.attr['k']` on an
+  *     absent key is an evaluation error, so every attribute read is gated —
+  *     and an empty-string value is PRESENT to `in`.
   *   - '''`cel.bind` names a shared subexpression''', and
-  *     `attr.transformList(k, v, ...)`, `.sort()`, `.join('\n')` build the
-  *     attribute lines.
+  *     `value.attr.transformList(k, v, ...)`, `.sort()`, `.join('\n')` build
+  *     the attribute lines.
   */
 object CelShapes {
 
   final val TransformName =
-    """('friendly_name' in attr ? attr['friendly_name'] : entity_id)"""
+    """('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"""
 
   final val TransformUnit =
-    """state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"""
+    """value.state + ('unit_of_measurement' in value.attr ? ' ' + value.attr['unit_of_measurement'] : '')"""
 
   // The slider's fill, as slider.pkl bakes it for a light (min 1, max 255) —
   // unrounded on purpose (beer.min.js recomputes the same percentage on load),
   // wrapped as a "%"-suffixed string.
   final val TransformFill =
-    """str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)) + '%'"""
+    """str(cel.bind(v, 'brightness' in value.attr ? value.attr['brightness'] : null, v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)) + '%'"""
 
   // The percent readout, same baked config, whole numbers + " %".
   final val TransformPercent =
-    """cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %' : '0 %')"""
+    """cel.bind(v, 'brightness' in value.attr ? value.attr['brightness'] : null, v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %' : '0 %')"""
 
   // The fill COLOUR (slider.pkl): rgb_color wins, else the kelvin ramp —
   // `double(k)` for the Long kelvin, `''` as the absent arm.
   final val TransformFillColor =
-    """cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, (rgb != null && size(rgb) == 3) ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : (k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : ((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), 'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) + ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')))"""
+    """cel.bind(rgb, 'rgb_color' in value.attr ? value.attr['rgb_color'] : null, cel.bind(k, 'color_temp_kelvin' in value.attr ? value.attr['color_temp_kelvin'] : null, (rgb != null && size(rgb) == 3) ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : (k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : ((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), 'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) + ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')))"""
 
   // More-info's attribute block: every attribute as a sorted `name: value`
   // line (moreinfo.pkl).
   final val TransformAttrLines =
-    """attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"""
+    """value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"""
 
   // The CEILING: the retired dynamic `$lookup($domain)` tier, hand-written in
   // CEL. Shipped nothing uses it; the fallback's worst case stays priced.
   final val TransformComplex =
-    """cel.bind(v, attr[{'light':'brightness','cover':'current_position'}[domain]],
+    """cel.bind(v, value.attr[{'light':'brightness','cover':'current_position'}[value.domain]],
       |  v != null
-      |    ? math.round(100.0 - ((double(v) - double({'light':1,'cover':0}[domain])) * 100.0 /
-      |        (double({'light':255,'cover':100}[domain]) - double({'light':1,'cover':0}[domain]))))
+      |    ? math.round(100.0 - ((double(v) - double({'light':1,'cover':0}[value.domain])) * 100.0 /
+      |        (double({'light':255,'cover':100}[value.domain]) - double({'light':1,'cover':0}[value.domain]))))
       |    : 100.0)""".stripMargin
 
   final val LiveTransforms = List(

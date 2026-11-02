@@ -3,12 +3,12 @@ package fh.view.model
 import fh.view.history.ChartStyle
 import fh.view.runtime.{Cel, EntityState}
 
-/** Slot transforms in [CEL](https://cel.dev), over `state`, `attr`,
-  * `entity_id`, `domain`, `dashboard_slug` and `time_zone`; only the slot's own
-  * entity is reachable, plus what the node's expression values say about others
-  * (a count, as a number). `attr` is an adapted JVM map, so a raw `attr['x']`
-  * on an absent key is an error: reads are guarded with `attr[?'x']`. `str(x)`
-  * renders numbers exactly as the engine renders a bare numeric result.
+/** Slot transforms in [CEL](https://cel.dev), over `value` (the value before
+  * the step), the named inputs, `dashboard_slug` and `time_zone`. A whole
+  * entity is the struct `fh.Entity {state, attr, entity_id, domain}`; its
+  * `attr` is an adapted JVM map, so a raw `attr['x']` on an absent key is an
+  * error: reads are guarded with `attr[?'x']`. `str(x)` renders numbers exactly
+  * as the engine renders a bare numeric result.
   *
   * Compiled once at validation. A failing evaluation renders its error message
   * in that one card; `null` renders `""`.
@@ -33,6 +33,7 @@ object Transform {
   def read(part: Part, entity: EntityState): Any = part match
     case Part.State      => entity.state
     case Part.Attr(name) => entity.javaAttributes.get(name)
+    case Part.Whole      => entity.celValue
 
   /** Text as CEL renders a bare result: `str(x)`. */
   def text(v: Any): String = v match
@@ -121,41 +122,38 @@ object Transform {
   private def roundAway(d: Double): Double =
     BigDecimal(d).setScale(0, BigDecimal.RoundingMode.HALF_UP).toDouble
 
-  /** A CEL source and the typed names it compiles against: the node's
-    * expression values it reads, empty for nearly every slot, and whether it
-    * has an entity to read (`state`, `attr`, `entity_id`, `domain`).
+  /** A CEL source and the typed names it compiles against: the named inputs it
+    * reads, empty for nearly every slot, and the type its `value` is declared
+    * as, `None` for a CEL source, which has none.
     */
   case class CelKey(
       src: String,
-      env: List[(String, ValueExpr.Kind)] = Nil,
-      entity: Boolean = true
+      env: List[(String, Ty)] = Nil,
+      value: Option[Ty] = Some(Ty.Entity)
   )
 
-  def parse(src: String): Either[String, Compiled] = Cel.parse(src)
+  def parse(src: String): Either[String, Compiled] = parse(CelKey(src))
 
   def parse(key: CelKey): Either[String, Compiled] =
-    Cel.parse(key.src, key.env, key.entity)
+    Cel.parse(key.src, key.env, key.value)
 
-  def yieldsBool(key: CelKey): Boolean =
-    Cel.yieldsBool(key.src, key.env, key.entity)
+  /** What it produces, or why it does not compile. */
+  def resultTy(key: CelKey): Either[String, Ty] =
+    Cel.resultTy(key.src, key.env, key.value)
 
-  def isBoolTyped(key: CelKey): Boolean =
-    Cel.isBoolTyped(key.src, key.env, key.entity)
-
-  def nonTextType(key: CelKey): Option[String] =
-    Cel.nonTextType(key.src, key.env, key.entity)
-
-  /** Never throws into the render: a failure returns its message. */
+  /** Over a whole entity, as a node variable's start is. Never throws into the
+    * render: a failure returns its message.
+    */
   def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
-    Cel.run(expr, entity, dashboardSlug)
+    SlotValue.text(runValue(expr, entity.celValue, dashboardSlug))
 
   def runValue(
       expr: Compiled,
-      entity: EntityState,
+      value: Any,
       dashboardSlug: String,
       values: Map[String, Object] = Map.empty
   ): SlotValue =
-    Cel.runValue(expr, entity, dashboardSlug, values)
+    Cel.runValue(expr, value, dashboardSlug, values)
 
   /** How a fetch's answer becomes the hole's content: its [[Step.Chart]], or
     * the answer as JSON when it has none.

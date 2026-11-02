@@ -167,7 +167,7 @@ object FetchBench {
       Map(
         "chart" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day)))),
+            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
             List(Step.Chart())
           )
         )

@@ -27,7 +27,7 @@ local lamp: hass.LightEntity = new {
   effects = new hass.Effects { owner = lamp; list { "none"; "Rainbow Slow" } }
 }
 
-local function route(n: Any): String = (n.slotsByName["onclick"].value as slotMod.Reading).steps.toList().last.src
+local function route(n: Any): String = (n.slotsByName["onclick"].value as slotMod.Reading).source.src
 
 // A baked select's members in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =

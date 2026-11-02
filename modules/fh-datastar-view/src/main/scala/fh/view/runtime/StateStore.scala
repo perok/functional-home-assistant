@@ -27,9 +27,9 @@ case class EntityState(
 
   val unavailable: Boolean = EntityState.unavailableStates(state)
 
-  /** What CEL binds as `attr`, converted once per state. Rebuilt per change on
-    * purpose: 3.4% of a signals tick (`RenderBench.resumeSignals`), not worth
-    * carrying across one.
+  /** What CEL reads as `value.attr`, converted once per state. Rebuilt per
+    * change on purpose: 3.4% of a signals tick (`RenderBench.resumeSignals`),
+    * not worth carrying across one.
     *
     * Held as CEL's own map type, which cel-java 0.14.0 passes through, because
     * it converts a plain `java.util.Map` on every read of `attr` by walking
@@ -41,6 +41,9 @@ case class EntityState(
     */
   lazy val javaAttributes: java.util.Map[Object, Object] =
     MutableMapValue.create(EntityState.toJavaObject(attributes))
+
+  /** CEL's `fh.Entity`, held here so an evaluation builds no struct. */
+  lazy val celValue: Object = new Cel.EntityValue(this)
 }
 
 object EntityState {

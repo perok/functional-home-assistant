@@ -22,23 +22,23 @@ class TransformSuite extends munit.FunSuite {
 
   test("round to n decimals") {
     assertEquals(
-      run("str(math.round(num(state) * 10.0) / 10.0)", "21.44"),
+      run("str(math.round(num(value.state) * 10.0) / 10.0)", "21.44"),
       "21.4"
     )
     assertEquals(
-      run("str(math.round(num(state) * 10.0) / 10.0)", "21.46"),
+      run("str(math.round(num(value.state) * 10.0) / 10.0)", "21.46"),
       "21.5"
     )
-    assertEquals(run("str(math.round(num(state)))", "1499.6"), "1500")
+    assertEquals(run("str(math.round(num(value.state)))", "1499.6"), "1500")
   }
 
   test("whole-number results drop the decimal point") {
     assertEquals(
-      run("str(math.round(num(state) * 1000.0)) + ' W'", "1.5"),
+      run("str(math.round(num(value.state) * 1000.0)) + ' W'", "1.5"),
       "1500 W"
     )
     assertEquals(
-      run("str(num(state) * 1.8 + 32.0)", "100"),
+      run("str(num(value.state) * 1.8 + 32.0)", "100"),
       "212"
     )
   }
@@ -46,7 +46,7 @@ class TransformSuite extends munit.FunSuite {
   test("arithmetic keeps real decimals") {
     assertEquals(
       run(
-        "str(math.round((num(state) * 1.8 + 32.0) * 10.0) / 10.0)",
+        "str(math.round((num(value.state) * 1.8 + 32.0) * 10.0) / 10.0)",
         "37"
       ),
       "98.6"
@@ -54,25 +54,25 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("string concat appends a unit") {
-    assertEquals(run("state + ' kWh'", "5"), "5 kWh")
+    assertEquals(run("value.state + ' kWh'", "5"), "5 kWh")
   }
 
   test("conditional maps a state to display text") {
-    assertEquals(run("state == 'on' ? 'Open' : 'Closed'", "on"), "Open")
+    assertEquals(run("value.state == 'on' ? 'Open' : 'Closed'", "on"), "Open")
     assertEquals(
-      run("state == 'on' ? 'Open' : 'Closed'", "off"),
+      run("value.state == 'on' ? 'Open' : 'Closed'", "off"),
       "Closed"
     )
   }
 
   test("string library functions") {
-    assertEquals(run("state.replace('o', '0')", "on"), "0n")
+    assertEquals(run("value.state.replace('o', '0')", "on"), "0n")
   }
 
   test("same-entity: attr reads a sibling attribute, guarded") {
     assertEquals(
       run(
-        "state + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')",
+        "value.state + ' ' + ('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')",
         "21.5",
         attributes = Map("unit_of_measurement" -> Json.fromString("°C"))
       ),
@@ -82,17 +82,18 @@ class TransformSuite extends munit.FunSuite {
     // the error.
     assert(
       run(
-        "state + ' ' + attr['unit_of_measurement']",
+        "value.state + ' ' + value.attr['unit_of_measurement']",
         "21.5"
       ).startsWith("cel error:"),
-      clue = run("state + ' ' + attr['unit_of_measurement']", "21.5")
+      clue =
+        run("value.state + ' ' + value.attr['unit_of_measurement']", "21.5")
     )
   }
 
   test("same-entity: numeric attributes stay numeric for arithmetic") {
     assertEquals(
       run(
-        "str(math.round(double(attr['brightness']) * 100.0 / 255.0)) + '%'",
+        "str(math.round(double(value.attr['brightness']) * 100.0 / 255.0)) + '%'",
         "on",
         attributes = Map("brightness" -> Json.fromInt(128))
       ),
@@ -101,8 +102,8 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("auto-unit pattern: append the unit only when present") {
-    val expr = "state + ('unit_of_measurement' in attr" +
-      " ? ' ' + attr['unit_of_measurement'] : '')"
+    val expr = "value.state + ('unit_of_measurement' in value.attr" +
+      " ? ' ' + value.attr['unit_of_measurement'] : '')"
     assertEquals(
       run(expr, "21.5", Map("unit_of_measurement" -> Json.fromString("°C"))),
       "21.5 °C"
@@ -112,7 +113,8 @@ class TransformSuite extends munit.FunSuite {
 
   test("evaluation error renders the CEL message on the card (no crash)") {
     // The card shows the error rather than the raw value or a crashed render.
-    val out = run("str(math.round(num(state) * 10.0) / 10.0)", "unavailable")
+    val out =
+      run("str(math.round(num(value.state) * 10.0) / 10.0)", "unavailable")
     assert(out.nonEmpty, clue = out)
     assertNotEquals(out, "unavailable")
   }
@@ -126,7 +128,7 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(run("cel.bind(v, null, v)", "z"), "")
     assertEquals(
       run(
-        "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, v)",
+        "cel.bind(v, 'brightness' in value.attr ? value.attr['brightness'] : null, v)",
         "off"
       ),
       ""
@@ -137,8 +139,8 @@ class TransformSuite extends munit.FunSuite {
     val attrs = Map("brightness" -> Json.fromInt(120))
     // An empty optional arrives as a plain `java.util.Optional`; without the
     // unwrap `String.valueOf` puts the literal `Optional.empty` in the DOM.
-    assertEquals(run("attr[?'brightness']", "on", attrs), "120")
-    assertEquals(run("attr[?'nope']", "on", attrs), "")
+    assertEquals(run("value.attr[?'brightness']", "on", attrs), "120")
+    assertEquals(run("value.attr[?'nope']", "on", attrs), "")
     assertEquals(run("optional.none()", "on"), "")
     assertEquals(run("optional.of('x')", "on"), "x")
     // `''` means absent, the rule `ValueExpr.default` applies one layer up.
@@ -147,19 +149,23 @@ class TransformSuite extends munit.FunSuite {
     // The guarded read without a ternary, byte for byte the spelling every
     // shipped transform uses.
     assertEquals(
-      run("attr[?'brightness'].orValue('none')", "on", attrs),
-      run("'brightness' in attr ? attr['brightness'] : 'none'", "on", attrs)
+      run("value.attr[?'brightness'].orValue('none')", "on", attrs),
+      run(
+        "'brightness' in value.attr ? value.attr['brightness'] : 'none'",
+        "on",
+        attrs
+      )
     )
     assertEquals(
-      run("attr[?'nope'].orValue('none')", "on", attrs),
-      run("'nope' in attr ? attr['nope'] : 'none'", "on", attrs)
+      run("value.attr[?'nope'].orValue('none')", "on", attrs),
+      run("'nope' in value.attr ? value.attr['nope'] : 'none'", "on", attrs)
     )
   }
 
   test("identity bindings: domain and entity_id come from the entity id") {
-    assertEquals(run("domain", "on", entity = "light.kitchen"), "light")
+    assertEquals(run("value.domain", "on", entity = "light.kitchen"), "light")
     assertEquals(
-      run("entity_id", "on", entity = "light.kitchen"),
+      run("value.entity_id", "on", entity = "light.kitchen"),
       "light.kitchen"
     )
   }
@@ -180,7 +186,7 @@ class TransformSuite extends munit.FunSuite {
   test("a map-indexed action over domain still resolves (fallback)") {
     val expr =
       """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
-        """domain in m ? m[domain] : 'homeassistant/toggle')"""
+        """value.domain in m ? m[value.domain] : 'homeassistant/toggle')"""
     assertEquals(run(expr, "on", entity = "scene.movie"), "scene/turn_on")
     assertEquals(
       run(expr, "on", entity = "light.kitchen"),
@@ -203,7 +209,7 @@ class TransformSuite extends munit.FunSuite {
     // range, from the right (BeerCSS). `double(v)` is load-bearing: an attr
     // arrives as a Long, and bare `v - 1.0` compiles but throws at evaluation.
     val expr =
-      "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+      "str(cel.bind(v, 'brightness' in value.attr ? value.attr['brightness'] : null, " +
         "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)) + '%'"
     assertEquals(
       run(
@@ -245,8 +251,8 @@ class TransformSuite extends munit.FunSuite {
     // presence; and `str(...)`, which strips a whole double's `.0` where CEL's
     // `string(math.round(x))` keeps it.
     val expr =
-      """cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
-        |  cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
+      """cel.bind(rgb, 'rgb_color' in value.attr ? value.attr['rgb_color'] : null,
+        |  cel.bind(k, 'color_temp_kelvin' in value.attr ? value.attr['color_temp_kelvin'] : null,
         |    (rgb != null && size(rgb) == 3)
         |      ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
         |      : (k != null
@@ -281,11 +287,11 @@ class TransformSuite extends munit.FunSuite {
   // fallback must still evaluate one correctly.
   test("slider fill: a hand-written domain-keyed expr still evaluates") {
     val expr =
-      """cel.bind(v, {'light':'brightness','cover':'current_position'}[domain] in attr """ +
-        """? attr[{'light':'brightness','cover':'current_position'}[domain]] : null, """ +
+      """cel.bind(v, {'light':'brightness','cover':'current_position'}[value.domain] in value.attr """ +
+        """? value.attr[{'light':'brightness','cover':'current_position'}[value.domain]] : null, """ +
         """v != null ? str(math.round(100.0 - (double(v) - """ +
-        """double({'light':1.0,'cover':0.0}[domain])) * 100.0 / """ +
-        """(double({'light':255.0,'cover':100.0}[domain]) - double({'light':1.0,'cover':0.0}[domain])))) : '100')"""
+        """double({'light':1.0,'cover':0.0}[value.domain])) * 100.0 / """ +
+        """(double({'light':255.0,'cover':100.0}[value.domain]) - double({'light':1.0,'cover':0.0}[value.domain])))) : '100')"""
     assertEquals(
       run(
         expr,
@@ -305,7 +311,7 @@ class TransformSuite extends munit.FunSuite {
   // form, the divergence is pinned here and documented on the step.
 
   private def on(part: Part, steps: Step*): ValueExpr =
-    ValueExpr(Some(Value.Entity(None, part)), steps.toList)
+    ValueExpr(Value.Entity(None, part), steps.toList)
   private def state(steps: Step*) = on(Part.State, steps*)
   private def attr(name: String, steps: Step*) = on(Part.Attr(name), steps*)
   private def text(s: String) = Value.Literal(Lit.Text(s))
@@ -324,7 +330,7 @@ class TransformSuite extends munit.FunSuite {
       case Value.Literal(l)            => l.raw
       case _                           => ""
     }
-    val start: Any = shape.source.fold("")(operand)
+    val start: Any = operand(shape.source)
     Transform.text(shape.steps.foldLeft(start) {
       case (v, f: Step.Simple) => Transform.format(f, v, operand)
       case (v, _)              => v
@@ -354,11 +360,11 @@ class TransformSuite extends munit.FunSuite {
   private def d(v: Double): Json = Json.fromDouble(v).get
 
   private val percentExpr =
-    "attr[?'brightness'].optMap(v, " +
+    "value.attr[?'brightness'].optMap(v, " +
       "str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %')" +
       ".orValue('0 %')"
   private val fillExpr =
-    "attr[?'brightness'].optMap(v, " +
+    "value.attr[?'brightness'].optMap(v, " +
       "str(100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0))))" +
       ".orValue('100') + '%'"
 
@@ -374,8 +380,8 @@ class TransformSuite extends munit.FunSuite {
       ), // exotic value: both paths String.valueOf it
       es("off", "brightness" -> Json.fromInt(200))
     )
-    agree(state(), "state", probes)
-    agree(attr("brightness"), "attr[?'brightness']", probes)
+    agree(state(), "value.state", probes)
+    agree(attr("brightness"), "value.attr[?'brightness']", probes)
   }
 
   test("definition: unit suffix, literal prefix/suffix, and the state match") {
@@ -391,19 +397,19 @@ class TransformSuite extends munit.FunSuite {
     )
     agree(
       state(unit("unit_of_measurement")),
-      "state + attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')",
+      "value.state + value.attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')",
       probes
     )
-    agree(state(Step.Prefix(text("lit: "))), "'lit: ' + state", probes)
-    agree(state(Step.Suffix(text(" W"))), "state + ' W'", probes)
+    agree(state(Step.Prefix(text("lit: "))), "'lit: ' + value.state", probes)
+    agree(state(Step.Suffix(text(" W"))), "value.state + ' W'", probes)
     agree(
       state(matchOf(Map("on" -> "Open"), "Closed")),
-      "cel.bind(m, {'on': 'Open'}, state in m ? m[state] : 'Closed')",
+      "cel.bind(m, {'on': 'Open'}, value.state in m ? m[value.state] : 'Closed')",
       probes
     )
     agree(
       state(matchOf(Map("locked" -> "lock/unlock"), "lock/lock")),
-      "cel.bind(m, {'locked': 'lock/unlock'}, state in m ? m[state] : 'lock/lock')",
+      "cel.bind(m, {'locked': 'lock/unlock'}, value.state in m ? m[value.state] : 'lock/lock')",
       probes
     )
     // HA's `isWaiting`: a two-armed enum would need three transforms and three
@@ -416,7 +422,7 @@ class TransformSuite extends munit.FunSuite {
         )
       ),
       "cel.bind(m, {'locking': 'true', 'unlocking': 'true', 'opening': 'true'}, " +
-        "state in m ? m[state] : '')",
+        "value.state in m ? m[value.state] : '')",
       probes
     )
     agree(
@@ -427,12 +433,12 @@ class TransformSuite extends munit.FunSuite {
         )
       ),
       "cel.bind(m, {'locked': 'mdi-lock', 'unlocked': 'mdi-lock-open'}, " +
-        "state in m ? m[state] : 'mdi-lock-alert')",
+        "value.state in m ? m[value.state] : 'mdi-lock-alert')",
       probes
     )
     agree(
       state(matchOf(Map.empty, "n/a")),
-      "cel.bind(m, {}, state in m ? m[state] : 'n/a')",
+      "cel.bind(m, {}, value.state in m ? m[value.state] : 'n/a')",
       probes
     )
   }
@@ -458,8 +464,8 @@ class TransformSuite extends munit.FunSuite {
       Transform
         .run(
           compile(
-            "state + ('unit_of_measurement' in attr ? ' ' + " +
-              "attr['unit_of_measurement'] : '')"
+            "value.state + ('unit_of_measurement' in value.attr ? ' ' + " +
+              "value.attr['unit_of_measurement'] : '')"
           ),
           e,
           "dashboard"
@@ -475,7 +481,7 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(
       Transform.run(
         compile(
-          "state + attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"
+          "value.state + value.attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"
         ),
         e,
         "dashboard"
@@ -523,7 +529,7 @@ class TransformSuite extends munit.FunSuite {
   }
 
   private val durationExpr =
-    "cel.bind(t, int(math.round(double(state) * 60.0)), " +
+    "cel.bind(t, int(math.round(double(value.state) * 60.0)), " +
       "t <= 0 ? '0s' " +
       ": t >= 3600 ? str(t / 3600) + 'h ' + str(t % 3600 / 60) + 'm' " +
       ": t >= 60 ? str(t / 60) + 'm' " +
@@ -643,7 +649,7 @@ class TransformSuite extends munit.FunSuite {
       """{"kind":"Fill","min":1,"max":255.0}""",
       """{"kind":"Duration","scale":60}""",
       """{"kind":"Match","cases":{"on":"Open"},"otherwise":"Closed"}""",
-      """{"kind":"Cel","src":"state"}""",
+      """{"kind":"Cel","src":"value.state"}""",
       """{"kind":"Chart"}"""
     ).foreach { src =>
       assert(

@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import fh.view.model.{
+  Part,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -52,12 +53,12 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
         (
           None,
           "dim",
-          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         )
       )
     )
@@ -78,9 +79,9 @@ class SetMembershipSuite extends ServerHarness {
           None,
           "dot",
           Map(
-            "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))),
+            "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
             "extra" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.outside"))))
+              ValueExpr(Value.Entity(Some("sensor.outside")))
             )
           )
         )
@@ -103,7 +104,7 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
         (
           None,
@@ -281,11 +282,15 @@ class SetMembershipSuite extends ServerHarness {
               None,
               "dot",
               Map(
-                "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))),
+                "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
                 "level" -> TemplateSlot(
                   ValueExpr(
-                    Some(Value.Entity(None)),
-                    List(Step.Cel("'level' in attr ? attr['level'] : ''"))
+                    Value.Entity(None, Part.Whole),
+                    List(
+                      Step.Cel(
+                        "'level' in value.attr ? value.attr['level'] : ''"
+                      )
+                    )
                   )
                 )
               )
@@ -338,23 +343,25 @@ class SetMembershipSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.SetNode(
           candidates = List("area.stue"),
-          members = Map(
-            "area.stue" -> LayoutNode.SetMember(
-              List(
-                LayoutNode.SetClause(
-                  None,
-                  LayoutNode.Component(
-                    "col",
-                    regions = LayoutNode.kids(
-                      onSet(
-                        List("light.a", "light.b"),
-                        List(
-                          (
-                            None,
-                            "dot",
-                            Map(
-                              "state" -> TemplateSlot(
-                                ValueExpr(Some(Value.Entity(None)))
+          members =
+            Map(
+              "area.stue" -> LayoutNode.SetMember(
+                List(
+                  LayoutNode.SetClause(
+                    None,
+                    LayoutNode.Component(
+                      "col",
+                      regions = LayoutNode.kids(
+                        onSet(
+                          List("light.a", "light.b"),
+                          List(
+                            (
+                              None,
+                              "dot",
+                              Map(
+                                "state" -> TemplateSlot(
+                                  ValueExpr(Value.Entity(None))
+                                )
                               )
                             )
                           )
@@ -365,7 +372,6 @@ class SetMembershipSuite extends ServerHarness {
                 )
               )
             )
-          )
         )
       ),
       "other" -> Surface(LayoutNode.Component("col"))

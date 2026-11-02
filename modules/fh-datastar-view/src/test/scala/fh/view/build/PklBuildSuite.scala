@@ -48,7 +48,7 @@ class PklBuildSuite extends munit.FunSuite {
       case _                           => Double.NaN
     (e.source, e.steps) match
       case (
-            Some(Value.Entity(_, Part.Attr(a), _, _)),
+            Value.Entity(_, Part.Attr(a), _, _),
             List(Step.Percent(lo, hi))
           ) =>
         Some((a, num(lo), num(hi)))
@@ -1867,16 +1867,16 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |node = new c.EntityCard {
         |  entity = light
-        |  value = c.exprOf(power, "state")
+        |  value = c.exprOf(power, "value.state")
         |}""".stripMargin
     )
     val value = node.bound("value")
     assertEquals(value.entityId, Some("sensor.power"))
     assertEquals(value.literal, None)
-    assertEquals(value.cel.map(_.src), Some("state"))
+    assertEquals(value.expr.celSources.headOption, Some("value.state"))
     val plain = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = new c.EntityCard { entity = light; value = c.expr("state") }""".stripMargin
+        |node = new c.EntityCard { entity = light; value = c.expr("value.state") }""".stripMargin
     )
     // Pkl names the card's own entity on a reading that names none.
     assertEquals(plain.bound("value").entityId, Some("light.kitchen"))
@@ -1908,7 +1908,7 @@ class PklBuildSuite extends munit.FunSuite {
         .bound("secondary")
         .expr
         .source,
-      None
+      Value.Cel("dashboard_slug")
     )
   }
 
@@ -1964,7 +1964,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(slider).templateSlots("max").literal, Some("100"))
     // Opted in: the guarded read as structure, presence implicit (ADR 0028).
     assertEquals(
-      rowOf(slider).templateSlots("value").expr.source.collect {
+      Option(rowOf(slider).templateSlots("value").expr.source).collect {
         case Value.Entity(_, part, _, _) => part
       },
       Some(Part.Attr("current_position"))
@@ -1994,9 +1994,7 @@ class PklBuildSuite extends munit.FunSuite {
     // directly.
     assertEquals(
       slots("value").expr.source,
-      Some(
-        Value.Entity(None, Part.Attr("brightness"), bypassUnavailable = false)
-      )
+      Value.Entity(None, Part.Attr("brightness"), bypassUnavailable = false)
     )
     assertEquals(slots("value").expr.default, Some(fh.view.model.Lit.Text("0")))
   }
@@ -2130,28 +2128,28 @@ class PklBuildSuite extends munit.FunSuite {
     // instead of re-derived.
     val own = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
-        |node = (c.entitySlider(light)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
+        |node = (c.entitySlider(light)) { readout = c.expr("\(percentExpr) + ' · ' + value.state") }
         |""".stripMargin
     )
     val state = rowOf(own).bound("state")
     assert(
-      state.valueKey.contains("attr[?'brightness']"),
+      state.valueKey.contains("value.attr[?'brightness']"),
       clue = state.valueKey
     )
     assert(
-      state.valueKey.endsWith("""+ ' · ' + state"""),
+      state.valueKey.endsWith("""+ ' · ' + value.state"""),
       clue = state.valueKey
     )
     val other = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |power: hass.GenericEntity = new { entity_id = "sensor.w"; domain = "sensor" }
-        |node = (c.entitySlider(light)).readout(c.exprOf(power, #"state + ' W'"#))
+        |node = (c.entitySlider(light)).readout(c.exprOf(power, #"value.state + ' W'"#))
         |""".stripMargin
     )
     assertEquals(rowOf(other).bound("state").entityId, Some("sensor.w"))
     assertEquals(
-      rowOf(other).bound("state").cel.map(_.src),
-      Some("""state + ' W'""")
+      rowOf(other).bound("state").expr.celSources.headOption,
+      Some("""value.state + ' W'""")
     )
     assertEquals(
       rowOf(other).templateSlots("entity_id").literal,
@@ -2410,7 +2408,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(s).templateSlots("max").literal, Some("6535"))
     // The handle tracks the value it writes, not brightness.
     assertEquals(
-      rowOf(s).templateSlots("value").expr.source.collect {
+      Option(rowOf(s).templateSlots("value").expr.source).collect {
         case Value.Entity(_, part, _, _) => part
       },
       Some(Part.Attr("color_temp_kelvin"))
@@ -2434,15 +2432,15 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(row.templateSlots("valueRest").literal, Some(",100"))
     // The hue is `hs_color[0]`, guarded: a light that is off reports none.
     assertEquals(
-      row.bound("value").cel.map(_.src),
+      row.bound("value").expr.celSources.headOption,
       Some(
-        "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
+        "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
       )
     )
     assertEquals(
-      row.bound("fill").cel.map(_.src),
+      row.bound("fill").expr.celSources.headOption,
       Some(
-        "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
+        "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
       )
     )
   }
@@ -2518,16 +2516,16 @@ class PklBuildSuite extends munit.FunSuite {
     // shape is a contract. The colour-temperature span is the light's own range
     // baked (4535.0), not a constant.
     assertEquals(
-      rowOf(kids(0)).bound("fillColor").cel.map(_.src),
-      Some("""attr[?'rgb_color'].optMap(rgb,
+      rowOf(kids(0)).bound("fillColor").expr.celSources.headOption,
+      Some("""value.attr[?'rgb_color'].optMap(rgb,
         |  size(rgb) == 3
         |    ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
         |    : '').orValue('')""".stripMargin)
     )
     assertEquals(
-      rowOf(kids(1)).bound("fillColor").cel.map(_.src),
+      rowOf(kids(1)).bound("fillColor").expr.celSources.headOption,
       Some(
-        """attr[?'color_temp_kelvin'].optMap(k,
+        """value.attr[?'color_temp_kelvin'].optMap(k,
         |  cel.bind(t,
         |    (double(k) - 2000.0) < 0.0 ? 0.0 :
         |    ((double(k) - 2000.0) > 4535.0

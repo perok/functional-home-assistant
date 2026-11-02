@@ -1,6 +1,7 @@
 package fh.view.testkit
 
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Dashboard,
@@ -80,16 +81,16 @@ object FixtureDashboard {
                   "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
                   "name" -> TemplateSlot(
                     ValueExpr(
-                      Some(Value.Entity(Some(id))),
+                      Value.Entity(Some(id), Part.Whole),
                       List(
                         Step.Cel(
-                          "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                          "('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"
                         )
                       )
                     )
                   ),
                   "state" -> TemplateSlot(
-                    ValueExpr(Some(Value.Entity(Some(id))))
+                    ValueExpr(Value.Entity(Some(id)))
                   )
                 )
               )
@@ -107,13 +108,13 @@ object FixtureDashboard {
   def reading(e: FixtureEntity): LayoutNode.Component =
     component(
       "reading",
-      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(e.entityId))))),
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e.entityId)))),
       "unit" -> TemplateSlot(
         ValueExpr(
-          Some(Value.Entity(Some(e.entityId))),
+          Value.Entity(Some(e.entityId), Part.Whole),
           List(
             Step.Cel(
-              "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+              "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
             )
           )
         )
@@ -124,7 +125,7 @@ object FixtureDashboard {
     component(
       "light",
       "name" -> lit(label),
-      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(e.entityId)))))
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e.entityId))))
     )
 
   /** It names its entity: a state condition has no subject to supply (ADR

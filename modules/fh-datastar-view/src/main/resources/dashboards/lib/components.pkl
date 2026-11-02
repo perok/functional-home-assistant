@@ -215,7 +215,7 @@ function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
 function chooser(s: selectMod.Select): selectMod.Chooser = selectMod.chooser(s)
 /// A section shown while `p` holds over live state.
 function iff(p: pred.Predicate|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
-/// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
+/// `c.expr(#"str(math.round(num(value.state) * 10.0) / 10.0) + ' V'"#)`.
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// [[expr]] over another entity than the card's.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)

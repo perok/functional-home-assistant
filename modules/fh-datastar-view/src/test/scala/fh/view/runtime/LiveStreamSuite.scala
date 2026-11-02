@@ -116,7 +116,7 @@ class LiveStreamSuite extends ServerHarness {
           "card",
           templateSlots = Map(
             "state" -> TemplateSlot(
-              ValueExpr(Some(Value.Entity(Some("sensor.shared"))))
+              ValueExpr(Value.Entity(Some("sensor.shared")))
             )
           )
         ),
@@ -551,7 +551,7 @@ class LiveStreamSuite extends ServerHarness {
                 "bar",
                 templateSlots = Map(
                   "title" -> TemplateSlot(
-                    ValueExpr(Some(Value.Entity(Some("sensor.title"))))
+                    ValueExpr(Value.Entity(Some("sensor.title")))
                   )
                 )
               )
@@ -762,7 +762,7 @@ class LiveStreamSuite extends ServerHarness {
             "card",
             templateSlots = Map(
               "state" -> TemplateSlot(
-                ValueExpr(Some(Value.Entity(Some("sensor.a"))))
+                ValueExpr(Value.Entity(Some("sensor.a")))
               )
             )
           ),
@@ -770,7 +770,7 @@ class LiveStreamSuite extends ServerHarness {
             "card",
             templateSlots = Map(
               "state" -> TemplateSlot(
-                ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+                ValueExpr(Value.Entity(Some("sensor.b")))
               )
             )
           )

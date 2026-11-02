@@ -2,7 +2,7 @@
 /// constructors (ADR 0028). A reading's value is its source read, then each
 /// step run on it: a [[Cel]] is engine work, every other step a static lookup
 /// that is TOTAL over every value a live entity can produce. Totality is the
-/// part that matters: CEL's `double(state)` errors on `unknown`, and an error
+/// part that matters: CEL's `double(value.state)` errors on `unknown`, and an error
 /// renders as its own message on a wall panel. Anything more is CEL.
 ///
 /// Where a step has a CEL spelling, its constructor documents it and
@@ -19,8 +19,9 @@ abstract class Step {
   kind: String
 }
 
-/// CEL over the source's entity (`state`, `attr`, `entity_id`, `domain`, when
-/// the reading has one), `dashboard_slug`, `time_zone` and its named `values`.
+/// CEL over `value`, the value before it (a whole entity reads as
+/// `value.state`, `value.attr[?'x']`), its named `values`, `dashboard_slug`
+/// and `time_zone`.
 class Cel extends Step {
   kind: "Cel" = "Cel"
   src: String
@@ -98,6 +99,14 @@ class Attr {
   name: String
 }
 
+/// The entity itself, which CEL reads as `fh.Entity { state, attr, entity_id,
+/// domain }`.
+class Whole {
+  kind: "Whole" = "Whole"
+}
+
+typealias Part = Attr|Whole
+
 // `const`, because components call them from class bodies.
 
 /// `state`.
@@ -111,7 +120,7 @@ const function attr(attrName: String): slotMod.Reading =
 const function attrOf(attrName: String): slotMod.EntityRead =
   new slotMod.EntityRead { part = new Attr { name = attrName } }
 
-/// `state + attr[?'attribute'].optMap(u, ' ' + u).orValue('')`. A unit that is
+/// `value.state + value.attr[?'attribute'].optMap(u, ' ' + u).orValue('')`. A unit that is
 /// not a String renders the state alone, and an empty state stays empty.
 const function suffixUnit(attrName: String): slotMod.Reading =
   new slotMod.Reading { steps { new WithUnit { unit = attrOf(attrName) } } }
@@ -121,11 +130,11 @@ const function suffixUnit(attrName: String): slotMod.Reading =
 const function attrUnit(attrName: String): slotMod.Reading =
   (attr(attrName)) { steps { new WithUnit { unit = attrOf("unit_of_measurement") } } }
 
-/// `'literal' + state`.
+/// `'literal' + value.state`.
 const function prefix(lit: String): slotMod.Reading =
   new slotMod.Reading { steps { new Prefix { text = lit } } }
 
-/// `state + 'literal'`.
+/// `value.state + 'literal'`.
 const function suffix(lit: String): slotMod.Reading =
   new slotMod.Reading { steps { new Suffix { text = lit } } }
 

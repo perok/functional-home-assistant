@@ -1,6 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.{FetchTemplate, Lit, Op, Predicate, Value, ValueExpr}
+import fh.view.model.{
+  FetchTemplate,
+  Lit,
+  Op,
+  Predicate,
+  Transform,
+  Value,
+  ValueExpr
+}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
   * conditions, counts and a condition filling a slot (`Value.Condition`).
@@ -36,7 +44,8 @@ private[view] object Conditions {
     }
 
   /** Named inputs as CEL reads them: a literal as written, a count how many are
-    * present now, a fetch its answer (`fetched`).
+    * present now and the ids themselves without one, a fetch its answer
+    * (`fetched`), an entity's part as it reads now.
     */
   def resolve(
       inputs: Map[String, ValueExpr],
@@ -46,19 +55,32 @@ private[view] object Conditions {
     if (inputs.isEmpty) Map.empty
     else
       inputs.view
-        .mapValues[Object](_.source match
-          case Some(Value.Literal(Lit.Text(s)))  => s
-          case Some(Value.Literal(Lit.Bool(b)))  => java.lang.Boolean.valueOf(b)
-          case Some(Value.Literal(Lit.Whole(n))) => java.lang.Long.valueOf(n)
-          case Some(Value.Literal(Lit.Real(d)))  => java.lang.Double.valueOf(d)
-          case Some(Value.Present(t))            =>
+        .mapValues[Object] {
+          case ValueExpr(Value.Literal(Lit.Text(s)), _, _) => s
+          case ValueExpr(Value.Literal(Lit.Bool(b)), _, _) =>
+            java.lang.Boolean.valueOf(b)
+          case ValueExpr(Value.Literal(Lit.Whole(n)), _, _) =>
+            java.lang.Long.valueOf(n)
+          case ValueExpr(Value.Literal(Lit.Real(d)), _, _) =>
+            java.lang.Double.valueOf(d)
+          case ValueExpr(Value.Present(t), Nil, _) =>
+            Cel.arg(presentOf(t, states))
+          case ValueExpr(Value.Present(t), _, _) =>
             java.lang.Long.valueOf(present(t, states).toLong)
           // Subject-free (`validate`), as a state condition is.
-          case Some(Value.Condition(p)) =>
+          case ValueExpr(Value.Condition(p), _, _) =>
             java.lang.Boolean.valueOf(matchesIn(p, EntityState.none, states))
-          case Some(Value.Fetch(f)) => fetched(f)
-          // `validate` refuses any other shape (`ValueExpr.inputKind`).
-          case _ => "")
+          case ValueExpr(Value.Fetch(f), _, _)                     => fetched(f)
+          case ValueExpr(Value.Entity(Some(id), part, _, _), _, _) =>
+            Cel.arg(
+              Transform.read(
+                part,
+                states.getOrElse(id, EntityState(id, "", Map.empty))
+              )
+            )
+          // `validate` refuses any other shape (`ValueExpr.inputTy`).
+          case _ => ""
+        }
         .toMap
 
   /** Unguarded means present, as for a set member. */

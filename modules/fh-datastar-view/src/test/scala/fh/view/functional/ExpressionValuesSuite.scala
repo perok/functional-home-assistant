@@ -290,10 +290,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("a value that would hide a name every expression has fails the build") {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["state"] = "x" }
-        |    }).secondary(c.expr("state"))""".stripMargin
+        |      expressionValues { ["value"] = "x" }
+        |    }).secondary(c.expr("value.state"))""".stripMargin
     val errs = errorsOf(body)
-    assert(errs.exists(_.contains("would hide the 'state'")), errs)
+    assert(errs.exists(_.contains("would hide the 'value'")), errs)
   }
 
   // A boolean slot filled as `input` says, beside a second line reading the count

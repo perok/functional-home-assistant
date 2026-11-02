@@ -95,10 +95,8 @@ object VarEnvBench {
       Map(
         "chart" -> TemplateSlot(
           ValueExpr(
-            Some(
-              Value.Fetch(
-                FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
-              )
+            Value.Fetch(
+              FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
             )
           )
         )

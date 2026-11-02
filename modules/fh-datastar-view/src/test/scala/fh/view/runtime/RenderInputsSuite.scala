@@ -6,6 +6,7 @@ import fh.view.runtime.RendererTestOps.*
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Dashboard,
@@ -67,13 +68,13 @@ class RenderInputsSuite extends munit.FunSuite {
   private def bound(entity: String) = LayoutNode.Component(
     "card",
     templateSlots = Map(
-      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(entity))))),
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))),
       "unit" -> TemplateSlot(
         ValueExpr(
-          Some(Value.Entity(Some(entity))),
+          Value.Entity(Some(entity), Part.Whole),
           List(
             Step.Cel(
-              "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+              "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
             )
           )
         )
@@ -109,7 +110,7 @@ class RenderInputsSuite extends munit.FunSuite {
               "bannerBar",
               templateSlots = Map(
                 "title" -> TemplateSlot(
-                  ValueExpr(Some(Value.Entity(Some("sensor.t"))))
+                  ValueExpr(Value.Entity(Some("sensor.t")))
                 )
               )
             )
@@ -129,8 +130,8 @@ class RenderInputsSuite extends munit.FunSuite {
                     "entity_id" -> lit(id),
                     "label" -> TemplateSlot(
                       ValueExpr(
-                        Some(Value.Entity(None)),
-                        List(Step.Cel("state"))
+                        Value.Entity(None, Part.Whole),
+                        List(Step.Cel("value.state"))
                       )
                     )
                   )
@@ -151,10 +152,10 @@ class RenderInputsSuite extends munit.FunSuite {
         "gauge",
         templateSlots = Map(
           "state" -> TemplateSlot(
-            ValueExpr(Some(Value.Entity(Some("sensor.t"))))
+            ValueExpr(Value.Entity(Some("sensor.t")))
           ),
           "live" -> TemplateSlot(
-            ValueExpr(Some(Value.Entity(Some("sensor.other")))),
+            ValueExpr(Value.Entity(Some("sensor.other"))),
             signal = Some(SignalBind.Text)
           )
         )
@@ -332,7 +333,7 @@ class RenderInputsSuite extends munit.FunSuite {
         "signalBanner",
         templateSlots = Map(
           "title" -> TemplateSlot(
-            ValueExpr(Some(Value.Entity(Some("sensor.t")))),
+            ValueExpr(Value.Entity(Some("sensor.t"))),
             signal = Some(SignalBind.Text)
           )
         ),

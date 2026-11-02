@@ -30,7 +30,7 @@ class LiveSecondarySuite extends munit.CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
-       |    $card.secondary(c.expr(#"state + ' now'"#))
+       |    $card.secondary(c.expr(#"value.state + ' now'"#))
        |  }
        |}
        |""".stripMargin

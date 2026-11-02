@@ -4,6 +4,7 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
+  Ty,
   Activation,
   CardDef,
   Dashboard,
@@ -290,7 +291,7 @@ class RenderBench {
   private lazy val isOn =
     Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
   private lazy val isOnValue = Map(
-    "on" -> ValueExpr(Some(Value.Condition(isOn)))
+    "on" -> ValueExpr(Value.Condition(isOn))
   )
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
@@ -396,7 +397,7 @@ class RenderBench {
         cparse
       )
     conditionViaCel = Transform
-      .parse(Transform.CelKey("on", List("on" -> ValueExpr.Kind.Bool)))
+      .parse(Transform.CelKey("on", List("on" -> Ty.Bool), None))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
@@ -698,11 +699,10 @@ class RenderBench {
   def conditionCel(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      val e = st(entityId(i))
       bh.consume(
         Transform.runValue(
           conditionViaCel,
-          e,
+          null,
           "dashboard",
           Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
         )
@@ -1790,8 +1790,8 @@ object RenderBench {
     TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
   final val FillColorValues: Map[String, ValueExpr] =
     Map(
-      "lo" -> ValueExpr(Some(real(2000.0))),
-      "span" -> ValueExpr(Some(real(4500.0)))
+      "lo" -> ValueExpr(real(2000.0)),
+      "span" -> ValueExpr(real(4500.0))
     )
 
   /** A tap's action as the builder bakes it for one entity (ADR 0016): a
@@ -1849,7 +1849,7 @@ object RenderBench {
       "entity",
       Map(
         "entity_id" -> TemplateSlot(
-          ValueExpr(subject.map(s => Value.Literal(Lit.Text(s))))
+          ValueExpr.literal(entityId(i % distinct))
         ),
         "cls" -> TemplateSlot(ValueExpr.literal("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
@@ -1859,11 +1859,11 @@ object RenderBench {
           else
             // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
             // what the shipped card actually does.
-            ValueExpr(Some(Value.Entity(subject, Part.Attr("friendly_name"))))
+            ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
         ),
         "state" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Entity(subject)),
+            Value.Entity(subject),
             List(
               Step.WithUnit(
                 Value.Entity(subject, Part.Attr("unit_of_measurement"))
@@ -1874,7 +1874,7 @@ object RenderBench {
         ),
         "fill" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Entity(subject, part = Part.Attr("brightness"))),
+            Value.Entity(subject, part = Part.Attr("brightness")),
             List(
               Step.Fill(
                 Value.Literal(Lit.Real(1.0)),
@@ -1886,7 +1886,7 @@ object RenderBench {
         ),
         "fillColor" -> TemplateSlot(
           ValueExpr(
-            Some(Value.Entity(subject)),
+            Value.Entity(subject, Part.Whole),
             List(
               Step.Cel(
                 if (valued) TransformFillColorValued else TransformFillColor

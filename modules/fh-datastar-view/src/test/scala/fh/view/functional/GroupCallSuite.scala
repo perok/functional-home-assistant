@@ -30,7 +30,7 @@ class GroupCallSuite extends FunctionalSuite {
       "light",
       "name" -> lit("Stue"),
       "state" -> TemplateSlot(
-        ValueExpr(Some(Value.Entity(Some(HouseFixture.kitchenLight.entityId))))
+        ValueExpr(Value.Entity(Some(HouseFixture.kitchenLight.entityId)))
       ),
       "service" -> lit("light/turn_off"),
       "targetKind" -> lit("area"),
@@ -117,11 +117,11 @@ class GroupCallSuite extends FunctionalSuite {
       "light",
       "name" -> lit("Door"),
       "state" -> TemplateSlot(
-        ValueExpr(Some(Value.Entity(Some(HouseFixture.frontLock.entityId))))
+        ValueExpr(Value.Entity(Some(HouseFixture.frontLock.entityId)))
       ),
       "service" -> TemplateSlot(
         ValueExpr(
-          Some(Value.Entity(Some(HouseFixture.frontLock.entityId))),
+          Value.Entity(Some(HouseFixture.frontLock.entityId)),
           List(
             Step.Match(
               Map("locked" -> Lit.Text("lock/unlock")),
