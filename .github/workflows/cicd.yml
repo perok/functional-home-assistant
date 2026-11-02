@@ -67,7 +67,7 @@ jobs:
         run: echo "FH_VISUAL_FAILURES_DIR=${{ runner.temp }}/visual-failures" >> "$GITHUB_ENV"
 
       # scala-cli runs the fh script's own test suite below.
-      - uses: coursier/cache-action@v8
+      - uses: coursier/cache-action@v9
       - uses: coursier/setup-action@v3
         with:
           apps: scalafmt scala-cli
