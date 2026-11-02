@@ -116,7 +116,7 @@ object Cel {
     dynToDoubleOverload(NUM_OVERLOAD)
   )
 
-  private val compiler = CelCompilerFactory
+  private val baseCompiler = CelCompilerFactory
     .standardCelCompilerBuilder()
     .addLibraries(
       CelExtensions.bindings(),
@@ -129,13 +129,20 @@ object Cel {
     )
     // No macros: `has(attr.x)` is an undeclared reference here (cel 0.14.0).
     // `setStandardMacros(CelStandardMacro.HAS)` would enable just that one.
+    .addVar("dashboard_slug", SimpleType.STRING)
+    .addVar("time_zone", SimpleType.STRING)
+    .addFunctionDeclarations(strDecl, numDecl)
+    .build()
+
+  /** One with no entity to read compiles without these, so reading one is the
+    * compiler's own "undeclared reference".
+    */
+  private val compiler = baseCompiler
+    .toCompilerBuilder()
     .addVar("state", SimpleType.STRING)
     .addVar("attr", MapType.create(SimpleType.STRING, SimpleType.DYN))
     .addVar("entity_id", SimpleType.STRING)
     .addVar("domain", SimpleType.STRING)
-    .addVar("dashboard_slug", SimpleType.STRING)
-    .addVar("time_zone", SimpleType.STRING)
-    .addFunctionDeclarations(strDecl, numDecl)
     .build()
 
   private val runtime = CelRuntimeFactory
@@ -184,12 +191,13 @@ object Cel {
     */
   def parse(
       src: String,
-      env: List[(String, ExprValue.Kind)] = Nil
+      env: List[(String, ExprValue.Kind)] = Nil,
+      entity: Boolean = true
   ): Either[String, Program] = {
     val trimmed = src.trim
     if (trimmed.isEmpty) Left("empty transform expression")
     else {
-      val result = compilerWith(env).compile(trimmed)
+      val result = compilerWith(env, entity).compile(trimmed)
       if (result.hasError) Left(s"invalid CEL: ${result.getErrorString}")
       else Right(runtime.createProgram(result.getAst))
     }
@@ -199,14 +207,22 @@ object Cel {
     * `state` is `dyn`, so `dyn` cannot be refused. One that does not compile
     * answers true, since [[parse]] reports it already.
     */
-  def yieldsBool(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
-    resultType(src, env).forall(t =>
+  def yieldsBool(
+      src: String,
+      env: List[(String, ExprValue.Kind)],
+      entity: Boolean = true
+  ): Boolean =
+    resultType(src, env, entity).forall(t =>
       t == SimpleType.BOOL || t == SimpleType.DYN
     )
 
   /** Typed `bool` exactly — not `dyn`, which may be anything. */
-  def isBoolTyped(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
-    resultType(src, env).contains(SimpleType.BOOL)
+  def isBoolTyped(
+      src: String,
+      env: List[(String, ExprValue.Kind)],
+      entity: Boolean = true
+  ): Boolean =
+    resultType(src, env, entity).contains(SimpleType.BOOL)
 
   /** The type `src` yields when a text slot cannot show it: a list, map or
     * timestamp would render as Java's `toString`. `dyn` passes, as in
@@ -214,9 +230,10 @@ object Cel {
     */
   def nonTextType(
       src: String,
-      env: List[(String, ExprValue.Kind)]
+      env: List[(String, ExprValue.Kind)],
+      entity: Boolean = true
   ): Option[String] =
-    resultType(src, env).filterNot(isText).map(_.name)
+    resultType(src, env, entity).filterNot(isText).map(_.name)
 
   private val textKinds: Set[CelKind] = Set(
     CelKind.STRING,
@@ -235,16 +252,21 @@ object Cel {
   /** None when it does not compile; [[parse]] reports that. */
   private def resultType(
       src: String,
-      env: List[(String, ExprValue.Kind)]
+      env: List[(String, ExprValue.Kind)],
+      entity: Boolean
   ): Option[CelType] =
-    val result = compilerWith(env).compile(src.trim)
+    val result = compilerWith(env, entity).compile(src.trim)
     Option.when(!result.hasError)(result.getAst.getResultType)
 
-  private def compilerWith(env: List[(String, ExprValue.Kind)]): CelCompiler =
-    if (env.isEmpty) compiler
+  private def compilerWith(
+      env: List[(String, ExprValue.Kind)],
+      entity: Boolean
+  ): CelCompiler =
+    val base = if (entity) compiler else baseCompiler
+    if (env.isEmpty) base
     else
       env
-        .foldLeft(compiler.toCompilerBuilder()) { case (b, (name, kind)) =>
+        .foldLeft(base.toCompilerBuilder()) { case (b, (name, kind)) =>
           b.addVar(name, celType(kind))
         }
         .build()

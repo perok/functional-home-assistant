@@ -10,7 +10,8 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
-  SlotSource,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface,
   Theme
@@ -249,7 +250,11 @@ class ResumeSuite extends ServerHarness {
                 Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "pill",
-                  Map("state" -> TemplateSlot(SlotSource()))
+                  Map(
+                    "state" -> TemplateSlot(
+                      ValueExpr(Some(Value.Entity(Some("light.a"))))
+                    )
+                  )
                 )
               )
             )
@@ -341,8 +346,11 @@ class ResumeSuite extends ServerHarness {
       mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+            )
+          )
         ),
         "c_1",
         1
@@ -385,8 +393,11 @@ class ResumeSuite extends ServerHarness {
         "det" -> Surface(
           LayoutNode.Component(
             "card",
-            templateSlots =
-              Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+              )
+            )
           )
         )
       )
@@ -438,8 +449,11 @@ class ResumeSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "detail",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+            )
+          )
         )
       )
     )
@@ -531,8 +545,11 @@ class ResumeSuite extends ServerHarness {
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Some(Value.Entity(Some("sensor.b"))))
+            )
+          )
         ),
         "c_1",
         1

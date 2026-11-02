@@ -3,12 +3,17 @@ package fh.view.build
 import api.homeassistant.ServiceTarget
 import fh.view.model.{
   CardDef,
+  CellKey,
   Dashboard,
   LayoutNode,
+  Lit,
   Op,
+  Part,
   Predicate,
+  Step,
   TapCall,
-  Transform
+  Value,
+  ValueExpr
 }
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
 import fh.view.testkit.{
@@ -35,6 +40,20 @@ class PklBuildSuite extends munit.FunSuite {
     }
 
   /** A slider's row: the `sliderHead` node in its `head` region. */
+  /** A percent read: its attribute and its range. */
+  private def percentOf(e: ValueExpr): Option[(String, Double, Double)] =
+    def num(v: Value) = v match
+      case Value.Literal(Lit.Whole(n)) => n.toDouble
+      case Value.Literal(Lit.Real(d))  => d
+      case _                           => Double.NaN
+    (e.source, e.steps) match
+      case (
+            Some(Value.Entity(_, Part.Attr(a), _, _)),
+            List(Step.Percent(lo, hi))
+          ) =>
+        Some((a, num(lo), num(hi)))
+      case _ => None
+
   private def rowOf(node: LayoutNode.Component): LayoutNode.Component =
     node
       .regions("head")
@@ -1706,7 +1725,7 @@ class PklBuildSuite extends munit.FunSuite {
         .downField(k)
         .downField("templateSlots")
         .downField("class")
-        .get[String]("literal")
+        .get[String]("source")
         .toOption
     // Centred is the grid's baseline, so it emits no `class`; left-packing
     // rides on `fh-start`.
@@ -1847,52 +1866,46 @@ class PklBuildSuite extends munit.FunSuite {
         |  value = c.exprOf(power, "state")
         |}""".stripMargin
     )
-    val value = node.templateSlots("value")
+    val value = node.bound("value")
     assertEquals(value.entityId, Some("sensor.power"))
     assertEquals(value.literal, None)
-    assertEquals(value.valueKey, "state")
+    assertEquals(value.cel.map(_.src), Some("state"))
     val plain = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
         |node = new c.EntityCard { entity = light; value = c.expr("state") }""".stripMargin
     )
     // Pkl names the card's own entity on a reading that names none.
-    assertEquals(plain.templateSlots("value").entityId, Some("light.kitchen"))
+    assertEquals(plain.bound("value").entityId, Some("light.kitchen"))
   }
 
   test(
-    "a card with no entity refuses a reading of its entity, cell slots too"
+    "a card with no entity leaves a reading of its entity unnamed, cell slots too"
   ) {
-    def eval(node: String) = {
-      val tmp = os.temp.dir()
-      copyLib(tmp)
-      os.write(
-        tmp / "probe.pkl",
-        s"""module probe
-           |
-           |import "@fh-dashboard/components.pkl" as c
-           |
-           |node = c.button("Go", c.view.navigate("x"))$node
-           |""".stripMargin
-      )
-      evalProj(tmp, "probe.pkl")
-    }
-    for (
-      (chain, where) <- List(
-        """.secondary(c.attr("device_class"))""" -> "slot 'secondary'",
-        """.cellStyle("--fh-x", c.attr("brightness"))""" ->
-          "cell style '--fh-x'"
-      )
-    ) {
-      val result = eval(chain)
-      assert(
-        result.left.exists(
-          _.contains(s"$where reads the card's entity, and the card has none")
-        ),
-        clue = result
-      )
-    }
-    // A CEL may read no entity; whether it does is the build's compile.
-    assert(eval(""".secondary(c.expr("dashboard_slug"))""").isRight)
+    // `validate` refuses it, naming the slot (`SimpleReadsSuite`).
+    def node(chain: String) = probeComponent(
+      s"""node = c.button("Go", c.view.navigate("x"))$chain"""
+    )
+    assert(
+      node(""".secondary(c.attr("device_class"))""")
+        .bound("secondary")
+        .expr
+        .readsMissingSubject
+    )
+    assert(
+      node(""".cellStyle("--fh-x", c.attr("brightness"))""")
+        .bound(CellKey.Style("--fh-x"))
+        .expr
+        .readsMissingSubject
+    )
+    // A CEL may read no entity: it has no source, and its compile says whether
+    // it reads one.
+    assertEquals(
+      node(""".secondary(c.expr("dashboard_slug"))""")
+        .bound("secondary")
+        .expr
+        .source,
+      None
+    )
   }
 
   test("a navigating button is an anchor: `href`, and no onclick at all") {
@@ -1946,10 +1959,12 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(slider).templateSlots("min").literal, Some("0"))
     assertEquals(rowOf(slider).templateSlots("max").literal, Some("100"))
     // Opted in: the guarded read as structure, presence implicit (ADR 0028).
-    rowOf(slider).templateSlots("value").transform match {
-      case Transform.Simple.Attr("current_position", _) => ()
-      case other => fail(s"expected the opted-in guarded read, got $other")
-    }
+    assertEquals(
+      rowOf(slider).templateSlots("value").expr.source.collect {
+        case Value.Entity(_, part, _, _) => part
+      },
+      Some(Part.Attr("current_position"))
+    )
   }
 
   test("a slider in a QUERY bakes its config as literals") {
@@ -1973,12 +1988,13 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slots("max").literal, Some("255"))
     // The position stays live, since it reads state, but names the attribute
     // directly.
-    slots("value").transform match {
-      case Transform.Simple.Attr("brightness", _) => ()
-      case other => fail(s"expected the opted-in guarded read, got $other")
-    }
-    assertEquals(slots("value").default, Some("0"))
-    assertEquals(slots("value").bypassUnavailable, false)
+    assertEquals(
+      slots("value").expr.source,
+      Some(
+        Value.Entity(None, Part.Attr("brightness"), bypassUnavailable = false)
+      )
+    )
+    assertEquals(slots("value").expr.default, Some("0"))
   }
 
   test("a slider with children is the same card, holding ordinary nodes") {
@@ -2038,14 +2054,14 @@ class PklBuildSuite extends munit.FunSuite {
       List(Some("brightness"), Some("position"))
     )
     // It reads out its level, off its own range, not its state.
-    rowOf(members.head).templateSlots("state").transform match {
-      case Transform.Simple.Percent("brightness", 1.0, 255.0, _) => ()
-      case other => fail(s"expected the opted-in percent, got $other")
-    }
-    rowOf(members(1)).templateSlots("state").transform match {
-      case Transform.Simple.Percent("current_position", 0.0, 100.0, _) => ()
-      case other => fail(s"expected the opted-in percent, got $other")
-    }
+    assertEquals(
+      percentOf(rowOf(members.head).templateSlots("state").expr),
+      Some(("brightness", 1.0, 255.0))
+    )
+    assertEquals(
+      percentOf(rowOf(members(1)).templateSlots("state").expr),
+      Some(("current_position", 0.0, 100.0))
+    )
     // That reading is the position, so a drag moves it locally. The head reads
     // out nothing, so its `data-on:input` paints the fill alone.
     assertEquals(
@@ -2088,7 +2104,7 @@ class PklBuildSuite extends munit.FunSuite {
       clue = rowOf(plain).cell
     )
     assertEquals(plain.templateSlots.keySet, Set.empty[String])
-    assertEquals(rowOf(plain).templateSlots("state").valueKey, "state")
+    assertEquals(rowOf(plain).bound("state").valueKey, "state")
     // The light domain's default: the probe entity declares no icon.
     assertEquals(
       rowOf(plain).templateSlots("icon").literal,
@@ -2113,7 +2129,7 @@ class PklBuildSuite extends munit.FunSuite {
         |node = (c.entitySlider(light)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
         |""".stripMargin
     )
-    val state = rowOf(own).templateSlots("state")
+    val state = rowOf(own).bound("state")
     assert(
       state.valueKey.contains("attr[?'brightness']"),
       clue = state.valueKey
@@ -2128,10 +2144,10 @@ class PklBuildSuite extends munit.FunSuite {
         |node = (c.entitySlider(light)).readout(c.exprOf(power, #"state + ' W'"#))
         |""".stripMargin
     )
-    assertEquals(rowOf(other).templateSlots("state").entityId, Some("sensor.w"))
+    assertEquals(rowOf(other).bound("state").entityId, Some("sensor.w"))
     assertEquals(
-      rowOf(other).templateSlots("state").valueKey,
-      """state + ' W'"""
+      rowOf(other).bound("state").cel.map(_.src),
+      Some("""state + ' W'""")
     )
     assertEquals(
       rowOf(other).templateSlots("entity_id").literal,
@@ -2211,7 +2227,7 @@ class PklBuildSuite extends munit.FunSuite {
       cardShapeAccepted(
         structuralCard(
           """new slotMod.Reading { entityId = "sensor.t" }""",
-          """; signal = "text""""
+          """; signal = slotMod.asText"""
         )
       ),
       "a signal slot on structure is fine"
@@ -2389,10 +2405,12 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(s).templateSlots("min").literal, Some("2000"))
     assertEquals(rowOf(s).templateSlots("max").literal, Some("6535"))
     // The handle tracks the value it writes, not brightness.
-    rowOf(s).templateSlots("value").transform match {
-      case Transform.Simple.Attr("color_temp_kelvin", _) => ()
-      case other => fail(s"expected the opted-in guarded read, got $other")
-    }
+    assertEquals(
+      rowOf(s).templateSlots("value").expr.source.collect {
+        case Value.Entity(_, part, _, _) => part
+      },
+      Some(Part.Attr("color_temp_kelvin"))
+    )
   }
 
   test("a colour axis slides the hue and posts it as hs_color = [h, 100]") {
@@ -2412,12 +2430,16 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(row.templateSlots("valueRest").literal, Some(",100"))
     // The hue is `hs_color[0]`, guarded: a light that is off reports none.
     assertEquals(
-      row.templateSlots("value").valueKey,
-      "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
+      row.bound("value").cel.map(_.src),
+      Some(
+        "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
+      )
     )
     assertEquals(
-      row.templateSlots("fill").valueKey,
-      "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
+      row.bound("fill").cel.map(_.src),
+      Some(
+        "attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
+      )
     )
   }
 
@@ -2492,15 +2514,16 @@ class PklBuildSuite extends munit.FunSuite {
     // shape is a contract. The colour-temperature span is the light's own range
     // baked (4535.0), not a constant.
     assertEquals(
-      rowOf(kids(0)).templateSlots("fillColor").valueKey,
-      """attr[?'rgb_color'].optMap(rgb,
+      rowOf(kids(0)).bound("fillColor").cel.map(_.src),
+      Some("""attr[?'rgb_color'].optMap(rgb,
         |  size(rgb) == 3
         |    ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
-        |    : '').orValue('')""".stripMargin
+        |    : '').orValue('')""".stripMargin)
     )
     assertEquals(
-      rowOf(kids(1)).templateSlots("fillColor").valueKey,
-      """attr[?'color_temp_kelvin'].optMap(k,
+      rowOf(kids(1)).bound("fillColor").cel.map(_.src),
+      Some(
+        """attr[?'color_temp_kelvin'].optMap(k,
         |  cel.bind(t,
         |    (double(k) - 2000.0) < 0.0 ? 0.0 :
         |    ((double(k) - 2000.0) > 4535.0
@@ -2508,6 +2531,7 @@ class PklBuildSuite extends munit.FunSuite {
         |    'rgb(' + str(math.round(255.0 - 54.0 * t))
         |    + ',' + str(math.round(166.0 + 60.0 * t))
         |    + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')""".stripMargin
+      )
     )
   }
 

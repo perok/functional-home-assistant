@@ -10,6 +10,7 @@ import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surf
 import "../../main/resources/dashboards/lib/components/defaults.pkl" as defaultsMod
 import "../../main/resources/dashboards/lib/providers.pkl" as p
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
+import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/hass.pkl"
 import "progress-devices.pkl" as house
@@ -84,10 +85,10 @@ facts {
     // The whole is a live CEL slot on the countdown, reading its history.
     local whole = bar.slotsByName["of"].value as slotMod.Reading
     whole.entityId == "sensor.rem"
-    whole.transform.toString().contains("past.transformList")
-    whole.values.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
+    (whole.steps.toList().last as simpleMod.Cel).src.contains("past.transformList")
+    (whole.steps.toList().last as simpleMod.Cel).values.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
     // A countdown on no device gets the same bar.
-    (barOf(c.progress(left)).slotsByName["of"].value as slotMod.Reading).values.toMap()
+    ((barOf(c.progress(left)).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).values.toMap()
       == Map("past", p.history.of(left, p.history.raw(24.h)))
   }
 
@@ -98,7 +99,7 @@ facts {
     week.window == p.history.raw(7.d)
     week.provider == "history"
     // Without inputs a slot's wire is what it always was.
-    (new slotMod.Reading { transform = "state" }).values == null
+    simpleMod.cel("state").values == null
   }
 
   ["the workspace's names add to the shipped ones, and an ignored name takes a sensor out"] {
@@ -153,7 +154,7 @@ facts {
     // Charging or not: a charge fills out of where its countdown started.
     local charging = c.progress(onDevice(minutes("ch", "charging_time_left"), List(battery)))
     charging.percent == null
-    (barOf(charging).slotsByName["of"].value as slotMod.Reading).values.toMap().containsKey("past")
+    ((barOf(charging).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).values.toMap().containsKey("past")
   }
 
   ["the card shows what was found, and each builder overrides one part"] {
@@ -171,7 +172,7 @@ facts {
     // A percentage given reads as itself.
     local vacuum = c.progress(pct)
     vacuum.slotsByName["entity_id"].value == "sensor.pct"
-    (vacuum.slotsByName["value"].value as slotMod.Reading).transform != null
+    (vacuum.slotsByName["value"].value as slotMod.Reading).source != null
   }
 
   ["the bar shows and the countdown has a value only while it runs; a battery's bar always"] {

@@ -2,8 +2,8 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1 and S2
-built; S3 in progress.
+**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S3
+built.
 
 ## Why
 
@@ -160,13 +160,16 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
   goldens hold and the wire gains only the `entityId`s. A reading with no entity still compiles
   its CEL in the full environment; the one without `state`, `attr`, `entity_id` and `domain`
   comes with `source` in S3.
-- **S3. The value model** for template and cell slots: `Value`, `ValueExpr`, `Step`, Simple split
-  into parts and Format steps, `SignalBind` and `Part` as objects, Pkl classes and helpers,
+- **S3. The value model** for template and cell slots: `Value` (with `Condition` as a source),
+  `ValueExpr`, `Step`, Simple split into parts and Format steps, the chart a step
+  (`core/stage.pkl` goes), `SignalBind` and `Part` as objects, Pkl classes and helpers,
   `WireShapeSuite`'s pairs. `Entity(of = None)` replaces S2's copied ids, resolved in
-  `Component.bound` (S2's Pkl fill and the test helper `memberSlots` go). The new decoders reject
-  unknown fields from the start (#657's open item).
-- **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present` and
-  `Value.Condition`; the node's `values` likewise.
+  `Component.bound` (S2's Pkl fill and the test helper `memberSlots` go); a step's operand that
+  names none reads its source's entity. The new decoders reject unknown fields from the start
+  (#657's open item). The goldens change only in signal names; the wire loses the click
+  transforms' entity source.
+- **S4. Named inputs:** `ExprValue` becomes `ValueExpr` inputs, with `Present`; the node's
+  `values` likewise.
 - **S5. Types:** typed literals and defaults, `SlotType` with `slotMod.bool`, the binding's type
   check, and the `ThemeClasses` stage in place of `SlotType.CssClass`.
 - **S6. Compile:** `Planned = Constant | Live`, live pipelines composed once.

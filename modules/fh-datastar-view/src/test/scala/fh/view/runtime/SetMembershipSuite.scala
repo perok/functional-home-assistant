@@ -8,7 +8,9 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface
 }
@@ -50,9 +52,13 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          Map("state" -> TemplateSlot(SlotSource()))
+          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
         ),
-        (None, "dim", Map("state" -> TemplateSlot(SlotSource())))
+        (
+          None,
+          "dim",
+          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
+        )
       )
     )
   )
@@ -72,8 +78,10 @@ class SetMembershipSuite extends ServerHarness {
           None,
           "dot",
           Map(
-            "state" -> TemplateSlot(SlotSource()),
-            "extra" -> TemplateSlot(SlotSource(Some("sensor.outside")))
+            "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))),
+            "extra" -> TemplateSlot(
+              ValueExpr(Some(Value.Entity(Some("sensor.outside"))))
+            )
           )
         )
       )
@@ -95,12 +103,12 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          Map("state" -> TemplateSlot(SlotSource()))
+          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
         ),
         (
           None,
           "plain",
-          Map("label" -> TemplateSlot(SlotSource(literal = Some("off-duty"))))
+          Map("label" -> TemplateSlot(ValueExpr.literal("off-duty")))
         )
       )
     )
@@ -273,9 +281,12 @@ class SetMembershipSuite extends ServerHarness {
               None,
               "dot",
               Map(
-                "state" -> TemplateSlot(SlotSource()),
+                "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))),
                 "level" -> TemplateSlot(
-                  SlotSource(transform = "'level' in attr ? attr['level'] : ''")
+                  ValueExpr(
+                    Some(Value.Entity(None)),
+                    List(Step.Cel("'level' in attr ? attr['level'] : ''"))
+                  )
                 )
               )
             )
@@ -341,7 +352,11 @@ class SetMembershipSuite extends ServerHarness {
                           (
                             None,
                             "dot",
-                            Map("state" -> TemplateSlot(SlotSource()))
+                            Map(
+                              "state" -> TemplateSlot(
+                                ValueExpr(Some(Value.Entity(None)))
+                              )
+                            )
                           )
                         )
                       )

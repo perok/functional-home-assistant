@@ -17,8 +17,8 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     LayoutNode.Component(
       "tile",
       Map(
-        "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
-        "state" -> TemplateSlot(SlotSource())
+        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+        "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None))))
       )
     )
 

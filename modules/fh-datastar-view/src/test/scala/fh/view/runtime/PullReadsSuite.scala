@@ -10,14 +10,14 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
   SlotRead,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
-  Surface,
-  Transform
+  Surface
 }
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
@@ -31,8 +31,8 @@ class PullReadsSuite extends munit.FunSuite {
   private def plain(id: String) = LayoutNode.Component(
     "dot",
     Map(
-      "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
-      "state" -> TemplateSlot(SlotSource())
+      "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None))))
     ),
     id = Some(id)
   )
@@ -42,12 +42,9 @@ class PullReadsSuite extends munit.FunSuite {
       "chart",
       Map(
         "chart" -> TemplateSlot(
-          SlotSource(
-            fetch = Some(
-              FetchTemplate(entity, Choice.Fixed(Windows.day))
-            ),
-            transform = Transform.Stage.Chart(),
-            reads = Reads.OnRender
+          ValueExpr(
+            Some(Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day)))),
+            List(Step.Chart())
           )
         )
       ),

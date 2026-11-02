@@ -325,11 +325,11 @@ const function refusedStates(t: TapAction, target: Target?): List<String> =
 /// A boolean, because only a real `false` removes a boolean attribute (ADR
 /// 0017). Read by expression rather than bound, since how it shows is the
 /// host's.
-const function tapDisabledSlot(states: List<String>): slotMod.Reading = new {
-  transform = simpleMod.stateIn(states.toListing())
-  // `unavailable` is one of the arms, so the raw state has to reach the match.
-  bypassUnavailable = false
-}
+const function tapDisabledSlot(states: List<String>): slotMod.Reading =
+  (simpleMod.stateIn(states.toListing())) {
+    // `unavailable` is one of the arms, so the raw state has to reach the match.
+    bypassUnavailable = false
+  }
 
 /// What [[serviceClick]] builds the URL from, and what the server reads back as
 /// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
@@ -407,14 +407,13 @@ const function guardSlots(t: TapAction): Listing<slotMod.Slot> =
     busyVisual.setIf(t.busy && t.busyVisual)
   }
 
-/// A click expression built by a transform, which is the only way to read
-/// `dashboard_slug`. `once`, so the node stays in the renderer's identity cache;
-/// it must resolve on an unavailable entity, which is exactly the one you want
-/// to click.
+/// A click expression built by CEL, which is the only way to read
+/// `dashboard_slug`. It reads no entity, so the renderer holds it as a
+/// constant, which also resolves on an unavailable entity, the one you most
+/// want to click.
 const function clickSlot(transformExpr: String): slotMod.Reading = new {
-  transform = transformExpr
-  reads = "once"
-  bypassUnavailable = false
+  source = null
+  steps { simpleMod.cel(transformExpr) }
 }
 
 // A transform rather than a constant, because only a transform can read
@@ -465,8 +464,7 @@ const function toggle(e: hass.Entity): Call =
 /// visible state, so a click acts on what the user is looking at (ADR 0016).
 const local function stateService(e: hass.Entity, byState: hassActions.CallByState): Call =
   new {
-    service = new slotMod.Reading {
-      transform = simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)
+    service = (simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)) {
       bypassUnavailable = false
     }
     target = e
@@ -497,9 +495,10 @@ const function currentSlots(t: TapAction): Listing<slotMod.Slot> = new {
   when (t.page != null) {
     (current) {
       value = new slotMod.Reading {
-        transform = "dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'"
-        reads = "once"
-        bypassUnavailable = false
+        source = null
+        steps {
+          simpleMod.cel("dashboard_slug == '" + t.page!!.replaceAll("\\", "\\\\").replaceAll("'", "\\'") + "'")
+        }
       }
       type = "bool"
     }

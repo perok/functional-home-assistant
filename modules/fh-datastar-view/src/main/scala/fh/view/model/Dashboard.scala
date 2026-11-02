@@ -16,95 +16,45 @@ import scala.collection.immutable.ListMap
 given Configuration =
   Configuration.default.withDefaults.withDiscriminator("kind")
 
-/** Where one mustache slot gets its value.
+/** A template slot: what it shows, and how the card places it (Pkl's `Slot`).
+  * The wire is flat, the [[ValueExpr]]'s fields beside these, or a bare
+  * literal.
   *
-  *   - `transform`: a CEL string or a [[Transform.Simple]] object, a condition
-  *     included — the form is the tier (ADR 0028) — or, on a fetch slot, a
-  *     [[Transform.Stage]]. CEL reaches the slot's own entity and the
-  *     expression values it names, the node's and its own ([[BoundSlot]]); a
-  *     `Simple` read may name any entity.
-  *   - `default`: used when the transform yields `""`, which keeps a numeric
-  *     initialiser like `{bri: {{x}}}` valid while a light is off.
-  *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
-  *     running the transform. Off for an action, a label or a slider position.
-  *   - `entityId`: the entity read. Pkl names the card's `entity_id` on a slot
-  *     that names none, so `None` reads no entity.
-  *   - `literal`: a verbatim value, authored as a bare string, or as
-  *     `{literal, type}` when typed (a `cssClass`); all else unused.
-  *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
-  *     ([[SlotShape]]).
-  *   - `values`: expression values of this slot alone, beside the node's
-  *     ([[BoundSlot]]); a name in both is a build error.
-  */
-case class SlotSource(
-    entityId: Option[String] = None,
-    transform: String | Transform.Simple | Transform.Stage =
-      Transform.Simple.State(),
-    default: Option[String] = None,
-    bypassUnavailable: Boolean = true,
-    literal: Option[String] = None,
-    reads: String = Reads.Live,
-    fetch: Option[FetchTemplate] = None,
-    values: Map[String, ExprValue] = Map.empty,
-    // A `bool` slot over the same subject: while it is not `true` this slot is
-    // `""`, decided before its transform runs or any of its fetches is read.
-    valueWhileSlot: Option[SlotSource] = None
-) {
-
-  /** Total so `validate` can call it; `validate` rejects a fetch slot whose
-    * transform is not a stage, so the fallback never renders.
-    */
-  def stage: Transform.Stage = transform match {
-    case st: Transform.Stage => st
-    case _                   => Transform.Stage.Passthrough
-  }
-
-  /** The transform's own key; [[BoundSlot.valueKey]] adds the values it reads.
-    * Lazy: the `Simple` arm builds a string, 4.3% of a signals tick's
-    * allocation as a `def` (`RenderBench.resumeSignals`).
-    */
-  lazy val valueKey: String = transform match {
-    case s: String            => s
-    case sm: Transform.Simple => Transform.Simple.key(sm)
-    case st: Transform.Stage  => Transform.Stage.key(st)
-  }
-}
-
-/** A template slot: what to read, and how the card places it (Pkl's `Slot`).
-  * The wire is flat, the reading's fields beside these two.
-  *
+  *   - `valueWhile`: a bool over the same subject; while it is not `true` the
+  *     slot is `""`, decided before its steps run or any of its fetches is
+  *     read.
   *   - `signal`: carry the value as a Datastar signal, so a change is one
   *     signal frame rather than a re-rendered card (ADR 0017). The card puts
   *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
   *   - `type`: what the card reads the value AS. Declared where the binding
   *     cannot say it: a `class:` binding is a bool by kind.
   */
-case class TemplateSlot(
-    source: SlotSource,
+final case class TemplateSlot(
+    expr: ValueExpr,
+    valueWhile: Option[ValueExpr] = None,
     signal: Option[SignalBind] = None,
     `type`: SlotType = SlotType.Text
 ):
-  export source.{
-    entityId,
-    transform,
-    default,
-    bypassUnavailable,
-    literal,
-    reads,
-    fetch,
-    values,
-    valueWhileSlot,
-    valueKey
-  }
+  def literal: Option[String] = expr.literal
+
+  /** The expression values its CEL step declares, beside its node's. */
+  def values: Map[String, ExprValue] =
+    expr.steps
+      .collectFirst { case c: Step.Cel => c.values }
+      .getOrElse(Map.empty)
 
   def placement: Placement = Placement(signal, `type`)
 
 object TemplateSlot:
+  private val Fields =
+    ValueExpr.fieldNames ++ Set("valueWhile", "signal", "type")
+
   given Decoder[TemplateSlot] = Decoder.instance(c =>
-    if (c.value.isString) c.as[SlotSource].map(TemplateSlot(_))
+    if (!c.value.isObject) c.as[ValueExpr].map(TemplateSlot(_))
     else
-      (
-        c.as[SlotSource],
+      Strict.only(c, Fields) *> (
+        ValueExpr.fields(c),
+        c.getOrElse[Option[ValueExpr]]("valueWhile")(None),
         c.getOrElse[Option[SignalBind]]("signal")(None),
         c.getOrElse[SlotType]("type")(SlotType.Text)
       ).mapN(TemplateSlot.apply)
@@ -120,58 +70,85 @@ object Placement:
   /** A `valueWhile`: decided before the slot it gates, never bound. */
   val Bool: Placement = Placement(None, SlotType.Bool)
 
-/** A slot with the expression values its CEL names, the node's and its own: the
-  * build's bind pass, run lazily on the node ([[LayoutNode.Component.bound]]).
-  * It fixes each name's definition and type, not its value, which is resolved
-  * per render.
+/** A slot with its subject named and the expression values its CEL names, the
+  * node's and its own: the build's bind pass, run lazily on the node
+  * ([[LayoutNode.Component.bound]]). It fixes each name's definition and type,
+  * not its value, which is resolved per render.
+  *
+  * @param subject
+  *   the node's: what a condition that names no entity compares.
   */
 final case class BoundSlot(
-    source: SlotSource,
+    expr: ValueExpr,
     values: Map[String, ExprValue],
     valueWhile: Option[BoundSlot] = None,
     signal: Option[SignalBind] = None,
-    `type`: SlotType = SlotType.Text
+    `type`: SlotType = SlotType.Text,
+    subject: Option[String] = None
 ):
-  export source.{
-    entityId,
-    transform,
-    default,
-    bypassUnavailable,
-    literal,
-    reads,
-    fetch,
-    stage
-  }
+  def literal: Option[String] = expr.literal
+
+  def default: Option[String] = expr.default
+
+  def fetch: Option[FetchTemplate] = expr.source match
+    case Some(Value.Fetch(f)) => Some(f)
+    case _                    => None
+
+  /** The entity it reads, or a condition is decided over. */
+  def entityId: Option[String] = expr.source match
+    case Some(Value.Entity(of, _, _, _)) => of
+    case Some(Value.Condition(_))        => subject
+    case _                               => None
+
+  /** A fetch's answer is never pushed, and a CEL with no source and no live
+    * input is a constant, held like a `once` read.
+    */
+  def reads: String = expr.source match
+    case Some(e: Value.Entity)                   => e.reads
+    case Some(_: Value.Fetch)                    => Reads.OnRender
+    case None if !values.values.exists(_.isLive) => Reads.Once
+    case _                                       => Reads.Live
+
+  def bypassUnavailable: Boolean = expr.source match
+    case Some(e: Value.Entity) => e.bypassUnavailable
+    case _                     => false
+
+  /** The CEL step, which the build compiles. */
+  def cel: Option[Step.Cel] = expr.steps.collectFirst { case c: Step.Cel => c }
+
+  def stage: Transform.Stage =
+    expr.steps
+      .collectFirst { case Step.Chart(s) => Transform.Stage.Chart(s) }
+      .getOrElse(Transform.Stage.Passthrough)
 
   def isBool: Boolean =
     `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
 
   /** What the compiled program is keyed by: one source compiles differently
-    * against a different set of typed names. None for a literal, which runs no
-    * program.
+    * against a different set of typed names, and without an entity to read.
     */
-  lazy val celKey: Option[Transform.CelKey] = transform match
-    case t: String if literal.isEmpty =>
-      Some(Transform.CelKey(t, ExprValue.env(values)))
-    case _ => None
+  lazy val celKey: Option[Transform.CelKey] = cel.map(c =>
+    Transform.CelKey(c.src, ExprValue.env(values), expr.source.isDefined)
+  )
 
   def celKeys: List[Transform.CelKey] =
     celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
 
-  /** Its [[valueWhile]] over the entity it is decided over, which Pkl names.
-    * The one rule the pre-read and the paint share.
+  /** Its [[valueWhile]] over the entity it is decided over. The one rule the
+    * pre-read and the paint share.
     */
   def gate: Option[Fetching.Gate] =
     valueWhile.map(w => Fetching.Gate(w, w.entityId))
 
-  /** Every entity that can move this slot besides its own: those its transform
-    * names, those of the live values it reads, and its [[valueWhile]]'s.
+  /** Every entity that can move this slot besides its own: those its condition
+    * and its steps' operands name, those of the live values it reads, and its
+    * [[valueWhile]]'s.
     */
   def valueEntities: List[String] =
-    (transform match
-      case s: Transform.Simple => Transform.Simple.referencedEntities(s)
-      case _                   => Nil
-    ) ++ values.values.toList.flatMap(_.entities) ++
+    (expr.source match
+      case Some(Value.Condition(p)) => Predicate.referencedEntities(p)
+      case _                        => Nil
+    ) ++ expr.operandEntities ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
   def shape: SlotShape =
@@ -192,7 +169,7 @@ final case class BoundSlot(
     * `CssClass` value is the theme's swap of it, so it never shares with text.
     */
   lazy val valueKey: String =
-    source.valueKey + values.toList
+    expr.key + values.toList
       .sortBy(_._1)
       .map((n, v) => s"|$n=${ExprValue.key(v)}")
       .mkString + valueWhile.fold("")(w =>
@@ -200,24 +177,37 @@ final case class BoundSlot(
     ) + (if (`type` == SlotType.CssClass) "|cssClass" else "")
 
 object BoundSlot:
-  def bind(values: Map[String, ExprValue])(s: TemplateSlot): BoundSlot =
-    bindAt(values, s.placement)(s.source)
+  def bind(values: Map[String, ExprValue], subject: Option[String])(
+      s: TemplateSlot
+  ): BoundSlot =
+    bindAt(values, s.placement, subject)(s.expr, s.valueWhile)
 
   /** By the identifiers the expression PARSES to, so a name inside a string
     * literal is not a read.
     */
-  def bindAt(values: Map[String, ExprValue], at: Placement)(
-      s: SlotSource
-  ): BoundSlot =
-    // The slot's own win a clash, which `validate` refuses anyway.
-    val all = values ++ s.values
-    val valueWhile = s.valueWhileSlot.map(bindAt(values, Placement.Bool))
-    val named = s.transform match
-      case t: String if all.nonEmpty && s.literal.isEmpty =>
-        val read = Cel.identifiers(t)
-        all.filter((n, _) => read.contains(n))
-      case _ => Map.empty[String, ExprValue]
-    BoundSlot(s, named, valueWhile, at.signal, at.`type`)
+  def bindAt(
+      values: Map[String, ExprValue],
+      at: Placement,
+      subject: Option[String]
+  )(e: ValueExpr, valueWhile: Option[ValueExpr] = None): BoundSlot =
+    val expr = e.about(subject)
+    val named = expr.steps.collectFirst { case c: Step.Cel => c } match
+      case Some(c) =>
+        // The slot's own win a clash, which `validate` refuses anyway.
+        val all = values ++ c.values
+        if (all.isEmpty) Map.empty[String, ExprValue]
+        else
+          val read = Cel.identifiers(c.src)
+          all.filter((n, _) => read.contains(n))
+      case None => Map.empty[String, ExprValue]
+    BoundSlot(
+      expr,
+      named,
+      valueWhile.map(bindAt(values, Placement.Bool, subject)(_)),
+      at.signal,
+      at.`type`,
+      subject
+    )
 
 /** A named input of a node's or a slot's expressions (`expressionValues`): a
   * literal the build wrote down, a [[Predicate.Tally]] counted live, a
@@ -382,8 +372,8 @@ object FetchTemplate:
     }
   }
 
-/** Decided once from the wire form, which keeps one `SlotSource` so snapshots
-  * do not churn. The match makes a `live`, `once` or signal fetch unreachable.
+/** Decided once from the slot's source. The match makes a `live`, `once` or
+  * signal fetch unreachable.
   */
 enum SlotShape derives CanEqual:
   case State(slot: BoundSlot)
@@ -439,24 +429,6 @@ object Reads:
 
   val All: Set[String] = Set(Live, OnRender, Once)
 
-object SlotSource:
-  // Lazy and by name: `valueWhileSlot` makes the derivation recursive.
-  private lazy val objDecoder: Decoder[SlotSource] = ConfiguredDecoder.derived
-
-  given Decoder[SlotSource] = Decoder.instance(c =>
-    c.as[String].map(s => SlotSource(literal = Some(s))).orElse(objDecoder(c))
-  )
-
-  /** Chosen by key, not by trying each arm, so a bad chart param reports the
-    * stage's error rather than the last arm's.
-    */
-  given Decoder[String | Transform.Simple | Transform.Stage] =
-    Decoder.instance { c =>
-      if (c.value.isString) c.as[String]
-      else if (c.downField("stage").succeeded) c.as[Transform.Stage]
-      else c.as[Transform.Simple]
-    }
-
 /** What a card reads a slot's value as. A `Bool` slot decides a class or an
   * attribute by truthiness, where the string `"false"` is ON, so the build
   * refuses a reading on one that does not produce a bool. A `CssClass` slot
@@ -476,8 +448,8 @@ object SlotType:
 
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the
   * attribute, not the card, so the plain form (no binding, no seed) stays one
-  * predicate away. One wire string: `"text"`, `"bind"`, `"style:--_end"`,
-  * `"attr:title"`.
+  * predicate away. On the wire an object: `{"kind": "Style", "property":
+  * "--_end"}`.
   *
   *   - `Text`: `data-text`, the element's whole text content.
   *   - `Style`: `data-style:<property>`; the value carries its own unit.
@@ -501,20 +473,11 @@ enum SignalBind derives CanEqual:
 
 object SignalBind:
 
-  /** No default for an unknown spelling: a typo turned into `data-text` would
-    * put a colour in an element's text and look like a rendering bug.
+  /** Strict: a typo turned into `data-text` would put a colour in an element's
+    * text and look like a rendering bug.
     */
-  def parse(s: String): Option[SignalBind] = s.split(":", 2).toList match
-    case "text" :: Nil          => Some(Text)
-    case "bind" :: Nil          => Some(Bind)
-    case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
-    case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
-    case "class" :: name :: Nil => Option.when(name.nonEmpty)(Class(name))
-    case "handler" :: Nil       => Some(Handler)
-    case _                      => None
-
   given Decoder[SignalBind] =
-    Decoder[String].emap(s => parse(s).toRight(s"unknown signal binding: $s"))
+    ConfiguredDecoder.derived(using Strict.configuration)
 
 /** A card in the shared library. What it reads is its `template`'s names
   * ([[fh.view.runtime.Templates.card]]), which `validate` holds every node of
@@ -570,8 +533,8 @@ object Region {
   * can grow `grid_options`-style fields without a wire break.
   */
 case class Cell(
-    classes: ListMap[String, SlotSource] = ListMap.empty,
-    styles: ListMap[String, SlotSource] = ListMap.empty
+    classes: ListMap[String, ValueExpr] = ListMap.empty,
+    styles: ListMap[String, ValueExpr] = ListMap.empty
 ) derives ConfiguredDecoder:
   // Keyed once for the render walk: a `ListMap` iterates by building a list,
   // and each wrapper of each paint walks both.
@@ -581,7 +544,7 @@ case class Cell(
     styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.literal))
 
   /** The entries that read: a literal class the renderer writes as it is. */
-  def live: List[(CellKey, SlotSource)] =
+  def live: List[(CellKey, ValueExpr)] =
     classes.toList.collect {
       case (n, s) if s.literal.isEmpty => CellKey.Class(n) -> s
     } ++ styles.toList.collect {
@@ -591,10 +554,10 @@ case class Cell(
 object Cell:
   final case class Entry(name: String, key: CellKey, literal: Option[String])
 
-  private given Decoder[ListMap[String, SlotSource]] = Decoder.instance(c =>
+  private given Decoder[ListMap[String, ValueExpr]] = Decoder.instance(c =>
     c.as[JsonObject]
       .flatMap(
-        _.keys.toList.traverse(k => c.downField(k).as[SlotSource].map(k -> _))
+        _.keys.toList.traverse(k => c.downField(k).as[ValueExpr].map(k -> _))
       )
       .map(ListMap.from)
   )
@@ -811,10 +774,14 @@ object LayoutNode:
       * values its CEL names; a cell slot is placed by its key.
       */
     lazy val bound: Map[SlotKey, BoundSlot] =
-      templateSlots.map((n, s) => (n: SlotKey) -> BoundSlot.bind(values)(s)) ++
+      templateSlots.map((n, s) =>
+        (n: SlotKey) -> BoundSlot.bind(values, subjectEntity)(s)
+      ) ++
         cell.toList
           .flatMap(_.live)
-          .map((k, s) => k -> BoundSlot.bindAt(values, k.placement)(s))
+          .map((k, s) =>
+            k -> BoundSlot.bindAt(values, k.placement, subjectEntity)(s)
+          )
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[LayoutNode] =
@@ -1206,12 +1173,15 @@ case class Dashboard(
     }.toMap
 
   private lazy val declaredCalls: List[Dashboard.Declared] = {
-    def services(s: SlotSource): List[String] =
-      s.literal.toList ++ (s.transform match {
-        case Transform.Simple.Match(cases, otherwise, _, _) =>
-          (otherwise :: cases.values.toList).collect { case v: String => v }
+    def services(s: ValueExpr): List[String] =
+      s.literal.toList ++ s.steps.flatMap {
+        case Step.Match(cases, otherwise) =>
+          (otherwise match
+            case Value.Literal(Lit.Text(v)) => List(v)
+            case _                          => Nil
+          ) ++ cases.values.toList.collect { case Lit.Text(v) => v }
         case _ => Nil
-      })
+      }
 
     def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
       def lit(name: String) = c.templateSlots.get(name).flatMap(_.literal)
@@ -1230,7 +1200,7 @@ case class Dashboard(
         service <- c.templateSlots
           .get(Dashboard.ServiceSlot)
           .toList
-          .flatMap(s => services(s.source))
+          .flatMap(s => services(s.expr))
       } yield Dashboard.Declared(
         TapCall(service, target, lit(Dashboard.DataKeySlot)),
         c.card,
@@ -1372,6 +1342,21 @@ case class Dashboard(
               )
               .toList
 
+    def isBoolLit(v: Value): Boolean = v match
+      case Value.Literal(_: Lit.Bool) => true
+      case _                          => false
+
+    def number(v: Value): Option[Double] = v match
+      case Value.Literal(Lit.Whole(n)) => Some(n.toDouble)
+      case Value.Literal(Lit.Real(d))  => Some(d)
+      case _                           => None
+
+    def degenerate(lo: Value, hi: Value): Boolean =
+      number(lo).exists(a => number(hi).contains(a))
+
+    def range(lo: Value, hi: Value): String =
+      s"${number(lo).getOrElse("?")}..${number(hi).getOrElse("?")}"
+
     def slotErrors(
         nodeId: String,
         cardName: String,
@@ -1379,62 +1364,64 @@ case class Dashboard(
         scope: Map[String, String]
     ): List[String] =
       labelled(slots).flatMap { case (key, name, src) =>
-        val transformError =
-          // A fetch slot's transform is `fetchErrors`' to check.
-          if (src.literal.isDefined || src.fetch.isDefined) None
+        val stepErrors =
+          // A fetch slot's steps are `fetchErrors`' to check.
+          if (src.fetch.isDefined) Nil
           else
-            src.transform match {
-              case p: Transform.Simple.Percent if p.max == p.min =>
+            Option
+              .when(src.expr.readsMissingSubject)(
+                s"$nodeId: slot '$name' reads the card's entity, and the card " +
+                  "has none — name one, as `c.exprOf(e, …)` or `q.entity(e)` " +
+                  "does"
+              )
+              .toList ++ src.expr.steps.flatMap {
+              case Step.Percent(lo, hi) if degenerate(lo, hi) =>
                 Some(
                   s"$nodeId: slot '$name' has a degenerate percent range " +
-                    s"(${p.min}..${p.max}) — it would divide by zero"
+                    s"(${range(lo, hi)}) — it would divide by zero"
                 )
-              case f: Transform.Simple.Fill if f.max == f.min =>
+              case Step.Fill(lo, hi) if degenerate(lo, hi) =>
                 Some(
                   s"$nodeId: slot '$name' has a degenerate fill range " +
-                    s"(${f.min}..${f.max}) — it would divide by zero"
+                    s"(${range(lo, hi)}) — it would divide by zero"
                 )
               // Only a hand-written scale gets here (the Pkl helper answers
               // null for a unit it cannot scale).
-              case d: Transform.Simple.Duration if d.scale <= 0 =>
+              case Step.Duration(scale) if scale <= 0 =>
                 Some(
                   s"$nodeId: slot '$name' has a non-positive duration scale " +
-                    s"(${d.scale}) — every reading would render '0s'"
+                    s"($scale) — every reading would render '0s'"
                 )
               // CEL needs one type across the arms, so a mixed Match has no
-              // CEL equivalent (ADR 0028).
-              // A read as `otherwise` is text.
-              case m: Transform.Simple.Match
-                  if (m.otherwise :: m.cases.values.toList)
-                    .map(_.isInstanceOf[Boolean])
-                    .distinct
-                    .sizeIs > 1 =>
+              // CEL equivalent (ADR 0028). A read as `otherwise` is text.
+              case Step.Match(cases, otherwise)
+                  if (isBoolLit(otherwise) :: cases.values.toList.map {
+                    case _: Lit.Bool => true
+                    case _           => false
+                  }).distinct.sizeIs > 1 =>
                 Some(
                   s"$nodeId: slot '$name' has a match with both string and " +
                     "boolean arms — pick one; a boolean arm is for a boolean " +
                     "attribute (disabled, hidden), a string for everything else"
                 )
-              case t: String =>
-                Transform
-                  .parse(Transform.CelKey(t, ExprValue.env(src.values)))
-                  .left
-                  .toOption
+              case Step.Cel(t, _) =>
+                src.celKey
+                  .flatMap(Transform.parse(_).left.toOption)
                   .map { err =>
                     val at =
                       locateTransform(t).fold("")(loc => s" (at $loc)")
                     s"$nodeId: slot '$name' has an invalid transform$at: $err"
                   }
-              case _: Transform.Simple => None
               // Only a hand-written wire gets here.
-              case st: Transform.Stage =>
+              case _: Step.Chart =>
                 Some(
-                  s"$nodeId: slot '$name' has a '${Transform.Stage.key(st)}' " +
-                    "transform but reads no fetch — a stage turns a " +
-                    "provider's answer into the hole's content, and a state " +
-                    "slot has no answer to turn"
+                  s"$nodeId: slot '$name' has a chart step but reads no " +
+                    "fetch — a stage turns a provider's answer into the " +
+                    "hole's content, and a state slot has no answer to turn"
                 )
+              case _ => None
             }
-        transformError.toList ++ signalErrors(nodeId, cardName, key, src) ++
+        stepErrors ++ signalErrors(nodeId, cardName, key, src) ++
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, cardName, name, src, scope) ++
           src.values.values.toList.collect { case ExprValue.Fetched(f) =>
@@ -1482,20 +1469,14 @@ case class Dashboard(
         scope: Map[String, String]
     ): List[String] =
       src.fetch.toList.flatMap { template =>
-        val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
-          s"$nodeId: slot '$name' reads a fetch, so its 'reads' must be " +
-            s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
-            "answer is never pushed, so nothing about it is a reason to render"
-        )
         val parseErrors = askErrors(nodeId, name, template, scope)
-        val stageError = src.transform match {
-          case _: Transform.Stage => None
-          case _                  =>
+        val stageError = src.expr.steps match {
+          case Nil | List(_: Step.Chart) => None
+          case _                         =>
             Some(
-              s"$nodeId: slot '$name' reads a fetch, so its transform must " +
-                "be a STAGE (a chart, or passthrough) — a CEL expression and " +
-                "a simple transform both read an entity's state, and a fetch " +
-                "slot has none"
+              s"$nodeId: slot '$name' reads a fetch, so its one step may be " +
+                "a chart — a CEL expression and a format both read an " +
+                "entity's state, and a fetch slot has none"
             )
         }
         val rawHole =
@@ -1517,7 +1498,7 @@ case class Dashboard(
               case _ => None
             }
           }
-        untruthfulReads.toList ++ parseErrors ++ stageError.toList ++
+        parseErrors ++ stageError.toList ++
           rawHole.toList
       }
 
@@ -1596,8 +1577,8 @@ case class Dashboard(
             "build-time fact"
         case (slot, src)
             if src.entityId.isEmpty &&
-              (src.transform match
-                case p: Predicate => Predicate.hasFreeSubject(p)
+              (src.expr.source match
+                case Some(Value.Condition(p)) => Predicate.hasFreeSubject(p)
                 case _ => false) =>
           s"$nodeId: slot '$slot' compares an entity it does not name, and " +
             "has no entity of its own — name it with q.entity(e)"
@@ -1624,9 +1605,10 @@ case class Dashboard(
             Option
               .when(
                 w.entityId.isEmpty &&
-                  (w.transform match
-                    case p: Predicate => Predicate.hasFreeSubject(p)
-                    case _            => false)
+                  (w.expr.source match
+                    case Some(Value.Condition(p)) =>
+                      Predicate.hasFreeSubject(p)
+                    case _ => false)
               )(
                 s"$nodeId: slot '$name' has a valueWhile comparing an entity " +
                   "it does not name, and has no entity of its own — name it " +
@@ -2543,30 +2525,36 @@ object Dashboard:
   val ExpressionValueName: scala.util.matching.Regex =
     "[A-Za-z_][A-Za-z0-9_]*".r
 
-  /** Per tier: CEL by its checked type, `Simple` exactly — a condition, or a
-    * `match` whose every outcome is a Boolean; every other shape is text.
+  /** By the last step: CEL by its checked type, a `match` whose every outcome
+    * is a Boolean; with none, a condition or a fetch. Every other shape is
+    * text.
     */
-  def yieldsBool(src: BoundSlot): Boolean = src.transform match
-    case _: String =>
-      src.celKey.forall(Transform.yieldsBool)
-    case m: Transform.Simple.Match => allBoolean(m)
-    case _: Predicate              => true
-    case _: Transform.Simple       => false
-    case _: Transform.Stage        => true
+  def yieldsBool(src: BoundSlot): Boolean = src.expr.steps.lastOption match
+    case Some(_: Step.Cel)   => src.celKey.forall(Transform.yieldsBool)
+    case Some(m: Step.Match) => allBoolean(m)
+    case Some(_)             => false
+    case None                =>
+      src.expr.source match
+        case Some(_: Value.Condition | _: Value.Fetch) => true
+        case _                                         => false
 
   /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), a
     * condition, or a `match` whose every outcome is a Boolean.
     */
-  def onlyBool(src: BoundSlot): Boolean = src.transform match
-    case _: String =>
-      src.celKey.exists(Transform.isBoolTyped)
-    case m: Transform.Simple.Match => allBoolean(m)
-    case _: Predicate              => true
-    case _                         => false
+  def onlyBool(src: BoundSlot): Boolean = src.expr.steps.lastOption match
+    case Some(_: Step.Cel)   => src.celKey.exists(Transform.isBoolTyped)
+    case Some(m: Step.Match) => allBoolean(m)
+    case Some(_)             => false
+    case None                =>
+      src.expr.source match
+        case Some(_: Value.Condition) => true
+        case _                        => false
 
-  private def allBoolean(m: Transform.Simple.Match): Boolean =
-    m.otherwise.isInstanceOf[Boolean] &&
-      m.cases.values.forall(_.isInstanceOf[Boolean])
+  private def allBoolean(m: Step.Match): Boolean =
+    (m.otherwise match
+      case Value.Literal(_: Lit.Bool) => true
+      case _                          => false
+    ) && m.cases.values.forall(_.isInstanceOf[Lit.Bool])
 
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r

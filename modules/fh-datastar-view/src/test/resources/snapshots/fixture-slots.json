@@ -9,16 +9,19 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "light.kitchen",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "on" : true
-                  },
-                  "kind" : "Match",
-                  "otherwise" : false
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "on" : true
+                    },
+                    "kind" : "Match",
+                    "otherwise" : false
+                  }
+                ]
               }
             },
             "styles" : {
@@ -30,53 +33,69 @@
             "busy" : "1",
             "busyVisual" : "1",
             "checked" : {
-              "bypassUnavailable" : false,
               "default" : "",
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "bind",
-              "transform" : {
-                "cases" : {
-                  "on" : "on"
-                },
-                "kind" : "Match",
-                "otherwise" : ""
-              }
+              "signal" : {
+                "kind" : "Bind"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
             },
             "entity_id" : "light.kitchen",
             "icon" : {
-              "literal" : "mdi mdi-lightbulb",
+              "source" : "mdi mdi-lightbulb",
               "type" : "cssClass"
             },
             "label" : "Kitchen",
             "onoff" : "1",
             "service" : "light/toggle",
             "switched" : {
-              "bypassUnavailable" : false,
               "default" : "",
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "attr:data-switched",
-              "transform" : {
-                "cases" : {
-                  "on" : "on"
-                },
-                "kind" : "Match",
-                "otherwise" : ""
-              }
+              "signal" : {
+                "kind" : "Attr",
+                "name" : "data-switched"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
             },
             "tapDisabled" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "cases" : {
-                  "unavailable" : true
-                },
-                "kind" : "Match",
-                "otherwise" : false
-              }
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ]
             },
             "targetId" : "light.kitchen",
             "targetKind" : "entity"
@@ -89,28 +108,30 @@
           "cell" : {
             "classes" : {
               "warm" : {
-                "bypassUnavailable" : false,
-                "entityId" : "light.kitchen",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "on" : true
-                  },
-                  "kind" : "Match",
-                  "otherwise" : false
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "on" : true
+                    },
+                    "kind" : "Match",
+                    "otherwise" : false
+                  }
+                ]
               }
             },
             "styles" : {
               "--fh-x" : {
-                "bypassUnavailable" : true,
                 "default" : "",
-                "entityId" : "light.kitchen",
-                "reads" : "live",
-                "transform" : {
-                  "attribute" : "brightness",
-                  "kind" : "Op",
-                  "op" : "Attr"
+                "source" : {
+                  "kind" : "Entity",
+                  "part" : {
+                    "kind" : "Attr",
+                    "name" : "brightness"
+                  }
                 }
               }
             }
@@ -121,27 +142,32 @@
             "busyVisual" : "1",
             "entity_id" : "light.kitchen",
             "glyph" : {
-              "literal" : "mdi mdi-lightbulb",
+              "source" : "mdi mdi-lightbulb",
               "type" : "cssClass"
             },
             "label" : "Kitchen",
             "service" : "light/toggle",
             "size" : {
-              "literal" : "fh-size-large",
+              "source" : "fh-size-large",
               "type" : "cssClass"
             },
             "tapDisabled" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "cases" : {
-                  "unavailable" : true
-                },
-                "kind" : "Match",
-                "otherwise" : false
-              }
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ]
             },
             "targetId" : "light.kitchen",
             "targetKind" : "entity"
@@ -154,17 +180,21 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "light.kitchen",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "on" : true,
-                    "unknown" : true
-                  },
-                  "kind" : "Match",
-                  "otherwise" : false
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity",
+                  "of" : "light.kitchen"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "on" : true,
+                      "unknown" : true
+                    },
+                    "kind" : "Match",
+                    "otherwise" : false
+                  }
+                ]
               },
               "fh-hug" : "1"
             },
@@ -177,7 +207,7 @@
             "busy" : "1",
             "busyVisual" : "1",
             "glyph" : {
-              "literal" : "mdi-power",
+              "source" : "mdi-power",
               "type" : "cssClass"
             },
             "label" : "",
@@ -185,17 +215,23 @@
             "round" : "1",
             "service" : "light/toggle",
             "tapDisabled" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "cases" : {
-                  "unavailable" : true
-                },
-                "kind" : "Match",
-                "otherwise" : false
-              }
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity",
+                "of" : "light.kitchen"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ]
             },
             "targetId" : "light.kitchen",
             "targetKind" : "entity"
@@ -210,29 +246,32 @@
             "busy" : "1",
             "busyVisual" : "1",
             "disabled" : {
-              "bypassUnavailable" : false,
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "candidates" : [
-                  "light.kitchen",
-                  "light.living_room"
-                ],
-                "kind" : "Count",
-                "op" : "eq",
-                "value" : 0,
-                "when" : {
-                  "light.kitchen" : {
-                    "kind" : "Cmp",
-                    "op" : "eq",
-                    "property" : "state",
-                    "value" : "on"
-                  },
-                  "light.living_room" : {
-                    "kind" : "Cmp",
-                    "op" : "eq",
-                    "property" : "state",
-                    "value" : "on"
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Condition",
+                "predicate" : {
+                  "candidates" : [
+                    "light.kitchen",
+                    "light.living_room"
+                  ],
+                  "kind" : "Count",
+                  "op" : "eq",
+                  "value" : 0,
+                  "when" : {
+                    "light.kitchen" : {
+                      "kind" : "Cmp",
+                      "op" : "eq",
+                      "property" : "state",
+                      "value" : "on"
+                    },
+                    "light.living_room" : {
+                      "kind" : "Cmp",
+                      "op" : "eq",
+                      "property" : "state",
+                      "value" : "on"
+                    }
                   }
                 }
               },
@@ -240,15 +279,20 @@
             },
             "label" : "Lights off",
             "secondary" : {
-              "bypassUnavailable" : true,
               "default" : "",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : "string(lit) + ' on'"
+              "signal" : {
+                "kind" : "Text"
+              },
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "string(lit) + ' on'"
+                }
+              ]
             },
             "service" : "light/turn_off",
             "size" : {
-              "literal" : "fh-size-large",
+              "source" : "fh-size-large",
               "type" : "cssClass"
             },
             "targetId" : "c2047bed3d53a7e1",
@@ -300,20 +344,29 @@
                             "templateSlots" : {
                               "entity_id" : "sensor.outside_temp",
                               "icon" : {
-                                "literal" : "mdi mdi-thermometer",
+                                "source" : "mdi mdi-thermometer",
                                 "type" : "cssClass"
                               },
                               "label" : "Outside Temperature",
                               "value" : {
-                                "bypassUnavailable" : true,
-                                "entityId" : "sensor.outside_temp",
-                                "reads" : "live",
-                                "signal" : "text",
-                                "transform" : {
-                                  "attribute" : "unit_of_measurement",
-                                  "kind" : "Op",
-                                  "op" : "SuffixUnit"
-                                }
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -346,9 +399,12 @@
                                           "busyVisual" : "1",
                                           "label" : "1h",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -363,9 +419,12 @@
                                           "busyVisual" : "1",
                                           "label" : "24h",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -380,9 +439,12 @@
                                           "busyVisual" : "1",
                                           "label" : "7d",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -397,9 +459,12 @@
                                           "busyVisual" : "1",
                                           "label" : "30d",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -420,48 +485,51 @@
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "chart" : {
-                                      "bypassUnavailable" : true,
-                                      "fetch" : {
-                                        "entity" : "sensor.outside_temp",
-                                        "provider" : "history",
-                                        "window" : {
-                                          "by" : {
-                                            "var" : "window"
-                                          },
-                                          "kind" : "Chosen",
-                                          "options" : {
-                                            "1h" : {
-                                              "kind" : "Raw",
-                                              "span" : 3600
+                                      "source" : {
+                                        "fetch" : {
+                                          "entity" : "sensor.outside_temp",
+                                          "provider" : "history",
+                                          "window" : {
+                                            "by" : {
+                                              "var" : "window"
                                             },
-                                            "24h" : {
-                                              "fallback" : true,
-                                              "kind" : "Statistics",
-                                              "period" : "5minute",
-                                              "span" : 86400
-                                            },
-                                            "30d" : {
-                                              "fallback" : true,
-                                              "kind" : "Statistics",
-                                              "period" : "hour",
-                                              "span" : 2592000
-                                            },
-                                            "7d" : {
-                                              "fallback" : true,
-                                              "kind" : "Statistics",
-                                              "period" : "hour",
-                                              "span" : 604800
+                                            "kind" : "Chosen",
+                                            "options" : {
+                                              "1h" : {
+                                                "kind" : "Raw",
+                                                "span" : 3600
+                                              },
+                                              "24h" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "5minute",
+                                                "span" : 86400
+                                              },
+                                              "30d" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "hour",
+                                                "span" : 2592000
+                                              },
+                                              "7d" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "hour",
+                                                "span" : 604800
+                                              }
                                             }
                                           }
-                                        }
-                                      },
-                                      "reads" : "onRender",
-                                      "transform" : {
-                                        "params" : {
-                                          "unit" : "°C"
                                         },
-                                        "stage" : "Chart"
-                                      }
+                                        "kind" : "Fetch"
+                                      },
+                                      "steps" : [
+                                        {
+                                          "kind" : "Chart",
+                                          "style" : {
+                                            "unit" : "°C"
+                                          }
+                                        }
+                                      ]
                                     }
                                   },
                                   "vars" : [
@@ -485,11 +553,16 @@
                             "kind" : "Component",
                             "templateSlots" : {
                               "attributes" : {
-                                "bypassUnavailable" : true,
                                 "default" : "",
-                                "entityId" : "sensor.outside_temp",
-                                "reads" : "live",
-                                "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
                               },
                               "entity_id" : "sensor.outside_temp"
                             },
@@ -503,7 +576,7 @@
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
-                                "literal" : "fh-size-large",
+                                "source" : "fh-size-large",
                                 "type" : "cssClass"
                               }
                             },
@@ -534,35 +607,45 @@
             "busyVisual" : "1",
             "entity_id" : "sensor.outside_temp",
             "icon" : {
-              "literal" : "mdi mdi-thermometer",
+              "source" : "mdi mdi-thermometer",
               "type" : "cssClass"
             },
             "label" : "Outside Temperature",
             "onclick" : {
-              "bypassUnavailable" : false,
-              "entityId" : "sensor.outside_temp",
-              "reads" : "once",
-              "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                }
+              ]
             },
             "secondary" : {
-              "bypassUnavailable" : true,
               "default" : "",
-              "entityId" : "sensor.outside_temp",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "attribute" : "device_class",
-                "kind" : "Op",
-                "op" : "Attr"
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity",
+                "part" : {
+                  "kind" : "Attr",
+                  "name" : "device_class"
+                }
               }
             },
             "tappable" : "1",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "sensor.outside_temp",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : "str(math.round(num(state) * 10.0) / 10.0) + ' ' + attr[?'unit_of_measurement'].orValue('')"
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "str(math.round(num(state) * 10.0) / 10.0) + ' ' + attr[?'unit_of_measurement'].orValue('')"
+                }
+              ]
             }
           },
           "vars" : [
@@ -573,18 +656,21 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "light.kitchen",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "off" : false,
-                    "unavailable" : false,
-                    "unknown" : false
-                  },
-                  "kind" : "Match",
-                  "otherwise" : true
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
               }
             },
             "styles" : {
@@ -597,44 +683,67 @@
             "busyVisual" : "1",
             "entity_id" : "light.kitchen",
             "icon" : {
-              "literal" : "mdi mdi-lightbulb",
+              "source" : "mdi mdi-lightbulb",
               "type" : "cssClass"
             },
             "label" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.living_room",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : "state"
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity",
+                "of" : "light.living_room"
+              },
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "state"
+                }
+              ]
             },
             "onoff" : "1",
             "service" : "light/toggle",
             "tapDisabled" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "cases" : {
-                  "unavailable" : true
-                },
-                "kind" : "Match",
-                "otherwise" : false
-              }
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ]
             },
             "tappable" : "1",
             "targetId" : "light.kitchen",
             "targetKind" : "entity",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "attribute" : "unit_of_measurement",
-                "kind" : "Op",
-                "op" : "SuffixUnit"
-              }
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
             }
           },
           "vars" : [
@@ -645,18 +754,21 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "light.kitchen",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "off" : false,
-                    "unavailable" : false,
-                    "unknown" : false
-                  },
-                  "kind" : "Match",
-                  "otherwise" : true
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
               }
             },
             "styles" : {
@@ -680,18 +792,21 @@
                             "cell" : {
                               "classes" : {
                                 "fh-active" : {
-                                  "bypassUnavailable" : false,
-                                  "entityId" : "light.kitchen",
-                                  "reads" : "live",
-                                  "transform" : {
-                                    "cases" : {
-                                      "off" : false,
-                                      "unavailable" : false,
-                                      "unknown" : false
-                                    },
-                                    "kind" : "Match",
-                                    "otherwise" : true
-                                  }
+                                  "source" : {
+                                    "bypassUnavailable" : false,
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "off" : false,
+                                        "unavailable" : false,
+                                        "unknown" : false
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : true
+                                    }
+                                  ]
                                 }
                               },
                               "styles" : {
@@ -704,38 +819,52 @@
                               "busyVisual" : "1",
                               "entity_id" : "light.kitchen",
                               "icon" : {
-                                "literal" : "mdi mdi-lightbulb",
+                                "source" : "mdi mdi-lightbulb",
                                 "type" : "cssClass"
                               },
                               "label" : "Kitchen",
                               "onoff" : "1",
                               "service" : "light/toggle",
                               "tapDisabled" : {
-                                "bypassUnavailable" : false,
-                                "entityId" : "light.kitchen",
-                                "reads" : "live",
-                                "signal" : "handler",
-                                "transform" : {
-                                  "cases" : {
-                                    "unavailable" : true
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : false
-                                }
+                                "signal" : {
+                                  "kind" : "Handler"
+                                },
+                                "source" : {
+                                  "bypassUnavailable" : false,
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "cases" : {
+                                      "unavailable" : true
+                                    },
+                                    "kind" : "Match",
+                                    "otherwise" : false
+                                  }
+                                ]
                               },
                               "tappable" : "1",
                               "targetId" : "light.kitchen",
                               "targetKind" : "entity",
                               "value" : {
-                                "bypassUnavailable" : true,
-                                "entityId" : "light.kitchen",
-                                "reads" : "live",
-                                "signal" : "text",
-                                "transform" : {
-                                  "attribute" : "unit_of_measurement",
-                                  "kind" : "Op",
-                                  "op" : "SuffixUnit"
-                                }
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -751,18 +880,21 @@
                                   "cell" : {
                                     "classes" : {
                                       "fh-active" : {
-                                        "bypassUnavailable" : false,
-                                        "entityId" : "light.kitchen",
-                                        "reads" : "live",
-                                        "transform" : {
-                                          "cases" : {
-                                            "off" : false,
-                                            "unavailable" : false,
-                                            "unknown" : false
-                                          },
-                                          "kind" : "Match",
-                                          "otherwise" : true
-                                        }
+                                        "source" : {
+                                          "bypassUnavailable" : false,
+                                          "kind" : "Entity"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "cases" : {
+                                              "off" : false,
+                                              "unavailable" : false,
+                                              "unknown" : false
+                                            },
+                                            "kind" : "Match",
+                                            "otherwise" : true
+                                          }
+                                        ]
                                       }
                                     },
                                     "styles" : {
@@ -775,38 +907,52 @@
                                     "busyVisual" : "1",
                                     "entity_id" : "light.kitchen",
                                     "icon" : {
-                                      "literal" : "mdi mdi-lightbulb",
+                                      "source" : "mdi mdi-lightbulb",
                                       "type" : "cssClass"
                                     },
                                     "label" : "Kitchen",
                                     "onoff" : "1",
                                     "service" : "homeassistant/toggle",
                                     "tapDisabled" : {
-                                      "bypassUnavailable" : false,
-                                      "entityId" : "light.kitchen",
-                                      "reads" : "live",
-                                      "signal" : "handler",
-                                      "transform" : {
-                                        "cases" : {
-                                          "unavailable" : true
-                                        },
-                                        "kind" : "Match",
-                                        "otherwise" : false
-                                      }
+                                      "signal" : {
+                                        "kind" : "Handler"
+                                      },
+                                      "source" : {
+                                        "bypassUnavailable" : false,
+                                        "kind" : "Entity"
+                                      },
+                                      "steps" : [
+                                        {
+                                          "cases" : {
+                                            "unavailable" : true
+                                          },
+                                          "kind" : "Match",
+                                          "otherwise" : false
+                                        }
+                                      ]
                                     },
                                     "tappable" : "1",
                                     "targetId" : "light.kitchen",
                                     "targetKind" : "entity",
                                     "value" : {
-                                      "bypassUnavailable" : true,
-                                      "entityId" : "light.kitchen",
-                                      "reads" : "live",
-                                      "signal" : "text",
-                                      "transform" : {
-                                        "attribute" : "unit_of_measurement",
-                                        "kind" : "Op",
-                                        "op" : "SuffixUnit"
-                                      }
+                                      "signal" : {
+                                        "kind" : "Text"
+                                      },
+                                      "source" : {
+                                        "kind" : "Entity"
+                                      },
+                                      "steps" : [
+                                        {
+                                          "kind" : "WithUnit",
+                                          "unit" : {
+                                            "kind" : "Entity",
+                                            "part" : {
+                                              "kind" : "Attr",
+                                              "name" : "unit_of_measurement"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
                                   },
                                   "vars" : [
@@ -825,11 +971,16 @@
                             "kind" : "Component",
                             "templateSlots" : {
                               "attributes" : {
-                                "bypassUnavailable" : true,
                                 "default" : "",
-                                "entityId" : "light.kitchen",
-                                "reads" : "live",
-                                "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
                               },
                               "entity_id" : "light.kitchen"
                             },
@@ -843,7 +994,7 @@
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
-                                "literal" : "fh-size-large",
+                                "source" : "fh-size-large",
                                 "type" : "cssClass"
                               }
                             },
@@ -874,28 +1025,39 @@
             "busyVisual" : "1",
             "entity_id" : "light.kitchen",
             "icon" : {
-              "literal" : "mdi mdi-lightbulb",
+              "source" : "mdi mdi-lightbulb",
               "type" : "cssClass"
             },
             "label" : "Kitchen",
             "onclick" : {
-              "bypassUnavailable" : false,
-              "entityId" : "light.kitchen",
-              "reads" : "once",
-              "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                }
+              ]
             },
             "onoff" : "1",
             "tappable" : "1",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "light.kitchen",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "attribute" : "unit_of_measurement",
-                "kind" : "Op",
-                "op" : "SuffixUnit"
-              }
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
             }
           },
           "vars" : [
@@ -906,18 +1068,21 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "climate.hallway",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "off" : false,
-                    "unavailable" : false,
-                    "unknown" : false
-                  },
-                  "kind" : "Match",
-                  "otherwise" : true
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
               }
             },
             "styles" : {
@@ -930,38 +1095,52 @@
             "busyVisual" : "1",
             "entity_id" : "climate.hallway",
             "icon" : {
-              "literal" : "mdi mdi-thermostat",
+              "source" : "mdi mdi-thermostat",
               "type" : "cssClass"
             },
             "label" : "Hallway",
             "onoff" : "1",
             "service" : "climate/toggle",
             "tapDisabled" : {
-              "bypassUnavailable" : false,
-              "entityId" : "climate.hallway",
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "cases" : {
-                  "unavailable" : true
-                },
-                "kind" : "Match",
-                "otherwise" : false
-              }
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ]
             },
             "tappable" : "1",
             "targetId" : "climate.hallway",
             "targetKind" : "entity",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "climate.hallway",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "attribute" : "unit_of_measurement",
-                "kind" : "Op",
-                "op" : "SuffixUnit"
-              }
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
             }
           },
           "vars" : [
@@ -972,18 +1151,21 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "binary_sensor.front_door",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "off" : false,
-                    "unavailable" : false,
-                    "unknown" : false
-                  },
-                  "kind" : "Match",
-                  "otherwise" : true
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
               }
             },
             "styles" : {
@@ -1007,18 +1189,21 @@
                             "cell" : {
                               "classes" : {
                                 "fh-active" : {
-                                  "bypassUnavailable" : false,
-                                  "entityId" : "binary_sensor.front_door",
-                                  "reads" : "live",
-                                  "transform" : {
-                                    "cases" : {
-                                      "off" : false,
-                                      "unavailable" : false,
-                                      "unknown" : false
-                                    },
-                                    "kind" : "Match",
-                                    "otherwise" : true
-                                  }
+                                  "source" : {
+                                    "bypassUnavailable" : false,
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "off" : false,
+                                        "unavailable" : false,
+                                        "unknown" : false
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : true
+                                    }
+                                  ]
                                 }
                               },
                               "styles" : {
@@ -1029,21 +1214,30 @@
                             "templateSlots" : {
                               "entity_id" : "binary_sensor.front_door",
                               "icon" : {
-                                "literal" : "mdi mdi-door-open",
+                                "source" : "mdi mdi-door-open",
                                 "type" : "cssClass"
                               },
                               "label" : "Front Door",
                               "onoff" : "1",
                               "value" : {
-                                "bypassUnavailable" : true,
-                                "entityId" : "binary_sensor.front_door",
-                                "reads" : "live",
-                                "signal" : "text",
-                                "transform" : {
-                                  "attribute" : "unit_of_measurement",
-                                  "kind" : "Op",
-                                  "op" : "SuffixUnit"
-                                }
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -1054,11 +1248,16 @@
                             "kind" : "Component",
                             "templateSlots" : {
                               "attributes" : {
-                                "bypassUnavailable" : true,
                                 "default" : "",
-                                "entityId" : "binary_sensor.front_door",
-                                "reads" : "live",
-                                "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
                               },
                               "entity_id" : "binary_sensor.front_door"
                             },
@@ -1072,7 +1271,7 @@
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
-                                "literal" : "fh-size-large",
+                                "source" : "fh-size-large",
                                 "type" : "cssClass"
                               }
                             },
@@ -1103,28 +1302,39 @@
             "busyVisual" : "1",
             "entity_id" : "binary_sensor.front_door",
             "icon" : {
-              "literal" : "mdi mdi-door-open",
+              "source" : "mdi mdi-door-open",
               "type" : "cssClass"
             },
             "label" : "Front Door",
             "onclick" : {
-              "bypassUnavailable" : false,
-              "entityId" : "binary_sensor.front_door",
-              "reads" : "once",
-              "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                }
+              ]
             },
             "onoff" : "1",
             "tappable" : "1",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "binary_sensor.front_door",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "attribute" : "unit_of_measurement",
-                "kind" : "Op",
-                "op" : "SuffixUnit"
-              }
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
             }
           },
           "vars" : [
@@ -1135,19 +1345,22 @@
           "cell" : {
             "classes" : {
               "fh-active" : {
-                "bypassUnavailable" : false,
-                "entityId" : "media_player.tv",
-                "reads" : "live",
-                "transform" : {
-                  "cases" : {
-                    "off" : false,
-                    "standby" : false,
-                    "unavailable" : false,
-                    "unknown" : false
-                  },
-                  "kind" : "Match",
-                  "otherwise" : true
-                }
+                "source" : {
+                  "bypassUnavailable" : false,
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "standby" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
               }
             },
             "styles" : {
@@ -1160,38 +1373,52 @@
             "busyVisual" : "1",
             "entity_id" : "media_player.tv",
             "icon" : {
-              "literal" : "mdi mdi-speaker",
+              "source" : "mdi mdi-speaker",
               "type" : "cssClass"
             },
             "label" : "Living Room TV",
             "onoff" : "1",
             "service" : "media_player/toggle",
             "tapDisabled" : {
-              "bypassUnavailable" : false,
-              "entityId" : "media_player.tv",
-              "reads" : "live",
-              "signal" : "handler",
-              "transform" : {
-                "cases" : {
-                  "unavailable" : true
-                },
-                "kind" : "Match",
-                "otherwise" : false
-              }
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "bypassUnavailable" : false,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ]
             },
             "tappable" : "1",
             "targetId" : "media_player.tv",
             "targetKind" : "entity",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "media_player.tv",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "attribute" : "unit_of_measurement",
-                "kind" : "Op",
-                "op" : "SuffixUnit"
-              }
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
             }
           },
           "vars" : [
@@ -1217,20 +1444,29 @@
                             "templateSlots" : {
                               "entity_id" : "sensor.washer_remaining",
                               "icon" : {
-                                "literal" : "mdi mdi-progress-clock",
+                                "source" : "mdi mdi-progress-clock",
                                 "type" : "cssClass"
                               },
                               "label" : "Washing Machine",
                               "value" : {
-                                "bypassUnavailable" : true,
-                                "entityId" : "sensor.washer_remaining",
-                                "reads" : "live",
-                                "signal" : "text",
-                                "transform" : {
-                                  "attribute" : "unit_of_measurement",
-                                  "kind" : "Op",
-                                  "op" : "SuffixUnit"
-                                }
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
                               }
                             },
                             "vars" : [
@@ -1263,9 +1499,12 @@
                                           "busyVisual" : "1",
                                           "label" : "1h",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -1280,9 +1519,12 @@
                                           "busyVisual" : "1",
                                           "label" : "24h",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -1297,9 +1539,12 @@
                                           "busyVisual" : "1",
                                           "label" : "7d",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -1314,9 +1559,12 @@
                                           "busyVisual" : "1",
                                           "label" : "30d",
                                           "onclick" : {
-                                            "bypassUnavailable" : false,
-                                            "reads" : "once",
-                                            "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -1337,48 +1585,51 @@
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "chart" : {
-                                      "bypassUnavailable" : true,
-                                      "fetch" : {
-                                        "entity" : "sensor.washer_remaining",
-                                        "provider" : "history",
-                                        "window" : {
-                                          "by" : {
-                                            "var" : "window"
-                                          },
-                                          "kind" : "Chosen",
-                                          "options" : {
-                                            "1h" : {
-                                              "kind" : "Raw",
-                                              "span" : 3600
+                                      "source" : {
+                                        "fetch" : {
+                                          "entity" : "sensor.washer_remaining",
+                                          "provider" : "history",
+                                          "window" : {
+                                            "by" : {
+                                              "var" : "window"
                                             },
-                                            "24h" : {
-                                              "fallback" : true,
-                                              "kind" : "Statistics",
-                                              "period" : "5minute",
-                                              "span" : 86400
-                                            },
-                                            "30d" : {
-                                              "fallback" : true,
-                                              "kind" : "Statistics",
-                                              "period" : "hour",
-                                              "span" : 2592000
-                                            },
-                                            "7d" : {
-                                              "fallback" : true,
-                                              "kind" : "Statistics",
-                                              "period" : "hour",
-                                              "span" : 604800
+                                            "kind" : "Chosen",
+                                            "options" : {
+                                              "1h" : {
+                                                "kind" : "Raw",
+                                                "span" : 3600
+                                              },
+                                              "24h" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "5minute",
+                                                "span" : 86400
+                                              },
+                                              "30d" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "hour",
+                                                "span" : 2592000
+                                              },
+                                              "7d" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "hour",
+                                                "span" : 604800
+                                              }
                                             }
                                           }
-                                        }
-                                      },
-                                      "reads" : "onRender",
-                                      "transform" : {
-                                        "params" : {
-                                          "unit" : "min"
                                         },
-                                        "stage" : "Chart"
-                                      }
+                                        "kind" : "Fetch"
+                                      },
+                                      "steps" : [
+                                        {
+                                          "kind" : "Chart",
+                                          "style" : {
+                                            "unit" : "min"
+                                          }
+                                        }
+                                      ]
                                     }
                                   },
                                   "vars" : [
@@ -1402,11 +1653,16 @@
                             "kind" : "Component",
                             "templateSlots" : {
                               "attributes" : {
-                                "bypassUnavailable" : true,
                                 "default" : "",
-                                "entityId" : "sensor.washer_remaining",
-                                "reads" : "live",
-                                "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
                               },
                               "entity_id" : "sensor.washer_remaining"
                             },
@@ -1420,7 +1676,7 @@
                               "label" : "Close",
                               "onclick" : "$ui_popups && history.back()",
                               "size" : {
-                                "literal" : "fh-size-large",
+                                "source" : "fh-size-large",
                                 "type" : "cssClass"
                               }
                             },
@@ -1484,23 +1740,21 @@
                             "templateSlots" : {
                               "down" : "1",
                               "of" : {
-                                "bypassUnavailable" : true,
-                                "entityId" : "sensor.washer_program_duration",
-                                "reads" : "live",
-                                "signal" : "handler",
-                                "transform" : {
-                                  "kind" : "Op",
-                                  "op" : "State"
+                                "signal" : {
+                                  "kind" : "Handler"
+                                },
+                                "source" : {
+                                  "kind" : "Entity",
+                                  "of" : "sensor.washer_program_duration"
                                 }
                               },
                               "value" : {
-                                "bypassUnavailable" : true,
-                                "entityId" : "sensor.washer_remaining",
-                                "reads" : "live",
-                                "signal" : "handler",
-                                "transform" : {
-                                  "kind" : "Op",
-                                  "op" : "State"
+                                "signal" : {
+                                  "kind" : "Handler"
+                                },
+                                "source" : {
+                                  "kind" : "Entity",
+                                  "of" : "sensor.washer_remaining"
                                 }
                               }
                             },
@@ -1531,47 +1785,51 @@
             "busyVisual" : "1",
             "entity_id" : "sensor.washer_remaining",
             "icon" : {
-              "literal" : "mdi mdi-progress-clock",
+              "source" : "mdi mdi-progress-clock",
               "type" : "cssClass"
             },
             "label" : "Washing Machine",
             "onclick" : {
-              "bypassUnavailable" : false,
-              "entityId" : "sensor.washer_remaining",
-              "reads" : "once",
-              "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                }
+              ]
             },
             "secondary" : {
-              "bypassUnavailable" : true,
-              "entityId" : "sensor.washer_status",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "kind" : "Op",
-                "op" : "State"
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "kind" : "Entity",
+                "of" : "sensor.washer_status"
               }
             },
             "tappable" : "1",
             "value" : {
-              "bypassUnavailable" : true,
-              "entityId" : "sensor.washer_remaining",
-              "reads" : "live",
-              "signal" : "text",
-              "transform" : {
-                "kind" : "Op",
-                "op" : "Duration",
-                "scale" : 60
+              "signal" : {
+                "kind" : "Text"
               },
-              "valueWhileSlot" : {
-                "bypassUnavailable" : false,
-                "entityId" : "sensor.washer_remaining",
-                "reads" : "live",
-                "transform" : {
-                  "entity" : "sensor.washer_remaining",
-                  "kind" : "Cmp",
-                  "op" : "gt",
-                  "property" : "state",
-                  "value" : 0
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "Duration",
+                  "scale" : 60
+                }
+              ],
+              "valueWhile" : {
+                "source" : {
+                  "kind" : "Condition",
+                  "predicate" : {
+                    "entity" : "sensor.washer_remaining",
+                    "kind" : "Cmp",
+                    "op" : "gt",
+                    "property" : "state",
+                    "value" : 0
+                  }
                 }
               }
             }
@@ -1584,24 +1842,27 @@
           "kind" : "Component",
           "templateSlots" : {
             "chart" : {
-              "bypassUnavailable" : true,
-              "fetch" : {
-                "entity" : "sensor.outside_temp",
-                "provider" : "history",
-                "window" : {
-                  "fallback" : true,
-                  "kind" : "Statistics",
-                  "period" : "5minute",
-                  "span" : 86400
-                }
-              },
-              "reads" : "onRender",
-              "transform" : {
-                "params" : {
-                  "unit" : "°C"
+              "source" : {
+                "fetch" : {
+                  "entity" : "sensor.outside_temp",
+                  "provider" : "history",
+                  "window" : {
+                    "fallback" : true,
+                    "kind" : "Statistics",
+                    "period" : "5minute",
+                    "span" : 86400
+                  }
                 },
-                "stage" : "Chart"
-              }
+                "kind" : "Fetch"
+              },
+              "steps" : [
+                {
+                  "kind" : "Chart",
+                  "style" : {
+                    "unit" : "°C"
+                  }
+                }
+              ]
             }
           },
           "vars" : [
@@ -1634,9 +1895,12 @@
                         "busyVisual" : "1",
                         "label" : "1h",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                          "steps" : [
+                            {
+                              "kind" : "Cel",
+                              "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -1651,9 +1915,12 @@
                         "busyVisual" : "1",
                         "label" : "24h",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                          "steps" : [
+                            {
+                              "kind" : "Cel",
+                              "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -1668,9 +1935,12 @@
                         "busyVisual" : "1",
                         "label" : "7d",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                          "steps" : [
+                            {
+                              "kind" : "Cel",
+                              "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -1685,9 +1955,12 @@
                         "busyVisual" : "1",
                         "label" : "30d",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                          "steps" : [
+                            {
+                              "kind" : "Cel",
+                              "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -1708,48 +1981,51 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "chart" : {
-                    "bypassUnavailable" : true,
-                    "fetch" : {
-                      "entity" : "sensor.outside_temp",
-                      "provider" : "history",
-                      "window" : {
-                        "by" : {
-                          "var" : "window"
-                        },
-                        "kind" : "Chosen",
-                        "options" : {
-                          "1h" : {
-                            "kind" : "Raw",
-                            "span" : 3600
+                    "source" : {
+                      "fetch" : {
+                        "entity" : "sensor.outside_temp",
+                        "provider" : "history",
+                        "window" : {
+                          "by" : {
+                            "var" : "window"
                           },
-                          "24h" : {
-                            "fallback" : true,
-                            "kind" : "Statistics",
-                            "period" : "5minute",
-                            "span" : 86400
-                          },
-                          "30d" : {
-                            "fallback" : true,
-                            "kind" : "Statistics",
-                            "period" : "hour",
-                            "span" : 2592000
-                          },
-                          "7d" : {
-                            "fallback" : true,
-                            "kind" : "Statistics",
-                            "period" : "hour",
-                            "span" : 604800
+                          "kind" : "Chosen",
+                          "options" : {
+                            "1h" : {
+                              "kind" : "Raw",
+                              "span" : 3600
+                            },
+                            "24h" : {
+                              "fallback" : true,
+                              "kind" : "Statistics",
+                              "period" : "5minute",
+                              "span" : 86400
+                            },
+                            "30d" : {
+                              "fallback" : true,
+                              "kind" : "Statistics",
+                              "period" : "hour",
+                              "span" : 2592000
+                            },
+                            "7d" : {
+                              "fallback" : true,
+                              "kind" : "Statistics",
+                              "period" : "hour",
+                              "span" : 604800
+                            }
                           }
                         }
-                      }
-                    },
-                    "reads" : "onRender",
-                    "transform" : {
-                      "params" : {
-                        "unit" : "°C"
                       },
-                      "stage" : "Chart"
-                    }
+                      "kind" : "Fetch"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Chart",
+                        "style" : {
+                          "unit" : "°C"
+                        }
+                      }
+                    ]
                   }
                 },
                 "vars" : [
@@ -1776,20 +2052,18 @@
             "label" : "Outside Temperature",
             "postfix" : " °C",
             "readings" : {
-              "bypassUnavailable" : true,
-              "fetch" : {
-                "entity" : "sensor.outside_temp",
-                "provider" : "history",
-                "window" : {
-                  "fallback" : true,
-                  "kind" : "Statistics",
-                  "period" : "5minute",
-                  "span" : 86400
-                }
-              },
-              "reads" : "onRender",
-              "transform" : {
-                "stage" : "Passthrough"
+              "source" : {
+                "fetch" : {
+                  "entity" : "sensor.outside_temp",
+                  "provider" : "history",
+                  "window" : {
+                    "fallback" : true,
+                    "kind" : "Statistics",
+                    "period" : "5minute",
+                    "span" : 86400
+                  }
+                },
+                "kind" : "Fetch"
               }
             }
           },
@@ -1823,9 +2097,12 @@
                         "busyVisual" : "1",
                         "label" : "simple",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"$_var_@@VAR:view@@__view__pending = 'simple'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/simple?group=var_@@VAR:view@@__view')\""
+                          "steps" : [
+                            {
+                              "kind" : "Cel",
+                              "src" : "\"$_var_@@VAR:view@@__view__pending = 'simple'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/simple?group=var_@@VAR:view@@__view')\""
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -1840,9 +2117,12 @@
                         "busyVisual" : "1",
                         "label" : "detail",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"$_var_@@VAR:view@@__view__pending = 'detail'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/detail?group=var_@@VAR:view@@__view')\""
+                          "steps" : [
+                            {
+                              "kind" : "Cel",
+                              "src" : "\"$_var_@@VAR:view@@__view__pending = 'detail'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/detail?group=var_@@VAR:view@@__view')\""
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -1925,24 +2205,27 @@
                             "kind" : "Component",
                             "templateSlots" : {
                               "chart" : {
-                                "bypassUnavailable" : true,
-                                "fetch" : {
-                                  "entity" : "sensor.outside_temp",
-                                  "provider" : "history",
-                                  "window" : {
-                                    "fallback" : true,
-                                    "kind" : "Statistics",
-                                    "period" : "5minute",
-                                    "span" : 86400
-                                  }
-                                },
-                                "reads" : "onRender",
-                                "transform" : {
-                                  "params" : {
-                                    "unit" : "°C"
+                                "source" : {
+                                  "fetch" : {
+                                    "entity" : "sensor.outside_temp",
+                                    "provider" : "history",
+                                    "window" : {
+                                      "fallback" : true,
+                                      "kind" : "Statistics",
+                                      "period" : "5minute",
+                                      "span" : 86400
+                                    }
                                   },
-                                  "stage" : "Chart"
-                                }
+                                  "kind" : "Fetch"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Chart",
+                                    "style" : {
+                                      "unit" : "°C"
+                                    }
+                                  }
+                                ]
                               }
                             },
                             "vars" : [

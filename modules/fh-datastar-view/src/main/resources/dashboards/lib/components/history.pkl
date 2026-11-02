@@ -47,7 +47,7 @@ class HistoryChart extends nodes.Node {
   slots {
     chart.of(new slotMod.Reading {
       fetch = historyProv.of(entity, window)
-      transform = chartMod.chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
+      steps { chartMod.chartStage(chartWidth, chartHeight, entity.unit_of_measurement) }
     })
   }
 

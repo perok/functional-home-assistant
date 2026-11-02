@@ -1,6 +1,13 @@
 package fh.view.runtime
 
-import fh.view.model.{Dashboard, LayoutNode, SlotSource, TemplateSlot, Surface}
+import fh.view.model.{
+  Dashboard,
+  LayoutNode,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Surface
+}
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -186,7 +193,13 @@ class StateSurfaceSuite extends ServerHarness {
   test("a candidate set inside an INACTIVE branch stays silent") {
     val dyn = onSet(
       List("light.x", "light.y", "light.z"),
-      List((None, "dot", Map("state" -> TemplateSlot(SlotSource()))))
+      List(
+        (
+          None,
+          "dot",
+          Map("state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None)))))
+        )
+      )
     )
     live(
       ifDash(thenContent = dyn),

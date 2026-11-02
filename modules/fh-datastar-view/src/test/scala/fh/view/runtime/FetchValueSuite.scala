@@ -29,11 +29,9 @@ class FetchValueSuite extends munit.FunSuite {
       ),
       reads: String = Reads.Live
   ) = TemplateSlot(
-    SlotSource(
-      Some("sensor.left"),
-      transform = peak,
-      values = values,
-      reads = reads
+    ValueExpr(
+      Some(Value.Entity(Some("sensor.left"), reads = reads)),
+      List(Step.Cel(peak, values))
     ),
     signal = Some(SignalBind.Handler)
   )
@@ -50,9 +48,12 @@ class FetchValueSuite extends munit.FunSuite {
     card = LayoutNode.Component(
       card = "bar",
       templateSlots = Map(
-        "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
+        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
         "value" -> TemplateSlot(
-          SlotSource(Some("sensor.left"), transform = "state")
+          ValueExpr(
+            Some(Value.Entity(Some("sensor.left"))),
+            List(Step.Cel("state"))
+          )
         ),
         "of" -> ofSlot
       ),
@@ -149,10 +150,11 @@ class FetchValueSuite extends munit.FunSuite {
   }
 
   test("the wire spells a fetch value by its provider") {
-    val slot = decode[SlotSource](
-      """{"transform": "size(past)", "values": {"past": {"provider": "history",
-        |  "entity": "sensor.left", "window": {"kind": "Statistics",
-        |  "span": 86400, "period": "5minute", "fallback": true}}}}""".stripMargin
+    val slot = decode[TemplateSlot](
+      """{"steps": [{"kind": "Cel", "src": "size(past)", "values": {"past": {
+        |  "provider": "history", "entity": "sensor.left", "window": {
+        |  "kind": "Statistics", "span": 86400, "period": "5minute",
+        |  "fallback": true}}}}]}""".stripMargin
     )
     assertEquals(
       slot.map(_.values),

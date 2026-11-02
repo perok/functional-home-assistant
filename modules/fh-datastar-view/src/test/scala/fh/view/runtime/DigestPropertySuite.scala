@@ -43,7 +43,7 @@ class DigestPropertySuite extends HedgehogSuite {
 
   private def valueSlot(signal: Boolean): TemplateSlot =
     TemplateSlot(
-      SlotSource(),
+      ValueExpr(Some(Value.Entity(None))),
       signal = if signal then Some(SignalBind.Text) else None
     )
 
@@ -60,7 +60,7 @@ class DigestPropertySuite extends HedgehogSuite {
       LayoutNode.Component(
         "card",
         Map(
-          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a"))),
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
           "v" -> valueSlot(signal)
         )
       )
@@ -74,7 +74,7 @@ class DigestPropertySuite extends HedgehogSuite {
             node = LayoutNode.Component(
               "card",
               Map(
-                "entity_id" -> TemplateSlot(SlotSource(literal = Some(e))),
+                "entity_id" -> TemplateSlot(ValueExpr.literal(e)),
                 "v" -> valueSlot(signal)
               )
             )

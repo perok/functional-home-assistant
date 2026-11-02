@@ -51,18 +51,21 @@
                           "cell" : {
                             "classes" : {
                               "fh-active" : {
-                                "bypassUnavailable" : false,
-                                "entityId" : "light.kitchen",
-                                "reads" : "live",
-                                "transform" : {
-                                  "cases" : {
-                                    "off" : false,
-                                    "unavailable" : false,
-                                    "unknown" : false
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : true
-                                }
+                                "source" : {
+                                  "bypassUnavailable" : false,
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "cases" : {
+                                      "off" : false,
+                                      "unavailable" : false,
+                                      "unknown" : false
+                                    },
+                                    "kind" : "Match",
+                                    "otherwise" : true
+                                  }
+                                ]
                               },
                               "fh-slider-head-cell" : "1"
                             },
@@ -100,22 +103,30 @@
                             "dataKey" : "brightness",
                             "entity_id" : "light.kitchen",
                             "fill" : {
-                              "bypassUnavailable" : false,
                               "default" : "100%",
-                              "entityId" : "light.kitchen",
-                              "reads" : "live",
-                              "signal" : "style:--fh-fill",
-                              "transform" : {
-                                "attribute" : "brightness",
-                                "kind" : "Op",
-                                "max" : 255,
-                                "min" : 1,
-                                "op" : "Fill"
-                              }
+                              "signal" : {
+                                "kind" : "Style",
+                                "property" : "--fh-fill"
+                              },
+                              "source" : {
+                                "bypassUnavailable" : false,
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "brightness"
+                                }
+                              },
+                              "steps" : [
+                                {
+                                  "kind" : "Fill",
+                                  "max" : 255,
+                                  "min" : 1
+                                }
+                              ]
                             },
                             "fillColor" : "currentcolor",
                             "icon" : {
-                              "literal" : "mdi-lightbulb",
+                              "source" : "mdi-lightbulb",
                               "type" : "cssClass"
                             },
                             "label" : "Kitchen",
@@ -124,40 +135,46 @@
                             "onoff" : "1",
                             "service" : "light/turn_on",
                             "state" : {
-                              "bypassUnavailable" : true,
-                              "entityId" : "light.kitchen",
-                              "reads" : "live",
-                              "signal" : "text",
-                              "transform" : {
-                                "kind" : "Op",
-                                "op" : "State"
+                              "signal" : {
+                                "kind" : "Text"
+                              },
+                              "source" : {
+                                "kind" : "Entity"
                               }
                             },
                             "tapDisabled" : {
-                              "bypassUnavailable" : false,
-                              "entityId" : "light.kitchen",
-                              "reads" : "live",
-                              "signal" : "handler",
-                              "transform" : {
-                                "cases" : {
-                                  "unavailable" : true
-                                },
-                                "kind" : "Match",
-                                "otherwise" : false
-                              }
+                              "signal" : {
+                                "kind" : "Handler"
+                              },
+                              "source" : {
+                                "bypassUnavailable" : false,
+                                "kind" : "Entity"
+                              },
+                              "steps" : [
+                                {
+                                  "cases" : {
+                                    "unavailable" : true
+                                  },
+                                  "kind" : "Match",
+                                  "otherwise" : false
+                                }
+                              ]
                             },
                             "targetId" : "light.kitchen",
                             "targetKind" : "entity",
                             "value" : {
-                              "bypassUnavailable" : false,
                               "default" : "0",
-                              "entityId" : "light.kitchen",
-                              "reads" : "live",
-                              "signal" : "attr:value",
-                              "transform" : {
-                                "attribute" : "brightness",
-                                "kind" : "Op",
-                                "op" : "Attr"
+                              "signal" : {
+                                "kind" : "Attr",
+                                "name" : "value"
+                              },
+                              "source" : {
+                                "bypassUnavailable" : false,
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "brightness"
+                                }
                               }
                             }
                           },
@@ -185,18 +202,21 @@
                     "cell" : {
                       "classes" : {
                         "fh-active" : {
-                          "bypassUnavailable" : false,
-                          "entityId" : "light.kitchen",
-                          "reads" : "live",
-                          "transform" : {
-                            "cases" : {
-                              "off" : false,
-                              "unavailable" : false,
-                              "unknown" : false
-                            },
-                            "kind" : "Match",
-                            "otherwise" : true
-                          }
+                          "source" : {
+                            "bypassUnavailable" : false,
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "off" : false,
+                                "unavailable" : false,
+                                "unknown" : false
+                              },
+                              "kind" : "Match",
+                              "otherwise" : true
+                            }
+                          ]
                         }
                       },
                       "styles" : {
@@ -209,38 +229,52 @@
                       "busyVisual" : "1",
                       "entity_id" : "light.kitchen",
                       "icon" : {
-                        "literal" : "mdi mdi-lightbulb",
+                        "source" : "mdi mdi-lightbulb",
                         "type" : "cssClass"
                       },
                       "label" : "Kitchen",
                       "onoff" : "1",
                       "service" : "light/toggle",
                       "tapDisabled" : {
-                        "bypassUnavailable" : false,
-                        "entityId" : "light.kitchen",
-                        "reads" : "live",
-                        "signal" : "handler",
-                        "transform" : {
-                          "cases" : {
-                            "unavailable" : true
-                          },
-                          "kind" : "Match",
-                          "otherwise" : false
-                        }
+                        "signal" : {
+                          "kind" : "Handler"
+                        },
+                        "source" : {
+                          "bypassUnavailable" : false,
+                          "kind" : "Entity"
+                        },
+                        "steps" : [
+                          {
+                            "cases" : {
+                              "unavailable" : true
+                            },
+                            "kind" : "Match",
+                            "otherwise" : false
+                          }
+                        ]
                       },
                       "tappable" : "1",
                       "targetId" : "light.kitchen",
                       "targetKind" : "entity",
                       "value" : {
-                        "bypassUnavailable" : true,
-                        "entityId" : "light.kitchen",
-                        "reads" : "live",
-                        "signal" : "text",
-                        "transform" : {
-                          "attribute" : "unit_of_measurement",
-                          "kind" : "Op",
-                          "op" : "SuffixUnit"
-                        }
+                        "signal" : {
+                          "kind" : "Text"
+                        },
+                        "source" : {
+                          "kind" : "Entity"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "WithUnit",
+                            "unit" : {
+                              "kind" : "Entity",
+                              "part" : {
+                                "kind" : "Attr",
+                                "name" : "unit_of_measurement"
+                              }
+                            }
+                          }
+                        ]
                       }
                     },
                     "vars" : [
@@ -264,18 +298,21 @@
                           "cell" : {
                             "classes" : {
                               "fh-active" : {
-                                "bypassUnavailable" : false,
-                                "entityId" : "light.living_room",
-                                "reads" : "live",
-                                "transform" : {
-                                  "cases" : {
-                                    "off" : false,
-                                    "unavailable" : false,
-                                    "unknown" : false
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : true
-                                }
+                                "source" : {
+                                  "bypassUnavailable" : false,
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "cases" : {
+                                      "off" : false,
+                                      "unavailable" : false,
+                                      "unknown" : false
+                                    },
+                                    "kind" : "Match",
+                                    "otherwise" : true
+                                  }
+                                ]
                               },
                               "fh-slider-head-cell" : "1"
                             },
@@ -313,22 +350,30 @@
                             "dataKey" : "brightness",
                             "entity_id" : "light.living_room",
                             "fill" : {
-                              "bypassUnavailable" : false,
                               "default" : "100%",
-                              "entityId" : "light.living_room",
-                              "reads" : "live",
-                              "signal" : "style:--fh-fill",
-                              "transform" : {
-                                "attribute" : "brightness",
-                                "kind" : "Op",
-                                "max" : 255,
-                                "min" : 1,
-                                "op" : "Fill"
-                              }
+                              "signal" : {
+                                "kind" : "Style",
+                                "property" : "--fh-fill"
+                              },
+                              "source" : {
+                                "bypassUnavailable" : false,
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "brightness"
+                                }
+                              },
+                              "steps" : [
+                                {
+                                  "kind" : "Fill",
+                                  "max" : 255,
+                                  "min" : 1
+                                }
+                              ]
                             },
                             "fillColor" : "currentcolor",
                             "icon" : {
-                              "literal" : "mdi-lightbulb",
+                              "source" : "mdi-lightbulb",
                               "type" : "cssClass"
                             },
                             "label" : "Living Room",
@@ -337,40 +382,46 @@
                             "onoff" : "1",
                             "service" : "light/turn_on",
                             "state" : {
-                              "bypassUnavailable" : true,
-                              "entityId" : "light.living_room",
-                              "reads" : "live",
-                              "signal" : "text",
-                              "transform" : {
-                                "kind" : "Op",
-                                "op" : "State"
+                              "signal" : {
+                                "kind" : "Text"
+                              },
+                              "source" : {
+                                "kind" : "Entity"
                               }
                             },
                             "tapDisabled" : {
-                              "bypassUnavailable" : false,
-                              "entityId" : "light.living_room",
-                              "reads" : "live",
-                              "signal" : "handler",
-                              "transform" : {
-                                "cases" : {
-                                  "unavailable" : true
-                                },
-                                "kind" : "Match",
-                                "otherwise" : false
-                              }
+                              "signal" : {
+                                "kind" : "Handler"
+                              },
+                              "source" : {
+                                "bypassUnavailable" : false,
+                                "kind" : "Entity"
+                              },
+                              "steps" : [
+                                {
+                                  "cases" : {
+                                    "unavailable" : true
+                                  },
+                                  "kind" : "Match",
+                                  "otherwise" : false
+                                }
+                              ]
                             },
                             "targetId" : "light.living_room",
                             "targetKind" : "entity",
                             "value" : {
-                              "bypassUnavailable" : false,
                               "default" : "0",
-                              "entityId" : "light.living_room",
-                              "reads" : "live",
-                              "signal" : "attr:value",
-                              "transform" : {
-                                "attribute" : "brightness",
-                                "kind" : "Op",
-                                "op" : "Attr"
+                              "signal" : {
+                                "kind" : "Attr",
+                                "name" : "value"
+                              },
+                              "source" : {
+                                "bypassUnavailable" : false,
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "brightness"
+                                }
                               }
                             }
                           },
@@ -398,18 +449,21 @@
                     "cell" : {
                       "classes" : {
                         "fh-active" : {
-                          "bypassUnavailable" : false,
-                          "entityId" : "light.living_room",
-                          "reads" : "live",
-                          "transform" : {
-                            "cases" : {
-                              "off" : false,
-                              "unavailable" : false,
-                              "unknown" : false
-                            },
-                            "kind" : "Match",
-                            "otherwise" : true
-                          }
+                          "source" : {
+                            "bypassUnavailable" : false,
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "off" : false,
+                                "unavailable" : false,
+                                "unknown" : false
+                              },
+                              "kind" : "Match",
+                              "otherwise" : true
+                            }
+                          ]
                         }
                       },
                       "styles" : {
@@ -422,38 +476,52 @@
                       "busyVisual" : "1",
                       "entity_id" : "light.living_room",
                       "icon" : {
-                        "literal" : "mdi mdi-lightbulb",
+                        "source" : "mdi mdi-lightbulb",
                         "type" : "cssClass"
                       },
                       "label" : "Living Room",
                       "onoff" : "1",
                       "service" : "light/toggle",
                       "tapDisabled" : {
-                        "bypassUnavailable" : false,
-                        "entityId" : "light.living_room",
-                        "reads" : "live",
-                        "signal" : "handler",
-                        "transform" : {
-                          "cases" : {
-                            "unavailable" : true
-                          },
-                          "kind" : "Match",
-                          "otherwise" : false
-                        }
+                        "signal" : {
+                          "kind" : "Handler"
+                        },
+                        "source" : {
+                          "bypassUnavailable" : false,
+                          "kind" : "Entity"
+                        },
+                        "steps" : [
+                          {
+                            "cases" : {
+                              "unavailable" : true
+                            },
+                            "kind" : "Match",
+                            "otherwise" : false
+                          }
+                        ]
                       },
                       "tappable" : "1",
                       "targetId" : "light.living_room",
                       "targetKind" : "entity",
                       "value" : {
-                        "bypassUnavailable" : true,
-                        "entityId" : "light.living_room",
-                        "reads" : "live",
-                        "signal" : "text",
-                        "transform" : {
-                          "attribute" : "unit_of_measurement",
-                          "kind" : "Op",
-                          "op" : "SuffixUnit"
-                        }
+                        "signal" : {
+                          "kind" : "Text"
+                        },
+                        "source" : {
+                          "kind" : "Entity"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "WithUnit",
+                            "unit" : {
+                              "kind" : "Entity",
+                              "part" : {
+                                "kind" : "Attr",
+                                "name" : "unit_of_measurement"
+                              }
+                            }
+                          }
+                        ]
                       }
                     },
                     "vars" : [

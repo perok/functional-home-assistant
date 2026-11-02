@@ -113,27 +113,26 @@ import "@fh-dashboard/core/slot.pkl" as slotMod
 hidden entity: hass.Entity
 
 slots {
-  message.of(new slotMod.Reading {
-    entityId = entity.entity_id
-    transform = "state"
-  })
+  message.of(new slotMod.Reading { entityId = entity.entity_id })
 }
 ```
 
-`transform` says what to show. Leave it out and the slot shows the entity's
-state. It can be a fast read from `core/simple.pkl`, which runs without an
-expression engine — `simpleMod.attr("battery")`, `simpleMod.attrUnit("temperature")`
-(the attribute with its unit), `simpleMod.duration(60)` — or, for a yes/no slot,
-a condition such as `q.entity(door).stateIs("on")`. Either may read another
-entity than the slot's: a condition names its own, and a fast read takes
-`entity`, as in `(simpleMod.attr("battery")) { entity = phone.entity_id }`.
+A reading shows the entity's state, after running its `steps` on it in order.
+Leave `entityId` out and it reads the card's own entity. `core/simple.pkl` has
+readings that need no expression engine — `simpleMod.attr("battery")`,
+`simpleMod.attrUnit("temperature")` (the attribute with its unit),
+`simpleMod.duration(60)` — and, for a yes/no slot, a condition such as
+`q.entity(door).stateIs("on")` fills one directly. Either may read another
+entity than the card's: a condition names its own, and a reading takes
+`entityId`, as in `(simpleMod.attr("battery")) { entityId = phone.entity_id }`.
 
-For anything more, `transform` is a small expression (CEL):
+For anything more, a step is a small expression (CEL) over the entity's
+`state` and `attr`:
 
 ```pkl
-transform = "state + ' °C'"
-transform = "attr['friendly_name']"
-transform = "state == 'on' ? 'Running' : 'Idle'"
+steps { simpleMod.cel("state + ' °C'") }
+steps { simpleMod.cel("attr['friendly_name']") }
+steps { simpleMod.cel("state == 'on' ? 'Running' : 'Idle'") }
 ```
 
 It is checked when the dashboard is built, names and types both, so
@@ -165,7 +164,7 @@ the slot as a **signal** instead, and only that one value is sent:
 ```pkl
 (temperature) {
   value = new slotMod.Reading { entityId = entity.entity_id }
-  signal = "text"
+  signal = slotMod.asText
 }
 ```
 
@@ -199,8 +198,12 @@ import "@fh-dashboard/providers.pkl" as p
 
 peak.of(new slotMod.Reading {
   entityId = entity.entity_id
-  transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-  expressionValues { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
+  steps {
+    new simpleMod.Cel {
+      src = "str(math.greatest(past.transformList(i, p, true, p[1])))"
+      values = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
+    }
+  }
 })
 ```
 
@@ -231,8 +234,12 @@ is `""`, the expression does not run, and its history is not read:
 peak.of(new slotMod.Reading {
   entityId = entity.entity_id
   valueWhile = q.entity(entity).gt(q.prop("state"), 0)
-  transform = "…"
-  expressionValues { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
+  steps {
+    new simpleMod.Cel {
+      src = "…"
+      values = new Mapping { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
+    }
+  }
 })
 ```
 

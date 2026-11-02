@@ -8,7 +8,8 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  SlotSource,
+  Value,
+  ValueExpr,
   TemplateSlot
 }
 import fh.view.model.NodeId
@@ -38,8 +39,8 @@ class ResumePatchesSuite extends munit.FunSuite {
                 LayoutNode.Component(
                   "dot",
                   Map(
-                    "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
-                    "state" -> TemplateSlot(SlotSource())
+                    "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+                    "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(None))))
                   )
                 )
               )

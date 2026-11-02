@@ -8,7 +8,9 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface
 }
@@ -75,15 +77,20 @@ object FixtureDashboard {
               node = LayoutNode.Component(
                 "member",
                 templateSlots = Map(
-                  "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
+                  "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
                   "name" -> TemplateSlot(
-                    SlotSource(
-                      Some(id),
-                      transform =
-                        "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                    ValueExpr(
+                      Some(Value.Entity(Some(id))),
+                      List(
+                        Step.Cel(
+                          "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                        )
+                      )
                     )
                   ),
-                  "state" -> TemplateSlot(SlotSource(Some(id)))
+                  "state" -> TemplateSlot(
+                    ValueExpr(Some(Value.Entity(Some(id))))
+                  )
                 )
               )
             )
@@ -100,11 +107,15 @@ object FixtureDashboard {
   def reading(e: FixtureEntity): LayoutNode.Component =
     component(
       "reading",
-      "state" -> TemplateSlot(SlotSource(Some(e.entityId))),
+      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(e.entityId))))),
       "unit" -> TemplateSlot(
-        SlotSource(
-          Some(e.entityId),
-          "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+        ValueExpr(
+          Some(Value.Entity(Some(e.entityId))),
+          List(
+            Step.Cel(
+              "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+            )
+          )
         )
       )
     )
@@ -113,7 +124,7 @@ object FixtureDashboard {
     component(
       "light",
       "name" -> lit(label),
-      "state" -> TemplateSlot(SlotSource(Some(e.entityId)))
+      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(e.entityId)))))
     )
 
   /** It names its entity: a state condition has no subject to supply (ADR

@@ -87,7 +87,11 @@ class TemplateReadsSuite extends munit.FunSuite:
       ),
       LayoutNode.Component(
         "card",
-        templateSlots = Map("state" -> TemplateSlot(SlotSource()))
+        templateSlots = Map(
+          "state" -> TemplateSlot(
+            ValueExpr(Some(Value.Entity(Some("sensor.a"))))
+          )
+        )
       )
     )
     assertEquals(d.validate(), Nil)

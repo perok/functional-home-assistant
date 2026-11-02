@@ -25,13 +25,8 @@ typealias BooleanInput = Boolean|slotMod.Reading|slotMod.Expr|predMod.Predicate
 /// decided on the fast path.
 const function booleanReading(input: slotMod.Reading|slotMod.Expr|predMod.Predicate): slotMod.Reading =
   if (input is slotMod.Reading) input
-  else if (input is slotMod.Expr)
-    new slotMod.Reading {
-      entityId = input.entityId
-      transform = input.transform
-      bypassUnavailable = false
-    }
-  else new slotMod.Reading { transform = input; bypassUnavailable = false }
+  else if (input is slotMod.Expr) (slotMod.exprReading(input)) { bypassUnavailable = false }
+  else new slotMod.Reading { source = new slotMod.ConditionRead { predicate = input } }
 
 /// `at` holding a live [[BooleanInput]], read as a bool.
 const function booleanSlot(at: slotMod.Slot, input: slotMod.Reading|slotMod.Expr|predMod.Predicate): slotMod.Slot =
@@ -90,10 +85,10 @@ abstract class LayoutNode {
       else new Cell {
         classes {
           for (c in static) { [c] = "1" }
-          for (c, r in liveClasses) { [c] = wireReading(r, subjectId, "cell class '\(c)'") }
+          for (c, r in liveClasses) { [c] = wireReading(r, subjectId) }
         }
         styles {
-          for (p, r in liveStyles) { [p] = wireReading(r, subjectId, "cell style '\(p)'") }
+          for (p, r in liveStyles) { [p] = wireReading(r, subjectId) }
         }
       }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
@@ -133,8 +128,7 @@ abstract class LayoutNode {
   /// Only `--…`: a plain property would fight the theme's framework.
   function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading|slotMod.Expr): LayoutNode =
     let (self = this)
-    let (s = if (reading is slotMod.Expr)
-        new slotMod.Reading { entityId = reading.entityId; transform = reading.transform }
+    let (s = if (reading is slotMod.Expr) slotMod.exprReading(reading)
       else reading as slotMod.Reading)
       if (!(self is Node)) throw("cellStyle: a live style is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveStyles { [name] = s } }
@@ -178,7 +172,7 @@ abstract class Node extends LayoutNode {
   /// fine.
   hidden slots: Listing<slotMod.Slot>(
     !isStructure(cardDef) || !toList().any((s) ->
-      s.value is slotMod.Reading && s.value.reads == "live" && s.signal == null &&
+      s.value is slotMod.Reading && s.value.source != null && s.value.reads == "live" && s.signal == null &&
         (s.value.entityId != null ||
         toList().any((t) -> t.name == "entity_id" && t.value is String))),
     namedOnce(this, card)
@@ -249,8 +243,10 @@ const function valuesNamedIn(
   slots: Listing<slotMod.Slot>
 ): Map<String, ExpressionValue> =
   let (cels = slots.toList().map((s) -> s.value)
-      .filter((v) -> v is slotMod.Reading && v.transform is String)
-      .map((v) -> (v as slotMod.Reading).transform as String))
+      .filter((v) -> v is slotMod.Reading)
+      .flatMap((v) -> (v as slotMod.Reading).steps.toList())
+      .filter((st) -> st is simpleMod.Cel)
+      .map((st) -> (st as simpleMod.Cel).src))
     vs.toMap().filter((name, _) ->
       cels.any((t) -> t.contains(Regex(#"(?<![\w.])\#(name)(?!\w)"#))))
 
@@ -325,23 +321,24 @@ const local function subjectOf(slots: Listing<slotMod.Slot>): String? =
   let (s = slots.toList().findOrNull((t) -> t.name == slotMod.subject.name))
     if (s?.value is String) s.value as String else null
 
-// A reading as the wire holds it: its set fields, every entity it reads named.
-// One that names none reads `subject`; its `valueWhile` reads the reading's. A
-// fetch reads its provider's answer, so it takes no entity.
-const local function wireReading(r: slotMod.Reading, subject: String?, where: String): Map<String, Any> =
-  let (own = r.entityId ?? (if (r.fetch == null) subject else null))
+// A reading as the wire holds it: its set fields, an empty `steps` left out,
+// and its `valueWhileSlot` under the wire's name. The card's own entity is not
+// named, since a read that names none reads it, and on a card with none a CEL
+// reads no entity rather than a missing one.
+const local function wireReading(r: slotMod.Reading, subject: String?): Map<String, Any> =
+  let (src = r.source)
+  let (own =
+    if (src is slotMod.EntityRead && src.of != null && src.of == subject) (src) { of = null }
+    else src)
+  let (cel = r.steps.toList().any((s) -> s is simpleMod.Cel))
+  let (source =
+    if (subject == null && cel && own is slotMod.EntityRead && own.of == null) null
+    else own)
   let (vw = r.valueWhileSlot)
-    if (own == null && r.fetch == null && readsSlotEntity(r.transform))
-      throw("\(where) reads the card's entity, and the card has none: name one, as `c.exprOf(e, …)` or `q.entity(e)` does")
-    else
-      r.toMap().filter((k, v) -> v != null && k != "valueWhileSlot")
-        + (if (own != null) Map("entityId", own) else Map())
-        + (if (vw != null) Map("valueWhileSlot", wireReading(vw, own ?? subject, where)) else Map())
-
-// A simple op with no `entity` of its own reads the slot's; a CEL may read
-// none, which the build's compile says.
-const local function readsSlotEntity(t: Any): Boolean =
-  (t is simpleMod.SimpleValue || t is simpleMod.SimpleMatch) && t.entity == null
+    (if (source != null) Map("source", source) else Map())
+      + (if (r.steps.isEmpty) Map() else Map("steps", r.steps))
+      + (if (r.default != null) Map("default", r.default) else Map())
+      + (if (vw != null) Map("valueWhile", wireReading(vw, subject)) else Map())
 
 // By name, set ones only, a reading carrying its slot's `signal` and `type`,
 // and a literal its `type` when it has one (a `cssClass`), else a bare string.
@@ -350,12 +347,12 @@ const local function wireSlots(slots: Listing<slotMod.Slot>, subject: String?): 
     when (s.value != null) {
       [s.name] =
         if (s.value is slotMod.Reading)
-          wireReading(s.value as slotMod.Reading, subject, "slot '\(s.name)'")
+          wireReading(s.value as slotMod.Reading, subject)
             + (if (s.signal != null) Map("signal", s.signal) else Map())
             + (if (s.type != null) Map("type", s.type) else Map())
         else if (s.signal != null)
           throw("slot '\(s.name)' is a constant literal and cannot be a signal slot — a value that never moves has nothing to patch")
-        else if (s.type != null) Map("literal", s.value, "type", s.type)
+        else if (s.type != null) Map("source", s.value, "type", s.type)
         else s.value
     }
   }

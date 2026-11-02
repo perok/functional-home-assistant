@@ -2,7 +2,15 @@ package fh.view.functional
 
 import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
-import fh.view.model.{Access, LayoutNode, SlotSource, TemplateSlot, Transform}
+import fh.view.model.{
+  Access,
+  LayoutNode,
+  Lit,
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot
+}
 import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FixtureDashboard, HouseFixture, PklFixture, ServiceCall}
@@ -22,7 +30,7 @@ class GroupCallSuite extends FunctionalSuite {
       "light",
       "name" -> lit("Stue"),
       "state" -> TemplateSlot(
-        SlotSource(Some(HouseFixture.kitchenLight.entityId))
+        ValueExpr(Some(Value.Entity(Some(HouseFixture.kitchenLight.entityId))))
       ),
       "service" -> lit("light/turn_off"),
       "targetKind" -> lit("area"),
@@ -109,12 +117,17 @@ class GroupCallSuite extends FunctionalSuite {
       "light",
       "name" -> lit("Door"),
       "state" -> TemplateSlot(
-        SlotSource(Some(HouseFixture.frontLock.entityId))
+        ValueExpr(Some(Value.Entity(Some(HouseFixture.frontLock.entityId))))
       ),
       "service" -> TemplateSlot(
-        SlotSource(transform =
-          Transform.Simple
-            .Match(Map("locked" -> "lock/unlock"), "lock/lock")
+        ValueExpr(
+          Some(Value.Entity(Some(HouseFixture.frontLock.entityId))),
+          List(
+            Step.Match(
+              Map("locked" -> Lit.Text("lock/unlock")),
+              Value.Literal(Lit.Text("lock/lock"))
+            )
+          )
         )
       ),
       "targetKind" -> lit("entity"),

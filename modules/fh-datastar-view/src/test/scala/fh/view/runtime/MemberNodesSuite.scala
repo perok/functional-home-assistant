@@ -11,7 +11,8 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
-  SlotSource,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface
 }
@@ -42,8 +43,8 @@ class MemberNodesSuite extends ServerHarness {
   private def tile(id: String) = LayoutNode.Component(
     "tile",
     Map(
-      "entity_id" -> TemplateSlot(SlotSource(literal = Some(id))),
-      "state" -> TemplateSlot(SlotSource(Some(id)))
+      "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+      "state" -> TemplateSlot(ValueExpr(Some(Value.Entity(Some(id)))))
     )
   )
 
@@ -180,7 +181,7 @@ class MemberNodesSuite extends ServerHarness {
       LayoutNode
         .Component(
           "text",
-          Map("text" -> TemplateSlot(SlotSource(literal = Some(text))))
+          Map("text" -> TemplateSlot(ValueExpr.literal(text)))
         ),
       bakeInto = Some(member),
       bakeAs = Some("panel"),
@@ -206,7 +207,7 @@ class MemberNodesSuite extends ServerHarness {
                       "host",
                       Map(
                         "entity_id" -> TemplateSlot(
-                          SlotSource(literal = Some(id))
+                          ValueExpr.literal(id)
                         )
                       )
                     )

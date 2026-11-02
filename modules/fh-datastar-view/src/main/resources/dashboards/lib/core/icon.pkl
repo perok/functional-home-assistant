@@ -34,7 +34,7 @@ const function iconFor(e: hass.Entity?): String? =
 /// `mdiName`, an author's override, wins over both, as in HA.
 const function glyphOf(e: hass.Entity, mdiName: String?): (String|slotMod.Reading)? =
   if (mdiName == null && stateIconFor(e) != null)
-    new slotMod.Reading { transform = stateIconFor(e)!!; bypassUnavailable = false }
+    (stateIconFor(e)!!) { bypassUnavailable = false }
   else if (mdiName != null) "mdi " + mdiClass(mdiName)
   else if (iconFor(e) != null) "mdi " + iconFor(e)!!
   else null
@@ -43,7 +43,7 @@ const function glyphOf(e: hass.Entity, mdiName: String?): (String|slotMod.Readin
 /// entity with its own `icon` or a `device_class`, either of which wins as in
 /// HA. An unknown state falls back to [[iconFor]]'s answer, since HA adds
 /// states after a domain ships.
-const function stateIconFor(e: hass.Entity?): simpleMod.Simple? =
+const function stateIconFor(e: hass.Entity?): slotMod.Reading? =
   if (e == null || !tables.stateIcons.containsKey(e.domain)) null
   else
     let (own = e.getPropertyOrNull("icon"))

@@ -29,9 +29,11 @@ import fh.view.model.{
   SignalId,
   BoundSlot,
   SlotValue,
+  Step,
   Surface,
   TapCall,
-  ThemeClasses
+  ThemeClasses,
+  Value
 }
 import scala.jdk.CollectionConverters.*
 
@@ -1895,30 +1897,55 @@ class Renderer(validated: Dashboard.Validated) {
     // The bypass, not the transform, keeps an unavailable entity readable.
     else if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      // The form is the tier (ADR 0028): a CEL transform is the one with a
-      // program.
-      val out: SlotValue = planned.program match {
-        case Some(program) =>
-          Transform.runValue(
-            program,
-            st,
-            dashboard.slug,
-            Conditions.resolve(source.values, states, fetched)
-          )
-        case None =>
-          source.transform match {
-            case sm: Transform.Simple =>
-              Transform.runSimpleValue(sm, st, states)
-            // Rejected by `validate`; the raw state keeps a bypass readable.
-            case _ => st.state
-          }
+      var value: Any = source.expr.source match
+        case Some(Value.Entity(_, part, _, _)) => Transform.read(part, st)
+        case Some(Value.Condition(p)) => Conditions.matchesIn(p, st, states)
+        case Some(Value.Literal(l))   => l.raw
+        case _                        => ""
+      // The form is the tier (ADR 0028): a CEL step is the one with a
+      // program. A loop, not a fold: this is the hottest read of a page.
+      var steps = source.expr.steps
+      while (steps.nonEmpty) {
+        value = steps.head match
+          case _: Step.Cel =>
+            planned.program.fold(value)(program =>
+              Transform.runValue(
+                program,
+                st,
+                dashboard.slug,
+                Conditions.resolve(source.values, states, fetched)
+              )
+            )
+          case f: Step.Format =>
+            Transform.format(f, value, operandIn(states, st))
+          case _: Step.Chart => value
+        steps = steps.tail
       }
-      out match {
-        case b: Boolean              => b
-        case s: String if s.nonEmpty => classed(source, s)
-        case _ => classed(source, source.default.getOrElse(""))
+      value match {
+        case b: Boolean => b
+        case v          =>
+          val s = Transform.text(v)
+          if (s.nonEmpty) classed(source, s)
+          else classed(source, source.default.getOrElse(""))
       }
     }
+  }
+
+  /** A step's operand: a literal, or a read of the entity it names (a condition
+    * over `subject`, the slot's).
+    */
+  private def operandIn(
+      states: Map[String, EntityState],
+      subject: EntityState
+  ): Value => Any = {
+    case Value.Literal(l)                   => l.raw
+    case Value.Entity(Some(id), part, _, _) =>
+      Transform.read(
+        part,
+        states.getOrElse(id, EntityState(id, "", Map.empty))
+      )
+    case Value.Condition(p) => Conditions.matchesIn(p, subject, states)
+    case _                  => ""
   }
 
   /** The one swap of a `CssClass` value's classes, wherever it resolves. */

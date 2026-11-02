@@ -3,7 +3,7 @@ package fh.view.runtime
 import fh.view.model.{ExprValue, FetchTemplate, Op, Predicate}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
-  * conditions, counts and a condition filling a slot (`Transform.runSimple`).
+  * conditions, counts and a condition filling a slot (`Value.Condition`).
   */
 private[view] object Conditions {
 

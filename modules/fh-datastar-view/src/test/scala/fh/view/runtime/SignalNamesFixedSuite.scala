@@ -7,7 +7,9 @@ import fh.view.model.{
   NodeId,
   Region,
   SignalBind,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit, st}
@@ -35,7 +37,10 @@ class SignalNamesFixedSuite extends munit.FunSuite {
 
   private def sig(entity: String, transform: String = "state") =
     TemplateSlot(
-      SlotSource(Some(entity), transform),
+      ValueExpr(
+        Some(Value.Entity(Some(entity))),
+        if (transform == "state") Nil else List(Step.Cel(transform))
+      ),
       signal = Some(SignalBind.Text)
     )
 

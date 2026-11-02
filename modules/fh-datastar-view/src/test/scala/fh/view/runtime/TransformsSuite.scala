@@ -5,8 +5,11 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
-  Reads,
-  SlotSource,
+  Lit,
+  Part,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Transform
 }
@@ -36,8 +39,14 @@ class TransformsSuite extends munit.CatsEffectSuite {
       dashboard("kitchen").copy(
         card = LayoutNode.Component(
           card = "c",
-          templateSlots =
-            Map("onclick" -> TemplateSlot(SlotSource(transform = "state")))
+          templateSlots = Map(
+            "onclick" -> TemplateSlot(
+              ValueExpr(
+                Some(Value.Entity(Some("sensor.a"))),
+                List(Step.Cel("state"))
+              )
+            )
+          )
         )
       ),
       "state"
@@ -45,7 +54,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
       assertEquals(
-        Transform.runSimple(Transform.Simple.State(), entity, Map.empty),
+        Transform.text(Transform.read(Part.State, entity)),
         Transform.run(cel, entity, "dashboard"),
         clue = state
       )
@@ -117,10 +126,15 @@ class TransformsSuite extends munit.CatsEffectSuite {
         "card" -> Json.fromString("c"),
         "templateSlots" -> Json.obj(
           "v" -> Json.obj(
-            "transform" -> Json.obj(
-              "kind" -> Json.fromString("Op"),
-              "op" -> Json.fromString("Suffix"),
-              "literal" -> Json.fromString(" W")
+            "source" -> Json.obj(
+              "kind" -> Json.fromString("Entity"),
+              "of" -> Json.fromString("sensor.a")
+            ),
+            "steps" -> Json.arr(
+              Json.obj(
+                "kind" -> Json.fromString("Suffix"),
+                "text" -> Json.fromString(" W")
+              )
             )
           )
         )
@@ -129,15 +143,18 @@ class TransformsSuite extends munit.CatsEffectSuite {
     DashboardBuild.decode(simpleWire).map { validated =>
       validated.dashboard.card match {
         case c: LayoutNode.Component =>
-          // The transform is the union: no parallel field.
-          c.templateSlots("v").transform match {
-            case Transform.Simple.Suffix(" W", _) => ()
-            case other => fail(s"expected the opted-in suffix, got $other")
-          }
+          assertEquals(
+            c.templateSlots("v").expr.steps,
+            List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
+          )
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
-        Transform.runSimple(Transform.Simple.Suffix(" W"), state, Map.empty),
+        Transform.format(
+          Step.Suffix(Value.Literal(Lit.Text(" W"))),
+          state.state,
+          { case Value.Literal(l) => l.raw; case _ => "" }
+        ),
         "on W"
       )
     }
@@ -149,8 +166,17 @@ class TransformsSuite extends munit.CatsEffectSuite {
         card = "c",
         templateSlots = Map(
           "onclick" -> TemplateSlot(
-            SlotSource(transform =
-              Transform.Simple.Percent("brightness", 1.0, 1.0)
+            ValueExpr(
+              Some(
+                Value
+                  .Entity(Some("light.kitchen"), part = Part.Attr("brightness"))
+              ),
+              List(
+                Step.Percent(
+                  Value.Literal(Lit.Real(1.0)),
+                  Value.Literal(Lit.Real(1.0))
+                )
+              )
             )
           )
         )
@@ -170,7 +196,10 @@ class TransformsSuite extends munit.CatsEffectSuite {
             card = "c",
             templateSlots = Map(
               "onclick" -> TemplateSlot(
-                SlotSource(transform = Transform.Simple.Duration(s))
+                ValueExpr(
+                  Some(Value.Entity(Some("light.kitchen"))),
+                  List(Step.Duration(s))
+                )
               )
             )
           )
@@ -187,27 +216,32 @@ class TransformsSuite extends munit.CatsEffectSuite {
     // CEL needs one type across a map's values and both ternary arms, so a
     // mixed lookup has no CEL equivalent (ADR 0028), and it would set an
     // attribute by value in one state and by presence in another.
-    def withMatch(m: Transform.Simple) =
+    def withMatch(m: Step.Match) =
       dashboard("kitchen")
         .copy(card =
           LayoutNode.Component(
             card = "c",
-            templateSlots =
-              Map("onclick" -> TemplateSlot(SlotSource(transform = m)))
+            templateSlots = Map(
+              "onclick" -> TemplateSlot(
+                ValueExpr(Some(Value.Entity(Some("light.kitchen"))), List(m))
+              )
+            )
           )
         )
         .validated()
         .fold(identity, _ => Nil)
 
     val mixed = withMatch(
-      Transform.Simple
-        .Match(Map("on" -> "yes", "off" -> false), otherwise = "no")
+      Step.Match(
+        Map("on" -> Lit.Text("yes"), "off" -> Lit.Bool(false)),
+        Value.Literal(Lit.Text("no"))
+      )
     )
     assert(mixed.exists(_.contains("string and boolean arms")), clue = mixed)
 
     // `otherwise` is the value an unmatched state gets, so it counts as an arm.
     val mixedElse = withMatch(
-      Transform.Simple.Match(Map("on" -> true), otherwise = "")
+      Step.Match(Map("on" -> Lit.Bool(true)), Value.Literal(Lit.Text("")))
     )
     assert(
       mixedElse.exists(_.contains("string and boolean arms")),
@@ -216,13 +250,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
     assertEquals(
       withMatch(
-        Transform.Simple.Match(Map("on" -> true), otherwise = false)
+        Step.Match(Map("on" -> Lit.Bool(true)), Value.Literal(Lit.Bool(false)))
       ),
       Nil
     )
     assertEquals(
       withMatch(
-        Transform.Simple.Match(Map("on" -> "yes"), otherwise = "no")
+        Step.Match(Map("on" -> Lit.Text("yes")), Value.Literal(Lit.Text("no")))
       ),
       Nil
     )
@@ -247,7 +281,10 @@ class TransformsSuite extends munit.CatsEffectSuite {
         card = "c",
         templateSlots = Map(
           "onclick" -> TemplateSlot(
-            SlotSource(transform = tapUrl, reads = Reads.Once)
+            ValueExpr(
+              Some(Value.Entity(Some("light.kitchen"))),
+              List(Step.Cel(tapUrl))
+            )
           )
         )
       ),
@@ -274,8 +311,16 @@ class TransformsSuite extends munit.CatsEffectSuite {
         "card" -> Json.fromString("c"),
         "templateSlots" -> Json.obj(
           "onclick" -> Json.obj(
-            "transform" -> Json.fromString(tapUrl),
-            "reactive" -> Json.False
+            "source" -> Json.obj(
+              "kind" -> Json.fromString("Entity"),
+              "of" -> Json.fromString("light.kitchen")
+            ),
+            "steps" -> Json.arr(
+              Json.obj(
+                "kind" -> Json.fromString("Cel"),
+                "src" -> Json.fromString(tapUrl)
+              )
+            )
           )
         )
       )
@@ -319,8 +364,14 @@ class TransformsSuite extends munit.CatsEffectSuite {
     val plain = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
-        templateSlots =
-          Map("onclick" -> TemplateSlot(SlotSource(transform = "state")))
+        templateSlots = Map(
+          "onclick" -> TemplateSlot(
+            ValueExpr(
+              Some(Value.Entity(Some("light.kitchen"))),
+              List(Step.Cel("state"))
+            )
+          )
+        )
       )
     )
     assertEquals(
