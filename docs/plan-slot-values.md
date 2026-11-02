@@ -3,7 +3,7 @@
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
 **State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S6
-built.
+built; S7 (CEL reads `value`) agreed 2026-11-02, the struct type spiked.
 
 ## Why
 
@@ -33,7 +33,7 @@ final case class TemplateSlot(
 )
 
 final case class ValueExpr(
-    source: Option[Value],                  // None: a CEL that reads no entity
+    source: Value,                          // what it is read or computed from
     steps: List[Step] = Nil,                // run in order, each typed
     default: Option[Lit] = None             // when the result is empty; typed by the slot's type
 )
@@ -53,8 +53,10 @@ enum Value:
               part: Part = Part.State,
               reads: Reads = Reads.Live, bypassUnavailable: Boolean = true)
   case Fetch(fetch: FetchTemplate)          // a series
-  case Present(tally: Predicate.Tally)      // the candidates present, a list
+  case Present(tally: Predicate.Tally)      // the ids present, a list
   case Condition(p: Predicate)              // decides itself, over the entities it names
+  case Cel(src: String,                     // computed from its inputs and the renderer's
+           inputs: Map[String, ValueExpr] = Map.empty)  // bindings; it has no `value`
 
 // in Predicate, so a condition's own `count()` and a Present share one shape; as today
 final case class Tally(candidates: List[EntityId], when: Map[EntityId, Predicate])
@@ -62,24 +64,29 @@ final case class Tally(candidates: List[EntityId], when: Map[EntityId, Predicate
 enum Part:
   case State
   case Attr(name: String)
+  case Whole                                // the entity itself, CEL's `fh.Entity` struct
 
 sealed trait Step
-final case class Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty) extends Step
+final case class Cel(src: String,           // reads `value`, the step before's
+                     inputs: Map[String, ValueExpr] = Map.empty) extends Step
 
-sealed trait Format extends Step            // one value in, one out
-final case class Prefix(text: Value) extends Format
-final case class Suffix(text: Value) extends Format
-final case class WithUnit(unit: Value) extends Format       // SuffixUnit and AttrUnit, merged
-final case class Percent(min: Value, max: Value) extends Format
-final case class Fill(min: Value, max: Value) extends Format
-final case class Duration(scale: Double) extends Format
-final case class Match(cases: Map[String, Lit], otherwise: Lit) extends Format
-
-case object Count extends Step              // the size of a Present list
+sealed trait Simple extends Step            // the simple tier (ADR 0028): total, no engine
+final case class Prefix(text: Value) extends Simple
+final case class Suffix(text: Value) extends Simple
+final case class WithUnit(unit: Value) extends Simple       // SuffixUnit and AttrUnit, merged
+final case class Percent(min: Value, max: Value) extends Simple
+final case class Fill(min: Value, max: Value) extends Simple
+final case class Duration(scale: Double) extends Simple
+final case class Match(cases: Map[String, Lit], otherwise: Value) extends Simple
+case object Count extends Simple            // the size of a Present list
 
 sealed trait Stage extends Step             // the renderer's own steps
 final case class Chart(style: ChartStyle) extends Stage
 case object ThemeClasses extends Stage
+
+enum Ty:                                    // what a source or step produces
+  case Text, Bool, Int, Real, Dyn, Entity, Markup
+  case List(of: Ty)
 
 enum SignalBind:                            // an object on the wire, no string to parse
   case Text, Bind, Handler
@@ -92,15 +99,32 @@ On the wire every enum and sealed trait is `{"kind": "<Case>", …fields}`; a ba
 a literal `ValueExpr`. The node's `values` become `Map[String, ValueExpr]`, and a `Cell`'s classes
 and styles hold `ValueExpr`s.
 
-- **Typed in order.** A literal has its own type, `State` is text, an `Attr` is dynamic, a fetch
-  is a series, `Present` a list of ids (CEL gains a list kind for it, `size(lights)`), `Count` a
-  whole number, CEL what its compiler infers, a Format step and a stage fixed ones. Bind checks the list in order; the last step must produce
-  the slot's `type`. The binding checks it too, instead of implying it: `Class` needs a bool,
-  `Text` and `Style` text, `Attr` text or a bool, `Handler` anything.
-- **CEL's running value is `value`**, reserved, so no input may take the name (none does today).
-  When the source is an entity, CEL also keeps its `state`, `attr` and `entity_id`, so today's
-  expressions keep working. With one input, that input is the source:
-  `Present(lights) → Count → Cel("string(value) + ' on'")`.
+- **Typed in order.** Each source has a type: a literal its own, `State` `Text`, an `Attr` `Dyn`,
+  `Whole` `Entity`, a fetch `List(List(Real))` (`[epochMillis, value]` pairs), `Present`
+  `List(Text)`, a condition `Bool`, a CEL source what its compiler infers. Each step takes and gives
+  one: a CEL step any (its `value` declared as it) to what it infers; `Prefix`, `Suffix`,
+  `WithUnit` any to `Text`; `Percent`, `Fill`, `Duration` `Text`, `Int`, `Real` or `Dyn` to
+  `Text`; `Match` any to `Text` or `Bool`; `Count` a `List` to `Int`; `Chart` `List(List(Real))`
+  to `Markup`, which only a raw hole takes; `ThemeClasses` `Text` to `Text`. Bind checks the list
+  in order, and the last must produce the slot's `type`: `Text` takes `Text`, `Int`, `Real` or
+  `Dyn`, `Bool` takes `Bool` or `Dyn`. The binding checks it too, instead of implying it: `Class`
+  needs a bool, `Text` and `Style` text, `Attr` text or a bool, `Handler` anything. A list is not
+  `Dyn`: a series typed as one would turn a build error into error text on a wall panel.
+- **CEL reads `value`.** In a step it is the value before it, declared as that step's type; a CEL
+  source has none. Besides it, CEL reads its named inputs, `dashboard_slug` and `time_zone`; the
+  fixed `state`, `attr`, `entity_id` and `domain` go. A reading of the entity itself is
+  `Entity(part = Whole)`, whose value is the CEL struct `fh.Entity { state: string,
+  attr: map(string, dyn), entity_id: string, domain: string }`, so `value.state == 'on'` and
+  `value.attr.brightness` keep today's types. Spiked on cel 0.14.0: a `StructType` through the
+  compiler's `CelTypeProvider` and a `StructValue` at run time; `value.state + 1` and `value.nope`
+  are build errors, `value.attr[?'x'].orValue('')` and the string extensions work. A named input
+  may be a whole entity too (`kitchen.attr.brightness`). `Present` reaches CEL as `list(string)`
+  (`size(lights)`, `'light.kitchen' in lights`); `Count` is its simple-tier size. Every CEL in the
+  library is rewritten, and a user's own CEL breaks, accepted pre-v1.
+- **CEL computed from nothing is a source.** `Value.Cel` is a CEL that reads no running value: the
+  click transforms, which read only `dashboard_slug`, and a CEL over inputs alone. So `source` is
+  never absent. A step's operand may not be a `Value.Cel` (`validate`), and a CEL input's own CEL
+  sees no other input, so inputs cannot form a cycle.
 - **The subject is named once per node.** The card's own `subject` (`String?`, which an HA card
   sets from its `entity`) is the literal `entity_id` slot; the template shows it and the server
   reads it as the node's subject. A reading of it is `Entity(of = None)`, so the wire does not
@@ -109,12 +133,7 @@ and styles hold `ValueExpr`s.
   already bound, so a bound slot always holds a concrete id and no consumer inherits; anything
   keyed by content (signals, the once-cache, programs) keys from the bound form. An
   `Entity(of = None)` on a card with no subject is a `validate` error naming the slot, in place of
-  S2's Pkl throw. Two `None`s, two meanings, one level apart and never confused: `source = None`
-  reads no entity, `Entity(of = None)` reads the subject.
-- **A CEL with no source** (where the card has no subject, or the library knows it reads none: the
-  click transforms, which read only `dashboard_slug`) compiles in an environment without `state`,
-  `attr`, `entity_id` and `domain`, so reading one is CEL's own "undeclared reference" error at
-  build. Where the card has a subject, a CEL's source is `Entity()`, since it may read `state`.
+  S2's Pkl throw.
 - **A `valueWhile` naming no entity reads the card's subject**, where S2 and before it read its
   own slot's entity. They differ only on a slot that names another entity with a free-subject
   `valueWhile`; the library's one `valueWhile` (`progress.pkl`) is on a subject reading.
@@ -127,11 +146,11 @@ and styles hold `ValueExpr`s.
 - **The fast tier owns its steps** (ADR 0028 rule 4): a step is pinned to a CEL spelling where one
   exists and held by tests of its own otherwise. `terminology.md`'s "each pinned byte-equal" is
   corrected.
-- **Compile.** The node plan's slot is `Planned.Constant(value: SlotValue)` or `Planned.Live`. A
-  pipeline with no live input folds once per renderer into a constant: a literal through a stage,
-  and a source-less CEL whose inputs are constants and renderer bindings, which is every click
-  transform today (now `reads: once` readings in the identity cache). A live pipeline is composed
-  once into one function, so a render walks no step list.
+- **Compile.** The node plan's slot is `Planned.Constant(value, js)` or `Planned.Live(source,
+  run)`. A pipeline with no live input folds once per renderer into a constant: a literal through
+  a stage, and a CEL source whose inputs are constants and renderer bindings, which is every click
+  transform today (`reads: once`, through the identity cache). A live pipeline is composed once
+  into one function, so a render walks no step list.
 - **Absorbs #657's P3 and P5:** `slotMod.bool(name)` declares a bool handle, `slotMod.cssClass`
   adds the `ThemeClasses` stage, and a literal is its own case.
 
@@ -174,7 +193,12 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
 - **S5. Types:** typed literals and defaults, `SlotType` with `slotMod.bool`, the binding's type
   check, and the `ThemeClasses` stage in place of `SlotType.CssClass`.
 - **S6. Compile:** `Planned = Constant | Live`, live pipelines composed once.
-- **S7. Docs.**
+- **S7. CEL reads `value`:** `Value.Cel` and a required `source`, `Part.Whole` with the `fh.Entity`
+  struct (held once per state change, not per evaluation), the fixed names gone, `Present` as
+  `list(string)`, `Ty` checked in order through every step, and `Format` named `Simple` beside
+  `Stage`. Pkl gains the source class and `Whole`; the library's CEL is rewritten to `value`. The
+  goldens hold apart from signal names.
+- **S8. Docs.**
 
 ## Part B: the next stacked PR
 
@@ -237,6 +261,8 @@ candidate sets:
   `Predicate`, whose properties are `"attr:x"` strings, until B.
 - **`bypassUnavailable`** yields the raw state, text, so it stays refused on a slot that must
   produce a bool, as `validate` does today.
+- **A CEL evaluation reads the entity through a struct value.** Held on the entity's state, built
+  once per state change, so an evaluation allocates no more than today's name resolver.
 - **Names** (`Value`, `ValueExpr`, `Present`) are working names, settled in S3. **Reading** stays
   the term for a `ValueExpr` over live state, and the source field is `source`, since Pkl's
   `Slot.value` and CEL's `value` already use the word.
@@ -265,6 +291,6 @@ bind); `terminology.md` (Slot, Reading, Slot type, Expression value, Value while
 
 Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll --check`, S1's
 goldens, and every benchmark run once (`-f 1 -wi 0 -i 1`): CI only compiles them, and S2 left
-`RenderBench`'s setup failing. RenderBench and `validate` timing before and after S3, S5 and S6; the starter site's Pkl
+`RenderBench`'s setup failing. RenderBench and `validate` timing before and after S3, S5, S6 and S7; the starter site's Pkl
 evaluation time before and after S3; `dashboard.json` size and bytes per slot before and after S3,
-S4 and S5.
+S4, S5 and S7.
