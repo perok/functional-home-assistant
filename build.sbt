@@ -500,7 +500,7 @@ lazy val `fh-datastar-view` = project
       "io.circe" %% "circe-parser" % "0.14.17",
       "io.github.iltotore" %% "iron-circe" % "3.4.1",
       // filesystem paths/IO for the build phase
-      "com.lihaoyi" %% "os-lib" % "0.11.8",
+      "com.lihaoyi" %% "os-lib" % "0.11.10",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
       "org.pkl-lang" % "pkl-core" % "0.32.2",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
