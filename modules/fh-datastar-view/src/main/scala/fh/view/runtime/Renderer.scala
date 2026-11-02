@@ -385,7 +385,7 @@ class Renderer(validated: Dashboard.Validated) {
     decided.at(states).holds(g.key) {
       resolveStateSlotValue(
         g.entity,
-        planned(g.valueWhile),
+        gateRuns.computeIfAbsent(g.key, _ => live(g.valueWhile)),
         states,
         noFetch
       ) match
@@ -1598,7 +1598,7 @@ class Renderer(validated: Dashboard.Validated) {
       structural: Map[String, String],
       constants: Map[SlotKey, SlotValue],
       jsConstants: Map[SlotKey, String],
-      dynamic: List[(SlotKey, Option[String], Planned)],
+      dynamic: List[(SlotKey, Option[String], Planned.Live)],
       // Every slot: what `x.has` asks.
       slots: Map[SlotKey, Planned],
       signalled: Map[SlotKey, Signalled],
@@ -1622,13 +1622,40 @@ class Renderer(validated: Dashboard.Validated) {
   private type Run =
     (EntityState, Map[String, EntityState], FetchTemplate => Object) => Any
 
-  /** A slot and its source and steps composed into one function when its node
-    * is planned, so a paint walks no step list and looks nothing up.
+  /** A slot as its node's plan holds it: a value that never moves, folded once
+    * with its JS spelling, or a live one, its source and steps composed into
+    * one function so a paint walks no step list and looks nothing up.
     */
-  private final case class Planned(source: BoundSlot, run: Run)
+  private enum Planned:
+    case Constant(value: SlotValue, js: String)
+    case Live(source: BoundSlot, run: Run)
 
-  private def planned(source: BoundSlot): Planned =
-    Planned(source, compose(source, source.celKey.map(programs)))
+  private def live(source: BoundSlot): Planned.Live =
+    Planned.Live(source, compose(source, source.celKey.map(programs)))
+
+  /** `once` reads only identity, so the plan holds it; the memo is keyed by
+    * entity, which is why a fetch slot never enters it.
+    */
+  private def plan(
+      source: BoundSlot,
+      states: Map[String, EntityState]
+  ): Planned = source.constant match
+    case Some(flag: Boolean)   => Planned.Constant(flag, Datastar.jsValue(flag))
+    case Some(literal: String) =>
+      val text = classed(source, literal)
+      Planned.Constant(text, Datastar.jsLiteral(text))
+    case None if source.fetch.isEmpty && source.reads == Reads.Once =>
+      val once = identityCache.computeIfAbsent(
+        (source.entityId.getOrElse(""), source.valueKey),
+        _ =>
+          resolveStateSlotValue(source.entityId, live(source), states, noFetch)
+      )
+      Planned.Constant(once, Datastar.jsValue(once))
+    case None => live(source)
+
+  /** A `valueWhile` composed once per renderer, by what it decides. */
+  private val gateRuns =
+    new java.util.concurrent.ConcurrentHashMap[String, Planned.Live]()
 
   private def compose(
       source: BoundSlot,
@@ -1709,7 +1736,7 @@ class Renderer(validated: Dashboard.Validated) {
       case _ => (_, _) => ""
 
   private def withheld(
-      planned: Planned,
+      planned: Planned.Live,
       states: Map[String, EntityState]
   ): Boolean =
     planned.source.gate.exists(!gateHolds(_, states))
@@ -1748,43 +1775,7 @@ class Renderer(validated: Dashboard.Validated) {
       c: LayoutNode.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
-    val slots = c.bound.view.mapValues(planned).toMap
-    val constB = Map.newBuilder[SlotKey, SlotValue]
-    val jsB = Map.newBuilder[SlotKey, String]
-    val dynB = List.newBuilder[(SlotKey, Option[String], Planned)]
-    slots.foreach { case (slot, planned) =>
-      val source = planned.source
-      source.constant match {
-        case Some(flag: Boolean) =>
-          constB += ((slot, flag))
-          jsB += ((slot, Datastar.jsValue(flag)))
-        case Some(literal: String) =>
-          val text = classed(source, literal)
-          constB += ((slot, text))
-          jsB += ((slot, Datastar.jsLiteral(text)))
-        case None =>
-          val srcEntity = source.entityId
-          // `once` reads only identity, so the plan holds it; the memo is
-          // keyed by entity, which is why a fetch slot never enters it.
-          source.shape match
-            case SlotShape.Fetch(_)  => dynB += ((slot, srcEntity, planned))
-            case SlotShape.State(st) =>
-              if (st.reads == Reads.Once) {
-                val once = identityCache.computeIfAbsent(
-                  (srcEntity.getOrElse(""), st.valueKey),
-                  _ =>
-                    resolveStateSlotValue(
-                      srcEntity,
-                      planned,
-                      states,
-                      noFetch
-                    )
-                )
-                constB += ((slot, once))
-                jsB += ((slot, Datastar.jsValue(once)))
-              } else dynB += ((slot, srcEntity, planned))
-      }
-    }
+    val slots = c.bound.view.mapValues(plan(_, states)).toMap
     // A signal slot is always `live` and non-literal, so its name is constant
     // per node.
     val named = c.bound.toList.flatMap { case (slot, src) =>
@@ -1806,9 +1797,12 @@ class Renderer(validated: Dashboard.Validated) {
       node = c,
       tpl = templateOf(c.card),
       structural = structuralVars(id, states),
-      constants = constB.result(),
-      jsConstants = jsB.result(),
-      dynamic = dynB.result(),
+      constants = slots.collect { case (k, Planned.Constant(v, _)) => k -> v },
+      jsConstants =
+        slots.collect { case (k, Planned.Constant(_, js)) => k -> js },
+      dynamic = slots.toList.collect { case (k, l: Planned.Live) =>
+        (k, l.source.entityId, l)
+      },
       slots = slots,
       signalled = named.map { case (slot, kind, signal) =>
         slot -> signalledOf(signal, kind)
@@ -1912,7 +1906,7 @@ class Renderer(validated: Dashboard.Validated) {
   /** Resolves before any state arrives, so a `domain` action still works. */
   private def resolveSlot(
       srcEntity: Option[String],
-      source: Planned,
+      source: Planned.Live,
       states: Map[String, EntityState],
       fragments: FetchSnapshot,
       node: NodeId
@@ -1926,7 +1920,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def resolveSlotValue(
       srcEntity: Option[String],
-      source: Planned,
+      source: Planned.Live,
       states: Map[String, EntityState],
       fragments: FetchSnapshot,
       node: NodeId
@@ -1968,7 +1962,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
-      planned: Planned,
+      planned: Planned.Live,
       states: Map[String, EntityState],
       fetched: FetchTemplate => Object
   ): SlotValue = {
