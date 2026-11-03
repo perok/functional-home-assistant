@@ -2,8 +2,7 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** design agreed for this PR (part A); part B designed for the next stacked PR. S1–S8
-built.
+**State:** part A (S1–S8) built on #658. Part B agreed on 2026-11-03, built on `slot-conditions`.
 
 ## Why
 
@@ -205,32 +204,120 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
   goldens hold apart from signal names.
 - **S8. Docs.**
 
-## Part B: the next stacked PR
+## Part B: conditions are values
 
-`Predicate` dissolves into the step model, so one condition language serves slots, `c.iff` and
-candidate sets:
+Branch `slot-conditions`, stacked on `slot-values` (#658). Discussed in chat on 2026-11-03. The
+aim is consistency and simplicity: `Predicate` dissolves into the step model, so one condition
+language serves slots, `c.iff` and candidate sets, and the evaluator stays as fast as today.
+`query.pkl`'s author API does not change; only the classes it builds do.
 
 | Where | Today | In B |
 |---|---|---|
-| a bool slot, a CEL input | `Value.Condition(p)` (A) | a bool `ValueExpr` |
-| a tally's guards | `Present`'s `Predicate`s | bool `ValueExpr`s |
-| a candidate set's clauses | `SetClause.when` | a bool `ValueExpr` per clause |
-| `c.iff`'s branch | `Activation.State(condition)` | a bool `ValueExpr` |
-| a set's order | `SortKey.Holds(p)` / `SortKey.Prop("attr:x")` | a `ValueExpr` per term |
+| a bool slot, a CEL input | `Value.Condition(p)` | a bool `ValueExpr` |
+| a tally's guards | `Tally.when: Map[String, Predicate]` | `Present.when: Map[String, ValueExpr]` |
+| a candidate set's clauses | `SetClause.when: Option[Predicate]` | `Option[ValueExpr]` |
+| `c.iff`'s branch | `Activation.State(condition: Predicate)` | `Option[ValueExpr]`, absent for the else |
+| an order term | `SortKey.Holds(p)` / `SortKey.Prop("attr:x")` | `SortTerm.by: ValueExpr` |
 
-- **Operations:** `Compare(op, to)` on a value; `Not`, `And(with)`, `Or(with)` on a bool;
-  `AnyOf`, `AllOf`, `NoneOf`, `First` on a `Present` list. An operand is then a `ValueExpr` (a
-  plain value is one with no steps), which widens O1.
-- **No `Value.Member`:** `Entity(of = None)` already means "the entity this is about", which for a
-  set's clause or order term is the member it is decided for. Today's free-subject `Cmp` is the
-  same reference, so the model has one.
-- **`Part.Registry(name)`**, for today's `reg:<name>`.
-- **Reused machinery:** what decides presence, branches and order (`Conditions`) becomes the
-  evaluator of bool and sort `ValueExpr`s, and the entity index comes from the same walk over a
-  `ValueExpr`'s references a slot's bind uses. `Activation.Var` (a viewer's selection) stays.
-- **Regions** compose with it: the value model decides whether and which, a region is where the
-  content lands.
-- ADRs 0003 and 0007, `query.pkl`'s builders and the presence evaluation move with it.
+```scala
+enum Value:
+  case Literal(v: Lit)                // Lit stays scalar: no consumer for a list of literals
+  case Entity(of: Option[String] = None, part: Part = Part.State, …)
+  case Fetch(fetch: FetchTemplate)
+  case Present(candidates: List[String], when: Map[String, ValueExpr] = Map.empty)
+  case List(items: List[ValueExpr])   // its items share one type
+  case Cel(src, inputs)
+
+// Simple steps on a list
+case object Count                           // a list → Int
+case object AllOf                           // a list of bools → Bool, stops at the first false
+case object AnyOf                           // a list of bools → Bool, stops at the first true
+case class First(orderBy: List[SortTerm])   // a Present list → the leader's id, "" when none
+
+// Simple steps on a value
+case class Compare(op: Op, to: Value)       // text, a number or dyn → Bool
+case object Not                             // Bool → Bool
+
+SortTerm(by: ValueExpr, dir)
+SetClause(when: Option[ValueExpr], node)
+Activation.State(condition: Option[ValueExpr] = None)
+```
+
+- **`Present`** is what a `List` of its candidates as entity reads, filtered by each one's guard,
+  would mean, kept as one source so a candidate is its id on the wire (15 B, not about 55). Its
+  doc comment and `terminology.md` say so. `Tally` folds into it.
+- **And/or are list steps:** `a && b` is `List([a, b]) |> AllOf`, symmetric, with step operands
+  still a plain `Value`. The plan's `And(with)` step would have made every operand a `ValueExpr`
+  and the first condition the source. `Not` is a step.
+- **The aggregates are counts:** `.any()` is `Present |> Count |> Compare(gt, 0)`, `.none()`
+  `== 0`, `.all()` `== length`, as today; `first().eq(e)` is `Present |> First(order) |>
+  Compare(eq, e)`. No `AnyOf` on a present list: its items are ids, so `validate` refuses it.
+- **Absent means holds**, everywhere: a candidate with no guard, a clause with no `when`, and an
+  else branch, which loses today's `And(Nil)`.
+- **No `Value.Member`:** `Entity(of = None)` means "the entity this is about": inside a guard or an
+  order term the member it is decided for, elsewhere the card's subject. A state condition names
+  its entities, as `validate` requires today (`hasFreeSubject` becomes the nested
+  `readsMissingSubject`).
+- **No `Part.Registry`:** the runtime holds no registry. `query.pkl` decides registry facts per
+  candidate at build time (`ReadyReg`) and refuses a registry order key before a live one, so only
+  `state` and `attr:<name>` reach it, `Part.State` and `Part.Attr`. `Conditions.propertyOf`'s
+  string switch, and its `domain`/`entity_id` cases, go.
+- **`Compare` keeps today's rules:** equality as text; ordering numeric when both sides parse, else
+  false. Strict `Dyn` (Not in this plan) is independent: a condition ends in a bool, never in
+  `Dyn`, so it follows B as its own PR.
+- **Order terms:** `by` is evaluated per member; a bool key sorts true first under `asc` (today's
+  `Holds`), any other today's `Prop` rule (no value last, numeric when both parse, else text). A
+  set node's `orderBy` and `First`'s are the same type, compared by the same code. `First` stays
+  one pass: a `Sort` step would allocate a sorted list per evaluation, and nothing else sorts.
+- **The evaluator** is `Conditions`, a direct match: no CEL, no per-candidate `about`, no
+  intermediate list (`List |> AllOf` and `Count |> Compare` run as one pass). `Count |>
+  Compare(op, literal)` stops counting once the answer is fixed: `> 0` and `== 0` at the first
+  present candidate, `== length` at the first absent. It is kept only if the benchmarks show a
+  gain.
+- **The wake index** is the same walk over a `ValueExpr`'s references a slot's bind uses, now
+  through `Present`'s candidates and guards, `List`'s items and `Compare`'s operand.
+- **Wire:** guards already repeat per candidate today (the build decides each candidate apart, so
+  their leftovers can differ); B keeps the count of copies. A state guard goes from 56 B to 77 B,
+  `fixture-slots`' count slot from 290 B to 354 B, and an and/or costs about 38 B more than
+  `{"kind":"And","items":[…]}`: a constant factor per use, as Part A accepted.
+- **Rendering does not change.** Member ids, deltas, order and the flip stay; the goldens hold
+  apart from signal-name hashes, which follow the keys.
+
+### Steps
+
+- **B0.** This section, and the draft PR.
+- **B1. The new kinds:** `Value.List`, `Compare`, `Not`, `AllOf`, `AnyOf`, their `ValueType`
+  rules, keys and wake walk, and `Conditions` evaluating a bool `ValueExpr`, unit-tested. Nothing
+  emits them yet.
+- **B2. Every condition switches at once:** bool slots, CEL inputs, `Present`'s guards, clauses,
+  `c.iff`, `First` and the early-stopping count, in Scala and in Pkl (`core/predicate.pkl`'s
+  classes fold into the value classes; `query.pkl`'s builders emit them). One step because a
+  predicate tree nests counts. `Predicate`, `Tally` and `Value.Condition` are deleted.
+- **B3. Order terms:** `SortTerm.by`, `SortKey` deleted. Also the build-time bool sort:
+  `orderValue` returns a Boolean for a condition over a registry fact, and Pkl 0.32.1 refuses
+  `<` on Booleans (spiked), so such an order fails the build; its comment ("`desc` puts true
+  first, matching the runtime") contradicts the runtime and `predicate.pkl`, which put true first
+  under `asc`. Fixed to the runtime's rule, with a test ordering on a registry condition.
+- **B4. Docs:** ADRs 0003, 0004 and 0007, and 0006, 0013, 0015, 0028 and 0034 where they name
+  `Predicate`; `terminology.md` (Candidate set, Clause, Present); the module `CLAUDE.md`'s
+  `Dashboard.scala` and `query.pkl` rows; the architecture doc where it names a predicate. The
+  plan is then deleted, the maintainer's call, and its "Not in this plan" items move to a new home.
+
+### B's tests
+
+Approval asked with this section. About 235 test lines in 29 files build `Predicate`,
+`SetClause`, `SortKey` or `Activation.State` and are rewritten to the new constructors (B2, B3,
+mechanical; no assertion weakened). New: each step's evaluation and typing (B1); the early-stopping
+count giving a full count's answer for every op and candidate mix (B2); ordering on a registry
+condition (B3). The library's Pkl tests follow the classes, the wire snapshots are regenerated with
+`dashboardSnapshotsUpdate`, and the goldens hold.
+
+### B's checks
+
+Per step, as Part A's. RenderBench's `condition`, `conditionCel`, `holdsSeed`, `pageSet`,
+`publishSet`, `publishManySets`, `publishFlip`, `publishSetIfs`, `publishSetIfsFlip`,
+`resumeFlip`, `memberClauseFlip` and `memberClauseSteady`, and `validate` timing, before and after
+B2 and B3; the starter site's Pkl evaluation time and `dashboard.json` size before and after B2.
 
 ## Review: what the design has to watch
 
@@ -262,8 +349,6 @@ candidate sets:
 - **`WithUnit` merges two rules that differ at the edge.** `AttrUnit` leaves the unit off an empty
   value; `SuffixUnit` does not, printing `" W"` for an empty state. The merged step leaves it off,
   a byte change the goldens name.
-- **Conditions keep their strings in A.** `Present`'s guards and `Value.Condition` are still
-  `Predicate`, whose properties are `"attr:x"` strings, until B.
 - **`bypassUnavailable`** yields the raw state, text, so it stays refused on a slot that must
   produce a bool, as `validate` does today.
 - **A CEL evaluation reads the entity through a struct value.** Held on the entity's state, built
@@ -290,7 +375,14 @@ names, and are corrected where they did.
 
 ## Not in this plan
 
-- Part B, above: the next stacked PR.
+- **One machinery for "a value picks what fills a region".** A state `c.iff` is a bake group
+  chosen by `Activation.State` (`SurfaceGraph`, the flip); a set member picks its first holding
+  clause and the set its present members (`MemberGraph`, a Scala-written `fh-group` wrapper).
+  Both are "the first branch that holds renders", and tabs and `c.iff` over a variable are the
+  same with a per-viewer value. With every decision a value expression (Part B), a region filled
+  by a value (the branch a bool or a variable picks, or one node per id of a list) could serve all
+  of them, and `SetNode` would become a card. ADR 0007's "a member container is a per-entity
+  comprehension, not a gate" is the argument to answer. Goes with the regions round.
 - A `number` slot type with slot-views point 4: it waits on the tap call design.
 - The tap call design round: a declared call id in place of the URL a template spells out.
 - **`Dyn` fits no slot**, text or bool. The text steps (`Prefix` … `Duration`) still take it, so
