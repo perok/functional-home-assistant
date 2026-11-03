@@ -110,8 +110,9 @@ card's CSS through inheritance. Only `--…` names. ADR 0034.
 
 **Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
 variable (`expressionValues` in Pkl, each a `ValueExpr` on the wire): a literal, a **tally** — a
-static candidate list and which of it is present, counted live, the same thing a state condition's
-`Count` compares — a **condition**, decided live, a **fetch**, its provider's answer read on demand,
+static candidate list and which of it is present, counted live (`.count()`, an `int`), the same
+thing a state condition's `Count` compares, or uncounted (`.present()`, the ids as a
+`list(string)`) — a **condition**, decided live, a **fetch**, its provider's answer read on demand,
 or an **entity**, read whole (`kitchen.attr.brightness`).
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 

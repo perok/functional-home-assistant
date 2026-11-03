@@ -122,7 +122,8 @@ and styles hold `ValueExpr`s.
   compiler's `CelTypeProvider` and a `StructValue` at run time; `value.state + 1` and `value.nope`
   are build errors, `value.attr[?'x'].orValue('')` and the string extensions work. A named input
   may be a whole entity too (`kitchen.attr.brightness`). `Present` reaches CEL as `list(string)`
-  (`size(lights)`, `'light.kitchen' in lights`); `Count` is its simple-tier size. Every CEL in the
+  (`size(lights)`, `'light.kitchen' in lights`), written `q.from(…).where(…).present()`; `Count`
+  is its simple-tier size. Every CEL in the
   library is rewritten, and a user's own CEL breaks, accepted pre-v1.
 - **CEL computed from nothing is a source.** `Value.Cel` is a CEL that reads no running value: the
   click transforms, which read only `dashboard_slug`, and a CEL over inputs alone. So `source` is
@@ -292,6 +293,11 @@ names, and are corrected where they did.
 - Part B, above: the next stacked PR.
 - A `number` slot type with slot-views point 4: it waits on the tap call design.
 - The tap call design round: a declared call id in place of the URL a template spells out.
+- **`Dyn` fits no slot**, text or bool. The text steps (`Prefix` … `Duration`) still take it, so
+  `attrUnit` and the readouts stand; a reading that ends in `Dyn` (a bare `attr(…)`, CEL's
+  `value.attr.x`) needs a conversion, CEL's `string(…)` or a simple-tier step, and `bareAttr`
+  goes. Attribute types from the dump's `volatileAttrs` would spare most conversions.
+- **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
 
 ## Checks
 

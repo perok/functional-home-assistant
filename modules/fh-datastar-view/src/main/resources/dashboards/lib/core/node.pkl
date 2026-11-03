@@ -209,8 +209,8 @@ abstract class Node extends LayoutNode {
   ///   }
   vars: Listing<varMod.Declaration>(isDistinctBy((d) -> d.name)) = new {}
   /// Named values this node's own CEL reads: a literal, a live count
-  /// (`q.from(xs).where(…).count()`, an `int`) or a live condition (`….any()`,
-  /// a `bool`).
+  /// (`q.from(xs).where(…).count()`, an `int`), the ids present (`….present()`,
+  /// a `list(string)`) or a live condition (`….any()`, a `bool`).
   ///
   ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
   ///     expressionValues {

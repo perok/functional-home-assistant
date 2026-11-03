@@ -370,7 +370,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `Variable.declarer` (a build token); `c.history.chooser` and `c.controlChooser` are two, read by
   `.fromChooser()` on a chart or a light slider),
   **expression values** (a node's or a slot's `expressionValues`: literals, a live `q.from(…).where(…).count()`,
-  a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on
+  the ids present (`….present()`, a `list(string)`), a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on
   demand, waking nothing — ADR 0034), or an entity (read whole, `kitchen.attr.brightness`), read BY NAME
   as typed variables in that node's own CEL — `string(lights_on) + ' on'` — beside `value`, what the step
   before gave (`value.state` on a `c.expr`), compiled at build so a typo or a type error fails it;

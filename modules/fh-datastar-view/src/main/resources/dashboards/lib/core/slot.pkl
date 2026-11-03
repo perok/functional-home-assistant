@@ -104,7 +104,8 @@ class ConditionRead extends Value {
   predicate: predMod.Predicate
 }
 
-/// The candidates of a set present now, a list a [[simpleMod.CountStep]] counts.
+/// The ids of a set's candidates present now: a list, which a
+/// [[simpleMod.CountStep]] counts.
 class PresentRead extends Value {
   kind: "Present" = "Present"
   tally: predMod.Tally
@@ -122,10 +123,12 @@ class CelRead extends Value {
 
 /// A named input as the wire holds it (`fh.view.model.ValueExpr`): a literal
 /// as itself, anything else as the source it reads. An entity is the whole
-/// entity (`kitchen.attr.brightness`).
+/// entity (`kitchen.attr.brightness`), and a tally its count unless it is a
+/// [[predMod.PresentList]].
 const function wireInput(v: nodes.ExpressionValue): Any =
   if (v is hass.Entity)
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
+  else if (v is predMod.PresentList) Map("source", new PresentRead { tally = v })
   else if (v is predMod.Tally)
     Map("source", new PresentRead { tally = v }, "steps", List(new simpleMod.CountStep {}))
   else if (v is predMod.Predicate) Map("source", new ConditionRead { predicate = v })

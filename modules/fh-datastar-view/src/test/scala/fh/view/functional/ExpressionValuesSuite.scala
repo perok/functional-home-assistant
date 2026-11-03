@@ -102,6 +102,29 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("present() reaches CEL as the ids present, and follows a light") {
+    val body =
+      s"""    ((c.button("Stue", c.view.closePopup())) {
+         |      expressionValues {
+         |        ["lit"] = q.from(lights).where(q.eq(q.stateProp, "on")).present()
+         |      }
+         |    }).secondary(c.expr(#"lit.join(', ')"#))""".stripMargin
+    val both = s"${kitchen.entityId}, ${living.entityId}"
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = onlySignal(html)
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains(s">${kitchen.entityId}</span>"), clue = html)
+        assert(
+          sent.contains(s"${sig.split('.').last}\":\"$both\""),
+          clue = sent
+        )
+      }
+    }
+  }
+
   test("a brightness tick on a counted light sends nothing for the count") {
     val dimmer =
       kitchen.copy(attributes =
