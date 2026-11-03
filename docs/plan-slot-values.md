@@ -296,7 +296,10 @@ names, and are corrected where they did.
 - **`Dyn` fits no slot**, text or bool. The text steps (`Prefix` … `Duration`) still take it, so
   `attrUnit` and the readouts stand; a reading that ends in `Dyn` (a bare `attr(…)`, CEL's
   `value.attr.x`) needs a conversion, CEL's `string(…)` or a simple-tier step, and `bareAttr`
-  goes. Attribute types from the dump's `volatileAttrs` would spare most conversions.
+  goes. Attribute types from the dump's `volatileAttrs` would spare most conversions. With it,
+  each `SlotType` names the `Ty` it takes (`enum SlotType(val ty: Ty)`) and `Ty.fits` becomes
+  conformance: the same type, or a number or markup shown as text. List and number slot types
+  wait for a consumer (number: slot-views point 4); `Ty.List(of)` already carries the element.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
 
 ## Checks
