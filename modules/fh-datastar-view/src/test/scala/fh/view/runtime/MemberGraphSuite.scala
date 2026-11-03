@@ -63,7 +63,7 @@ class MemberGraphSuite extends munit.FunSuite {
     states.map(s => s.entityId -> s).toMap
 
   private def prop(name: String, dir: String = "asc") =
-    LayoutNode.SortTerm(LayoutNode.SortKey.Prop(name), dir)
+    LayoutNode.SortTerm(Conds.prop(name), dir)
 
   test("an unguarded clause is present whatever the state says") {
     val g = graphOf(set(List("light.a", "light.b")))
@@ -167,7 +167,7 @@ class MemberGraphSuite extends munit.FunSuite {
       set(
         List("light.a", "light.b"),
         orderBy = List(
-          LayoutNode.SortTerm(LayoutNode.SortKey.Holds(isOn("light.b")), "asc")
+          LayoutNode.SortTerm(isOn("light.b"), "asc")
         )
       )
     )

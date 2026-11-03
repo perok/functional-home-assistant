@@ -166,7 +166,7 @@ class SetNodeSuite extends ServerHarness {
     // 2 must sort below 10, the trap a string compare falls into.
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
     )
     val states =
       Map("light.a" -> bri("light.a", 2), "light.b" -> bri("light.b", 10))
@@ -183,7 +183,7 @@ class SetNodeSuite extends ServerHarness {
     // a value moving without overtaking a neighbour costs zero patches.
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
     )
     val states = Map(
       "light.a" -> bri("light.a", 90),
@@ -201,7 +201,7 @@ class SetNodeSuite extends ServerHarness {
   test("a reorder is Gone/Placed, and only for the member that moved") {
     val dash = sorted(
       List("light.a", "light.b", "light.c", "light.d"),
-      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
     )
     val states = Map(
       "light.a" -> bri("light.a", 40),
@@ -226,7 +226,7 @@ class SetNodeSuite extends ServerHarness {
   test("`limit` cuts the losers out of the DOM, not into a hidden state") {
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc"),
+      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc"),
       limit = Some(2)
     )
     val states = Map(

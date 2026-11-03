@@ -160,7 +160,7 @@ final case class ValueExpr(
       case (Step.First(_), i) if i > 0 || !source.isInstanceOf[Value.Present] =>
         Some("a first step comes straight after a set's present candidates")
       case (Step.First(orderBy), _) =>
-        orderBy.collectFirstSome(_.conditionError)
+        orderBy.collectFirstSome(_.readError)
       case _ => None
     }
     val checked = firstErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))

@@ -150,6 +150,19 @@ facts {
       "light.kjokken", "light.lampe", "binary_sensor.stue_motion", "light.taklys")
   }
 
+  ["an order on a registry CONDITION sorts at build time, true first under `asc`"] {
+    // As the runtime orders a condition. Pkl has no `<` on Booleans, so this
+    // used to fail the build.
+    local inKitchen = q.eq(q.prop("area_id"), "kjokken")
+    local asc = q.from(allEnts).orderBy(q.asc(inKitchen)).render((e) -> c.entityCard(e)).build()
+    local desc = q.from(allEnts).orderBy(q.desc(inKitchen)).render((e) -> c.entityCard(e)).build()
+    ids.apply(asc).first == "light.kjokken"
+    ids.apply(desc).last == "light.kjokken"
+    // Nothing live: the build sorted it.
+    q.from(allEnts).orderBy(q.eq(q.prop("area_id"), "kjokken"))
+      .render((e) -> c.entityCard(e)).build().orderBy.isEmpty
+  }
+
   ["`desc` inverts the comparison, not the ties"] {
     local s = q.from(allEnts)
       .orderBy(List(q.desc(q.prop("area_id")), q.asc(q.prop("friendly_name"))))
@@ -200,10 +213,10 @@ facts {
     // Live where HA reports the name, else refused as one nothing reports;
     // never folded at build time.
     members.filter((n) -> kjokken.volatileAttrs.containsKey(n))
-      .every((n) -> orderedBy.apply(n).first.by.property == "attr:\(n)")
+      .every((n) -> orderedBy.apply(n).first.by == pred.propertyKey("attr:\(n)"))
     members.filter((n) -> !kjokken.volatileAttrs.containsKey(n))
       .every((n) -> module.catch(() -> orderedBy.apply(n)).contains("No candidate can report a live attribute called '\(n)'"))
-    orderedBy.apply("brightness").first.by.property == "attr:brightness"
+    orderedBy.apply("brightness").first.by == pred.propertyKey("attr:brightness")
   }
 
   ["a LIVE ordering key is emitted for the runtime to compare"] {
@@ -214,7 +227,7 @@ facts {
       .render((e) -> c.entityCard(e))
       .build()
     s.orderBy.toList().length == 1
-    s.orderBy[0].by.property == "attr:brightness"
+    s.orderBy[0].by == pred.propertyKey("attr:brightness")
     s.orderBy[0].dir == "desc"
   }
 
@@ -225,9 +238,9 @@ facts {
       .orderBy(q.desc(q.eq(q.stateProp, "on")))
       .render((e) -> c.entityCard(e))
       .build()
-    s.orderBy[0].by.kind == "Holds"
-    s.orderBy[0].by.predicate.property == "state"
-    s.orderBy[0].by.predicate.value == "on"
+    s.orderBy[0].by is pred.Cmp
+    (s.orderBy[0].by as pred.Cmp).property == "state"
+    (s.orderBy[0].by as pred.Cmp).value == "on"
   }
 
   ["registry keys AFTER a live one are folded into the candidate order"] {
@@ -239,7 +252,7 @@ facts {
       .render((e) -> c.entityCard(e))
       .build()
     s.orderBy.toList().length == 1
-    s.orderBy[0].by.property == "attr:brightness"
+    s.orderBy[0].by == pred.propertyKey("attr:brightness")
     ids.apply(s) == List(
       "light.kjokken", "light.lampe", "binary_sensor.stue_motion", "light.taklys")
   }
@@ -665,7 +678,7 @@ facts {
     lead.entity == "scene.a"
     lead.candidates.toList() == List("scene.a", "scene.b")
     lead.orderBy.toList().single.dir == "desc"
-    (lead.orderBy.toList().single.by as pred.SortProp).property == "state"
+    lead.orderBy.toList().single.by == pred.propertyKey("state")
     latest.ne(a) is pred.PNot
   }
 

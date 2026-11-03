@@ -691,39 +691,30 @@ object LayoutNode:
   ) derives ConfiguredDecoder
 
   /** Present only when ordering needs live state; otherwise
-    * [[SetNode.candidates]] is pre-sorted.
+    * [[SetNode.candidates]] is pre-sorted, a registry key included. `by` is
+    * read per member, an unnamed read reading it: a condition sorts true first
+    * under `asc`, any other value as `MemberGraph.compareOn` says.
     */
   case class SortTerm(
-      by: SortKey,
+      by: ValueExpr,
       dir: String = "asc"
   ) derives ConfiguredDecoder:
     def descending: Boolean = dir == "desc"
 
-    def key: String = by match
-      case SortKey.Prop(p)  => s"$dir:prop($p)"
-      case SortKey.Holds(p) => s"$dir:holds(${p.inputKey})"
+    def key: String = s"$dir:${by.inputKey}"
 
-    /** What a holds-key names besides the member it is decided for. */
-    def entities: List[String] = by match
-      case SortKey.Holds(p) => p.entities
-      case _: SortKey.Prop  => Nil
+    /** What it names besides the member it is read for. */
+    def entities: List[String] = by.entities
 
-    def conditionError: Option[String] = by match
-      case SortKey.Holds(p) => p.conditionError
-      case _: SortKey.Prop  => None
-
-  /** A value has an order, a predicate only true/false; neither expresses the
-    * other.
-    */
-  sealed trait SortKey derives ConfiguredDecoder
-  object SortKey:
-    /** `state` or `attr:<name>`: a registry key folds into the candidate order
-      * at build time.
-      */
-    case class Prop(property: String) extends SortKey
-
-    /** True first under `asc`. */
-    case class Holds(predicate: ValueExpr) extends SortKey
+    /** Read without the engine, as a condition is. */
+    def readError: Option[String] =
+      if (by.isCondition) by.conditionError
+      else
+        by.typed(Nil) match
+          case Left(m)                     => Some(m.message)
+          case Right(t) if t.keys.nonEmpty =>
+            Some("an order term is read without CEL")
+          case Right(_) => None
 
   case class Step(region: String, index: Int)
 
@@ -1748,8 +1739,8 @@ case class Dashboard(
           val setId = nodeId
           setCellErrors(setId, s.cell) ++
             s.orderBy
-              .flatMap(_.conditionError)
-              .map(e => s"$setId: an order term does not decide: $e") ++
+              .flatMap(_.readError)
+              .map(e => s"$setId: an order term cannot be read: $e") ++
             s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
               m.clauses
                 .flatMap(_.when)

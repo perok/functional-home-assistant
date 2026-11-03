@@ -310,7 +310,9 @@ Activation.State(condition: Option[ValueExpr] = None)
   `orderValue` returns a Boolean for a condition over a registry fact, and Pkl 0.32.1 refuses
   `<` on Booleans (spiked), so such an order fails the build; its comment ("`desc` puts true
   first, matching the runtime") contradicts the runtime and `predicate.pkl`, which put true first
-  under `asc`. Fixed to the runtime's rule, with a test ordering on a registry condition.
+  under `asc`. Fixed to the runtime's rule, with a test ordering on a registry condition. A
+  Boolean registry property had the same `<` failure; it sorts as the runtime sorts a value's
+  text, false first. A key is a condition when `ValueExpr.isCondition` says so, else a value.
 - **B4. Docs:** ADRs 0003, 0004 and 0007, and 0006, 0013, 0015, 0028 and 0034 where they name
   `Predicate`; `terminology.md` (Candidate set, Clause, Present); the module `CLAUDE.md`'s
   `Dashboard.scala` and `query.pkl` rows; the architecture doc where it names a predicate. The

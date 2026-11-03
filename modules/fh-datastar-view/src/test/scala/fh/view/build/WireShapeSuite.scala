@@ -191,7 +191,7 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("ordering and layout-cell shapes agree on both sides") {
-    check("SortTerm", LayoutNode.SortTerm(LayoutNode.SortKey.Prop("x")))
+    check("SortTerm", LayoutNode.SortTerm(Conds.prop("state")))
     check("Cell", Cell())
   }
 
@@ -278,7 +278,6 @@ class WireShapeSuite extends munit.FunSuite {
     // fallback (`SiteAccessSuite`); its literals are pinned by decoding below.
     val families: List[(Set[String], Set[String])] = List(
       caseNames[LayoutNode] -> Set("Node", "SetNode"),
-      caseNames[LayoutNode.SortKey] -> Set("SortProp", "SortHolds"),
       caseNames[Activation] ->
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),

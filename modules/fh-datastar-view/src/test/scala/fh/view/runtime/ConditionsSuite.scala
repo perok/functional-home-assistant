@@ -127,17 +127,6 @@ class ConditionsSuite extends munit.FunSuite {
     assert(Conditions.holds(count, EntityState.none, states))
   }
 
-  test(
-    "propertyOf reads the four kinds it knows, and empty for anything else"
-  ) {
-    val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
-    assertEquals(Conditions.propertyOf("domain", s), "sensor")
-    assertEquals(Conditions.propertyOf("state", s), "18")
-    assertEquals(Conditions.propertyOf("entity_id", s), "sensor.x")
-    assertEquals(Conditions.propertyOf("attr:battery", s), "15")
-    assertEquals(Conditions.propertyOf("attr:nope", s), "")
-  }
-
   test("a condition decides as the rule says, over a sweep") {
     // Equality as text (`21.0` is not `21`), ordering numeric or false, a
     // missing attribute empty, an entity the snapshot lacks false, and
@@ -168,7 +157,11 @@ class ConditionsSuite extends munit.FunSuite {
       .fold(Some(subject))(states.get)
       .exists(at =>
         Conditions.compare(
-          Conditions.propertyOf(property, at),
+          if (property == "state") at.state
+          else
+            at.attributes
+              .get(property.stripPrefix("attr:"))
+              .fold("")(StateStore.jsonToString),
           StateStore.jsonToString(value),
           op
         )
@@ -235,11 +228,5 @@ class ConditionsSuite extends munit.FunSuite {
   test("a read of an entity the snapshot lacks evaluates empty, not a marker") {
     val ghost = ValueExpr(Value.Entity(Some("light.ghost")))
     assertEquals(Conditions.eval(ghost, EntityState.none, Map.empty), "")
-  }
-
-  test("a reg: property reads empty — seeing one here means the build leaked") {
-    // Registry facts are build-time data: a comparison on one folds away before
-    // the runtime, and an ordering leaves the candidates pre-sorted.
-    assertEquals(Conditions.propertyOf("reg:area_id", st("light.a", "on")), "")
   }
 }

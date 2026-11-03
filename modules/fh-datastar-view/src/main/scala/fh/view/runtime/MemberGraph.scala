@@ -1,6 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId, ValueExpr}
+import fh.view.model.{
+  Fetching,
+  LayoutNode,
+  MemberId,
+  NodeId,
+  SetId,
+  Transform,
+  ValueExpr
+}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -644,25 +652,27 @@ private[runtime] object MemberGraph {
       states: Map[String, EntityState]
   ): Int = {
     def directed(raw: Int) = if (term.descending) -raw else raw
-    term.by match {
-      case LayoutNode.SortKey.Holds(p) =>
-        def holds(id: String) =
-          states.get(id).exists(st => Conditions.holds(p, st, states))
-        directed(java.lang.Boolean.compare(holds(b), holds(a)))
-      case LayoutNode.SortKey.Prop(property) =>
-        def read(id: String) =
-          states.get(id).fold("")(Conditions.propertyOf(property, _))
-        val (l, r) = (read(a), read(b))
-        // Last in either direction: `unknown` is no value, not the largest
-        // string, which under `desc` crowned a scene never activated.
-        if (hasNoValue(l) || hasNoValue(r))
-          java.lang.Boolean.compare(hasNoValue(l), hasNoValue(r))
-        else
-          // Numeric when both are numbers, so 2 < 10.
-          directed((l.toDoubleOption, r.toDoubleOption) match {
-            case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
-            case _                  => l.compareTo(r)
-          })
+    // A member the store lacks reads as nothing: false, or no value.
+    if (term.by.isCondition) {
+      def holds(id: String) =
+        states.get(id).exists(st => Conditions.holds(term.by, st, states))
+      directed(java.lang.Boolean.compare(holds(b), holds(a)))
+    } else {
+      def read(id: String) =
+        states
+          .get(id)
+          .fold("")(st => Transform.text(Conditions.eval(term.by, st, states)))
+      val (l, r) = (read(a), read(b))
+      // Last in either direction: `unknown` is no value, not the largest
+      // string, which under `desc` crowned a scene never activated.
+      if (hasNoValue(l) || hasNoValue(r))
+        java.lang.Boolean.compare(hasNoValue(l), hasNoValue(r))
+      else
+        // Numeric when both are numbers, so 2 < 10.
+        directed((l.toDoubleOption, r.toDoubleOption) match {
+          case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
+          case _                  => l.compareTo(r)
+        })
     }
   }
 

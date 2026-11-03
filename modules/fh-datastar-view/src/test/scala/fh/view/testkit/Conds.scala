@@ -20,10 +20,18 @@ object Conds {
       value: Json,
       entity: Option[String] = None
   ): ValueExpr =
-    val part =
-      if (property == "state") Part.State
-      else Part.Attr(property.stripPrefix("attr:"))
-    ValueExpr(Value.Entity(entity, part), List(Step.Compare(op, lit(value))))
+    ValueExpr(
+      Value.Entity(entity, partOf(property)),
+      List(Step.Compare(op, lit(value)))
+    )
+
+  /** An order key: the member's `state` or `attr:<name>`, as `propertyKey`. */
+  def prop(property: String): ValueExpr =
+    ValueExpr(Value.Entity(None, partOf(property)))
+
+  private def partOf(property: String): Part =
+    if (property == "state") Part.State
+    else Part.Attr(property.stripPrefix("attr:"))
 
   /** The empty one is the build's settled `true`, as `alwaysHolds` is. */
   def and(items: List[ValueExpr]): ValueExpr =

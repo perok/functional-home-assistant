@@ -133,12 +133,10 @@ class ValueExprSuite extends munit.FunSuite {
       typeOf(present(ValueExpr(Value.Cel("true")), Step.Count)),
       Left("the guard on 'a.a': a condition is read without CEL")
     )
-    val byCel = LayoutNode.SortTerm(
-      LayoutNode.SortKey.Holds(ValueExpr(Value.Cel("true")))
-    )
+    val byCel = LayoutNode.SortTerm(ValueExpr(Value.Cel("true")))
     assertEquals(
       typeOf(present(isOn("a.a"), Step.First(List(byCel)))),
-      Left("a condition is read without CEL")
+      Left("an order term is read without CEL")
     )
   }
 

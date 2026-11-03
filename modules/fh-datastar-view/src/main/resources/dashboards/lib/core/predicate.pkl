@@ -33,15 +33,7 @@ class Cmp extends Predicate {
   /// guard is decided for. Present names another, which reaches the reverse
   /// index through the reading's entities, or the node is never woken by it.
   hidden entity: String? = null
-  source =
-    let (c = this)
-      new slotMod.EntityRead {
-        of = c.entity
-        part =
-          if (c.property == "state") null
-          else if (c.property.startsWith("attr:")) new simpleMod.Attr { name = c.property.drop(5) }
-          else throw("a comparison reads 'state' or 'attr:<name>', not '\(c.property)'")
-      }
+  source = let (c = this) (propertyRead(c.property)) { of = c.entity }
   steps = let (c = this) new Listing { new simpleMod.CompareStep { op = c.op; to = c.value } }
 }
 
@@ -155,28 +147,26 @@ class SetNode extends nodes.LayoutNode {
   members: Mapping<String, SetMember>
 }
 
-/// One ordering position: a property's value ([[SortProp]]), or whether a
-/// predicate holds ([[SortHolds]], true first under `asc`).
+/// One ordering position, read per member: a property's value
+/// ([[propertyKey]]), or whether a condition holds, true first under `asc`. A
+/// registry key never reaches it: it folds into the candidate order.
 class SortTerm {
-  by: SortKey
+  by: Predicate|slotMod.Reading
   dir: "asc"|"desc" = "asc"
 }
 
-abstract class SortKey {
-  kind: String
-}
+/// The member's `state` or `attr:<name>`.
+const function propertyKey(property: String): slotMod.Reading =
+  new slotMod.Reading { source = propertyRead(property) }
 
-class SortProp extends SortKey {
-  kind: "Prop" = "Prop"
-  /// `state` or `attr:<name>`, never `reg:`: a registry key folds into the
-  /// candidate order.
-  property: String
-}
-
-class SortHolds extends SortKey {
-  kind: "Holds" = "Holds"
-  predicate: Predicate
-}
+/// `state` or `attr:<name>` of the entity this is about.
+const function propertyRead(property: String): slotMod.EntityRead =
+  new slotMod.EntityRead {
+    part =
+      if (property == "state") null
+      else if (property.startsWith("attr:")) new simpleMod.Attr { name = property.drop(5) }
+      else throw("a live read is of 'state' or 'attr:<name>', not '\(property)'")
+  }
 
 /// Vacuously true, and reads nothing: [[iff]] of a condition the build settled
 /// as true.

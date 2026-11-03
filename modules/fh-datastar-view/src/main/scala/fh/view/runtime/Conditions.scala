@@ -254,22 +254,6 @@ private[view] object Conditions {
       if (MemberGraph.precedes(orderBy, id, best, states)) id else best
     )
 
-  /** A [[LayoutNode.SortKey.Prop]]'s value. No `reg:`: registry facts fold away
-    * at build time, so one here is a build bug.
-    */
-  def propertyOf(property: String, st: EntityState): String =
-    property match {
-      case "domain"                           => st.domain
-      case "state"                            => st.state
-      case "entity_id"                        => st.entityId
-      case other if other.startsWith("attr:") =>
-        st.attributes
-          .get(other.stripPrefix("attr:"))
-          .map(StateStore.jsonToString)
-          .getOrElse("")
-      case _ => ""
-    }
-
   // Ordering is numeric, false unless both parse; equality compares strings.
   private[view] def compare(lhs: String, rhs: String, op: Op): Boolean = {
     def numeric(cmp: (Double, Double) => Boolean): Boolean =
