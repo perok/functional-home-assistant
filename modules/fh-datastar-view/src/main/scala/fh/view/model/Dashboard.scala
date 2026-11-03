@@ -143,7 +143,8 @@ final case class BoundSlot(
     */
   def valueEntities: List[String] =
     (expr.source match
-      case Value.Condition(p) => Predicate.referencedEntities(p)
+      case c: Value.Condition => Value.entityOf(c)
+      case l: Value.List      => Value.entityOf(l)
       case _                  => Nil
     ) ++ expr.operandEntities ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)

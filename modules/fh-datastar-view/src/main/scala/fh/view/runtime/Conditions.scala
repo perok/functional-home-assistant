@@ -4,7 +4,9 @@ import fh.view.model.{
   FetchTemplate,
   Lit,
   Op,
+  Part,
   Predicate,
+  Step,
   Transform,
   Value,
   ValueExpr
@@ -128,8 +130,83 @@ private[view] object Conditions {
       case _ => ""
     }
 
+  /** A bool [[ValueExpr]] decided: an unnamed read reads `subject`. */
+  def holds(
+      e: ValueExpr,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): Boolean =
+    run(e, subject, states) match
+      case b: Boolean => b
+      case _          => false
+
+  /** A [[ValueExpr]] read as a condition reads it: an attribute as its JSON
+    * text, so `21.0` is not `21`, and an entity the snapshot lacks fails the
+    * comparison over it rather than reading empty. A list decided by its first
+    * step stops early and builds no list.
+    */
+  def eval(
+      e: ValueExpr,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): Any =
+    run(e, subject, states) match
+      case Missing => ""
+      case v       => v
+
+  private def run(
+      e: ValueExpr,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): Any =
+    val (start, rest) = (e.source, e.steps) match
+      case (Value.List(items), Step.AllOf :: rest) =>
+        (items.forall(holds(_, subject, states)), rest)
+      case (Value.List(items), Step.AnyOf :: rest) =>
+        (items.exists(holds(_, subject, states)), rest)
+      case (Value.List(items), Step.Count :: rest) =>
+        (items.size.toLong, rest)
+      case (source, steps) => (read(source, subject, states), steps)
+    rest.foldLeft(start) {
+      case (v, s: Step.Simple) =>
+        Step.operands(s).map(read(_, subject, states)) match
+          case ops if (v :: ops).contains(Missing) =>
+            s match
+              case _: Step.Compare => false
+              case _               => Missing
+          case ops =>
+            Transform.formatWith(s, v, ops.lift(0).orNull, ops.lift(1).orNull)
+      // A stage, or CEL, which no caller passes: a list's items type only
+      // without it (`ValueExpr.typed`).
+      case (v, _) => v
+    }
+
+  /** An entity the snapshot lacks, which no comparison over holds. */
+  private object Missing
+
+  private def read(
+      v: Value,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): Any = v match
+    case Value.Literal(Lit.Bool(b))   => b
+    case Value.Literal(l)             => l.raw.toString
+    case Value.Entity(of, part, _, _) =>
+      of.fold(Some(subject))(states.get) match
+        case None     => Missing
+        case Some(st) =>
+          part match
+            case Part.State      => st.state
+            case Part.Attr(name) =>
+              st.attributes.get(name).map(StateStore.jsonToString).getOrElse("")
+            case Part.Whole => st.celValue
+    case Value.Condition(p)            => matchesIn(p, subject, states)
+    case Value.Present(t)              => presentOf(t, states)
+    case Value.List(items)             => items.map(eval(_, subject, states))
+    case _: Value.Fetch | _: Value.Cel => ""
+
   // Ordering is numeric, false unless both parse; equality compares strings.
-  private def compare(lhs: String, rhs: String, op: Op): Boolean = {
+  private[view] def compare(lhs: String, rhs: String, op: Op): Boolean = {
     def numeric(cmp: (Double, Double) => Boolean): Boolean =
       (lhs.toDoubleOption, rhs.toDoubleOption) match {
         case (Some(l), Some(r)) => cmp(l, r)

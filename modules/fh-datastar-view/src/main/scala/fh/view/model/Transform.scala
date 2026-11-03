@@ -1,7 +1,7 @@
 package fh.view.model
 
 import fh.view.history.ChartStyle
-import fh.view.runtime.{Cel, EntityState}
+import fh.view.runtime.{Cel, Conditions, EntityState}
 
 /** Slot transforms in [CEL](https://cel.dev), over `value` (the value before
   * the step), the named inputs, `dashboard_slug` and `time_zone`. A whole
@@ -60,9 +60,19 @@ object Transform {
         value match
           case xs: List[?] => xs.size.toLong
           case _           => 0L
-      case Step.Prefix(_)   => text(a) + text(value)
-      case Step.Suffix(_)   => text(value) + text(a)
-      case Step.WithUnit(_) =>
+      case Step.AllOf =>
+        value match
+          case xs: List[?] => xs.forall(isTrue)
+          case _           => false
+      case Step.AnyOf =>
+        value match
+          case xs: List[?] => xs.exists(isTrue)
+          case _           => false
+      case Step.Compare(op, _) => Conditions.compare(text(value), text(a), op)
+      case Step.Not            => !isTrue(value)
+      case Step.Prefix(_)      => text(a) + text(value)
+      case Step.Suffix(_)      => text(value) + text(a)
+      case Step.WithUnit(_)    =>
         val v = text(value)
         a match
           case unit: String if v.nonEmpty => v + " " + unit
@@ -100,6 +110,10 @@ object Transform {
             a match
               case flag: Boolean => flag
               case other         => text(other)
+
+  private def isTrue(v: Any): Boolean = v match
+    case b: Boolean => b
+    case _          => false
 
   /** As CEL's `double()` accepts; anything else is the absent form. */
   private def num(v: Any): Option[Double] = v match

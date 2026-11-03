@@ -30,6 +30,7 @@ import fh.view.model.{
   BoundSlot,
   SlotValue,
   Step,
+  ValueExpr,
   Surface,
   TapCall,
   ThemeClasses,
@@ -1681,6 +1682,9 @@ class Renderer(validated: Dashboard.Validated) {
         (_, _, _) => v
       case Value.Present(t) =>
         (_, states, _) => Conditions.presentOf(t, states)
+      case l: Value.List =>
+        val items = ValueExpr(l)
+        (st, states, _) => Conditions.eval(items, st, states)
       case _: Value.Cel =>
         val p = cels.next()
         (_, states, fetched) =>

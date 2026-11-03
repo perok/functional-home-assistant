@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Op, Predicate}
+import fh.view.model.{Lit, Op, Part, Predicate, Step, Value, ValueExpr}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
@@ -154,6 +154,92 @@ class ConditionsSuite extends munit.FunSuite {
     assertEquals(Conditions.propertyOf("entity_id", s), "sensor.x")
     assertEquals(Conditions.propertyOf("attr:battery", s), "15")
     assertEquals(Conditions.propertyOf("attr:nope", s), "")
+  }
+
+  // A bool `ValueExpr` (plan Part B), decided by `holds`.
+
+  private def lit(j: Json): Lit = j.as[Lit].fold(e => fail(e.message), identity)
+
+  /** What Part B's builders will emit for a predicate without a count. */
+  private def asValue(p: Predicate): ValueExpr = p match
+    case Predicate.Cmp(property, op, value, entity) =>
+      val part =
+        if (property == "state") Part.State
+        else Part.Attr(property.stripPrefix("attr:"))
+      ValueExpr(
+        Value.Entity(entity, part),
+        List(Step.Compare(op, Value.Literal(lit(value))))
+      )
+    case Predicate.And(xs) =>
+      ValueExpr(Value.List(xs.map(asValue)), List(Step.AllOf))
+    case Predicate.Or(xs) =>
+      ValueExpr(Value.List(xs.map(asValue)), List(Step.AnyOf))
+    case Predicate.Not(x) =>
+      asValue(x).copy(steps = asValue(x).steps :+ Step.Not)
+    case other => fail(s"no value form for $other")
+
+  test("a bool value decides as the predicate it replaces, over a sweep") {
+    // Equality as text (`21.0` is not `21`), ordering numeric or false, a
+    // missing attribute empty, an entity the snapshot lacks false, and
+    // and/or/not over all of them.
+    val subject =
+      st(
+        "sensor.x",
+        "18",
+        "t" -> Json.fromDoubleOrNull(21.0),
+        "u" -> Json.fromString("on")
+      )
+    val states = snapshot(subject, st("binary_sensor.hall", "on"))
+    val values = List(
+      Json.fromString("on"),
+      Json.fromString("18"),
+      Json.fromString(""),
+      Json.fromInt(18),
+      Json.fromInt(21),
+      Json.fromDoubleOrNull(21.0),
+      Json.True
+    )
+    val cmps = for {
+      property <- List("state", "attr:t", "attr:u", "attr:nope")
+      op <- Op.values.toList
+      value <- values
+      entity <- List(None, Some("binary_sensor.hall"), Some("light.ghost"))
+    } yield cmp(property, op, value, entity)
+    val pairs = cmps.zip(cmps.drop(7) ++ cmps.take(7))
+    val trees = cmps ++ cmps.map(Predicate.Not(_)) ++ pairs.flatMap((a, b) =>
+      List(
+        Predicate.And(List(a, b)),
+        Predicate.Or(List(a, Predicate.Not(b)))
+      )
+    ) :+ Predicate.And(Nil) :+ Predicate.Or(Nil)
+    trees.foreach(p =>
+      assertEquals(
+        Conditions.holds(asValue(p), subject, states),
+        Conditions.matchesIn(p, subject, states),
+        clue = p
+      )
+    )
+  }
+
+  test("a list's AllOf, AnyOf and Count, empty lists included") {
+    val s = st("light.a", "on")
+    val off = asValue(isOn("light.missing"))
+    val on = asValue(isOn("light.a"))
+    def of(step: Step, items: ValueExpr*) =
+      ValueExpr(Value.List(items.toList), List(step))
+    assert(!Conditions.holds(of(Step.AllOf, off, on), s, snapshot(s)))
+    assert(Conditions.holds(of(Step.AnyOf, on, off), s, snapshot(s)))
+    assert(Conditions.holds(of(Step.AllOf), s, snapshot(s)))
+    assert(!Conditions.holds(of(Step.AnyOf), s, snapshot(s)))
+    assertEquals(
+      Conditions.eval(of(Step.Count, on, off), s, snapshot(s)),
+      2L
+    )
+  }
+
+  test("a read of an entity the snapshot lacks evaluates empty, not a marker") {
+    val ghost = ValueExpr(Value.Entity(Some("light.ghost")))
+    assertEquals(Conditions.eval(ghost, EntityState.none, Map.empty), "")
   }
 
   test("a reg: property reads empty — seeing one here means the build leaked") {

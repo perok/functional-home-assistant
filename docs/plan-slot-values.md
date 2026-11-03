@@ -225,7 +225,7 @@ enum Value:
   case Entity(of: Option[String] = None, part: Part = Part.State, …)
   case Fetch(fetch: FetchTemplate)
   case Present(candidates: List[String], when: Map[String, ValueExpr] = Map.empty)
-  case List(items: List[ValueExpr])   // its items share one type
+  case List(items: List[ValueExpr])   // one or more, of one type, without CEL
   case Cel(src, inputs)
 
 // Simple steps on a list
