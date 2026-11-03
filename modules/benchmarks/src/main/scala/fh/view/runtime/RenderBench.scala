@@ -695,6 +695,32 @@ class RenderBench {
     }
   }
 
+  // `q.from(lights).where(on).any()` over every leaf: against a whole number
+  // the count stops at the first present light; against `0.0` (no build emits
+  // one) it reads them all, the cost the early stop saves.
+  private lazy val anyOn = Conds.count(
+    candidates = List.tabulate(Leaves)(entityId),
+    when = List
+      .tabulate(Leaves)(entityId)
+      .map(id =>
+        id -> Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(id))
+      )
+      .toMap,
+    op = Op.Gt,
+    value = Json.fromInt(0)
+  )
+  private lazy val anyOnFull = anyOn.copy(steps =
+    List(Step.Count, Step.Compare(Op.Gt, Value.Literal(Lit.Real(0.0))))
+  )
+
+  @Benchmark
+  def countAny(bh: Blackhole): Unit =
+    bh.consume(Conditions.holds(anyOn, EntityState.none, st))
+
+  @Benchmark
+  def countAnyFull(bh: Blackhole): Unit =
+    bh.consume(Conditions.holds(anyOnFull, EntityState.none, st))
+
   @Benchmark
   def conditionCel(bh: Blackhole): Unit = {
     var i = 0

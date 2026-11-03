@@ -209,7 +209,11 @@ private[view] object Conditions {
       id: String,
       states: Map[String, EntityState]
   ): Boolean =
-    p.when.get(id).forall(g => states.get(id).exists(holds(g, _, states)))
+    val guard = p.when.getOrElse(id, null)
+    guard == null || {
+      val st = states.getOrElse(id, null)
+      st != null && holds(guard, st, states)
+    }
 
   /** `present(p) op n`, stopping once the candidates left cannot change it:
     * `> 0` at the first present, `== length` at the first absent.
