@@ -75,7 +75,7 @@ between the shapes is the SOURCE: an entity, or a provider's answer. A fetch slo
 `SlotShape` keeps each on the shape that can use it. A chart is not a simple step: that tier's
 rule is "a static lookup and TOTAL", evaluated without the engine, and a chart renderer is
 neither. Its type says so too: a chart takes a series and gives markup, which only a raw hole
-takes (`Ty.Markup`).
+takes (`ValueType.Markup`).
 
 ### What the split bought
 

@@ -90,7 +90,7 @@ default, or `bool` for a slot its template reads as on/off (a `disabled` ORed in
 is `bool`. The CARD sets the type on the handle (`slotMod.bool(name)`), because a reading has no
 binding of its own; a `class:` binding (a live cell class) is a bool by kind. A value placed in a
 `class` attribute is text with the theme's class swap as its last step (`slotMod.cssClass(name)`,
-ADR 0020). Every source and step has a type, checked in order (`Ty`), and the build refuses a
+ADR 0020). Every source and step has a type, checked in order (`ValueType`), and the build refuses a
 value, a literal included, whose last step does not produce its slot's type: a bool in a text
 slot, text in a boolean one.
 

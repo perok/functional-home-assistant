@@ -50,7 +50,7 @@ Float → `double`, Boolean → `bool`, a tally → `int` (a `Present` source an
 present ids alone are a `list(string)`), a condition → `bool`, a fetch → its provider's answer
 (history's points, `list(list(double))` of `[epochMillis, value]`), an entity → the struct
 `fh.Entity` (`kitchen.attr.brightness`). Numbers decode by their SPELLING, as Pkl wrote them, since
-a `Float` 2.0 and an `Int` 2 have one value. The type is `ValueExpr.inputTy`; another shape is
+a `Float` 2.0 and an `Int` 2 have one value. The type is `ValueExpr.inputType`; another shape is
 refused, so no input is computed by CEL and inputs cannot form a cycle. The expression compiles
 against `value`, `dashboard_slug`, `time_zone` and the node's names (`Transform.CelKey`: source,
 typed names and `value`'s type), so a typo, an unknown name or `lights_on + ' on'` (no
@@ -114,7 +114,7 @@ rather than a per-card list of boolean slots, so another type is one more case: 
 signal can carry a JSON number (a slot value is `String | Boolean` today).
 
 The build refuses a reading on a boolean slot that does not produce a bool, because the template
-reads it by truthiness and the string `"false"` is ON. Every source and step has a type (`Ty`),
+reads it by truthiness and the string `"false"` is ON. Every source and step has a type (`ValueType`),
 checked in order, a CEL step's by its compiler with `value` declared as the type before it: a
 condition, or an all-Boolean `match` (what `c.isOn`/`c.stateIn` build), is a bool, and `dyn`
 passes (an attribute, a CEL `dyn`), except an attribute read bare, which is text or a number far

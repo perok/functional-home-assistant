@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{SlotValue, Ty}
+import fh.view.model.{SlotValue, ValueType}
 
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.ast.CelExpr
@@ -222,21 +222,21 @@ object Cel {
     */
   def parse(
       src: String,
-      env: List[(String, Ty)],
-      value: Option[Ty]
+      env: List[(String, ValueType)],
+      value: Option[ValueType]
   ): Either[String, Program] =
     compiled(src, env, value).map(ast => runtime.createProgram(ast))
 
   /** What `src` produces, or why it does not compile. A result no step or slot
     * takes (a map, a timestamp) is refused here.
     */
-  def resultTy(
+  def resultType(
       src: String,
-      env: List[(String, Ty)],
-      value: Option[Ty]
-  ): Either[String, Ty] =
+      env: List[(String, ValueType)],
+      value: Option[ValueType]
+  ): Either[String, ValueType] =
     compiled(src, env, value).flatMap(ast =>
-      tyOf(ast.getResultType).toRight(
+      valueTypeOf(ast.getResultType).toRight(
         s"yields a ${ast.getResultType.name}, which a card cannot show — " +
           "make it text, `str(…)` or `string(…)`"
       )
@@ -244,8 +244,8 @@ object Cel {
 
   private def compiled(
       src: String,
-      env: List[(String, Ty)],
-      value: Option[Ty]
+      env: List[(String, ValueType)],
+      value: Option[ValueType]
   ) = {
     val trimmed = src.trim
     if (trimmed.isEmpty) Left("empty transform expression")
@@ -257,22 +257,24 @@ object Cel {
   }
 
   /** An optional is `dyn`: it renders as what it holds, or `""`. */
-  private def tyOf(t: CelType): Option[Ty] = t match
-    case _: OptionalType => Some(Ty.Dyn)
+  private def valueTypeOf(t: CelType): Option[ValueType] = t match
+    case _: OptionalType => Some(ValueType.Dyn)
     case _               =>
       t.kind match
-        case CelKind.STRING                  => Some(Ty.Text)
-        case CelKind.BOOL                    => Some(Ty.Bool)
-        case CelKind.INT | CelKind.UINT      => Some(Ty.Int)
-        case CelKind.DOUBLE                  => Some(Ty.Real)
-        case CelKind.DYN | CelKind.NULL_TYPE => Some(Ty.Dyn)
-        case CelKind.LIST => tyOf(t.parameters.get(0)).map(Ty.List(_))
-        case CelKind.STRUCT if t.name == entityType.name => Some(Ty.Entity)
-        case _                                           => None
+        case CelKind.STRING                  => Some(ValueType.Text)
+        case CelKind.BOOL                    => Some(ValueType.Bool)
+        case CelKind.INT | CelKind.UINT      => Some(ValueType.Int)
+        case CelKind.DOUBLE                  => Some(ValueType.Real)
+        case CelKind.DYN | CelKind.NULL_TYPE => Some(ValueType.Dyn)
+        case CelKind.LIST                    =>
+          valueTypeOf(t.parameters.get(0)).map(ValueType.List(_))
+        case CelKind.STRUCT if t.name == entityType.name =>
+          Some(ValueType.Entity)
+        case _ => None
 
   private def compilerWith(
-      env: List[(String, Ty)],
-      value: Option[Ty]
+      env: List[(String, ValueType)],
+      value: Option[ValueType]
   ): CelCompiler =
     if (env.isEmpty && value.isEmpty) compiler
     else
@@ -282,14 +284,14 @@ object Cel {
         }
         .build()
 
-  private def celType(t: Ty): CelType = t match
-    case Ty.Text | Ty.Markup => SimpleType.STRING
-    case Ty.Int              => SimpleType.INT
-    case Ty.Real             => SimpleType.DOUBLE
-    case Ty.Bool             => SimpleType.BOOL
-    case Ty.Dyn              => SimpleType.DYN
-    case Ty.Entity           => entityType
-    case Ty.List(of)         => ListType.create(celType(of))
+  private def celType(t: ValueType): CelType = t match
+    case ValueType.Text | ValueType.Markup => SimpleType.STRING
+    case ValueType.Int                     => SimpleType.INT
+    case ValueType.Real                    => SimpleType.DOUBLE
+    case ValueType.Bool                    => SimpleType.BOOL
+    case ValueType.Dyn                     => SimpleType.DYN
+    case ValueType.Entity                  => entityType
+    case ValueType.List(of)                => ListType.create(celType(of))
 
   private val parser = CelParserFactory.standardCelParserBuilder().build()
 

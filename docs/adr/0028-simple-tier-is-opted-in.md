@@ -174,7 +174,7 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    composed readouts, which no atomic shape covers.
 8. **Validate stays the one gate.** A simple step is checked structurally — degenerate ranges are
    build errors — and a CEL step must compile, located like any bad expression. Every step's type
-   is checked in order (`Ty`), so a `Percent` after a list fails the build. Both tiers are
+   is checked in order (`ValueType`), so a `Percent` after a list fails the build. Both tiers are
    validated by the same pass.
 
 ## Consequences

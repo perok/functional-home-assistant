@@ -13,7 +13,7 @@ import fh.view.model.{
   ValueExpr,
   TemplateSlot,
   Transform,
-  Ty
+  ValueType
 }
 import io.circe.Json
 
@@ -104,7 +104,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "value['nope']"
     ).foreach { src =>
       val p = Transform
-        .parse(Transform.CelKey(src, Nil, Some(Ty.Dyn)))
+        .parse(Transform.CelKey(src, Nil, Some(ValueType.Dyn)))
         .fold(e => fail(e), identity)
       assertEquals(
         read(p, entity.javaAttributes),

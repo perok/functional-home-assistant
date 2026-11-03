@@ -128,8 +128,8 @@ object Transform {
     */
   case class CelKey(
       src: String,
-      env: List[(String, Ty)] = Nil,
-      value: Option[Ty] = Some(Ty.Entity)
+      env: List[(String, ValueType)] = Nil,
+      value: Option[ValueType] = Some(ValueType.Entity)
   )
 
   def parse(src: String): Either[String, Compiled] = parse(CelKey(src))
@@ -138,8 +138,8 @@ object Transform {
     Cel.parse(key.src, key.env, key.value)
 
   /** What it produces, or why it does not compile. */
-  def resultTy(key: CelKey): Either[String, Ty] =
-    Cel.resultTy(key.src, key.env, key.value)
+  def resultType(key: CelKey): Either[String, ValueType] =
+    Cel.resultType(key.src, key.env, key.value)
 
   /** Over a whole entity, as a node variable's start is. Never throws into the
     * render: a failure returns its message.

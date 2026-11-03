@@ -288,8 +288,9 @@ instead.
   drops a null property, so `default = null` would read as no default given (ADR 0006). Spell it as
   a field of the `Declaration` that says so, not as an absent `default`. `""` is a different
   question; `core/stage.pkl` already keeps absent and empty apart.
-- **A type, if a variable ever needs one, must be a real one** — a named `ValueType` covering more
-  than string enums, with one answer for where it is checked and one for how a control is derived.
+- **A type, if a variable ever needs one, must be a real one** — the build's `ValueType`
+  (`ValueExpr.scala`), not string enums, with one answer for where it is checked and one for how a
+  control is derived.
   Until then the closed set lives in the Pkl that emits the declaration and its control.
 - **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
   node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a

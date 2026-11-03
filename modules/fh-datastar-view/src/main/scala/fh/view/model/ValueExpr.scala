@@ -87,35 +87,40 @@ final case class ValueExpr(
     * present, a condition, a fetch, or an entity it names. `None` for any other
     * shape, which `validate` refuses.
     */
-  def inputTy: Option[Ty] = (source, steps) match
-    case (Value.Present(_), List(Step.Count)) => Some(Ty.Int)
+  def inputType: Option[ValueType] = (source, steps) match
+    case (Value.Present(_), List(Step.Count)) => Some(ValueType.Int)
     case (_: Value.Cel, _) | (Value.Entity(None, _, _, _), _) | (_, _ :: _) =>
       None
-    case (v, Nil) => Some(Ty.of(v))
+    case (v, Nil) => Some(ValueType.of(v))
 
   /** Its type checked in order: each CEL compiled with `value` declared as the
     * type before it, beside the named inputs `env` types, and what the last
     * step produces.
     */
   def typed(
-      env: List[(String, Ty)]
+      env: List[(String, ValueType)]
   ): Either[ValueExpr.Mistyped, ValueExpr.Typed] =
-    def cel(src: String, value: Option[Ty], keys: List[Transform.CelKey]) =
+    def cel(
+        src: String,
+        value: Option[ValueType],
+        keys: List[Transform.CelKey]
+    ) =
       val k = Transform.CelKey(src, env, value)
       Transform
-        .resultTy(k)
+        .resultType(k)
         .left
         .map(ValueExpr.Mistyped(_, Some(src)))
         .map(ValueExpr.Typed(keys :+ k, _))
     val start = source match
       case Value.Cel(src, _) => cel(src, None, Nil)
-      case v                 => Right(ValueExpr.Typed(Nil, Ty.of(v)))
+      case v                 => Right(ValueExpr.Typed(Nil, ValueType.of(v)))
     steps.foldLeft(start)((acc, step) =>
       acc.flatMap(t =>
         step match
           case Step.Cel(src, _) => cel(src, Some(t.out), t.keys)
           case s                =>
-            Ty.after(s, t.out)
+            ValueType
+              .after(s, t.out)
               .left
               .map(ValueExpr.Mistyped(_))
               .map(o => t.copy(out = o))
@@ -136,13 +141,13 @@ object ValueExpr:
 
   /** [[ValueExpr.typed]]'s answer: the CEL it compiles, in order, and its type.
     */
-  final case class Typed(keys: List[Transform.CelKey], out: Ty)
+  final case class Typed(keys: List[Transform.CelKey], out: ValueType)
 
   /** Why it does not type; `cel` is the CEL source at fault, if one is. */
   final case class Mistyped(message: String, cel: Option[String] = None)
 
-  def env(inputs: Map[String, ValueExpr]): List[(String, Ty)] =
-    inputs.toList.sortBy(_._1).flatMap((n, v) => v.inputTy.map(n -> _))
+  def env(inputs: Map[String, ValueExpr]): List[(String, ValueType)] =
+    inputs.toList.sortBy(_._1).flatMap((n, v) => v.inputType.map(n -> _))
 
   def literal(s: String): ValueExpr = ValueExpr(Value.Literal(Lit.Text(s)))
 
@@ -166,12 +171,12 @@ object ValueExpr:
   * steps. A list is not [[Dyn]]: a series typed as one would turn a build error
   * into error text on a wall panel.
   */
-enum Ty derives CanEqual:
+enum ValueType derives CanEqual:
   case Text, Bool, Int, Real, Dyn, Entity
 
   /** A chart's SVG, which only a raw hole takes. */
   case Markup
-  case List(of: Ty)
+  case List(of: ValueType)
 
   def name: String = this match
     case List(of) => s"list of ${of.name}"
@@ -179,14 +184,14 @@ enum Ty derives CanEqual:
     case Markup   => "markup"
     case other    => other.toString.toLowerCase
 
-object Ty:
+object ValueType:
 
   /** A fetch's answer: `[epochMillis, value]` pairs. */
-  val Series: Ty = List(List(Real))
+  val Series: ValueType = List(List(Real))
 
-  private val numberLike = Set[Ty](Text, Int, Real, Dyn)
+  private val numberLike = Set[ValueType](Text, Int, Real, Dyn)
 
-  def of(l: Lit): Ty = l match
+  def of(l: Lit): ValueType = l match
     case Lit.Text(_)  => Text
     case Lit.Bool(_)  => Bool
     case Lit.Whole(_) => Int
@@ -195,7 +200,7 @@ object Ty:
   /** A source's type; a CEL source's is its compiler's, which
     * [[ValueExpr.typed]] asks.
     */
-  def of(v: Value): Ty = v match
+  def of(v: Value): ValueType = v match
     case Value.Literal(l)                    => of(l)
     case Value.Entity(_, Part.State, _, _)   => Text
     case Value.Entity(_, _: Part.Attr, _, _) => Dyn
@@ -206,8 +211,8 @@ object Ty:
     case Value.Cel(_, _)                     => Dyn
 
   /** What a step other than CEL makes of `in`. */
-  def after(step: Step, in: Ty): Either[String, Ty] =
-    def takes(ok: Boolean, what: String, out: Ty) =
+  def after(step: Step, in: ValueType): Either[String, ValueType] =
+    def takes(ok: Boolean, what: String, out: ValueType) =
       Either.cond(
         ok,
         out,
@@ -229,7 +234,7 @@ object Ty:
     * text, and `dyn` passes either, since an attribute or CEL's `dyn` may be
     * anything.
     */
-  def fits(out: Ty, slotType: SlotType): Boolean = slotType match
+  def fits(out: ValueType, slotType: SlotType): Boolean = slotType match
     case SlotType.Text => numberLike(out) || out == Markup
     case SlotType.Bool => out == Bool || out == Dyn
 

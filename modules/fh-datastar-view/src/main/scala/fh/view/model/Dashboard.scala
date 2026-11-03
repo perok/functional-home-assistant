@@ -1418,7 +1418,7 @@ case class Dashboard(
     // Only a hand-written wire gets here: Pkl writes only these.
     def shapeError(nodeId: String, what: String, v: ValueExpr): List[String] =
       Option
-        .when(v.inputTy.isEmpty)(
+        .when(v.inputType.isEmpty)(
           s"$nodeId: $what is not a literal, a count, the ids present, a " +
             "condition, a fetch or an entity it names"
         )
@@ -1567,7 +1567,7 @@ case class Dashboard(
               List(s"$nodeId: slot '$name' $err")
             case Right(t) if src.constant.isDefined =>
               Option
-                .unless(Ty.fits(t.out, src.`type`))(
+                .unless(ValueType.fits(t.out, src.`type`))(
                   s"$nodeId: slot '$name' holds a ${t.out.name} literal, " +
                     "which a " + (
                       if (src.isBool) "bool slot does not take"
@@ -1576,7 +1576,8 @@ case class Dashboard(
                 )
                 .toList
             case Right(t)
-                if !Ty.fits(t.out, src.`type`) || src.isBool && bareAttr(src) =>
+                if !ValueType
+                  .fits(t.out, src.`type`) || src.isBool && bareAttr(src) =>
               List(
                 if (src.isBool)
                   s"$nodeId: slot '$name' is a boolean slot, but its reading " +
@@ -1776,7 +1777,7 @@ case class Dashboard(
           )
           .toList ++
         Option
-          .when(src.typed.exists(_.out == Ty.Bool))(
+          .when(src.typed.exists(_.out == ValueType.Bool))(
             s"$nodeId: cellStyle '$property' reads a bool, which is no CSS " +
               "value — use cellClassWhen for an on/off look"
           )

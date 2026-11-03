@@ -4,7 +4,7 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
-  Ty,
+  ValueType,
   Activation,
   CardDef,
   Dashboard,
@@ -397,7 +397,7 @@ class RenderBench {
         cparse
       )
     conditionViaCel = Transform
-      .parse(Transform.CelKey("on", List("on" -> Ty.Bool), None))
+      .parse(Transform.CelKey("on", List("on" -> ValueType.Bool), None))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come

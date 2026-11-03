@@ -78,7 +78,7 @@ private[view] object Conditions {
                 states.getOrElse(id, EntityState(id, "", Map.empty))
               )
             )
-          // `validate` refuses any other shape (`ValueExpr.inputTy`).
+          // `validate` refuses any other shape (`ValueExpr.inputType`).
           case _ => ""
         }
         .toMap

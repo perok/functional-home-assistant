@@ -84,9 +84,9 @@ sealed trait Stage extends Step             // the renderer's own steps
 final case class Chart(style: ChartStyle) extends Stage
 case object ThemeClasses extends Stage
 
-enum Ty:                                    // what a source or step produces
+enum ValueType:                                    // what a source or step produces
   case Text, Bool, Int, Real, Dyn, Entity, Markup
-  case List(of: Ty)
+  case List(of: ValueType)
 
 enum SignalBind:                            // an object on the wire, no string to parse
   case Text, Bind, Handler
@@ -200,7 +200,7 @@ shape. A component of a user's own that builds a `Reading` by hand breaks, accep
 - **S6. Compile:** `Planned = Constant | Live`, live pipelines composed once.
 - **S7. CEL reads `value`:** `Value.Cel` and a required `source`, `Part.Whole` with the `fh.Entity`
   struct (held once per state change, not per evaluation), the fixed names gone, `Present` as
-  `list(string)`, `Ty` checked in order through every step, and `Format` named `Simple` beside
+  `list(string)`, `ValueType` checked in order through every step, and `Format` named `Simple` beside
   `Stage`. Pkl gains the source class and `Whole`; the library's CEL is rewritten to `value`. The
   goldens hold apart from signal names.
 - **S8. Docs.**
@@ -297,9 +297,10 @@ names, and are corrected where they did.
   `attrUnit` and the readouts stand; a reading that ends in `Dyn` (a bare `attr(…)`, CEL's
   `value.attr.x`) needs a conversion, CEL's `string(…)` or a simple-tier step, and `bareAttr`
   goes. Attribute types from the dump's `volatileAttrs` would spare most conversions. With it,
-  each `SlotType` names the `Ty` it takes (`enum SlotType(val ty: Ty)`) and `Ty.fits` becomes
-  conformance: the same type, or a number or markup shown as text. List and number slot types
-  wait for a consumer (number: slot-views point 4); `Ty.List(of)` already carries the element.
+  each `SlotType` names the `ValueType` it takes (`enum SlotType(val takes: ValueType)`) and
+  `ValueType.fits` becomes conformance: the same type, or a number or markup shown as text. List
+  and number slot types wait for a consumer (number: slot-views point 4); `ValueType.List(of)`
+  already carries the element.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
 
 ## Checks
