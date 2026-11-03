@@ -113,3 +113,7 @@ jmh-result.*
 # that only fails on CI; see the `sbt` skill. Committing one would silently
 # throttle everyone's build AND every benchmark run.
 .jvmopts
+
+# The agent's working files that must outlive the container (its /tmp does not):
+# open questions, drafts, notes to pick work back up. Never committed.
+.agent/
