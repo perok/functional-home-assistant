@@ -56,23 +56,25 @@ literal, since every candidate has a name at build time. The `string | c.expr(..
 (`label`, `value`, `secondary`, the slider position); `c.expr` is just a
 reading, not field-specific.
 
-## Predicates stay an AST, not an expression
+## Conditions stay data, not an expression
 
-Presence guards, count comparisons and surface conditions (`And/Or/Not/Cmp/
-Count`, `Renderer.matchesIn`) are **not** CEL, although slot values are:
+Presence guards, count comparisons, order terms and surface conditions are **not**
+CEL, although a slot may be. A condition is a bool `ValueExpr` of the simple tier
+(ADR 0028): a read, `Compare`, `Not`, and `AllOf`/`AnyOf` over a `List` of
+conditions or `Count`/`First` over a set's `Present` ids. `Conditions` decides it:
 
-- `matchesIn` reads `state`/`attributes.get(name)` straight off the Scala map —
-  a pattern match, zero conversion.
-- A CEL predicate would bind an activation and run the evaluator per
-  evaluation — strictly more work.
+- It reads `state`/`attributes.get(name)` straight off the Scala map — a pattern
+  match, zero conversion — and stops a list or a count once its answer is settled.
+- A CEL condition would bind an activation and run the evaluator per evaluation —
+  strictly more work.
 
 The ORIGINAL argument was stronger and no longer applies: a query group had no
 reverse index, so an affecting change re-scanned every entity in the house, and
 that was the loop scaling worst (`entities × events/sec`). Candidate sets
 removed the scan (ADR 0003) — presence is evaluated for the candidates a change
-can actually move. So the AST is now kept on the narrower ground above, plus the
-one that matters more: a predicate is DATA the build can fold, dedupe and reason
-about, which is what lets a registry term disappear at build time. An
+can actually move. So the data form is now kept on the narrower ground above,
+plus the one that matters more: a condition is DATA the build can fold, dedupe
+and reason about, which is what lets a registry term disappear at build time. An
 expression string is opaque to all of that.
 
 Expressions stay for slot values, where the set is bounded (only rendered
@@ -94,6 +96,7 @@ applies to every transform.
 - `bypassUnavailable` defaults **true** (value displays stay readable on
   `unavailable` without opting in); identity actions, labels, and the slider
   position opt out in the builders (ADR 0001).
-- The cost model is explicit: a cheap foldable AST for presence and conditions,
-  CEL for displayed values, identity slots memoized, attribute conversion
+- The cost model is explicit: cheap foldable data for presence and conditions
+  (the simple tier, decided by `Conditions`), CEL where a displayed value needs
+  it, identity slots memoized, attribute conversion
   amortized per state version.

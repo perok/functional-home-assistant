@@ -33,7 +33,7 @@ whose member is selected by a **condition** instead of a viewer's choice:
   (inactive surfaces are simply never consulted), not a guard bolted onto the
   patch loop.
 - **`Surface.activation` is a sum**, replacing the flat `defaultOpen` flag:
-  `User(defaultOpen)` | `Var(name)` | `State(condition: Predicate)`. `User` is
+  `User(defaultOpen)` | `Var(name)` | `State(condition: Option[ValueExpr])`. `User` is
   a popup's and never a baked member; `Var` is a tab bar's (ADR 0033). The sum
   makes the invalid combination (a default-open flag AND a condition on one
   member) unrepresentable; a bake group must be mode-homogeneous
@@ -46,18 +46,19 @@ whose member is selected by a **condition** instead of a viewer's choice:
 A state-selected group takes the **first member in `bakeIndex` order whose
 condition holds**; no member holding bakes empty content (the host renders its
 wrapper empty — the same stable morph target). An `else` branch is just the last
-member with an always-true condition — `Predicate.And(Nil)`, vacuously true and
-reading nothing; `else if` is one more member in between (the authoring layer
+member with no condition, which always holds and reads nothing; `else if` is one
+more member in between (the authoring layer
 currently expresses that by nesting an `If` in `else`; a flat `.elseIf` needs no
 wire change).
 
 **The condition is SUBJECT-FREE**, and that is what removed the quantifier. A
-`Predicate` (ADR 0004) normally tests whichever entity supplies its subject — a
-set member, a dynamic case — but a surface supplies none. So every comparison in
-a state condition names its own entity (`Cmp.entity`) and a `Predicate.Count`
-carries its own candidates; `Dashboard.validate` rejects one that does not, with
-a located message. Evaluating a condition is then a handful of lookups
-(`SurfaceGraph.holds` → `matchesIn` against `EntityState.none`, which nothing
+condition (ADR 0004) normally reads whichever entity supplies its subject — a
+set member, a card — but a surface supplies none. So every read in a state
+condition names its own entity (`Value.Entity.of`) and a count carries its own
+candidates (`Value.Present`); `Dashboard.validate` rejects one that does not
+(`ValueExpr.readsMissingSubject`), with a located message. Evaluating a
+condition is then a handful of lookups (`SurfaceGraph.holds` →
+`Conditions.holds` against `EntityState.none`, which nothing
 reads), and the index of what each group reads is exact rather than a
 heuristic: a group's conditions read a known entity set, so a change outside it
 cannot move the selection.

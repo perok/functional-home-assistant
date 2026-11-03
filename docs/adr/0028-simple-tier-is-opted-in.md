@@ -28,10 +28,12 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    `Step.Simple` cases (the fast tier), each an object whose `kind` names it. The form IS the tier
    selection; there is no recognition machinery at all.
 
-   **A condition is a source.** The `Predicate` a `c.iff`, a candidate set's guard or a boolean
-   input takes (`Cmp`, `And`/`Or`/`Not`, `Count`, `First`) is the tier's bool half
-   (`Value.Condition`), so `q.entity(e).stateIs("on")` is decided by `Conditions`, the one
-   interpreter, with no CEL.
+   **A condition is the tier's bool half.** What a `c.iff`, a candidate set's guard, an order term
+   or a boolean input takes is a bool `ValueExpr` of simple steps: a read and `Compare`, `Not`,
+   `AllOf`/`AnyOf` over a `List`, `Count`/`First` over a set's `Present` ids
+   (`ValueExpr.isCondition`). So `q.entity(e).stateIs("on")` is decided by `Conditions`, the one
+   interpreter, with no CEL; `core/predicate.pkl`'s classes (`Cmp`, `PAnd`, …) are how Pkl writes
+   one.
 
    **The library writes no CEL the author did not.** A slot's default reading is the state, an
    attribute with its unit is the attribute and a `WithUnit` step, a boolean input's condition is

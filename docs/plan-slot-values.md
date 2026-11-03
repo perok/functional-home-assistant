@@ -2,7 +2,8 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** part A (S1–S8) built on #658. Part B agreed on 2026-11-03, built on `slot-conditions`.
+**State:** part A (S1–S8) built on #658. Part B (B1–B4) built on `slot-conditions` (#666);
+left: the starter's Pkl evaluation time, and deleting this plan, the maintainer's call.
 
 ## Why
 
