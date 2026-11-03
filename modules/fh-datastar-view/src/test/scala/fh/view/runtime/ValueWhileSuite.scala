@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.history.Windows
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
@@ -21,9 +23,8 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   // A comparison that names no entity reads the card's subject.
-  private def above0(entity: Option[String]) = ValueExpr(
-    Value.Condition(Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity))
-  )
+  private def above0(entity: Option[String]) =
+    Conds.cmp("state", Op.Gt, Json.fromInt(0), entity)
 
   // The peak of the history: what the bar's whole reads.
   private def peak(valueWhile: Option[ValueExpr]) = TemplateSlot(
@@ -122,7 +123,7 @@ class ValueWhileSuite extends munit.FunSuite {
         )
       )
     )
-    val on = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    val on = Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
     def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
     val d = Dashboard(
       cards = Map("chart" -> CardDef("<div>{{chart}}</div>")),

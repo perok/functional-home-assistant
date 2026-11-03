@@ -28,12 +28,12 @@ import fh.view.model.{
   DomId,
   NodeId,
   Permission,
-  Predicate,
   SignalId,
   SlotRead,
   TapCall,
   ThemeClasses,
-  Transform
+  Transform,
+  Value
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -296,14 +296,14 @@ class Server(
     )
 
   /** A set's candidates present in the store now, the same rule a label's count
-    * of it reads (`Conditions.present`); `None` when none is. Only ever a
+    * of it reads (`Conditions.presentOf`); `None` when none is. Only ever a
     * subset of the candidates fixed at build, so a press reaches nothing the
     * dashboard does not name.
     */
   private def targetAtPress(reach: CallReach): IO[Option[ServiceTarget]] =
     reach match {
-      case t: ServiceTarget   => IO.pure(Some(t))
-      case t: Predicate.Tally =>
+      case t: ServiceTarget => IO.pure(Some(t))
+      case t: Value.Present =>
         stateStore.snapshot.map(states =>
           NonEmptyList
             .fromList(Conditions.presentOf(t, states))

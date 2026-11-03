@@ -601,11 +601,6 @@
           "inlineSurfaces" : {
             "else" : {
               "activation" : {
-                "condition" : {
-                  "items" : [
-                  ],
-                  "kind" : "And"
-                },
                 "kind" : "State"
               },
               "bakeAs" : "branch",
@@ -986,11 +981,17 @@
             "then" : {
               "activation" : {
                 "condition" : {
-                  "entity" : "light.kitchen",
-                  "kind" : "Cmp",
-                  "op" : "eq",
-                  "property" : "state",
-                  "value" : "on"
+                  "source" : {
+                    "kind" : "Entity",
+                    "of" : "light.kitchen"
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Compare",
+                      "op" : "eq",
+                      "to" : "on"
+                    }
+                  ]
                 },
                 "kind" : "State"
               },

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
@@ -13,7 +15,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
   SignalBind,
   Step,
@@ -82,12 +83,12 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   )
 
-  private val anyLightOn: Predicate =
-    Predicate.Count(
+  private val anyLightOn: ValueExpr =
+    Conds.count(
       candidates = List("light.a", "light.b"),
       when = Map(
-        "light.a" -> Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
-        "light.b" -> Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+        "light.a" -> Conds.cmp("state", Op.Eq, Json.fromString("on")),
+        "light.b" -> Conds.cmp("state", Op.Eq, Json.fromString("on"))
       ),
       op = Op.Gt,
       value = Json.fromInt(0)
@@ -123,7 +124,7 @@ class RenderInputsSuite extends munit.FunSuite {
           id -> LayoutNode.SetMember(
             List(
               LayoutNode.SetClause(
-                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "btn",
                   Map(
@@ -167,14 +168,14 @@ class RenderInputsSuite extends munit.FunSuite {
         bakeInto = Some("c_2"),
         bakeAs = Some("branch"),
         bakeIndex = Some(0),
-        activation = Activation.State(anyLightOn)
+        activation = Activation.State(Some(anyLightOn))
       ),
       "dark" -> Surface(
         bound("sensor.b"),
         bakeInto = Some("c_2"),
         bakeAs = Some("branch"),
         bakeIndex = Some(1),
-        activation = Activation.State(Predicate.And(Nil))
+        activation = Activation.State()
       )
     )
   )

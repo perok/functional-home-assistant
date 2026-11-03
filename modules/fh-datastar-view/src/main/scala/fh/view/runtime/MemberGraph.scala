@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, Predicate, SetId}
+import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId, ValueExpr}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -189,7 +189,7 @@ private[runtime] final class MemberGraph(
             .toList
             .flatMap(_.clauses)
             .flatMap(_.when.toList)
-            .flatMap(Predicate.referencedEntities)
+            .flatMap(_.entities)
           (cid :: named).distinct.map(_ -> cid)
         }
         .groupMap(_._1)(_._2)
@@ -246,7 +246,7 @@ private[runtime] final class MemberGraph(
       * shape.
       */
     private val clauses
-        : Map[String, List[(Option[Predicate], Option[Member])]] =
+        : Map[String, List[(Option[ValueExpr], Option[Member])]] =
       src.s.members.map { case (e, m) =>
         e -> m.clauses.zipWithIndex.map { case (c, i) =>
           c.when -> (c.node match {
@@ -272,7 +272,7 @@ private[runtime] final class MemberGraph(
       clauses
         .get(entityId)
         .flatMap(
-          _.find(_._1.forall(Conditions.matchesIn(_, subject, states)))
+          _.find(_._1.forall(Conditions.holds(_, subject, states)))
         )
         .flatMap(_._2)
     }
@@ -647,7 +647,7 @@ private[runtime] object MemberGraph {
     term.by match {
       case LayoutNode.SortKey.Holds(p) =>
         def holds(id: String) =
-          states.get(id).exists(st => Conditions.matchesIn(p, st, states))
+          states.get(id).exists(st => Conditions.holds(p, st, states))
         directed(java.lang.Boolean.compare(holds(b), holds(a)))
       case LayoutNode.SortKey.Prop(property) =>
         def read(id: String) =

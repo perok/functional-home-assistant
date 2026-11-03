@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.*
 import io.circe.Json
@@ -19,7 +21,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     `type` = if (bool) SlotType.Bool else SlotType.Text
   )
 
-  private def condition(p: Predicate) = ValueExpr(Value.Condition(p))
+  private def condition(p: ValueExpr) = p
 
   private def reading(
       of: Option[String],
@@ -43,7 +45,7 @@ class SimpleReadsSuite extends munit.FunSuite {
   )
 
   private val doorOpen =
-    Predicate.Cmp(
+    Conds.cmp(
       "state",
       Op.Eq,
       Json.fromString("on"),
@@ -82,7 +84,7 @@ class SimpleReadsSuite extends munit.FunSuite {
 
   test("a condition naming no entity reads the card's subject") {
     val d = dashboard(
-      slot(condition(Predicate.Cmp("state", Op.Gt, Json.fromInt(0))), true)
+      slot(condition(Conds.cmp("state", Op.Gt, Json.fromInt(0))), true)
     )
     assertEquals(d.validate(), Nil)
     assertEquals(value(d, states("on")), List[SlotValue](true))
@@ -163,7 +165,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       reading(None)(),
       reading(Some("sensor.b"))(),
       condition(doorOpen),
-      condition(doorOpen.copy(entity = None))
+      condition(Conds.cmp("state", Op.Eq, Json.fromString("on")))
     ).map(named)
     assertEquals(names.distinct.size, names.size, clue = names)
   }
@@ -184,7 +186,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     )
     val free = dashboard(
       slot(
-        condition(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+        condition(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
         true
       ),
       subject = false
@@ -204,9 +206,9 @@ class SimpleReadsSuite extends munit.FunSuite {
   test("the wire carries a condition and a named read as a source") {
     assertEquals(
       decode[ValueExpr](
-        """{"source": {"kind": "Condition", "predicate": {"kind": "Cmp", "property": "state", "op": "eq", "value": "on", "entity": "binary_sensor.door"}}}"""
-      ).map(_.source),
-      Right(Value.Condition(doorOpen))
+        """{"source": {"kind": "Entity", "of": "binary_sensor.door"}, "steps": [{"kind": "Compare", "op": "eq", "to": "on"}]}"""
+      ),
+      Right(doorOpen)
     )
     assertEquals(
       decode[ValueExpr](

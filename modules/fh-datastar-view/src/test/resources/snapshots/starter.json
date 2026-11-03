@@ -201,10 +201,16 @@
                     ]
                   },
                   "when" : {
-                    "kind" : "Cmp",
-                    "op" : "eq",
-                    "property" : "state",
-                    "value" : "on"
+                    "source" : {
+                      "kind" : "Entity"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "eq",
+                        "to" : "on"
+                      }
+                    ]
                   }
                 },
                 {
@@ -476,10 +482,16 @@
                     ]
                   },
                   "when" : {
-                    "kind" : "Cmp",
-                    "op" : "eq",
-                    "property" : "state",
-                    "value" : "on"
+                    "source" : {
+                      "kind" : "Entity"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "eq",
+                        "to" : "on"
+                      }
+                    ]
                   }
                 },
                 {

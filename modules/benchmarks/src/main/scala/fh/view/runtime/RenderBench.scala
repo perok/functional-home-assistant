@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
+import fh.view.testkit.Conds
 
 import fh.view.model.{
   ValueType,
@@ -11,7 +12,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
   SignalBind,
   SignalId,
@@ -289,9 +289,9 @@ class RenderBench {
   // A boolean input's condition, as CEL reading it through a named value.
   private var conditionViaCel: Transform.Compiled = null
   private lazy val isOn =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
   private lazy val isOnValue = Map(
-    "on" -> ValueExpr(Value.Condition(isOn))
+    "on" -> isOn
   )
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
@@ -690,7 +690,7 @@ class RenderBench {
   def condition(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Conditions.matchesIn(isOn, st(entityId(i)), st))
+      bh.consume(Conditions.holds(isOn, st(entityId(i)), st))
       i += 1
     }
   }
@@ -1970,20 +1970,18 @@ object RenderBench {
         "then" -> branchSurface(
           tree(FlipLeaves, 4, signals),
           0,
-          Predicate.Cmp(
-            "state",
-            Op.Eq,
-            Json.fromString("armed"),
-            entity = Some(FlipEntity)
+          Some(
+            Conds.cmp(
+              "state",
+              Op.Eq,
+              Json.fromString("armed"),
+              entity = Some(FlipEntity)
+            )
           )
         ),
-        // An empty conjunction is vacuously true and reads no entity, which is
-        // what an `else` branch is.
-        "else" -> branchSurface(
-          tree(FlipLeaves, 4, signals),
-          1,
-          Predicate.And(Nil)
-        )
+        // No condition always holds and reads no entity, which is what an
+        // `else` branch is.
+        "else" -> branchSurface(tree(FlipLeaves, 4, signals), 1, None)
       )
     )
 
@@ -1995,7 +1993,7 @@ object RenderBench {
   private def branchSurface(
       content: LayoutNode,
       index: Int,
-      condition: Predicate
+      condition: Option[ValueExpr]
   ): Surface =
     Surface(
       content,
@@ -2076,7 +2074,7 @@ object RenderBench {
                 List(
                   LayoutNode.SetClause(
                     when = Some(
-                      Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+                      Conds.cmp("state", Op.Eq, Json.fromString("on"))
                     ),
                     node = tile(i)
                   ),
@@ -2155,7 +2153,12 @@ object RenderBench {
       )
     )
     val members = Renderer.create(bare).members
-    def branch(host: NodeId, at: Int, content: LayoutNode, when: Predicate) =
+    def branch(
+        host: NodeId,
+        at: Int,
+        content: LayoutNode,
+        when: Option[ValueExpr]
+    ) =
       Surface(
         content,
         bakeInto = Some(host),
@@ -2175,16 +2178,16 @@ object RenderBench {
               case MemberKey.Surface(s) =>
                 sys.error(s"not an entity member: $s")
             }
-            val open = Predicate.Cmp(
+            val open = Conds.cmp(
               "state",
               Op.Eq,
               Json.fromString("on"),
               entity = Some(windowId(i))
             )
             List(
-              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), open),
+              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), Some(open)),
               s"${host}_k0_else" ->
-                branch(host, 1, LayoutNode.Component("col"), Predicate.And(Nil))
+                branch(host, 1, LayoutNode.Component("col"), None)
             )
         }
         .flatten

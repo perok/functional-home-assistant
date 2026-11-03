@@ -1,6 +1,8 @@
 package fh.view.runtime
 
-import fh.view.model.{Lit, Op, Part, Predicate, Step, Value, ValueExpr}
+import fh.view.testkit.Conds
+
+import fh.view.model.{Op, Step, Value, ValueExpr}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
@@ -15,7 +17,7 @@ class ConditionsSuite extends munit.FunSuite {
       op: Op,
       value: Json,
       entity: Option[String] = None
-  ) = Predicate.Cmp(property, op, value, entity)
+  ) = Conds.cmp(property, op, value, entity)
 
   private def isOn(entity: String) =
     cmp("state", Op.Eq, Json.fromString("on"), Some(entity))
@@ -23,49 +25,29 @@ class ConditionsSuite extends munit.FunSuite {
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
 
-  test("comparisons read domain, state and attributes off the subject") {
-    val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
-    assert(
-      Conditions.matches(cmp("domain", Op.Eq, Json.fromString("sensor")), s)
-    )
-    assert(
-      !Conditions.matches(cmp("domain", Op.Eq, Json.fromString("light")), s)
-    )
-    assert(Conditions.matches(cmp("attr:battery", Op.Lt, Json.fromInt(20)), s))
-    assert(
-      !Conditions.matches(cmp("attr:battery", Op.Gte, Json.fromInt(20)), s)
-    )
-    assert(Conditions.matches(cmp("state", Op.Lte, Json.fromInt(18)), s))
-  }
+  private def matches(p: ValueExpr, st: EntityState) =
+    Conditions.holds(p, st, Map.empty)
 
-  test("the entity_id property compares the entity's own id") {
-    val s = st("light.a", "on")
-    assert(
-      Conditions.matches(cmp("entity_id", Op.Eq, Json.fromString("light.a")), s)
-    )
-    assert(
-      !Conditions.matches(
-        cmp("entity_id", Op.Eq, Json.fromString("light.b")),
-        s
-      )
-    )
+  test("comparisons read state and attributes off the subject") {
+    val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
+    assert(matches(cmp("attr:battery", Op.Lt, Json.fromInt(20)), s))
+    assert(!matches(cmp("attr:battery", Op.Gte, Json.fromInt(20)), s))
+    assert(matches(cmp("state", Op.Lte, Json.fromInt(18)), s))
   }
 
   test("and / or / not combine") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
-    val both = Predicate.And(
+    val both = Conds.and(
       List(
-        cmp("domain", Op.Eq, Json.fromString("sensor")),
+        cmp("state", Op.Eq, Json.fromString("18")),
         cmp("attr:battery", Op.Lt, Json.fromInt(20))
       )
     )
-    assert(Conditions.matches(both, s))
-    assert(Conditions.matches(Predicate.Not(both), st("light.x", "18")))
+    assert(matches(both, s))
+    assert(matches(Conds.not(both), st("light.x", "18")))
     assert(
-      Conditions.matches(
-        Predicate.Or(
-          List(cmp("domain", Op.Eq, Json.fromString("light")), both)
-        ),
+      matches(
+        Conds.or(List(cmp("state", Op.Eq, Json.fromString("19")), both)),
         s
       )
     )
@@ -75,22 +57,22 @@ class ConditionsSuite extends munit.FunSuite {
     // Not a total order: `Lt` and `Gt` are both false here, which a caller
     // assuming trichotomy would get wrong.
     val s = st("sensor.x", "warm")
-    assert(!Conditions.matches(cmp("state", Op.Lt, Json.fromInt(20)), s))
-    assert(!Conditions.matches(cmp("state", Op.Gt, Json.fromInt(20)), s))
+    assert(!matches(cmp("state", Op.Lt, Json.fromInt(20)), s))
+    assert(!matches(cmp("state", Op.Gt, Json.fromInt(20)), s))
     // Equality compares the raw strings.
-    assert(Conditions.matches(cmp("state", Op.Eq, Json.fromString("warm")), s))
-    assert(Conditions.matches(cmp("state", Op.Ne, Json.fromInt(20)), s))
+    assert(matches(cmp("state", Op.Eq, Json.fromString("warm")), s))
+    assert(matches(cmp("state", Op.Ne, Json.fromInt(20)), s))
   }
 
   test("numbers compare numerically, not lexicographically") {
     val s = st("sensor.x", "9")
-    assert(Conditions.matches(cmp("state", Op.Lt, Json.fromInt(10)), s))
+    assert(matches(cmp("state", Op.Lt, Json.fromInt(10)), s))
   }
 
   test("a guard may name a DIFFERENT entity than its subject") {
     val states = snapshot(st("light.a", "off"), st("binary_sensor.hall", "on"))
     assert(
-      Conditions.matchesIn(
+      Conditions.holds(
         isOn("binary_sensor.hall"),
         states("light.a"),
         states
@@ -105,7 +87,7 @@ class ConditionsSuite extends munit.FunSuite {
     // about it.
     val subject = st("light.a", "on")
     assertEquals(
-      Conditions.matchesIn(isOn("light.ghost"), subject, snapshot(subject)),
+      Conditions.holds(isOn("light.ghost"), subject, snapshot(subject)),
       false
     )
   }
@@ -113,7 +95,7 @@ class ConditionsSuite extends munit.FunSuite {
   test("matches without a snapshot treats a cross-entity guard as false") {
     // The single-state form cannot resolve one, so it declines rather than fall
     // through to the subject.
-    assert(!Conditions.matches(isOn("binary_sensor.hall"), st("light.a", "on")))
+    assert(!matches(isOn("binary_sensor.hall"), st("light.a", "on")))
   }
 
   test(
@@ -122,18 +104,18 @@ class ConditionsSuite extends munit.FunSuite {
     // The unguarded candidate counts though the snapshot has never seen it, as
     // an unguarded set clause does.
     val states = snapshot(st("light.a", "on"), st("light.b", "off"))
-    val count = Predicate.Count(
+    val count = Conds.count(
       candidates = List("light.a", "light.b", "light.unknown"),
       when = Map("light.a" -> isOn("light.a"), "light.b" -> isOn("light.b")),
       op = Op.Eq,
       value = Json.fromInt(2)
     )
-    assert(Conditions.matchesIn(count, EntityState.none, states), clue = states)
+    assert(Conditions.holds(count, EntityState.none, states), clue = states)
   }
 
   test("a guarded candidate the snapshot lacks does not count") {
     val states = snapshot(st("light.a", "on"))
-    val count = Predicate.Count(
+    val count = Conds.count(
       candidates = List("light.a", "light.gone"),
       when = Map(
         "light.a" -> isOn("light.a"),
@@ -142,7 +124,7 @@ class ConditionsSuite extends munit.FunSuite {
       op = Op.Eq,
       value = Json.fromInt(1)
     )
-    assert(Conditions.matchesIn(count, EntityState.none, states))
+    assert(Conditions.holds(count, EntityState.none, states))
   }
 
   test(
@@ -156,32 +138,10 @@ class ConditionsSuite extends munit.FunSuite {
     assertEquals(Conditions.propertyOf("attr:nope", s), "")
   }
 
-  // A bool `ValueExpr` (plan Part B), decided by `holds`.
-
-  private def lit(j: Json): Lit = j.as[Lit].fold(e => fail(e.message), identity)
-
-  /** What Part B's builders will emit for a predicate without a count. */
-  private def asValue(p: Predicate): ValueExpr = p match
-    case Predicate.Cmp(property, op, value, entity) =>
-      val part =
-        if (property == "state") Part.State
-        else Part.Attr(property.stripPrefix("attr:"))
-      ValueExpr(
-        Value.Entity(entity, part),
-        List(Step.Compare(op, Value.Literal(lit(value))))
-      )
-    case Predicate.And(xs) =>
-      ValueExpr(Value.List(xs.map(asValue)), List(Step.AllOf))
-    case Predicate.Or(xs) =>
-      ValueExpr(Value.List(xs.map(asValue)), List(Step.AnyOf))
-    case Predicate.Not(x) =>
-      asValue(x).copy(steps = asValue(x).steps :+ Step.Not)
-    case other => fail(s"no value form for $other")
-
-  test("a bool value decides as the predicate it replaces, over a sweep") {
+  test("a condition decides as the rule says, over a sweep") {
     // Equality as text (`21.0` is not `21`), ordering numeric or false, a
     // missing attribute empty, an entity the snapshot lacks false, and
-    // and/or/not over all of them.
+    // and/or/not over all of them. The oracle is the rule itself.
     val subject =
       st(
         "sensor.x",
@@ -204,27 +164,62 @@ class ConditionsSuite extends munit.FunSuite {
       op <- Op.values.toList
       value <- values
       entity <- List(None, Some("binary_sensor.hall"), Some("light.ghost"))
-    } yield cmp(property, op, value, entity)
+    } yield cmp(property, op, value, entity) -> entity
+      .fold(Some(subject))(states.get)
+      .exists(at =>
+        Conditions.compare(
+          Conditions.propertyOf(property, at),
+          StateStore.jsonToString(value),
+          op
+        )
+      )
     val pairs = cmps.zip(cmps.drop(7) ++ cmps.take(7))
-    val trees = cmps ++ cmps.map(Predicate.Not(_)) ++ pairs.flatMap((a, b) =>
-      List(
-        Predicate.And(List(a, b)),
-        Predicate.Or(List(a, Predicate.Not(b)))
-      )
-    ) :+ Predicate.And(Nil) :+ Predicate.Or(Nil)
-    trees.foreach(p =>
-      assertEquals(
-        Conditions.holds(asValue(p), subject, states),
-        Conditions.matchesIn(p, subject, states),
-        clue = p
-      )
+    val trees = cmps ++ cmps.map((c, o) => Conds.not(c) -> !o) ++
+      pairs.flatMap { case ((a, oa), (b, ob)) =>
+        List(
+          Conds.and(List(a, b)) -> (oa && ob),
+          Conds.or(List(a, Conds.not(b))) -> (oa || !ob)
+        )
+      } :+ (Conds.and(Nil) -> true) :+ (Conds.or(Nil) -> false)
+    trees.foreach((c, expected) =>
+      assertEquals(Conditions.holds(c, subject, states), expected, clue = c)
     )
+  }
+
+  test(
+    "a count stopped early answers as the full count, for every op and mix"
+  ) {
+    // `> 0` settles at the first present candidate, `== length` at the first
+    // absent; every other op settles somewhere between.
+    val on = st("light.on", "on")
+    val states = snapshot(on)
+    for {
+      size <- 0 to 4
+      mask <- 0 until (1 << size)
+      ids = (0 until size).toList.map(i =>
+        if ((mask >> i & 1) == 1) "light.on" else s"light.off$i"
+      )
+      guards = ids.map(id => id -> isOn(id)).toMap
+      op <- Op.values.toList
+      n <- -1 to size + 1
+    } {
+      val full = Conditions.present(Value.Present(ids, guards), states)
+      assertEquals(
+        Conditions.holds(
+          Conds.count(ids, guards, op, Json.fromInt(n)),
+          EntityState.none,
+          states
+        ),
+        Conditions.compare(full.toString, n.toString, op),
+        clue = (ids, op, n)
+      )
+    }
   }
 
   test("a list's AllOf, AnyOf and Count, empty lists included") {
     val s = st("light.a", "on")
-    val off = asValue(isOn("light.missing"))
-    val on = asValue(isOn("light.a"))
+    val off = (isOn("light.missing"))
+    val on = (isOn("light.a"))
     def of(step: Step, items: ValueExpr*) =
       ValueExpr(Value.List(items.toList), List(step))
     assert(!Conditions.holds(of(Step.AllOf, off, on), s, snapshot(s)))

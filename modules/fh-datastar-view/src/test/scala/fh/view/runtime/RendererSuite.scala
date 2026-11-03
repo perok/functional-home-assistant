@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
@@ -12,7 +14,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Reads,
   Region,
   SetId,
@@ -132,7 +133,7 @@ class RendererSuite extends munit.FunSuite {
   private def onSet(
       candidates: List[String],
       clauses: List[
-        (Option[Predicate], String, Map[String, TemplateSlot], Option[Cell])
+        (Option[ValueExpr], String, Map[String, TemplateSlot], Option[Cell])
       ],
       guardOn: Boolean = true
   ): LayoutNode.SetNode =
@@ -141,12 +142,12 @@ class RendererSuite extends munit.FunSuite {
       members = candidates.map { id =>
         id -> LayoutNode.SetMember(clauses.map {
           case (extra, card, slots, cl) =>
-            val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+            val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
             LayoutNode.SetClause(
               when = (if (guardOn) List(on) else Nil) ++ extra.toList match {
                 case Nil      => None
                 case g :: Nil => Some(g)
-                case gs       => Some(Predicate.And(gs))
+                case gs       => Some(Conds.and(gs))
               },
               node = LayoutNode.Component(
                 card,
@@ -678,7 +679,7 @@ class RendererSuite extends munit.FunSuite {
 
   test("a set dispatches per clause and wraps each member on its own") {
     // The first clause whose guard holds decides the rendering.
-    def low = Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
+    def low = Conds.cmp("attr:battery", Op.Lt, Json.fromInt(20))
     val set = LayoutNode.SetNode(
       candidates = List("light.a", "sensor.b", "sensor.c"),
       members = Map(
@@ -1548,10 +1549,10 @@ class RendererSuite extends munit.FunSuite {
 
   // An empty conjunction is vacuously true and reads no entity, so an `else`
   // needs no special casing.
-  private val always: Predicate = Predicate.And(Nil)
+  private val always: ValueExpr = Conds.and(Nil)
 
-  private def entityIs(id: String, state: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
+  private def entityIs(id: String, state: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   private val ifCards =
     // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
@@ -1576,7 +1577,7 @@ class RendererSuite extends munit.FunSuite {
         bakeInto = Some("c"),
         bakeAs = Some("branch"),
         bakeIndex = Some(0),
-        activation = Activation.State(entityIs("alarm.h", "armed"))
+        activation = Activation.State(Some(entityIs("alarm.h", "armed")))
       )
     ) ++ (if (withElse)
             Map(
@@ -1585,7 +1586,7 @@ class RendererSuite extends munit.FunSuite {
                 bakeInto = Some("c"),
                 bakeAs = Some("branch"),
                 bakeIndex = Some(1),
-                activation = Activation.State(always)
+                activation = Activation.State(Some(always))
               )
             )
           else Map.empty)
@@ -1633,8 +1634,8 @@ class RendererSuite extends munit.FunSuite {
   // `any`/`none`/`all` as counts over a named set, not every entity in the
   // house.
   test("a state condition counts a named set: any/none/all as comparisons") {
-    val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-    def dash(cond: Predicate) = Dashboard(
+    val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
+    def dash(cond: ValueExpr) = Dashboard(
       ifCards,
       LayoutNode.Component("ifhost"),
       surfaces = Map(
@@ -1643,11 +1644,11 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(cond)
+          activation = Activation.State(Some(cond))
         )
       )
     )
-    def count(op: Op, n: Int) = Predicate.Count(
+    def count(op: Op, n: Int) = Conds.count(
       candidates = List("l.a", "l.b"),
       when = Map("l.a" -> on, "l.b" -> on),
       op = op,
@@ -1835,14 +1836,14 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("s_t0__c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(always)
+          activation = Activation.State(Some(always))
         ),
         "sx" -> Surface(
           LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
           bakeInto = Some("c_1"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(always)
+          activation = Activation.State(Some(always))
         ),
         "u0" -> Surface(
           LayoutNode.Component(
@@ -1879,7 +1880,7 @@ class RendererSuite extends munit.FunSuite {
         List("s.b", "s.c"),
         List(
           (
-            Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
+            Some(Conds.cmp("attr:battery", Op.Lt, Json.fromInt(20))),
             "card",
             Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None)))),
             None

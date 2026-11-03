@@ -1665,7 +1665,10 @@ class Renderer(validated: Dashboard.Validated) {
   private def compose(
       source: BoundSlot,
       programs: List[Transform.Compiled]
-  ): Run = {
+  ): Run = if (source.expr.isCondition) {
+    val e = source.expr
+    (st, states, _) => Conditions.eval(e, st, states)
+  } else {
     val cels = programs.iterator
     def inputs(
         states: Map[String, EntityState],
@@ -1675,13 +1678,11 @@ class Renderer(validated: Dashboard.Validated) {
     val read: Run = source.expr.source match
       case Value.Entity(_, part, _, _) =>
         (st, _, _) => Transform.read(part, st)
-      case Value.Condition(p) =>
-        (st, states, _) => Conditions.matchesIn(p, st, states)
       case Value.Literal(l) =>
         val v = l.raw
         (_, _, _) => v
-      case Value.Present(t) =>
-        (_, states, _) => Conditions.presentOf(t, states)
+      case p: Value.Present =>
+        (_, states, _) => Conditions.presentOf(p, states)
       case l: Value.List =>
         val items = ValueExpr(l)
         (st, states, _) => Conditions.eval(items, st, states)
@@ -1722,7 +1723,8 @@ class Renderer(validated: Dashboard.Validated) {
                   a(st, states),
                   b(st, states)
                 )
-        case _: Step.Stage => prev
+        // Only in a condition, which is planned whole above.
+        case _: Step.Stage | _: Step.First => prev
     }
   }
 
@@ -1742,8 +1744,6 @@ class Renderer(validated: Dashboard.Validated) {
             part,
             states.getOrElse(id, EntityState(id, "", Map.empty))
           )
-      case Value.Condition(p) =>
-        (st, states) => Conditions.matchesIn(p, st, states)
       case _ => (_, _) => ""
 
   private def withheld(

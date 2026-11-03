@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.std.Supervisor
@@ -9,7 +11,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Value,
   ValueExpr,
   TemplateSlot,
@@ -247,7 +248,7 @@ class ResumeSuite extends ServerHarness {
           "light.a" -> LayoutNode.SetMember(
             List(
               LayoutNode.SetClause(
-                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "pill",
                   Map(

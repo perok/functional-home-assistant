@@ -103,7 +103,7 @@ hidden tabs: Tabs = new Tabs {}
 /// window chooser's is, so the declaration and its writers cannot drift.
 const tabVar: varMod.Variable = new { name = "tab" }
 
-const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivation =
+const local function stateActivation(p: pred.Predicate?): surfaceMod.StateActivation =
   new { condition = p }
 
 /// A conditional section: `then` while `condition` holds, the optional `else`
@@ -151,7 +151,7 @@ class If extends nodes.Node {
         bakeIndex = 1
         activation =
           if (condition is varMod.ValueIs) condition.variable.selectingAnyOther
-          else stateActivation(pred.alwaysHolds)
+          else stateActivation(null)
       }
     }
   }

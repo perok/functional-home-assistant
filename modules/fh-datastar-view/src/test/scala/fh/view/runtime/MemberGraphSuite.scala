@@ -1,11 +1,12 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.model.{
   LayoutNode,
   MemberId,
   NodeId,
   Op,
-  Predicate,
   SetId,
   Value,
   ValueExpr,
@@ -27,12 +28,12 @@ class MemberGraphSuite extends munit.FunSuite {
 
   private def clause(
       e: String,
-      when: Option[Predicate] = None,
+      when: Option[ValueExpr] = None,
       as: String = "entity"
   ): LayoutNode.SetClause = LayoutNode.SetClause(when, card(e, as))
 
-  private def isOn(e: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(e))
+  private def isOn(e: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
   private def set(
       candidates: List[String],

@@ -116,6 +116,50 @@ class ValueExprSuite extends munit.FunSuite {
     )
   }
 
+  test("a set's guards and order terms must decide: a bool, without CEL") {
+    def present(guard: ValueExpr, steps: Step*) = ValueExpr(
+      Value.Present(List("a.a"), Map("a.a" -> guard)),
+      steps.toList
+    )
+    assertEquals(
+      typeOf(present(isOn("a.a"), Step.Count)),
+      Right(ValueType.Int)
+    )
+    assertEquals(
+      typeOf(present(ValueExpr(state("a.a")), Step.Count)),
+      Left("the guard on 'a.a': a condition is a bool, not text")
+    )
+    assertEquals(
+      typeOf(present(ValueExpr(Value.Cel("true")), Step.Count)),
+      Left("the guard on 'a.a': a condition is read without CEL")
+    )
+    val byCel = LayoutNode.SortTerm(
+      LayoutNode.SortKey.Holds(ValueExpr(Value.Cel("true")))
+    )
+    assertEquals(
+      typeOf(present(isOn("a.a"), Step.First(List(byCel)))),
+      Left("a condition is read without CEL")
+    )
+  }
+
+  test("a first step comes straight after a set's ids, and gives one") {
+    val ids = Value.Present(List("a.a", "a.b"))
+    assertEquals(
+      typeOf(ValueExpr(ids, List(Step.First()))),
+      Right(ValueType.Text)
+    )
+    val misplaced =
+      "a first step comes straight after a set's present candidates"
+    assertEquals(
+      typeOf(ValueExpr(Value.List(List(isOn("a.a"))), List(Step.First()))),
+      Left(misplaced)
+    )
+    assertEquals(
+      typeOf(ValueExpr(ids, List(Step.Count, Step.First()))),
+      Left(misplaced)
+    )
+  }
+
   test("the renderer's fold runs the new steps as the condition reader does") {
     def run(s: Step.Simple, v: Any, a: Any = null) =
       Transform.formatWith(s, v, a, null)

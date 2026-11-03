@@ -232,6 +232,8 @@ enum Value:
 case object Count                           // a list → Int
 case object AllOf                           // a list of bools → Bool, stops at the first false
 case object AnyOf                           // a list of bools → Bool, stops at the first true
+
+// Not simple: it reads every candidate's state, so only straight after a Present
 case class First(orderBy: List[SortTerm])   // a Present list → the leader's id, "" when none
 
 // Simple steps on a value
@@ -262,9 +264,20 @@ Activation.State(condition: Option[ValueExpr] = None)
   candidate at build time (`ReadyReg`) and refuses a registry order key before a live one, so only
   `state` and `attr:<name>` reach it, `Part.State` and `Part.Attr`. `Conditions.propertyOf`'s
   string switch, and its `domain`/`entity_id` cases, go.
-- **`Compare` keeps today's rules:** equality as text; ordering numeric when both sides parse, else
-  false. Strict `Dyn` (Not in this plan) is independent: a condition ends in a bool, never in
-  `Dyn`, so it follows B as its own PR.
+- **`Compare` keeps today's rules:** equality as text, an attribute as its JSON text (`21.0` is not
+  `21`); ordering numeric when both sides parse, else false. A comparison over an entity the store
+  lacks is false, the subject's included, where an absent subject used to read as empty. Strict
+  `Dyn` (Not in this plan) is independent: a condition ends in a bool, never in `Dyn`, so it
+  follows B as its own PR.
+- **A condition is `ValueExpr.isCondition`:** no CEL, and a step only a condition runs (`AllOf`,
+  `AnyOf`, `Compare`, `Not`, `First`). The renderer plans one whole as `Conditions.eval`, which
+  reads attributes as conditions always have; `validate` holds every clause, state surface,
+  guard and order term to a bool without CEL (`ValueExpr.conditionError`).
+- **Pkl keeps its classes:** `core/predicate.pkl`'s `Cmp`, `PAnd`, `POr`, `PNot`, `Count`, `First`
+  stay the author's types and methods, their fields hidden, and each writes the reading: `source`
+  and `steps` of `slot.pkl`'s value classes and `simple.pkl`'s steps. `Tally` IS the `Present`
+  source; `ConditionRead` and `PresentRead` are gone. A settled condition is `PConst`, a literal
+  bool.
 - **Order terms:** `by` is evaluated per member; a bool key sorts true first under `asc` (today's
   `Holds`), any other today's `Prop` rule (no value last, numeric when both parse, else text). A
   set node's `orderBy` and `First`'s are the same type, compared by the same code. `First` stays
@@ -272,8 +285,8 @@ Activation.State(condition: Option[ValueExpr] = None)
 - **The evaluator** is `Conditions`, a direct match: no CEL, no per-candidate `about`, no
   intermediate list (`List |> AllOf` and `Count |> Compare` run as one pass). `Count |>
   Compare(op, literal)` stops counting once the answer is fixed: `> 0` and `== 0` at the first
-  present candidate, `== length` at the first absent. It is kept only if the benchmarks show a
-  gain.
+  present candidate, `== length` at the first absent, against a whole number only (where text
+  equality is numeric equality). It is kept only if the benchmarks show a gain.
 - **The wake index** is the same walk over a `ValueExpr`'s references a slot's bind uses, now
   through `Present`'s candidates and guards, `List`'s items and `Compare`'s operand.
 - **Wire:** guards already repeat per candidate today (the build decides each candidate apart, so
@@ -281,7 +294,7 @@ Activation.State(condition: Option[ValueExpr] = None)
   `fixture-slots`' count slot from 290 B to 354 B, and an and/or costs about 38 B more than
   `{"kind":"And","items":[…]}`: a constant factor per use, as Part A accepted.
 - **Rendering does not change.** Member ids, deltas, order and the flip stay; the goldens hold
-  apart from signal-name hashes, which follow the keys.
+  apart from a set call's id, a hash of the set as the wire writes it.
 
 ### Steps
 
@@ -291,8 +304,8 @@ Activation.State(condition: Option[ValueExpr] = None)
   emits them yet.
 - **B2. Every condition switches at once:** bool slots, CEL inputs, `Present`'s guards, clauses,
   `c.iff`, `First` and the early-stopping count, in Scala and in Pkl (`core/predicate.pkl`'s
-  classes fold into the value classes; `query.pkl`'s builders emit them). One step because a
-  predicate tree nests counts. `Predicate`, `Tally` and `Value.Condition` are deleted.
+  classes write the value classes; `query.pkl` is unchanged). One step because a predicate tree
+  nests counts. `Predicate`, `Tally` and `Value.Condition` are deleted.
 - **B3. Order terms:** `SortTerm.by`, `SortKey` deleted. Also the build-time bool sort:
   `orderValue` returns a Boolean for a condition over a registry fact, and Pkl 0.32.1 refuses
   `<` on Booleans (spiked), so such an order fails the build; its comment ("`desc` puts true
@@ -307,7 +320,9 @@ Activation.State(condition: Option[ValueExpr] = None)
 
 Approval asked with this section. About 235 test lines in 29 files build `Predicate`,
 `SetClause`, `SortKey` or `Activation.State` and are rewritten to the new constructors (B2, B3,
-mechanical; no assertion weakened). New: each step's evaluation and typing (B1); the early-stopping
+mechanical, through the testkit's `Conds`, which builds what `core/predicate.pkl` writes; no
+assertion weakened). The asserts on a `domain` or `entity_id` comparison go with those
+properties, which nothing emits. New: each step's evaluation and typing (B1); the early-stopping
 count giving a full count's answer for every op and candidate mix (B2); ordering on a registry
 condition (B3). The library's Pkl tests follow the classes, the wire snapshots are regenerated with
 `dashboardSnapshotsUpdate`, and the goldens hold.

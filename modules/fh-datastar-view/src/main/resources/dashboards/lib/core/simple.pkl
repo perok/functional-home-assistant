@@ -38,9 +38,35 @@ class ThemeClassesStage extends Step {
   kind: "ThemeClasses" = "ThemeClasses"
 }
 
-/// The size of a [[slotMod.PresentRead]] list.
+/// The size of a list: a set's present ids, as `predicate.pkl`'s `Count`
+/// counts them.
 class CountStep extends Simple {
   kind: "Count" = "Count"
+}
+
+/// Whether every bool of a list holds: an and.
+class AllOfStep extends Simple {
+  kind: "AllOf" = "AllOf"
+}
+
+/// Whether any bool of a list holds: an or.
+class AnyOfStep extends Simple {
+  kind: "AnyOf" = "AnyOf"
+}
+
+/// The backend's `Op` decoder accepts exactly these.
+typealias CompareOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
+
+/// The value against `to`: equality as text, ordering numeric when both parse
+/// and otherwise false.
+class CompareStep extends Simple {
+  kind: "Compare" = "Compare"
+  op: CompareOp
+  to: slotMod.Operand
+}
+
+class NotStep extends Simple {
+  kind: "Not" = "Not"
 }
 
 /// The simple tier: total, run without the engine, over operands that are

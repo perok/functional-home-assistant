@@ -89,11 +89,37 @@ final case class ValueExpr(
     * shape, which `validate` refuses.
     */
   def inputType: Option[ValueType] = (source, steps) match
-    case (Value.Present(_), List(Step.Count)) => Some(ValueType.Int)
+    case _ if isCondition =>
+      typed(Nil).toOption.map(_.out).filter(_ == ValueType.Bool)
+    case (_: Value.Present, List(Step.Count)) => Some(ValueType.Int)
     case (_: Value.Cel | _: Value.List, _) | (Value.Entity(None, _, _, _), _) |
         (_, _ :: _) =>
       None
     case _ => typed(Nil).toOption.map(_.out)
+
+  /** Decided by `Conditions`, without the engine: no CEL, and a step only a
+    * condition runs. It reads an attribute as its JSON text, which the
+    * renderer's own reads do not.
+    */
+  lazy val isCondition: Boolean =
+    celSources.isEmpty && steps.exists {
+      case Step.AllOf | Step.AnyOf | Step.Not | _: Step.Compare |
+          _: Step.First =>
+        true
+      case _ => false
+    }
+
+  /** Why it cannot decide where only a condition may: a clause, a state
+    * surface, a guard, an order term.
+    */
+  def conditionError: Option[String] =
+    typed(Nil) match
+      case Left(m)                     => Some(m.message)
+      case Right(t) if t.keys.nonEmpty =>
+        Some("a condition is read without CEL")
+      case Right(t) if t.out != ValueType.Bool =>
+        Some(s"a condition is a bool, not ${t.out.name}")
+      case Right(_) => None
 
   /** Its type checked in order: each CEL compiled with `value` declared as the
     * type before it, beside the named inputs `env` types, and what the last
@@ -122,9 +148,23 @@ final case class ValueExpr(
       case Value.Entity(_, _: Part.Attr, _, _) => plain(ValueType.Dyn)
       case Value.Entity(_, Part.Whole, _, _)   => plain(ValueType.Entity)
       case Value.Fetch(_)                      => plain(ValueType.Series)
-      case Value.Present(_)   => plain(ValueType.List(ValueType.Text))
-      case Value.Condition(_) => plain(ValueType.Bool)
-    steps.foldLeft(start)((acc, step) =>
+      case Value.Present(_, when)              =>
+        when.toList
+          .sortBy(_._1)
+          .collectFirstSome((id, g) =>
+            g.conditionError.map(e => s"the guard on '$id': $e")
+          ) match
+          case Some(e) => Left(ValueExpr.Mistyped(e))
+          case None    => plain(ValueType.List(ValueType.Text))
+    val firstErrors = steps.zipWithIndex.collectFirstSome {
+      case (Step.First(_), i) if i > 0 || !source.isInstanceOf[Value.Present] =>
+        Some("a first step comes straight after a set's present candidates")
+      case (Step.First(orderBy), _) =>
+        orderBy.collectFirstSome(_.conditionError)
+      case _ => None
+    }
+    val checked = firstErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
+    steps.foldLeft(checked)((acc, step) =>
       acc.flatMap(t =>
         step match
           case Step.Cel(src, _) => cel(src, Some(t.out), t.keys)
@@ -146,7 +186,8 @@ final case class ValueExpr(
 
   /** Every entity that can move it. */
   def entities: List[String] =
-    Value.entityOf(source) ++ operandEntities
+    Value.entityOf(source) ++ operandEntities ++
+      steps.collect { case Step.First(o) => o.flatMap(_.entities) }.flatten
 
 object ValueExpr:
 
@@ -250,6 +291,7 @@ object ValueType:
         takes(in == List(Bool), "a list of bools", Bool)
       case _: Step.Compare   => takes(numberLike(in), "a number or text", Bool)
       case Step.Not          => takes(in == Bool, "a bool", Bool)
+      case _: Step.First     => takes(in == List(Text), "a set's ids", Text)
       case _: Step.Chart     => takes(in == Series, "a fetch's series", Markup)
       case Step.ThemeClasses => takes(in == Text, "text", Text)
       case _: Step.Cel       => Right(Dyn)
@@ -316,13 +358,15 @@ enum Value derives CanEqual:
   )
   case Fetch(fetch: FetchTemplate)
 
-  /** The candidates present now, which a [[Step.Count]] counts. */
-  case Present(tally: Predicate.Tally)
-
-  /** Decides itself, over the entities it names; a comparison that names none
-    * reads the subject.
+  /** The ids of `candidates` present now: those with no guard, and those whose
+    * guard in `when` holds, an unnamed read in it reading that candidate. A
+    * [[List]] of reads filtered by their guards would say the same, at about
+    * four times the bytes per candidate; one source keeps a candidate its id.
     */
-  case Condition(predicate: Predicate)
+  case Present(
+      candidates: scala.List[String] = Nil,
+      when: Map[String, ValueExpr] = Map.empty
+  )
 
   /** Its items in order, one type ([[ValueExpr.typed]]): what an and/or runs
     * [[Step.AllOf]] or [[Step.AnyOf]] over.
@@ -343,8 +387,7 @@ object Value:
 
   def entityOf(v: Value): scala.List[String] = v match
     case Entity(of, _, _, _) => of.toList
-    case Condition(p)        => Predicate.referencedEntities(p)
-    case Present(t)          => t.referencedEntities
+    case Present(cs, when)   => cs ++ when.values.flatMap(_.entities)
     case List(items)         => items.flatMap(_.entities)
     case _                   => Nil
 
@@ -355,15 +398,19 @@ object Value:
     case Literal(l)                 => s"lit:${Lit.key(l)}"
     case Entity(_, part, _, bypass) =>
       Part.key(part) + (if (bypass) "" else "!b")
-    case Fetch(f)     => s"fetch:${f.key}"
-    case Present(t)   => s"t:${Predicate.tallyKey(t)}"
-    case Condition(p) => s"p:${Predicate.key(p)}"
-    case List(items)  =>
-      items
-        .map(i => s"${i.inputKey.length}:${i.inputKey}")
-        .mkString("list(", "", ")")
+    case Fetch(f)          => s"fetch:${f.key}"
+    case Present(cs, when) =>
+      cs.mkString("present(", ",", "/") +
+        when.toList
+          .sortBy(_._1)
+          .map((id, g) => s"$id=${sized(g.inputKey)}")
+          .mkString + ")"
+    case List(items) =>
+      items.map(i => sized(i.inputKey)).mkString("list(", "", ")")
     // Its inputs are keyed beside it, as a step's are (`BoundSlot.valueKey`).
     case Cel(src, _) => s"cel:${src.length}:$src"
+
+  private def sized(k: String) = s"${k.length}:$k"
 
   /** An operand's key, which does name its entity. */
   def key(v: Value): String = v match
@@ -389,11 +436,10 @@ object Value:
           Strict.only(c, Set("kind", "fetch")) *>
             c.get[FetchTemplate]("fetch").map(Fetch(_))
         case "Present" =>
-          Strict.only(c, Set("kind", "tally")) *>
-            c.get[Predicate.Tally]("tally").map(Present(_))
-        case "Condition" =>
-          Strict.only(c, Set("kind", "predicate")) *>
-            c.get[Predicate]("predicate").map(Condition(_))
+          Strict.only(c, Set("kind", "candidates", "when")) *> (
+            c.getOrElse[scala.List[String]]("candidates")(Nil),
+            c.getOrElse[Map[String, ValueExpr]]("when")(Map.empty)
+          ).mapN(Present.apply)
         case "List" =>
           Strict.only(c, Set("kind", "items")) *>
             c.get[scala.List[ValueExpr]]("items").map(List(_))
@@ -406,7 +452,7 @@ object Value:
           Left(
             DecodingFailure(
               s"unknown value kind '$other' — Entity, Fetch, Present, " +
-                "Condition, List or Cel, or a bare literal",
+                "List or Cel, or a bare literal",
               c.history
             )
           )
@@ -463,6 +509,12 @@ object Step:
   final case class Compare(op: Op, to: Value) extends Simple
 
   case object Not extends Simple
+
+  /** The first of a [[Value.Present]]'s ids under `orderBy`, ties to candidate
+    * order, `""` when none is present: one pass, no sorted list. It reads every
+    * candidate's state, so it is no [[Simple]] step.
+    */
+  final case class First(orderBy: List[LayoutNode.SortTerm] = Nil) extends Step
 
   /** `text` then the value. */
   final case class Prefix(text: Value) extends Simple
@@ -546,6 +598,7 @@ object Step:
     case AnyOf        => "any-of"
     case _: Compare   => "compare"
     case Not          => "not"
+    case _: First     => "first"
     case ThemeClasses => "theme classes"
     case _: Chart     => "chart"
 
@@ -581,6 +634,7 @@ object Step:
       case AnyOf          => "anyOf"
       case Compare(op, t) => s"compare:$op(${Value.key(t)})"
       case Not            => "not"
+      case First(orderBy) => orderBy.map(_.key).mkString("first(", ";", ")")
       case ThemeClasses   => "themeClasses"
       case Chart(style)   => s"chart:$style"
 

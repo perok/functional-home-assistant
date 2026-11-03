@@ -6,7 +6,7 @@ import fh.view.FHError
 import fh.view.fetch.FetchRequest
 import fh.view.history.Window
 import fh.view.runtime.{Cel, Templates}
-import io.circe.{Decoder, DecodingFailure, Json, JsonObject}
+import io.circe.{Decoder, DecodingFailure, JsonObject}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 import scala.collection.immutable.ListMap
@@ -99,7 +99,7 @@ final case class BoundSlot(
   /** The entity it reads, or a condition is decided over. */
   def entityId: Option[String] = expr.source match
     case Value.Entity(of, _, _, _) => of
-    case Value.Condition(_)        => subject
+    case _ if expr.isCondition     => subject
     case _                         => None
 
   /** A fetch's answer is never pushed, and a CEL source with no live input is a
@@ -137,16 +137,15 @@ final case class BoundSlot(
   def gate: Option[Fetching.Gate] =
     valueWhile.map(w => Fetching.Gate(w, w.entityId))
 
-  /** Every entity that can move this slot besides its own: those its condition
-    * and its steps' operands name, those of the live values it reads, and its
+  /** Every entity that can move this slot besides its own: those its source and
+    * its steps name, those of the live values it reads, and its
     * [[valueWhile]]'s.
     */
   def valueEntities: List[String] =
     (expr.source match
-      case c: Value.Condition => Value.entityOf(c)
-      case l: Value.List      => Value.entityOf(l)
-      case _                  => Nil
-    ) ++ expr.operandEntities ++ values.values.toList.flatMap(_.entities) ++
+      case _: Value.Entity => expr.operandEntities
+      case _               => expr.entities
+    ) ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
   def shape: SlotShape =
@@ -516,107 +515,6 @@ object Op:
       .toRight(s"unknown op: $s")
   )
 
-/** `property` is `"domain"`, `"state"` or `"attr:<name>"`. */
-sealed trait Predicate derives ConfiguredDecoder
-object Predicate:
-  case class And(items: List[Predicate]) extends Predicate
-  case class Or(items: List[Predicate]) extends Predicate
-  case class Not(item: Predicate) extends Predicate
-
-  /** `entity` absent means the subject. A named one must reach the reverse
-    * index ([[referencedEntities]]) or the node is never woken by it.
-    */
-  case class Cmp(
-      property: String,
-      op: Op,
-      value: Json,
-      entity: Option[String] = None
-  ) extends Predicate
-
-  /** How many of a static candidate list are present, against a number — which
-    * retires the quantifiers (`any` is `> 0`, `all` is `== length`). `when`
-    * guards per candidate, as a [[LayoutNode.SetMember]] does, because
-    * residuals diverge across one set's candidates. Subject-independent.
-    */
-  case class Count(
-      candidates: List[String] = Nil,
-      when: Map[String, Predicate] = Map.empty,
-      op: Op,
-      value: Json
-  ) extends Predicate:
-    def tally: Tally = Tally(candidates, when)
-
-  /** Whether `entity` is the first present candidate under `orderBy`, ties
-    * going to candidate order. Subject-independent, as a [[Count]] is.
-    */
-  case class First(
-      candidates: List[String] = Nil,
-      when: Map[String, Predicate] = Map.empty,
-      orderBy: List[LayoutNode.SortTerm] = Nil,
-      entity: String
-  ) extends Predicate:
-    def tally: Tally = Tally(candidates, when)
-
-    /** The sort reads every candidate's state, so a holds-key's own entities
-      * can move the leader too.
-      */
-    def referencedEntities: List[String] =
-      tally.referencedEntities ++ orderBy.flatMap(_.by match
-        case LayoutNode.SortKey.Holds(p) => Predicate.referencedEntities(p)
-        case _: LayoutNode.SortKey.Prop  => Nil)
-
-  /** A static candidate list and which of it is present: a [[Count]] before the
-    * comparison.
-    */
-  case class Tally(
-      candidates: List[String] = Nil,
-      when: Map[String, Predicate] = Map.empty
-  ) derives ConfiguredDecoder:
-    def referencedEntities: List[String] =
-      candidates ++ when.values.flatMap(Predicate.referencedEntities)
-
-  def referencedEntities(p: Predicate): List[String] = p match
-    case Cmp(_, _, _, e) => e.toList
-    case And(items)      => items.flatMap(referencedEntities)
-    case Or(items)       => items.flatMap(referencedEntities)
-    case Not(item)       => referencedEntities(item)
-    case c: Count        => c.tally.referencedEntities
-    case f: First        => f.referencedEntities
-
-  def tallyKey(t: Predicate.Tally): String =
-    t.candidates.mkString(",") + "/" +
-      t.when.toList
-        .sortBy(_._1)
-        .map((id, p) => s"$id=${key(p)}")
-        .mkString(";")
-
-  /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
-  def key(p: Predicate): String = p match
-    case Predicate.Cmp(prop, op, v, e) =>
-      s"cmp($prop,$op,${v.noSpaces},${e.getOrElse("")})"
-    case Predicate.And(xs)  => xs.map(key).mkString("and(", ",", ")")
-    case Predicate.Or(xs)   => xs.map(key).mkString("or(", ",", ")")
-    case Predicate.Not(x)   => s"not(${key(x)})"
-    case c: Predicate.Count =>
-      s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
-    case f: Predicate.First =>
-      s"first(${tallyKey(f.tally)},${f.orderBy.map(sortKey).mkString(";")},${f.entity})"
-
-  private def sortKey(t: LayoutNode.SortTerm): String = t.by match
-    case LayoutNode.SortKey.Prop(p)  => s"${t.dir}:prop($p)"
-    case LayoutNode.SortKey.Holds(p) => s"${t.dir}:holds(${key(p)})"
-
-  /** Rejected under an [[Activation.State]], which supplies no subject. The
-    * guards of a count or a leader are bound to their own candidates, so they
-    * do not count.
-    */
-  def hasFreeSubject(p: Predicate): Boolean = p match
-    case Cmp(_, _, _, entity) => entity.isEmpty
-    case And(items)           => items.exists(hasFreeSubject)
-    case Or(items)            => items.exists(hasFreeSubject)
-    case Not(item)            => hasFreeSubject(item)
-    case _: Count | _: First  => false
-
 /** How a [[Surface]] becomes visible.
   *
   *   - `User`: a popup, opened by a tap, optionally from first paint. The
@@ -626,7 +524,7 @@ object Predicate:
   *     and declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
-  *     `bakeIndex` order wins; an "else" is `And(Nil)`.
+  *     `bakeIndex` order wins; an "else" has none, and always holds.
   *
   * A bake group must be one mode, `Var` or `State` (`validate`), so any member
   * decides it.
@@ -634,7 +532,7 @@ object Predicate:
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
   case Var(name: String, at: VarAt = VarAt.Index)
-  case State(condition: Predicate)
+  case State(condition: Option[ValueExpr] = None)
 
 /** Which values of an [[Activation.Var]]'s variable select its member: one (a
   * slider's main controls, a `c.select`'s options), its `bakeIndex` as a number
@@ -779,18 +677,16 @@ object LayoutNode:
     def liveEntities: List[String] =
       (candidates ++ members.values
         .flatMap(_.clauses)
-        .flatMap(c =>
-          c.when.toList.flatMap(Predicate.referencedEntities)
-        )).distinct
+        .flatMap(_.when.toList.flatMap(_.entities))).distinct
 
   /** The first clause whose `when` holds decides; none means not rendered. */
   case class SetMember(clauses: List[SetClause] = Nil) derives ConfiguredDecoder
 
   /** A guard and the complete node it renders; nothing is shared between
-    * clauses.
+    * clauses. An unnamed read in the guard reads the member; none holds.
     */
   case class SetClause(
-      when: Option[Predicate] = None,
+      when: Option[ValueExpr] = None,
       node: LayoutNode
   ) derives ConfiguredDecoder
 
@@ -803,16 +699,31 @@ object LayoutNode:
   ) derives ConfiguredDecoder:
     def descending: Boolean = dir == "desc"
 
+    def key: String = by match
+      case SortKey.Prop(p)  => s"$dir:prop($p)"
+      case SortKey.Holds(p) => s"$dir:holds(${p.inputKey})"
+
+    /** What a holds-key names besides the member it is decided for. */
+    def entities: List[String] = by match
+      case SortKey.Holds(p) => p.entities
+      case _: SortKey.Prop  => Nil
+
+    def conditionError: Option[String] = by match
+      case SortKey.Holds(p) => p.conditionError
+      case _: SortKey.Prop  => None
+
   /** A value has an order, a predicate only true/false; neither expresses the
     * other.
     */
   sealed trait SortKey derives ConfiguredDecoder
   object SortKey:
-    /** `state`, `attr:<name>`, `reg:<name>`, as in [[Predicate.Cmp]]. */
+    /** `state` or `attr:<name>`: a registry key folds into the candidate order
+      * at build time.
+      */
     case class Prop(property: String) extends SortKey
 
     /** True first under `asc`. */
-    case class Holds(predicate: Predicate) extends SortKey
+    case class Holds(predicate: ValueExpr) extends SortKey
 
   case class Step(region: String, index: Int)
 
@@ -1109,7 +1020,10 @@ case class Dashboard(
           case t: ServiceTarget => Some(t)
           case _: CallSet       =>
             lit(Dashboard.TargetSetSlot).flatMap(
-              io.circe.parser.decode[Predicate.Tally](_).toOption
+              io.circe.parser
+                .decode[Value](_)
+                .toOption
+                .collect { case p: Value.Present => p }
             )
         }
       for {
@@ -1155,7 +1069,7 @@ case class Dashboard(
         set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl =>
-            cl.when.toList.flatMap(Predicate.referencedEntities) ++
+            cl.when.toList.flatMap(_.entities) ++
               deciders(cl.node)
           )
     }
@@ -1163,12 +1077,12 @@ case class Dashboard(
     // A set call's guards are read at the press, and an entity only a guard
     // names would otherwise be missing from the store, failing its guard.
     referencedEntities ++ calls.values.flatMap {
-      case t: Predicate.Tally => t.referencedEntities
-      case _: ServiceTarget   => Nil
+      case p: Value.Present => Value.entityOf(p)
+      case _: ServiceTarget => Nil
     } ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>
         deciders(s.content) ++ (s.activation match {
-          case Activation.State(c) => Predicate.referencedEntities(c)
+          case Activation.State(c) => c.toList.flatMap(_.entities)
           case _: Activation.User | _: Activation.Var => Nil
         })
       )
@@ -1450,8 +1364,7 @@ case class Dashboard(
         else
           c.values(name) match
             // A value is shared by content across nodes, so it has no subject.
-            case ValueExpr(Value.Condition(p), _, _)
-                if Predicate.hasFreeSubject(p) =>
+            case v if v.isCondition && v.readsMissingSubject =>
               List(
                 s"$nodeId: expression value '$name' compares an entity it " +
                   "does not name — name it with q.entity(e)"
@@ -1505,10 +1418,7 @@ case class Dashboard(
             "names the entity the card's other slots read, which is a " +
             "build-time fact"
         case (slot, src)
-            if src.entityId.isEmpty &&
-              (src.expr.source match
-                case Value.Condition(p) => Predicate.hasFreeSubject(p)
-                case _ => false) =>
+            if src.expr.isCondition && src.expr.readsMissingSubject =>
           s"$nodeId: slot '$slot' compares an entity it does not name, and " +
             "has no entity of its own — name it with q.entity(e)"
       }
@@ -1533,11 +1443,7 @@ case class Dashboard(
               .toList ++
             Option
               .when(
-                w.entityId.isEmpty &&
-                  (w.expr.source match
-                    case Value.Condition(p) =>
-                      Predicate.hasFreeSubject(p)
-                    case _ => false)
+                w.expr.isCondition && w.expr.readsMissingSubject
               )(
                 s"$nodeId: slot '$name' has a valueWhile comparing an entity " +
                   "it does not name, and has no entity of its own — name it " +
@@ -1841,6 +1747,17 @@ case class Dashboard(
         case s: LayoutNode.SetNode =>
           val setId = nodeId
           setCellErrors(setId, s.cell) ++
+            s.orderBy
+              .flatMap(_.conditionError)
+              .map(e => s"$setId: an order term does not decide: $e") ++
+            s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
+              m.clauses
+                .flatMap(_.when)
+                .flatMap(_.conditionError)
+                .map(e =>
+                  s"$setId: a clause of '$candidate' does not decide: $e"
+                )
+            } ++
             s.candidates.filterNot(s.members.contains).map { c =>
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
@@ -2188,7 +2105,11 @@ case class Dashboard(
     val unboundConditions: List[String] =
       surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
         s.activation match
-          case Activation.State(c) if Predicate.hasFreeSubject(c) =>
+          case Activation.State(Some(c)) if c.conditionError.nonEmpty =>
+            c.conditionError.toList.map(e =>
+              s"surface '$sid' is shown by a condition that does not decide: $e"
+            )
+          case Activation.State(Some(c)) if c.readsMissingSubject =>
             List(
               s"surface '$sid' is shown by a condition that compares an " +
                 "unnamed entity; a state condition must name the entity each " +
@@ -2210,7 +2131,7 @@ case class Dashboard(
           case Dashboard.Declared(
                 TapCall(_, CallSet(id), _),
                 _,
-                Some(t: Predicate.Tally)
+                Some(t: Value.Present)
               ) =>
             id -> t
         }

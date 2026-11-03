@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
@@ -8,7 +10,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Predicate,
   Region,
   Value,
   ValueExpr,
@@ -41,8 +42,8 @@ class SetNodeSuite extends ServerHarness {
     "tile" -> CardDef("<b>{{state}}</b>")
   )
 
-  private val whileOn: Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+  private val whileOn: ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   private def tileNode(id: String): LayoutNode.Component =
     // A clause carries the complete node, `entity_id` included; nothing is
@@ -57,7 +58,7 @@ class SetNodeSuite extends ServerHarness {
 
   private def setOf(
       candidates: List[String],
-      guard: String => Option[Predicate],
+      guard: String => Option[ValueExpr],
       orderBy: List[LayoutNode.SortTerm] = Nil,
       limit: Option[Int] = None
   ): Dashboard =
@@ -450,7 +451,7 @@ class SetNodeSuite extends ServerHarness {
     // The counted lights are not candidates, so the reverse index learns them
     // through `Predicate.referencedEntities`, as for a cross-entity guard.
     val counted = List("light.x", "light.y", "light.z")
-    val moreThanOneOn = Predicate.Count(
+    val moreThanOneOn = Conds.count(
       candidates = counted,
       when = counted.map(_ -> whileOn).toMap,
       op = Op.Gt,
@@ -486,7 +487,7 @@ class SetNodeSuite extends ServerHarness {
       gated,
       {
         case "light.a" =>
-          Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(hall)))
+          Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(hall)))
         case _ => None
       }
     )

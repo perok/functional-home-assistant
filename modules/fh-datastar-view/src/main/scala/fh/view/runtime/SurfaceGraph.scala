@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
+import fh.view.model.{Activation, Dashboard, DomId, NodeId, Surface, ValueExpr}
 
 /** What one viewer has selected: the popup it has open, and the member of each
   * bake group a node variable selects (ADR 0033). A state group's branch is
@@ -252,12 +252,13 @@ private[runtime] final class SurfaceGraph(
   ): Boolean =
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
 
-  // Subject-free (`validate`), so the subject is a stand-in nothing reads.
+  // Subject-free (`validate`), so the subject is a stand-in nothing reads. An
+  // else has no condition, and holds.
   private def holds(
-      condition: Predicate,
+      condition: Option[ValueExpr],
       states: Map[String, EntityState]
   ): Boolean =
-    Conditions.matchesIn(condition, EntityState.none, states)
+    condition.forall(Conditions.holds(_, EntityState.none, states))
 
   /** First match in `bakeIndex` order; `None` bakes empty content. */
   private[runtime] def resolveActiveByState(
@@ -289,7 +290,7 @@ private[runtime] final class SurfaceGraph(
               .get(_)
               .toList
               .flatMap(_.activation match {
-                case Activation.State(c) => Predicate.referencedEntities(c)
+                case Activation.State(c) => c.toList.flatMap(_.entities)
                 case _                   => Nil
               })
           )

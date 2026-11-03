@@ -269,7 +269,7 @@ facts {
   ["`count` compares the PRESENT members, with no quantifier"] {
     // The original ask: "if more than X elements then we show this."
     local cond = q.from(stue).where(q.eq(q.stateProp, "on")).count().gt(1)
-    cond.kind == "Count"
+    cond is pred.Count
     cond.op == "gt"
     cond.value == 1
     cond.candidates.toList() == List("light.taklys", "light.lampe")
@@ -514,7 +514,7 @@ facts {
       .where(q.eq(q.stateProp, "on"))
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
       .build()
-    memberOf.apply(s, "light.taklys")[0].`when`.kind == "Cmp"
+    memberOf.apply(s, "light.taklys")[0].`when` is pred.Cmp
   }
 
   ["same-kind nesting FLATTENS instead of nesting"] {
@@ -529,9 +529,9 @@ facts {
       .render((e) -> c.entityCard(e))
       .build()
     local g = memberOf.apply(s, "light.taklys")[0].`when`
-    g.kind == "And"
+    g is pred.PAnd
     g.items.toList().length == 3
-    g.items.toList().every((i) -> i.kind == "Cmp")
+    g.items.toList().every((i) -> i is pred.Cmp)
   }
 
   ["two spellings of the same filter produce the SAME term"] {
@@ -588,7 +588,7 @@ facts {
     local branch = c.iff(q.from(stue).where(q.eq(q.stateProp, "on")).any())
       .then(c.title("some light is on"))
     local cond = branch.inlineSurfaces["then"].activation.condition
-    cond.kind == "Count"
+    cond is pred.Count
     cond.op == "gt"
     cond.value == 0
     cond.candidates.toList() == List("light.taklys", "light.lampe")
@@ -599,18 +599,17 @@ facts {
       .then(c.title("on"))
       .`else`(c.title("off"))
     local cond = branch.inlineSurfaces["else"].activation.condition
-    cond.kind == "And"
-    cond.items.toList().isEmpty
+    // None at all: a state surface with no condition always holds.
+    cond == null
   }
 
   ["a condition the BUILD settled is still an ordinary condition"] {
     // `any()` over a set no candidate can join folds to `false` before anything
     // runs, so the branch it guards simply never shows.
     local never = c.iff(q.from(stue).where(false).any()).then(c.title("x"))
-    never.inlineSurfaces["then"].activation.condition.kind == "Or"
-    never.inlineSurfaces["then"].activation.condition.items.toList().isEmpty
+    never.inlineSurfaces["then"].activation.condition == pred.neverHolds
     // ...and the mirror.
-    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition.kind == "And"
+    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition == pred.alwaysHolds
   }
 
   ["the emitted node is a `set`, and every candidate has a member"] {
@@ -693,6 +692,8 @@ facts {
     local b: hass.SceneEntity = new { entity_id = "scene.b" }
     local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
     local p = c.pill(c.tap.activate(a)).label("A").active(latest.eq(a))
-    (p.liveClasses["fh-active"].source as slotMod.ConditionRead).predicate == latest.eq(a)
+    local lit = p.liveClasses["fh-active"] as slotMod.Reading
+    local leads = latest.eq(a) as pred.First
+    lit.source == leads.source && lit.steps == leads.steps
   }
 }

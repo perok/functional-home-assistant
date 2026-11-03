@@ -59,12 +59,12 @@ class AtOtherwise {
   kind: "Otherwise" = "Otherwise"
 }
 
-/// Shown while `condition` holds over live state — the same for every viewer.
-/// Subject-free: every comparison names its own entity, and one that names
-/// none is a `Dashboard.validate` error.
+/// Shown while `condition` holds over live state — the same for every viewer;
+/// none always holds, an If's else. Subject-free: every comparison names its
+/// own entity, and one that names none is a `Dashboard.validate` error.
 class StateActivation {
   kind: "State" = "State"
-  condition: pred.Predicate
+  condition: pred.Predicate? = null
 }
 
 /// A registered popup whose `body` is wrapped in the [[Popup]] dialog. The

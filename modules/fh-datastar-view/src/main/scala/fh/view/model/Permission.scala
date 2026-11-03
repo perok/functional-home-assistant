@@ -47,7 +47,7 @@ final case class CallSet(id: String) derives CanEqual
 /** What a declared call acts on: its fixed target, or a set the press narrows
   * to the candidates present then.
   */
-type CallReach = ServiceTarget | Predicate.Tally
+type CallReach = ServiceTarget | Value.Present
 
 object TapCall {
 

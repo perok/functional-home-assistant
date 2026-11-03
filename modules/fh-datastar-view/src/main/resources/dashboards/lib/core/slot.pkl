@@ -39,8 +39,9 @@ class Reading {
   /// (`providers/history.pkl`'s `HistoryFetch`).
   hidden fetch: Fetch? = null
   /// What the value is read from: by default an entity, as the four fields
-  /// above say, or a fetch. A condition, a bare literal, or a [[CelRead]] are
-  /// set here.
+  /// above say, or a fetch. A bare literal, a list, a set's ids or a
+  /// [[CelRead]] are set here; a condition sets its steps too
+  /// ([[nodes.booleanReading]]).
   source: Value|String|Number|Boolean =
     let (r = this)
       if (r.fetch != null) new FetchRead { fetch = r.fetch!! }
@@ -97,18 +98,12 @@ class FetchRead extends Value {
   fetch: Fetch
 }
 
-/// A condition, decided without CEL over the entities it names; a comparison
-/// that names none reads the card's subject.
-class ConditionRead extends Value {
-  kind: "Condition" = "Condition"
-  predicate: predMod.Predicate
-}
-
-/// The ids of a set's candidates present now: a list, which a
-/// [[simpleMod.CountStep]] counts.
-class PresentRead extends Value {
-  kind: "Present" = "Present"
-  tally: predMod.Tally
+/// Its items in order, one or more, of one type and without CEL: what an and
+/// or an or decides over (`predicate.pkl`'s `PAnd`, `POr`). A set's present
+/// ids are a `predMod.Tally`.
+class ListRead extends Value {
+  kind: "List" = "List"
+  items: Listing<predMod.Predicate>
 }
 
 /// CEL computed from nothing before it, so it has no `value`: over its named
@@ -128,10 +123,9 @@ class CelRead extends Value {
 const function wireInput(v: nodes.ExpressionValue): Any =
   if (v is hass.Entity)
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
-  else if (v is predMod.PresentList) Map("source", new PresentRead { tally = v })
-  else if (v is predMod.Tally)
-    Map("source", new PresentRead { tally = v }, "steps", List(new simpleMod.CountStep {}))
-  else if (v is predMod.Predicate) Map("source", new ConditionRead { predicate = v })
+  else if (v is predMod.PresentList) Map("source", v)
+  else if (v is predMod.Tally) Map("source", v, "steps", List(new simpleMod.CountStep {}))
+  else if (v is predMod.Predicate) Map("source", v.source, "steps", v.steps)
   else if (v is Fetch) Map("source", new FetchRead { fetch = v })
   else v
 

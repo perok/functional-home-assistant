@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import cats.effect.IO
 import fh.view.model.{
   Part,
@@ -7,7 +9,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Predicate,
   Region,
   Step,
   Value,
@@ -51,7 +52,7 @@ class SetMembershipSuite extends ServerHarness {
       List("light.a", "light.b"),
       List(
         (
-          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
+          Some(Conds.cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
           Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
@@ -102,7 +103,7 @@ class SetMembershipSuite extends ServerHarness {
       List("light.a", "light.b"),
       List(
         (
-          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
+          Some(Conds.cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
           Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),

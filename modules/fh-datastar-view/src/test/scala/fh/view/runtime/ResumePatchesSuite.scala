@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 
 import fh.view.model.{
@@ -7,7 +9,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Predicate,
   Value,
   ValueExpr,
   TemplateSlot
@@ -35,7 +36,7 @@ class ResumePatchesSuite extends munit.FunSuite {
           id -> LayoutNode.SetMember(
             List(
               LayoutNode.SetClause(
-                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "dot",
                   Map(

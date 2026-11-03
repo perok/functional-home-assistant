@@ -299,31 +299,48 @@
                 "kind" : "Handler"
               },
               "source" : {
-                "kind" : "Condition",
-                "predicate" : {
-                  "candidates" : [
-                    "light.kitchen",
-                    "light.living_room"
-                  ],
-                  "kind" : "Count",
-                  "op" : "eq",
-                  "value" : 0,
-                  "when" : {
-                    "light.kitchen" : {
-                      "kind" : "Cmp",
-                      "op" : "eq",
-                      "property" : "state",
-                      "value" : "on"
+                "candidates" : [
+                  "light.kitchen",
+                  "light.living_room"
+                ],
+                "kind" : "Present",
+                "when" : {
+                  "light.kitchen" : {
+                    "source" : {
+                      "kind" : "Entity"
                     },
-                    "light.living_room" : {
-                      "kind" : "Cmp",
-                      "op" : "eq",
-                      "property" : "state",
-                      "value" : "on"
-                    }
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "eq",
+                        "to" : "on"
+                      }
+                    ]
+                  },
+                  "light.living_room" : {
+                    "source" : {
+                      "kind" : "Entity"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "eq",
+                        "to" : "on"
+                      }
+                    ]
                   }
                 }
               },
+              "steps" : [
+                {
+                  "kind" : "Count"
+                },
+                {
+                  "kind" : "Compare",
+                  "op" : "eq",
+                  "to" : 0
+                }
+              ],
               "type" : "bool"
             },
             "label" : "Lights off",
@@ -346,32 +363,42 @@
                 }
               ]
             },
-            "targetId" : "c2047bed3d53a7e1",
+            "targetId" : "59218c0f5861fcb2",
             "targetKind" : "set",
-            "targetSet" : "{\n  \"candidates\": [\n    \"light.kitchen\",\n    \"light.living_room\"\n  ],\n  \"when\": {\n    \"light.kitchen\": {\n      \"kind\": \"Cmp\",\n      \"property\": \"state\",\n      \"op\": \"eq\",\n      \"value\": \"on\"\n    },\n    \"light.living_room\": {\n      \"kind\": \"Cmp\",\n      \"property\": \"state\",\n      \"op\": \"eq\",\n      \"value\": \"on\"\n    }\n  }\n}"
+            "targetSet" : "{\n  \"kind\": \"Present\",\n  \"candidates\": [\n    \"light.kitchen\",\n    \"light.living_room\"\n  ],\n  \"when\": {\n    \"light.kitchen\": {\n      \"source\": {\n        \"kind\": \"Entity\"\n      },\n      \"steps\": [\n        {\n          \"kind\": \"Compare\",\n          \"op\": \"eq\",\n          \"to\": \"on\"\n        }\n      ]\n    },\n    \"light.living_room\": {\n      \"source\": {\n        \"kind\": \"Entity\"\n      },\n      \"steps\": [\n        {\n          \"kind\": \"Compare\",\n          \"op\": \"eq\",\n          \"to\": \"on\"\n        }\n      ]\n    }\n  }\n}"
           },
           "values" : {
             "lit" : {
               "source" : {
+                "candidates" : [
+                  "light.kitchen",
+                  "light.living_room"
+                ],
                 "kind" : "Present",
-                "tally" : {
-                  "candidates" : [
-                    "light.kitchen",
-                    "light.living_room"
-                  ],
-                  "when" : {
-                    "light.kitchen" : {
-                      "kind" : "Cmp",
-                      "op" : "eq",
-                      "property" : "state",
-                      "value" : "on"
+                "when" : {
+                  "light.kitchen" : {
+                    "source" : {
+                      "kind" : "Entity"
                     },
-                    "light.living_room" : {
-                      "kind" : "Cmp",
-                      "op" : "eq",
-                      "property" : "state",
-                      "value" : "on"
-                    }
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "eq",
+                        "to" : "on"
+                      }
+                    ]
+                  },
+                  "light.living_room" : {
+                    "source" : {
+                      "kind" : "Entity"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "eq",
+                        "to" : "on"
+                      }
+                    ]
                   }
                 }
               },
@@ -1984,11 +2011,17 @@
                   "then" : {
                     "activation" : {
                       "condition" : {
-                        "entity" : "sensor.washer_remaining",
-                        "kind" : "Cmp",
-                        "op" : "gt",
-                        "property" : "state",
-                        "value" : 0
+                        "source" : {
+                          "kind" : "Entity",
+                          "of" : "sensor.washer_remaining"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Compare",
+                            "op" : "gt",
+                            "to" : 0
+                          }
+                        ]
                       },
                       "kind" : "State"
                     },
@@ -2102,15 +2135,15 @@
               ],
               "valueWhile" : {
                 "source" : {
-                  "kind" : "Condition",
-                  "predicate" : {
-                    "entity" : "sensor.washer_remaining",
-                    "kind" : "Cmp",
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "kind" : "Compare",
                     "op" : "gt",
-                    "property" : "state",
-                    "value" : 0
+                    "to" : 0
                   }
-                }
+                ]
               }
             }
           },

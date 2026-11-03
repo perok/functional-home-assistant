@@ -19,8 +19,8 @@ object Transform {
 
   /** The engine-free tier (ADR 0028), selected by form alone: a source read and
     * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
-    * and nothing infers one from the other. A [[Predicate]] source is its bool
-    * half, so a condition fills a slot as directly as it decides a `c.iff`.
+    * and nothing infers one from the other. A condition is its bool half, so it
+    * fills a slot as directly as it decides a `c.iff` (`Conditions`).
     *
     * A step belongs here when it is a static lookup and TOTAL over every value
     * a live entity can produce — the load-bearing half, since
@@ -60,19 +60,9 @@ object Transform {
         value match
           case xs: List[?] => xs.size.toLong
           case _           => 0L
-      case Step.AllOf =>
-        value match
-          case xs: List[?] => xs.forall(isTrue)
-          case _           => false
-      case Step.AnyOf =>
-        value match
-          case xs: List[?] => xs.exists(isTrue)
-          case _           => false
-      case Step.Compare(op, _) => Conditions.compare(text(value), text(a), op)
-      case Step.Not            => !isTrue(value)
-      case Step.Prefix(_)      => text(a) + text(value)
-      case Step.Suffix(_)      => text(value) + text(a)
-      case Step.WithUnit(_)    =>
+      case Step.Prefix(_)   => text(a) + text(value)
+      case Step.Suffix(_)   => text(value) + text(a)
+      case Step.WithUnit(_) =>
         val v = text(value)
         a match
           case unit: String if v.nonEmpty => v + " " + unit
@@ -110,6 +100,18 @@ object Transform {
             a match
               case flag: Boolean => flag
               case other         => text(other)
+      // A condition's steps, last: `Conditions` runs a condition itself, so
+      // these serve only a list the renderer's own fold reads.
+      case Step.AllOf =>
+        value match
+          case xs: List[?] => xs.forall(isTrue)
+          case _           => false
+      case Step.AnyOf =>
+        value match
+          case xs: List[?] => xs.exists(isTrue)
+          case _           => false
+      case Step.Compare(op, _) => Conditions.compare(text(value), text(a), op)
+      case Step.Not            => !isTrue(value)
 
   private def isTrue(v: Any): Boolean = v match
     case b: Boolean => b
