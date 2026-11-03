@@ -214,8 +214,8 @@ object Ty:
         s"has a ${Step.label(step)} step, which takes $what, after a ${in.name}"
       )
     step match
-      case _: Step.Prefix | _: Step.Suffix | _: Step.WithUnit => Right(Text)
-      case _: Step.Percent | _: Step.Fill | _: Step.Duration  =>
+      case _: Step.Prefix | _: Step.Suffix | _: Step.WithUnit |
+          _: Step.Percent | _: Step.Fill | _: Step.Duration =>
         takes(numberLike(in), "a number or text", Text)
       case m: Step.Match =>
         Right(if (Step.allBoolean(m)) Bool else Text)

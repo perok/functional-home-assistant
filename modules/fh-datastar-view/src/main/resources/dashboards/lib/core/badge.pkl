@@ -16,7 +16,7 @@ const function iconOf(glyph: (String|slotMod.Reading)?): slotMod.Slot =
 
 /// Set while the card's `active` is live, which is what tells its off from a
 /// badge that has none.
-const onoff: slotMod.Slot = slotMod.slot("onoff")
+const onoff: slotMod.Slot = slotMod.bool("onoff")
 
 /// The [[icon]] slot's glyph in its seat, absent with the slot. `extraClass` is
 /// the seat's own class (`"fh-slider-icon"`, or `""`); `glyph` is the `<i>`'s; `spin` is the card's busy splice, inside whatever section

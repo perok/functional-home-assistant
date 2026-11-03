@@ -153,8 +153,8 @@ class Slot {
   /// [[bind]]; the backend rejects it otherwise. Only a [[Reading]] moves.
   signal: SignalBind? = null
   /// `"bool"` for a slot the template reads as on/off, where the string
-  /// `"false"` would be truthy; the build refuses a reading that is not one.
-  /// Null is text. A class binding needs `"bool"` ([[bool]]).
+  /// `"false"` would be truthy. Null is text. The build refuses a value of the
+  /// other type, a literal included. A class binding needs `"bool"` ([[bool]]).
   type: SlotType? = null
   /// Its value is classes in a `class` attribute, which the theme's class rules
   /// reach as a last step of it ([[cssClass]]).
@@ -201,8 +201,8 @@ class Slot {
 
   /// This slot holding `v`.
   function of(v: (String|Boolean|Reading)?): Slot = let (self = this) (self) { value = v }
-  /// A flag: set while `b` holds, for a template that reads it with
-  /// [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
+  /// A flag on a [[bool]] slot: set while `b` holds, for a template that reads
+  /// it with [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
   /// `false` (`attr:disabled`).
   function setIf(b: Boolean): Slot = of(if (b) true else null)
 

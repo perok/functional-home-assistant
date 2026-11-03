@@ -106,8 +106,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "1h",
                                                       "onclick" : {
                                                         "source" : {
@@ -124,8 +130,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "24h",
                                                       "onclick" : {
                                                         "source" : {
@@ -142,8 +154,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "7d",
                                                       "onclick" : {
                                                         "source" : {
@@ -160,8 +178,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "30d",
                                                       "onclick" : {
                                                         "source" : {
@@ -313,8 +337,14 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : true,
-                        "busyVisual" : true,
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "sensor.outside_temp",
                         "icon" : {
                           "source" : "mdi mdi-thermometer",
@@ -331,7 +361,10 @@
                             "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                           }
                         },
-                        "tappable" : true,
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "value" : {
                           "signal" : {
                             "kind" : "Text"
@@ -409,8 +442,14 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : true,
-                        "busyVisual" : true,
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "light.kitchen",
                         "icon" : {
                           "source" : "mdi mdi-lightbulb",
@@ -421,7 +460,10 @@
                           ]
                         },
                         "label" : "Kitchen",
-                        "onoff" : true,
+                        "onoff" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "service" : "light/toggle",
                         "tapDisabled" : {
                           "signal" : {
@@ -442,7 +484,10 @@
                           ],
                           "type" : "bool"
                         },
-                        "tappable" : true,
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "targetId" : "light.kitchen",
                         "targetKind" : "entity",
                         "value" : {
@@ -487,8 +532,14 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
-                  "busy" : true,
-                  "busyVisual" : true,
+                  "busy" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "busyVisual" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
                   "label" : "Temp",
                   "onclick" : {
                     "source" : {
@@ -505,8 +556,14 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
-                  "busy" : true,
-                  "busyVisual" : true,
+                  "busy" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "busyVisual" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
                   "label" : "Light",
                   "onclick" : {
                     "source" : {
@@ -634,8 +691,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "1h",
                                                       "onclick" : {
                                                         "source" : {
@@ -652,8 +715,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "24h",
                                                       "onclick" : {
                                                         "source" : {
@@ -670,8 +739,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "7d",
                                                       "onclick" : {
                                                         "source" : {
@@ -688,8 +763,14 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                                      "busy" : true,
-                                                      "busyVisual" : true,
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "30d",
                                                       "onclick" : {
                                                         "source" : {
@@ -841,8 +922,14 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : true,
-                        "busyVisual" : true,
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "sensor.outside_temp",
                         "icon" : {
                           "source" : "mdi mdi-thermometer",
@@ -859,7 +946,10 @@
                             "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                           }
                         },
-                        "tappable" : true,
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "value" : {
                           "signal" : {
                             "kind" : "Text"
@@ -940,8 +1030,14 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : true,
-                        "busyVisual" : true,
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "light.kitchen",
                         "icon" : {
                           "source" : "mdi mdi-lightbulb",
@@ -952,7 +1048,10 @@
                           ]
                         },
                         "label" : "Kitchen",
-                        "onoff" : true,
+                        "onoff" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "service" : "light/toggle",
                         "tapDisabled" : {
                           "signal" : {
@@ -973,7 +1072,10 @@
                           ],
                           "type" : "bool"
                         },
-                        "tappable" : true,
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "targetId" : "light.kitchen",
                         "targetKind" : "entity",
                         "value" : {

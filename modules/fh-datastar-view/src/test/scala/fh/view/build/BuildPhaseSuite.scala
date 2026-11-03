@@ -7,10 +7,12 @@ import fh.view.model.{
   Cell,
   Dashboard,
   LayoutNode,
+  Lit,
   Op,
   Predicate,
   Region,
   SignalBind,
+  SlotType,
   Step,
   Value,
   ValueExpr,
@@ -238,6 +240,50 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(cel("value.attr['x']"), Nil)
     assertEquals(cel("num(value.state) * 2.0"), Nil)
+  }
+
+  test("validate: a text step takes text, a number or dyn, nothing else") {
+    val x = Value.Literal(Lit.Text("x"))
+    val e = Some("sensor.t")
+    def errs(source: Value, step: Step) =
+      oneCard("{{v}}", Map("v" -> TemplateSlot(ValueExpr(source, List(step)))))
+    for step <- List(Step.Prefix(x), Step.Suffix(x), Step.WithUnit(x)) do
+      for src <- List(
+          Value.Entity(e, Part.State),
+          Value.Entity(e, Part.Attr("x")),
+          Value.Literal(Lit.Whole(2))
+        )
+      do assertEquals(errs(src, step), Nil, clue = (step, src))
+      for src <- List(
+          Value.Entity(e, Part.Whole),
+          Value.Present(Predicate.Tally(Nil, Map.empty)),
+          Value.Literal(Lit.Bool(true))
+        )
+      do
+        assert(
+          errs(src, step).exists(_.contains("takes a number or text")),
+          clue = (step, src, errs(src, step))
+        )
+  }
+
+  test("validate: a literal is checked against its slot's type") {
+    def errs(l: Lit, t: SlotType) =
+      oneCard(
+        "{{v}}",
+        Map("v" -> TemplateSlot(ValueExpr(Value.Literal(l)), `type` = t))
+      )
+    for (l, t) <- List(
+        Lit.Bool(true) -> SlotType.Bool,
+        Lit.Text("x") -> SlotType.Text,
+        Lit.Whole(2) -> SlotType.Text
+      )
+    do assertEquals(errs(l, t), Nil, clue = (l, t))
+    for (l, t) <- List(
+        Lit.Bool(true) -> SlotType.Text,
+        Lit.Text("x") -> SlotType.Bool,
+        Lit.Whole(1) -> SlotType.Bool
+      )
+    do assert(errs(l, t).exists(_.contains("literal, which a")), clue = (l, t))
   }
 
   test("validate names a surface's node by the id it renders with") {

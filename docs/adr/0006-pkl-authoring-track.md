@@ -146,8 +146,9 @@ finished, and are deleted (issue #23).
    handle's type.
 
    **The fills and sections are methods on the handle.** `of(v)` fills a slot
-   and `of(null)` leaves it out; a flag is `setIf(b)`, not `of(Boolean)`,
-   because a slot's value can be a real `false` (ADR 0017's `attr:disabled`).
+   and `of(null)` leaves it out; a flag is `setIf(b)` on a `bool` handle, not
+   `of(Boolean)`, because a slot's value can be a real `false` (ADR 0017's
+   `attr:disabled`).
    A section's two halves are one call, `ifSetElse`/`ifTrueElse`: Pkl has
    neither overloading nor default parameters, so a second argument to `ifSet`
    was not available. `ifSignal(body)` is the section on whether the slot is a

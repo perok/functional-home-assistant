@@ -99,7 +99,10 @@
                             ]
                           },
                           "templateSlots" : {
-                            "busyVisual" : true,
+                            "busyVisual" : {
+                              "source" : true,
+                              "type" : "bool"
+                            },
                             "dataKey" : "brightness",
                             "entity_id" : "light.kitchen",
                             "fill" : {
@@ -136,7 +139,10 @@
                             "label" : "Kitchen",
                             "max" : "255",
                             "min" : "1",
-                            "onoff" : true,
+                            "onoff" : {
+                              "source" : true,
+                              "type" : "bool"
+                            },
                             "service" : "light/turn_on",
                             "state" : {
                               "signal" : {
@@ -230,8 +236,14 @@
                     },
                     "kind" : "Component",
                     "templateSlots" : {
-                      "busy" : true,
-                      "busyVisual" : true,
+                      "busy" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
+                      "busyVisual" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
                       "entity_id" : "light.kitchen",
                       "icon" : {
                         "source" : "mdi mdi-lightbulb",
@@ -242,7 +254,10 @@
                         ]
                       },
                       "label" : "Kitchen",
-                      "onoff" : true,
+                      "onoff" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
                       "service" : "light/toggle",
                       "tapDisabled" : {
                         "signal" : {
@@ -263,7 +278,10 @@
                         ],
                         "type" : "bool"
                       },
-                      "tappable" : true,
+                      "tappable" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
                       "targetId" : "light.kitchen",
                       "targetKind" : "entity",
                       "value" : {
@@ -356,7 +374,10 @@
                             ]
                           },
                           "templateSlots" : {
-                            "busyVisual" : true,
+                            "busyVisual" : {
+                              "source" : true,
+                              "type" : "bool"
+                            },
                             "dataKey" : "brightness",
                             "entity_id" : "light.living_room",
                             "fill" : {
@@ -393,7 +414,10 @@
                             "label" : "Living Room",
                             "max" : "255",
                             "min" : "1",
-                            "onoff" : true,
+                            "onoff" : {
+                              "source" : true,
+                              "type" : "bool"
+                            },
                             "service" : "light/turn_on",
                             "state" : {
                               "signal" : {
@@ -487,8 +511,14 @@
                     },
                     "kind" : "Component",
                     "templateSlots" : {
-                      "busy" : true,
-                      "busyVisual" : true,
+                      "busy" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
+                      "busyVisual" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
                       "entity_id" : "light.living_room",
                       "icon" : {
                         "source" : "mdi mdi-lightbulb",
@@ -499,7 +529,10 @@
                         ]
                       },
                       "label" : "Living Room",
-                      "onoff" : true,
+                      "onoff" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
                       "service" : "light/toggle",
                       "tapDisabled" : {
                         "signal" : {
@@ -520,7 +553,10 @@
                         ],
                         "type" : "bool"
                       },
-                      "tappable" : true,
+                      "tappable" : {
+                        "source" : true,
+                        "type" : "bool"
+                      },
                       "targetId" : "light.living_room",
                       "targetKind" : "entity",
                       "value" : {

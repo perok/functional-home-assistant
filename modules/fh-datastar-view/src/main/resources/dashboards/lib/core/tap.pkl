@@ -40,9 +40,9 @@ const onclick: slotMod.Slot = slotMod.slot("onclick")
 const tapDisabled: slotMod.Slot = slotMod.bool("tapDisabled")
 const disabled: slotMod.Slot = slotMod.bool("disabled")
 /// Set on any card that has a tap.
-const tappable: slotMod.Slot = slotMod.slot("tappable")
-const busy: slotMod.Slot = slotMod.slot("busy")
-const busyVisual: slotMod.Slot = slotMod.slot("busyVisual")
+const tappable: slotMod.Slot = slotMod.bool("tappable")
+const busy: slotMod.Slot = slotMod.bool("busy")
+const busyVisual: slotMod.Slot = slotMod.bool("busyVisual")
 const current: slotMod.Slot = slotMod.bool("current")
 
 /// A [[Call]] or a [[Click]], rendered in one place ([[tapRoute]]).

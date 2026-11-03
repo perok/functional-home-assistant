@@ -103,11 +103,12 @@ and styles hold `ValueExpr`s.
   `Whole` `Entity`, a fetch `List(List(Real))` (`[epochMillis, value]` pairs), `Present`
   `List(Text)`, a condition `Bool`, a CEL source what its compiler infers. Each step takes and gives
   one: a CEL step any (its `value` declared as it) to what it infers; `Prefix`, `Suffix`,
-  `WithUnit` any to `Text`; `Percent`, `Fill`, `Duration` `Text`, `Int`, `Real` or `Dyn` to
-  `Text`; `Match` any to `Text` or `Bool`; `Count` a `List` to `Int`; `Chart` `List(List(Real))`
-  to `Markup`, which only a raw hole takes; `ThemeClasses` `Text` to `Text`. Bind checks the list
-  in order, and the last must produce the slot's `type`: `Text` takes `Text`, `Int`, `Real` or
-  `Dyn`, `Bool` takes `Bool` or `Dyn`; a literal is its own type and is not checked, as before. A
+  `WithUnit`, `Percent`, `Fill` and `Duration` `Text`, `Int`, `Real` or `Dyn` to `Text`, so a
+  whole entity or a list never prints as Java's `toString`; `Match` any to `Text` or `Bool`;
+  `Count` a `List` to `Int`; `Chart` `List(List(Real))` to `Markup`, which only a raw hole takes;
+  `ThemeClasses` `Text` to `Text`. Bind checks the list in order, and the last must produce the
+  slot's `type`: `Text` takes `Text`, `Int`, `Real` or `Dyn`, `Bool` takes `Bool` or `Dyn`; a
+  literal is checked the same way, so a `setIf` flag's slot is `slotMod.bool`. A
   CEL result no step takes (a map, a timestamp) fails at its compile, and an optional is `Dyn`.
   The binding checks it too, instead of implying it: `Class`
   needs a bool, `Text` and `Style` text, `Attr` text or a bool, `Handler` anything. A list is not
@@ -298,4 +299,6 @@ Per step: the suite with Slow excluded, a `tpolecatCiMode` compile, `scalafixAll
 goldens, and every benchmark run once (`-f 1 -wi 0 -i 1`): CI only compiles them, and S2 left
 `RenderBench`'s setup failing. RenderBench and `validate` timing before and after S3, S5, S6 and S7; the starter site's Pkl
 evaluation time before and after S3; `dashboard.json` size and bytes per slot before and after S3,
-S4, S5 and S7.
+S4, S5 and S7. S7's `validate` timing (607f3bf6 against the S7 head) and the starter site's
+evaluation time (d5aaf310 against the head) run after Part B: the commits are fixed, so waiting
+loses nothing.

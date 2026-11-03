@@ -1546,8 +1546,7 @@ case class Dashboard(
         }
       }
 
-    // A literal is its own type, and a fetch slot's steps are
-    // `fetchErrors`' to check.
+    // A fetch slot's steps are `fetchErrors`' to check.
     def typeErrors(
         nodeId: String,
         slots: Map[SlotKey, BoundSlot]
@@ -1558,7 +1557,7 @@ case class Dashboard(
         case (Value.Entity(_, _: Part.Attr, _, _), Nil) => true
         case _                                          => false
       labelled(slots).flatMap { case (_, name, src) =>
-        if (src.constant.isDefined || src.fetch.isDefined) Nil
+        if (src.fetch.isDefined) Nil
         else
           src.typed match
             case Left(ValueExpr.Mistyped(err, Some(t))) =>
@@ -1566,6 +1565,16 @@ case class Dashboard(
               List(s"$nodeId: slot '$name' has an invalid transform$at: $err")
             case Left(ValueExpr.Mistyped(err, None)) =>
               List(s"$nodeId: slot '$name' $err")
+            case Right(t) if src.constant.isDefined =>
+              Option
+                .unless(Ty.fits(t.out, src.`type`))(
+                  s"$nodeId: slot '$name' holds a ${t.out.name} literal, " +
+                    "which a " + (
+                      if (src.isBool) "bool slot does not take"
+                      else "text slot does not take — a flag's slot is slotMod.bool"
+                    )
+                )
+                .toList
             case Right(t)
                 if !Ty.fits(t.out, src.`type`) || src.isBool && bareAttr(src) =>
               List(

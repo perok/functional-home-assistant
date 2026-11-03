@@ -123,7 +123,9 @@ more often.
 A text slot must produce something a template can print: text, a number, or `dyn`; a bool is
 refused, since a template reads one by truthiness. A CEL `list`, `map`, `timestamp`, `duration` or
 `bytes` is refused with a pointer to `str(…)`, since it would otherwise render as Java's
-`toString` (#637); an `optional` is `dyn`.
+`toString` (#637); an `optional` is `dyn`. The simple tier's text steps (`Prefix`, `Suffix`,
+`WithUnit`, `Percent`, `Fill`, `Duration`) take the same, so a whole entity or a list is refused
+before them. A literal is checked like any value: a `setIf` flag's slot is `slotMod.bool`.
 
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,

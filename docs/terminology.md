@@ -91,8 +91,8 @@ is `bool`. The CARD sets the type on the handle (`slotMod.bool(name)`), because 
 binding of its own; a `class:` binding (a live cell class) is a bool by kind. A value placed in a
 `class` attribute is text with the theme's class swap as its last step (`slotMod.cssClass(name)`,
 ADR 0020). Every source and step has a type, checked in order (`Ty`), and the build refuses a
-reading whose last step does not produce its slot's type: a bool in a text slot, text in a boolean
-one.
+value, a literal included, whose last step does not produce its slot's type: a bool in a text
+slot, text in a boolean one.
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
 all. While it does not hold the value is `""`, and the slot's steps and fetches are not run.
