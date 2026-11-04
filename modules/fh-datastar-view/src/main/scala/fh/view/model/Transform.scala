@@ -59,7 +59,7 @@ object Transform {
       case Step.Count =>
         value match
           case xs: List[?] => xs.size.toLong
-          case _           => 0L
+          case _           => null
       case Step.Prefix(_)   => text(a) + text(value)
       case Step.Suffix(_)   => text(value) + text(a)
       case Step.WithUnit(_) =>
@@ -75,14 +75,14 @@ object Transform {
             val min = dbl(a)
             val max = dbl(b)
             Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
-          case _ => "0 %"
+          case _ => null
       case Step.Fill(_, _) =>
         num(value) match
           case Some(v) if isNum(a) && isNum(b) =>
             val min = dbl(a)
             val max = dbl(b)
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
-          case _ => "100%"
+          case _ => null
       case Step.Duration(scale) =>
         num(value) match
           case Some(v) =>
@@ -91,31 +91,66 @@ object Transform {
             else if (t >= 3600) s"${t / 3600}h ${t % 3600 / 60}m"
             else if (t >= 60) s"${t / 60}m"
             else s"${t}s"
-          case None => ""
+          case None => null
       case Step.Match(cases, _) =>
-        cases.get(text(value)) match
+        (if (value == null) None else cases.get(text(value))) match
           case Some(Lit.Bool(flag)) => flag
           case Some(lit)            => text(lit.raw)
           case None                 =>
             a match
               case flag: Boolean => flag
               case other         => text(other)
-      // A condition's steps, last: `Conditions` runs a condition itself, so
-      // these serve only a list the renderer's own fold reads.
-      case Step.AllOf =>
+      case Step.AllOf           => kleene(value, decides = false)
+      case Step.AnyOf           => kleene(value, decides = true)
+      case Step.Compare(op, to) => compare(value, a, op, to)
+      case Step.Not             =>
         value match
-          case xs: List[?] => xs.forall(isTrue)
-          case _           => false
-      case Step.AnyOf =>
-        value match
-          case xs: List[?] => xs.exists(isTrue)
-          case _           => false
-      case Step.Compare(op, _) => Conditions.compare(text(value), text(a), op)
-      case Step.Not            => !isTrue(value)
+          case b: Boolean => !b
+          case _          => null
 
-  private def isTrue(v: Any): Boolean = v match
-    case b: Boolean => b
-    case _          => false
+  /** Kleene's and (`decides = false`) or or (`true`) over a list's bools: the
+    * value that decides it, else `null` if an item had none.
+    */
+  private def kleene(value: Any, decides: Boolean): Any = value match
+    case xs: List[?] =>
+      if (xs.exists { case b: Boolean => b == decides; case _ => false })
+        decides
+      else if (xs.forall { case _: Boolean => true; case _ => false })
+        !decides
+      else null
+    case _ => null
+
+  /** The operand's type picks the comparison, as CEL's checker picks an
+    * overload: a number literal on the number line, `eq` included, a text side
+    * parsed and not holding when it is no number (HA's `numeric_state`); a text
+    * literal as text; a bool literal as equality; between two reads, two
+    * numbers on the number line, anything else as text, ordering numeric when
+    * both parse.
+    */
+  private def compare(value: Any, operand: Any, op: Op, to: Value): Boolean =
+    to match
+      case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
+        num(value).exists(onLine(_, dbl(operand), op))
+      case Value.Literal(Lit.Bool(_)) =>
+        op match
+          case Op.Eq => text(value) == text(operand)
+          case Op.Ne => text(value) != text(operand)
+          case _     => false
+      case Value.Literal(Lit.Text(_)) =>
+        Conditions.compare(text(value), text(operand), op)
+      case _ =>
+        (value, operand) match
+          case (l: java.lang.Number, r: java.lang.Number) =>
+            onLine(l.doubleValue, r.doubleValue, op)
+          case _ => Conditions.compare(text(value), text(operand), op)
+
+  private def onLine(l: Double, r: Double, op: Op): Boolean = op match
+    case Op.Eq  => l == r
+    case Op.Ne  => l != r
+    case Op.Lt  => l < r
+    case Op.Lte => l <= r
+    case Op.Gt  => l > r
+    case Op.Gte => l >= r
 
   /** As CEL's `double()` accepts; anything else is the absent form. */
   private def num(v: Any): Option[Double] = v match

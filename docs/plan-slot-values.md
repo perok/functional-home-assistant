@@ -369,7 +369,9 @@ an overload. These rules are the language; C4 moves them out of this plan.
 - **Where `null` comes from:** the entity read, the only source of absence: an entity the store
   lacks, an attribute the entity does not report, a JSON `null`. And a step with no result: `First`
   with nobody present, `Percent`, `Fill` and `Duration` over text that is not a number, CEL
-  returning `null`. Today one absence has three spellings, `Missing`, the
+  returning `null`. A `once` read is of which entity this is (a service picked by its domain),
+  which it is whether or not the store holds it, so it reads the entity's identity and never
+  gives `null`. Today one absence has three spellings, `Missing`, the
   renderer's empty stand-in state and `null`; the stand-in is Common Lisp's mistake, whose `NIL`
   is false, empty and absent at once, so `gethash` needs a second value to tell them apart.
 - **HA's no-value states, `unavailable` and `unknown`, are text, not `null`.** HA keeps them as
@@ -393,8 +395,10 @@ an overload. These rules are the language; C4 moves them out of this plan.
     `Option.getOrElse`). It is the one way to lift `null` to a value. A mid-pipeline form (an
     `OrElse` step) waits for a card that needs one; CEL has its own today.
 
-  CEL is called on `null` as well and has its own machinery for it (`has`, `? :`, optionals), as
-  the shipped spellings use (`'k' in value.attr ? … : null`). CEL can return an optional
+  A CEL step is strict too: a `null` value never reaches it, since CEL over a whole entity that
+  is not there only errors. What is absent inside a value, an attribute, CEL's own machinery
+  handles (`has`, `? :`, optionals), as the shipped spellings do (`'k' in value.attr ? … :
+  null`), and a CEL source's named inputs reach it as CEL's `null`. CEL can return an optional
   (`value.attr[?'u']`); a CEL step's result is lifted at its boundary, `optional.none()` to
   `null` and `optional.of(v)` to `v`, so the next step sees a value or `null`, never a wrapper.
   Today `Cel.stringify` unwraps one only when a slot prints it.
@@ -504,7 +508,9 @@ an overload. These rules are the language; C4 moves them out of this plan.
   or whole-entity read, `valueSlot` and the `Expr` readouts opting in. The goldens move only
   under "unavailable": the more-info lines list what HA still reports, an attribute second line
   and a cell style read as is.
-- **C1c. The compiler, and the renderer's slots on it;** `compose` goes. The agreed rules apply.
+- **C1c (done). The compiler, and the renderer's slots on it** (`Evaluator`); `compose` goes. The
+  goldens hold byte for byte; RenderBench equal or better, allocation down on the render paths
+  (`tickRender` -6%, `pageSignals` -3%, `page` -2%).
 - **C2. Every other consumer on it:** `MemberGraph`, `SurfaceGraph`, set calls, CEL inputs.
   `Conditions.run`/`step`/`read`, `resolve`'s list, `isCondition` and `formatWith`'s deciding
   cases are deleted. An ordered set and `First` read each member's keys once per sort, not per

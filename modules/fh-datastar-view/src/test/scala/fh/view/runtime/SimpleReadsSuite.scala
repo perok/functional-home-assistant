@@ -95,14 +95,14 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     assert(Renderer.create(d).componentsFor("sensor.b").nonEmpty)
     assertEquals(value(d, states("on")), List[SlotValue]("80"))
-    // One the store does not hold is the step's absent form.
+    // One the store does not hold has no value.
     assertEquals(
       Transform.format(
         Step.Percent(whole(0), whole(255)),
         Transform.read(Part.Attr("brightness"), EntityState.none),
         over(EntityState.none)
       ),
-      "0 %"
+      null
     )
   }
 

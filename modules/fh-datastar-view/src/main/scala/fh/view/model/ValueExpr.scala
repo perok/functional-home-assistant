@@ -535,16 +535,18 @@ object Step:
     */
   case object AnyOf extends Simple
 
-  /** The value against `to`: equality as text, ordering numeric when both parse
-    * and else false, so `Lt` and `Gt` can both be false.
+  /** The value against `to`, as `to`'s type picks: a number literal on the
+    * number line, a text literal as text, a bool literal as equality; against a
+    * read, two numbers on the number line, else text, ordering numeric when
+    * both parse and else false, so `Lt` and `Gt` can both be false.
     */
   final case class Compare(op: Op, to: Value) extends Simple
 
   case object Not extends Simple
 
   /** The first of a [[Value.Present]]'s ids under `orderBy`, ties to candidate
-    * order, `""` when none is present: one pass, no sorted list. It reads every
-    * candidate's state, so it is no [[Simple]] step.
+    * order, `null` when none is present: one pass, no sorted list. It reads
+    * every candidate's state, so it is no [[Simple]] step.
     */
   final case class First(orderBy: List[LayoutNode.SortTerm] = Nil) extends Step
 
@@ -563,17 +565,17 @@ object Step:
   /** CEL:
     * `str(math.round((double(value) - min) * 100.0 / (max - min))) + ' %'`,
     * rounding half away from zero like `math.round`. Numbers or numeric
-    * strings, as `double()` takes; unparseable renders `0 %` (CEL would error).
+    * strings, as `double()` takes; unparseable is no value (CEL would error).
     */
   final case class Percent(min: Value, max: Value) extends Simple
 
   /** CEL: `str(100.0 - ((double(value) - min) * 100.0 / (max - min))) + '%'`,
-    * for a right-anchored track. Unparseable renders `100%`.
+    * for a right-anchored track. Unparseable is no value.
     */
   final case class Fill(min: Value, max: Value) extends Simple
 
   /** Seconds per unit of the value, coarsened: `0s`, `45s`, `12m`, `1h 5m`.
-    * Unparseable renders `""`: a dishwasher between programmes reports
+    * Unparseable is no value: a dishwasher between programmes reports
     * `unknown`, and `0s` would claim it just finished.
     */
   final case class Duration(scale: Double) extends Simple

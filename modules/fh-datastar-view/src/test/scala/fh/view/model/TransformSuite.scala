@@ -331,10 +331,13 @@ class TransformSuite extends munit.FunSuite {
       case _                           => ""
     }
     val start: Any = operand(shape.source)
-    Transform.text(shape.steps.foldLeft(start) {
+    val out = Transform.text(shape.steps.foldLeft(start) {
       case (v, f: Step.Simple) => Transform.format(f, v, operand)
       case (v, _)              => v
     })
+    // As a slot shows it: nothing to show takes the reading's default.
+    if (out.nonEmpty) out
+    else shape.default.fold("")(l => Transform.text(l.raw))
 
   private def agree(
       shape: ValueExpr,
@@ -516,13 +519,16 @@ class TransformSuite extends munit.FunSuite {
           es("on"), // absent position: '0 %' / '100%'
           es("on", "brightness" -> Json.Null) // null attr is dropped as absent
         )
+    // The builders' defaults (`simple.pkl`), which CEL spells as `orValue`.
     agree(
-      attr("brightness", Step.Percent(real(1.0), real(255.0))),
+      attr("brightness", Step.Percent(real(1.0), real(255.0)))
+        .copy(default = Some(Lit.Text("0 %"))),
       percentExpr,
       probes
     )
     agree(
-      attr("brightness", Step.Fill(real(1.0), real(255.0))),
+      attr("brightness", Step.Fill(real(1.0), real(255.0)))
+        .copy(default = Some(Lit.Text("100%"))),
       fillExpr,
       probes
     )
@@ -595,19 +601,19 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test(
-    "divergence: percent/fill render the absent form on unparseable values"
+    "divergence: percent/fill give no value on unparseable values"
   ) {
-    // The engine errors on `double("")` / `double("on")`; the tier renders the
-    // absent form, as for an absent attribute.
+    // The engine errors on `double("")` / `double("on")`; the tier gives no
+    // value, as for an absent attribute, and the reading's default shows.
     val empty = es("on", "brightness" -> Json.fromString(""))
     val word = es("on", "brightness" -> Json.fromString("on"))
     assertEquals(
       runShape(attr("brightness", Step.Percent(real(1.0), real(255.0))), empty),
-      "0 %"
+      ""
     )
     assertEquals(
       runShape(attr("brightness", Step.Fill(real(1.0), real(255.0))), word),
-      "100%"
+      ""
     )
     assert(
       Transform

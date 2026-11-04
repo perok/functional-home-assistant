@@ -300,7 +300,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   // ADR 0016 bakes actions; a hand-written map action is the fallback, and must
-  // resolve from `domain` with no state.
+  // resolve from `domain` with no state: a `once` read, of which entity it is.
   test("a fallback map action resolves from the entity id with no state") {
     val expr =
       """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
@@ -311,7 +311,7 @@ class RendererSuite extends munit.FunSuite {
         templateSlots = Map(
           "action" -> TemplateSlot(
             ValueExpr(
-              Value.Entity(Some(entity), Part.Whole),
+              Value.Entity(Some(entity), Part.Whole, Reads.Once),
               List(Step.Cel(expr))
             )
           )

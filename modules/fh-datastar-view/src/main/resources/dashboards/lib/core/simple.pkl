@@ -178,18 +178,19 @@ const function stateIn(states: Listing<String>): slotMod.Reading =
   matchOf(new Mapping { for (s in states) { [s] = true } }, false)
 
 /// The attribute as a percentage of `[min, max]`, rounded half away from zero
-/// like `math.round`. Numeric as `double()` is; otherwise `"0 %"`.
+/// like `math.round`. Numeric as `double()` is; otherwise no value, which
+/// shows as `"0 %"`.
 const function percent(attrName: String, minV: Number, maxV: Number): slotMod.Reading =
-  (attr(attrName)) { steps { new Percent { min = minV; max = maxV } } }
+  (attr(attrName)) { steps { new Percent { min = minV; max = maxV } }; default = "0 %" }
 
 /// [[percent]]'s complement for a right-anchored track, unrounded, since it is
-/// a CSS length. Otherwise `"100%"`.
+/// a CSS length. Otherwise no value, which shows as `"100%"`: an empty track.
 const function fill(attrName: String, minV: Number, maxV: Number): slotMod.Reading =
-  (attr(attrName)) { steps { new Fill { min = minV; max = maxV } } }
+  (attr(attrName)) { steps { new Fill { min = minV; max = maxV } }; default = "100%" }
 
 /// The state as a number of `unitSeconds`, rendered `4h 13m` / `13m` / `45s`.
-/// Otherwise `""`: an appliance between programmes reports `unknown`, where
-/// `0s` would claim it just finished. Pass `e.durationSeconds`, which is null
+/// Otherwise no value: an appliance between programmes reports `unknown`,
+/// where `0s` would claim it just finished. Pass `e.durationSeconds`, which is null
 /// for a unit with no fixed length.
 const function duration(unitSeconds: Number): slotMod.Reading =
   new slotMod.Reading { steps { new Duration { scale = unitSeconds } } }

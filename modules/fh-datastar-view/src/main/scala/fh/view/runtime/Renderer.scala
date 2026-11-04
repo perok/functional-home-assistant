@@ -1617,24 +1617,23 @@ class Renderer(validated: Dashboard.Validated) {
     val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
   }
 
-  /** A slot's composed source and steps, over its entity, the states and its
-    * fetches' answers.
-    */
-  private type Run =
-    (EntityState, Map[String, EntityState], FetchTemplate => Object) => Any
-
   /** A slot as its node's plan holds it: a value that never moves, folded once
     * with its JS spelling, or a live one, its source and steps composed into
     * one function so a paint walks no step list and looks nothing up.
     */
   private enum Planned:
     case Constant(value: SlotValue, js: String)
-    case Live(source: BoundSlot, run: Run)
+    case Live(source: BoundSlot, run: Evaluator.Run)
 
   private def live(source: BoundSlot): Planned.Live =
     Planned.Live(
       source,
-      compose(source, source.typed.fold(_ => Nil, _.keys).map(programs))
+      Evaluator.compile(
+        source.expr,
+        source.typed.fold(_ => Nil, _.keys).iterator.map(programs),
+        dashboard.slug,
+        (states, fetched) => Conditions.resolve(source.values, states, fetched)
+      )
     )
 
   /** `once` reads only identity, so the plan holds it; the memo is keyed by
@@ -1660,91 +1659,6 @@ class Renderer(validated: Dashboard.Validated) {
   /** A `valueWhile` composed once per renderer, by what it decides. */
   private val gateRuns =
     new java.util.concurrent.ConcurrentHashMap[String, Planned.Live]()
-
-  /** `programs`: each CEL's, in order, as [[BoundSlot.typed]] keys them. */
-  private def compose(
-      source: BoundSlot,
-      programs: List[Transform.Compiled]
-  ): Run = if (source.expr.isCondition) {
-    val e = source.expr
-    (st, states, _) => Conditions.eval(e, st, states)
-  } else {
-    val cels = programs.iterator
-    def inputs(
-        states: Map[String, EntityState],
-        fetched: FetchTemplate => Object
-    ) =
-      Conditions.resolve(source.values, states, fetched)
-    val read: Run = source.expr.source match
-      case Value.Entity(_, part, _, _) =>
-        (st, _, _) => Transform.read(part, st)
-      case Value.Literal(l) =>
-        val v = l.raw
-        (_, _, _) => v
-      case p: Value.Present =>
-        (_, states, _) => Conditions.presentOf(p, states)
-      case l: Value.List =>
-        val items = ValueExpr(l)
-        (st, states, _) => Conditions.eval(items, st, states)
-      case _: Value.Cel =>
-        val p = cels.next()
-        (_, states, fetched) =>
-          Cel.eval(p, null, dashboard.slug, inputs(states, fetched))
-      case _: Value.Fetch => (_, _, _) => ""
-    source.expr.steps.foldLeft(read) { (prev, step) =>
-      step match
-        case _: Step.Cel =>
-          val p = cels.next()
-          (st, states, fetched) =>
-            Cel.eval(
-              p,
-              prev(st, states, fetched),
-              dashboard.slug,
-              inputs(states, fetched)
-            )
-        case f: Step.Simple =>
-          Step.operands(f).map(operand) match
-            case Nil =>
-              (st, states, fetched) =>
-                Transform.formatWith(f, prev(st, states, fetched), null, null)
-            case List(a) =>
-              (st, states, fetched) =>
-                Transform.formatWith(
-                  f,
-                  prev(st, states, fetched),
-                  a(st, states),
-                  null
-                )
-            case a :: b :: _ =>
-              (st, states, fetched) =>
-                Transform.formatWith(
-                  f,
-                  prev(st, states, fetched),
-                  a(st, states),
-                  b(st, states)
-                )
-        // Only in a condition, which is planned whole above.
-        case _: Step.Stage | _: Step.First => prev
-    }
-  }
-
-  /** A step's operand: a literal, read once here, or a read of the entity it
-    * names (a condition over the slot's).
-    */
-  private def operand(
-      v: Value
-  ): (EntityState, Map[String, EntityState]) => Any =
-    v match
-      case Value.Literal(l) =>
-        val c = l.raw
-        (_, _) => c
-      case Value.Entity(Some(id), part, _, _) =>
-        (_, states) =>
-          Transform.read(
-            part,
-            states.getOrElse(id, EntityState(id, "", Map.empty))
-          )
-      case _ => (_, _) => ""
 
   private def withheld(
       planned: Planned.Live,
@@ -1978,24 +1892,33 @@ class Renderer(validated: Dashboard.Validated) {
       fetched: FetchTemplate => Object
   ): SlotValue = {
     val source = planned.source
-    val st =
-      srcEntity
-        .flatMap(states.get)
-        .getOrElse(EntityState(srcEntity.getOrElse(""), "", Map.empty))
+    val st: EntityState | Null =
+      srcEntity.fold(null)(states.getOrElse(_, null))
     if (withheld(planned, states)) ""
     // The bypass, not the transform, keeps an unavailable entity readable.
-    else if (source.bypassUnavailable && st.unavailable) st.state
+    else if (source.bypassUnavailable && st != null && st.unavailable) st.state
     else {
-      planned.run(st, states, fetched) match {
-        case b: Boolean => b
-        case v          =>
-          val s = Transform.text(v)
-          if (s.nonEmpty) classed(source, s)
-          else
+      val v = planned.run(st, states, fetched)
+      // Where a value leaves the language: a bool slot is `true` only for
+      // `true`, a text slot with nothing to show takes its default.
+      if (source.isBool)
+        v match
+          case b: Boolean => b
+          case _          =>
             source.default match
               case Some(Lit.Bool(b)) => b
-              case d => classed(source, d.fold("")(l => Transform.text(l.raw)))
-      }
+              case _                 => false
+      else
+        v match
+          case b: Boolean => b
+          case _          =>
+            val s = Transform.text(v)
+            if (s.nonEmpty) classed(source, s)
+            else
+              source.default match
+                case Some(Lit.Bool(b)) => b
+                case d                 =>
+                  classed(source, d.fold("")(l => Transform.text(l.raw)))
     }
   }
 
