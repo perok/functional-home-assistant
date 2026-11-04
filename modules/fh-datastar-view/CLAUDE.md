@@ -69,6 +69,9 @@ same commit; ADRs that change the pipeline update it too.
    the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
    Regenerate them deliberately when the wire format is *meant* to change, with
    **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
+   What those dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
+   (`src/test/resources/goldens/`, the same command) hold each body, surface and node patch, so a
+   change that moves the wire wholesale can still show it sends the same bytes.
 
    **Use the command; do not hand-roll the flag.** Two footguns it exists to close, both of
    which have fired: a shell `FH_UPDATE_SNAPSHOTS=1` export sticks to the long-lived sbt
