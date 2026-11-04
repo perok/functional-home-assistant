@@ -373,16 +373,24 @@ still read `21` on a card and `21.0` in a condition.
   (`conditionError`), since they run per member per change (ADR 0028). That is about cost, not
   about which evaluator runs them.
 - **Reads are typed everywhere** (decided): slots, and so the fast tier and its byte-equality with
-  CEL (`TransformSuite`), do not change; conditions do. A condition's JSON text is HA's own
-  spelling of the number (circe keeps it); the typed read is a `Long` or `Double`, printed as a
-  CEL result prints (`Cel.numToString`: no `.0`, ten decimals at most), and a list or object as
-  Java prints it (`[a, b]`, `{a=1}`).
-- **Proposed, not agreed: `Compare` takes a number as a number.** When either side is a number
-  (a typed read or a number literal) and the other parses as one, every operator compares by
-  value, `eq` included, with no printing. Otherwise text, as today. Without it, a typed read in a
-  condition is printed through `numToString` per comparison, which allocates per call on the
-  guard path. With it, `eq(21)` holds against `21.0` and against a state `"21.0"`; `eq("21")`
-  stays text.
+  CEL (`TransformSuite`), do not change; conditions do. A value is printed only where it becomes
+  a text slot's output (`Renderer.resolveStateSlotValue`, `Cel.runValue`) or meets a text
+  literal in a comparison (below). The more-info panel's attribute lines are CEL's own.
+- **Proposed, not agreed: `Compare` takes its comparison from the operand's type**, as CEL's type
+  checker picks an overload by type; only an attribute (`dyn`) waits for its runtime value:
+  - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
+    (CEL's heterogeneous numeric equality, `dyn(3.0) == 3`; Scheme's `=`; Java's binary numeric
+    promotion). A text side is parsed, and one that is not a number does not hold, as HA's
+    `numeric_state` condition (`unavailable` "doesn't pass");
+  - a text literal compares as text, a number side printed as a slot prints it;
+  - a bool literal is equality;
+  - between two reads, two numbers use the number line, anything else today's rule (text
+    equality, ordering numeric when both parse).
+
+  No other coercion: what silent coercion does is JS's `==`, where `"0" == 0` and `0 == ""` but
+  `"0" != ""`. Lisp names the comparison (`=` numeric, `string=` text); here the literal's type
+  names it, so the wire carries nothing new. An order key compares by the same rule. A number is
+  printed to be compared only against a text literal.
 - **Proposed, not agreed: an entity the store lacks is `Missing`, and `Missing` stops the steps.**
   No step sees it, so each stays total over real values and byte-equal to its CEL spelling. An
   absent attribute is not `Missing`: it is a `null` the steps already handle (`Percent` gives
@@ -415,8 +423,8 @@ still read `21` on a card and `21.0` in a condition.
 
 ### C's tests
 
-Approval asked with this section. `ConditionsSuite`'s sweep ("a condition decides as the rule
-says") has the JSON-text rule as its oracle, which becomes the typed one; tests pinning `21.0`
+Approved 2026-11-04. `ConditionsSuite`'s sweep ("a condition decides as the rule says") has the
+JSON-text rule as its oracle, which becomes the agreed one; tests pinning `21.0`
 against `21` or a slot over a missing entity follow the agreed rules. Tests and benchmarks that
 call `Conditions.holds` call a compiled run instead (mechanical); the compile cost is measured
 apart from the per-call cost.
@@ -513,9 +521,6 @@ names, and are corrected where they did.
   `nodes.booleanReading`, `slotMod.wireInput` and the `Predicate|Reading` unions convert one to
   the other. Needs a spike: `Reading`'s rendered `default` and `valueWhileSlot` would ride on
   every condition.
-- **Lists and objects printed as JSON** (`["a","b"]`, `{"a":1}`) in `Cel.stringify`, in place of
-  Java's `[a, b]` and `{a=1}`. Both tiers print through it, so they stay byte-equal; the cards
-  that show such an attribute change.
 
 ## Checks
 
