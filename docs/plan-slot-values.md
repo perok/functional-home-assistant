@@ -2,8 +2,9 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** part A (S1–S8) built on #658. Part B (B1–B4) built on `slot-conditions` (#666);
-left: the starter's Pkl evaluation time, and deleting this plan, the maintainer's call.
+**State:** part A (S1–S8) built on #658. Part B (B1–B4) built on `slot-conditions` (#666).
+Part C (one evaluator) agreed 2026-11-04 for the same branch; C0 next. Deleting this plan is the
+maintainer's call.
 
 ## Why
 
@@ -337,6 +338,95 @@ Per step, as Part A's. RenderBench's `condition`, `conditionCel`, `holdsSeed`, `
 `resumeFlip`, `memberClauseFlip` and `memberClauseSteady`, and `validate` timing, before and after
 B2 and B3; the starter site's Pkl evaluation time and `dashboard.json` size before and after B2.
 
+## Part C: one evaluator, compiled once
+
+B left three evaluators for a `ValueExpr`, and they disagree:
+
+| Path | Runs | An attribute reads | An entity the store lacks | Skips |
+|---|---|---|---|---|
+| `Conditions.run`, walking the tree per call | clauses, `Present` guards, order terms, state surfaces, set calls, a slot with no CEL and a deciding step | its JSON text: `21.0` | `Missing`: a comparison over it is false | CEL, `Stage`, a misplaced `First` |
+| `Renderer.compose`, closures built per slot plan | every other slot | typed: `21` | `""`: `ne("on")` holds | `First` |
+| `Conditions.resolve` | CEL's named inputs | typed | `""` | anything off its case list |
+
+`validate` accepts expressions that mix CEL with a deciding step, so `compose` carries its own
+copies of `Compare`, `Not`, `AllOf` and `AnyOf` (in `Transform.formatWith`). One such shape is
+wrong: `Present |> First |> Cel("value + '!'")` types as text, but `compose` skips `First`, so
+CEL gets the id list. Refusing those shapes would keep two evaluators, and one `attr(…)` would
+still read `21` on a card and `21.0` in a condition.
+
+- **One compiler:** `ValueExpr` → `(subject, states, fetched) => Any`, built once, which every
+  consumer calls. `Conditions.run`/`step`/`read`, `resolve`'s case list, `Renderer.compose`,
+  `isCondition` (which chose between them) and `formatWith`'s copies go.
+- **It keeps what each path is fast at:** closures built once, so no tree walk per call, as
+  `compose` does; and `Conditions`' early stops, chosen at compile time: `Present |> Count |>
+  Compare(op, n)` counts until settled, `List |> AllOf/AnyOf` stops at the first item that
+  settles it, `First` is one pass.
+- **One implementation per step, no default case.** The match on `Step` is exhaustive, so a step
+  the evaluator does not run fails to compile. `Stage` steps stay the renderer's, applied after
+  the run, as a named case.
+- **`First` runs over any list of ids:** `ValueType.after` already requires `list(text)` in, so
+  `typed`'s position rule goes. It stays a step.
+- **Compiled once per consumer:** the renderer per slot plan, as now; `MemberGraph` and
+  `SurfaceGraph` when built; a CEL input with its slot. `Validated` is unchanged; the evaluator
+  takes the CEL programs it already holds.
+- **The tier rule stays:** a clause, guard, state surface and order term still refuse CEL
+  (`conditionError`), since they run per member per change (ADR 0028). That is about cost, not
+  about which evaluator runs them.
+- **Reads are typed everywhere** (decided): slots, and so the fast tier and its byte-equality with
+  CEL (`TransformSuite`), do not change; conditions do. A condition's JSON text is HA's own
+  spelling of the number (circe keeps it); the typed read is a `Long` or `Double`, printed as a
+  CEL result prints (`Cel.numToString`: no `.0`, ten decimals at most), and a list or object as
+  Java prints it (`[a, b]`, `{a=1}`).
+- **Proposed, not agreed: `Compare` takes a number as a number.** When either side is a number
+  (a typed read or a number literal) and the other parses as one, every operator compares by
+  value, `eq` included, with no printing. Otherwise text, as today. Without it, a typed read in a
+  condition is printed through `numToString` per comparison, which allocates per call on the
+  guard path. With it, `eq(21)` holds against `21.0` and against a state `"21.0"`; `eq("21")`
+  stays text.
+- **Proposed, not agreed: an entity the store lacks is `Missing`, and `Missing` stops the steps.**
+  No step sees it, so each stays total over real values and byte-equal to its CEL spelling. An
+  absent attribute is not `Missing`: it is a `null` the steps already handle (`Percent` gives
+  `0 %`, `WithUnit` leaves the unit off). One place turns `Missing` into output, at the end of the
+  run: a slot shows its `default`, else its type's empty (`""` for text, `false` for bool); a
+  condition does not hold; a CEL step with a `Missing` input does not run. Changes: a step's own
+  text no longer shows over a missing entity (`Suffix("!")` gave `!`); `not(ghost == "on")` no
+  longer holds, where B2 made the comparison false and `Not` then flipped it; a list item that is
+  `Missing` counts as false in an and/or. No error field per slot: when an entity goes from HA, the
+  dump refresh refuses the new dump because the dashboard names it, so the error belongs where the
+  refresh reports that, not in every card's template.
+
+### Steps
+
+- **C0. The benchmarks C changes and no case runs yet:** a set ordered by a condition and an
+  attribute (`publishSetOrdered`; no benchmark orders a set), `first().eq(e)` for a row of pills
+  (`leaderRow`), an and/or/not tree per leaf (`conditionTree`), and a guard over an attribute on a
+  fresh state (`conditionAttr`, where the typed read is paid). A one-off A/B of the same against
+  slot-values (the fixtures ported to its `Predicate` and `SortKey`, the port not committed)
+  gives B2's `First` and and/or and B3's order terms a before number.
+- **C1. The compiler, and the renderer's slots on it;** `compose` goes. The agreed rules apply.
+- **C2. Every other consumer on it:** `MemberGraph`, `SurfaceGraph`, set calls, CEL inputs.
+  `Conditions.run`/`step`/`read`, `resolve`'s list, `isCondition` and `formatWith`'s deciding
+  cases are deleted.
+- **C3. `First` over any id list;** the position rule goes, and a test renders the shape above and
+  gets the leader.
+- **C4. Docs:** ADRs 0004 and 0028, `terminology.md`, the architecture doc's file map and the
+  module `CLAUDE.md`, which name `Conditions` as the condition interpreter; this section's B
+  paragraphs that C supersedes (the evaluator, `Compare`'s rules, `isCondition`).
+
+### C's tests
+
+Approval asked with this section. `ConditionsSuite`'s sweep ("a condition decides as the rule
+says") has the JSON-text rule as its oracle, which becomes the typed one; tests pinning `21.0`
+against `21` or a slot over a missing entity follow the agreed rules. Tests and benchmarks that
+call `Conditions.holds` call a compiled run instead (mechanical); the compile cost is measured
+apart from the per-call cost.
+
+### C's checks
+
+Per step, as B's, interleaved against the slot-conditions head: `condition`, `countAny`,
+`countAnyFull`, `conditionCel`, `simple`, `direct`, `cel`, `memberClauseSteady`,
+`memberClauseFlip`, `pageSet`, `publishSet`, `publishFlip`, `publishSetIfs` and C0's four.
+
 ## Review: what the design has to watch
 
 - **Signal names change, accepted.** A display signal is named by its entity and a hash of its
@@ -412,6 +502,20 @@ names, and are corrected where they did.
   and number slot types wait for a consumer (number: slot-views point 4); `ValueType.List(of)`
   already carries the element.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
+- **`validate` compiles each CEL source twice.** `ValueExpr.typed` compiles it for its type
+  (`Transform.resultType`, through a new compiler whenever `env` or `value` is set,
+  `Cel.compilerWith`), and `Dashboard.compileTransforms` compiles each distinct `CelKey` again;
+  the fixtures repeat a source about twice (fixture-slots: 25 sources, 11 distinct). Remember each
+  result by `CelKey` and let typing return the program, so `Validated` keeps what typing
+  compiled. `validate` takes 0.56 ms on the starter and 3.4–6.3 ms on the fixtures: worth it once
+  it shows on the Pi.
+- **A Pkl `Predicate` as a `slotMod.Reading`.** Both write `{source, steps}`, so
+  `nodes.booleanReading`, `slotMod.wireInput` and the `Predicate|Reading` unions convert one to
+  the other. Needs a spike: `Reading`'s rendered `default` and `valueWhileSlot` would ride on
+  every condition.
+- **Lists and objects printed as JSON** (`["a","b"]`, `{"a":1}`) in `Cel.stringify`, in place of
+  Java's `[a, b]` and `{a=1}`. Both tiers print through it, so they stay byte-equal; the cards
+  that show such an attribute change.
 
 ## Checks
 
