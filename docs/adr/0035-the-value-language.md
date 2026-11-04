@@ -134,9 +134,25 @@ unavailable switch.
 - **The tier rule is about cost, not the evaluator:** a clause, guard, state surface and order
   term refuse CEL (`conditionError`, ADR 0028), since they run per member per change.
 
-## Open question: an `Option` type
+## Open questions: what the type should tell `validate`
 
-Absence stays implicit for now. Adding a type would look like this: `ValueType.Opt(t)`; CEL's
+Two follow-ups, to assess together, since both ask how much of a reading's type `validate` should
+hold an author to.
+
+**Strict `Dyn`.** An attribute read and a CEL result are `dyn`, and `dyn` fits a text and a bool
+slot alike; the boundaries above say what it does at runtime, so nothing renders wrongly, but a
+list or a map attribute on a text slot, or a reading that does not end in a bool on a bool slot,
+reaches the wall rather than failing the build. Strict, `dyn` would fit no slot: the text steps
+(`Prefix` … `Duration`) still take it, so the readouts and `attrUnit` stand, and a reading that
+ends in `dyn` (a bare `attr(…)`, CEL's `value.attr.x`) would need a conversion, CEL's
+`string(…)` or a simple-tier step. Each `SlotType` would name the `ValueType` it takes and
+`ValueType.fits` become conformance. Attribute types from the dump would spare most
+conversions. It deletes `validate`'s one special case, `bareAttr`, which refuses a bare
+attribute on a bool slot while the same value through CEL passes. The cost is the author's: CEL
+in a text slot gains a `string(…)`, and the library builders, `writing-dashboards.md` and the
+snapshots move.
+
+**An `Option` type.** Absence stays implicit for now. Adding a type would look like this: `ValueType.Opt(t)`; CEL's
 checker already types `value.attr[?'u']` as `optional_type(T)`, which `Transform.resultType` would
 map to `Opt(T)`; a strict step over `Opt(T)` types as `Opt` of its result, so the lift is checked
 rather than assumed; `default` (or an `OrElse` step) takes `Opt(T)` to `T`; and `ValueType.fits`

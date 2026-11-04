@@ -470,14 +470,7 @@ names, and are corrected where they did.
   comprehension, not a gate" is the argument to answer. Goes with the regions round.
 - A `number` slot type with slot-views point 4: it waits on the tap call design.
 - The tap call design round: a declared call id in place of the URL a template spells out.
-- **`Dyn` fits no slot**, text or bool. The text steps (`Prefix` … `Duration`) still take it, so
-  `attrUnit` and the readouts stand; a reading that ends in `Dyn` (a bare `attr(…)`, CEL's
-  `value.attr.x`) needs a conversion, CEL's `string(…)` or a simple-tier step, and `bareAttr`
-  goes. Attribute types from the dump's `volatileAttrs` would spare most conversions. With it,
-  each `SlotType` names the `ValueType` it takes (`enum SlotType(val takes: ValueType)`) and
-  `ValueType.fits` becomes conformance: the same type, or a number or markup shown as text. List
-  and number slot types wait for a consumer (number: slot-views point 4); `ValueType.List(of)`
-  already carries the element.
+- **Strict `Dyn`** is an open question in ADR 0035, beside the `Option` type.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
 - **`validate` compiles each CEL source twice.** `ValueExpr.typed` compiles it for its type
   (`Transform.resultType`, through a new compiler whenever `env` or `value` is set,
