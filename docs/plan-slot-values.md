@@ -433,29 +433,32 @@ an overload. These rules are the language; C4 moves them out of this plan.
 
   A value is printed nowhere else, except a number meeting a text literal. The more-info panel's
   attribute lines are CEL's own.
-- **The bypass (agreed in scope).** `bypassUnavailable` is about a slot's main source only, when
-  that is an entity in a no-value state; operands, guards, order keys and CEL inputs read as is.
-  An input type is not an output type: `q.entity(x).stateIs("off")` compares the state's text and
-  produces a bool, and over `unavailable` that comparison is meaningful (false), so it runs. With
-  the bypass on (the default), for that entity:
-
-  | The main source reads | The slot is | Result |
-  |---|---|---|
-  | its state (or the whole entity, which holds it) | text | the word, no step runs: `CASE WHEN state IN (…) THEN state ELSE <the reading> END` |
-  | its state (or the whole entity) | bool | the steps run over the word |
-  | an attribute | any | `null`, so the steps skip and the slot shows its `default`, else its type's empty (`""`, `false`) |
-
-  The bypass off reads everything as is (a label keeps the name, a slider's position, the tap's
-  refusal and `activeOf`, which match the word). Changes: an attribute readout of an unavailable
-  entity (a light's `Percent` brightness) shows its default or `""` where it showed the word.
-  The flag then belongs on the slot, not on every entity read, where only this one boundary
-  reads it: proposed, a wire change in `slot.pkl` and `TemplateSlot`.
+- **The bypass (agreed).** An entity read reads as is: the state's text, the word included, and
+  its attributes as HA reports them. `bypassUnavailable` is the one exception, and it makes sense
+  in one place only: a text slot's main source, reading an entity's state or the whole entity
+  (which holds it, so CEL over `value.state` never sees the word). There, a no-value state shows
+  the word and no step runs: `CASE WHEN state IN (…) THEN state ELSE <the reading> END`.
+  - **It stays on the entity read**, where it is today, and defaults to `false`, how a read
+    behaves everywhere else. The wire omits the default, as for the read's other fields: Pkl
+    writes `bypassUnavailable = true` only where it is set.
+  - **`validate` refuses it set anywhere else:** an operand, a guard, a list item, a condition, an
+    order key, a CEL input, a `valueWhile`, an attribute read, a bool slot. A rule across nodes,
+    so it is `validate`'s, not the decoder's.
+  - An input type is not an output type: `q.entity(x).stateIs("off")` compares the state's text
+    and produces a bool, and over `unavailable` that comparison is meaningful (false), so it runs.
+  - **The library opts in** where a card shows the word today, on the builders of a state text
+    slot. No fixture holds an unavailable entity, so nothing would notice a card that stops
+    showing it: C1 first adds one per card kind to the goldens, then flips the default, and the
+    golden diff names every place that needs `true`.
+  - Change: an attribute readout of an unavailable entity (a light's `Percent` brightness) reads
+    as is, usually `null`, so it shows its default or `""` where it showed the word.
 
   **Bug found here (B2):** today the bypass runs before any slot whatever its type. Since B2 a
   condition's source is an entity read, whose wire default is `bypassUnavailable = true`
   (`Value.Condition` answered `false`), so a bool slot from `q.entity(x).stateIs("off")` gets the
   string `unavailable` when `x` is, which a Mustache section and `attr:` take as true: measured,
-  `{{#off}}` renders `OFF`. C1 applies the table above, with a test over each row.
+  `{{#off}}` renders `OFF`. The `false` default fixes it by construction, and `validate` keeps it
+  fixed; C1 adds the test.
 - **What moves (agreed).** `Percent`'s `0 %` and `Fill`'s `100%` over a value they
   cannot read were the step guessing for the slider. They become `null`, and `simple.pkl`'s
   `percent` and `fill` builders set those as the reading's `default`, so a card's bytes hold;
