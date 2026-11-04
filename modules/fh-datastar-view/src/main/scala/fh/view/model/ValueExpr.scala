@@ -57,6 +57,32 @@ final case class ValueExpr(
       case _                           => false
     }
 
+  /** Whether its own source asks for the bypass. */
+  def bypassesSource: Boolean = source match
+    case e: Value.Entity => e.bypassUnavailable
+    case _               => false
+
+  /** Whether a read other than its own source asks for the bypass, which only a
+    * text slot's own read of a state or a whole entity may (`validate`).
+    */
+  def bypassesInside: Boolean =
+    (source match
+      case Value.List(items)      => items.exists(_.bypassesAnywhere)
+      case Value.Present(_, when) => when.values.exists(_.bypassesAnywhere)
+      case Value.Cel(_, inputs)   => inputs.values.exists(_.bypassesAnywhere)
+      case _                      => false
+    ) || steps.exists {
+      case Step.Cel(_, inputs) => inputs.values.exists(_.bypassesAnywhere)
+      case Step.First(orderBy) => orderBy.exists(_.by.bypassesAnywhere)
+      case s                   =>
+        Step.operands(s).exists {
+          case e: Value.Entity => e.bypassUnavailable
+          case _               => false
+        }
+    }
+
+  def bypassesAnywhere: Boolean = bypassesSource || bypassesInside
+
   /** Injective, for signal names and the once-cache. The source's own entity is
     * not in it: the signal path names that entity.
     */
@@ -119,7 +145,8 @@ final case class ValueExpr(
         Some("a condition is read without CEL")
       case Right(t) if t.out != ValueType.Bool =>
         Some(s"a condition is a bool, not ${t.out.name}")
-      case Right(_) => None
+      case Right(_) if bypassesAnywhere => Some(ValueExpr.MisplacedBypass)
+      case Right(_)                     => None
 
   /** Its type checked in order: each CEL compiled with `value` declared as the
     * type before it, beside the named inputs `env` types, and what the last
@@ -190,6 +217,11 @@ final case class ValueExpr(
       steps.collect { case Step.First(o) => o.flatMap(_.entities) }.flatten
 
 object ValueExpr:
+
+  val MisplacedBypass: String =
+    "bypassUnavailable shows an unavailable entity's word in place of a " +
+      "reading, so only a text slot's own read of a state or a whole entity " +
+      "takes it; everywhere else a read reads as is"
 
   /** [[ValueExpr.typed]]'s answer: the CEL it compiles, in order, and its type.
     */
@@ -354,7 +386,7 @@ enum Value derives CanEqual:
       of: Option[String] = None,
       part: Part = Part.State,
       reads: String = Reads.Live,
-      bypassUnavailable: Boolean = true
+      bypassUnavailable: Boolean = false
   )
   case Fetch(fetch: FetchTemplate)
 
@@ -397,7 +429,7 @@ object Value:
   def sourceKey(v: Value): String = v match
     case Literal(l)                 => s"lit:${Lit.key(l)}"
     case Entity(_, part, _, bypass) =>
-      Part.key(part) + (if (bypass) "" else "!b")
+      Part.key(part) + (if (bypass) "!b" else "")
     case Fetch(f)          => s"fetch:${f.key}"
     case Present(cs, when) =>
       cs.mkString("present(", ",", "/") +
@@ -415,7 +447,7 @@ object Value:
   /** An operand's key, which does name its entity. */
   def key(v: Value): String = v match
     case Entity(of, part, _, bypass) =>
-      s"@${of.getOrElse("")}:" + Part.key(part) + (if (bypass) "" else "!b")
+      s"@${of.getOrElse("")}:" + Part.key(part) + (if (bypass) "!b" else "")
     case other => sourceKey(other)
 
   private val EntityFields =
@@ -430,7 +462,7 @@ object Value:
             c.getOrElse[Option[String]]("of")(None),
             c.getOrElse[Part]("part")(Part.State),
             c.getOrElse[String]("reads")(Reads.Live),
-            c.getOrElse[Boolean]("bypassUnavailable")(true)
+            c.getOrElse[Boolean]("bypassUnavailable")(false)
           ).mapN(Entity.apply)
         case "Fetch" =>
           Strict.only(c, Set("kind", "fetch")) *>

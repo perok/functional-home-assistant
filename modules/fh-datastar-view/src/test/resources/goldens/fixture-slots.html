@@ -1683,8 +1683,8 @@
     <span></span>
   </label></div>
 </article></div>
-<div class="fh-cell" style="--fh-x:unavailable" id="c_1"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#3: true, t#4: 'unavailable'}}}}"
+<div class="fh-cell" style="--fh-x:" id="c_1"
+  data-signals="{_e: {light: {kitchen: {t#1: false, t#3: true, t#4: ''}}}}"
   data-class:warm="$_e.light.kitchen.t#1"
   data-style:--fh-x="$_e.light.kitchen.t#4"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.light.kitchen.t#3"
@@ -1725,7 +1725,7 @@
   data-class:fh-error="$_c_3__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#7">0 on</span></span></span></button></div>
 <div class="fh-cell" id="c_4"
-  data-signals="{_e: {sensor: {outside_temp: {t#8: 'unavailable', t#9: 'unavailable'}}}}">
+  data-signals="{_e: {sensor: {outside_temp: {t#8: 'unavailable', t#9: 'temperature'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/fixture-slots/open/c_4_self')"
   data-indicator="_c_4__busy"
@@ -1741,7 +1741,7 @@
   data-attr:aria-busy="$_c_4__busy_slow"><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#8">unavailable</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#9">unavailable</span></span></span></div>
+  data-text="$_e.sensor.outside_temp.t#9">temperature</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_5"
   data-signals="{_e: {light: {kitchen: {t#3: true, t#10: false, t#12: 'unavailable'}, living_room: {t#11: 'unavailable'}}}}"
@@ -2018,7 +2018,7 @@
   data-class:fh-chosen="String(($_var_s_c_10_self__c_0_1__window__pending || $_var_s_c_10_self__c_0_1__window)) === '30d'">30d</a></div></div>
 <div class="fh-cell" id="s_c_10_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div></div>
 <div class="fh-cell" id="s_c_10_self__c_0_2"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre>
 </div></div>
 <div class="fh-cell" id="s_c_10_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
@@ -2090,7 +2090,7 @@
   data-class:fh-chosen="String(($_var_s_c_4_self__c_0_1__window__pending || $_var_s_c_4_self__c_0_1__window)) === '30d'">30d</a></div></div>
 <div class="fh-cell" id="s_c_4_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div></div>
 <div class="fh-cell" id="s_c_4_self__c_0_2"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre>
 </div></div>
 <div class="fh-cell" id="s_c_4_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
@@ -2140,7 +2140,7 @@
   data-text="$_e.light.kitchen.t#12">unavailable</span></span></span></div>
 </article></div></div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_2"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
@@ -2159,7 +2159,7 @@
   data-text="$_e.binary_sensor.front_door.t#14">unavailable</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_8_self__c_0_1"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">binary_sensor.front_door</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">binary_sensor.front_door</code>  <pre class="fh-entity-info-attrs">device_class: door&#10;friendly_name: Front Door</pre>
 </div></div>
 <div class="fh-cell" id="s_c_8_self__c_0_2"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
@@ -2390,7 +2390,7 @@
   data-class:fh-chosen="String(($_var_s_c_10_self__c_0_1__window__pending || $_var_s_c_10_self__c_0_1__window)) === '30d'">30d</a>
 <!-- ==== unavailable · patch s_c_10_self__c_0_2 ==== -->
 <div class="fh-cell" id="s_c_10_self__c_0_2"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre>
 </div></div>
 <!-- ==== unavailable · patch s_c_10_self__c_0_3 ==== -->
 <div class="fh-cell" id="s_c_10_self__c_0_3"><button class="fh-press fh-size-large "
@@ -2455,21 +2455,21 @@
   data-class:fh-chosen="String(($_var_s_c_4_self__c_0_1__window__pending || $_var_s_c_4_self__c_0_1__window)) === '30d'">30d</a>
 <!-- ==== unavailable · patch s_c_4_self__c_0_2 ==== -->
 <div class="fh-cell" id="s_c_4_self__c_0_2"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre>
 </div></div>
 <!-- ==== unavailable · patch s_c_4_self__c_0_3 ==== -->
 <div class="fh-cell" id="s_c_4_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div>
 <!-- ==== unavailable · patch s_c_6_self__c_0_2 ==== -->
 <div class="fh-cell" id="s_c_6_self__c_0_2"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">friendly_name: Kitchen</pre>
 </div></div>
 <!-- ==== unavailable · patch s_c_6_self__c_0_3 ==== -->
 <div class="fh-cell" id="s_c_6_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div>
 <!-- ==== unavailable · patch s_c_8_self__c_0_1 ==== -->
 <div class="fh-cell" id="s_c_8_self__c_0_1"><div class="fh-card fh-entity-info">
-  <code class="fh-entity-info-id">binary_sensor.front_door</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+  <code class="fh-entity-info-id">binary_sensor.front_door</code>  <pre class="fh-entity-info-attrs">device_class: door&#10;friendly_name: Front Door</pre>
 </div></div>
 <!-- ==== unavailable · patch s_c_8_self__c_0_2 ==== -->
 <div class="fh-cell" id="s_c_8_self__c_0_2"><button class="fh-press fh-size-large "

@@ -17,6 +17,7 @@ import fh.view.model.{
   Reads,
   Region,
   SetId,
+  SlotType,
   Step,
   Value,
   ValueExpr,
@@ -207,13 +208,16 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("unavailable entity bypasses the transform and shows its raw state") {
-    // Bypassing is the default.
     val node = LayoutNode.Component(
       card = "card",
       templateSlots = Map(
         "state" -> TemplateSlot(
           ValueExpr(
-            Value.Entity(Some("sensor.t"), Part.Whole),
+            Value.Entity(
+              Some("sensor.t"),
+              Part.Whole,
+              bypassUnavailable = true
+            ),
             List(Step.Cel("str(math.round(num(value.state) * 10.0) / 10.0)"))
           )
         )
@@ -240,8 +244,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("bypassUnavailable=false runs the transform even when unavailable") {
-    // Opted out so its transform still runs: a label keeps the name, an action
-    // stays resolvable.
+    // A label keeps the name, an action stays resolvable.
     val node = LayoutNode.Component(
       card = "card",
       templateSlots = Map(
@@ -267,6 +270,33 @@ class RendererSuite extends munit.FunSuite {
         .contains("<span>unavailable!</span>"),
       clue = "transform should run, not be bypassed"
     )
+  }
+
+  test("a bool slot over an entity with no value decides on the word") {
+    // The comparison reads the state's text and makes a bool: over
+    // `unavailable` it is false, never the word in a section.
+    val off =
+      Conds.cmp("state", Op.Eq, Json.fromString("off"), Some("switch.x"))
+    val r = Renderer.create(
+      Dashboard(
+        Map("flag" -> CardDef("<b>{{#off}}OFF{{/off}}{{^off}}lit{{/off}}</b>")),
+        LayoutNode.Component(
+          card = "flag",
+          templateSlots =
+            Map("off" -> TemplateSlot(off, `type` = SlotType.Bool))
+        )
+      )
+    )
+    def shown(state: String) =
+      r.renderNodeById(
+        "c",
+        Map("switch.x" -> st("switch.x", state)),
+        fragments = FetchSnapshot.empty
+      ).get
+    assert(shown("off").contains("<b>OFF</b>"), clue = shown("off"))
+    EntityState.unavailableStates.foreach { s =>
+      assert(shown(s).contains("<b>lit</b>"), clue = shown(s))
+    }
   }
 
   // ADR 0016 bakes actions; a hand-written map action is the fallback, and must

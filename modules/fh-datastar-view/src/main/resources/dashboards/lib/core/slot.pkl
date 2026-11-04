@@ -23,7 +23,11 @@ class Reading {
   hidden entityId: String? = null
   /// Which part of it; null is the state.
   hidden part: simpleMod.Part? = null
-  hidden bypassUnavailable: Boolean = true
+  /// A text slot over an unavailable or unknown entity shows that word in
+  /// place of its reading, and no step runs. Only a text slot's own read of
+  /// the state or the whole entity may set it; the build refuses it anywhere
+  /// else, where a read reads as is.
+  hidden bypassUnavailable: Boolean = false
   /// When this value is read, and whether a change is a reason to re-render:
   ///
   ///   - `live` — read every render, and a change to the entity is a render.
@@ -49,7 +53,7 @@ class Reading {
         of = r.entityId
         part = r.part
         reads = if (r.reads == "live") null else r.reads
-        bypassUnavailable = if (r.bypassUnavailable) null else false
+        bypassUnavailable = if (r.bypassUnavailable) true else null
       }
   steps: Listing<simpleMod.Step> = new {}
   /// What an empty result shows instead, of the slot's type.
@@ -87,8 +91,7 @@ class EntityRead extends Value {
   part: simpleMod.Part? = null
   /// Null is `live` ([[Reading.reads]]).
   reads: ("onRender"|"once")? = null
-  /// Null shows an unavailable entity's raw state instead of running the
-  /// steps; `false` runs them regardless (an action, a label, a position).
+  /// Null reads as is; `true` is [[Reading.bypassUnavailable]].
   bypassUnavailable: Boolean? = null
 }
 
@@ -282,7 +285,6 @@ const asHandler: SignalBind = new BindHandler {}
 const function stateIn(e: hass.Entity, states: List<String>): Reading =
   (simpleMod.stateIn(states.toListing())) {
     entityId = e.entity_id
-    bypassUnavailable = false
   }
 
 /// Whether `e` is on as HA's tile draws it, live, or null for a domain with no
@@ -299,7 +301,6 @@ const function activeOf(e: hass.Entity): Reading? =
           + (activeTables.offIn.getOrNull(e.domain) ?? List()))
         simpleMod.matchOf(new Mapping { for (st in offStates) { [st] = false } }, true)) {
       entityId = e.entity_id
-      bypassUnavailable = false
     }
 
 /// A timestamp state as the clock time it names, `18:03`, in `time_zone`: the
@@ -345,21 +346,20 @@ const function exprReading(x: Expr): Reading =
     steps { simpleMod.cel(x.transform) }
   }
 
-// Expr and Simple resolve even while unavailable, so a label shows the name;
 // null bakes the friendly name.
 const function labelSlot(entity: hass.Entity?, label: (String|Expr|Reading)?): Reading|String =
-  if (label is Expr) (exprReading(label)) { bypassUnavailable = false }
-  else if (label is Reading) (label) { bypassUnavailable = false }
+  if (label is Expr) exprReading(label)
   else if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
 // null: the state plus the entity's unit. A String names an attribute, with the
-// unit. An Expr or Simple is used as given, unit and all.
+// unit. An Expr or Simple is used as given, unit and all. The state and an Expr
+// show an unavailable entity's word; an attribute reads as is.
 const function valueSlot(value: (String|Expr|Reading)?): Reading =
-  if (value is Expr) exprReading(value)
+  if (value is Expr) (exprReading(value)) { bypassUnavailable = true }
   else if (value is Reading) value
-  else if (value == null) simpleMod.suffixUnit("unit_of_measurement")
+  else if (value == null) (simpleMod.suffixUnit("unit_of_measurement")) { bypassUnavailable = true }
   else simpleMod.attrUnit(value)
 
 /// A card's second line. A String is the text itself, never an attribute name
@@ -369,7 +369,7 @@ typealias Secondary = String|Expr|Reading
 /// `at` holding a second line. A live reading becomes a text signal, so a card
 /// places it with `textMod.liveRun` under [[Slot.ifSet]].
 const function secondary(at: Slot, s: Secondary?): Slot =
-  if (s is Expr) (at) { value = (exprReading(s)) { default = "" }; signal = asText }
+  if (s is Expr) (at) { value = (exprReading(s)) { default = ""; bypassUnavailable = true }; signal = asText }
   else if (s is Reading && s.fetch == null && s.reads == "live") (at) { value = s; signal = asText }
   else at.of(s)
 

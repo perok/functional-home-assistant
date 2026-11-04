@@ -203,6 +203,28 @@ class SimpleReadsSuite extends munit.FunSuite {
     )
   }
 
+  test("only a text slot's own read of a state or a whole entity bypasses") {
+    def bypassing(part: Part) =
+      Value.Entity(Some("sensor.a"), part, bypassUnavailable = true)
+    def refused(v: TemplateSlot) =
+      dashboard(v).validate().exists(_.contains(ValueExpr.MisplacedBypass))
+    assert(!refused(slot(ValueExpr(bypassing(Part.State)))))
+    assert(!refused(slot(ValueExpr(bypassing(Part.Whole)))))
+    assert(refused(slot(ValueExpr(bypassing(Part.Attr("x"))))))
+    assert(refused(slot(ValueExpr(bypassing(Part.State)), bool = true)))
+    assert(
+      refused(
+        slot(reading(Some("sensor.a"))(Step.Suffix(bypassing(Part.State))))
+      )
+    )
+    assert(
+      ValueExpr(
+        bypassing(Part.State),
+        List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+      ).conditionError.contains(ValueExpr.MisplacedBypass)
+    )
+  }
+
   test("the wire carries a condition and a named read as a source") {
     assertEquals(
       decode[ValueExpr](

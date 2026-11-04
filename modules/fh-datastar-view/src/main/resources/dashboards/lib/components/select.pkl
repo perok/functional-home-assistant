@@ -236,7 +236,6 @@ class SelectDropdown extends Select {
             otherwise = new slotMod.EntityRead { part = currentPart(o) }
           }
         }
-        bypassUnavailable = false
       }
   slots { slotMod.signalled(chosenSlot, chosen, slotMod.asText) }
 }

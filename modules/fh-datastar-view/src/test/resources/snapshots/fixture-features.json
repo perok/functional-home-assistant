@@ -46,6 +46,7 @@
                                   "kind" : "Text"
                                 },
                                 "source" : {
+                                  "bypassUnavailable" : true,
                                   "kind" : "Entity"
                                 },
                                 "steps" : [
@@ -352,6 +353,7 @@
                 "kind" : "Text"
               },
               "source" : {
+                "bypassUnavailable" : true,
                 "kind" : "Entity"
               },
               "steps" : [
@@ -377,7 +379,6 @@
             "classes" : {
               "fh-active" : {
                 "source" : {
-                  "bypassUnavailable" : false,
                   "kind" : "Entity"
                 },
                 "steps" : [
@@ -427,7 +428,6 @@
                 "kind" : "Handler"
               },
               "source" : {
-                "bypassUnavailable" : false,
                 "kind" : "Entity"
               },
               "steps" : [
@@ -452,6 +452,7 @@
                 "kind" : "Text"
               },
               "source" : {
+                "bypassUnavailable" : true,
                 "kind" : "Entity"
               },
               "steps" : [
@@ -477,7 +478,6 @@
             "classes" : {
               "fh-active" : {
                 "source" : {
-                  "bypassUnavailable" : false,
                   "kind" : "Entity"
                 },
                 "steps" : [
@@ -515,7 +515,6 @@
                               "classes" : {
                                 "fh-active" : {
                                   "source" : {
-                                    "bypassUnavailable" : false,
                                     "kind" : "Entity"
                                   },
                                   "steps" : [
@@ -565,7 +564,6 @@
                                   "kind" : "Handler"
                                 },
                                 "source" : {
-                                  "bypassUnavailable" : false,
                                   "kind" : "Entity"
                                 },
                                 "steps" : [
@@ -590,6 +588,7 @@
                                   "kind" : "Text"
                                 },
                                 "source" : {
+                                  "bypassUnavailable" : true,
                                   "kind" : "Entity"
                                 },
                                 "steps" : [
@@ -620,7 +619,6 @@
                                     "classes" : {
                                       "fh-active" : {
                                         "source" : {
-                                          "bypassUnavailable" : false,
                                           "kind" : "Entity"
                                         },
                                         "steps" : [
@@ -670,7 +668,6 @@
                                         "kind" : "Handler"
                                       },
                                       "source" : {
-                                        "bypassUnavailable" : false,
                                         "kind" : "Entity"
                                       },
                                       "steps" : [
@@ -695,6 +692,7 @@
                                         "kind" : "Text"
                                       },
                                       "source" : {
+                                        "bypassUnavailable" : true,
                                         "kind" : "Entity"
                                       },
                                       "steps" : [
@@ -821,6 +819,7 @@
                 "kind" : "Text"
               },
               "source" : {
+                "bypassUnavailable" : true,
                 "kind" : "Entity"
               },
               "steps" : [
@@ -853,7 +852,6 @@
                   "classes" : {
                     "fh-active" : {
                       "source" : {
-                        "bypassUnavailable" : false,
                         "kind" : "Entity"
                       },
                       "steps" : [
@@ -913,7 +911,6 @@
                       "property" : "--fh-fill"
                     },
                     "source" : {
-                      "bypassUnavailable" : false,
                       "kind" : "Entity",
                       "part" : {
                         "kind" : "Attr",
@@ -958,7 +955,6 @@
                       "kind" : "Handler"
                     },
                     "source" : {
-                      "bypassUnavailable" : false,
                       "kind" : "Entity"
                     },
                     "steps" : [
@@ -981,7 +977,6 @@
                       "name" : "value"
                     },
                     "source" : {
-                      "bypassUnavailable" : false,
                       "kind" : "Entity",
                       "part" : {
                         "kind" : "Attr",
@@ -1017,7 +1012,6 @@
                       "classes" : {
                         "fh-active" : {
                           "source" : {
-                            "bypassUnavailable" : false,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -1067,7 +1061,6 @@
                           "kind" : "Handler"
                         },
                         "source" : {
-                          "bypassUnavailable" : false,
                           "kind" : "Entity"
                         },
                         "steps" : [
@@ -1092,6 +1085,7 @@
                           "kind" : "Text"
                         },
                         "source" : {
+                          "bypassUnavailable" : true,
                           "kind" : "Entity"
                         },
                         "steps" : [
@@ -1135,7 +1129,6 @@
                       "classes" : {
                         "fh-active" : {
                           "source" : {
-                            "bypassUnavailable" : false,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -1185,7 +1178,6 @@
                           "kind" : "Handler"
                         },
                         "source" : {
-                          "bypassUnavailable" : false,
                           "kind" : "Entity"
                         },
                         "steps" : [
@@ -1210,6 +1202,7 @@
                           "kind" : "Text"
                         },
                         "source" : {
+                          "bypassUnavailable" : true,
                           "kind" : "Entity"
                         },
                         "steps" : [
@@ -1511,6 +1504,7 @@
                                       "kind" : "Text"
                                     },
                                     "source" : {
+                                      "bypassUnavailable" : true,
                                       "kind" : "Entity"
                                     },
                                     "steps" : [
@@ -1817,6 +1811,7 @@
                     "kind" : "Text"
                   },
                   "source" : {
+                    "bypassUnavailable" : true,
                     "kind" : "Entity"
                   },
                   "steps" : [

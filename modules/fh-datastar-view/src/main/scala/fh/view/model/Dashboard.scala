@@ -714,6 +714,8 @@ object LayoutNode:
           case Left(m)                     => Some(m.message)
           case Right(t) if t.keys.nonEmpty =>
             Some("an order term is read without CEL")
+          case Right(_) if by.bypassesAnywhere =>
+            Some(ValueExpr.MisplacedBypass)
           case Right(_) => None
 
   case class Step(region: String, index: Int)
@@ -1237,7 +1239,22 @@ case class Dashboard(
                 )
               case _ => None
             }
-        stepErrors ++ signalErrors(nodeId, cardName, key, src) ++
+        val ownBypass = src.expr.source match
+          case Value.Entity(_, Part.State | Part.Whole, _, _) => !src.isBool
+          case _                                              => false
+        val bypassErrors = Option
+          .when(
+            src.expr.bypassesInside ||
+              (src.expr.bypassesSource && !ownBypass) ||
+              src.values.values.exists(_.bypassesAnywhere)
+          )(s"$nodeId: slot '$name': ${ValueExpr.MisplacedBypass}")
+          .toList
+        stepErrors ++ bypassErrors ++ signalErrors(
+          nodeId,
+          cardName,
+          key,
+          src
+        ) ++
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, cardName, name, src, scope) ++
           src.values.values.toList

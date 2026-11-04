@@ -26,7 +26,7 @@ typealias BooleanInput = Boolean|slotMod.Reading|slotMod.Expr|predMod.Predicate
 /// without CEL.
 const function booleanReading(input: slotMod.Reading|slotMod.Expr|predMod.Predicate): slotMod.Reading =
   if (input is slotMod.Reading) input
-  else if (input is slotMod.Expr) (slotMod.exprReading(input)) { bypassUnavailable = false }
+  else if (input is slotMod.Expr) slotMod.exprReading(input)
   else let (p = input as predMod.Predicate) new slotMod.Reading { source = p.source; steps = p.steps }
 
 /// `at` holding a live [[BooleanInput]], read as a bool.

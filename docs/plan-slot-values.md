@@ -499,7 +499,12 @@ an overload. These rules are the language; C4 moves them out of this plan.
   fresh state (`conditionAttr`, where the typed read is paid). A one-off A/B of the same against
   slot-values (the fixtures ported to its `Predicate` and `SortKey`, the port not committed)
   gives B2's `First` and and/or and B3's order terms a before number.
-- **C1. The compiler, and the renderer's slots on it;** `compose` goes. The agreed rules apply.
+- **C1a (done).** The goldens render every dashboard a third time, its entities unavailable.
+- **C1b (done). The bypass:** off by default, `validate` refusing it off a text slot's own state
+  or whole-entity read, `valueSlot` and the `Expr` readouts opting in. The goldens move only
+  under "unavailable": the more-info lines list what HA still reports, an attribute second line
+  and a cell style read as is.
+- **C1c. The compiler, and the renderer's slots on it;** `compose` goes. The agreed rules apply.
 - **C2. Every other consumer on it:** `MemberGraph`, `SurfaceGraph`, set calls, CEL inputs.
   `Conditions.run`/`step`/`read`, `resolve`'s list, `isCondition` and `formatWith`'s deciding
   cases are deleted. An ordered set and `First` read each member's keys once per sort, not per

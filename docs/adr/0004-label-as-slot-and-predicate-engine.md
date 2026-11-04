@@ -93,9 +93,9 @@ applies to every transform.
 - One authoring vocabulary: every card input is a slot (literal / inherited /
   own-entity), the subject is the `entity_id` slot, and the only non-slot
   template var is the backend-injected `id`.
-- `bypassUnavailable` defaults **true** (value displays stay readable on
-  `unavailable` without opting in); identity actions, labels, and the slider
-  position opt out in the builders (ADR 0001).
+- `bypassUnavailable` defaults **false**: a read reads as is, and a state
+  display opts in on its builder (ADR 0001). A condition compares the state's
+  text, so `unavailable` is a value it decides over, not a reason to skip it.
 - The cost model is explicit: cheap foldable data for presence and conditions
   (the simple tier, decided by `Conditions`), CEL where a displayed value needs
   it, identity slots memoized, attribute conversion
