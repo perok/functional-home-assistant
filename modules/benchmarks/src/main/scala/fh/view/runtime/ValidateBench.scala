@@ -10,7 +10,10 @@ import java.util.concurrent.TimeUnit
 
 /** `Dashboard.validated` over each checked-in wire snapshot: what every reload
   * and dump refresh pays per dashboard. Read from the branch's own snapshots,
-  * so the same file measures a wire change before and after it.
+  * so the same file measures a wire change before and after it. Each call
+  * validates a freshly decoded dashboard, as a reload does: a node caches its
+  * slots' typing, so validating one dashboard twice would time a second pass
+  * that no reload makes.
   */
 @State(Scope.Benchmark)
 @BenchmarkMode(Array(Mode.AverageTime))
@@ -25,19 +28,22 @@ class ValidateBench {
   )
   var fixture: String = ""
 
+  private var wire: io.circe.Json = null
   private var dashboard: Dashboard = null
 
   @Setup
-  def setup(): Unit = {
-    val wire = os.read(
-      os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" /
-        "snapshots" / s"$fixture.json"
+  def setup(): Unit =
+    wire = DashboardBuild.hoistInlineSurfaces(
+      parse(
+        os.read(
+          os.pwd / "modules" / "fh-datastar-view" / "src" / "test" /
+            "resources" / "snapshots" / s"$fixture.json"
+        )
+      ).fold(throw _, identity)
     )
-    dashboard = DashboardBuild
-      .hoistInlineSurfaces(parse(wire).fold(throw _, identity))
-      .as[Dashboard]
-      .fold(throw _, identity)
-  }
+
+  @Setup(Level.Invocation)
+  def decode(): Unit = dashboard = wire.as[Dashboard].fold(throw _, identity)
 
   @Benchmark
   def validated(bh: Blackhole): Unit = bh.consume(dashboard.validated())
