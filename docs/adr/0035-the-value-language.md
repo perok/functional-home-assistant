@@ -127,6 +127,10 @@ unavailable switch.
   the operands', and those an order term names. No step adds any. A `Present` names its
   candidates, so `Present |> First` follows every candidate; a list of literal ids is text and
   names none.
+- **Closures, not an opcode VM, Truffle nodes or a class per reading:** a reading is a few steps
+  whose work lives in shared helpers, so a faster dispatch only shortens the gaps between them,
+  2–4% of a render as profiled. The measurement, and what would reopen it, is in
+  `docs/experiments.md` ("A faster dispatch for the value-language evaluator").
 - **The tier rule is about cost, not the evaluator:** a clause, guard, state surface and order
   term refuse CEL (`conditionError`, ADR 0028), since they run per member per change.
 
