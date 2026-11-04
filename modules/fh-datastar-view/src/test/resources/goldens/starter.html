@@ -468,3 +468,192 @@
 <!-- ==== flipped · patch s_c_5_sensor_remote_battery_self__c_0_3 ==== -->
 <div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_3"><button class="fh-press large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div>
+<!-- ==== unavailable · body ==== -->
+<div class="fh-cell" id="c"><div class="fh-grid ">
+<div class="fh-cell fh-cols-full" id="c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Lights</span></h2></div>
+<div class="fh-cell fh-group fh-cols-full" id="c_1">
+<div class="fh-cell" id="c_1_light_kitchen"
+  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#9: 'unavailable'}}}}"
+  data-class:fh-active="$_e.light.kitchen.t#1">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_1_light_kitchen__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/home/' + 'light/toggle' + '/entity/light.kitchen?node=c_1_light_kitchen', {filterSignals:{exclude:'.*'}})"
+  data-indicator="_c_1_light_kitchen__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_light_kitchen__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_light_kitchen__error = ''))"
+  data-fh-node="c_1_light_kitchen"
+  data-class:fh-disabled="$_c_1_light_kitchen__busy || $_e.light.kitchen.t#2"
+  data-class:fh-loading="$_c_1_light_kitchen__busy"
+  data-class:fh-error="$_c_1_light_kitchen__error"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_1_light_kitchen__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1_light_kitchen__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1_light_kitchen__busy_slow = $_c_1_light_kitchen__busy"
+  data-class:shape="$_c_1_light_kitchen__busy_slow"
+  data-class:loading-indicator="$_c_1_light_kitchen__busy_slow"
+  data-attr:aria-busy="$_c_1_light_kitchen__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.light.kitchen.t#9">unavailable</span></span></span></div>
+</article></div>
+<div class="fh-cell" id="c_1_light_living_room"
+  data-signals="{_e: {light: {living_room: {t#1: false, t#2: true, t#5: 'unavailable'}}}}"
+  data-class:fh-active="$_e.light.living_room.t#1">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_1_light_living_room__busy ? '' : $_e.light.living_room.t#2 ? '' : @post('sse/call/home/' + 'light/toggle' + '/entity/light.living_room?node=c_1_light_living_room', {filterSignals:{exclude:'.*'}})"
+  data-indicator="_c_1_light_living_room__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_light_living_room__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_light_living_room__error = ''))"
+  data-fh-node="c_1_light_living_room"
+  data-class:fh-disabled="$_c_1_light_living_room__busy || $_e.light.living_room.t#2"
+  data-class:fh-loading="$_c_1_light_living_room__busy"
+  data-class:fh-error="$_c_1_light_living_room__error"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_1_light_living_room__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1_light_living_room__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1_light_living_room__busy_slow = $_c_1_light_living_room__busy"
+  data-class:shape="$_c_1_light_living_room__busy_slow"
+  data-class:loading-indicator="$_c_1_light_living_room__busy_slow"
+  data-attr:aria-busy="$_c_1_light_living_room__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Living Room</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.light.living_room.t#5">unavailable</span></span></span></div>
+</article></div></div>
+<div class="fh-cell fh-cols-full" id="c_2"><h2 class="fh-section fh-text"><span class="fh-text-run">Switches</span></h2></div>
+<div class="fh-cell fh-group fh-cols-full" id="c_3"></div>
+<div class="fh-cell fh-cols-full" id="c_4"><h2 class="fh-section fh-text"><span class="fh-text-run">Low battery</span></h2></div>
+<div class="fh-cell fh-group fh-cols-full" id="c_5"></div></div></div>
+<!-- ==== unavailable · surface c_5_sensor_remote_battery_self ==== -->
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c"><div class="fh-popup-backdrop"
+  data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="$ui_popups && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0"><div class="fh-col ">
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_0"
+  data-signals="{_e: {sensor: {remote_battery: {t#7: 'unavailable'}}}}">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-battery" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Remote Battery</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.sensor.remote_battery.t#7">unavailable</span></span></span></div>
+</article></div>
+<div class="fh-cell fh-cols-full" id="s_c_5_sensor_remote_battery_self__c_0_1"
+  data-fh-url:window="['v.s_c_5_sensor_remote_battery_self__c_0_1.window', $_var_s_c_5_sensor_remote_battery_self__c_0_1__window, '24h']"><div class="fh-col">
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_1_bar_0"><div class="fh-tabs tabs fh-select"><a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '1h'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/1h?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '1h'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '1h'">1h</a><a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '24h'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/24h?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '24h'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '24h'">24h</a><a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '7d'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/7d?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '7d'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '7d'">7d</a><a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '30d'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/30d?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '30d'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '30d'">30d</a></div></div>
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div></div>
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_2"><div class="fh-card fh-entity-info">
+  <code class="fh-entity-info-id">sensor.remote_battery</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+</div></div>
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_3"><button class="fh-press large "
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+<!-- ==== unavailable · patch c_0 ==== -->
+<div class="fh-cell fh-cols-full" id="c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Lights</span></h2></div>
+<!-- ==== unavailable · patch c_2 ==== -->
+<div class="fh-cell fh-cols-full" id="c_2"><h2 class="fh-section fh-text"><span class="fh-text-run">Switches</span></h2></div>
+<!-- ==== unavailable · patch c_4 ==== -->
+<div class="fh-cell fh-cols-full" id="c_4"><h2 class="fh-section fh-text"><span class="fh-text-run">Low battery</span></h2></div>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_1_0 ==== -->
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0 ==== -->
+<a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '1h'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/1h?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_0__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '1h'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '1h'">1h</a>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1 ==== -->
+<a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '24h'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/24h?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_1__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '24h'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '24h'">24h</a>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2 ==== -->
+<a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '7d'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/7d?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_2__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '7d'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '7d'">7d</a>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3 ==== -->
+<a data-on:click="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending = '30d'; @post('sse/var/home/s_c_5_sensor_remote_battery_self__c_0_1/window/30d?group=var_s_c_5_sensor_remote_battery_self__c_0_1__window')"
+  data-indicator="_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__error = ''))"
+  data-fh-node="s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3"
+  data-class:fh-disabled="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-class:fh-loading="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-class:fh-error="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__error"
+  data-signals__ifmissing="{_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy_slow = $_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy"
+  data-class:fh-busy-after="$_s_c_5_sensor_remote_battery_self__c_0_1_bar_0_3__busy_slow"
+  data-class:fh-chosen="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '30d'"
+  data-class:active="String(($_var_s_c_5_sensor_remote_battery_self__c_0_1__window__pending || $_var_s_c_5_sensor_remote_battery_self__c_0_1__window)) === '30d'">30d</a>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_2 ==== -->
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_2"><div class="fh-card fh-entity-info">
+  <code class="fh-entity-info-id">sensor.remote_battery</code>  <pre class="fh-entity-info-attrs">unavailable</pre>
+</div></div>
+<!-- ==== unavailable · patch s_c_5_sensor_remote_battery_self__c_0_3 ==== -->
+<div class="fh-cell" id="s_c_5_sensor_remote_battery_self__c_0_3"><button class="fh-press large "
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div>
