@@ -83,10 +83,12 @@ cards).
 ## Attribute conversion is memoized per state version
 
 `Transform.run` needs the entity's attributes as Java values. The conversion
-lives on `EntityState.javaAttributes`, a `lazy val` computed **once per state
-version** (a fresh `EntityState` is built on every change, so the cache
-self-invalidates). A card with three `attr` slots converts once; the win
-applies to every transform.
+lives on `EntityState.javaAttributes`, computed **once per state version** (a
+fresh `EntityState` is built on every change, so the cache self-invalidates).
+A card with three `attr` slots converts once; the win applies to every
+transform. A typed read of one attribute (`EntityState.attribute`) uses the map
+when it is built and converts only that attribute when it is not, so a
+condition over a fresh state does not pay for every attribute.
 
 ## Consequences
 

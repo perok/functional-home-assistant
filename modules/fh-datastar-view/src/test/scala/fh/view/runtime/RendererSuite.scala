@@ -863,6 +863,25 @@ class RendererSuite extends munit.FunSuite {
     assertEquals[Any, Any](es.javaAttributes.get("brightness"), 200L)
   }
 
+  test("one attribute reads as the whole map holds it, built or not") {
+    val attrs = Map(
+      "n" -> Json.fromInt(200),
+      "r" -> Json.fromDoubleOrNull(2.5),
+      "s" -> Json.fromString("x"),
+      "b" -> Json.True,
+      "z" -> Json.Null,
+      "l" -> Json.arr(Json.fromInt(1), Json.fromString("a")),
+      "o" -> Json.obj("k" -> Json.fromInt(1))
+    )
+    val names = attrs.keys.toList :+ "missing"
+    val fresh = EntityState("light.x", "on", attrs)
+    val before = names.map(fresh.attribute)
+    val built = EntityState("light.x", "on", attrs)
+    val map = built.javaAttributes
+    assertEquals[Any, Any](before, names.map(n => map.get(n)))
+    assertEquals[Any, Any](names.map(built.attribute), before)
+  }
+
   test("theme tokens + styles are injected as a <style> block") {
     val d = Dashboard(
       cards,

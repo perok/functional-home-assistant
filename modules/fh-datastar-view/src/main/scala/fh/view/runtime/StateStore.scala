@@ -39,8 +39,24 @@ case class EntityState(
     * Upstream `main` stops the walk for `attr.x` but not for a bare `attr`
     * (`'k' in attr`). `TransformsSuite` pins that both read the same.
     */
-  lazy val javaAttributes: java.util.Map[Object, Object] =
-    MutableMapValue.create(EntityState.toJavaObject(attributes))
+  def javaAttributes: java.util.Map[Object, Object] =
+    val built = javaAttrs
+    if (built != null) built
+    else
+      val m = MutableMapValue.create(EntityState.toJavaObject(attributes))
+      javaAttrs = m
+      m
+
+  // Not a lazy val so [[attribute]] can tell whether the map exists: a
+  // condition reading one attribute of a fresh state would otherwise convert
+  // every attribute (`RenderBench.conditionAttr`, +174%). A race builds it twice.
+  @volatile private var javaAttrs: java.util.Map[Object, Object] | Null = null
+
+  /** One attribute as [[javaAttributes]] holds it, `null` when absent. */
+  def attribute(name: String): Any =
+    val built = javaAttrs
+    if (built != null) built.get(name)
+    else attributes.get(name).fold(null: Any)(EntityState.toJava)
 
   /** CEL's `fh.Entity`, held here so an evaluation builds no struct. */
   lazy val celValue: Object = new Cel.EntityValue(this)

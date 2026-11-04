@@ -33,7 +33,7 @@ object Transform {
     */
   def read(part: Part, entity: EntityState): Any = part match
     case Part.State      => entity.state
-    case Part.Attr(name) => entity.javaAttributes.get(name)
+    case Part.Attr(name) => entity.attribute(name)
     case Part.Whole      => entity.celValue
 
   /** Text as CEL renders a bare result: `str(x)`. */
