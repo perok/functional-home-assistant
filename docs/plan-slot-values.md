@@ -354,6 +354,12 @@ wrong: `Present |> First |> Cel("value + '!'")` types as text, but `compose` ski
 CEL gets the id list. Refusing those shapes would keep two evaluators, and one `attr(…)` would
 still read `21` on a card and `21.0` in a condition.
 
+- **A `ValueExpr` is an s-expression,** written as a pipeline: `source |> f |> g` is `(g (f
+  source))`, Clojure's `->`; `state |> Compare(eq, 21)` is `(compare = (state x) 21)`, `List[a, b]
+  |> AllOf` is `(and a b)`. So the evaluator literature applies as is, and is the first place to
+  look: the compiler below is SICP §4.1.7's `analyze` (walk the syntax once, return a procedure
+  that never looks at it again), which `compose` already is and `Conditions.run`, the plain `eval`,
+  is not; absence follows Clojure's `nil` (below).
 - **One compiler:** `ValueExpr` → `(subject, states, fetched) => Any`, built once, which every
   consumer calls. `Conditions.run`/`step`/`read`, `resolve`'s case list, `Renderer.compose`,
   `isCondition` (which chose between them) and `formatWith`'s copies go.
@@ -376,7 +382,7 @@ still read `21` on a card and `21.0` in a condition.
   CEL (`TransformSuite`), do not change; conditions do. A value is printed only where it becomes
   a text slot's output (`Renderer.resolveStateSlotValue`, `Cel.runValue`) or meets a text
   literal in a comparison (below). The more-info panel's attribute lines are CEL's own.
-- **Proposed, not agreed: `Compare` takes its comparison from the operand's type**, as CEL's type
+- **`Compare` takes its comparison from the operand's type** (agreed), as CEL's type
   checker picks an overload by type; only an attribute (`dyn`) waits for its runtime value:
   - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
     (CEL's heterogeneous numeric equality, `dyn(3.0) == 3`; Scheme's `=`; Java's binary numeric
@@ -391,17 +397,27 @@ still read `21` on a card and `21.0` in a condition.
   `"0" != ""`. Lisp names the comparison (`=` numeric, `string=` text); here the literal's type
   names it, so the wire carries nothing new. An order key compares by the same rule. A number is
   printed to be compared only against a text literal.
-- **Proposed, not agreed: an entity the store lacks is `Missing`, and `Missing` stops the steps.**
-  No step sees it, so each stays total over real values and byte-equal to its CEL spelling. An
-  absent attribute is not `Missing`: it is a `null` the steps already handle (`Percent` gives
-  `0 %`, `WithUnit` leaves the unit off). One place turns `Missing` into output, at the end of the
-  run: a slot shows its `default`, else its type's empty (`""` for text, `false` for bool); a
-  condition does not hold; a CEL step with a `Missing` input does not run. Changes: a step's own
-  text no longer shows over a missing entity (`Suffix("!")` gave `!`); `not(ghost == "on")` no
-  longer holds, where B2 made the comparison false and `Not` then flipped it; a list item that is
-  `Missing` counts as false in an and/or. No error field per slot: when an entity goes from HA, the
-  dump refresh refuses the new dump because the dashboard names it, so the error belongs where the
-  refresh reports that, not in every card's template.
+- **Proposed, not agreed: absence is `null`, and the compiler lifts a step over it**, as Clojure
+  does with `nil`. Today one absence has three spellings: `Missing` (a condition over an entity
+  the store lacks), an empty stand-in state (the renderer's, for the same entity) and `null` (an
+  attribute the entity does not report). One `null` replaces them, produced in one place, the
+  entity read: no entity, no reported attribute, or a JSON `null`.
+  - Each step says, on its type, whether it takes `null`. One that does has a null case in its
+    spec, Clojure's `fnil`: `Percent` (`0 %`), `Fill` (`100%`, an empty track), `Duration`
+    (`""`), `Match` (`otherwise`), `WithUnit`, and CEL, whose shipped spellings guard it
+    (`'k' in value.attr ? … : null`). These are the pinned fast-tier outputs, unchanged.
+  - Every other step is lifted, Clojure's `some->`: `null` passes it unrun. `Compare`, `Not`,
+    `Count`, `First`, `Prefix`, `Suffix`.
+  - and/or are Kleene's, as SQL's: `false` decides an and and `true` an or, else `null`.
+  - At the end, one conversion: a slot shows its `default` (Clojure's `or`), else its type's
+    empty (`""`, `false`); a condition holds only on `true`.
+
+  Changes: `Prefix`/`Suffix` over an absent value give `""` (`Suffix("!")` gave `!`);
+  `not(ghost == "on")` and `attr(x).ne(v)` over an absent value no longer hold. No error field
+  per slot: an entity goes missing when HA drops it, and the dump refresh then rejects the new
+  dump (`DumpRefresh.Rejected`, naming the dashboard), which is where to show it. Common Lisp is
+  the warning against a stand-in: its `NIL` is false, empty and absent at once, so `gethash`
+  returns a second value to tell them apart, as the renderer's empty state cannot.
 
 ### Steps
 
@@ -414,12 +430,16 @@ still read `21` on a card and `21.0` in a condition.
 - **C1. The compiler, and the renderer's slots on it;** `compose` goes. The agreed rules apply.
 - **C2. Every other consumer on it:** `MemberGraph`, `SurfaceGraph`, set calls, CEL inputs.
   `Conditions.run`/`step`/`read`, `resolve`'s list, `isCondition` and `formatWith`'s deciding
-  cases are deleted.
+  cases are deleted. An ordered set and `First` read each member's keys once per sort, not per
+  comparison (agreed; `publishSetOrdered` is 1.06 ms and 1.35 MB a frame against `publishSet`'s
+  9.7 µs, and `leaderRow` pays the same per pill).
 - **C3. `First` over any id list;** the position rule goes, and a test renders the shape above and
   gets the leader.
 - **C4. Docs:** ADRs 0004 and 0028, `terminology.md`, the architecture doc's file map and the
   module `CLAUDE.md`, which name `Conditions` as the condition interpreter; this section's B
-  paragraphs that C supersedes (the evaluator, `Compare`'s rules, `isCondition`).
+  paragraphs that C supersedes (the evaluator, `Compare`'s rules, `isCondition`). The
+  s-expression reading and its literature (SICP's `analyze`, Clojure's `nil`) go to ADR 0028
+  and `terminology.md`'s Reading, where they outlive this plan.
 
 ### C's tests
 
