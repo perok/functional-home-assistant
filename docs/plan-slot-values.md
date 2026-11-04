@@ -369,10 +369,15 @@ an overload. These rules are the language; C4 moves them out of this plan.
 - **Where `null` comes from:** the entity read, the only source of absence: an entity the store
   lacks, an attribute the entity does not report, a JSON `null`. And a step with no result: `First`
   with nobody present, `Percent`, `Fill` and `Duration` over text that is not a number, CEL
-  returning `null`. HA's `unavailable` and `unknown` are text, not `null`: HA reports them and a
-  card can show them (`bypassUnavailable`). Today one absence has three spellings, `Missing`, the
+  returning `null`. Today one absence has three spellings, `Missing`, the
   renderer's empty stand-in state and `null`; the stand-in is Common Lisp's mistake, whose `NIL`
   is false, empty and absent at once, so `gethash` needs a second value to tell them apart.
+- **HA's no-value states, `unavailable` and `unknown`, are text, not `null`.** HA keeps them as
+  states and tests them with `has_value()`, and the library matches them as text: `activeOf`'s
+  off arms, the tap's refusal (`tapDisabledSlot`, "`unavailable` is one of the arms"). Steps get
+  the read as it is: the state's text, and an attribute as HA still reports it, usually `null`.
+  They are one named set (`EntityState.unavailableStates`), which two boundaries read, below;
+  `MemberGraph.hasNoValue` spells it again and goes.
 - **Every step is strict,** in its input and its operands: over `null` it does not run, and gives
   `null`. Postgres declares such a function `STRICT`; Clojure threads with `some->`. This is the
   lift to `Option`: every reading is, in effect, an `Option`, and the compiler is its `map`. It
@@ -389,7 +394,10 @@ an overload. These rules are the language; C4 moves them out of this plan.
     `OrElse` step) waits for a card that needs one; CEL has its own today.
 
   CEL is called on `null` as well and has its own machinery for it (`has`, `? :`, optionals), as
-  the shipped spellings use (`'k' in value.attr ? … : null`).
+  the shipped spellings use (`'k' in value.attr ? … : null`). CEL can return an optional
+  (`value.attr[?'u']`); a CEL step's result is lifted at its boundary, `optional.none()` to
+  `null` and `optional.of(v)` to `v`, so the next step sees a value or `null`, never a wrapper.
+  Today `Cel.stringify` unwraps one only when a slot prints it.
 - **Comparison** takes its meaning from the operand's type (agreed); only an attribute (`dyn`)
   waits for its runtime value:
   - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
@@ -406,17 +414,29 @@ an overload. These rules are the language; C4 moves them out of this plan.
   names it, so the wire carries nothing new. An order key compares by the same rule.
 - **Where a value leaves the language,** each boundary converting once:
   - a text slot shows the value printed (`Renderer.resolveStateSlotValue`, `Cel.runValue`); one
-    with nothing to show, `null` or `""`, shows its `default`, else `""`;
-  - a bool slot shows `true` or `false`; `null` shows its `default`, else `false`;
+    with nothing to show, `null` or `""`, shows its `default`, else `""`. With `bypassUnavailable`
+    (the default), a text slot whose entity is in a no-value state shows that word instead and
+    runs no step: `CASE WHEN state IN (…) THEN state ELSE <the reading> END` around the whole
+    reading. It is a text slot's rule only: no bool spells `unavailable`;
+  - a bool slot shows `true` or `false`; `null` shows its `default`, else `false`. The bypass
+    never applies;
   - a condition (a clause, a guard, a state surface, `c.iff`) holds only on `true`, as SQL's
-    `WHERE`;
-  - an order key sorts `null`, `unavailable` and `unknown` last in either direction (today's
-    rule);
+    `WHERE`; the bypass never applies;
+  - an order key sorts `null` and a no-value state last in either direction (today's rule);
   - a CEL input is CEL's `null`.
+
+  **Bug found here (B2):** the bypass applies to bool slots too. `resolveStateSlotValue` checks
+  it before the run whatever the slot's type, and since B2 a condition's source is an entity
+  read, whose wire default is `bypassUnavailable = true` (`Value.Condition` answered `false`).
+  So a bool slot from `q.entity(x).stateIs("off")` gets the string `unavailable` when `x` is,
+  which a Mustache section and `attr:` take as true: measured, `{{#off}}` renders `OFF`. C1
+  applies the bypass to text slots only, with a test. Proposed, not agreed: the flag then
+  belongs on the text slot, not on every entity read, where only that one boundary reads it
+  (a wire change in `slot.pkl` and `TemplateSlot`).
 
   A value is printed nowhere else, except a number meeting a text literal. The more-info panel's
   attribute lines are CEL's own.
-- **What moves (proposed, not agreed).** `Percent`'s `0 %` and `Fill`'s `100%` over a value they
+- **What moves (agreed).** `Percent`'s `0 %` and `Fill`'s `100%` over a value they
   cannot read were the step guessing for the slider. They become `null`, and `simple.pkl`'s
   `percent` and `fill` builders set those as the reading's `default`, so a card's bytes hold;
   `Duration` and `WithUnit` already gave `""` so the default would apply, and `null` does that.
@@ -467,8 +487,8 @@ an overload. These rules are the language; C4 moves them out of this plan.
 - **C4. Docs:** ADRs 0004 and 0028, `terminology.md`, the architecture doc's file map and the
   module `CLAUDE.md`, which name `Conditions` as the condition interpreter; this section's B
   paragraphs that C supersedes (the evaluator, `Compare`'s rules, `isCondition`). The
-  s-expression reading and its literature (SICP's `analyze`, Clojure's `nil`) go to ADR 0028
-  and `terminology.md`'s Reading, where they outlive this plan.
+  value language above goes to a new ADR (agreed), with `terminology.md`'s Reading pointing at it,
+  where it outlives this plan.
 
 ### C's tests
 
@@ -478,7 +498,7 @@ against `21` or a slot over a missing entity follow the agreed rules. Tests and 
 call `Conditions.holds` call a compiled run instead (mechanical); the compile cost is measured
 apart from the per-call cost.
 
-Asked with "What moves", not yet approved: `TransformSuite`'s pins that `Percent` and `Fill`
+Approved with "What moves": `TransformSuite`'s pins that `Percent` and `Fill`
 render `0 %` and `100%` over what they cannot read become pins that they give `null`, and the
 builders' defaults are pinned in their place; the wire snapshots gain those defaults
 (`dashboardSnapshotsUpdate`), and the goldens must hold.
