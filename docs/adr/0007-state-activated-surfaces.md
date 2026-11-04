@@ -57,9 +57,8 @@ set member, a card — but a surface supplies none. So every read in a state
 condition names its own entity (`Value.Entity.of`) and a count carries its own
 candidates (`Value.Present`); `Dashboard.validate` rejects one that does not
 (`ValueExpr.readsMissingSubject`), with a located message. Evaluating a
-condition is then a handful of lookups (`SurfaceGraph.holds` →
-`Conditions.holds` against `EntityState.none`, which nothing
-reads), and the index of what each group reads is exact rather than a
+condition is then a handful of lookups (`SurfaceGraph.holds` runs
+the compiled condition with no subject, which nothing reads), and the index of what each group reads is exact rather than a
 heuristic: a group's conditions read a known entity set, so a change outside it
 cannot move the selection.
 

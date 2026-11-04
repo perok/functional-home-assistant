@@ -61,10 +61,11 @@ reading, not field-specific.
 Presence guards, count comparisons, order terms and surface conditions are **not**
 CEL, although a slot may be. A condition is a bool `ValueExpr` of the simple tier
 (ADR 0028): a read, `Compare`, `Not`, and `AllOf`/`AnyOf` over a `List` of
-conditions or `Count`/`First` over a set's `Present` ids. `Conditions` decides it:
+conditions or `Count`/`First` over a list of ids. The one evaluator (ADR 0035)
+decides it, as it fills a slot:
 
-- It reads `state`/`attributes.get(name)` straight off the Scala map — a pattern
-  match, zero conversion — and stops a list or a count once its answer is settled.
+- It reads the state, or the one attribute, without building an activation, and
+  stops a list or a count once its answer is settled, the stop chosen at compile.
 - A CEL condition would bind an activation and run the evaluator per evaluation —
   strictly more work.
 
@@ -99,6 +100,6 @@ condition over a fresh state does not pay for every attribute.
   display opts in on its builder (ADR 0001). A condition compares the state's
   text, so `unavailable` is a value it decides over, not a reason to skip it.
 - The cost model is explicit: cheap foldable data for presence and conditions
-  (the simple tier, decided by `Conditions`), CEL where a displayed value needs
+  (the simple tier, decided without the engine), CEL where a displayed value needs
   it, identity slots memoized, attribute conversion
   amortized per state version.

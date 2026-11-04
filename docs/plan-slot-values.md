@@ -264,31 +264,24 @@ Activation.State(condition: Option[ValueExpr] = None)
   `readsMissingSubject`).
 - **No `Part.Registry`:** the runtime holds no registry. `query.pkl` decides registry facts per
   candidate at build time (`ReadyReg`) and refuses a registry order key before a live one, so only
-  `state` and `attr:<name>` reach it, `Part.State` and `Part.Attr`. `Conditions.propertyOf`'s
-  string switch, and its `domain`/`entity_id` cases, go.
-- **`Compare` keeps today's rules:** equality as text, an attribute as its JSON text (`21.0` is not
-  `21`); ordering numeric when both sides parse, else false. A comparison over an entity the store
-  lacks is false, the subject's included, where an absent subject used to read as empty. Strict
-  `Dyn` (Not in this plan) is independent: a condition ends in a bool, never in `Dyn`, so it
-  follows B as its own PR.
-- **A condition is `ValueExpr.isCondition`:** no CEL, and a step only a condition runs (`AllOf`,
-  `AnyOf`, `Compare`, `Not`, `First`). The renderer plans one whole as `Conditions.eval`, which
-  reads attributes as conditions always have; `validate` holds every clause, state surface,
-  guard and order term to a bool without CEL (`ValueExpr.conditionError`).
+  `state` and `attr:<name>` reach it, `Part.State` and `Part.Attr`.
+- **`Compare`** takes its meaning from the operand's type (ADR 0035, Part C). Strict `Dyn` (Not
+  in this plan) is independent: a condition ends in a bool, never in `Dyn`, so it follows as its
+  own PR.
+- **`validate` holds every clause, state surface, guard and order term to a bool without CEL**
+  (`ValueExpr.conditionError`).
 - **Pkl keeps its classes:** `core/predicate.pkl`'s `Cmp`, `PAnd`, `POr`, `PNot`, `Count`, `First`
   stay the author's types and methods, their fields hidden, and each writes the reading: `source`
   and `steps` of `slot.pkl`'s value classes and `simple.pkl`'s steps. `Tally` IS the `Present`
   source; `ConditionRead` and `PresentRead` are gone. A settled condition is `PConst`, a literal
   bool.
-- **Order terms:** `by` is evaluated per member; a bool key sorts true first under `asc` (today's
-  `Holds`), any other today's `Prop` rule (no value last, numeric when both parse, else text). A
+- **Order terms:** `by` is evaluated per member; a bool key sorts true first under `asc`, any
+  other no value last, numeric when both parse, else text (`Evaluator.Keys`). A
   set node's `orderBy` and `First`'s are the same type, compared by the same code. `First` stays
   one pass: a `Sort` step would allocate a sorted list per evaluation, and nothing else sorts.
-- **The evaluator** is `Conditions`, a direct match: no CEL, no per-candidate `about`, no
-  intermediate list (`List |> AllOf` and `Count |> Compare` run as one pass). `Count |>
-  Compare(op, literal)` stops counting once the answer is fixed: `> 0` and `== 0` at the first
-  present candidate, `== length` at the first absent, against a whole number only (where text
-  equality is numeric equality). It is kept only if the benchmarks show a gain.
+- **The evaluator** is Part C's one compiler. `Count |> Compare(op, literal)` stops counting once
+  the answer is fixed: `> 0` and `== 0` at the first present candidate, `== length` at the
+  first absent, against a whole number only.
 - **The wake index** is the same walk over a `ValueExpr`'s references a slot's bind uses, now
   through `Present`'s candidates and guards, `List`'s items and `Compare`'s operand.
 - **Wire:** guards already repeat per candidate today (the build decides each candidate apart, so
@@ -314,7 +307,7 @@ Activation.State(condition: Option[ValueExpr] = None)
   first, matching the runtime") contradicts the runtime and `predicate.pkl`, which put true first
   under `asc`. Fixed to the runtime's rule, with a test ordering on a registry condition. A
   Boolean registry property had the same `<` failure; it sorts as the runtime sorts a value's
-  text, false first. A key is a condition when `ValueExpr.isCondition` says so, else a value.
+  text, false first.
 - **B4. Docs:** ADRs 0003, 0004 and 0007, and 0006, 0013, 0015, 0028 and 0034 where they name
   `Predicate`; `terminology.md` (Candidate set, Clause, Present); the module `CLAUDE.md`'s
   `Dashboard.scala` and `query.pkl` rows; the architecture doc where it names a predicate. The
@@ -354,149 +347,12 @@ wrong: `Present |> First |> Cel("value + '!'")` types as text, but `compose` ski
 CEL gets the id list. Refusing those shapes would keep two evaluators, and one `attr(…)` would
 still read `21` on a card and `21.0` in a condition.
 
-### The value language
+### The value language and the evaluator
 
-A `ValueExpr` is an s-expression written as a pipeline: `source |> f |> g` is `(g (f source))`,
-Clojure's `->`. `state |> Compare(eq, 21)` is `(compare = (state x) 21)`, and `List[a, b] |>
-AllOf` is `(and a b)`. So the literature on small expression languages applies as is, and is the
-first place to look before inventing a rule: the evaluator is SICP §4.1.7's `analyze`, absence is
-SQL's `NULL` and Clojure's `nil`, a comparison picks its meaning by type as CEL's checker picks
-an overload. These rules are the language; C4 moves them out of this plan.
-
-- **Values:** text, whole, real, bool, list, entity, series, markup, and `null`, the one absent
-  value. Reads are typed (agreed): a state is text, an attribute the JSON's own value (`Long`,
-  `Double`, `String`, `Boolean`, a list, a map), never its printed text.
-- **Where `null` comes from:** the entity read, the only source of absence: an entity the store
-  lacks, an attribute the entity does not report, a JSON `null`. And a step with no result: `First`
-  with nobody present, `Percent`, `Fill` and `Duration` over text that is not a number, CEL
-  returning `null`. A `once` read is of which entity this is (a service picked by its domain),
-  which it is whether or not the store holds it, so it reads the entity's identity and never
-  gives `null`. Today one absence has three spellings, `Missing`, the
-  renderer's empty stand-in state and `null`; the stand-in is Common Lisp's mistake, whose `NIL`
-  is false, empty and absent at once, so `gethash` needs a second value to tell them apart.
-- **HA's no-value states, `unavailable` and `unknown`, are text, not `null`.** HA keeps them as
-  states and tests them with `has_value()`, and the library matches them as text: `activeOf`'s
-  off arms, the tap's refusal (`tapDisabledSlot`, "`unavailable` is one of the arms"). Steps get
-  the read as it is: the state's text, and an attribute as HA still reports it, usually `null`.
-  They are one named set (`EntityState.unavailableStates`), which two boundaries read, below;
-  `MemberGraph.hasNoValue` spells it again and goes.
-- **Every step is strict,** in its input and its operands: over `null` it does not run, and gives
-  `null`. Postgres declares such a function `STRICT`; Clojure threads with `some->`. This is the
-  lift to `Option`: every reading is, in effect, an `Option`, and the compiler is its `map`. It
-  stays implicit: an entity can leave HA at any time, so every read would be an `Option` and the
-  type would tell `validate` nothing; and at runtime it is one `null` check per step, no
-  allocation (an `Option` per operand showed in RenderBench on the slider path, see
-  `Transform.formatWith`).
-- **Three constructs see `null`, SQL's three:**
-  - `Match`: `null` is a value no case names, so it takes `otherwise` (`CASE x WHEN … ELSE`).
-  - and/or: Kleene's logic, as SQL's: `false` decides an and, `true` an or, else `null`. `Not`
-    is strict (`NOT NULL` is `NULL`).
-  - A reading's `default`: at its end, `null` becomes the default (`COALESCE`, Clojure's `or`,
-    `Option.getOrElse`). It is the one way to lift `null` to a value. A mid-pipeline form (an
-    `OrElse` step) waits for a card that needs one; CEL has its own today.
-
-  A CEL step is strict too: a `null` value never reaches it, since CEL over a whole entity that
-  is not there only errors. What is absent inside a value, an attribute, CEL's own machinery
-  handles (`has`, `? :`, optionals), as the shipped spellings do (`'k' in value.attr ? … :
-  null`), and a CEL source's named inputs reach it as CEL's `null`. CEL can return an optional
-  (`value.attr[?'u']`); a CEL step's result is lifted at its boundary, `optional.none()` to
-  `null` and `optional.of(v)` to `v`, so the next step sees a value or `null`, never a wrapper.
-  Today `Cel.stringify` unwraps one only when a slot prints it.
-- **An `Option` type, for the ADR to discuss later (agreed: flatten to `null` now).** Adding it
-  would look like this: `ValueType.Opt(t)`; CEL's checker already types `value.attr[?'u']` as
-  `optional_type(T)`, which `Transform.resultType` would map to `Opt(T)`; a strict step over
-  `Opt(T)` types as `Opt` of its result (the lift, checked statically instead of assumed);
-  `default`, or an `OrElse` step, takes `Opt(T)` to `T`; and `ValueType.fits` could refuse an
-  `Opt` slot with no default, which is the one thing it would buy: `validate` saying "this can be
-  empty and nothing says what to show". The cost: an entity can leave HA, so every entity read
-  is `Opt` unless absence stays outside the type, and then the type covers only CEL's optionals.
-  The ADR records this as an open question.
-- **Comparison** takes its meaning from the operand's type (agreed); only an attribute (`dyn`)
-  waits for its runtime value:
-  - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
-    (CEL's heterogeneous numeric equality, `dyn(3.0) == 3`; Scheme's `=`; Java's binary numeric
-    promotion). A text side is parsed, and one that is not a number is unequal to it: `eq` and
-    every ordering false, as HA's `numeric_state` (`unavailable` "doesn't pass"), `ne` true, as
-    CEL, where values of two types are unequal;
-  - a text literal compares as text, a number side printed as a slot prints it;
-  - a bool literal is equality;
-  - between two reads, two numbers use the number line, anything else today's rule (text
-    equality, ordering numeric when both parse).
-
-  No other coercion: what silent coercion does is JS's `==`, where `"0" == 0` and `0 == ""` but
-  `"0" != ""`. Lisp names the comparison (`=` numeric, `string=` text); here the literal's type
-  names it, so the wire carries nothing new. An order key compares by the same rule.
-- **Where a value leaves the language,** each boundary converting once:
-  - a text slot shows the value printed (`Renderer.resolveStateSlotValue`, `Cel.runValue`); one
-    with nothing to show, `null` or `""`, shows its `default`, else `""`;
-  - a bool slot shows `true` only for `true`; `null`, or anything else (a CEL error's message),
-    shows its `default`, else `false`;
-  - a condition (a clause, a guard, a state surface, `c.iff`) holds only on `true`, as SQL's
-    `WHERE`;
-  - an order key sorts `null` and a no-value state last in either direction (today's rule);
-  - a CEL input is CEL's `null`.
-
-  A value is printed nowhere else, except a number meeting a text literal. The more-info panel's
-  attribute lines are CEL's own.
-- **The bypass (agreed).** An entity read reads as is: the state's text, the word included, and
-  its attributes as HA reports them. `bypassUnavailable` is the one exception, and it makes sense
-  in one place only: a text slot's main source, reading an entity's state or the whole entity
-  (which holds it, so CEL over `value.state` never sees the word). There, a no-value state shows
-  the word and no step runs: `CASE WHEN state IN (…) THEN state ELSE <the reading> END`.
-  - **It stays on the entity read**, where it is today, and defaults to `false`, how a read
-    behaves everywhere else. The wire omits the default, as for the read's other fields: Pkl
-    writes `bypassUnavailable = true` only where it is set.
-  - **`validate` refuses it set anywhere else:** an operand, a guard, a list item, a condition, an
-    order key, a CEL input, a `valueWhile`, an attribute read, a bool slot. A rule across nodes,
-    so it is `validate`'s, not the decoder's.
-  - An input type is not an output type: `q.entity(x).stateIs("off")` compares the state's text
-    and produces a bool, and over `unavailable` that comparison is meaningful (false), so it runs.
-  - **The library opts in** where a card shows the word today, on the builders of a state text
-    slot. No fixture holds an unavailable entity, so nothing would notice a card that stops
-    showing it: C1 first adds one per card kind to the goldens, then flips the default, and the
-    golden diff names every place that needs `true`.
-  - Change: an attribute readout of an unavailable entity (a light's `Percent` brightness) reads
-    as is, usually `null`, so it shows its default or `""` where it showed the word.
-
-  **Bug found here (B2):** today the bypass runs before any slot whatever its type. Since B2 a
-  condition's source is an entity read, whose wire default is `bypassUnavailable = true`
-  (`Value.Condition` answered `false`), so a bool slot from `q.entity(x).stateIs("off")` gets the
-  string `unavailable` when `x` is, which a Mustache section and `attr:` take as true: measured,
-  `{{#off}}` renders `OFF`. The `false` default fixes it by construction, and `validate` keeps it
-  fixed; C1 adds the test.
-- **What moves (agreed).** `Percent`'s `0 %` and `Fill`'s `100%` over a value they
-  cannot read were the step guessing for the slider. They become `null`, and `simple.pkl`'s
-  `percent` and `fill` builders set those as the reading's `default`, so a card's bytes hold;
-  `Duration` and `WithUnit` already gave `""` so the default would apply, and `null` does that.
-  Changes a reader sees: `Prefix`/`Suffix` over an absent value give `""` (`Suffix("!")` gave
-  `!`); `not(ghost == "on")` and `attr(x).ne(v)` over an absent value no longer hold. No error
-  field per slot: an entity goes missing when HA drops it, and the dump refresh then rejects the
-  new dump (`DumpRefresh.Rejected`, naming the dashboard), which is where to show it.
-
-### The evaluator
-
-- **One compiler:** `ValueExpr` → `(subject, states, fetched) => Any`, built once, which every
-  consumer calls. `Conditions.run`/`step`/`read`, `resolve`'s case list, `Renderer.compose`,
-  `isCondition` (which chose between them) and `formatWith`'s copies go.
-- **It keeps what each path is fast at:** closures built once, so no tree walk per call, as
-  `compose` does; and `Conditions`' early stops, chosen at compile time: `Present |> Count |>
-  Compare(op, n)` counts until settled, `List |> AllOf/AnyOf` stops at the first item that
-  settles it, `First` is one pass.
-- **One implementation per step, no default case.** The match on `Step` is exhaustive, so a step
-  the evaluator does not run fails to compile. `Stage` steps stay the renderer's, applied after
-  the run, as a named case.
-- **`First` runs over any list of ids:** `ValueType.after` requires `list(text)` in, and that
-  is the whole rule. The position rule was B2's evaluator's limit, not the language's. The ids'
-  entities wake it as any read's do: they are in the wake list when the expression's own reads
-  name them (a `Present`'s candidates), and a step adds none. It stays a step.
-- **Compiled once per consumer:** the renderer per slot plan, as now; `MemberGraph` and
-  `SurfaceGraph` when built; a CEL input with its slot. `Validated` is unchanged; the evaluator
-  takes the CEL programs it already holds.
-- **The tier rule stays:** a clause, guard, state surface and order term still refuse CEL
-  (`conditionError`), since they run per member per change (ADR 0028). That is about cost, not
-  about which evaluator runs them.
-- **The fast tier stays byte-equal to CEL** wherever CEL gives a value (`TransformSuite`): typed
-  reads are what slots read today, so only conditions change.
+Agreed 2026-11-04, and recorded as ADR 0035 (C4): typed reads everywhere, `null` the one absent
+value and every step strict, `Compare` by the operand's type, the boundaries where a value
+leaves the language, the bypass on a text slot's own read only, and one compiler that every
+consumer calls, its early stops picked at compile. The open question there is an `Option` type.
 
 ### Steps
 
@@ -524,11 +380,10 @@ an overload. These rules are the language; C4 moves them out of this plan.
   until the map exists: 202 -> 26 kB, 76 -> 8.4 µs.
 - **C3 (done). `First` over any id list;** the position rule goes (`ValueExprSuite`'s case
   changed, approved), and a test renders `Present |> First |> Cel` and gets the leader.
-- **C4. Docs:** ADRs 0004 and 0028, `terminology.md`, the architecture doc's file map and the
-  module `CLAUDE.md`, which name `Conditions` as the condition interpreter; this section's B
-  paragraphs that C supersedes (the evaluator, `Compare`'s rules, `isCondition`). The
-  value language above goes to a new ADR (agreed), with `terminology.md`'s Reading pointing at it,
-  where it outlives this plan.
+- **C4 (done). Docs:** the value language and the evaluator are ADR 0035, `terminology.md`'s
+  Reading pointing at it; ADRs 0004, 0007, 0028 and 0034, `terminology.md`, the architecture
+  doc's file map and the module `CLAUDE.md` name the evaluator where they named `Conditions`;
+  Part B's paragraphs that C superseded are rewritten.
 
 ### C's tests
 

@@ -29,12 +29,9 @@ import fh.view.model.{
   SignalId,
   BoundSlot,
   SlotValue,
-  Step,
-  ValueExpr,
   Surface,
   TapCall,
-  ThemeClasses,
-  Value
+  ThemeClasses
 }
 import scala.jdk.CollectionConverters.*
 

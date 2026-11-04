@@ -1,14 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{
-  Fetching,
-  LayoutNode,
-  MemberId,
-  NodeId,
-  SetId,
-  Transform,
-  ValueExpr
-}
+import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId, ValueExpr}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity

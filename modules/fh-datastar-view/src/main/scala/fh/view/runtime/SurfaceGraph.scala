@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Activation, Dashboard, DomId, NodeId, Surface, ValueExpr}
+import fh.view.model.{Activation, Dashboard, DomId, NodeId, Surface}
 
 /** What one viewer has selected: the popup it has open, and the member of each
   * bake group a node variable selects (ADR 0033). A state group's branch is

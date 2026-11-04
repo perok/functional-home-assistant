@@ -591,7 +591,7 @@ class RenderBench {
   /** [[pageSignals]] with each card's fill colour reading two expression
     * values: the only page here whose CEL is typed against named values, so the
     * only one that prices the compile key and the per-render activation
-    * (`Conditions.resolve`). Rebuilding that key per render cost 139 KB a page
+    * (`Evaluator.inputs`). Rebuilding that key per render cost 139 KB a page
     * here (#615).
     */
   @Benchmark

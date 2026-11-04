@@ -30,9 +30,9 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
 
    **A condition is the tier's bool half.** What a `c.iff`, a candidate set's guard, an order term
    or a boolean input takes is a bool `ValueExpr` of simple steps: a read and `Compare`, `Not`,
-   `AllOf`/`AnyOf` over a `List`, `Count`/`First` over a set's `Present` ids
-   (`ValueExpr.isCondition`). So `q.entity(e).stateIs("on")` is decided by `Conditions`, the one
-   interpreter, with no CEL; `core/predicate.pkl`'s classes (`Cmp`, `PAnd`, …) are how Pkl writes
+   `AllOf`/`AnyOf` over a `List`, `Count`/`First` over a list of ids
+   (`ValueExpr.conditionError` holds a condition to that). So `q.entity(e).stateIs("on")` is
+   decided with no CEL, by the one evaluator that fills every slot (ADR 0035); `core/predicate.pkl`'s classes (`Cmp`, `PAnd`, …) are how Pkl writes
    one.
 
    **The library writes no CEL the author did not.** A slot's default reading is the state, an
@@ -129,11 +129,11 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    Decoding straight into the runtime type, with no flatter wire form parsed afterwards, is what
    keeps these three:
 
-   - The renderer keeps an **exhaustive match**, which is what stops a new step quietly skipping
+   - The evaluator keeps an **exhaustive match**, which is what stops a new step quietly skipping
      its tests. Matching on a `String` operator would let one fall through to a default, green
      and unproven.
    - **No evaluation pays a map lookup** for an argument it could have read off a field; a
-     pipeline is composed into one function per plan (`Renderer.compose`).
+     reading is compiled into one closure per consumer (`Evaluator.compile`).
    - A malformed structure is a **build-time failure naming the dashboard** rather than a slot
      that renders blank forever: a missing field, an unknown field or an unknown `kind` fails the
      decode, with its JSON path.
