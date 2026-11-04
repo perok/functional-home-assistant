@@ -472,10 +472,6 @@ names, and are corrected where they did.
 - The tap call design round: a declared call id in place of the URL a template spells out.
 - **Strict `Dyn`** is an open question in ADR 0035, beside the `Option` type.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
-- **A Pkl `Predicate` as a `slotMod.Reading`.** Both write `{source, steps}`, so
-  `nodes.booleanReading`, `slotMod.wireInput` and the `Predicate|Reading` unions convert one to
-  the other. Needs a spike: `Reading`'s rendered `default` and `valueWhileSlot` would ride on
-  every condition.
 
 ## Checks
 
