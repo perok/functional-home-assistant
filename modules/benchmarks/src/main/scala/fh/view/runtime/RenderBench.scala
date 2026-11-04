@@ -274,6 +274,7 @@ class RenderBench {
   private var narrow: Renderer = null
   private var flat: Renderer = null
   private var set: Renderer = null
+  private var setOrdered: Renderer = null
   private var setPlain: Renderer = null
   private var setTiles: Renderer = null
   private var manySets: Renderer = null
@@ -362,6 +363,8 @@ class RenderBench {
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
+    setOrdered =
+      Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setTiles = Renderer.create(Dashboard(cards, tileSetTree(Leaves)))
@@ -733,6 +736,67 @@ class RenderBench {
           Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
         )
       )
+      i += 1
+    }
+  }
+
+  private lazy val leafStates = Array.tabulate(Leaves)(i => st(entityId(i)))
+
+  private lazy val litNotDim = Conds.and(
+    List(
+      Conds.cmp("state", Op.Eq, Json.fromString("on")),
+      Conds.not(
+        Conds.or(
+          List(
+            Conds.cmp("attr:brightness", Op.Lt, Json.fromInt(50)),
+            Conds.cmp("state", Op.Eq, Json.fromString("off"), Some(entityId(0)))
+          )
+        )
+      )
+    )
+  )
+
+  /** An and over an or and a not, per leaf: every kind of step a tree nests. */
+  @Benchmark
+  def conditionTree(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(Conditions.holds(litNotDim, leafStates(i), st))
+      i += 1
+    }
+  }
+
+  private lazy val bright =
+    Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100))
+
+  /** A guard over an attribute, on a state as a frame hands it over: a copy, so
+    * nothing a read caches on the state is there yet.
+    */
+  @Benchmark
+  def conditionAttr(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(Conditions.holds(bright, leafStates(i).copy(), st))
+      i += 1
+    }
+  }
+
+  // Each pill lit while its own light leads, as `first().eq(e)` writes it.
+  private lazy val leaders = Array.tabulate(Pills)(i =>
+    Conds.first(
+      candidates = List.tabulate(Pills)(entityId),
+      orderBy =
+        List(LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")),
+      entity = entityId(i)
+    )
+  )
+
+  /** A row of [[Pills]] pills over one candidate list: a leader per pill. */
+  @Benchmark
+  def leaderRow(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Pills) {
+      bh.consume(Conditions.holds(leaders(i), EntityState.none, st))
       i += 1
     }
   }
@@ -1195,6 +1259,15 @@ class RenderBench {
   def publishSet(bh: Blackhole): Unit = {
     pubRot += 1
     bh.consume(publishPass(set, pubFrames(pubRot % 2)))
+  }
+
+  /** [[publishSet]] ordered by [[LitBrightest]]: the touched set re-sorts, each
+    * comparison reading both members' keys.
+    */
+  @Benchmark
+  def publishSetOrdered(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(setOrdered, pubFrames(pubRot % 2)))
   }
 
   /** '''The question a pre-filter would answer''': what a frame costs when the
@@ -1751,6 +1824,15 @@ object RenderBench {
   /** [[publishManySets]]'s sets: ten candidates each, so a tick spans two. */
   final val ManySets = 20
 
+  /** [[RenderBench.leaderRow]]'s pills, and the candidates they lead. */
+  final val Pills = 10
+
+  /** Lit first, then brightest: a condition key and a value key. */
+  lazy val LitBrightest: List[LayoutNode.SortTerm] = List(
+    LayoutNode.SortTerm(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+    LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
+  )
+
   /** The shipped `entityCard`'s one BYTE slot. Every other slot on it is either
     * a literal or travels as a signal, which is precisely why one slot is what
     * re-admits the entity to the cache key (ADR 0012).
@@ -2038,12 +2120,17 @@ object RenderBench {
     * its own render), `false` the signal-less case where the two forms are
     * byte-identical and the fingerprint is sliced from the document bytes.
     */
-  def setTree(leaves: Int, signals: Boolean = true): LayoutNode =
+  def setTree(
+      leaves: Int,
+      signals: Boolean = true,
+      orderBy: List[LayoutNode.SortTerm] = Nil
+  ): LayoutNode =
     LayoutNode.Component(
       "col",
       regions = LayoutNode.kids(
         LayoutNode.SetNode(
           candidates = List.tabulate(leaves)(entityId),
+          orderBy = orderBy,
           members = List
             .tabulate(leaves)(i =>
               entityId(i) -> LayoutNode.SetMember(
