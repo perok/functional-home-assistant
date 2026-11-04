@@ -354,12 +354,79 @@ wrong: `Present |> First |> Cel("value + '!'")` types as text, but `compose` ski
 CEL gets the id list. Refusing those shapes would keep two evaluators, and one `attr(…)` would
 still read `21` on a card and `21.0` in a condition.
 
-- **A `ValueExpr` is an s-expression,** written as a pipeline: `source |> f |> g` is `(g (f
-  source))`, Clojure's `->`; `state |> Compare(eq, 21)` is `(compare = (state x) 21)`, `List[a, b]
-  |> AllOf` is `(and a b)`. So the evaluator literature applies as is, and is the first place to
-  look: the compiler below is SICP §4.1.7's `analyze` (walk the syntax once, return a procedure
-  that never looks at it again), which `compose` already is and `Conditions.run`, the plain `eval`,
-  is not; absence follows Clojure's `nil` (below).
+### The value language
+
+A `ValueExpr` is an s-expression written as a pipeline: `source |> f |> g` is `(g (f source))`,
+Clojure's `->`. `state |> Compare(eq, 21)` is `(compare = (state x) 21)`, and `List[a, b] |>
+AllOf` is `(and a b)`. So the literature on small expression languages applies as is, and is the
+first place to look before inventing a rule: the evaluator is SICP §4.1.7's `analyze`, absence is
+SQL's `NULL` and Clojure's `nil`, a comparison picks its meaning by type as CEL's checker picks
+an overload. These rules are the language; C4 moves them out of this plan.
+
+- **Values:** text, whole, real, bool, list, entity, series, markup, and `null`, the one absent
+  value. Reads are typed (agreed): a state is text, an attribute the JSON's own value (`Long`,
+  `Double`, `String`, `Boolean`, a list, a map), never its printed text.
+- **Where `null` comes from:** the entity read, the only source of absence: an entity the store
+  lacks, an attribute the entity does not report, a JSON `null`. And a step with no result: `First`
+  with nobody present, `Percent`, `Fill` and `Duration` over text that is not a number, CEL
+  returning `null`. HA's `unavailable` and `unknown` are text, not `null`: HA reports them and a
+  card can show them (`bypassUnavailable`). Today one absence has three spellings, `Missing`, the
+  renderer's empty stand-in state and `null`; the stand-in is Common Lisp's mistake, whose `NIL`
+  is false, empty and absent at once, so `gethash` needs a second value to tell them apart.
+- **Every step is strict,** in its input and its operands: over `null` it does not run, and gives
+  `null`. Postgres declares such a function `STRICT`; Clojure threads with `some->`. This is the
+  lift to `Option`: every reading is, in effect, an `Option`, and the compiler is its `map`. It
+  stays implicit: an entity can leave HA at any time, so every read would be an `Option` and the
+  type would tell `validate` nothing; and at runtime it is one `null` check per step, no
+  allocation (an `Option` per operand showed in RenderBench on the slider path, see
+  `Transform.formatWith`).
+- **Three constructs see `null`, SQL's three:**
+  - `Match`: `null` is a value no case names, so it takes `otherwise` (`CASE x WHEN … ELSE`).
+  - and/or: Kleene's logic, as SQL's: `false` decides an and, `true` an or, else `null`. `Not`
+    is strict (`NOT NULL` is `NULL`).
+  - A reading's `default`: at its end, `null` becomes the default (`COALESCE`, Clojure's `or`,
+    `Option.getOrElse`). It is the one way to lift `null` to a value. A mid-pipeline form (an
+    `OrElse` step) waits for a card that needs one; CEL has its own today.
+
+  CEL is called on `null` as well and has its own machinery for it (`has`, `? :`, optionals), as
+  the shipped spellings use (`'k' in value.attr ? … : null`).
+- **Comparison** takes its meaning from the operand's type (agreed); only an attribute (`dyn`)
+  waits for its runtime value:
+  - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
+    (CEL's heterogeneous numeric equality, `dyn(3.0) == 3`; Scheme's `=`; Java's binary numeric
+    promotion). A text side is parsed, and one that is not a number does not hold, as HA's
+    `numeric_state` condition (`unavailable` "doesn't pass");
+  - a text literal compares as text, a number side printed as a slot prints it;
+  - a bool literal is equality;
+  - between two reads, two numbers use the number line, anything else today's rule (text
+    equality, ordering numeric when both parse).
+
+  No other coercion: what silent coercion does is JS's `==`, where `"0" == 0` and `0 == ""` but
+  `"0" != ""`. Lisp names the comparison (`=` numeric, `string=` text); here the literal's type
+  names it, so the wire carries nothing new. An order key compares by the same rule.
+- **Where a value leaves the language,** each boundary converting once:
+  - a text slot shows the value printed (`Renderer.resolveStateSlotValue`, `Cel.runValue`); one
+    with nothing to show, `null` or `""`, shows its `default`, else `""`;
+  - a bool slot shows `true` or `false`; `null` shows its `default`, else `false`;
+  - a condition (a clause, a guard, a state surface, `c.iff`) holds only on `true`, as SQL's
+    `WHERE`;
+  - an order key sorts `null`, `unavailable` and `unknown` last in either direction (today's
+    rule);
+  - a CEL input is CEL's `null`.
+
+  A value is printed nowhere else, except a number meeting a text literal. The more-info panel's
+  attribute lines are CEL's own.
+- **What moves (proposed, not agreed).** `Percent`'s `0 %` and `Fill`'s `100%` over a value they
+  cannot read were the step guessing for the slider. They become `null`, and `simple.pkl`'s
+  `percent` and `fill` builders set those as the reading's `default`, so a card's bytes hold;
+  `Duration` and `WithUnit` already gave `""` so the default would apply, and `null` does that.
+  Changes a reader sees: `Prefix`/`Suffix` over an absent value give `""` (`Suffix("!")` gave
+  `!`); `not(ghost == "on")` and `attr(x).ne(v)` over an absent value no longer hold. No error
+  field per slot: an entity goes missing when HA drops it, and the dump refresh then rejects the
+  new dump (`DumpRefresh.Rejected`, naming the dashboard), which is where to show it.
+
+### The evaluator
+
 - **One compiler:** `ValueExpr` → `(subject, states, fetched) => Any`, built once, which every
   consumer calls. `Conditions.run`/`step`/`read`, `resolve`'s case list, `Renderer.compose`,
   `isCondition` (which chose between them) and `formatWith`'s copies go.
@@ -378,46 +445,8 @@ still read `21` on a card and `21.0` in a condition.
 - **The tier rule stays:** a clause, guard, state surface and order term still refuse CEL
   (`conditionError`), since they run per member per change (ADR 0028). That is about cost, not
   about which evaluator runs them.
-- **Reads are typed everywhere** (decided): slots, and so the fast tier and its byte-equality with
-  CEL (`TransformSuite`), do not change; conditions do. A value is printed only where it becomes
-  a text slot's output (`Renderer.resolveStateSlotValue`, `Cel.runValue`) or meets a text
-  literal in a comparison (below). The more-info panel's attribute lines are CEL's own.
-- **`Compare` takes its comparison from the operand's type** (agreed), as CEL's type
-  checker picks an overload by type; only an attribute (`dyn`) waits for its runtime value:
-  - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
-    (CEL's heterogeneous numeric equality, `dyn(3.0) == 3`; Scheme's `=`; Java's binary numeric
-    promotion). A text side is parsed, and one that is not a number does not hold, as HA's
-    `numeric_state` condition (`unavailable` "doesn't pass");
-  - a text literal compares as text, a number side printed as a slot prints it;
-  - a bool literal is equality;
-  - between two reads, two numbers use the number line, anything else today's rule (text
-    equality, ordering numeric when both parse).
-
-  No other coercion: what silent coercion does is JS's `==`, where `"0" == 0` and `0 == ""` but
-  `"0" != ""`. Lisp names the comparison (`=` numeric, `string=` text); here the literal's type
-  names it, so the wire carries nothing new. An order key compares by the same rule. A number is
-  printed to be compared only against a text literal.
-- **Proposed, not agreed: absence is `null`, and the compiler lifts a step over it**, as Clojure
-  does with `nil`. Today one absence has three spellings: `Missing` (a condition over an entity
-  the store lacks), an empty stand-in state (the renderer's, for the same entity) and `null` (an
-  attribute the entity does not report). One `null` replaces them, produced in one place, the
-  entity read: no entity, no reported attribute, or a JSON `null`.
-  - Each step says, on its type, whether it takes `null`. One that does has a null case in its
-    spec, Clojure's `fnil`: `Percent` (`0 %`), `Fill` (`100%`, an empty track), `Duration`
-    (`""`), `Match` (`otherwise`), `WithUnit`, and CEL, whose shipped spellings guard it
-    (`'k' in value.attr ? … : null`). These are the pinned fast-tier outputs, unchanged.
-  - Every other step is lifted, Clojure's `some->`: `null` passes it unrun. `Compare`, `Not`,
-    `Count`, `First`, `Prefix`, `Suffix`.
-  - and/or are Kleene's, as SQL's: `false` decides an and and `true` an or, else `null`.
-  - At the end, one conversion: a slot shows its `default` (Clojure's `or`), else its type's
-    empty (`""`, `false`); a condition holds only on `true`.
-
-  Changes: `Prefix`/`Suffix` over an absent value give `""` (`Suffix("!")` gave `!`);
-  `not(ghost == "on")` and `attr(x).ne(v)` over an absent value no longer hold. No error field
-  per slot: an entity goes missing when HA drops it, and the dump refresh then rejects the new
-  dump (`DumpRefresh.Rejected`, naming the dashboard), which is where to show it. Common Lisp is
-  the warning against a stand-in: its `NIL` is false, empty and absent at once, so `gethash`
-  returns a second value to tell them apart, as the renderer's empty state cannot.
+- **The fast tier stays byte-equal to CEL** wherever CEL gives a value (`TransformSuite`): typed
+  reads are what slots read today, so only conditions change.
 
 ### Steps
 
@@ -448,6 +477,11 @@ JSON-text rule as its oracle, which becomes the agreed one; tests pinning `21.0`
 against `21` or a slot over a missing entity follow the agreed rules. Tests and benchmarks that
 call `Conditions.holds` call a compiled run instead (mechanical); the compile cost is measured
 apart from the per-call cost.
+
+Asked with "What moves", not yet approved: `TransformSuite`'s pins that `Percent` and `Fill`
+render `0 %` and `100%` over what they cannot read become pins that they give `null`, and the
+builders' defaults are pinned in their place; the wire snapshots gain those defaults
+(`dashboardSnapshotsUpdate`), and the goldens must hold.
 
 ### C's checks
 
