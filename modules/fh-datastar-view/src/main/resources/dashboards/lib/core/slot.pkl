@@ -18,7 +18,7 @@ import "node.pkl" as nodes
 /// handed to puts it in a [[Slot]], which says where it lands.
 /// `fh.view.model.ValueExpr`; build one with [[simpleMod]]'s constructors, a
 /// [[Cel]] step, or [[expr]].
-class Reading {
+open class Reading {
   /// The entity read when not the card's own (its subject).
   hidden entityId: String? = null
   /// Which part of it; null is the state.
@@ -69,7 +69,7 @@ class Reading {
   valueWhileSlot: Reading? =
     if (valueWhile == true) null
     else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
-    else nodes.booleanReading(valueWhile as Reading|Expr|predMod.Predicate)
+    else nodes.booleanReading(valueWhile as Reading|Expr)
 }
 
 /// A step's operand: a literal, or a part of an entity.
@@ -128,7 +128,7 @@ const function wireInput(v: nodes.ExpressionValue): Any =
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
   else if (v is predMod.PresentList) Map("source", v)
   else if (v is predMod.Tally) Map("source", v, "steps", List(new simpleMod.CountStep {}))
-  else if (v is predMod.Predicate) Map("source", v.source, "steps", v.steps)
+  else if (v is predMod.Predicate) v
   else if (v is Fetch) Map("source", new FetchRead { fetch = v })
   else v
 

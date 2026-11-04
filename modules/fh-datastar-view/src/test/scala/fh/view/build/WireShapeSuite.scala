@@ -184,10 +184,10 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("every condition class writes a reading") {
-    // What each class names is hidden; it writes `source` and `steps`, and a
-    // condition has no default.
+    // A condition is a `Reading`, so it is checked as one; what each class
+    // names is hidden.
     for (cls <- List("Cmp", "Count", "First", "PAnd", "POr", "PNot", "PConst"))
-      check(cls, Conds.always, scalaOnly = Set("default"))
+      check(cls, Conds.always, pklOnly = Set("valueWhileSlot"))
   }
 
   test("ordering and layout-cell shapes agree on both sides") {

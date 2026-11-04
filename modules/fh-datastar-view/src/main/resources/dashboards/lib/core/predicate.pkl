@@ -13,11 +13,10 @@ import "slot.pkl" as slotMod
 
 typealias PredicateOp = simpleMod.CompareOp
 
-/// A condition. The combinators are methods, since the operators
+/// A condition: a reading of a bool, decided without CEL (ADR 0035), so it goes
+/// wherever a reading does. The combinators are methods, since the operators
 /// `&&`/`||`/`!` do not cross the seam.
-abstract class Predicate {
-  source: Any
-  steps: Listing<simpleMod.Step> = new {}
+abstract class Predicate extends slotMod.Reading {
   function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
   function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
   function not(): PNot = let (l = this) new PNot { item = l }
@@ -151,7 +150,7 @@ class SetNode extends nodes.LayoutNode {
 /// ([[propertyKey]]), or whether a condition holds, true first under `asc`. A
 /// registry key never reaches it: it folds into the candidate order.
 class SortTerm {
-  by: Predicate|slotMod.Reading
+  by: slotMod.Reading
   dir: "asc"|"desc" = "asc"
 }
 
