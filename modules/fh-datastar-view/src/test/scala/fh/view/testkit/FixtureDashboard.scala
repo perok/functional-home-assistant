@@ -7,7 +7,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Predicate,
   Region,
   Step,
   Value,
@@ -66,7 +65,7 @@ object FixtureDashboard {
   /** `guard` is every member's presence condition, `None` for always shown. */
   def set(
       candidates: List[String],
-      guard: Option[Predicate] = None
+      guard: Option[ValueExpr] = None
   ): LayoutNode.SetNode =
     LayoutNode.SetNode(
       candidates = candidates,
@@ -100,8 +99,8 @@ object FixtureDashboard {
       }.toMap
     )
 
-  def stateIs(s: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(s))
+  def stateIs(s: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(s))
 
   /** The unit read is guarded: an absent attribute reads nothing, not an error.
     */
@@ -131,8 +130,8 @@ object FixtureDashboard {
   /** It names its entity: a state condition has no subject to supply (ADR
     * 0007).
     */
-  private def entityIs(id: String, state: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
+  private def entityIs(id: String, state: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   /** An `ifhost` root ("c") whose `then` bakes while `condEntity` holds
     * `activeState`, and whose always-true `else` bakes otherwise (ADR 0007).
@@ -157,14 +156,14 @@ object FixtureDashboard {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(entityIs(condEntity, activeState))
+          activation = Activation.State(Some(entityIs(condEntity, activeState)))
         ),
         "c_else" -> Surface(
           elseBranch,
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(1),
-          activation = Activation.State(Predicate.And(Nil))
+          activation = Activation.State()
         )
       ),
       slug = "ifhome",

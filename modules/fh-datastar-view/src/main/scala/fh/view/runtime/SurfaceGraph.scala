@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
+import fh.view.model.{Activation, Dashboard, DomId, NodeId, Surface}
 
 /** What one viewer has selected: the popup it has open, and the member of each
   * bake group a node variable selects (ADR 0033). A state group's branch is
@@ -252,12 +252,19 @@ private[runtime] final class SurfaceGraph(
   ): Boolean =
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
 
-  // Subject-free (`validate`), so the subject is a stand-in nothing reads.
-  private def holds(
-      condition: Predicate,
-      states: Map[String, EntityState]
-  ): Boolean =
-    Conditions.matchesIn(condition, EntityState.none, states)
+  /** Each state surface's condition, compiled once; an else has none. */
+  private val conditions: Map[String, Evaluator.Run] =
+    surfaces.flatMap { (sid, s) =>
+      s.activation match
+        case Activation.State(Some(c)) => Some(sid -> Evaluator.plain(c))
+        case _                         => None
+    }
+
+  // Subject-free (`validate`). An else holds.
+  private def holds(sid: String, states: Map[String, EntityState]): Boolean =
+    conditions
+      .get(sid)
+      .forall(run => Evaluator.holds(run(null, states, Evaluator.noFetch)))
 
   /** First match in `bakeIndex` order; `None` bakes empty content. */
   private[runtime] def resolveActiveByState(
@@ -269,9 +276,8 @@ private[runtime] final class SurfaceGraph(
         surfaces
           .get(sid)
           .exists(_.activation match {
-            case Activation.State(condition) =>
-              holds(condition, states)
-            case _ => false
+            case Activation.State(_) => holds(sid, states)
+            case _                   => false
           })
       )
       Option.when(idx >= 0)(idx)
@@ -289,7 +295,7 @@ private[runtime] final class SurfaceGraph(
               .get(_)
               .toList
               .flatMap(_.activation match {
-                case Activation.State(c) => Predicate.referencedEntities(c)
+                case Activation.State(c) => c.toList.flatMap(_.entities)
                 case _                   => Nil
               })
           )

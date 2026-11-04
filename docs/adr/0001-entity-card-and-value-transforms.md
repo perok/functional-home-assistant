@@ -71,13 +71,14 @@ nothing. The only non-slot template vars are
 backend-injected: the stable node `id` (plus the matched `entity_id` inside a
 dynamic case).
 
-**Unavailability is an explicit per-slot bypass.** `bypassUnavailable` (ON by
-default) makes an `"unavailable"`/`"unknown"` entity show its raw state
-*instead of* running the transform — what keeps a value display readable when
-its transform would error on a non-numeric state. Slots that must run their
-transform regardless opt out: actions (an unavailable light is exactly the one
-you want to click), labels (keep the friendly_name), a slider's numeric position
-(fall back to its `default`).
+**Unavailability is an explicit per-slot bypass.** `bypassUnavailable` makes an
+`"unavailable"`/`"unknown"` entity show that word *instead of* running the
+transform — what keeps a value display readable when its transform would error
+on a non-numeric state. It is off by default, so a read reads as is, and only a
+text slot's own read of the state or the whole entity may set it; `validate`
+refuses it anywhere else (an operand, a condition, an attribute, a bool slot).
+The library sets it on the builders of a state display (`valueSlot`, an `Expr`
+readout or second line); actions, labels and a slider's position read as is.
 
 **Failure modes are contained.** A genuinely broken transform on a real value
 renders the evaluation **error message on its card** — never a silent blank, never

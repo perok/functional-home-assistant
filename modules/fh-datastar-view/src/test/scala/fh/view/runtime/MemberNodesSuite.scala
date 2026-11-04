@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -9,7 +11,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
   Value,
   ValueExpr,
@@ -51,8 +52,8 @@ class MemberNodesSuite extends ServerHarness {
   private def col(children: LayoutNode*) =
     LayoutNode.Component("col", regions = LayoutNode.kids(children*))
 
-  private val whileOn: Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+  private val whileOn: ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   private val lights =
     List("light.c", "light.a", "light.b", "light.d", "light.e")
@@ -269,11 +270,13 @@ class MemberNodesSuite extends ServerHarness {
           .surfaces("a0")
           .copy(activation =
             Activation.State(
-              Predicate.Cmp(
-                "state",
-                Op.Eq,
-                Json.fromString("on"),
-                entity = Some("light.a")
+              Some(
+                Conds.cmp(
+                  "state",
+                  Op.Eq,
+                  Json.fromString("on"),
+                  entity = Some("light.a")
+                )
               )
             )
           )

@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Conds
+
 import api.homeassistant.ServiceTarget
 import fh.view.model.{
   CardDef,
@@ -9,7 +11,6 @@ import fh.view.model.{
   Lit,
   Op,
   Part,
-  Predicate,
   Step,
   TapCall,
   Value,
@@ -1508,7 +1509,7 @@ class PklBuildSuite extends munit.FunSuite {
     val clause = set.members("light.taklys").clauses.head
     assertEquals(
       clause.when,
-      Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+      Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
     )
     val node = clause.node.asComponent
     assertEquals(node.subjectEntity, Some("light.taklys"))
@@ -1527,7 +1528,7 @@ class PklBuildSuite extends munit.FunSuite {
     val guard = set.members("light.taklys").clauses.head.when.get
     assertEquals(
       guard,
-      Predicate.Cmp(
+      Conds.cmp(
         "state",
         Op.Eq,
         Json.fromString("on"),
@@ -1844,13 +1845,13 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val result = evalProj(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
-    val p = result.toOption.get.value.hcursor.downField("p").as[Predicate]
+    val p = result.toOption.get.value.hcursor.downField("p").as[ValueExpr]
     // Naming the entity makes the predicate one lookup, and the reverse index
     // exact.
     assertEquals(
       p,
       Right(
-        Predicate.Cmp(
+        Conds.cmp(
           "state",
           Op.Eq,
           Json.fromString("on"),

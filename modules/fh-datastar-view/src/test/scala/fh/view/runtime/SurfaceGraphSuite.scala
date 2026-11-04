@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.model.{
   Activation,
   Dashboard,
@@ -7,8 +9,8 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
-  Surface
+  Surface,
+  ValueExpr
 }
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
@@ -25,8 +27,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def col(kids: LayoutNode*) =
     LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
 
-  private def isOn(e: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(e))
+  private def isOn(e: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
   /** A tab bar's member, chosen by the bar's `tab` (ADR 0033). */
   private def user(into: String, as: String, idx: Int): Surface =
@@ -42,14 +44,14 @@ class SurfaceGraphSuite extends munit.FunSuite {
       into: String,
       as: String,
       idx: Int,
-      when: Predicate
+      when: ValueExpr
   ): Surface =
     Surface(
       col(),
       bakeInto = Some(NodeId.derived(into)),
       bakeAs = Some(as),
       bakeIndex = Some(idx),
-      activation = Activation.State(when)
+      activation = Activation.State(Some(when))
     )
 
   /** `SurfaceGraph` is handed each indexed id's root, so the map is stated
@@ -163,7 +165,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
         "warm" -> state("c", "t1", 1, isOn("light.b")),
-        "else" -> state("c", "t2", 2, Predicate.And(Nil))
+        "else" -> state("c", "t2", 2, Conds.and(Nil))
       )
     )
     val both = snapshot(st("light.a", "on"), st("light.b", "on"))
@@ -186,7 +188,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
-        "else" -> state("c", "t1", 1, Predicate.And(Nil))
+        "else" -> state("c", "t1", 1, Conds.and(Nil))
       ),
       roots = Map("c" -> "")
     )
@@ -224,7 +226,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
-        "else" -> state("c", "t1", 1, Predicate.And(Nil))
+        "else" -> state("c", "t1", 1, Conds.and(Nil))
       ),
       roots = Map("c" -> "")
     )
@@ -296,7 +298,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     // would hide it from everybody.
     val g = graphOf(
       Map(
-        "hot" -> state("c", "t0", 0, Predicate.And(Nil)),
+        "hot" -> state("c", "t0", 0, Conds.and(Nil)),
         "tab" -> user("d", "t0", 0)
       )
     )
@@ -397,7 +399,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
         "light.a" -> LayoutNode.SetMember(
           List(
             LayoutNode.SetClause(
-              Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+              Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
               LayoutNode.Component("tile")
             )
           )
@@ -459,7 +461,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "then" -> state("c", "branch", 0, isOn("light.a")),
-        "else" -> state("c", "branch", 1, Predicate.And(Nil))
+        "else" -> state("c", "branch", 1, Conds.and(Nil))
       )
     )
     val host = DomId.derived("c_branch")

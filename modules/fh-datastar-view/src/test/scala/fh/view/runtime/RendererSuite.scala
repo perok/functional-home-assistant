@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
@@ -12,10 +14,10 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Reads,
   Region,
   SetId,
+  SlotType,
   Step,
   Value,
   ValueExpr,
@@ -132,7 +134,7 @@ class RendererSuite extends munit.FunSuite {
   private def onSet(
       candidates: List[String],
       clauses: List[
-        (Option[Predicate], String, Map[String, TemplateSlot], Option[Cell])
+        (Option[ValueExpr], String, Map[String, TemplateSlot], Option[Cell])
       ],
       guardOn: Boolean = true
   ): LayoutNode.SetNode =
@@ -141,12 +143,12 @@ class RendererSuite extends munit.FunSuite {
       members = candidates.map { id =>
         id -> LayoutNode.SetMember(clauses.map {
           case (extra, card, slots, cl) =>
-            val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+            val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
             LayoutNode.SetClause(
               when = (if (guardOn) List(on) else Nil) ++ extra.toList match {
                 case Nil      => None
                 case g :: Nil => Some(g)
-                case gs       => Some(Predicate.And(gs))
+                case gs       => Some(Conds.and(gs))
               },
               node = LayoutNode.Component(
                 card,
@@ -206,13 +208,16 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("unavailable entity bypasses the transform and shows its raw state") {
-    // Bypassing is the default.
     val node = LayoutNode.Component(
       card = "card",
       templateSlots = Map(
         "state" -> TemplateSlot(
           ValueExpr(
-            Value.Entity(Some("sensor.t"), Part.Whole),
+            Value.Entity(
+              Some("sensor.t"),
+              Part.Whole,
+              bypassUnavailable = true
+            ),
             List(Step.Cel("str(math.round(num(value.state) * 10.0) / 10.0)"))
           )
         )
@@ -239,8 +244,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("bypassUnavailable=false runs the transform even when unavailable") {
-    // Opted out so its transform still runs: a label keeps the name, an action
-    // stays resolvable.
+    // A label keeps the name, an action stays resolvable.
     val node = LayoutNode.Component(
       card = "card",
       templateSlots = Map(
@@ -268,8 +272,66 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  test("a bool slot over an entity with no value decides on the word") {
+    // The comparison reads the state's text and makes a bool: over
+    // `unavailable` it is false, never the word in a section.
+    val off =
+      Conds.cmp("state", Op.Eq, Json.fromString("off"), Some("switch.x"))
+    val r = Renderer.create(
+      Dashboard(
+        Map("flag" -> CardDef("<b>{{#off}}OFF{{/off}}{{^off}}lit{{/off}}</b>")),
+        LayoutNode.Component(
+          card = "flag",
+          templateSlots =
+            Map("off" -> TemplateSlot(off, `type` = SlotType.Bool))
+        )
+      )
+    )
+    def shown(state: String) =
+      r.renderNodeById(
+        "c",
+        Map("switch.x" -> st("switch.x", state)),
+        fragments = FetchSnapshot.empty
+      ).get
+    assert(shown("off").contains("<b>OFF</b>"), clue = shown("off"))
+    EntityState.unavailableStates.foreach { s =>
+      assert(shown(s).contains("<b>lit</b>"), clue = shown(s))
+    }
+  }
+
+  test("a slot shows the leader a first step picks, through a CEL step") {
+    val brightest = LayoutNode.SortTerm(
+      ValueExpr(Value.Entity(None, Part.Attr("brightness"))),
+      "desc"
+    )
+    val leader = ValueExpr(
+      Value.Present(List("light.a", "light.b")),
+      List(Step.First(List(brightest)), Step.Cel("value + '!'"))
+    )
+    val r = Renderer.create(
+      Dashboard(
+        Map("lead" -> CardDef("<b>{{lead}}</b>")),
+        LayoutNode.Component(
+          card = "lead",
+          templateSlots = Map("lead" -> TemplateSlot(leader))
+        )
+      )
+    )
+    def shown(a: Int, b: Int) =
+      r.renderNodeById(
+        "c",
+        Map(
+          "light.a" -> st("light.a", "on", "brightness" -> Json.fromInt(a)),
+          "light.b" -> st("light.b", "on", "brightness" -> Json.fromInt(b))
+        ),
+        fragments = FetchSnapshot.empty
+      ).get
+    assert(shown(10, 200).contains("<b>light.b!</b>"), clue = shown(10, 200))
+    assert(shown(200, 10).contains("<b>light.a!</b>"), clue = shown(200, 10))
+  }
+
   // ADR 0016 bakes actions; a hand-written map action is the fallback, and must
-  // resolve from `domain` with no state.
+  // resolve from `domain` with no state: a `once` read, of which entity it is.
   test("a fallback map action resolves from the entity id with no state") {
     val expr =
       """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
@@ -280,7 +342,7 @@ class RendererSuite extends munit.FunSuite {
         templateSlots = Map(
           "action" -> TemplateSlot(
             ValueExpr(
-              Value.Entity(Some(entity), Part.Whole),
+              Value.Entity(Some(entity), Part.Whole, Reads.Once),
               List(Step.Cel(expr))
             )
           )
@@ -678,7 +740,7 @@ class RendererSuite extends munit.FunSuite {
 
   test("a set dispatches per clause and wraps each member on its own") {
     // The first clause whose guard holds decides the rendering.
-    def low = Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
+    def low = Conds.cmp("attr:battery", Op.Lt, Json.fromInt(20))
     val set = LayoutNode.SetNode(
       candidates = List("light.a", "sensor.b", "sensor.c"),
       members = Map(
@@ -830,6 +892,25 @@ class RendererSuite extends munit.FunSuite {
       clue = "identity-stable cache"
     )
     assertEquals[Any, Any](es.javaAttributes.get("brightness"), 200L)
+  }
+
+  test("one attribute reads as the whole map holds it, built or not") {
+    val attrs = Map(
+      "n" -> Json.fromInt(200),
+      "r" -> Json.fromDoubleOrNull(2.5),
+      "s" -> Json.fromString("x"),
+      "b" -> Json.True,
+      "z" -> Json.Null,
+      "l" -> Json.arr(Json.fromInt(1), Json.fromString("a")),
+      "o" -> Json.obj("k" -> Json.fromInt(1))
+    )
+    val names = attrs.keys.toList :+ "missing"
+    val fresh = EntityState("light.x", "on", attrs)
+    val before = names.map(fresh.attribute)
+    val built = EntityState("light.x", "on", attrs)
+    val map = built.javaAttributes
+    assertEquals[Any, Any](before, names.map(n => map.get(n)))
+    assertEquals[Any, Any](names.map(built.attribute), before)
   }
 
   test("theme tokens + styles are injected as a <style> block") {
@@ -1548,10 +1629,10 @@ class RendererSuite extends munit.FunSuite {
 
   // An empty conjunction is vacuously true and reads no entity, so an `else`
   // needs no special casing.
-  private val always: Predicate = Predicate.And(Nil)
+  private val always: ValueExpr = Conds.and(Nil)
 
-  private def entityIs(id: String, state: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
+  private def entityIs(id: String, state: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   private val ifCards =
     // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
@@ -1576,7 +1657,7 @@ class RendererSuite extends munit.FunSuite {
         bakeInto = Some("c"),
         bakeAs = Some("branch"),
         bakeIndex = Some(0),
-        activation = Activation.State(entityIs("alarm.h", "armed"))
+        activation = Activation.State(Some(entityIs("alarm.h", "armed")))
       )
     ) ++ (if (withElse)
             Map(
@@ -1585,7 +1666,7 @@ class RendererSuite extends munit.FunSuite {
                 bakeInto = Some("c"),
                 bakeAs = Some("branch"),
                 bakeIndex = Some(1),
-                activation = Activation.State(always)
+                activation = Activation.State(Some(always))
               )
             )
           else Map.empty)
@@ -1633,8 +1714,8 @@ class RendererSuite extends munit.FunSuite {
   // `any`/`none`/`all` as counts over a named set, not every entity in the
   // house.
   test("a state condition counts a named set: any/none/all as comparisons") {
-    val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-    def dash(cond: Predicate) = Dashboard(
+    val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
+    def dash(cond: ValueExpr) = Dashboard(
       ifCards,
       LayoutNode.Component("ifhost"),
       surfaces = Map(
@@ -1643,11 +1724,11 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(cond)
+          activation = Activation.State(Some(cond))
         )
       )
     )
-    def count(op: Op, n: Int) = Predicate.Count(
+    def count(op: Op, n: Int) = Conds.count(
       candidates = List("l.a", "l.b"),
       when = Map("l.a" -> on, "l.b" -> on),
       op = op,
@@ -1835,14 +1916,14 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("s_t0__c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(always)
+          activation = Activation.State(Some(always))
         ),
         "sx" -> Surface(
           LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
           bakeInto = Some("c_1"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(always)
+          activation = Activation.State(Some(always))
         ),
         "u0" -> Surface(
           LayoutNode.Component(
@@ -1879,7 +1960,7 @@ class RendererSuite extends munit.FunSuite {
         List("s.b", "s.c"),
         List(
           (
-            Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
+            Some(Conds.cmp("attr:battery", Op.Lt, Json.fromInt(20))),
             "card",
             Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None)))),
             None

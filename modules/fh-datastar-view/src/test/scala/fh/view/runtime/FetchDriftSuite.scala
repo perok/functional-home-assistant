@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.history.Windows
 import fh.view.build.DashboardBuild
 import fh.view.model.{
@@ -9,7 +11,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   FetchTemplate,
   Choice,
   Region,
@@ -94,7 +95,7 @@ class FetchDriftSuite extends munit.FunSuite {
         activation = a
       )
     val on =
-      Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val plain = LayoutNode.Component(
       "dot",
       Map(
@@ -126,7 +127,7 @@ class FetchDriftSuite extends munit.FunSuite {
             "light.a" -> LayoutNode.SetMember(
               List(
                 LayoutNode.SetClause(
-                  Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                  Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                   chart("sensor.set")
                 )
               )
@@ -141,13 +142,13 @@ class FetchDriftSuite extends munit.FunSuite {
           "branch",
           0,
           col(plain, chart("sensor.on"), host("inner")),
-          Activation.State(on)
+          Activation.State(Some(on))
         ),
         "off" -> baked(
           "branch",
           1,
           chart("sensor.off"),
-          Activation.State(Predicate.And(Nil))
+          Activation.State()
         ),
         "i0" -> baked(
           Renderer.surfacePrefix("on") + "inner",

@@ -85,6 +85,18 @@ class RenderGoldenSuite extends munit.FunSuite {
       "as fixtured" -> base,
       "flipped" -> base.view
         .mapValues(s => s.copy(state = flip.getOrElse(s.state, s.state)))
+        .toMap,
+      // As HA reports an entity its integration lost: the word for a state,
+      // and only what the registry still knows about it.
+      "unavailable" -> base.view
+        .mapValues(s =>
+          s.copy(
+            state = "unavailable",
+            attributes = s.attributes.view
+              .filterKeys(RenderGoldenSuite.RegistryAttributes)
+              .toMap
+          )
+        )
         .toMap
     )
   }
@@ -173,6 +185,16 @@ class RenderGoldenSuite extends munit.FunSuite {
 object RenderGoldenSuite {
 
   import scala.util.matching.Regex.quoteReplacement
+
+  /** What HA keeps on an entity whose integration it lost. */
+  val RegistryAttributes: Set[String] = Set(
+    "friendly_name",
+    "icon",
+    "device_class",
+    "unit_of_measurement",
+    "supported_features",
+    "supported_color_modes"
+  )
 
   private val TransformHash = """\bt[0-9a-f]{8}\b""".r
   private val Seed = """data-signals="[^"]*"""".r

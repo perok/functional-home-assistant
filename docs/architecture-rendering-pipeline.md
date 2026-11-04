@@ -990,9 +990,9 @@ Compile keeps one program per distinct CEL source, typed names and type of `valu
 (`Validated.transforms`). The renderer plans each slot once per node (`Planned`): a value that never
 moves is `Planned.Constant`, folded with its JS spelling (a literal, a literal through the theme's
 swap, or a `once` read through the identity cache, which is every click transform), and anything else
-`Planned.Live`, its source and steps composed into one function (`Renderer.compose`) with each CEL
-program looked up and each literal operand boxed up front, so a paint walks no step list and looks
-nothing up.
+`Planned.Live`, its source and steps compiled into one closure (`Evaluator.compile`, the one
+evaluator every reading runs on, ADR 0035) with each CEL program looked up and each literal operand
+read up front, so a paint walks no step list and looks nothing up.
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
@@ -1000,8 +1000,7 @@ names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
-`Conditions.present` — the same interpreter a
-state condition's `Count` uses. Only what fires differs: a flipped condition swaps a surface,
+the same compiled reading a state condition's `Count` is (`Evaluator`). Only what fires differs: a flipped condition swaps a surface,
 a moved count patches a slot. The slot's `valueKey` carries the values, so the whole evaluated
 expression goes out as one display signal per distinct (subject, expression, values), and a
 tick that leaves the count alone sends nothing.
@@ -1503,7 +1502,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
-| evaluating a guard / activation condition, or one filling a slot | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf` (a slot reaches it through `Transform.runSimpleValue`); ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
+| evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |
 

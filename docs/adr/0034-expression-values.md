@@ -77,7 +77,7 @@ text). A literal cell class is not bound at all: the renderer writes it straight
 before it is bound, or bound twice, and the decoder only decodes. The bound slot says alone what it
 reads: the compile key, the signal name and the watched entities all come off it, and no render
 path takes the node's values as an argument. The binding fixes each name's type, not its value,
-which `Conditions.resolve` computes on every render.
+which `Evaluator.inputs` computes on every render, each input compiled once.
 
 ### A slot's own values
 
@@ -130,7 +130,7 @@ before them. A literal is checked like any value: a `setIf` flag's slot is `slot
 **What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
 fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
 `q.entity(l).stateIs("on")`). `active`, `disabled` and `cellClassWhen` all take one. A condition IS the
-bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by `Conditions` with
+bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by the one evaluator (ADR 0035) with
 no CEL and no name; a comparison that names no entity reads the slot's, and the build refuses one
 on a slot that has none. An aggregate the build can settle IS a `Boolean` —
 `any()` over a room with no lights is `false` — and then there is no live slot at all, and a
@@ -187,8 +187,8 @@ slot, the same mechanism on its own element.
 
 | | |
 |---|---|
-| Which entities can move it | Shared: `Predicate.referencedEntities`, and for a tally its candidates plus the entities their residuals name. They join the node's `liveEntities` (the reverse index that wakes a page node) and `referencedEntities`, so the watched set the upstream subscription asks for (ADR 0030) and ADR 0023's bound. |
-| Evaluating it | Shared: `Conditions`, the one interpreter — `present` counts a tally, `matchesIn` decides a condition. |
+| Which entities can move it | Shared: `ValueExpr.entities`, which for a tally walks its candidates plus the entities their residuals name. They join the node's `liveEntities` (the reverse index that wakes a page node) and `referencedEntities`, so the watched set the upstream subscription asks for (ADR 0030) and ADR 0023's bound. |
+| Evaluating it | Shared: `Evaluator`, the one compiler (ADR 0035) — `presentOf` lists a tally, `holds` decides a condition. |
 | What fires | Not shared, deliberately. A flipped `c.iff` swaps a surface (`SurfaceGraph.affectedStateGroups`); a moved value patches a slot. Two jobs, two paths. |
 
 **The server computes the result.** The whole expression is evaluated on the server and sent the
@@ -205,7 +205,7 @@ alone sends nothing, because the frame is diffed against what each session holds
   share, and built a slot behind the author's back. A boolean input builds a slot too, but from
   the condition the author wrote, which is the whole yes/no — no text is composed from it.
 - **A condition read through a derived value** (`__active`, a bool slot whose CEL is that name).
-  It was the first lowering: every boolean input on a card ran `Conditions` and then a CEL call
+  It was the first lowering: every boolean input on a card decided its condition and then made a CEL call
   that did nothing, at five times the allocation of deciding it directly (`RenderBench.condition`
   vs `conditionCel`), and it needed a second mapping on every node and a reserved `__` prefix.
   A condition is evaluated two ways now only where an author asks: as a transform, and as a

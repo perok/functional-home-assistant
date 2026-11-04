@@ -341,7 +341,6 @@ open class Slider extends nodes.Node {
     if (fillColor != null)
       slotMod.signalled(fillColorSlot, (fillColor!!) {
           default = fillDefault
-          bypassUnavailable = false
           reads = "live"
         }, slotMod.asStyle("background"))
     else fillColorSlot.of(fillDefault)

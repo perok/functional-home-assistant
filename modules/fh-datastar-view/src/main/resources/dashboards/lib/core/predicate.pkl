@@ -1,40 +1,47 @@
-/// The predicate and candidate-set wire AST that `query.pkl` builds and the
-/// backend decodes. Here rather than in `query.pkl` so the query language and
-/// the card library share the wire without depending on each other. There are
-/// no free constructors, so a term always carries a binding.
+/// The conditions and candidate-set wire that `query.pkl` builds and the
+/// backend decodes. A condition is a bool reading, `fh.view.model.ValueExpr`
+/// (its `source` and `steps`), decided without CEL: each class here keeps what
+/// its builder names hidden and writes that wire. Here rather than in
+/// `query.pkl` so the query language and the card library share the wire
+/// without depending on each other. There are no free constructors, so a term
+/// always carries a binding.
 module core.predicate
 
 import "node.pkl" as nodes
+import "simple.pkl" as simpleMod
+import "slot.pkl" as slotMod
 
-/// The backend's `Op` decoder accepts exactly these.
-typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
+typealias PredicateOp = simpleMod.CompareOp
 
-/// `kind` is the wire discriminator. The combinators are methods, since the
-/// operators `&&`/`||`/`!` do not cross the seam.
+/// A condition. The combinators are methods, since the operators
+/// `&&`/`||`/`!` do not cross the seam.
 abstract class Predicate {
-  kind: String
+  source: Any
+  steps: Listing<simpleMod.Step> = new {}
   function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
   function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
   function not(): PNot = let (l = this) new PNot { item = l }
 }
 
-/// `property <op> value`, where `property` is `"domain"`, `"state"`,
-/// `"entity_id"` or `"attr:<name>"`. `value` rides as JSON, so a threshold
-/// stays a number.
+/// `property <op> value`, where `property` is `"state"` or `"attr:<name>"`.
+/// `value` rides as JSON, so a threshold stays a number.
 class Cmp extends Predicate {
-  kind: "Cmp" = "Cmp"
-  property: String
-  op: PredicateOp
-  value: Any
-  /// Absent means the subject. Present names another entity, which reaches
-  /// the reverse index through `SetNode.liveEntities` — or the node is never
-  /// woken by it.
-  entity: String? = null
+  hidden property: String
+  hidden op: PredicateOp
+  hidden value: Any
+  /// Absent means the entity this is about: a card's subject, or the member a
+  /// guard is decided for. Present names another, which reaches the reverse
+  /// index through the reading's entities, or the node is never woken by it.
+  hidden entity: String? = null
+  source = let (c = this) (propertyRead(c.property)) { of = c.entity }
+  steps = let (c = this) new Listing { new simpleMod.CompareStep { op = c.op; to = c.value } }
 }
 
-/// A static candidate list and which of it is present: a [[Count]] before it
-/// is compared.
-open class Tally {
+/// A static candidate list and which of it is present (`fh.view.model.Value.Present`):
+/// a candidate with no guard in `when`, and one whose guard holds, an unnamed
+/// read in it reading that candidate. A [[Count]] counts them.
+open class Tally extends slotMod.Value {
+  kind: "Present" = "Present"
   candidates: Listing<String>
   `when`: Mapping<String, Predicate> = new {}
 }
@@ -48,37 +55,67 @@ class PresentList extends Tally
 /// candidate, since residuals diverge across one set; a candidate absent from
 /// it is unconditionally present.
 class Count extends Predicate {
-  kind: "Count" = "Count"
-  candidates: Listing<String>
-  `when`: Mapping<String, Predicate> = new {}
-  op: PredicateOp
-  value: Any
+  hidden candidates: Listing<String>
+  hidden `when`: Mapping<String, Predicate> = new {}
+  hidden op: PredicateOp
+  hidden value: Any
+  source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when` }
+  steps =
+    let (c = this)
+      new Listing {
+        new simpleMod.CountStep {}
+        new simpleMod.CompareStep { op = c.op; to = c.value }
+      }
+}
+
+/// The first of a list of ids under `orderBy`, ties to list order
+/// (`fh.view.model.Step.First`).
+class FirstStep extends simpleMod.Step {
+  kind: "First" = "First"
+  orderBy: Listing<SortTerm> = new {}
 }
 
 /// Whether [[entity]] is the first present candidate under [[orderBy]]: the
 /// scene activated last, in a row of scenes. `candidates` are in the build's
 /// order, which breaks ties; `when` guards as for [[Count]].
 class First extends Predicate {
-  kind: "First" = "First"
-  candidates: Listing<String>
-  `when`: Mapping<String, Predicate> = new {}
-  orderBy: Listing<SortTerm> = new {}
-  entity: String
+  hidden candidates: Listing<String>
+  hidden `when`: Mapping<String, Predicate> = new {}
+  hidden orderBy: Listing<SortTerm> = new {}
+  hidden entity: String
+  source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when` }
+  steps =
+    let (c = this)
+      new Listing {
+        new FirstStep { orderBy = c.orderBy }
+        new simpleMod.CompareStep { op = "eq"; to = c.entity }
+      }
 }
 
+/// At least two items: [[alwaysHolds]] is the empty one.
 class PAnd extends Predicate {
-  kind: "And" = "And"
-  items: Listing<Predicate>
+  hidden items: Listing<Predicate>
+  source = let (p = this) new slotMod.ListRead { items = p.items }
+  steps { new simpleMod.AllOfStep {} }
 }
 
+/// At least two items: [[neverHolds]] is the empty one.
 class POr extends Predicate {
-  kind: "Or" = "Or"
-  items: Listing<Predicate>
+  hidden items: Listing<Predicate>
+  source = let (p = this) new slotMod.ListRead { items = p.items }
+  steps { new simpleMod.AnyOfStep {} }
 }
 
 class PNot extends Predicate {
-  kind: "Not" = "Not"
-  item: Predicate
+  hidden item: Predicate
+  source = item.source
+  steps = let (p = this) new Listing { ...p.item.steps; new simpleMod.NotStep {} }
+}
+
+/// A condition the build settled.
+class PConst extends Predicate {
+  hidden holds: Boolean
+  source = holds
 }
 
 // ---- candidate sets (ADR 0003) ----
@@ -110,32 +147,30 @@ class SetNode extends nodes.LayoutNode {
   members: Mapping<String, SetMember>
 }
 
-/// One ordering position: a property's value ([[SortProp]]), or whether a
-/// predicate holds ([[SortHolds]], true first under `asc`).
+/// One ordering position, read per member: a property's value
+/// ([[propertyKey]]), or whether a condition holds, true first under `asc`. A
+/// registry key never reaches it: it folds into the candidate order.
 class SortTerm {
-  by: SortKey
+  by: Predicate|slotMod.Reading
   dir: "asc"|"desc" = "asc"
 }
 
-abstract class SortKey {
-  kind: String
-}
+/// The member's `state` or `attr:<name>`.
+const function propertyKey(property: String): slotMod.Reading =
+  new slotMod.Reading { source = propertyRead(property) }
 
-class SortProp extends SortKey {
-  kind: "Prop" = "Prop"
-  /// `state` or `attr:<name>`, never `reg:`: a registry key folds into the
-  /// candidate order.
-  property: String
-}
+/// `state` or `attr:<name>` of the entity this is about.
+const function propertyRead(property: String): slotMod.EntityRead =
+  new slotMod.EntityRead {
+    part =
+      if (property == "state") null
+      else if (property.startsWith("attr:")) new simpleMod.Attr { name = property.drop(5) }
+      else throw("a live read is of 'state' or 'attr:<name>', not '\(property)'")
+  }
 
-class SortHolds extends SortKey {
-  kind: "Holds" = "Holds"
-  predicate: Predicate
-}
+/// Vacuously true, and reads nothing: [[iff]] of a condition the build settled
+/// as true.
+const alwaysHolds: PConst = new PConst { holds = true }
 
-/// An empty conjunction: vacuously true, and reads nothing. The `else` branch's
-/// condition, and [[iff]] of a condition the build settled as true.
-const alwaysHolds: PAnd = new PAnd { items = new Listing {} }
-
-/// An empty disjunction, which never holds: [[iff]] of a settled false.
-const neverHolds: POr = new POr { items = new Listing {} }
+/// Never holds: [[iff]] of a settled false.
+const neverHolds: PConst = new PConst { holds = false }

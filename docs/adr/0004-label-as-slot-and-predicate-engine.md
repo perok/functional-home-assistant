@@ -56,23 +56,26 @@ literal, since every candidate has a name at build time. The `string | c.expr(..
 (`label`, `value`, `secondary`, the slider position); `c.expr` is just a
 reading, not field-specific.
 
-## Predicates stay an AST, not an expression
+## Conditions stay data, not an expression
 
-Presence guards, count comparisons and surface conditions (`And/Or/Not/Cmp/
-Count`, `Renderer.matchesIn`) are **not** CEL, although slot values are:
+Presence guards, count comparisons, order terms and surface conditions are **not**
+CEL, although a slot may be. A condition is a bool `ValueExpr` of the simple tier
+(ADR 0028): a read, `Compare`, `Not`, and `AllOf`/`AnyOf` over a `List` of
+conditions or `Count`/`First` over a list of ids. The one evaluator (ADR 0035)
+decides it, as it fills a slot:
 
-- `matchesIn` reads `state`/`attributes.get(name)` straight off the Scala map —
-  a pattern match, zero conversion.
-- A CEL predicate would bind an activation and run the evaluator per
-  evaluation — strictly more work.
+- It reads the state, or the one attribute, without building an activation, and
+  stops a list or a count once its answer is settled, the stop chosen at compile.
+- A CEL condition would bind an activation and run the evaluator per evaluation —
+  strictly more work.
 
 The ORIGINAL argument was stronger and no longer applies: a query group had no
 reverse index, so an affecting change re-scanned every entity in the house, and
 that was the loop scaling worst (`entities × events/sec`). Candidate sets
 removed the scan (ADR 0003) — presence is evaluated for the candidates a change
-can actually move. So the AST is now kept on the narrower ground above, plus the
-one that matters more: a predicate is DATA the build can fold, dedupe and reason
-about, which is what lets a registry term disappear at build time. An
+can actually move. So the data form is now kept on the narrower ground above,
+plus the one that matters more: a condition is DATA the build can fold, dedupe
+and reason about, which is what lets a registry term disappear at build time. An
 expression string is opaque to all of that.
 
 Expressions stay for slot values, where the set is bounded (only rendered
@@ -81,19 +84,22 @@ cards).
 ## Attribute conversion is memoized per state version
 
 `Transform.run` needs the entity's attributes as Java values. The conversion
-lives on `EntityState.javaAttributes`, a `lazy val` computed **once per state
-version** (a fresh `EntityState` is built on every change, so the cache
-self-invalidates). A card with three `attr` slots converts once; the win
-applies to every transform.
+lives on `EntityState.javaAttributes`, computed **once per state version** (a
+fresh `EntityState` is built on every change, so the cache self-invalidates).
+A card with three `attr` slots converts once; the win applies to every
+transform. A typed read of one attribute (`EntityState.attribute`) uses the map
+when it is built and converts only that attribute when it is not, so a
+condition over a fresh state does not pay for every attribute.
 
 ## Consequences
 
 - One authoring vocabulary: every card input is a slot (literal / inherited /
   own-entity), the subject is the `entity_id` slot, and the only non-slot
   template var is the backend-injected `id`.
-- `bypassUnavailable` defaults **true** (value displays stay readable on
-  `unavailable` without opting in); identity actions, labels, and the slider
-  position opt out in the builders (ADR 0001).
-- The cost model is explicit: a cheap foldable AST for presence and conditions,
-  CEL for displayed values, identity slots memoized, attribute conversion
+- `bypassUnavailable` defaults **false**: a read reads as is, and a state
+  display opts in on its builder (ADR 0001). A condition compares the state's
+  text, so `unavailable` is a value it decides over, not a reason to skip it.
+- The cost model is explicit: cheap foldable data for presence and conditions
+  (the simple tier, decided without the engine), CEL where a displayed value needs
+  it, identity slots memoized, attribute conversion
   amortized per state version.

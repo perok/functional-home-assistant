@@ -326,10 +326,7 @@ const function refusedStates(t: TapAction, target: Target?): List<String> =
 /// 0017). Read by expression rather than bound, since how it shows is the
 /// host's.
 const function tapDisabledSlot(states: List<String>): slotMod.Reading =
-  (simpleMod.stateIn(states.toListing())) {
-    // `unavailable` is one of the arms, so the raw state has to reach the match.
-    bypassUnavailable = false
-  }
+  simpleMod.stateIn(states.toListing())
 
 /// What [[serviceClick]] builds the URL from, and what the server reads back as
 /// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
@@ -463,9 +460,7 @@ const function toggle(e: hass.Entity): Call =
 /// visible state, so a click acts on what the user is looking at (ADR 0016).
 const local function stateService(e: hass.Entity, byState: hassActions.CallByState): Call =
   new {
-    service = (simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)) {
-      bypassUnavailable = false
-    }
+    service = simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)
     target = e
     disabledWhile = byState.disabledWhile
   }

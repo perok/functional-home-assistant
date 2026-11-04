@@ -151,9 +151,9 @@ facts {
     local b = q.entity(kitchen).lt(q.prop("brightness"), 20)
     a.and(b).items.toList().length == 2
     a.and(b).items.toList()[0].property == "state"
-    a.or(b).kind == "Or"
+    a.or(b) is pred.POr
     a.not().item.property == "state"
-    a.not().kind == "Not"
+    a.not() is pred.PNot
   }
 
   // ---- entity icons -----------------------------------------------------------
@@ -883,7 +883,7 @@ facts {
     b.values["floor"] == "Stue"
     // A count goes out as its tally, counted: what the runtime counts, live.
     local on = b.values["lights_on"] as Map
-    local tally = (on["source"] as slotMod.PresentRead).tally
+    local tally = on["source"] as pred.Tally
     tally.candidates.toList() == List("light.kitchen")
     tally.`when`["light.kitchen"].property == "state"
     on["steps"] == List(new simpleMod.CountStep {})

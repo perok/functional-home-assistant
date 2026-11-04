@@ -64,6 +64,7 @@
                                               "kind" : "Text"
                                             },
                                             "source" : {
+                                              "bypassUnavailable" : true,
                                               "kind" : "Entity"
                                             },
                                             "steps" : [
@@ -370,6 +371,7 @@
                             "kind" : "Text"
                           },
                           "source" : {
+                            "bypassUnavailable" : true,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -420,7 +422,6 @@
                         "classes" : {
                           "fh-active" : {
                             "source" : {
-                              "bypassUnavailable" : false,
                               "kind" : "Entity"
                             },
                             "steps" : [
@@ -470,7 +471,6 @@
                             "kind" : "Handler"
                           },
                           "source" : {
-                            "bypassUnavailable" : false,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -495,6 +495,7 @@
                             "kind" : "Text"
                           },
                           "source" : {
+                            "bypassUnavailable" : true,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -601,11 +602,6 @@
           "inlineSurfaces" : {
             "else" : {
               "activation" : {
-                "condition" : {
-                  "items" : [
-                  ],
-                  "kind" : "And"
-                },
                 "kind" : "State"
               },
               "bakeAs" : "branch",
@@ -649,6 +645,7 @@
                                               "kind" : "Text"
                                             },
                                             "source" : {
+                                              "bypassUnavailable" : true,
                                               "kind" : "Entity"
                                             },
                                             "steps" : [
@@ -955,6 +952,7 @@
                             "kind" : "Text"
                           },
                           "source" : {
+                            "bypassUnavailable" : true,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -986,11 +984,17 @@
             "then" : {
               "activation" : {
                 "condition" : {
-                  "entity" : "light.kitchen",
-                  "kind" : "Cmp",
-                  "op" : "eq",
-                  "property" : "state",
-                  "value" : "on"
+                  "source" : {
+                    "kind" : "Entity",
+                    "of" : "light.kitchen"
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Compare",
+                      "op" : "eq",
+                      "to" : "on"
+                    }
+                  ]
                 },
                 "kind" : "State"
               },
@@ -1008,7 +1012,6 @@
                         "classes" : {
                           "fh-active" : {
                             "source" : {
-                              "bypassUnavailable" : false,
                               "kind" : "Entity"
                             },
                             "steps" : [
@@ -1058,7 +1061,6 @@
                             "kind" : "Handler"
                           },
                           "source" : {
-                            "bypassUnavailable" : false,
                             "kind" : "Entity"
                           },
                           "steps" : [
@@ -1083,6 +1085,7 @@
                             "kind" : "Text"
                           },
                           "source" : {
+                            "bypassUnavailable" : true,
                             "kind" : "Entity"
                           },
                           "steps" : [
