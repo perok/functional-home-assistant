@@ -398,6 +398,15 @@ an overload. These rules are the language; C4 moves them out of this plan.
   (`value.attr[?'u']`); a CEL step's result is lifted at its boundary, `optional.none()` to
   `null` and `optional.of(v)` to `v`, so the next step sees a value or `null`, never a wrapper.
   Today `Cel.stringify` unwraps one only when a slot prints it.
+- **An `Option` type, for the ADR to discuss later (agreed: flatten to `null` now).** Adding it
+  would look like this: `ValueType.Opt(t)`; CEL's checker already types `value.attr[?'u']` as
+  `optional_type(T)`, which `Transform.resultType` would map to `Opt(T)`; a strict step over
+  `Opt(T)` types as `Opt` of its result (the lift, checked statically instead of assumed);
+  `default`, or an `OrElse` step, takes `Opt(T)` to `T`; and `ValueType.fits` could refuse an
+  `Opt` slot with no default, which is the one thing it would buy: `validate` saying "this can be
+  empty and nothing says what to show". The cost: an entity can leave HA, so every entity read
+  is `Opt` unless absence stays outside the type, and then the type covers only CEL's optionals.
+  The ADR records this as an open question.
 - **Comparison** takes its meaning from the operand's type (agreed); only an attribute (`dyn`)
   waits for its runtime value:
   - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
@@ -414,28 +423,39 @@ an overload. These rules are the language; C4 moves them out of this plan.
   names it, so the wire carries nothing new. An order key compares by the same rule.
 - **Where a value leaves the language,** each boundary converting once:
   - a text slot shows the value printed (`Renderer.resolveStateSlotValue`, `Cel.runValue`); one
-    with nothing to show, `null` or `""`, shows its `default`, else `""`. With `bypassUnavailable`
-    (the default), a text slot whose entity is in a no-value state shows that word instead and
-    runs no step: `CASE WHEN state IN (…) THEN state ELSE <the reading> END` around the whole
-    reading. It is a text slot's rule only: no bool spells `unavailable`;
-  - a bool slot shows `true` or `false`; `null` shows its `default`, else `false`. The bypass
-    never applies;
+    with nothing to show, `null` or `""`, shows its `default`, else `""`;
+  - a bool slot shows `true` only for `true`; `null`, or anything else (a CEL error's message),
+    shows its `default`, else `false`;
   - a condition (a clause, a guard, a state surface, `c.iff`) holds only on `true`, as SQL's
-    `WHERE`; the bypass never applies;
+    `WHERE`;
   - an order key sorts `null` and a no-value state last in either direction (today's rule);
   - a CEL input is CEL's `null`.
 
-  **Bug found here (B2):** the bypass applies to bool slots too. `resolveStateSlotValue` checks
-  it before the run whatever the slot's type, and since B2 a condition's source is an entity
-  read, whose wire default is `bypassUnavailable = true` (`Value.Condition` answered `false`).
-  So a bool slot from `q.entity(x).stateIs("off")` gets the string `unavailable` when `x` is,
-  which a Mustache section and `attr:` take as true: measured, `{{#off}}` renders `OFF`. C1
-  applies the bypass to text slots only, with a test. Proposed, not agreed: the flag then
-  belongs on the text slot, not on every entity read, where only that one boundary reads it
-  (a wire change in `slot.pkl` and `TemplateSlot`).
-
   A value is printed nowhere else, except a number meeting a text literal. The more-info panel's
   attribute lines are CEL's own.
+- **The bypass (agreed in scope).** `bypassUnavailable` is about a slot's main source only, when
+  that is an entity in a no-value state; operands, guards, order keys and CEL inputs read as is.
+  An input type is not an output type: `q.entity(x).stateIs("off")` compares the state's text and
+  produces a bool, and over `unavailable` that comparison is meaningful (false), so it runs. With
+  the bypass on (the default), for that entity:
+
+  | The main source reads | The slot is | Result |
+  |---|---|---|
+  | its state (or the whole entity, which holds it) | text | the word, no step runs: `CASE WHEN state IN (…) THEN state ELSE <the reading> END` |
+  | its state (or the whole entity) | bool | the steps run over the word |
+  | an attribute | any | `null`, so the steps skip and the slot shows its `default`, else its type's empty (`""`, `false`) |
+
+  The bypass off reads everything as is (a label keeps the name, a slider's position, the tap's
+  refusal and `activeOf`, which match the word). Changes: an attribute readout of an unavailable
+  entity (a light's `Percent` brightness) shows its default or `""` where it showed the word.
+  The flag then belongs on the slot, not on every entity read, where only this one boundary
+  reads it: proposed, a wire change in `slot.pkl` and `TemplateSlot`.
+
+  **Bug found here (B2):** today the bypass runs before any slot whatever its type. Since B2 a
+  condition's source is an entity read, whose wire default is `bypassUnavailable = true`
+  (`Value.Condition` answered `false`), so a bool slot from `q.entity(x).stateIs("off")` gets the
+  string `unavailable` when `x` is, which a Mustache section and `attr:` take as true: measured,
+  `{{#off}}` renders `OFF`. C1 applies the table above, with a test over each row.
 - **What moves (agreed).** `Percent`'s `0 %` and `Fill`'s `100%` over a value they
   cannot read were the step guessing for the slider. They become `null`, and `simple.pkl`'s
   `percent` and `fill` builders set those as the reading's `default`, so a card's bytes hold;
