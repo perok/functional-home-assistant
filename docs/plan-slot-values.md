@@ -235,8 +235,8 @@ case object Count                           // a list → Int
 case object AllOf                           // a list of bools → Bool, stops at the first false
 case object AnyOf                           // a list of bools → Bool, stops at the first true
 
-// Not simple: it reads every candidate's state, so only straight after a Present
-case class First(orderBy: List[SortTerm])   // a Present list → the leader's id, "" when none
+// Not simple: it reads every listed id's state
+case class First(orderBy: List[SortTerm])   // a list of ids → the leader's id, null when empty
 
 // Simple steps on a value
 case class Compare(op: Op, to: Value)       // text, a number or dyn → Bool
@@ -485,8 +485,10 @@ an overload. These rules are the language; C4 moves them out of this plan.
 - **One implementation per step, no default case.** The match on `Step` is exhaustive, so a step
   the evaluator does not run fails to compile. `Stage` steps stay the renderer's, applied after
   the run, as a named case.
-- **`First` runs over any list of ids:** `ValueType.after` already requires `list(text)` in, so
-  `typed`'s position rule goes. It stays a step.
+- **`First` runs over any list of ids:** `ValueType.after` requires `list(text)` in, and that
+  is the whole rule. The position rule was B2's evaluator's limit, not the language's. The ids'
+  entities wake it as any read's do: they are in the wake list when the expression's own reads
+  name them (a `Present`'s candidates), and a step adds none. It stays a step.
 - **Compiled once per consumer:** the renderer per slot plan, as now; `MemberGraph` and
   `SurfaceGraph` when built; a CEL input with its slot. `Validated` is unchanged; the evaluator
   takes the CEL programs it already holds.
@@ -517,11 +519,11 @@ an overload. These rules are the language; C4 moves them out of this plan.
   `Conditions` is deleted and `isCondition` stays only as what `validate` holds a condition to.
   One round against C0: `publishSetOrdered` -41% (1.35 MB -> 0.52 MB), `leaderRow` -72%,
   `conditionTree` -69% and allocation-free, `countAny` -86%, `conditionCel` -34%, `pageSet`
-  -9%. One regression to fix next: `conditionAttr` +174% (94 -> 202 kB), the typed read
-  building the entity's whole Java attribute map on a fresh state; read the one attribute
-  instead until the map exists.
-- **C3. `First` over any id list;** the position rule goes, and a test renders the shape above and
-  gets the leader.
+  -9%. `conditionAttr` regressed +174% (94 -> 202 kB), the typed read building the entity's
+  whole Java attribute map on a fresh state; `EntityState.attribute` reads the one attribute
+  until the map exists: 202 -> 26 kB, 76 -> 8.4 µs.
+- **C3 (done). `First` over any id list;** the position rule goes (`ValueExprSuite`'s case
+  changed, approved), and a test renders `Present |> First |> Cel` and gets the leader.
 - **C4. Docs:** ADRs 0004 and 0028, `terminology.md`, the architecture doc's file map and the
   module `CLAUDE.md`, which name `Conditions` as the condition interpreter; this section's B
   paragraphs that C supersedes (the evaluator, `Compare`'s rules, `isCondition`). The

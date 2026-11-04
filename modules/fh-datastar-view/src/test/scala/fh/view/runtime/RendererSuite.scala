@@ -299,6 +299,37 @@ class RendererSuite extends munit.FunSuite {
     }
   }
 
+  test("a slot shows the leader a first step picks, through a CEL step") {
+    val brightest = LayoutNode.SortTerm(
+      ValueExpr(Value.Entity(None, Part.Attr("brightness"))),
+      "desc"
+    )
+    val leader = ValueExpr(
+      Value.Present(List("light.a", "light.b")),
+      List(Step.First(List(brightest)), Step.Cel("value + '!'"))
+    )
+    val r = Renderer.create(
+      Dashboard(
+        Map("lead" -> CardDef("<b>{{lead}}</b>")),
+        LayoutNode.Component(
+          card = "lead",
+          templateSlots = Map("lead" -> TemplateSlot(leader))
+        )
+      )
+    )
+    def shown(a: Int, b: Int) =
+      r.renderNodeById(
+        "c",
+        Map(
+          "light.a" -> st("light.a", "on", "brightness" -> Json.fromInt(a)),
+          "light.b" -> st("light.b", "on", "brightness" -> Json.fromInt(b))
+        ),
+        fragments = FetchSnapshot.empty
+      ).get
+    assert(shown(10, 200).contains("<b>light.b!</b>"), clue = shown(10, 200))
+    assert(shown(200, 10).contains("<b>light.a!</b>"), clue = shown(200, 10))
+  }
+
   // ADR 0016 bakes actions; a hand-written map action is the fallback, and must
   // resolve from `domain` with no state: a `once` read, of which entity it is.
   test("a fallback map action resolves from the entity id with no state") {

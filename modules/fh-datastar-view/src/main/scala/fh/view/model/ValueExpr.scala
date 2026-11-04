@@ -183,14 +183,11 @@ final case class ValueExpr(
           ) match
           case Some(e) => Left(ValueExpr.Mistyped(e))
           case None    => plain(ValueType.List(ValueType.Text))
-    val firstErrors = steps.zipWithIndex.collectFirstSome {
-      case (Step.First(_), i) if i > 0 || !source.isInstanceOf[Value.Present] =>
-        Some("a first step comes straight after a set's present candidates")
-      case (Step.First(orderBy), _) =>
-        orderBy.collectFirstSome(_.readError)
-      case _ => None
+    val orderErrors = steps.collectFirstSome {
+      case Step.First(orderBy) => orderBy.collectFirstSome(_.readError)
+      case _                   => None
     }
-    val checked = firstErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
+    val checked = orderErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
     steps.foldLeft(checked)((acc, step) =>
       acc.flatMap(t =>
         step match
@@ -323,7 +320,7 @@ object ValueType:
         takes(in == List(Bool), "a list of bools", Bool)
       case _: Step.Compare   => takes(numberLike(in), "a number or text", Bool)
       case Step.Not          => takes(in == Bool, "a bool", Bool)
-      case _: Step.First     => takes(in == List(Text), "a set's ids", Text)
+      case _: Step.First     => takes(in == List(Text), "a list of ids", Text)
       case _: Step.Chart     => takes(in == Series, "a fetch's series", Markup)
       case Step.ThemeClasses => takes(in == Text, "text", Text)
       case _: Step.Cel       => Right(Dyn)
@@ -544,9 +541,9 @@ object Step:
 
   case object Not extends Simple
 
-  /** The first of a [[Value.Present]]'s ids under `orderBy`, ties to candidate
-    * order, `null` when none is present: one pass, no sorted list. It reads
-    * every candidate's state, so it is no [[Simple]] step.
+  /** The first of a list of ids under `orderBy`, each id's entity read as its
+    * subject, ties to list order, `null` for an empty list: one pass, no sorted
+    * list. It reads every id's state, so it is no [[Simple]] step.
     */
   final case class First(orderBy: List[LayoutNode.SortTerm] = Nil) extends Step
 

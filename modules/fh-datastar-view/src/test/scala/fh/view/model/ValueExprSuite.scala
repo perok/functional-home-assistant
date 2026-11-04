@@ -140,21 +140,30 @@ class ValueExprSuite extends munit.FunSuite {
     )
   }
 
-  test("a first step comes straight after a set's ids, and gives one") {
+  test("a first step takes any list of ids, and gives one") {
     val ids = Value.Present(List("a.a", "a.b"))
     assertEquals(
       typeOf(ValueExpr(ids, List(Step.First()))),
       Right(ValueType.Text)
     )
-    val misplaced =
-      "a first step comes straight after a set's present candidates"
+    val literal = Value.List(List(ValueExpr(Value.Literal(Lit.Text("a.a")))))
+    assertEquals(
+      typeOf(ValueExpr(literal, List(Step.First()))),
+      Right(ValueType.Text)
+    )
+    assertEquals(
+      typeOf(
+        ValueExpr(ids, List(Step.Cel("value + ['a.c']"), Step.First()))
+      ),
+      Right(ValueType.Text)
+    )
     assertEquals(
       typeOf(ValueExpr(Value.List(List(isOn("a.a"))), List(Step.First()))),
-      Left(misplaced)
+      Left("has a first step, which takes a list of ids, after a list of bool")
     )
     assertEquals(
       typeOf(ValueExpr(ids, List(Step.Count, Step.First()))),
-      Left(misplaced)
+      Left("has a first step, which takes a list of ids, after a int")
     )
   }
 

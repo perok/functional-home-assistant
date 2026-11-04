@@ -68,7 +68,7 @@ class Count extends Predicate {
       }
 }
 
-/// The first of a set's present ids under `orderBy`, ties to candidate order
+/// The first of a list of ids under `orderBy`, ties to list order
 /// (`fh.view.model.Step.First`).
 class FirstStep extends simpleMod.Step {
   kind: "First" = "First"

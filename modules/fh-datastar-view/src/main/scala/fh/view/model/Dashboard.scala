@@ -693,7 +693,7 @@ object LayoutNode:
   /** Present only when ordering needs live state; otherwise
     * [[SetNode.candidates]] is pre-sorted, a registry key included. `by` is
     * read per member, an unnamed read reading it: a condition sorts true first
-    * under `asc`, any other value as `MemberGraph.compareOn` says.
+    * under `asc`, any other value as `Evaluator.Keys` says.
     */
   case class SortTerm(
       by: ValueExpr,
