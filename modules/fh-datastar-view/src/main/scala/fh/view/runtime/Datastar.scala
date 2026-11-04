@@ -212,8 +212,7 @@ object Datastar {
       sb.toString
 
   /** A seed with its values cut out, built at plan time since only values move;
-    * `chunks` is one longer than `order`. A transform subject has no fixed
-    * names and keeps [[signalsAttr]].
+    * `chunks` is one longer than `order`.
     */
   final class SignalSeed private[runtime] (
       val chunks: Array[String],

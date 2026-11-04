@@ -11,14 +11,14 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
   SlotRead,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
-  Surface,
-  Transform
+  Surface
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
@@ -166,12 +166,9 @@ object FetchBench {
       "chart",
       Map(
         "chart" -> TemplateSlot(
-          SlotSource(
-            fetch = Some(
-              FetchTemplate(entity, Choice.Fixed(Windows.day))
-            ),
-            transform = Transform.Stage.Chart(),
-            reads = Reads.OnRender
+          ValueExpr(
+            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
+            List(Step.Chart())
           )
         )
       ),

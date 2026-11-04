@@ -4,6 +4,7 @@
 module components.moreinfo
 
 import "../core/node.pkl" as nodes
+import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
@@ -39,7 +40,7 @@ class EntityInfo extends nodes.Node {
   hidden entity: hass.Entity
   slots {
     slotMod.subject.of(entity.entity_id)
-    attributes.of(new slotMod.Reading { transform = ATTR_LINES; default = "" })
+    attributes.of((slotMod.celReading(ATTR_LINES)) { default = "" })
   }
 }
 
@@ -50,7 +51,7 @@ function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
 // Sorted, because HA's attribute order is not stable. `transformList` over a
 // map walks its entries (CEL's transformations extension).
 const local ATTR_LINES =
-  #"attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
+  #"value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
 
 /// What a more-info popup holds. A light adds its controls and a lock its
 /// buttons ([[lock.moreInfoCard]]). The chart is

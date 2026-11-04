@@ -14,6 +14,7 @@ import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "pkl:reflect"
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 
 // A stand-in dump. Two rooms, one light that is dimmable and one that is not,
 // plus a sensor with a capability nothing else has — the mixed set that makes
@@ -692,6 +693,6 @@ facts {
     local b: hass.SceneEntity = new { entity_id = "scene.b" }
     local latest = q.from(List(a, b)).orderBy(q.desc(q.stateProp)).first()
     local p = c.pill(c.tap.activate(a)).label("A").active(latest.eq(a))
-    p.liveClasses["fh-active"].transform == latest.eq(a)
+    (p.liveClasses["fh-active"].source as slotMod.ConditionRead).predicate == latest.eq(a)
   }
 }

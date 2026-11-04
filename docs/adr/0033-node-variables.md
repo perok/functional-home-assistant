@@ -61,9 +61,9 @@ knowing which node above declares it. The decoder is derived, and `Component.def
 name → default view most readers want. Nothing else: no type, no list of allowed values (below).
 
 **Initial transform.** `Declaration.initialTransform` (`withInitialTransform(e, cel)` in Pkl): CEL
-over one entity's state (`InitialTransform(entityId, transform)`). It is compiled at validate into
-the same table as a slot's transform, by one key (`InitialTransform.celKey`, as a slot's is
-`SlotSource.celKey`), and only looked up after. The page route runs it as it mints the session, and a result every
+over one whole entity as `value` (`InitialTransform(entityId, transform)`). It is compiled at
+validate into the same table as a slot's CEL, by one key (`InitialTransform.celKey`, as a slot's are
+`BoundSlot.typed`'s), and only looked up after. The page route runs it as it mints the session, and a result every
 reader takes (`Renderer.refusals`) becomes `SessionState.initialValues`, under the viewer's
 choices and over the default. A light's slider
 opens its `control` on brightness, and with `.opensOn(…)` on the head for the mode the light is in
@@ -288,8 +288,9 @@ instead.
   drops a null property, so `default = null` would read as no default given (ADR 0006). Spell it as
   a field of the `Declaration` that says so, not as an absent `default`. `""` is a different
   question; `core/stage.pkl` already keeps absent and empty apart.
-- **A type, if a variable ever needs one, must be a real one** — a named `ValueType` covering more
-  than string enums, with one answer for where it is checked and one for how a control is derived.
+- **A type, if a variable ever needs one, must be a real one** — the build's `ValueType`
+  (`ValueExpr.scala`), not string enums, with one answer for where it is checked and one for how a
+  control is derived.
   Until then the closed set lives in the Pkl that emits the declaration and its control.
 - **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
   node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a

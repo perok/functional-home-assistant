@@ -42,29 +42,32 @@ of being added per case. Which language is ADR 0027's.
 
 ## The design
 
-**A slot's value IS a transform.** `SlotSource.transform` (default `"state"`)
-is evaluated against the producing entity:
+**A slot's value IS a reading and its steps.** A `ValueExpr` reads a source —
+by default the producing entity's state — and runs its steps on it in order.
+CEL reads `value`, what came before it: on a reading of the whole entity
+(`Part.Whole`, CEL's `fh.Entity`):
 
-- `state` — the raw state (String);
-- `attr` — the attribute map (`attr[?'brightness']`; numbers stay numeric);
-- `domain` / `entity_id` — the entity's identity.
+- `value.state` — the raw state (String);
+- `value.attr` — the attribute map (`value.attr[?'brightness']`; numbers stay numeric);
+- `value.domain` / `value.entity_id` — the entity's identity.
 
-A common shape can instead be a `Transform.Simple` op, which skips the
+A common shape can instead be a simple step (`Step.Simple`), which skips the
 expression engine entirely (ADR 0028).
 
 There is **no cross-entity lookup** — a transform is a pure
 function of one entity's state + identity (the safety boundary; a slot that
-needs *another* entity names it via `entityId`, see ADR 0004). Selecting a
-value is the transform: `"state"` shows the state, `"attr[?'brightness']"` an
-attribute, an expression over `domain` an identity-derived value. There is no
+needs *another* entity names it via `Value.Entity.of`, see ADR 0004). Selecting
+a value is the reading: the state shows the state, an attribute read an
+attribute, an expression over `value.domain` an identity-derived value. There is no
 separate "computed" concept. A hardcoded value is a **literal** slot (a bare
 JSON string) — no entity, no expression, no compilation.
 
 **`entity_id` is the magical slot.** A component is `(card, slots, regions)`;
-the card's subject entity is the slot *named* `entity_id` (normally a literal;
-a transform form grounds indirection on its own entity). It is the single slot
-that does **not** inherit the subject — it *defines* it. Every other slot with
-`entityId = None` inherits it. The only non-slot template vars are
+the card's subject entity is the slot *named* `entity_id`, always a literal
+(`validate` refuses anything else). It *defines* the subject: when Pkl builds
+the wire it names that entity as the `entityId` of every other reading that
+names none, so the runtime reads each slot's own `entityId` and inherits
+nothing. The only non-slot template vars are
 backend-injected: the stable node `id` (plus the matched `entity_id` inside a
 dynamic case).
 

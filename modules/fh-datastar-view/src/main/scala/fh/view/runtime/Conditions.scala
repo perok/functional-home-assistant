@@ -1,9 +1,17 @@
 package fh.view.runtime
 
-import fh.view.model.{ExprValue, FetchTemplate, Op, Predicate}
+import fh.view.model.{
+  FetchTemplate,
+  Lit,
+  Op,
+  Predicate,
+  Transform,
+  Value,
+  ValueExpr
+}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
-  * conditions, counts and a condition filling a slot (`Transform.runSimple`).
+  * conditions, counts and a condition filling a slot (`Value.Condition`).
   */
 private[view] object Conditions {
 
@@ -35,28 +43,43 @@ private[view] object Conditions {
         compare(propertyOf(property, st), StateStore.jsonToString(value), op)
     }
 
-  /** Expression values as CEL reads them; a tally is how many are present now,
-    * a fetch its answer (`fetched`).
+  /** Named inputs as CEL reads them: a literal as written, a count how many are
+    * present now and the ids themselves without one, a fetch its answer
+    * (`fetched`), an entity's part as it reads now.
     */
   def resolve(
-      values: Map[String, ExprValue],
+      inputs: Map[String, ValueExpr],
       states: Map[String, EntityState],
       fetched: FetchTemplate => Object
   ): Map[String, Object] =
-    if (values.isEmpty) Map.empty
+    if (inputs.isEmpty) Map.empty
     else
-      values.view
+      inputs.view
         .mapValues[Object] {
-          case ExprValue.Text(s)  => s
-          case ExprValue.Whole(n) => java.lang.Long.valueOf(n)
-          case ExprValue.Real(d)  => java.lang.Double.valueOf(d)
-          case ExprValue.Flag(b)  => java.lang.Boolean.valueOf(b)
-          case ExprValue.Count(t) =>
+          case ValueExpr(Value.Literal(Lit.Text(s)), _, _) => s
+          case ValueExpr(Value.Literal(Lit.Bool(b)), _, _) =>
+            java.lang.Boolean.valueOf(b)
+          case ValueExpr(Value.Literal(Lit.Whole(n)), _, _) =>
+            java.lang.Long.valueOf(n)
+          case ValueExpr(Value.Literal(Lit.Real(d)), _, _) =>
+            java.lang.Double.valueOf(d)
+          case ValueExpr(Value.Present(t), Nil, _) =>
+            Cel.arg(presentOf(t, states))
+          case ValueExpr(Value.Present(t), _, _) =>
             java.lang.Long.valueOf(present(t, states).toLong)
           // Subject-free (`validate`), as a state condition is.
-          case ExprValue.Holds(p) =>
+          case ValueExpr(Value.Condition(p), _, _) =>
             java.lang.Boolean.valueOf(matchesIn(p, EntityState.none, states))
-          case ExprValue.Fetched(f) => fetched(f)
+          case ValueExpr(Value.Fetch(f), _, _)                     => fetched(f)
+          case ValueExpr(Value.Entity(Some(id), part, _, _), _, _) =>
+            Cel.arg(
+              Transform.read(
+                part,
+                states.getOrElse(id, EntityState(id, "", Map.empty))
+              )
+            )
+          // `validate` refuses any other shape (`ValueExpr.inputType`).
+          case _ => ""
         }
         .toMap
 

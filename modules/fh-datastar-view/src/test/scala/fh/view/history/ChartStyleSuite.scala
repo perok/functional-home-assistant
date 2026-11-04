@@ -1,66 +1,50 @@
 package fh.view.history
 
-import fh.view.model.{SlotSource, Transform}
+import fh.view.model.Step
 import io.circe.parser.decode
 import io.github.iltotore.iron.autoRefine
 
-/** A chart stage's params are decoded with the wire, so a bad one fails the
-  * build with its own reason.
+/** A chart step's style is decoded with the wire, so a bad one fails the build
+  * with its own reason.
   */
 class ChartStyleSuite extends munit.FunSuite {
 
-  private def transformOf(json: String): Either[String, Any] =
-    decode[SlotSource](s"""{"transform": $json}""")
-      .map(_.transform)
-      .left
-      .map(_.getMessage)
+  private def stepOf(json: String): Either[String, Step] =
+    decode[Step](json).left.map(_.getMessage)
 
   private def refusal(json: String): String =
-    transformOf(json).swap.getOrElse(fail("expected a decoding failure"))
+    stepOf(json).swap.getOrElse(fail("expected a decoding failure"))
 
-  test("a chart stage decodes into its style, absent params defaulted") {
+  test("a chart step decodes into its style, absent fields defaulted") {
     assertEquals(
-      transformOf(
-        """{"stage": "Chart", "params": {"width": 320, "unit": "°C"}}"""
-      ),
-      Right(Transform.Stage.Chart(ChartStyle(width = 320, unit = Some("°C"))))
+      stepOf("""{"kind": "Chart", "style": {"width": 320, "unit": "°C"}}"""),
+      Right(Step.Chart(ChartStyle(width = 320, unit = Some("°C"))))
     )
-    assertEquals(
-      transformOf("""{"stage": "Chart"}"""),
-      Right(Transform.Stage.Chart(ChartStyle()))
-    )
+    assertEquals(stepOf("""{"kind": "Chart"}"""), Right(Step.Chart()))
   }
 
-  test("passthrough decodes") {
-    assertEquals(
-      transformOf("""{"stage": "Passthrough"}"""),
-      Right(Transform.Stage.Passthrough)
-    )
-  }
-
-  test("a bad size is refused with the stage's own reason") {
-    // Not the Simple arm's "no discriminator 'kind'", which is what trying
-    // each arm in turn reported.
+  test("a bad size is refused with the chart's own reason") {
     val wrongType = refusal(
-      """{"stage": "Chart", "params": {"width": "wide"}}"""
+      """{"kind": "Chart", "style": {"width": "wide"}}"""
     )
     assert(wrongType.contains("width"), clue = wrongType)
-    assert(!wrongType.contains("kind"), clue = wrongType)
-    val zero = refusal("""{"stage": "Chart", "params": {"height": 0}}""")
+    val zero = refusal("""{"kind": "Chart", "style": {"height": 0}}""")
     assert(zero.contains("chart size must be positive"), clue = zero)
   }
 
-  test("an unknown stage is refused, not read as a simple transform") {
-    val e = refusal("""{"stage": "sparkline"}""")
-    assert(e.contains("sparkline"), clue = e)
-    assert(!e.contains("kind"), clue = e)
+  test("an unknown step is refused") {
+    val e = refusal("""{"kind": "Sparkline"}""")
+    assert(e.contains("Sparkline"), clue = e)
   }
 
-  test("a simple transform and a CEL string still decode") {
-    assertEquals(transformOf(""""state""""), Right("state"))
+  test("a CEL step and a format decode beside a chart") {
     assertEquals(
-      transformOf("""{"kind": "Op", "op": "State"}"""),
-      Right(Transform.Simple.State())
+      stepOf("""{"kind": "Cel", "src": "state"}"""),
+      Right(Step.Cel("state"))
+    )
+    assertEquals(
+      stepOf("""{"kind": "Duration", "scale": 60}"""),
+      Right(Step.Duration(60))
     )
   }
 }

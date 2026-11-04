@@ -21,21 +21,24 @@ class FetchValueSuite extends munit.FunSuite {
   private val peak =
     "cel.bind(zeros, past.transformList(i, p, p[1] <= 0.0, p[0]), " +
       "cel.bind(since, size(zeros) == 0 ? 0.0 : math.greatest(zeros), " +
-      "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))"
+      "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(value.state)])))"
 
   private def of(
-      values: Map[String, ExprValue] = Map(
-        "past" -> ExprValue.Fetched(history)
+      values: Map[String, ValueExpr] = Map(
+        "past" -> ValueExpr(Value.Fetch(history))
       ),
       reads: String = Reads.Live
   ) = TemplateSlot(
-    SlotSource(transform = peak, values = values, reads = reads),
+    ValueExpr(
+      Value.Entity(Some("sensor.left"), reads = reads, part = Part.Whole),
+      List(Step.Cel(peak, values))
+    ),
     signal = Some(SignalBind.Handler)
   )
 
   private def dashboard(
       ofSlot: TemplateSlot = of(),
-      nodeValues: Map[String, ExprValue] = Map.empty
+      nodeValues: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
     cards = Map(
       "bar" -> CardDef(
@@ -45,8 +48,13 @@ class FetchValueSuite extends munit.FunSuite {
     card = LayoutNode.Component(
       card = "bar",
       templateSlots = Map(
-        "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
-        "value" -> TemplateSlot(SlotSource(transform = "state")),
+        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+        "value" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(Some("sensor.left"), Part.Whole),
+            List(Step.Cel("value.state"))
+          )
+        ),
         "of" -> ofSlot
       ),
       values = nodeValues
@@ -95,7 +103,7 @@ class FetchValueSuite extends munit.FunSuite {
   test("a node's fetch value reaches the slot that reads it") {
     val d = dashboard(
       ofSlot = of(values = Map.empty),
-      nodeValues = Map("past" -> ExprValue.Fetched(history))
+      nodeValues = Map("past" -> ValueExpr(Value.Fetch(history)))
     )
     assertEquals(d.validate(), Nil)
     assert(
@@ -111,7 +119,11 @@ class FetchValueSuite extends munit.FunSuite {
   test("a slot's values are checked as a node's are") {
     def errs(d: Dashboard) = d.validate().mkString("\n")
     assert(
-      errs(dashboard(nodeValues = Map("past" -> ExprValue.Whole(1))))
+      errs(
+        dashboard(nodeValues =
+          Map("past" -> ValueExpr(Value.Literal(Lit.Whole(1))))
+        )
+      )
         .contains("and so does its node")
     )
     assert(
@@ -119,8 +131,8 @@ class FetchValueSuite extends munit.FunSuite {
         dashboard(ofSlot =
           of(values =
             Map(
-              "past" -> ExprValue.Fetched(history),
-              "unread" -> ExprValue.Whole(1)
+              "past" -> ValueExpr(Value.Fetch(history)),
+              "unread" -> ValueExpr(Value.Literal(Lit.Whole(1)))
             )
           )
         )
@@ -135,21 +147,23 @@ class FetchValueSuite extends munit.FunSuite {
     assert(
       errs(
         dashboard(ofSlot =
-          of(values = Map("past" -> ExprValue.Fetched(undeclared)))
+          of(values = Map("past" -> ValueExpr(Value.Fetch(undeclared))))
         )
       ).contains("reads the variable 'window', which no ancestor declares")
     )
   }
 
-  test("the wire spells a fetch value by its provider") {
-    val slot = decode[SlotSource](
-      """{"transform": "size(past)", "values": {"past": {"provider": "history",
-        |  "entity": "sensor.left", "window": {"kind": "Statistics",
-        |  "span": 86400, "period": "5minute", "fallback": true}}}}""".stripMargin
+  test("the wire spells a fetch value as a fetch source") {
+    val slot = decode[TemplateSlot](
+      """{"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "size(past)", "inputs": {"past": {
+        |  "source": {"kind": "Fetch", "fetch": {
+        |  "provider": "history", "entity": "sensor.left", "window": {
+        |  "kind": "Statistics", "span": 86400, "period": "5minute",
+        |  "fallback": true}}}}}}]}""".stripMargin
     )
     assertEquals(
       slot.map(_.values),
-      Right(Map("past" -> ExprValue.Fetched(history)))
+      Right(Map("past" -> ValueExpr(Value.Fetch(history))))
     )
   }
 }

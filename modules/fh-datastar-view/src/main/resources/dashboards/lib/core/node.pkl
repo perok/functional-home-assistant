@@ -5,14 +5,16 @@
 /// node in an id'd `.fh-cell`, which the layout builders here put classes on.
 module core.node
 
+import "../hass.pkl"
 import "predicate.pkl" as predMod
+import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
 import "tap.pkl" as tapMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate|slotMod.Fetch
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate|slotMod.Fetch|hass.Entity
 
 /// What fills a boolean slot: a `Boolean` the build knows, a reading
 /// (`c.isOn(l)`), an `Expr` (`c.expr("on > 2")`), or a condition
@@ -24,13 +26,8 @@ typealias BooleanInput = Boolean|slotMod.Reading|slotMod.Expr|predMod.Predicate
 /// decided on the fast path.
 const function booleanReading(input: slotMod.Reading|slotMod.Expr|predMod.Predicate): slotMod.Reading =
   if (input is slotMod.Reading) input
-  else if (input is slotMod.Expr)
-    new slotMod.Reading {
-      entityId = input.entityId
-      transform = input.transform
-      bypassUnavailable = false
-    }
-  else new slotMod.Reading { transform = input; bypassUnavailable = false }
+  else if (input is slotMod.Expr) (slotMod.exprReading(input)) { bypassUnavailable = false }
+  else new slotMod.Reading { source = new slotMod.ConditionRead { predicate = input } }
 
 /// `at` holding a live [[BooleanInput]], read as a bool.
 const function booleanSlot(at: slotMod.Slot, input: slotMod.Reading|slotMod.Expr|predMod.Predicate): slotMod.Slot =
@@ -40,18 +37,18 @@ const function booleanSlot(at: slotMod.Slot, input: slotMod.Reading|slotMod.Expr
 /// `false`, a literal for `true`, else a handler.
 const function disabledSlot(d: BooleanInput?): slotMod.Slot =
   if (d == null || d == false) tapMod.disabled
-  else if (d == true) tapMod.disabled.of("1")
+  else if (d == true) tapMod.disabled.of(true)
   else
     (booleanSlot(tapMod.disabled, d as slotMod.Reading|slotMod.Expr|predMod.Predicate)) {
       signal = slotMod.asHandler
     }
 
 /// What the renderer places on a node's `.fh-cell` wrapper: its cell slots,
-/// keyed by the class name or the custom property. A class is `"1"` (always
+/// keyed by the class name or the custom property. A class is `true` (always
 /// there) or a reading; a style is a reading. Authors use the [[LayoutNode]]
 /// builders rather than writing one.
 class Cell {
-  classes: Mapping<String, String|Map<String, Any>> = new {}
+  classes: Mapping<String, Boolean|Map<String, Any>> = new {}
   styles: Mapping<String, Map<String, Any>> = new {}
 }
 
@@ -84,14 +81,15 @@ abstract class LayoutNode {
   /// builders would have added.
   cell: Cell? =
     let (static = (cellClasses.toList() + stateClasses.toList()).distinct)
+    let (subjectId = if (this is Node) subjectOf(this.slots) else null)
       if (static.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty) null
       else new Cell {
         classes {
-          for (c in static) { [c] = "1" }
-          for (c, r in liveClasses) { [c] = wireReading(r) }
+          for (c in static) { [c] = true }
+          for (c, r in liveClasses) { [c] = wireReading(r, subjectId, false) }
         }
         styles {
-          for (p, r in liveStyles) { [p] = wireReading(r) }
+          for (p, r in liveStyles) { [p] = wireReading(r, subjectId, false) }
         }
       }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
@@ -131,8 +129,7 @@ abstract class LayoutNode {
   /// Only `--…`: a plain property would fight the theme's framework.
   function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading|slotMod.Expr): LayoutNode =
     let (self = this)
-    let (s = if (reading is slotMod.Expr)
-        new slotMod.Reading { entityId = reading.entityId; transform = reading.transform }
+    let (s = if (reading is slotMod.Expr) slotMod.exprReading(reading)
       else reading as slotMod.Reading)
       if (!(self is Node)) throw("cellStyle: a live style is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveStyles { [name] = s } }
@@ -176,13 +173,13 @@ abstract class Node extends LayoutNode {
   /// fine.
   hidden slots: Listing<slotMod.Slot>(
     !isStructure(cardDef) || !toList().any((s) ->
-      s.value is slotMod.Reading && s.value.reads == "live" && s.signal == null &&
+      s.value is slotMod.Reading && !(s.value.source is slotMod.CelRead) && s.value.reads == "live" && s.signal == null &&
         (s.value.entityId != null ||
         toList().any((t) -> t.name == "entity_id" && t.value is String))),
     namedOnce(this, card)
   ) = new {}
   /// [[slots]] as the wire holds them, by name.
-  fixed templateSlots: Mapping<String, Any> = wireSlots(slots)
+  fixed templateSlots: Mapping<String, Any> = wireSlots(slots, subjectOf(slots))
   /// [[slots]] that are set, by name.
   hidden slotsByName: Map<String, slotMod.Slot> =
     slots.toList().filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
@@ -212,8 +209,8 @@ abstract class Node extends LayoutNode {
   ///   }
   vars: Listing<varMod.Declaration>(isDistinctBy((d) -> d.name)) = new {}
   /// Named values this node's own CEL reads: a literal, a live count
-  /// (`q.from(xs).where(…).count()`, an `int`) or a live condition (`….any()`,
-  /// a `bool`).
+  /// (`q.from(xs).where(…).count()`, an `int`), the ids present (`….present()`,
+  /// a `list(string)`) or a live condition (`….any()`, a `bool`).
   ///
   ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
   ///     expressionValues {
@@ -222,8 +219,9 @@ abstract class Node extends LayoutNode {
   ///     }
   ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
   hidden expressionValues: Mapping<String, ExpressionValue> = new {}
-  values: Mapping<String, ExpressionValue>? =
-    if (expressionValues.isEmpty) null else expressionValues
+  values: Map<String, Any>? =
+    if (expressionValues.isEmpty) null
+    else expressionValues.toMap().mapValues((_, v) -> slotMod.wireInput(v))
   // Lifted into the top-level `surfaces` by the build's hoist, keyed
   // `<node-id>_<localKey>`, with the node's id spliced into every [[NODE_ID]].
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
@@ -247,8 +245,10 @@ const function valuesNamedIn(
   slots: Listing<slotMod.Slot>
 ): Map<String, ExpressionValue> =
   let (cels = slots.toList().map((s) -> s.value)
-      .filter((v) -> v is slotMod.Reading && v.transform is String)
-      .map((v) -> (v as slotMod.Reading).transform as String))
+      .filter((v) -> v is slotMod.Reading)
+      .flatMap((v) -> (v as slotMod.Reading).steps.toList())
+      .filter((st) -> st is simpleMod.Cel)
+      .map((st) -> (st as simpleMod.Cel).src))
     vs.toMap().filter((name, _) ->
       cels.any((t) -> t.contains(Regex(#"(?<![\w.])\#(name)(?!\w)"#))))
 
@@ -318,23 +318,51 @@ const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Bool
     if (twice.isEmpty) true
     else throw("card '\(card)': slot \(twice.toList().map((n) -> "'\(n)'").join(", ")) is listed twice in `slots`")
 
-// A reading as the wire holds it: its set fields.
-const local function wireReading(r: slotMod.Reading): Map<String, Any> =
-  r.toMap().filter((_, v) -> v != null)
+// The entity a reading that names none reads: the card's `entity_id` literal.
+const local function subjectOf(slots: Listing<slotMod.Slot>): String? =
+  let (s = slots.toList().findOrNull((t) -> t.name == slotMod.subject.name))
+    if (s?.value is String) s.value as String else null
+
+// A reading as the wire holds it: its set fields, an empty `steps` left out,
+// and its `valueWhileSlot` under the wire's name. The card's own entity is not
+// named, since a read that names none reads it, and on a card with none a
+// leading CEL is the source, reading no entity rather than a missing one. A
+// `themed` one ends with the theme's class swap.
+const local function wireReading(r: slotMod.Reading, subject: String?, themed: Boolean): Map<String, Any> =
+  let (src = r.source)
+  let (own =
+    if (src is slotMod.EntityRead && src.of != null && src.of == subject) (src) { of = null }
+    else src)
+  let (first = r.steps.toList().firstOrNull)
+  let (celSource = subject == null && first is simpleMod.Cel && own is slotMod.EntityRead && own.of == null)
+  let (source =
+    if (celSource) let (c = first as simpleMod.Cel) new slotMod.CelRead { src = c.src; values = c.values }
+    else own)
+  let (vw = r.valueWhileSlot)
+  let (steps = (if (celSource) r.steps.toList().drop(1) else r.steps.toList())
+    + (if (themed) List(themeStage) else List()))
+    Map("source", source)
+      + (if (steps.isEmpty) Map() else Map("steps", steps))
+      + (if (r.default != null) Map("default", r.default) else Map())
+      + (if (vw != null) Map("valueWhile", wireReading(vw, subject, false)) else Map())
+
+const local themeStage: simpleMod.ThemeClassesStage = new {}
 
 // By name, set ones only, a reading carrying its slot's `signal` and `type`,
-// and a literal its `type` when it has one (a `cssClass`), else a bare string.
-const local function wireSlots(slots: Listing<slotMod.Slot>): Mapping<String, Any> = new {
+// and a literal a bare value. A themed slot's value takes the theme's swap as
+// its last step.
+const local function wireSlots(slots: Listing<slotMod.Slot>, subject: String?): Mapping<String, Any> = new {
   for (s in slots) {
     when (s.value != null) {
       [s.name] =
         if (s.value is slotMod.Reading)
-          wireReading(s.value as slotMod.Reading)
+          wireReading(s.value as slotMod.Reading, subject, s.themed)
             + (if (s.signal != null) Map("signal", s.signal) else Map())
             + (if (s.type != null) Map("type", s.type) else Map())
         else if (s.signal != null)
           throw("slot '\(s.name)' is a constant literal and cannot be a signal slot — a value that never moves has nothing to patch")
-        else if (s.type != null) Map("literal", s.value, "type", s.type)
+        else if (s.themed) Map("source", s.value, "steps", List(themeStage))
+        else if (s.type != null) Map("source", s.value, "type", s.type)
         else s.value
     }
   }

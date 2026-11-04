@@ -33,16 +33,16 @@ had settled; what they found is under Consequences.
 runtime, one activation per eval, `str`/`num` as the only registered helpers).
 Dashjoin is gone from the build, benchmarks included.
 
-- **CEL-native semantics, no compatibility shims.** A raw `attr['k']` on an
-  absent key throws — it is not a null check — so every read is guarded.
-  `attr[?'k']` (CEL's optionals, enabled on both builders) is what the shipped
-  strings use, with `.orValue(d)` for the default and `.optMap(v, …)` where the
-  value is transformed on the way out; `'k' in attr` is the older spelling of
-  the same test and still works. Concat
-  is `+`, rounding is `math.round` (half-away), `double(v)` is explicit where
-  JSONata coerced. `Transform.Direct` (bare `state`, guarded attribute read)
-  still bypasses the engine; widening it into the Simple catalog is Phase 2
-  and stays there.
+- **CEL-native semantics, no compatibility shims.** CEL reads `value`, the
+  value before its step; a whole entity is the struct `fh.Entity`, so its
+  attributes are `value.attr`. A raw `value.attr['k']` on an absent key throws —
+  it is not a null check — so every read is guarded. `value.attr[?'k']` (CEL's
+  optionals, enabled on both builders) is what the shipped strings use, with
+  `.orValue(d)` for the default and `.optMap(v, …)` where the value is
+  transformed on the way out; `'k' in value.attr` is the older spelling of the
+  same test and still works. Concat is `+`, rounding is `math.round`
+  (half-away), `double(v)` is explicit where JSONata coerced. A plain state or
+  attribute read bypasses the engine, as the simple tier does (ADR 0028).
 - **The library re-authored, not translated at runtime.** The shipped strings
   are ours (`slider.pkl`, `control.pkl`, `core/tap.pkl`, `core/slot.pkl`,
   `core/surface.pkl`, more-info, demo boards, fixtures); `$dashboardSlug`
@@ -109,7 +109,7 @@ Dashjoin is gone from the build, benchmarks included.
   same. Measured: `page` 726 → 589 µs, `pageLightAttributes` (a Hue bulb's
   attributes on every light) 922 → 631 µs. Upstream `main` stops the walk for a
   select chain (`attr.x`) but not for a bare `attr` (`'k' in attr`).
-- **The fast tier beside it is a closed catalog (`Transform.Simple`).** The
+- **The fast tier beside it is a closed catalog (`Step.Simple`).** The
   shapes the library bakes that CAN be read as data — the raw `state` read,
   the guarded attribute read, the fallback-to-id name, the unit suffix, a
   literal prefix/suffix, the state match, the slider's range percent and fill —

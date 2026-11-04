@@ -9,10 +9,15 @@ import fh.view.model.{
   Choice,
   FetchTemplate,
   Predicate,
-  SlotSource,
+  Lit,
+  Op,
+  Part,
+  SignalBind,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Theme,
-  Transform,
   VarAt
 }
 import fh.view.history.Window
@@ -54,7 +59,6 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/predicate.pkl" as pred
         |import "@fh-dashboard/core/simple.pkl" as simpleMod
         |import "@fh-dashboard/core/access.pkl" as accessMod
-        |import "@fh-dashboard/core/stage.pkl" as stageMod
         |import "@fh-dashboard/core/variable.pkl" as varMod
         |import "@fh-dashboard/providers/history.pkl" as historyProv
         |import "@fh-dashboard/components/base/chart.pkl" as chartMod
@@ -66,7 +70,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, stageMod, varMod, historyProv, chartMod, themeMod) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -193,18 +197,21 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("the slot shape agrees, minus what only one side names") {
-    // `Reading` is `SlotSource` in Scala: "reading" is the authoring word, "source"
-    // the model's. `literal` is Scala-only because a constant slot is authored
-    // as a bare string (`Reading|String`), or `{literal, type}` when typed, that
-    // the decoder maps into it: an encoding, not drift.
-    check("Reading", SlotSource(), scalaOnly = Set("literal"))
-    // `Slot` is `TemplateSlot`: its `name` is the map key, and its `value` is the
-    // `source`, whose fields `nodes.wireSlots` writes beside `signal` and `type`.
-    // The fixed properties are a template's spellings of the handle.
+    // `Reading` is `ValueExpr`: "reading" is the authoring word. Its
+    // `valueWhileSlot` is the slot's `valueWhile`, which `nodes.wireSlots` writes
+    // beside the expression's fields.
+    check(
+      "Reading",
+      ValueExpr(Value.Entity()),
+      pklOnly = Set("valueWhileSlot")
+    )
+    // `Slot` is `TemplateSlot`: its `name` is the map key, and its `value` the
+    // `expr` (and `valueWhile`), written flat beside `signal` and `type`. The
+    // fixed properties are a template's spellings of the handle.
     check(
       "Slot",
-      TemplateSlot(SlotSource()),
-      scalaOnly = Set("source"),
+      TemplateSlot(ValueExpr(Value.Entity())),
+      scalaOnly = Set("expr", "valueWhile"),
       pklOnly = Set("name", "value", "raw", "bind", "jsValue", "signalName")
     )
     // `provider` picks the decoder rather than filling a field.
@@ -227,21 +234,39 @@ class WireShapeSuite extends munit.FunSuite {
     check("Chosen", Choice.Chosen("w", Map.empty), pklOnly = Set("kind"))
   }
 
-  test("each simple operator agrees with its case on both sides") {
-    // `op` is the discriminator, explicit in Pkl like `kind`.
-    import fh.view.model.Transform.Simple
-    def op(pklClass: String, sample: Product) =
-      check(pklClass, sample, pklOnly = Set("op"))
-    op("State", Simple.State())
-    op("Attr", Simple.Attr("a"))
-    op("SuffixUnit", Simple.SuffixUnit("a"))
-    op("AttrUnit", Simple.AttrUnit("a"))
-    op("Prefix", Simple.Prefix("x"))
-    op("Suffix", Simple.Suffix("x"))
-    op("Percent", Simple.Percent("a", 0, 1))
-    op("Fill", Simple.Fill("a", 0, 1))
-    op("Duration", Simple.Duration(1))
-    check("SimpleMatch", Simple.Match(Map.empty, ""))
+  test("the value model agrees on both sides") {
+    val fetch = FetchTemplate("sensor.t", Choice.Fixed(Window.Raw(1L)))
+    val lit = Value.Literal(Lit.Whole(0))
+    check("EntityRead", Value.Entity())
+    check("FetchRead", Value.Fetch(fetch))
+    check(
+      "ConditionRead",
+      Value.Condition(Predicate.Cmp("state", Op.Eq, Json.Null))
+    )
+    check("PresentRead", Value.Present(Predicate.Tally(Nil, Map.empty)))
+    check("Attr", Part.Attr("x"))
+    check("Whole", Part.Whole)
+    check("CelRead", Value.Cel("dashboard_slug"))
+    check("Cel", Step.Cel("value"))
+    check("Prefix", Step.Prefix(lit))
+    check("Suffix", Step.Suffix(lit))
+    check("WithUnit", Step.WithUnit(lit))
+    check("Percent", Step.Percent(lit, lit))
+    check("Fill", Step.Fill(lit, lit))
+    check("Duration", Step.Duration(1.0))
+    check("Match", Step.Match(Map.empty, lit))
+    check("ChartStage", Step.Chart())
+    check("CountStep", Step.Count)
+    check("ThemeClassesStage", Step.ThemeClasses)
+  }
+
+  test("each signal binding agrees with its case on both sides") {
+    check("BindText", SignalBind.Text)
+    check("BindTwoWay", SignalBind.Bind)
+    check("BindHandler", SignalBind.Handler)
+    check("BindStyle", SignalBind.Style("x"))
+    check("BindAttr", SignalBind.Attr("x"))
+    check("BindClass", SignalBind.Class("x"))
   }
 
   test("every discriminator Pkl writes is a Scala case name, verbatim") {
@@ -263,9 +288,38 @@ class WireShapeSuite extends munit.FunSuite {
       caseNames[Activation] ->
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
-      caseNames[Transform.Stage] -> Set("Passthrough", "ChartStage"),
-      caseNames[Transform.Simple.Value] -> Set("SimpleValue", "SimpleMatch"),
-      caseNames[Transform.Simple.Op] -> ops,
+      caseNames[Value] ->
+        Set(
+          "EntityRead",
+          "FetchRead",
+          "PresentRead",
+          "ConditionRead",
+          "CelRead"
+        ),
+      (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
+        Step.Simple
+      ] ++ caseNames[Step.Stage]) -> Set(
+        "Cel",
+        "Prefix",
+        "Suffix",
+        "WithUnit",
+        "Percent",
+        "Fill",
+        "Duration",
+        "Match",
+        "ChartStage",
+        "CountStep",
+        "ThemeClassesStage"
+      ),
+      caseNames[Part] -> Set("Attr", "Whole"),
+      caseNames[SignalBind] -> Set(
+        "BindText",
+        "BindTwoWay",
+        "BindHandler",
+        "BindStyle",
+        "BindAttr",
+        "BindClass"
+      ),
       caseNames[Window] -> Set("Raw", "Statistics"),
       caseNames[Choice[Window]] - "Fixed" -> Set("Chosen")
     )
@@ -288,21 +342,7 @@ class WireShapeSuite extends munit.FunSuite {
       Set.empty[String],
       clue = "a class with a discriminator no family here checks"
     )
-    // One Pkl class per operator, named as its case.
-    ops.foreach(cls => assertEquals(pklDiscriminators.get(cls), Some(cls)))
   }
-
-  private val ops: Set[String] = Set(
-    "State",
-    "Attr",
-    "SuffixUnit",
-    "AttrUnit",
-    "Prefix",
-    "Suffix",
-    "Percent",
-    "Fill",
-    "Duration"
-  )
 
   test("the theme agrees on both sides") {
     check("Theme", Theme())

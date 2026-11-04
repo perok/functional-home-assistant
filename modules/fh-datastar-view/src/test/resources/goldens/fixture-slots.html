@@ -90,7 +90,7 @@
   data-text="$_e.sensor.outside_temp.t#9">temperature</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_5"
-  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: true, t#11: 'on'}, living_room: {state: 'off'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: true, t#12: 'on'}, living_room: {t#11: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_5__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'light/toggle' + '/entity/light.kitchen?node=c_5', {filterSignals:{exclude:'.*'}})"
@@ -105,12 +105,12 @@
   data-on-signal-patch__delay.300ms="$_c_5__busy_slow = $_c_5__busy"
   data-class:fh-busy-spin="$_c_5__busy_slow"
   data-attr:aria-busy="$_c_5__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run"
-  data-text="$_e.light.living_room.state">off</span></span>
+  data-text="$_e.light.living_room.t#11">off</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">on</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_6"
-  data-signals="{_e: {light: {kitchen: {t#10: true, t#11: 'on'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#10: true, t#12: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/fixture-slots/open/c_6_self')"
@@ -126,10 +126,10 @@
   data-class:fh-busy-spin="$_c_6__busy_slow"
   data-attr:aria-busy="$_c_6__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">on</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_7"
-  data-signals="{_e: {climate: {hallway: {t#3: false, t#10: true, t#11: 'heat'}}}}"
+  data-signals="{_e: {climate: {hallway: {t#3: false, t#10: true, t#13: 'heat'}}}}"
   data-class:fh-active="$_e.climate.hallway.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_7__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/fixture-slots/' + 'climate/toggle' + '/entity/climate.hallway?node=c_7', {filterSignals:{exclude:'.*'}})"
@@ -145,10 +145,10 @@
   data-class:fh-busy-spin="$_c_7__busy_slow"
   data-attr:aria-busy="$_c_7__busy_slow"><i class="mdi mdi-thermostat" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Hallway</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.climate.hallway.t#11">heat</span></span></span></div>
+  data-text="$_e.climate.hallway.t#13">heat</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_8"
-  data-signals="{_e: {binary_sensor: {front_door: {t#10: false, t#11: 'off'}}}}"
+  data-signals="{_e: {binary_sensor: {front_door: {t#10: false, t#14: 'off'}}}}"
   data-class:fh-active="$_e.binary_sensor.front_door.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_8__busy ? '' : @post('sse/surface/fixture-slots/open/c_8_self')"
@@ -164,11 +164,11 @@
   data-class:fh-busy-spin="$_c_8__busy_slow"
   data-attr:aria-busy="$_c_8__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.binary_sensor.front_door.t#11">off</span></span></span></div>
+  data-text="$_e.binary_sensor.front_door.t#14">off</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_9"
-  data-signals="{_e: {media_player: {tv: {t#3: false, t#11: 'paused', t#12: true}}}}"
-  data-class:fh-active="$_e.media_player.tv.t#12">
+  data-signals="{_e: {media_player: {tv: {t#3: false, t#15: true, t#16: 'paused'}}}}"
+  data-class:fh-active="$_e.media_player.tv.t#15">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_9__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/fixture-slots/' + 'media_player/toggle' + '/entity/media_player.tv?node=c_9', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_9__busy"
@@ -183,10 +183,10 @@
   data-class:fh-busy-spin="$_c_9__busy_slow"
   data-attr:aria-busy="$_c_9__busy_slow"><i class="mdi mdi-speaker" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Living Room TV</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.media_player.tv.t#11">paused</span></span></span></div>
+  data-text="$_e.media_player.tv.t#16">paused</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_10"
-  data-signals="{_e: {sensor: {washer_remaining: {t#13: '47m'}, washer_status: {state: 'Rinsing'}}}}">
+  data-signals="{_e: {sensor: {washer_remaining: {t#17: '47m'}, washer_status: {state: 'Rinsing'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_10__busy ? '' : @post('sse/surface/fixture-slots/open/c_10_self')"
   data-indicator="_c_10__busy"
@@ -201,7 +201,7 @@
   data-class:fh-busy-spin="$_c_10__busy_slow"
   data-attr:aria-busy="$_c_10__busy_slow"><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.washer_remaining.t#13">47m</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
+  data-text="$_e.sensor.washer_remaining.t#17">47m</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.washer_status.state">Rinsing</span></span></span></div>
 <div class="fh-cell fh-cols-full" id="c_10_features_0"><div class="fh-ifhost" id="c_10_features_0_branch">
 <div class="fh-cell" id="s_c_10_features_0_then__c"><div class="fh-row ">
@@ -316,11 +316,11 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_10_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_10_self__c_0_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#11: '47 min'}}}}">
+  data-signals="{_e: {sensor: {washer_remaining: {t#18: '47 min'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.washer_remaining.t#11">47 min</span></span></span></div>
+  data-text="$_e.sensor.washer_remaining.t#18">47 min</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-cols-full" id="s_c_10_self__c_0_1"
   data-fh-url:window="['v.s_c_10_self__c_0_1.window', $_var_s_c_10_self__c_0_1__window, '24h']"><div class="fh-col">
@@ -388,11 +388,11 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_4_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_4_self__c_0_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#11: '12.4 °C'}}}}">
+  data-signals="{_e: {sensor: {outside_temp: {t#19: '12.4 °C'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#11">12.4 °C</span></span></span></div>
+  data-text="$_e.sensor.outside_temp.t#19">12.4 °C</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-cols-full" id="s_c_4_self__c_0_1"
   data-fh-url:window="['v.s_c_4_self__c_0_1.window', $_var_s_c_4_self__c_0_1__window, '24h']"><div class="fh-col">
@@ -454,7 +454,7 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_6_self__c_0"><div class="fh-col ">
 <div class="fh-cell fh-active" id="s_c_6_self__c_0_0"
-  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: true, t#11: 'on'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: true, t#12: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_6_self__c_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_6_self__c_0_0', {filterSignals:{exclude:'.*'}})"
@@ -470,11 +470,11 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">on</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_6_self__c_0_1"><div class="fh-col ">
 <div class="fh-cell fh-active" id="s_c_6_self__c_0_1_0"
-  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: true, t#11: 'on'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: true, t#12: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_6_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_6_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
@@ -490,7 +490,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_1_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">on</span></span></span></div>
 </article></div></div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
@@ -504,12 +504,12 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_8_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_8_self__c_0_0"
-  data-signals="{_e: {binary_sensor: {front_door: {t#10: false, t#11: 'off'}}}}"
+  data-signals="{_e: {binary_sensor: {front_door: {t#10: false, t#14: 'off'}}}}"
   data-class:fh-active="$_e.binary_sensor.front_door.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile  "><span class="fh-badge fh-icon-shape  fh-onoff"><i class="mdi mdi-door-open" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.binary_sensor.front_door.t#11">off</span></span></span></div>
+  data-text="$_e.binary_sensor.front_door.t#14">off</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_8_self__c_0_1"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">binary_sensor.front_door</code>  <pre class="fh-entity-info-attrs">device_class: door&#10;friendly_name: Front Door</pre>
@@ -919,7 +919,7 @@
   data-text="$_e.sensor.outside_temp.t#9">temperature</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_5"
-  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: false, t#11: 'off'}, living_room: {state: 'on'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: false, t#12: 'off'}, living_room: {t#11: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_5__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'light/toggle' + '/entity/light.kitchen?node=c_5', {filterSignals:{exclude:'.*'}})"
@@ -934,12 +934,12 @@
   data-on-signal-patch__delay.300ms="$_c_5__busy_slow = $_c_5__busy"
   data-class:fh-busy-spin="$_c_5__busy_slow"
   data-attr:aria-busy="$_c_5__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run"
-  data-text="$_e.light.living_room.state">on</span></span>
+  data-text="$_e.light.living_room.t#11">on</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">off</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_6"
-  data-signals="{_e: {light: {kitchen: {t#10: false, t#11: 'off'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#10: false, t#12: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/fixture-slots/open/c_6_self')"
@@ -955,10 +955,10 @@
   data-class:fh-busy-spin="$_c_6__busy_slow"
   data-attr:aria-busy="$_c_6__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">off</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_7"
-  data-signals="{_e: {climate: {hallway: {t#3: false, t#10: true, t#11: 'heat'}}}}"
+  data-signals="{_e: {climate: {hallway: {t#3: false, t#10: true, t#13: 'heat'}}}}"
   data-class:fh-active="$_e.climate.hallway.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_7__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/fixture-slots/' + 'climate/toggle' + '/entity/climate.hallway?node=c_7', {filterSignals:{exclude:'.*'}})"
@@ -974,10 +974,10 @@
   data-class:fh-busy-spin="$_c_7__busy_slow"
   data-attr:aria-busy="$_c_7__busy_slow"><i class="mdi mdi-thermostat" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Hallway</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.climate.hallway.t#11">heat</span></span></span></div>
+  data-text="$_e.climate.hallway.t#13">heat</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_8"
-  data-signals="{_e: {binary_sensor: {front_door: {t#10: true, t#11: 'on'}}}}"
+  data-signals="{_e: {binary_sensor: {front_door: {t#10: true, t#14: 'on'}}}}"
   data-class:fh-active="$_e.binary_sensor.front_door.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_8__busy ? '' : @post('sse/surface/fixture-slots/open/c_8_self')"
@@ -993,11 +993,11 @@
   data-class:fh-busy-spin="$_c_8__busy_slow"
   data-attr:aria-busy="$_c_8__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.binary_sensor.front_door.t#11">on</span></span></span></div>
+  data-text="$_e.binary_sensor.front_door.t#14">on</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_9"
-  data-signals="{_e: {media_player: {tv: {t#3: false, t#11: 'paused', t#12: true}}}}"
-  data-class:fh-active="$_e.media_player.tv.t#12">
+  data-signals="{_e: {media_player: {tv: {t#3: false, t#15: true, t#16: 'paused'}}}}"
+  data-class:fh-active="$_e.media_player.tv.t#15">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_9__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/fixture-slots/' + 'media_player/toggle' + '/entity/media_player.tv?node=c_9', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_9__busy"
@@ -1012,10 +1012,10 @@
   data-class:fh-busy-spin="$_c_9__busy_slow"
   data-attr:aria-busy="$_c_9__busy_slow"><i class="mdi mdi-speaker" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Living Room TV</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.media_player.tv.t#11">paused</span></span></span></div>
+  data-text="$_e.media_player.tv.t#16">paused</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_10"
-  data-signals="{_e: {sensor: {washer_remaining: {t#13: '47m'}, washer_status: {state: 'Rinsing'}}}}">
+  data-signals="{_e: {sensor: {washer_remaining: {t#17: '47m'}, washer_status: {state: 'Rinsing'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_10__busy ? '' : @post('sse/surface/fixture-slots/open/c_10_self')"
   data-indicator="_c_10__busy"
@@ -1030,7 +1030,7 @@
   data-class:fh-busy-spin="$_c_10__busy_slow"
   data-attr:aria-busy="$_c_10__busy_slow"><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.washer_remaining.t#13">47m</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
+  data-text="$_e.sensor.washer_remaining.t#17">47m</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.washer_status.state">Rinsing</span></span></span></div>
 <div class="fh-cell fh-cols-full" id="c_10_features_0"><div class="fh-ifhost" id="c_10_features_0_branch">
 <div class="fh-cell" id="s_c_10_features_0_then__c"><div class="fh-row ">
@@ -1145,11 +1145,11 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_10_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_10_self__c_0_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#11: '47 min'}}}}">
+  data-signals="{_e: {sensor: {washer_remaining: {t#18: '47 min'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.washer_remaining.t#11">47 min</span></span></span></div>
+  data-text="$_e.sensor.washer_remaining.t#18">47 min</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-cols-full" id="s_c_10_self__c_0_1"
   data-fh-url:window="['v.s_c_10_self__c_0_1.window', $_var_s_c_10_self__c_0_1__window, '24h']"><div class="fh-col">
@@ -1217,11 +1217,11 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_4_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_4_self__c_0_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#11: '12.4 °C'}}}}">
+  data-signals="{_e: {sensor: {outside_temp: {t#19: '12.4 °C'}}}}">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#11">12.4 °C</span></span></span></div>
+  data-text="$_e.sensor.outside_temp.t#19">12.4 °C</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-cols-full" id="s_c_4_self__c_0_1"
   data-fh-url:window="['v.s_c_4_self__c_0_1.window', $_var_s_c_4_self__c_0_1__window, '24h']"><div class="fh-col">
@@ -1283,7 +1283,7 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_6_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_6_self__c_0_0"
-  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: false, t#11: 'off'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: false, t#12: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_6_self__c_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_6_self__c_0_0', {filterSignals:{exclude:'.*'}})"
@@ -1299,11 +1299,11 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">off</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_6_self__c_0_1"><div class="fh-col ">
 <div class="fh-cell" id="s_c_6_self__c_0_1_0"
-  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: false, t#11: 'off'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: false, t#10: false, t#12: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_6_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-slots/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_6_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
@@ -1319,7 +1319,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_1_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#12">off</span></span></span></div>
 </article></div></div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
@@ -1333,12 +1333,12 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_8_self__c_0"><div class="fh-col ">
 <div class="fh-cell fh-active" id="s_c_8_self__c_0_0"
-  data-signals="{_e: {binary_sensor: {front_door: {t#10: true, t#11: 'on'}}}}"
+  data-signals="{_e: {binary_sensor: {front_door: {t#10: true, t#14: 'on'}}}}"
   data-class:fh-active="$_e.binary_sensor.front_door.t#10">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile  "><span class="fh-badge fh-icon-shape  fh-onoff"><i class="mdi mdi-door-open" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.binary_sensor.front_door.t#11">on</span></span></span></div>
+  data-text="$_e.binary_sensor.front_door.t#14">on</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_8_self__c_0_1"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">binary_sensor.front_door</code>  <pre class="fh-entity-info-attrs">device_class: door&#10;friendly_name: Front Door</pre>

@@ -66,9 +66,10 @@ optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node
 sets it, and `ifUnset` is the other half. `ifTrue`/`ifFalse` test a yes/no
 value instead. Where one is the other's alternative, write both in one call:
 `icon.ifSetElse("<i>\(icon)</i>", "<span>\(label)</span>")`, or `ifTrueElse`.
-For a switch of your own card's, such as a size or a direction,
-`flag.setIf(isDown)` sets the slot only while it holds, and the template reads
-it with `flag.ifSet(…)`. Inside `class="…"`, put the separating space before a
+For a switch of your own card's, such as a size or a direction, declare the
+slot with `slotMod.bool("flag")` instead of `slotMod.slot(…)`:
+`flag.setIf(isDown)` sets it only while it holds, and the template reads it
+with `flag.ifSet(…)`. Inside `class="…"`, put the separating space before a
 section, never inside it: `"my-card \(flag.ifSet("my-card-down"))"`. A section
 that does not show leaves a trailing space, which HTML ignores. A piece that is always there needs no section: set it as
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
@@ -113,31 +114,32 @@ import "@fh-dashboard/core/slot.pkl" as slotMod
 hidden entity: hass.Entity
 
 slots {
-  message.of(new slotMod.Reading {
-    entityId = entity.entity_id
-    transform = "state"
-  })
+  message.of(new slotMod.Reading { entityId = entity.entity_id })
 }
 ```
 
-`transform` says what to show. Leave it out and the slot shows the entity's
-state. It can be a fast read from `core/simple.pkl`, which runs without an
-expression engine — `simpleMod.attr("battery")`, `simpleMod.attrUnit("temperature")`
-(the attribute with its unit), `simpleMod.duration(60)` — or, for a yes/no slot,
-a condition such as `q.entity(door).stateIs("on")`. Either may read another
-entity than the slot's: a condition names its own, and a fast read takes
-`entity`, as in `(simpleMod.attr("battery")) { entity = phone.entity_id }`.
+A reading shows the entity's state, after running its `steps` on it in order.
+Leave `entityId` out and it reads the card's own entity. `core/simple.pkl` has
+readings that need no expression engine — `simpleMod.attr("battery")`,
+`simpleMod.attrUnit("temperature")` (the attribute with its unit),
+`simpleMod.duration(60)` — and, for a yes/no slot, a condition such as
+`q.entity(door).stateIs("on")` fills one directly. Either may read another
+entity than the card's: a condition names its own, and a reading takes
+`entityId`, as in `(simpleMod.attr("battery")) { entityId = phone.entity_id }`.
 
-For anything more, `transform` is a small expression (CEL):
+For anything more, a step is a small expression (CEL) over `value`, what the
+step before it gave: the state, on a plain reading. To read more of the entity,
+read the whole of it, as `slotMod.celReading` does, and write `value.state` and
+`value.attr`:
 
 ```pkl
-transform = "state + ' °C'"
-transform = "attr['friendly_name']"
-transform = "state == 'on' ? 'Running' : 'Idle'"
+steps { simpleMod.cel("value + ' °C'") }
+slotMod.celReading("value.attr[?'friendly_name'].orValue('')")
+slotMod.celReading("value.state == 'on' ? 'Running' : 'Idle'")
 ```
 
 It is checked when the dashboard is built, names and types both, so
-`state + 1` fails there rather than on the page. What it gives back must be
+`value.state + 1` fails there rather than on the page. What it gives back must be
 something a card can show: text, a number or a true/false. A list or a map
 fails the build; `str(…)` turns one into text.
 
@@ -165,7 +167,7 @@ the slot as a **signal** instead, and only that one value is sent:
 ```pkl
 (temperature) {
   value = new slotMod.Reading { entityId = entity.entity_id }
-  signal = "text"
+  signal = slotMod.asText
 }
 ```
 
@@ -199,8 +201,12 @@ import "@fh-dashboard/providers.pkl" as p
 
 peak.of(new slotMod.Reading {
   entityId = entity.entity_id
-  transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-  expressionValues { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
+  steps {
+    new simpleMod.Cel {
+      src = "str(math.greatest(past.transformList(i, p, true, p[1])))"
+      values = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
+    }
+  }
 })
 ```
 
@@ -231,8 +237,12 @@ is `""`, the expression does not run, and its history is not read:
 peak.of(new slotMod.Reading {
   entityId = entity.entity_id
   valueWhile = q.entity(entity).gt(q.prop("state"), 0)
-  transform = "…"
-  expressionValues { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
+  steps {
+    new simpleMod.Cel {
+      src = "…"
+      values = new Mapping { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
+    }
+  }
 })
 ```
 

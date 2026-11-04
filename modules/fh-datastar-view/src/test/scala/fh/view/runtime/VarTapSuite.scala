@@ -10,12 +10,11 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
-  SlotSource,
-  TemplateSlot,
-  Transform
+  Value,
+  ValueExpr,
+  TemplateSlot
 }
 import fh.view.history.Windows
 import fh.view.testkit.{FakeConfig, FixtureEntity}
@@ -48,12 +47,13 @@ class VarTapSuite extends ServerHarness {
     "chart",
     templateSlots = Map(
       "chart" -> TemplateSlot(
-        SlotSource(
-          fetch = Some(
-            FetchTemplate("sensor.a", Choice.Chosen("window", Windows.presets))
-          ),
-          transform = Transform.Stage.Passthrough,
-          reads = Reads.OnRender
+        ValueExpr(
+          Value.Fetch(
+            FetchTemplate(
+              "sensor.a",
+              Choice.Chosen("window", Windows.presets)
+            )
+          )
         )
       )
     )
@@ -78,12 +78,13 @@ class VarTapSuite extends ServerHarness {
         chartNode.copy(templateSlots =
           Map(
             "chart" -> TemplateSlot(
-              SlotSource(
-                fetch = Some(
-                  FetchTemplate("sensor.b", Choice.Chosen("w", Windows.presets))
-                ),
-                transform = Transform.Stage.Passthrough,
-                reads = Reads.OnRender
+              ValueExpr(
+                Value.Fetch(
+                  FetchTemplate(
+                    "sensor.b",
+                    Choice.Chosen("w", Windows.presets)
+                  )
+                )
               )
             )
           )
@@ -268,15 +269,13 @@ class VarTapSuite extends ServerHarness {
           chartNode.copy(templateSlots =
             Map(
               "chart" -> TemplateSlot(
-                SlotSource(
-                  fetch = Some(
+                ValueExpr(
+                  Value.Fetch(
                     FetchTemplate(
                       entity,
                       Choice.Chosen("window", Windows.presets)
                     )
-                  ),
-                  transform = Transform.Stage.Passthrough,
-                  reads = Reads.OnRender
+                  )
                 )
               )
             )
@@ -550,7 +549,9 @@ class VarTapSuite extends ServerHarness {
         LayoutNode.Component(
           "both",
           templateSlots = chartNode.templateSlots +
-            ("state" -> TemplateSlot(SlotSource(entityId = Some("sensor.a"))))
+            ("state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a")))
+            ))
         )
       ),
       id = Some("panel"),

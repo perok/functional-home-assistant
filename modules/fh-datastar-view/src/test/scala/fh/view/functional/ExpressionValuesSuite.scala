@@ -102,6 +102,29 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("present() reaches CEL as the ids present, and follows a light") {
+    val body =
+      s"""    ((c.button("Stue", c.view.closePopup())) {
+         |      expressionValues {
+         |        ["lit"] = q.from(lights).where(q.eq(q.stateProp, "on")).present()
+         |      }
+         |    }).secondary(c.expr(#"lit.join(', ')"#))""".stripMargin
+    val both = s"${kitchen.entityId}, ${living.entityId}"
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = onlySignal(html)
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains(s">${kitchen.entityId}</span>"), clue = html)
+        assert(
+          sent.contains(s"${sig.split('.').last}\":\"$both\""),
+          clue = sent
+        )
+      }
+    }
+  }
+
   test("a brightness tick on a counted light sends nothing for the count") {
     val dimmer =
       kitchen.copy(attributes =
@@ -208,7 +231,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
-        |    }).secondary(new slotMod.Reading { transform = "string(n)"; reads = "once" })""".stripMargin
+        |    }).secondary(new slotMod.Reading { entityId = lights.first.entity_id; steps { simpleMod.cel("string(n)") }; reads = "once" })""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would show the first count forever")), errs)
   }
@@ -290,10 +313,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("a value that would hide a name every expression has fails the build") {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["state"] = "x" }
-        |    }).secondary(c.expr("state"))""".stripMargin
+        |      expressionValues { ["value"] = "x" }
+        |    }).secondary(c.expr("value.state"))""".stripMargin
     val errs = errorsOf(body)
-    assert(errs.exists(_.contains("would hide the 'state'")), errs)
+    assert(errs.exists(_.contains("would hide the 'value'")), errs)
   }
 
   // A boolean slot filled as `input` says, beside a second line reading the count
@@ -309,7 +332,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private val notBool = "does not produce a bool"
 
   test("a boolean slot whose CEL is not a bool fails the build") {
-    val int = """new slotMod.Reading { transform = "n" }"""
+    val int = """slotMod.celReading("n")"""
     assert(
       yesNo(
         s"""liveClasses { ["x"] = $int }"""
@@ -321,14 +344,14 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a boolean slot whose Simple shape is text fails the build") {
     val text =
-      s"""new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
+      s"""(simpleMod.attr("friendly_name")) { entityId = "${kitchen.entityId}" }"""
     assert(yesNo(s"disabled = $text").exists(_.contains(notBool)))
   }
 
   test(
     "a comparison, a boolean match and a condition all fill a boolean slot"
   ) {
-    val cmp = """new slotMod.Reading { transform = "n > 0" }"""
+    val cmp = """slotMod.celReading("n > 0")"""
     assertEquals(
       yesNo(s"disabled = $cmp").filter(_.contains(notBool)),
       Nil
@@ -547,7 +570,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a cellStyle takes a Simple reading, on the fast tier") {
     val body = propertyButton(
-      s""".cellStyle("--fh-name", new slotMod.Reading { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+      s""".cellStyle("--fh-name", (simpleMod.attr("friendly_name")) { entityId = "${kitchen.entityId}" })"""
     )
     withServer(body)(_.page()).map { html =>
       assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)

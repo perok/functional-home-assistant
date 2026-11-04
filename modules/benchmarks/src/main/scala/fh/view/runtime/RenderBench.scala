@@ -4,10 +4,10 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
+  ValueType,
   Activation,
   CardDef,
   Dashboard,
-  ExprValue,
   LayoutNode,
   NodeId,
   Op,
@@ -15,7 +15,11 @@ import fh.view.model.{
   Region,
   SignalBind,
   SignalId,
-  SlotSource,
+  Lit,
+  Part,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface,
   Transform
@@ -281,12 +285,14 @@ class RenderBench {
   // The explicit fast tier's probes and the two shipped shapes that stay on
   // the engine (fill colour, attribute comprehension) — the same 4-of-6 mix a
   // shipped page dispatches.
-  private var simpleProbes: List[Transform.Simple] = null
+  private var simpleProbes: List[RenderBench.Probe] = null
   // A boolean input's condition, as CEL reading it through a named value.
   private var conditionViaCel: Transform.Compiled = null
   private lazy val isOn =
     Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
-  private lazy val isOnValue = Map("on" -> ExprValue.Holds(isOn))
+  private lazy val isOnValue = Map(
+    "on" -> ValueExpr(Value.Condition(isOn))
+  )
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -379,19 +385,19 @@ class RenderBench {
     // no component has ever called — so the number this produced was for a
     // shape that does not ship.
     simpleProbes = List(
-      Transform.Simple.Match(Map("on" -> "lit"), ""),
-      Transform.Simple.State(),
-      Transform.Simple.Attr("brightness"),
-      Transform.Simple.SuffixUnit("unit_of_measurement"),
-      Transform.Simple.Fill("brightness", 1.0, 255.0),
-      Transform.Simple.Percent("brightness", 1.0, 255.0)
+      Probe(Part.State, Step.Match(Map("on" -> Lit.Text("lit")), text(""))),
+      Probe(Part.State),
+      Probe(Part.Attr("brightness")),
+      Probe(Part.State, Step.WithUnit(Value.Entity(None, unit))),
+      Probe(Part.Attr("brightness"), Step.Fill(real(1.0), real(255.0))),
+      Probe(Part.Attr("brightness"), Step.Percent(real(1.0), real(255.0)))
     )
     engineShapes =
       List(CelShapes.TransformFillColor, CelShapes.TransformAttrLines).map(
         cparse
       )
     conditionViaCel = Transform
-      .parse(Transform.CelKey("on", List("on" -> ExprValue.Kind.Bool)))
+      .parse(Transform.CelKey("on", List("on" -> ValueType.Bool), None))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
@@ -636,22 +642,20 @@ class RenderBench {
   @Benchmark
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
-  /** The EXPLICIT fast tier as the renderer runs it ([[Transform.runSimple]]):
-    * the four opted-in [[Transform.Simple]] shapes evaluate without the engine
-    * (~45 B); the fill colour and the attribute comprehension stay on the
-    * engine, exactly the shipped mix (4 of 6). The gap against [[cel]] (all six
-    * on the engine) is what the tier saves per page, and against [[direct]] it
-    * prices the dispatch on top of the raw read. `Reads.Once` slots excluded —
-    * the renderer memoises those.
+  /** The EXPLICIT fast tier as the renderer runs it ([[RenderBench.runProbe]]):
+    * the four opted-in read-and-format shapes evaluate without the engine (~45
+    * B); the fill colour and the attribute comprehension stay on the engine,
+    * exactly the shipped mix (4 of 6). The gap against [[cel]] (all six on the
+    * engine) is what the tier saves per page, and against [[direct]] it prices
+    * the dispatch on top of the raw read. `Reads.Once` slots excluded — the
+    * renderer memoises those.
     */
   @Benchmark
   def simple(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      simpleProbes.foreach(s =>
-        bh.consume(Transform.runSimple(s, e, Map.empty))
-      )
+      simpleProbes.foreach(s => bh.consume(runProbe(s, e)))
       engineShapes.foreach(t => bh.consume(Transform.run(t, e, "dashboard")))
       i += 1
     }
@@ -686,7 +690,7 @@ class RenderBench {
   def condition(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Transform.runSimpleValue(isOn, st(entityId(i)), st))
+      bh.consume(Conditions.matchesIn(isOn, st(entityId(i)), st))
       i += 1
     }
   }
@@ -695,11 +699,10 @@ class RenderBench {
   def conditionCel(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      val e = st(entityId(i))
       bh.consume(
         Transform.runValue(
           conditionViaCel,
-          e,
+          null,
           "dashboard",
           Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
         )
@@ -720,7 +723,7 @@ class RenderBench {
 
   /** The hand-rolled fast path for the two TRIVIAL shapes — a bare `state` and
     * a guarded attribute read — which is what the catalog ships INSTEAD of an
-    * engine for them ([[Transform.Simple]]). Same count and same three reads as
+    * engine for them (a read with no step). Same count and same three reads as
     * [[simple]], with the dispatch removed, so the gap between the two is what
     * recognizing-and-dispatching costs, and the gap against [[cel]] is the
     * floor the engines are compared against.
@@ -730,17 +733,9 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(Transform.runSimple(Transform.Simple.State(), e, Map.empty))
-      bh.consume(
-        Transform.runSimple(
-          Transform.Simple.Attr("friendly_name"),
-          e,
-          Map.empty
-        )
-      )
-      bh.consume(
-        Transform.runSimple(Transform.Simple.Attr("brightness"), e, Map.empty)
-      )
+      bh.consume(runProbe(StateRead, e))
+      bh.consume(runProbe(NameSlot, e))
+      bh.consume(runProbe(BrightnessRead, e))
       i += 1
     }
   }
@@ -1527,7 +1522,7 @@ class RenderBench {
     * The check resolves only the slots that travel as BYTES and compares them
     * to what the cache entry was built from. On the shipped `entityCard` that
     * is exactly one slot — the name, a guarded attr read through the production
-    * dispatch ([[Transform.runSimple]], ADR 0028's fast tier, no engine). The
+    * dispatch ([[RenderBench.runProbe]], ADR 0028's fast tier, no engine). The
     * signal slots are NOT in it: they are resolved on a signals tick
     * regardless, to fill the frame.
     *
@@ -1544,7 +1539,7 @@ class RenderBench {
     var i = 0
     while (i < tickEntities.size) {
       val e = moved(tickEntities(i))
-      bh.consume(Transform.runSimple(NameSlot, e, Map.empty))
+      bh.consume(runProbe(NameSlot, e))
       i += 1
     }
   }
@@ -1743,8 +1738,37 @@ object RenderBench {
     * question for ADR 0012, not something this benchmark should answer by
     * modelling a slot the card does not have.
     */
-  final val NameSlot: Transform.Simple =
-    Transform.Simple.Attr("friendly_name")
+  final val NameSlot: Probe = Probe(Part.Attr("friendly_name"))
+  final val StateRead: Probe = Probe(Part.State)
+  final val BrightnessRead: Probe = Probe(Part.Attr("brightness"))
+
+  /** A read and its format steps, without the engine. */
+  /** A slot's read and format steps, composed once as the renderer composes
+    * one, its operands read off the same entity.
+    */
+  final case class Probe(part: Part, steps: Step.Simple*):
+    val run: EntityState => Any =
+      steps.foldLeft[EntityState => Any](e => Transform.read(part, e)) {
+        (prev, f) =>
+          val ops = Step.operands(f).map(operand)
+          val a = ops.lift(0).getOrElse(absent)
+          val b = ops.lift(1).getOrElse(absent)
+          e => Transform.formatWith(f, prev(e), a(e), b(e))
+      }
+
+  private val absent: EntityState => Any = _ => null
+  private def operand(v: Value): EntityState => Any = v match
+    case Value.Literal(l) =>
+      val c = l.raw
+      _ => c
+    case Value.Entity(_, part, _, _) => e => Transform.read(part, e)
+    case _                           => _ => ""
+
+  private val unit = Part.Attr("unit_of_measurement")
+  private def text(s: String) = Value.Literal(Lit.Text(s))
+  private def real(d: Double) = Value.Literal(Lit.Real(d))
+
+  def runProbe(p: Probe, e: EntityState): String = Transform.text(p.run(e))
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
@@ -1764,8 +1788,11 @@ object RenderBench {
     */
   final val TransformFillColorValued =
     TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
-  final val FillColorValues: Map[String, ExprValue] =
-    Map("lo" -> ExprValue.Real(2000.0), "span" -> ExprValue.Real(4500.0))
+  final val FillColorValues: Map[String, ValueExpr] =
+    Map(
+      "lo" -> ValueExpr(real(2000.0)),
+      "span" -> ValueExpr(real(4500.0))
+    )
 
   /** A tap's action as the builder bakes it for one entity (ADR 0016): a
     * build-time literal per entity, so the card's action hole stays filled but
@@ -1815,51 +1842,68 @@ object RenderBench {
       valued: Boolean = false
   )(
       i: Int
-  ): LayoutNode.Component =
+  ): LayoutNode.Component = {
+    // Pkl names the card's entity on every reading of it.
+    val subject = Some(entityId(i % distinct))
     LayoutNode.Component(
       "entity",
       Map(
         "entity_id" -> TemplateSlot(
-          SlotSource(literal = Some(entityId(i % distinct)))
+          ValueExpr.literal(entityId(i % distinct))
         ),
-        "cls" -> TemplateSlot(SlotSource(literal = Some("fh-tile"))),
+        "cls" -> TemplateSlot(ValueExpr.literal("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
-        "icon" -> TemplateSlot(SlotSource(literal = Some("mdi:lightbulb"))),
+        "icon" -> TemplateSlot(ValueExpr.literal("mdi:lightbulb")),
         "name" -> TemplateSlot(
-          if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
+          if (signalOnly) ValueExpr.literal(s"Tile number $i")
           else
-            SlotSource(
-              // Opted in (ADR 0028) — see [[NameSlot]] on what this models
-              // and what the shipped card actually does.
-              transform = Transform.Simple.Attr("friendly_name")
-            )
+            // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
+            // what the shipped card actually does.
+            ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
         ),
         "state" -> TemplateSlot(
-          SlotSource(transform =
-            Transform.Simple.SuffixUnit("unit_of_measurement")
+          ValueExpr(
+            Value.Entity(subject),
+            List(
+              Step.WithUnit(
+                Value.Entity(subject, Part.Attr("unit_of_measurement"))
+              )
+            )
           ),
           signal = Option.when(signals)(SignalBind.Text)
         ),
         "fill" -> TemplateSlot(
-          SlotSource(transform =
-            Transform.Simple.Fill("brightness", 1.0, 255.0)
+          ValueExpr(
+            Value.Entity(subject, part = Part.Attr("brightness")),
+            List(
+              Step.Fill(
+                Value.Literal(Lit.Real(1.0)),
+                Value.Literal(Lit.Real(255.0))
+              )
+            )
           ),
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
         "fillColor" -> TemplateSlot(
-          SlotSource(transform =
-            if (valued) TransformFillColorValued else TransformFillColor
+          ValueExpr(
+            Value.Entity(subject, Part.Whole),
+            List(
+              Step.Cel(
+                if (valued) TransformFillColorValued else TransformFillColor
+              )
+            )
           ),
           signal = Option.when(signals)(SignalBind.Style("background"))
         ),
         // Every dashboard has action slots, and ADR 0016 made them build-time
         // literals; leaving the hole out would not match a shipped card.
         "action" -> TemplateSlot(
-          SlotSource(literal = Some(actionLiteral(i, distinct)))
+          ValueExpr.literal(actionLiteral(i, distinct))
         )
       ),
       values = if (valued) FillColorValues else Map.empty
     )
+  }
 
   /** `leaves` leaves under columns of `branching` children each, stacked until
     * one root remains.

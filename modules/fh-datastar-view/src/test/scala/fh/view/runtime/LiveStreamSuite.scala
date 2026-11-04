@@ -7,7 +7,8 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Region,
-  SlotSource,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface
 }
@@ -113,8 +114,11 @@ class LiveStreamSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.shared")))
+            )
+          )
         ),
         LayoutNode.Component("ifhost")
       )
@@ -545,8 +549,11 @@ class LiveStreamSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "bar",
-                templateSlots =
-                  Map("title" -> TemplateSlot(SlotSource(Some("sensor.title"))))
+                templateSlots = Map(
+                  "title" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.title")))
+                  )
+                )
               )
             )
           ),
@@ -753,13 +760,19 @@ class LiveStreamSuite extends ServerHarness {
         regions = LayoutNode.kids(
           LayoutNode.Component(
             "card",
-            templateSlots =
-              Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
+            )
           ),
           LayoutNode.Component(
             "card",
-            templateSlots =
-              Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
+            )
           )
         )
       )

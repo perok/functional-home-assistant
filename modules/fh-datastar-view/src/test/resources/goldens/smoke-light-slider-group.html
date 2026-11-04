@@ -289,7 +289,7 @@
   <div class="fh-slider slider max   fh-slider-greyed"
   data-on-signal-patch-filter="{include:/^_s_c_0_1_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__error && ($_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-  data-class:fh-disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+  data-class:fh-disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-class:fh-loading="$_s_c_0_1_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_0_1_head_0_m1__c__error">
 <input type="range" min="1" max="255" value="90"
@@ -299,11 +299,11 @@
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3"
       data-effect="$_sse > 0 && ($_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-      data-indicator="_s_c_0_1_head_0_m1__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+      data-indicator="_s_c_0_1_head_0_m1__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m1__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || '1' ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m1__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m1__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
   </div>
 </div></div>
@@ -321,7 +321,7 @@
   <div class="fh-slider slider max   fh-slider-greyed"
   data-on-signal-patch-filter="{include:/^_s_c_0_1_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__error && ($_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-  data-class:fh-disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+  data-class:fh-disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-class:fh-loading="$_s_c_0_1_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_0_1_head_0_m2__c__error">
 <input type="range" min="1" max="255" value="90"
@@ -331,11 +331,11 @@
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3"
       data-effect="$_sse > 0 && ($_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-      data-indicator="_s_c_0_1_head_0_m2__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+      data-indicator="_s_c_0_1_head_0_m2__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m2__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || '1' ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m2__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m2__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m2__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m2__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
   </div>
 </div></div>
@@ -827,7 +827,7 @@
   <div class="fh-slider slider max   fh-slider-greyed"
   data-on-signal-patch-filter="{include:/^_s_c_0_1_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__error && ($_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-  data-class:fh-disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+  data-class:fh-disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-class:fh-loading="$_s_c_0_1_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_0_1_head_0_m1__c__error">
 <input type="range" min="1" max="255" value="90"
@@ -837,11 +837,11 @@
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3"
       data-effect="$_sse > 0 && ($_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-      data-indicator="_s_c_0_1_head_0_m1__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+      data-indicator="_s_c_0_1_head_0_m1__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m1__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m1__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || '1' ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m1__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m1__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
   </div>
 </div></div>
@@ -859,7 +859,7 @@
   <div class="fh-slider slider max   fh-slider-greyed"
   data-on-signal-patch-filter="{include:/^_s_c_0_1_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__error && ($_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-  data-class:fh-disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+  data-class:fh-disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-class:fh-loading="$_s_c_0_1_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_0_1_head_0_m2__c__error">
 <input type="range" min="1" max="255" value="90"
@@ -869,11 +869,11 @@
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3"
       data-effect="$_sse > 0 && ($_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3, $_e.light.dimmer.t#4 = (100 - (($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + '%', $_e.light.dimmer.t#6 = Math.round((($_e.light.dimmer.t#3 - 1) * 100 / (255 - 1))) + ' %')"
-      data-indicator="_s_c_0_1_head_0_m2__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || '1'"
+      data-indicator="_s_c_0_1_head_0_m2__c__busy_change" disabled data-attr:disabled="$_s_c_0_1_head_0_m2__c__busy_change || $_e.light.dimmer.t#2 || true"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m2__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || '1' ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m2__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m2__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/smoke-light-slider-group/light/turn_on/entity/light.dimmer?node=s_c_0_1_head_0_m2__c', {payload: {data: {'brightness': Number($_s_c_0_1_head_0_m2__c__slide) } } })" />    <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
   </div>
 </div></div>

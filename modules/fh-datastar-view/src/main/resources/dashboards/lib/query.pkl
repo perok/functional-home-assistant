@@ -425,6 +425,12 @@ class EntitySet {
               .filter((p) -> !(p.second is Boolean && p.second == false))
       }
 
+  /// The ids of the candidates present now, as a named input: a `list(string)`
+  /// in CEL (`'light.kitchen' in lit`, `size(lit)`). Reads only `where`, as
+  /// [[count]] does.
+  function present(): pred.PresentList =
+    let (n = count()) new pred.PresentList { candidates = n.candidates; `when` = n.`when` }
+
   function any(): Cond = count().gt(0)
   function none(): Cond = count().eq(0)
   function all(): Cond = let (l = this) count().eq(l.count().residuals.length)

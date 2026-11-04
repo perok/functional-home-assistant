@@ -28,14 +28,14 @@ const domainAxes: Mapping<String, hass.Axis> = new {
 // anything else the theme's paint. A hue axis has no fill, only a marker over
 // a track painted with the hues (`hueTrack`).
 //
-// Every read keeps a presence guard (`attr[?'x']…orValue('')`): capability is a
+// Every read keeps a presence guard (`value.attr[?'x']…orValue('')`): capability is a
 // build-time fact but a live state may drop the attribute, and in CEL a missing
 // key throws. Kelvin arrives as a Long and CEL's double overloads take no Long,
 // hence `double(k)`. The strings ship as written; only the indent and the edge
 // newline go.
 const local sliderFillColourRgb: String =
   #"""
-  attr[?'rgb_color'].optMap(rgb,
+  value.attr[?'rgb_color'].optMap(rgb,
     size(rgb) == 3
       ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
       : '').orValue('')
@@ -44,7 +44,7 @@ const local sliderFillColourRgb: String =
 // `\(minK).0`: the double literal CEL needs, from whole kelvin.
 const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
-  attr[?'color_temp_kelvin'].optMap(k,
+  value.attr[?'color_temp_kelvin'].optMap(k,
     cel.bind(t,
       (double(k) - \(minK).0) < 0.0 ? 0.0 :
       ((double(k) - \(minK).0) > \(maxK - minK).0
@@ -112,8 +112,8 @@ class EntitySlider extends sliderBase.Slider {
     // The binding is named for the attribute (`hs`), as the hue's always was.
     if (element != null)
       let (b = valueAttr.split("_").first)
-        "attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
-    else "attr[?'\(valueAttr)']"
+        "value.attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
+    else "value.attr[?'\(valueAttr)']"
   rangeMin = min
   rangeMax = max
   /// The range as CEL double literals, since `/` on two ints divides as
@@ -140,8 +140,8 @@ class EntitySlider extends sliderBase.Slider {
   /// range, nothing, or an [[Expr]]. The names are shorthands for readings that
   /// need the axis config, which is exposed for splicing:
   ///
-  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
-  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
+  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + value.state") }
+  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"value.state + ' W'"#) }
   ///
   /// A head with member rows reads out nothing; the rows carry their own.
   hidden readout: (Readout|slotMod.Expr) = if (members.isEmpty) "state" else "none"
@@ -157,24 +157,22 @@ class EntitySlider extends sliderBase.Slider {
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".
-  position = new slotMod.Reading {
-    transform =
-      if (element != null) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
-      else simpleMod.attr(valueAttr)
-    default = "0"
-    bypassUnavailable = false
-  }
+  position =
+    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, str(math.round(v))).orValue('0')")
+    else simpleMod.attr(valueAttr)) {
+      default = "0"
+      bypassUnavailable = false
+    }
   // Not rounded: beer.min.js recomputes the same percentage unrounded after
   // every morph, and a rounded value twitched into place.
-  fill = new slotMod.Reading {
-    transform =
-      if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
-      else if (hue) "\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')"
-      else simpleMod.fill(valueAttr, rangeMin, rangeMax)
-    default = "100%"
-    bypassUnavailable = false
-  }
-  fillColor = if (fillColourMoves) new slotMod.Reading { transform = fillColorExpr } else null
+  fill =
+    (if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
+    else if (hue) slotMod.celReading("\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')")
+    else simpleMod.fill(valueAttr, rangeMin, rangeMax)) {
+      default = "100%"
+      bypassUnavailable = false
+    }
+  fillColor = if (fillColourMoves) slotMod.celReading(fillColorExpr) else null
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
   // reads as text: `--fh-default-color` is the paint for an assumed colour.
   fillDefault =
@@ -185,16 +183,14 @@ class EntitySlider extends sliderBase.Slider {
   kelvinTrack = on is hass.ColourTemp && reportsKelvin
   reading =
     if (shownReadout == "none") null
-    else if (shownReadout is slotMod.Expr)
-      new slotMod.Reading { entityId = shownReadout.entityId; transform = shownReadout.transform }
+    else if (shownReadout is slotMod.Expr) slotMod.exprReading(shownReadout)
     else if (shownReadout == "percent")
-      new slotMod.Reading {
-        transform =
-          if (element != null) percentExpr else simpleMod.percent(valueAttr, rangeMin, rangeMax)
+      (if (element != null) slotMod.celReading(percentExpr)
+      else simpleMod.percent(valueAttr, rangeMin, rangeMax)) {
         default = "0 %"
         bypassUnavailable = false
       }
-    else new slotMod.Reading { transform = simpleMod.state() }
+    else simpleMod.state()
   readingFollowsDrag = shownReadout == "percent"
   commit = commitTap
   press = if (toggleOnly) toggleTap else null
@@ -277,7 +273,7 @@ class EntitySlider extends sliderBase.Slider {
         if (a.inUseWhen == null) "'\(a.name)'"
         else
           let (w = a.inUseWhen!!)
-            "(attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
+            "(value.attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
   controlDeclaration =
     if (openingExpr == null) super.controlDeclaration
     else super.controlDeclaration.withInitialTransform(entity, openingExpr!!)
