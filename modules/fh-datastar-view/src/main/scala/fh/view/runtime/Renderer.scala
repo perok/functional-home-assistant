@@ -1632,7 +1632,7 @@ class Renderer(validated: Dashboard.Validated) {
         source.expr,
         source.typed.fold(_ => Nil, _.keys).iterator.map(programs),
         dashboard.slug,
-        (states, fetched) => Conditions.resolve(source.values, states, fetched)
+        Evaluator.inputs(source.values)
       )
     )
 

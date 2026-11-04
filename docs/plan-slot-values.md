@@ -415,8 +415,9 @@ an overload. These rules are the language; C4 moves them out of this plan.
   waits for its runtime value:
   - a number literal compares on the number line, `eq` included, so `21` and `21.0` are equal
     (CEL's heterogeneous numeric equality, `dyn(3.0) == 3`; Scheme's `=`; Java's binary numeric
-    promotion). A text side is parsed, and one that is not a number does not hold, as HA's
-    `numeric_state` condition (`unavailable` "doesn't pass");
+    promotion). A text side is parsed, and one that is not a number is unequal to it: `eq` and
+    every ordering false, as HA's `numeric_state` (`unavailable` "doesn't pass"), `ne` true, as
+    CEL, where values of two types are unequal;
   - a text literal compares as text, a number side printed as a slot prints it;
   - a bool literal is equality;
   - between two reads, two numbers use the number line, anything else today's rule (text
@@ -511,11 +512,14 @@ an overload. These rules are the language; C4 moves them out of this plan.
 - **C1c (done). The compiler, and the renderer's slots on it** (`Evaluator`); `compose` goes. The
   goldens hold byte for byte; RenderBench equal or better, allocation down on the render paths
   (`tickRender` -6%, `pageSignals` -3%, `page` -2%).
-- **C2. Every other consumer on it:** `MemberGraph`, `SurfaceGraph`, set calls, CEL inputs.
-  `Conditions.run`/`step`/`read`, `resolve`'s list, `isCondition` and `formatWith`'s deciding
-  cases are deleted. An ordered set and `First` read each member's keys once per sort, not per
-  comparison (agreed; `publishSetOrdered` is 1.06 ms and 1.35 MB a frame against `publishSet`'s
-  9.7 µs, and `leaderRow` pays the same per pill).
+- **C2 (done). Every other consumer on it:** `MemberGraph` (clauses, and an ordering's keys read
+  once per candidate per sort), `SurfaceGraph`, set calls, CEL inputs (compiled once);
+  `Conditions` is deleted and `isCondition` stays only as what `validate` holds a condition to.
+  One round against C0: `publishSetOrdered` -41% (1.35 MB -> 0.52 MB), `leaderRow` -72%,
+  `conditionTree` -69% and allocation-free, `countAny` -86%, `conditionCel` -34%, `pageSet`
+  -9%. One regression to fix next: `conditionAttr` +174% (94 -> 202 kB), the typed read
+  building the entity's whole Java attribute map on a fresh state; read the one attribute
+  instead until the map exists.
 - **C3. `First` over any id list;** the position rule goes, and a test renders the shape above and
   gets the leader.
 - **C4. Docs:** ADRs 0004 and 0028, `terminology.md`, the architecture doc's file map and the

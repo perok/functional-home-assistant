@@ -294,6 +294,9 @@ class RenderBench {
   private lazy val isOnValue = Map(
     "on" -> isOn
   )
+  // Compiled once, as a renderer's plan or a member graph compiles them.
+  private lazy val isOnRun = Evaluator.plain(isOn)
+  private lazy val isOnInputs = Evaluator.inputs(isOnValue)
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -693,7 +696,9 @@ class RenderBench {
   def condition(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Conditions.holds(isOn, st(entityId(i)), st))
+      bh.consume(
+        Evaluator.holds(isOnRun(st(entityId(i)), st, Evaluator.noFetch))
+      )
       i += 1
     }
   }
@@ -716,13 +721,16 @@ class RenderBench {
     List(Step.Count, Step.Compare(Op.Gt, Value.Literal(Lit.Real(0.0))))
   )
 
+  private lazy val anyOnRun = Evaluator.plain(anyOn)
+  private lazy val anyOnFullRun = Evaluator.plain(anyOnFull)
+
   @Benchmark
   def countAny(bh: Blackhole): Unit =
-    bh.consume(Conditions.holds(anyOn, EntityState.none, st))
+    bh.consume(Evaluator.holds(anyOnRun(null, st, Evaluator.noFetch)))
 
   @Benchmark
   def countAnyFull(bh: Blackhole): Unit =
-    bh.consume(Conditions.holds(anyOnFull, EntityState.none, st))
+    bh.consume(Evaluator.holds(anyOnFullRun(null, st, Evaluator.noFetch)))
 
   @Benchmark
   def conditionCel(bh: Blackhole): Unit = {
@@ -733,7 +741,7 @@ class RenderBench {
           conditionViaCel,
           null,
           "dashboard",
-          Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
+          isOnInputs(st, _ => sys.error("no fetch"))
         )
       )
       i += 1
@@ -756,18 +764,22 @@ class RenderBench {
     )
   )
 
+  private lazy val litNotDimRun = Evaluator.plain(litNotDim)
+
   /** An and over an or and a not, per leaf: every kind of step a tree nests. */
   @Benchmark
   def conditionTree(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Conditions.holds(litNotDim, leafStates(i), st))
+      bh.consume(
+        Evaluator.holds(litNotDimRun(leafStates(i), st, Evaluator.noFetch))
+      )
       i += 1
     }
   }
 
-  private lazy val bright =
-    Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100))
+  private lazy val brightRun =
+    Evaluator.plain(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
 
   /** A guard over an attribute, on a state as a frame hands it over: a copy, so
     * nothing a read caches on the state is there yet.
@@ -776,18 +788,22 @@ class RenderBench {
   def conditionAttr(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Conditions.holds(bright, leafStates(i).copy(), st))
+      bh.consume(
+        Evaluator.holds(brightRun(leafStates(i).copy(), st, Evaluator.noFetch))
+      )
       i += 1
     }
   }
 
   // Each pill lit while its own light leads, as `first().eq(e)` writes it.
   private lazy val leaders = Array.tabulate(Pills)(i =>
-    Conds.first(
-      candidates = List.tabulate(Pills)(entityId),
-      orderBy =
-        List(LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")),
-      entity = entityId(i)
+    Evaluator.plain(
+      Conds.first(
+        candidates = List.tabulate(Pills)(entityId),
+        orderBy =
+          List(LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")),
+        entity = entityId(i)
+      )
     )
   )
 
@@ -796,7 +812,7 @@ class RenderBench {
   def leaderRow(bh: Blackhole): Unit = {
     var i = 0
     while (i < Pills) {
-      bh.consume(Conditions.holds(leaders(i), EntityState.none, st))
+      bh.consume(Evaluator.holds(leaders(i)(null, st, Evaluator.noFetch)))
       i += 1
     }
   }

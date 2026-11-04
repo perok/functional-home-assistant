@@ -296,7 +296,7 @@ class Server(
     )
 
   /** A set's candidates present in the store now, the same rule a label's count
-    * of it reads (`Conditions.presentOf`); `None` when none is. Only ever a
+    * of it reads (`Evaluator.presentOf`); `None` when none is. Only ever a
     * subset of the candidates fixed at build, so a press reaches nothing the
     * dashboard does not name.
     */
@@ -306,7 +306,7 @@ class Server(
       case t: Value.Present =>
         stateStore.snapshot.map(states =>
           NonEmptyList
-            .fromList(Conditions.presentOf(t, states))
+            .fromList(Evaluator.presentOf(t, states))
             .map(ServiceTarget.Entities(_))
         )
     }

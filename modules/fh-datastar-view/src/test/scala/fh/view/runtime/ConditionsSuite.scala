@@ -2,12 +2,12 @@ package fh.view.runtime
 
 import fh.view.testkit.Conds
 
-import fh.view.model.{Op, Step, Value, ValueExpr}
+import fh.view.model.{Lit, Op, Part, Step, Transform, Value, ValueExpr}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
-/** Evaluating the query wire AST against live state, for a set clause's guard,
-  * a state surface's condition and a `Count` inside either; none needs a
+/** A condition compiled and decided against live state, for a set clause's
+  * guard, a state surface's condition and a `Count` inside either; none needs a
   * renderer.
   */
 class ConditionsSuite extends munit.FunSuite {
@@ -25,8 +25,21 @@ class ConditionsSuite extends munit.FunSuite {
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
 
-  private def matches(p: ValueExpr, st: EntityState) =
-    Conditions.holds(p, st, Map.empty)
+  private def run(
+      p: ValueExpr,
+      st: EntityState,
+      states: Map[String, EntityState]
+  ) =
+    Evaluator.plain(p)(st, states, Evaluator.noFetch)
+
+  private def holds(
+      p: ValueExpr,
+      st: EntityState,
+      states: Map[String, EntityState]
+  ) =
+    Evaluator.holds(run(p, st, states))
+
+  private def matches(p: ValueExpr, st: EntityState) = holds(p, st, Map.empty)
 
   test("comparisons read state and attributes off the subject") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
@@ -44,7 +57,14 @@ class ConditionsSuite extends munit.FunSuite {
       )
     )
     assert(matches(both, s))
-    assert(matches(Conds.not(both), st("light.x", "18")))
+    assert(
+      matches(
+        Conds.not(both),
+        st("light.x", "18", "battery" -> Json.fromInt(50))
+      )
+    )
+    // An attribute it does not report is no value, and so is its negation.
+    assert(!matches(Conds.not(both), st("light.x", "18")))
     assert(
       matches(
         Conds.or(List(cmp("state", Op.Eq, Json.fromString("19")), both)),
@@ -72,7 +92,7 @@ class ConditionsSuite extends munit.FunSuite {
   test("a guard may name a DIFFERENT entity than its subject") {
     val states = snapshot(st("light.a", "off"), st("binary_sensor.hall", "on"))
     assert(
-      Conditions.holds(
+      holds(
         isOn("binary_sensor.hall"),
         states("light.a"),
         states
@@ -87,7 +107,7 @@ class ConditionsSuite extends munit.FunSuite {
     // about it.
     val subject = st("light.a", "on")
     assertEquals(
-      Conditions.holds(isOn("light.ghost"), subject, snapshot(subject)),
+      holds(isOn("light.ghost"), subject, snapshot(subject)),
       false
     )
   }
@@ -110,7 +130,7 @@ class ConditionsSuite extends munit.FunSuite {
       op = Op.Eq,
       value = Json.fromInt(2)
     )
-    assert(Conditions.holds(count, EntityState.none, states), clue = states)
+    assert(holds(count, EntityState.none, states), clue = states)
   }
 
   test("a guarded candidate the snapshot lacks does not count") {
@@ -124,13 +144,15 @@ class ConditionsSuite extends munit.FunSuite {
       op = Op.Eq,
       value = Json.fromInt(1)
     )
-    assert(Conditions.holds(count, EntityState.none, states))
+    assert(holds(count, EntityState.none, states))
   }
 
   test("a condition decides as the rule says, over a sweep") {
-    // Equality as text (`21.0` is not `21`), ordering numeric or false, a
-    // missing attribute empty, an entity the snapshot lacks false, and
-    // and/or/not over all of them. The oracle is the rule itself.
+    // The literal's type picks the comparison: a number on the number line
+    // (`21.0` is `21`), `ne` its negation; text as text, ordering numeric when
+    // both parse; a bool as equality. A missing attribute or entity is no
+    // value, which no comparison holds over, and and/or/not are Kleene's over
+    // it. The oracle is the rule itself, `None` for no value.
     val subject =
       st(
         "sensor.x",
@@ -153,29 +175,52 @@ class ConditionsSuite extends munit.FunSuite {
       op <- Op.values.toList
       value <- values
       entity <- List(None, Some("binary_sensor.hall"), Some("light.ghost"))
-    } yield cmp(property, op, value, entity) -> entity
-      .fold(Some(subject))(states.get)
-      .exists(at =>
-        Conditions.compare(
-          if (property == "state") at.state
-          else
-            at.attributes
-              .get(property.stripPrefix("attr:"))
-              .fold("")(StateStore.jsonToString),
-          StateStore.jsonToString(value),
-          op
+    } yield
+      val read: Option[Any] = entity
+        .fold(Some(subject))(states.get)
+        .map(at =>
+          Transform.read(
+            if (property == "state") Part.State
+            else Part.Attr(property.stripPrefix("attr:")),
+            at
+          )
         )
+        .filter(_ != null)
+      cmp(property, op, value, entity) -> read.map(v =>
+        value.as[Lit].toOption.get match
+          case l @ (Lit.Whole(_) | Lit.Real(_)) =>
+            val n = Transform.number(l.raw).get
+            if (op == Op.Ne) !Transform.number(v).contains(n)
+            else Transform.number(v).exists(x => onLine(x, n, op))
+          case Lit.Bool(b) =>
+            op match
+              case Op.Eq => Transform.text(v) == b.toString
+              case Op.Ne => Transform.text(v) != b.toString
+              case _     => false
+          case Lit.Text(t) =>
+            op match
+              case Op.Eq => Transform.text(v) == t
+              case Op.Ne => Transform.text(v) != t
+              case _     =>
+                (Transform.text(v).toDoubleOption, t.toDoubleOption) match
+                  case (Some(x), Some(y)) => onLine(x, y, op)
+                  case _                  => false
       )
+    def and(a: Option[Boolean], b: Option[Boolean]) =
+      if (a.contains(false) || b.contains(false)) Some(false)
+      else if (a.isEmpty || b.isEmpty) None
+      else Some(true)
+    def not(a: Option[Boolean]) = a.map(!_)
     val pairs = cmps.zip(cmps.drop(7) ++ cmps.take(7))
-    val trees = cmps ++ cmps.map((c, o) => Conds.not(c) -> !o) ++
+    val trees = cmps ++ cmps.map((c, o) => Conds.not(c) -> not(o)) ++
       pairs.flatMap { case ((a, oa), (b, ob)) =>
         List(
-          Conds.and(List(a, b)) -> (oa && ob),
-          Conds.or(List(a, Conds.not(b))) -> (oa || !ob)
+          Conds.and(List(a, b)) -> and(oa, ob),
+          Conds.or(List(a, Conds.not(b))) -> not(and(not(oa), ob))
         )
-      } :+ (Conds.and(Nil) -> true) :+ (Conds.or(Nil) -> false)
+      } :+ (Conds.and(Nil) -> Some(true)) :+ (Conds.or(Nil) -> Some(false))
     trees.foreach((c, expected) =>
-      assertEquals(Conditions.holds(c, subject, states), expected, clue = c)
+      assertEquals(holds(c, subject, states), expected.contains(true), clue = c)
     )
   }
 
@@ -196,14 +241,14 @@ class ConditionsSuite extends munit.FunSuite {
       op <- Op.values.toList
       n <- -1 to size + 1
     } {
-      val full = Conditions.present(Value.Present(ids, guards), states)
+      val full = Evaluator.presentOf(Value.Present(ids, guards), states).size
       assertEquals(
-        Conditions.holds(
+        holds(
           Conds.count(ids, guards, op, Json.fromInt(n)),
           EntityState.none,
           states
         ),
-        Conditions.compare(full.toString, n.toString, op),
+        onLine(full.toDouble, n.toDouble, op),
         clue = (ids, op, n)
       )
     }
@@ -215,18 +260,23 @@ class ConditionsSuite extends munit.FunSuite {
     val on = (isOn("light.a"))
     def of(step: Step, items: ValueExpr*) =
       ValueExpr(Value.List(items.toList), List(step))
-    assert(!Conditions.holds(of(Step.AllOf, off, on), s, snapshot(s)))
-    assert(Conditions.holds(of(Step.AnyOf, on, off), s, snapshot(s)))
-    assert(Conditions.holds(of(Step.AllOf), s, snapshot(s)))
-    assert(!Conditions.holds(of(Step.AnyOf), s, snapshot(s)))
-    assertEquals(
-      Conditions.eval(of(Step.Count, on, off), s, snapshot(s)),
-      2L
-    )
+    assert(!holds(of(Step.AllOf, off, on), s, snapshot(s)))
+    assert(holds(of(Step.AnyOf, on, off), s, snapshot(s)))
+    assert(holds(of(Step.AllOf), s, snapshot(s)))
+    assert(!holds(of(Step.AnyOf), s, snapshot(s)))
+    assertEquals(run(of(Step.Count, on, off), s, snapshot(s)), 2L)
   }
 
-  test("a read of an entity the snapshot lacks evaluates empty, not a marker") {
+  test("a read of an entity the snapshot lacks is no value, not a stand-in") {
     val ghost = ValueExpr(Value.Entity(Some("light.ghost")))
-    assertEquals(Conditions.eval(ghost, EntityState.none, Map.empty), "")
+    assertEquals(run(ghost, EntityState.none, Map.empty), null)
   }
+
+  private def onLine(l: Double, r: Double, op: Op): Boolean = op match
+    case Op.Eq  => l == r
+    case Op.Ne  => l != r
+    case Op.Lt  => l < r
+    case Op.Lte => l <= r
+    case Op.Gt  => l > r
+    case Op.Gte => l >= r
 }

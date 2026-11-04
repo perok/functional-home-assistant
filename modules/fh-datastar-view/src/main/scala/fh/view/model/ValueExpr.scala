@@ -123,9 +123,9 @@ final case class ValueExpr(
       None
     case _ => typed(Nil).toOption.map(_.out)
 
-  /** Decided by `Conditions`, without the engine: no CEL, and a step only a
-    * condition runs. It reads an attribute as its JSON text, which the
-    * renderer's own reads do not.
+  /** A condition: no CEL, and a step that decides (`AllOf`, `AnyOf`, `Not`,
+    * `Compare`, `First`). What a clause, a guard, a state surface and an order
+    * term are held to, and whose missing subject `validate` names.
     */
   lazy val isCondition: Boolean =
     celSources.isEmpty && steps.exists {

@@ -1,7 +1,7 @@
 package fh.view.model
 
 import fh.view.history.ChartStyle
-import fh.view.runtime.{Cel, Conditions, EntityState}
+import fh.view.runtime.{Cel, EntityState}
 
 /** Slot transforms in [CEL](https://cel.dev), over `value` (the value before
   * the step), the named inputs, `dashboard_slug` and `time_zone`. A whole
@@ -20,7 +20,8 @@ object Transform {
   /** The engine-free tier (ADR 0028), selected by form alone: a source read and
     * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
     * and nothing infers one from the other. A condition is its bool half, so it
-    * fills a slot as directly as it decides a `c.iff` (`Conditions`).
+    * fills a slot as directly as it decides a `c.iff`: one compiler runs both
+    * (`Evaluator`).
     *
     * A step belongs here when it is a static lookup and TOTAL over every value
     * a live entity can produce — the load-bearing half, since
@@ -70,21 +71,21 @@ object Transform {
       // Operands without an `Option`: this runs per resolve of every slider
       // track, and two `Some`s and their boxes each time showed in RenderBench.
       case Step.Percent(_, _) =>
-        num(value) match
+        number(value) match
           case Some(v) if isNum(a) && isNum(b) =>
             val min = dbl(a)
             val max = dbl(b)
             Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
           case _ => null
       case Step.Fill(_, _) =>
-        num(value) match
+        number(value) match
           case Some(v) if isNum(a) && isNum(b) =>
             val min = dbl(a)
             val max = dbl(b)
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
           case _ => null
       case Step.Duration(scale) =>
-        num(value) match
+        number(value) match
           case Some(v) =>
             val t = roundAway(v * scale).toLong
             if (t <= 0) "0s"
@@ -129,20 +130,32 @@ object Transform {
     */
   private def compare(value: Any, operand: Any, op: Op, to: Value): Boolean =
     to match
+      // `ne` is not `eq`, as in CEL, where values of two types are unequal.
       case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
-        num(value).exists(onLine(_, dbl(operand), op))
+        if (op == Op.Ne) !number(value).exists(_ == dbl(operand))
+        else number(value).exists(onLine(_, dbl(operand), op))
       case Value.Literal(Lit.Bool(_)) =>
         op match
           case Op.Eq => text(value) == text(operand)
           case Op.Ne => text(value) != text(operand)
           case _     => false
       case Value.Literal(Lit.Text(_)) =>
-        Conditions.compare(text(value), text(operand), op)
+        textCompare(text(value), text(operand), op)
       case _ =>
         (value, operand) match
           case (l: java.lang.Number, r: java.lang.Number) =>
             onLine(l.doubleValue, r.doubleValue, op)
-          case _ => Conditions.compare(text(value), text(operand), op)
+          case _ => textCompare(text(value), text(operand), op)
+
+  // Equality as text; ordering numeric when both parse, else false.
+  private def textCompare(lhs: String, rhs: String, op: Op): Boolean =
+    op match
+      case Op.Eq => lhs == rhs
+      case Op.Ne => lhs != rhs
+      case _     =>
+        (lhs.toDoubleOption, rhs.toDoubleOption) match
+          case (Some(l), Some(r)) => onLine(l, r, op)
+          case _                  => false
 
   private def onLine(l: Double, r: Double, op: Op): Boolean = op match
     case Op.Eq  => l == r
@@ -152,8 +165,8 @@ object Transform {
     case Op.Gt  => l > r
     case Op.Gte => l >= r
 
-  /** As CEL's `double()` accepts; anything else is the absent form. */
-  private def num(v: Any): Option[Double] = v match
+  /** As CEL's `double()` accepts; anything else is no number. */
+  def number(v: Any): Option[Double] = v match
     case n: java.lang.Number => Some(n.doubleValue)
     case s: String           => s.toDoubleOption
     case _                   => None
