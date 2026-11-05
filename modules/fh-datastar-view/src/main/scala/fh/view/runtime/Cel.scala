@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{SlotValue, ValueType}
 
-import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
+import dev.cel.common.{CelAbstractSyntaxTree, CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.ast.CelExpr
 import dev.cel.common.navigation.CelNavigableAst
 import dev.cel.common.types.{
@@ -246,14 +246,46 @@ object Cel {
       src: String,
       env: List[(String, ValueType)],
       value: Option[ValueType]
-  ) = {
+  ): Either[String, CelAbstractSyntaxTree] = {
     val trimmed = src.trim
     if (trimmed.isEmpty) Left("empty transform expression")
-    else {
-      val result = compilerWith(env, value).compile(trimmed)
-      if (result.hasError) Left(s"invalid CEL: ${result.getErrorString}")
-      else Right(result.getAst)
+    else
+      asts.getOrElseUpdate(
+        (trimmed, env, value), {
+          val result = compilerWith(env, value).compile(trimmed)
+          if (result.hasError) Left(s"invalid CEL: ${result.getErrorString}")
+          else Right(result.getAst)
+        }
+      )
+  }
+
+  /** Each source is typed once per node that reads it and compiled again for
+    * the renderer, and a dump refresh validates every dashboard anew: a check
+    * against its own compiler, per set of typed names, is most of `validate`
+    * (`ValidateBench`).
+    */
+  // ponytail: process-wide LRUs sized for a few houses' worth of sources;
+  // per-validation scoping if one process ever serves many unrelated sites.
+  private val asts =
+    Lru[(String, List[(String, ValueType)], Option[ValueType]), Either[
+      String,
+      CelAbstractSyntaxTree
+    ]](1024)
+  private val compilers =
+    Lru[(List[(String, ValueType)], Option[ValueType]), CelCompiler](128)
+
+  private final class Lru[K, V](max: Int) {
+    private val m = new java.util.LinkedHashMap[K, V](16, 0.75f, true) {
+      override def removeEldestEntry(e: java.util.Map.Entry[K, V]): Boolean =
+        size > max
     }
+    def getOrElseUpdate(k: K, v: => V): V =
+      m.synchronized(m.get(k)) match
+        case null =>
+          val made = v
+          m.synchronized { m.put(k, made); () }
+          made
+        case hit => hit
   }
 
   /** An optional is `dyn`: it renders as what it holds, or `""`. */
@@ -278,11 +310,14 @@ object Cel {
   ): CelCompiler =
     if (env.isEmpty && value.isEmpty) compiler
     else
-      (value.map("value" -> _).toList ++ env)
-        .foldLeft(compiler.toCompilerBuilder()) { case (b, (name, ty)) =>
-          b.addVar(name, celType(ty))
-        }
-        .build()
+      compilers.getOrElseUpdate(
+        (env, value),
+        (value.map("value" -> _).toList ++ env)
+          .foldLeft(compiler.toCompilerBuilder()) { case (b, (name, ty)) =>
+            b.addVar(name, celType(ty))
+          }
+          .build()
+      )
 
   private def celType(t: ValueType): CelType = t match
     case ValueType.Text | ValueType.Markup => SimpleType.STRING
