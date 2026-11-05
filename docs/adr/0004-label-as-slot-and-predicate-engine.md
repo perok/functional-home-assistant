@@ -83,7 +83,7 @@ cards).
 
 ## Attribute conversion is memoized per state version
 
-`Transform.run` needs the entity's attributes as Java values. The conversion
+A CEL evaluation needs the entity's attributes as Java values. The conversion
 lives on `EntityState.javaAttributes`, computed **once per state version** (a
 fresh `EntityState` is built on every change, so the cache self-invalidates).
 A card with three `attr` slots converts once; the win applies to every

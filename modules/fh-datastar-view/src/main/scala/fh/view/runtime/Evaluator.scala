@@ -1,13 +1,14 @@
 package fh.view.runtime
 
+import scala.jdk.CollectionConverters.*
+
 import fh.view.model.{
   FetchTemplate,
-  LayoutNode,
   Lit,
   Op,
   Reads,
+  SortTerm,
   Step,
-  Transform,
   Value,
   ValueExpr,
   ValueType
@@ -41,11 +42,14 @@ private[view] object Evaluator {
   /** `programs`: each CEL's, in the order [[ValueExpr.typed]] keys them. */
   def compile(
       e: ValueExpr,
-      programs: Iterator[Transform.Compiled],
+      programs: Iterator[Cel.Program],
       slug: String,
       inputs: Inputs
   ): Run = {
-    // The early stops, picked once: each decides without building the list.
+    // How a source is read, picked once from the step after it: where that
+    // step can stop early, the items or candidates are read one at a time
+    // and the list is never built. A list CEL built is already whole, so its
+    // and/or is the step's own.
     val (start, rest) = (e.source, e.steps) match
       case (
             p: Value.Present,
@@ -53,9 +57,9 @@ private[view] object Evaluator {
           ) =>
         (countIs(p.candidates, present(p), op, n), r)
       case (Value.List(items), Step.AllOf :: r) =>
-        (kleene(items.map(plain(_)), decides = false), r)
+        (junction(items.map(plain(_)), decides = false), r)
       case (Value.List(items), Step.AnyOf :: r) =>
-        (kleene(items.map(plain(_)), decides = true), r)
+        (junction(items.map(plain(_)), decides = true), r)
       case (source, steps) => (read(source, programs, slug, inputs), steps)
     rest.foldLeft(start)((prev, s) => step(s, prev, programs, slug, inputs))
   }
@@ -101,7 +105,7 @@ private[view] object Evaluator {
     * value's, no value last in either direction, else numbers on the number
     * line and text as text, numeric when both parse.
     */
-  final class Keys(terms: List[LayoutNode.SortTerm]) {
+  final class Keys(terms: List[SortTerm]) {
     private val runs = terms.map(t => plain(t.by)).toArray
     private val bool =
       terms.map(_.by.typed(Nil).exists(_.out == ValueType.Bool)).toArray
@@ -136,9 +140,9 @@ private[view] object Evaluator {
       else if (noValue(l) || noValue(r))
         java.lang.Boolean.compare(noValue(l), noValue(r))
       else
-        directed((Transform.number(l), Transform.number(r)) match
+        directed((Steps.number(l), Steps.number(r)) match
           case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
-          case _ => Transform.text(l).compareTo(Transform.text(r)))
+          case _                  => Steps.text(l).compareTo(Steps.text(r)))
 
     private def noValue(v: Any): Boolean = v match
       case null      => true
@@ -153,7 +157,7 @@ private[view] object Evaluator {
 
   private def read(
       v: Value,
-      programs: Iterator[Transform.Compiled],
+      programs: Iterator[Cel.Program],
       slug: String,
       inputs: Inputs
   ): Run = v match
@@ -161,18 +165,18 @@ private[view] object Evaluator {
     // the store holds it: a service picked by its domain.
     case Value.Entity(Some(id), part, Reads.Once, _) =>
       val identity = EntityState(id, "", Map.empty)
-      (_, states, _) => Transform.read(part, states.getOrElse(id, identity))
+      (_, states, _) => Steps.read(part, states.getOrElse(id, identity))
     case Value.Entity(of, part, _, _) =>
       of match
         case None =>
           (subject, _, _) =>
-            if (subject == null) null else Transform.read(part, subject)
+            if (subject == null) null else Steps.read(part, subject)
         case Some(id) =>
           (subject, states, _) =>
             val st: EntityState | Null =
               if (subject != null && subject.entityId == id) subject
               else states.getOrElse(id, null)
-            if (st == null) null else Transform.read(part, st)
+            if (st == null) null else Steps.read(part, st)
     case Value.Literal(l) =>
       val c = l.raw
       (_, _, _) => c
@@ -192,7 +196,7 @@ private[view] object Evaluator {
   private def step(
       s: Step,
       prev: Run,
-      programs: Iterator[Transform.Compiled],
+      programs: Iterator[Cel.Program],
       slug: String,
       inputs: Inputs
   ): Run = s match
@@ -227,7 +231,7 @@ private[view] object Evaluator {
         (subject, states, fetched) =>
           val v = prev(subject, states, fetched)
           if (v == null && strictIn) null
-          else Transform.formatWith(f, v, null, null)
+          else Steps.formatWith(f, v, null, null)
       case List(a) =>
         (subject, states, fetched) =>
           val v = prev(subject, states, fetched)
@@ -235,7 +239,7 @@ private[view] object Evaluator {
           else
             val x = a(subject, states)
             if (x == null && strictOps) null
-            else Transform.formatWith(f, v, x, null)
+            else Steps.formatWith(f, v, x, null)
       case a :: b :: _ =>
         (subject, states, fetched) =>
           val v = prev(subject, states, fetched)
@@ -244,12 +248,12 @@ private[view] object Evaluator {
             val x = a(subject, states)
             val y = b(subject, states)
             if ((x == null || y == null) && strictOps) null
-            else Transform.formatWith(f, v, x, y)
+            else Steps.formatWith(f, v, x, y)
   }
 
   /** A step's operand: a literal, read once here, or an entity's part. */
   private def operand(
-      v: Value
+      v: Value.Operand
   ): (EntityState | Null, Map[String, EntityState]) => Any =
     v match
       case Value.Literal(l) =>
@@ -258,15 +262,17 @@ private[view] object Evaluator {
       case Value.Entity(Some(id), part, _, _) =>
         (_, states) =>
           val st = states.getOrElse(id, null)
-          if (st == null) null else Transform.read(part, st)
+          if (st == null) null else Steps.read(part, st)
       case Value.Entity(None, part, _, _) =>
-        (subject, _) =>
-          if (subject == null) null else Transform.read(part, subject)
-      case _ => (_, _) => null
+        (subject, _) => if (subject == null) null else Steps.read(part, subject)
 
-  /** CEL's optional is the value or `null` once it leaves the step. */
+  /** CEL's optional is the value or `null` once it leaves the step, and its
+    * list the `List` every list step reads: a Java list read as no value in
+    * each of them.
+    */
   private def lift(v: Any): Any = v match
     case o: java.util.Optional[?] => if (o.isPresent) o.get else null
+    case l: java.util.List[?]     => List.from(l.iterator.asScala)
     case other                    => other
 
   /** Whether a candidate is present: unguarded, or its guard holds over it. */
@@ -314,25 +320,15 @@ private[view] object Evaluator {
       holdsAt(lo)
   }
 
-  /** And (`decides = false`) or or (`true`), Kleene's: the value that decides
-    * stops it, else `null` if any item had none.
-    */
-  private def kleene(items: List[Run], decides: Boolean): Run =
+  /** An and/or over a list source's items, each run only until one decides. */
+  private def junction(items: List[Run], decides: Boolean): Run =
     (subject, states, fetched) =>
       var rest = items
-      var unknown = false
-      var decided = false
-      while (rest.nonEmpty) {
-        rest.head(subject, states, fetched) match
-          case b: java.lang.Boolean if b.booleanValue == decides =>
-            decided = true
-            rest = Nil
-          case _: java.lang.Boolean => rest = rest.tail
-          case _                    =>
-            unknown = true
-            rest = rest.tail
+      Steps.kleene(decides)(rest.nonEmpty) {
+        val v = rest.head(subject, states, fetched)
+        rest = rest.tail
+        v
       }
-      if (decided) decides else if (unknown) null else !decides
 
   /** One pass, each key read once; the earliest wins a tie, as a set's stable
     * sort keeps candidate order.

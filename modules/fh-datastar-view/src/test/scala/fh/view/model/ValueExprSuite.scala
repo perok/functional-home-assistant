@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.runtime.Steps
 import io.circe.parser.decode
 
 /** The condition kinds (plan Part B): a list and the steps that decide over it,
@@ -8,7 +9,7 @@ import io.circe.parser.decode
 class ValueExprSuite extends munit.FunSuite {
 
   private def state(of: String) = Value.Entity(Some(of))
-  private val on = Value.Literal(Lit.Text("on"))
+  private val on: Value.Operand = Value.Literal(Lit.Text("on"))
 
   private def isOn(of: String) =
     ValueExpr(state(of), List(Step.Compare(Op.Eq, on)))
@@ -133,7 +134,7 @@ class ValueExprSuite extends munit.FunSuite {
       typeOf(present(ValueExpr(Value.Cel("true")), Step.Count)),
       Left("the guard on 'a.a': a condition is read without CEL")
     )
-    val byCel = LayoutNode.SortTerm(ValueExpr(Value.Cel("true")))
+    val byCel = SortTerm(ValueExpr(Value.Cel("true")))
     assertEquals(
       typeOf(present(isOn("a.a"), Step.First(List(byCel)))),
       Left("an order term is read without CEL")
@@ -169,12 +170,31 @@ class ValueExprSuite extends munit.FunSuite {
 
   test("the renderer's fold runs the new steps as the condition reader does") {
     def run(s: Step.Simple, v: Any, a: Any = null) =
-      Transform.formatWith(s, v, a, null)
+      Steps.formatWith(s, v, a, null)
     assertEquals(run(Step.AllOf, List(true, false)), false)
     assertEquals(run(Step.AnyOf, List(false, true)), true)
     assertEquals(run(Step.Not, true), false)
     assertEquals(run(Step.Compare(Op.Lt, on), "9", "10"), true)
     assertEquals(run(Step.Compare(Op.Lt, on), "warm", "10"), false)
     assertEquals(run(Step.Compare(Op.Eq, on), "on", "on"), true)
+  }
+
+  test("an entity read anywhere inside makes it live, not only its source") {
+    val lit: Value.Operand = Value.Literal(Lit.Whole(5))
+    val temp: Value.Operand = Value.Entity(Some("sensor.t"))
+    def over(s: Step) = ValueExpr(lit, List(s))
+    assert(!over(Step.Compare(Op.Gt, lit)).isLive)
+    assert(over(Step.Compare(Op.Gt, temp)).isLive)
+    assert(!ValueExpr(Value.List(List(over(Step.Not))), Nil).isLive)
+    assert(
+      ValueExpr(Value.List(List(ValueExpr(state("light.a")))), Nil).isLive
+    )
+    val ids = Value.List(List(ValueExpr(Value.Literal(Lit.Text("light.a")))))
+    assert(
+      ValueExpr(
+        ids,
+        List(Step.First(List(SortTerm(ValueExpr(Value.Entity())))))
+      ).isLive
+    )
   }
 }

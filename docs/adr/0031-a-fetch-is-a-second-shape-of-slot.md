@@ -170,7 +170,7 @@ any span, and statistics at `5minute` up to `year`.
   tier of its own: ADR 0015), and the chart stage beside the cards
   that draw with it (`components/base/chart.pkl`). An unknown provider is a decode failure naming the known ones.
 - **A provider is typed in the model, as a stage is.** `FetchTemplate` is history's question, and
-  a second provider makes it a sum, as `FetchRequest` is. `Stage.Chart` carries a `ChartStyle`,
+  a second provider makes it a sum, as `FetchRequest` is. `Step.Chart` carries a `ChartStyle`,
   typed at both ends (`components/base/chart.pkl`'s `ChartParams`). Each is decoded with the wire, so
   no value is parsed twice.
 - **Decoding and validating are pure and separate from resolving**, which removes the wiring

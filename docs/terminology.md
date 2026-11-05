@@ -74,8 +74,10 @@ What a reading means — typed reads, `null` as the one absent value, every step
 comparison picks its meaning, where a value leaves it — is ADR 0035, the value language; one
 evaluator runs every reading, slot and condition alike.
 
-**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate` in Pkl: `q.from(xs).where(…).any()`,
-`q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
+**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate` in Pkl, a `slotMod.ValueExpr`
+of a bool — like a **Reading** a source and its steps, without a reading's slot fields:
+`q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")`). A boolean input takes one where it takes a
+reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
 which is not a condition: it is a viewer's selection, so it is not shared and never flips. On the
 wire it is a bool `ValueExpr` of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`,
 `AllOf`/`AnyOf` over a `List`, `Count` over a set's **present** ids, `First` over a list of ids — decided by the
@@ -491,8 +493,8 @@ with no content cannot be written. The version says AS OF WHEN this content beca
 non-decreasing, and doubles as the caching policy — a stable one is shared by every viewer, one that
 moves every call is uncached by construction.
 
-**Stage** — a step the renderer runs itself (`Step.Stage`): a fetch's `Chart`, which draws its answer
-as SVG, and `ThemeClasses`, the theme's class swap. A fetch slot with no chart passes the provider's
+**Stage** — a step the renderer runs itself (`Step.Stage`): a fetch's stage (`Step.FetchStage`, a
+closed set: `Chart`, which draws its answer as SVG), and `ThemeClasses`, the theme's class swap. A fetch slot with no chart passes the provider's
 JSON through, which is the contract a third party writing their own chart library reads against. A fetch slot's default is derived from its
 shape, the same rule `reads` follows, so the wire states which tier is in play rather than leaving a
 reader to infer it.

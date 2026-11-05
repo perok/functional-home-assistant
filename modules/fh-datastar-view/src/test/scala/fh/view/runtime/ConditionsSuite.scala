@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.testkit.Conds
 
-import fh.view.model.{Lit, Op, Part, Step, Transform, Value, ValueExpr}
+import fh.view.model.{Lit, Op, Part, Step, Value, ValueExpr}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
@@ -179,7 +179,7 @@ class ConditionsSuite extends munit.FunSuite {
       val read: Option[Any] = entity
         .fold(Some(subject))(states.get)
         .map(at =>
-          Transform.read(
+          Steps.read(
             if (property == "state") Part.State
             else Part.Attr(property.stripPrefix("attr:")),
             at
@@ -189,20 +189,20 @@ class ConditionsSuite extends munit.FunSuite {
       cmp(property, op, value, entity) -> read.map(v =>
         value.as[Lit].toOption.get match
           case l @ (Lit.Whole(_) | Lit.Real(_)) =>
-            val n = Transform.number(l.raw).get
-            if (op == Op.Ne) !Transform.number(v).contains(n)
-            else Transform.number(v).exists(x => onLine(x, n, op))
+            val n = Steps.number(l.raw).get
+            if (op == Op.Ne) !Steps.number(v).contains(n)
+            else Steps.number(v).exists(x => onLine(x, n, op))
           case Lit.Bool(b) =>
             op match
-              case Op.Eq => Transform.text(v) == b.toString
-              case Op.Ne => Transform.text(v) != b.toString
+              case Op.Eq => Steps.text(v) == b.toString
+              case Op.Ne => Steps.text(v) != b.toString
               case _     => false
           case Lit.Text(t) =>
             op match
-              case Op.Eq => Transform.text(v) == t
-              case Op.Ne => Transform.text(v) != t
+              case Op.Eq => Steps.text(v) == t
+              case Op.Ne => Steps.text(v) != t
               case _     =>
-                (Transform.text(v).toDoubleOption, t.toDoubleOption) match
+                (Steps.text(v).toDoubleOption, t.toDoubleOption) match
                   case (Some(x), Some(y)) => onLine(x, y, op)
                   case _                  => false
       )

@@ -148,7 +148,7 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    argument needs no parser. Also rejected: one class holding every step's fields as optional,
    which Pkl could not check and `WireShapeSuite` could not compare with any single Scala case.
 4. **Each step is defined on its own terms**, on its Scala case, and must be total. Where one has
-   an idiomatic CEL spelling it is documented there, and `TransformSuite`'s battery evaluates that
+   an idiomatic CEL spelling it is documented there, and `StepsSuite`'s battery evaluates that
    spelling through the engine, asserting **byte-equality with the fast read over the hostile
    sweep**, so a step and the CEL an author would write never disagree. A step with no CEL
    spelling — an operand naming an entity, `WithUnit` over a number (a number plus a string

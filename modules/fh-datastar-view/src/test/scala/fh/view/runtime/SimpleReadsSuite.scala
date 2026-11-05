@@ -26,7 +26,7 @@ class SimpleReadsSuite extends munit.FunSuite {
   private def reading(
       of: Option[String],
       part: Part = Part.State,
-      reads: String = Reads.Live
+      reads: Reads = Reads.Live
   )(steps: Step*) =
     ValueExpr(
       Value.Entity(of, part, reads, bypassUnavailable = false),
@@ -66,13 +66,15 @@ class SimpleReadsSuite extends munit.FunSuite {
       .toList
 
   /** An operand read off `e`, as the renderer reads one off its entity. */
-  private def over(e: EntityState): Value => Any = {
-    case Value.Entity(_, part, _, _) => Transform.read(part, e)
-    case Value.Literal(l)            => l.raw
-    case _                           => ""
-  }
+  /** One step over `part` of `e`, as the evaluator runs it. */
+  private def run(part: Part, step: Step, e: EntityState): Any =
+    Evaluator.plain(ValueExpr(Value.Entity(None, part), List(step)))(
+      e,
+      Map(e.entityId -> e),
+      Evaluator.noFetch
+    )
 
-  private def whole(n: Long) = Value.Literal(Lit.Whole(n))
+  private def whole(n: Long): Value.Operand = Value.Literal(Lit.Whole(n))
 
   test("a condition is a slot's source, woken by the entity it names") {
     val d = dashboard(slot(condition(doorOpen), bool = true))
@@ -80,6 +82,45 @@ class SimpleReadsSuite extends munit.FunSuite {
     assert(Renderer.create(d).componentsFor("binary_sensor.door").nonEmpty)
     assertEquals(value(d, states("on")), List[SlotValue](true))
     assertEquals(value(d, states("off")), List[SlotValue](false))
+  }
+
+  test("a list CEL built is a list to every step that takes one") {
+    // A Java list read as no value in each, though `validate` typed it a list.
+    def text(cel: String, step: Step) = dashboard(
+      slot(reading(Some("binary_sensor.door"), Part.Whole)(Step.Cel(cel), step))
+    )
+    val count = text("['a', 'b']", Step.Count)
+    assertEquals(count.validate(), Nil)
+    assertEquals(value(count, states("on")), List[SlotValue]("2"))
+    val leader = text("['sensor.b', 'sensor.a']", Step.First())
+    assertEquals(leader.validate(), Nil)
+    assertEquals(value(leader, states("on")), List[SlotValue]("sensor.b"))
+  }
+
+  test("an and/or over a list CEL built decides as over a list source") {
+    // Only a list source's run is fused; a CEL's list is whole when it lands.
+    def over(step: Step) = dashboard(
+      slot(
+        reading(Some("binary_sensor.door"), Part.Whole)(
+          Step.Cel("[value.state == 'on', value.state == 'open']"),
+          step
+        ),
+        bool = true
+      )
+    )
+    for (step, door, holds) <- List(
+        (Step.AnyOf, "on", true),
+        (Step.AnyOf, "off", false),
+        (Step.AllOf, "on", false),
+        (Step.AllOf, "off", false)
+      )
+    do
+      assertEquals(over(step).validate(), Nil)
+      assertEquals(
+        value(over(step), states(door)),
+        List[SlotValue](holds),
+        clue = (step, door)
+      )
   }
 
   test("a condition naming no entity reads the card's subject") {
@@ -97,10 +138,10 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(value(d, states("on")), List[SlotValue]("80"))
     // One the store does not hold has no value.
     assertEquals(
-      Transform.format(
+      run(
+        Part.Attr("brightness"),
         Step.Percent(whole(0), whole(255)),
-        Transform.read(Part.Attr("brightness"), EntityState.none),
-        over(EntityState.none)
+        EntityState.none
       ),
       null
     )
@@ -109,10 +150,13 @@ class SimpleReadsSuite extends munit.FunSuite {
   test("an attribute with its unit, total over a number and an absence") {
     def read(attrs: (String, Json)*) =
       val e = EntityState("sensor.t", "on", attrs.toMap)
-      Transform.format(
-        Step.WithUnit(Value.Entity(None, Part.Attr("unit_of_measurement"))),
-        Transform.read(Part.Attr("temperature"), e),
-        over(e)
+      // As the slot shows it: an absent value is null, shown as nothing.
+      Steps.text(
+        run(
+          Part.Attr("temperature"),
+          Step.WithUnit(Value.Entity(None, Part.Attr("unit_of_measurement"))),
+          e
+        )
       )
     val unit = "unit_of_measurement" -> Json.fromString("°C")
     assertEquals(
@@ -132,7 +176,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     def read(effect: String) =
       val e =
         EntityState("light.l", "on", Map("effect" -> Json.fromString(effect)))
-      Transform.format(labels, Transform.read(Part.Attr("effect"), e), over(e))
+      run(Part.Attr("effect"), labels, e)
     assertEquals(read("rainbow"), "Rainbow")
     assertEquals(read("candle"), "candle")
     val byEffect = reading(None, Part.Attr("effect"))(labels)
@@ -204,7 +248,7 @@ class SimpleReadsSuite extends munit.FunSuite {
   }
 
   test("only a text slot's own read of a state or a whole entity bypasses") {
-    def bypassing(part: Part) =
+    def bypassing(part: Part): Value.Operand =
       Value.Entity(Some("sensor.a"), part, bypassUnavailable = true)
     def refused(v: TemplateSlot) =
       dashboard(v).validate().exists(_.contains(ValueExpr.MisplacedBypass))
@@ -251,5 +295,60 @@ class SimpleReadsSuite extends munit.FunSuite {
         """{"source": {"kind": "Entity"}, "steps": [{"kind": "Match", "cases": {}}]}"""
       ).isLeft
     )
+  }
+
+  test(
+    "an operand is a literal or an entity read, in every step that has one"
+  ) {
+    // The evaluator reads no other shape, so the wire cannot carry one.
+    val steps = List(
+      """{"kind": "Compare", "op": "eq", "to": %s}""",
+      """{"kind": "Prefix", "text": %s}""",
+      """{"kind": "Suffix", "text": %s}""",
+      """{"kind": "WithUnit", "unit": %s}""",
+      """{"kind": "Percent", "min": %s, "max": 1}""",
+      """{"kind": "Fill", "min": 0, "max": %s}""",
+      """{"kind": "Match", "cases": {}, "otherwise": %s}"""
+    )
+    def step(shape: String, operand: String) =
+      decode[ValueExpr](
+        s"""{"source": {"kind": "Entity"}, "steps": [${shape.format(
+            operand
+          )}]}"""
+      )
+    for shape <- steps do
+      assert(step(shape, "\"x\"").isRight, clue = shape)
+      assert(step(shape, """{"kind": "Entity", "of": "a.b"}""").isRight, shape)
+      for other <- List(
+          """{"kind": "List", "items": []}""",
+          """{"kind": "Present", "candidates": []}""",
+          """{"kind": "Cel", "src": "1"}""",
+          """{"kind": "Fetch", "fetch": {"provider": "history", "entity": "a.b", "window": {"kind": "Raw", "span": 3600}}}"""
+        )
+      do
+        assert(
+          step(shape, other).left.exists(
+            _.getMessage.contains("a literal or an entity read")
+          ),
+          clue = (shape, other)
+        )
+  }
+
+  test(
+    "`reads` and an order term's `dir` decode only as the wire spells them"
+  ) {
+    def reads(r: String) =
+      decode[ValueExpr](s"""{"source": {"kind": "Entity", "reads": "$r"}}""")
+        .map(_.source)
+    for r <- Reads.values do
+      assertEquals(reads(r.wire), Right(Value.Entity(reads = r)))
+    assert(reads("Live").isLeft)
+    def dir(d: String) =
+      decode[SortTerm](
+        s"""{"by": {"source": {"kind": "Entity"}}, "dir": "$d"}"""
+      )
+        .map(_.dir)
+    for d <- SortTerm.Dir.values do assertEquals(dir(d.wire), Right(d))
+    assert(dir("Desc").isLeft)
   }
 }

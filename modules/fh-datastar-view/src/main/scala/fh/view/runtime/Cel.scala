@@ -50,7 +50,7 @@ object Cel {
 
   type Program = dev.cel.runtime.CelRuntime.Program
 
-  /** Both sides of `TransformSuite`'s byte-equality, so one definition. */
+  /** Both sides of `StepsSuite`'s byte-equality, so one definition. */
   private[view] def numToString(d: Double): String =
     if (d.isNaN || d.isInfinite) d.toString
     else if (d == Math.rint(d) && Math.abs(d) < 1e15) d.toLong.toString
@@ -216,6 +216,34 @@ object Cel {
 
   /** Every expression may read these, so a named input may not take one. */
   val fixedNames: Set[String] = Set("value", "dashboard_slug", "time_zone")
+
+  /** A CEL source and the typed names it compiles against: the named inputs it
+    * reads, empty for nearly every slot, and the type its `value` is declared
+    * as, `None` for a CEL source, which has none.
+    */
+  final case class Key(
+      src: String,
+      env: List[(String, ValueType)] = Nil,
+      value: Option[ValueType] = Some(ValueType.Entity)
+  )
+
+  def parse(src: String): Either[String, Program] = parse(Key(src))
+
+  def parse(key: Key): Either[String, Program] =
+    parse(key.src, key.env, key.value)
+
+  def resultType(key: Key): Either[String, ValueType] =
+    resultType(key.src, key.env, key.value)
+
+  /** Over a whole entity, as a node variable's start is. Never throws into the
+    * render: a failure returns its message.
+    */
+  def run(
+      program: Program,
+      entity: EntityState,
+      dashboardSlug: String
+  ): String =
+    SlotValue.text(runValue(program, entity.celValue, dashboardSlug))
 
   /** `env`: the named inputs the source reads, declared beside [[fixedNames]]
     * so a name the node does not declare fails here.

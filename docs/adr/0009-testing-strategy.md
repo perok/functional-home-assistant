@@ -183,7 +183,7 @@ Two consequences:
 are real and hard to re-derive from the outside — but pull their scaffolding from
 `DashboardBuilders` instead of re-declaring it, and stand up the testkit
 `FakeHomeAssistant` rather than a bespoke everything-throws stub. Pure-function
-suites (`RendererSuite` probes, `TransformSuite`, `AssetCacheSuite`,
+suites (`RendererSuite` probes, `StepsSuite`, `AssetCacheSuite`,
 `BuildPhaseSuite`, `PklBuildSuite`) are not `Scene` candidates — `Scene` can't
 express their crafted inputs, and shouldn't try.
 

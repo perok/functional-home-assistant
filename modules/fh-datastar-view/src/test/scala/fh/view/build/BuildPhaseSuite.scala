@@ -244,7 +244,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate: a text step takes text, a number or dyn, nothing else") {
-    val x = Value.Literal(Lit.Text("x"))
+    val x: Value.Operand = Value.Literal(Lit.Text("x"))
     val e = Some("sensor.t")
     def errs(source: Value, step: Step) =
       oneCard("{{v}}", Map("v" -> TemplateSlot(ValueExpr(source, List(step)))))

@@ -2,12 +2,14 @@ package fh.view.model
 
 import cats.syntax.all.*
 import fh.view.history.ChartStyle
+import fh.view.runtime.{Cel, Steps}
 import io.circe.{ACursor, Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** What a slot shows: a value read from its [[source]], then each step run on
-  * it in order (`docs/plan-slot-values.md`). On the wire a bare JSON primitive
-  * is a literal, and every other shape an object whose `kind` names its case.
+  * it in order (ADR 0035, the value language). On the wire a bare JSON
+  * primitive is a literal, and every other shape an object whose `kind` names
+  * its case.
   *
   * @param default
   *   what an empty result shows instead, typed as the slot is.
@@ -25,7 +27,7 @@ final case class ValueExpr(
     case (Value.Literal(l), Nil | List(Step.ThemeClasses)) =>
       Some(l match
         case Lit.Bool(b) => b
-        case other       => Transform.text(other.raw))
+        case other       => Steps.text(other.raw))
     case _ => None
 
   /** A [[constant]] that is text. */
@@ -43,19 +45,37 @@ final case class ValueExpr(
     if (subject.isEmpty && own.isEmpty) this
     else ValueExpr(src, steps.map(Step.about(own)), default)
 
+  /** What it holds besides its source's own read, its source's first. Every
+    * walk below goes through it, so a new value or step kind is a compile error
+    * in [[Value.parts]] or [[Step.parts]], not a walk that skips it.
+    */
+  def parts: List[ValueExpr.Inner] =
+    Value.parts(source) ++ steps.flatMap(Step.parts)
+
   /** Every entity a step's operand names: what wakes the slot besides its
     * source.
     */
   def operandEntities: List[String] =
-    steps.flatMap(Step.operands).flatMap(Value.entityOf)
+    steps.flatMap(Step.operands).flatMap(Value.Operand.entity)
 
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
-    (source :: steps.flatMap(Step.operands)).exists {
-      case Value.Entity(None, _, _, _) => true
-      case Value.List(items)           => items.exists(_.readsMissingSubject)
-      case _                           => false
+    (source match
+      case Value.Entity(of, _, _, _) => of.isEmpty
+      case _                         => false
+    ) || parts.exists {
+      case ValueExpr.Inner.Operand(v) => Value.Operand.unnamed(v)
+      case ValueExpr.Inner.Item(e)    => e.readsMissingSubject
+      case ValueExpr.Inner.PerMember(_) | ValueExpr.Inner.Input(_) => false
     }
+
+  /** Why `what`, a condition, cannot be decided: it compares an entity it does
+    * not name, where nothing names one for it.
+    */
+  def unnamedComparison(what: String): Option[String] =
+    Option.when(isCondition && readsMissingSubject)(
+      s"$what compares an entity it does not name — name it with q.entity(e)"
+    )
 
   /** Whether its own source asks for the bypass. */
   def bypassesSource: Boolean = source match
@@ -65,21 +85,13 @@ final case class ValueExpr(
   /** Whether a read other than its own source asks for the bypass, which only a
     * text slot's own read of a state or a whole entity may (`validate`).
     */
-  def bypassesInside: Boolean =
-    (source match
-      case Value.List(items)      => items.exists(_.bypassesAnywhere)
-      case Value.Present(_, when) => when.values.exists(_.bypassesAnywhere)
-      case Value.Cel(_, inputs)   => inputs.values.exists(_.bypassesAnywhere)
-      case _                      => false
-    ) || steps.exists {
-      case Step.Cel(_, inputs) => inputs.values.exists(_.bypassesAnywhere)
-      case Step.First(orderBy) => orderBy.exists(_.by.bypassesAnywhere)
-      case s                   =>
-        Step.operands(s).exists {
-          case e: Value.Entity => e.bypassUnavailable
-          case _               => false
-        }
-    }
+  def bypassesInside: Boolean = parts.exists {
+    case ValueExpr.Inner.Operand(e: Value.Entity)  => e.bypassUnavailable
+    case ValueExpr.Inner.Operand(_: Value.Literal) => false
+    case ValueExpr.Inner.Item(e)                   => e.bypassesAnywhere
+    case ValueExpr.Inner.PerMember(e)              => e.bypassesAnywhere
+    case ValueExpr.Inner.Input(e)                  => e.bypassesAnywhere
+  }
 
   def bypassesAnywhere: Boolean = bypassesSource || bypassesInside
 
@@ -158,10 +170,10 @@ final case class ValueExpr(
     def cel(
         src: String,
         value: Option[ValueType],
-        keys: List[Transform.CelKey]
+        keys: List[Cel.Key]
     ) =
-      val k = Transform.CelKey(src, env, value)
-      Transform
+      val k = Cel.Key(src, env, value)
+      Cel
         .resultType(k)
         .left
         .map(ValueExpr.Mistyped(_, Some(src)))
@@ -202,16 +214,32 @@ final case class ValueExpr(
     )
 
   /** Live: what it answers moves, so a once-read cannot hold it. */
-  def isLive: Boolean = source match
-    case Value.Literal(_)     => false
-    case Value.Cel(_, inputs) => inputs.values.exists(_.isLive)
-    case Value.List(items)    => items.exists(_.isLive)
-    case _                    => true
+  lazy val isLive: Boolean =
+    (source match
+      case Value.Literal(_) | Value.List(_) | Value.Cel(_, _) => false
+      case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) =>
+        true
+    ) || parts.exists {
+      case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v).nonEmpty
+      case ValueExpr.Inner.Item(e)      => e.isLive
+      case ValueExpr.Inner.PerMember(e) => e.isLive
+      case ValueExpr.Inner.Input(e)     => e.isLive
+    }
 
-  /** Every entity that can move it. */
+  /** Every entity that can move it; a CEL's inputs are bound beside it. */
   def entities: List[String] =
-    Value.entityOf(source) ++ operandEntities ++
-      steps.collect { case Step.First(o) => o.flatMap(_.entities) }.flatten
+    (source match
+      case Value.Entity(of, _, _, _) => of.toList
+      case Value.Present(cs, _)      => cs
+      case Value.Literal(_) | Value.Fetch(_) | Value.List(_) |
+          Value.Cel(_, _) =>
+        Nil
+    ) ++ parts.flatMap {
+      case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v)
+      case ValueExpr.Inner.Item(e)      => e.entities
+      case ValueExpr.Inner.PerMember(e) => e.entities
+      case ValueExpr.Inner.Input(_)     => Nil
+    }
 
 object ValueExpr:
 
@@ -220,9 +248,23 @@ object ValueExpr:
       "reading, so only a text slot's own read of a state or a whole entity " +
       "takes it; everywhere else a read reads as is"
 
+  /** What a [[ValueExpr]] holds inside, by what an unnamed read there reads. */
+  enum Inner derives CanEqual:
+    /** A step's operand: this expression's subject. */
+    case Operand(v: Value.Operand)
+
+    /** A list's item: this expression's subject. */
+    case Item(e: ValueExpr)
+
+    /** A guard or an order term, read per member: that member. */
+    case PerMember(e: ValueExpr)
+
+    /** A CEL's named input, bound beside it per slot. */
+    case Input(e: ValueExpr)
+
   /** [[ValueExpr.typed]]'s answer: the CEL it compiles, in order, and its type.
     */
-  final case class Typed(keys: List[Transform.CelKey], out: ValueType)
+  final case class Typed(keys: List[Cel.Key], out: ValueType)
 
   /** Why it does not type; `cel` is the CEL source at fault, if one is. */
   final case class Mistyped(message: String, cel: Option[String] = None)
@@ -382,7 +424,7 @@ enum Value derives CanEqual:
   case Entity(
       of: Option[String] = None,
       part: Part = Part.State,
-      reads: String = Reads.Live,
+      reads: Reads = Reads.Live,
       bypassUnavailable: Boolean = false
   )
   case Fetch(fetch: FetchTemplate)
@@ -409,16 +451,42 @@ enum Value derives CanEqual:
 
 object Value:
 
-  def about(subject: Option[String])(v: Value): Value = v match
-    case e: Entity if e.of.isEmpty => e.copy(of = subject)
-    case List(items)               => List(items.map(_.about(subject)))
-    case other                     => other
+  /** What a step reads besides the value before it. Pkl writes only these
+    * (`slotMod.Operand`), and the evaluator reads no other.
+    */
+  type Operand = Literal | Entity
 
-  def entityOf(v: Value): scala.List[String] = v match
-    case Entity(of, _, _, _) => of.toList
-    case Present(cs, when)   => cs ++ when.values.flatMap(_.entities)
-    case List(items)         => items.flatMap(_.entities)
-    case _                   => Nil
+  object Operand:
+    def entity(v: Operand): scala.List[String] = v match
+      case e: Entity  => e.of.toList
+      case _: Literal => Nil
+
+    def unnamed(v: Operand): Boolean = v match
+      case e: Entity  => e.of.isEmpty
+      case _: Literal => false
+
+  given Decoder[Operand] = Decoder[Value].emap {
+    case l: Literal => Right(l)
+    case e: Entity  => Right(e)
+    case _          => Left("a step's operand is a literal or an entity read")
+  }
+
+  def about(subject: Option[String])(v: Value): Value = v match
+    case e: Entity   => named(subject)(e)
+    case List(items) => List(items.map(_.about(subject)))
+    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _)) => v
+
+  /** [[ValueExpr.parts]] of a source. */
+  def parts(v: Value): scala.List[ValueExpr.Inner] = v match
+    case Present(_, when) =>
+      when.values.toList.map(ValueExpr.Inner.PerMember(_))
+    case List(items)    => items.map(ValueExpr.Inner.Item(_))
+    case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
+    case Literal(_) | Entity(_, _, _, _) | Fetch(_) => Nil
+
+  /** An entity read that names none, reading `subject`. */
+  def named(subject: Option[String])(e: Entity): Entity =
+    if (e.of.isEmpty) e.copy(of = subject) else e
 
   /** A source's key, its entity left out ([[ValueExpr.key]]). A plain state
     * read keys as `state`, which the signal path spells out.
@@ -458,7 +526,7 @@ object Value:
           Strict.only(c, EntityFields) *> (
             c.getOrElse[Option[String]]("of")(None),
             c.getOrElse[Part]("part")(Part.State),
-            c.getOrElse[String]("reads")(Reads.Live),
+            c.getOrElse[Reads]("reads")(Reads.Live),
             c.getOrElse[Boolean]("bypassUnavailable")(false)
           ).mapN(Entity.apply)
         case "Fetch" =>
@@ -516,7 +584,7 @@ object Step:
       extends Step
 
   /** The simple tier (ADR 0028): total, and run without the engine, over
-    * operands that are themselves values.
+    * operands that are literals or entity reads ([[Value.Operand]]).
     */
   sealed trait Simple extends Step
 
@@ -537,7 +605,7 @@ object Step:
     * read, two numbers on the number line, else text, ordering numeric when
     * both parse and else false, so `Lt` and `Gt` can both be false.
     */
-  final case class Compare(op: Op, to: Value) extends Simple
+  final case class Compare(op: Op, to: Value.Operand) extends Simple
 
   case object Not extends Simple
 
@@ -545,31 +613,32 @@ object Step:
     * subject, ties to list order, `null` for an empty list: one pass, no sorted
     * list. It reads every id's state, so it is no [[Simple]] step.
     */
-  final case class First(orderBy: List[LayoutNode.SortTerm] = Nil) extends Step
+  final case class First(orderBy: List[SortTerm] = Nil) extends Step
 
   /** `text` then the value. */
-  final case class Prefix(text: Value) extends Simple
+  final case class Prefix(text: Value.Operand) extends Simple
 
   /** The value then `text`. */
-  final case class Suffix(text: Value) extends Simple
+  final case class Suffix(text: Value.Operand) extends Simple
 
   /** The value, a space and `unit` when the unit is text: CEL's
     * `value + attr[?'u'].optMap(u, ' ' + u).orValue('')`, except that an empty
     * value stays empty, so a slot's default applies.
     */
-  final case class WithUnit(unit: Value) extends Simple
+  final case class WithUnit(unit: Value.Operand) extends Simple
 
   /** CEL:
     * `str(math.round((double(value) - min) * 100.0 / (max - min))) + ' %'`,
     * rounding half away from zero like `math.round`. Numbers or numeric
     * strings, as `double()` takes; unparseable is no value (CEL would error).
     */
-  final case class Percent(min: Value, max: Value) extends Simple
+  final case class Percent(min: Value.Operand, max: Value.Operand)
+      extends Simple
 
   /** CEL: `str(100.0 - ((double(value) - min) * 100.0 / (max - min))) + '%'`,
     * for a right-anchored track. Unparseable is no value.
     */
-  final case class Fill(min: Value, max: Value) extends Simple
+  final case class Fill(min: Value.Operand, max: Value.Operand) extends Simple
 
   /** Seconds per unit of the value, coarsened: `0s`, `45s`, `12m`, `1h 5m`.
     * Unparseable is no value: a dishwasher between programmes reports
@@ -581,7 +650,7 @@ object Step:
     * first-match questions are unrepresentable; `otherwise` is required, since
     * HA adds states to a domain after it ships.
     */
-  final case class Match(cases: Map[String, Lit], otherwise: Value)
+  final case class Match(cases: Map[String, Lit], otherwise: Value.Operand)
       extends Simple
 
   /** The renderer's own steps. */
@@ -592,11 +661,24 @@ object Step:
     */
   case object ThemeClasses extends Stage
 
+  /** What a fetch's answer becomes in its hole; with none it is the answer as
+    * JSON, the contract a third party reads against (ADR 0031). A closed set,
+    * so a new one is a case here and in `FetchResolver.run`.
+    */
+  sealed trait FetchStage extends Stage
+
   /** A fetch's answer drawn as SVG (ADR 0032). */
-  final case class Chart(style: ChartStyle = ChartStyle()) extends Stage
+  final case class Chart(style: ChartStyle = ChartStyle()) extends FetchStage
+
+  /** Whether it makes markup, which only a raw hole takes, rather than data. */
+  def draws(s: FetchStage): Boolean =
+    ValueType.after(s, ValueType.Series).contains(ValueType.Markup)
 
   def about(subject: Option[String])(s: Step): Step =
-    val v = Value.about(subject)
+    val v: Value.Operand => Value.Operand = {
+      case e: Value.Entity  => Value.named(subject)(e)
+      case l: Value.Literal => l
+    }
     s match
       case Prefix(t)      => Prefix(v(t))
       case Suffix(t)      => Suffix(v(t))
@@ -605,7 +687,9 @@ object Step:
       case Fill(a, b)     => Fill(v(a), v(b))
       case Match(cs, o)   => Match(cs, v(o))
       case Compare(op, t) => Compare(op, v(t))
-      case other          => other
+      case s @ (_: Cel | _: First | _: Duration | Count | AllOf | AnyOf | Not |
+          ThemeClasses | _: Chart) =>
+        s
 
   /** Its outcomes are all Booleans. */
   def allBoolean(m: Match): Boolean =
@@ -633,15 +717,25 @@ object Step:
     case ThemeClasses => "theme classes"
     case _: Chart     => "chart"
 
-  def operands(s: Step): List[Value] = s match
-    case Prefix(t)     => List(t)
-    case Suffix(t)     => List(t)
-    case WithUnit(u)   => List(u)
-    case Percent(a, b) => List(a, b)
-    case Fill(a, b)    => List(a, b)
-    case Match(_, o)   => List(o)
-    case Compare(_, t) => List(t)
-    case _             => Nil
+  /** [[ValueExpr.parts]] of a step. */
+  def parts(s: Step): List[ValueExpr.Inner] =
+    import ValueExpr.Inner.*
+    s match
+      case Prefix(t)      => List(Operand(t))
+      case Suffix(t)      => List(Operand(t))
+      case WithUnit(u)    => List(Operand(u))
+      case Percent(a, b)  => List(Operand(a), Operand(b))
+      case Fill(a, b)     => List(Operand(a), Operand(b))
+      case Match(_, o)    => List(Operand(o))
+      case Compare(_, t)  => List(Operand(t))
+      case Cel(_, inputs) => inputs.values.toList.map(Input(_))
+      case First(orderBy) => orderBy.map(o => PerMember(o.by))
+      case _: Duration | Count | AllOf | AnyOf | Not | ThemeClasses |
+          _: Chart =>
+        Nil
+
+  def operands(s: Step): List[Value.Operand] =
+    parts(s).collect { case ValueExpr.Inner.Operand(v) => v }
 
   /** Length-prefixed where a field is free text, so no key forges another. */
   def key(s: Step): String =
@@ -671,6 +765,43 @@ object Step:
 
   given Decoder[Step] =
     ConfiguredDecoder.derived(using Strict.configuration)
+
+/** One ordering position, as a set's `orderBy` and [[Step.First]] hold it: `by`
+  * read per member, an unnamed read reading it. A condition sorts true first
+  * under `asc`, any other value as `Evaluator.Keys` says.
+  */
+case class SortTerm(
+    by: ValueExpr,
+    dir: SortTerm.Dir = SortTerm.Dir.Asc
+) derives ConfiguredDecoder:
+  def descending: Boolean = dir == SortTerm.Dir.Desc
+
+  def key: String = s"${dir.wire}:${by.inputKey}"
+
+  /** What it names besides the member it is read for. */
+  def entities: List[String] = by.entities
+
+  /** Read without the engine, as a condition is. */
+  def readError: Option[String] =
+    if (by.isCondition) by.conditionError
+    else
+      by.typed(Nil) match
+        case Left(m)                     => Some(m.message)
+        case Right(t) if t.keys.nonEmpty =>
+          Some("an order term is read without CEL")
+        case Right(_) if by.bypassesAnywhere =>
+          Some(ValueExpr.MisplacedBypass)
+        case Right(_) => None
+
+object SortTerm:
+  enum Dir(val wire: String) derives CanEqual:
+    case Asc extends Dir("asc")
+    case Desc extends Dir("desc")
+
+  object Dir:
+    given Decoder[Dir] = Decoder[String].emap(s =>
+      values.find(_.wire == s).toRight(s"unknown dir '$s' — asc or desc")
+    )
 
 /** Decoders that refuse a field they do not know, which a typo would otherwise
   * turn into a silent default.

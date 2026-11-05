@@ -109,7 +109,7 @@ facts {
     tap.service == "select/select_option"
     tap.dataKey == "option" && tap.dataValue == #""turbo""#
     local lit = (opts[2] as selectMod.EntityOption).active as predMod.Cmp
-    lit.property == "state" && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
+    lit.part == null && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
     // The dropdown's label is the server's, so the first HTML names it.
     local shownSlot = c.select(mode).style("dropdown").slotsByName["chosen"]
     local shown = shownSlot.value as slotMod.Reading
