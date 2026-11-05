@@ -478,9 +478,6 @@ names, and are corrected where they did.
     names (Pkl `values`, wire `inputs`, Scala `values`, "expression values").
   - Type-check and compile as one step, so `validate` hands the renderer compiled runs: today the
     renderer pairs each CEL with its program by position (`ValueExpr.typed`'s key order).
-  - One exhaustive operand and child traversal over `ValueExpr`, in place of six hand-written
-    walks with `case _ =>` defaults (`about`, `operands`, `readsMissingSubject`,
-    `bypassesInside`, `entities`, `isLive`), where a new step or value kind falls through silently.
   - Pkl's `Expr` folded into `Reading`, as `Predicate` was into `ValueExpr`: about 15
     `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
   - `SlotAsk.Stage`, a copy of the fetch stages `Step` already has, folded into `Step`.

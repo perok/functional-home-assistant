@@ -1060,7 +1060,7 @@ case class Dashboard(
     // A set call's guards are read at the press, and an entity only a guard
     // names would otherwise be missing from the store, failing its guard.
     referencedEntities ++ calls.values.flatMap {
-      case p: Value.Present => Value.entityOf(p)
+      case p: Value.Present => ValueExpr(p).entities
       case _: ServiceTarget => Nil
     } ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>

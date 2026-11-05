@@ -178,4 +178,23 @@ class ValueExprSuite extends munit.FunSuite {
     assertEquals(run(Step.Compare(Op.Lt, on), "warm", "10"), false)
     assertEquals(run(Step.Compare(Op.Eq, on), "on", "on"), true)
   }
+
+  test("an entity read anywhere inside makes it live, not only its source") {
+    val lit: Value.Operand = Value.Literal(Lit.Whole(5))
+    val temp: Value.Operand = Value.Entity(Some("sensor.t"))
+    def over(s: Step) = ValueExpr(lit, List(s))
+    assert(!over(Step.Compare(Op.Gt, lit)).isLive)
+    assert(over(Step.Compare(Op.Gt, temp)).isLive)
+    assert(!ValueExpr(Value.List(List(over(Step.Not))), Nil).isLive)
+    assert(
+      ValueExpr(Value.List(List(ValueExpr(state("light.a")))), Nil).isLive
+    )
+    val ids = Value.List(List(ValueExpr(Value.Literal(Lit.Text("light.a")))))
+    assert(
+      ValueExpr(
+        ids,
+        List(Step.First(List(SortTerm(ValueExpr(Value.Entity())))))
+      ).isLive
+    )
+  }
 }
