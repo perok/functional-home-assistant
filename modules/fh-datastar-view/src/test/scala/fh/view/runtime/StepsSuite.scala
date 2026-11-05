@@ -321,20 +321,11 @@ class StepsSuite extends munit.FunSuite {
   private def matchOf(cases: Map[String, String], otherwise: String) =
     Step.Match(cases.map((k, v) => k -> Lit.Text(v)), text(otherwise))
 
-  /** The renderer's fast path: the source read, then each format step, with
-    * operands read off the same entity.
-    */
+  /** What the renderer's evaluator makes of `shape` over `e`. */
   private def runShape(shape: ValueExpr, e: EntityState): String =
-    val operand: Value => Any = {
-      case Value.Entity(_, part, _, _) => Steps.read(part, e)
-      case Value.Literal(l)            => l.raw
-      case _                           => ""
-    }
-    val start: Any = operand(shape.source)
-    val out = Steps.text(shape.steps.foldLeft(start) {
-      case (v, f: Step.Simple) => Steps.format(f, v, operand)
-      case (v, _)              => v
-    })
+    val out = Steps.text(
+      Evaluator.plain(shape)(e, Map(e.entityId -> e), Evaluator.noFetch)
+    )
     // As a slot shows it: nothing to show takes the reading's default.
     if (out.nonEmpty) out
     else shape.default.fold("")(l => Steps.text(l.raw))

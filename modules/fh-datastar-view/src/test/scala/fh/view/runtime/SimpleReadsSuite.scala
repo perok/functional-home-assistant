@@ -66,11 +66,13 @@ class SimpleReadsSuite extends munit.FunSuite {
       .toList
 
   /** An operand read off `e`, as the renderer reads one off its entity. */
-  private def over(e: EntityState): Value => Any = {
-    case Value.Entity(_, part, _, _) => Steps.read(part, e)
-    case Value.Literal(l)            => l.raw
-    case _                           => ""
-  }
+  /** One step over `part` of `e`, as the evaluator runs it. */
+  private def run(part: Part, step: Step, e: EntityState): Any =
+    Evaluator.plain(ValueExpr(Value.Entity(None, part), List(step)))(
+      e,
+      Map(e.entityId -> e),
+      Evaluator.noFetch
+    )
 
   private def whole(n: Long): Value.Operand = Value.Literal(Lit.Whole(n))
 
@@ -136,10 +138,10 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(value(d, states("on")), List[SlotValue]("80"))
     // One the store does not hold has no value.
     assertEquals(
-      Steps.format(
+      run(
+        Part.Attr("brightness"),
         Step.Percent(whole(0), whole(255)),
-        Steps.read(Part.Attr("brightness"), EntityState.none),
-        over(EntityState.none)
+        EntityState.none
       ),
       null
     )
@@ -148,10 +150,13 @@ class SimpleReadsSuite extends munit.FunSuite {
   test("an attribute with its unit, total over a number and an absence") {
     def read(attrs: (String, Json)*) =
       val e = EntityState("sensor.t", "on", attrs.toMap)
-      Steps.format(
-        Step.WithUnit(Value.Entity(None, Part.Attr("unit_of_measurement"))),
-        Steps.read(Part.Attr("temperature"), e),
-        over(e)
+      // As the slot shows it: an absent value is null, shown as nothing.
+      Steps.text(
+        run(
+          Part.Attr("temperature"),
+          Step.WithUnit(Value.Entity(None, Part.Attr("unit_of_measurement"))),
+          e
+        )
       )
     val unit = "unit_of_measurement" -> Json.fromString("°C")
     assertEquals(
@@ -171,7 +176,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     def read(effect: String) =
       val e =
         EntityState("light.l", "on", Map("effect" -> Json.fromString(effect)))
-      Steps.format(labels, Steps.read(Part.Attr("effect"), e), over(e))
+      run(Part.Attr("effect"), labels, e)
     assertEquals(read("rainbow"), "Rainbow")
     assertEquals(read("candle"), "candle")
     val byEffect = reading(None, Part.Attr("effect"))(labels)

@@ -16,7 +16,7 @@ import fh.view.model.{Lit, Op, Part, Step, Value}
   * would put an error on a wall panel. Speed is the other: ~0.9 kB per CEL
   * evaluation against ~45 B for a direct read (`RenderBench.cel` vs `direct`).
   * Where a step has a CEL spelling (documented on its case), StepsSuite holds
-  * [[format]] byte-equal to it over a hostile sweep and pins the few
+  * the evaluator byte-equal to it over a hostile sweep and pins the few
   * divergences where CEL would error.
   */
 object Steps {
@@ -32,18 +32,8 @@ object Steps {
     case null      => ""
     case other     => Cel.stringify(other)
 
-  /** One simple step over `value`, an operand read by `operand`. */
-  def format(step: Step.Simple, value: Any, operand: Value => Any): Any =
-    val ops = Step.operands(step)
-    formatWith(
-      step,
-      value,
-      ops.lift(0).fold(null: Any)(operand),
-      ops.lift(1).fold(null: Any)(operand)
-    )
-
-  /** [[format]] over its operands already read, in [[Step.operands]] order:
-    * what a composed pipeline calls, so a render builds no reader.
+  /** One simple step over `value`, its operands already read, in
+    * [[Step.operands]] order, so a render builds no reader.
     */
   def formatWith(step: Step.Simple, value: Any, a: Any, b: Any): Any =
     step match
