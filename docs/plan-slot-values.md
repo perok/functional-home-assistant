@@ -489,7 +489,6 @@ names, and are corrected where they did.
   - One definition of a condition (`isCondition` by shape, `conditionError` by type). A state
     surface's unnamed-entity check still reads `readsMissingSubject` alone, since it runs after
     `conditionError`; with one definition it is `unnamedComparison` like the slot checks.
-  - `validate` out of `Dashboard.scala` into its own file.
 
 ## Checks
 
