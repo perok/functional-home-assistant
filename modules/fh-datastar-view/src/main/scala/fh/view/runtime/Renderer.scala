@@ -24,7 +24,6 @@ import fh.view.model.{
   SlotShape,
   Lit,
   SetId,
-  Transform,
   SignalBind,
   SignalId,
   BoundSlot,
@@ -273,7 +272,7 @@ class Renderer(validated: Dashboard.Validated) {
     * transform: its result, where every reader takes it. Otherwise the default
     * stands, as for a stale link.
     */
-  private lazy val initialPrograms: List[(VarKey, String, Transform.Compiled)] =
+  private lazy val initialPrograms: List[(VarKey, String, Cel.Program)] =
     vars.initialTransforms.toList.map((key, t) =>
       (key, t.entityId, programs(t.celKey))
     )
@@ -284,7 +283,7 @@ class Renderer(validated: Dashboard.Validated) {
     initialPrograms.flatMap { (key, entityId, program) =>
       states
         .get(entityId)
-        .map(Transform.run(program, _, dashboard.slug))
+        .map(Cel.run(program, _, dashboard.slug))
         .filter(v =>
           VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
         )
@@ -1871,7 +1870,7 @@ class Renderer(validated: Dashboard.Validated) {
       f: FetchTemplate
   ): Object =
     Series.celPoints(
-      fragments.value(node, SlotAsk(f, Transform.Stage.Passthrough))
+      fragments.value(node, SlotAsk(f, SlotAsk.Stage.Passthrough))
     )
 
   /** For sites `validate` keeps from reading a fetch (a `once` slot, a
@@ -1909,13 +1908,13 @@ class Renderer(validated: Dashboard.Validated) {
         v match
           case b: Boolean => b
           case _          =>
-            val s = Transform.text(v)
+            val s = Steps.text(v)
             if (s.nonEmpty) classed(source, s)
             else
               source.default match
                 case Some(Lit.Bool(b)) => b
                 case d                 =>
-                  classed(source, d.fold("")(l => Transform.text(l.raw)))
+                  classed(source, d.fold("")(l => Steps.text(l.raw)))
     }
   }
 

@@ -2,7 +2,7 @@ package fh.view.fetch
 
 import cats.effect.IO
 import fh.view.history.{ChartDraw, ChartStage, History, Window}
-import fh.view.model.Transform
+import fh.view.model.SlotAsk
 
 import io.circe.Json
 
@@ -48,10 +48,10 @@ object Staged {
     * never the page's. Data (passthrough) is simply absent — its hole is
     * escaped, so it cannot hold markup.
     */
-  def failed(stage: Transform.Stage): Staged = stage match {
-    case Transform.Stage.Chart(_) =>
+  def failed(stage: SlotAsk.Stage): Staged = stage match {
+    case SlotAsk.Stage.Chart(_) =>
       Staged(FailedVersion, label("error", "Chart unavailable"))
-    case Transform.Stage.Passthrough => Staged(FailedVersion, "")
+    case SlotAsk.Stage.Passthrough => Staged(FailedVersion, "")
   }
 
   /** The runtime's copy of `core/text.pkl`'s `label`: one structure, whose
@@ -98,7 +98,7 @@ final class FetchResolver private (
   def stage(
       identity: FetchIdentity,
       fetch: FetchRequest,
-      stage: Transform.Stage,
+      stage: SlotAsk.Stage,
       answered: Answer
   ): IO[Staged] =
     staged
@@ -107,10 +107,10 @@ final class FetchResolver private (
       )
       .map(Staged(answered.version, _))
 
-  private def run(stage: Transform.Stage, data: Json): IO[String] =
+  private def run(stage: SlotAsk.Stage, data: Json): IO[String] =
     stage match {
-      case Transform.Stage.Passthrough  => IO(data.noSpaces)
-      case Transform.Stage.Chart(style) => ChartStage.draw(chart, style, data)
+      case SlotAsk.Stage.Passthrough  => IO(data.noSpaces)
+      case SlotAsk.Stage.Chart(style) => ChartStage.draw(chart, style, data)
     }
 
   private[fetch] def keys: IO[Set[StageKey]] = staged.keys
@@ -130,7 +130,7 @@ object FetchResolver {
     */
   final case class StageKey(
       question: Question,
-      stage: Transform.Stage,
+      stage: SlotAsk.Stage,
       version: Long
   )
 

@@ -1016,7 +1016,7 @@ fetch is `IO` over a socket and a JavaScript engine.
 **A provider fetches; what its answer BECOMES is the slot's step.** That split is the whole of the
 second kind of input. A provider answers `Answer(version, json)` and has no opinion about
 presentation; a fetch slot's one step, a `Step.Chart` stage, turns that into what the card puts in
-its hole, SVG. With no step it is the provider's JSON (`Transform.Stage.Passthrough` on the ask),
+its hole, SVG. With no step it is the provider's JSON (`SlotAsk.Stage.Passthrough` on the ask),
 which is the contract a third party reads against.
 It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
@@ -1502,7 +1502,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
-| evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`); the language is ADR 0035 |
+| evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |
 

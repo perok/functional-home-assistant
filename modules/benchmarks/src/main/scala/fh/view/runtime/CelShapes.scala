@@ -2,12 +2,12 @@ package fh.view.runtime
 
 /** The six shipped transform shapes + the hostile ceiling, as the SHIPPED CEL
   * bytes — what the Pkl library bakes today, not a parallel translation. The
-  * shipped runtime ([[fh.view.model.Transform]]) compiles exactly these via
+  * shipped runtime ([[fh.view.runtime.Cel]]) compiles exactly these via
   * `str`/`num` (its two registered helpers) plus cel-java's bundled
   * string/list/math/bindings/comprehensions extensions.
   *
   * The load-bearing CEL facts the forms encode (each one a measured Phase-0
-  * finding, pinned by TransformSuite):
+  * finding, pinned by StepsSuite):
   *
   *   - '''`double(v)` is not decoration.''' An attribute position arrives as a
   *     Long, and CEL's double overloads have no (Long, double) operand — a bare

@@ -4,7 +4,7 @@ import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.fetch.FetchRequest
-import fh.view.history.Window
+import fh.view.history.{ChartStyle, Window}
 import fh.view.runtime.{Cel, Templates}
 import io.circe.{Decoder, DecodingFailure, JsonObject}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
@@ -115,10 +115,10 @@ final case class BoundSlot(
     case e: Value.Entity => e.bypassUnavailable
     case _               => false
 
-  def stage: Transform.Stage =
+  def stage: SlotAsk.Stage =
     expr.steps
-      .collectFirst { case Step.Chart(s) => Transform.Stage.Chart(s) }
-      .getOrElse(Transform.Stage.Passthrough)
+      .collectFirst { case Step.Chart(s) => SlotAsk.Stage.Chart(s) }
+      .getOrElse(SlotAsk.Stage.Passthrough)
 
   def isBool: Boolean = `type` == SlotType.Bool
 
@@ -128,7 +128,7 @@ final case class BoundSlot(
   lazy val typed: Either[ValueExpr.Mistyped, ValueExpr.Typed] =
     expr.typed(ValueExpr.env(values))
 
-  def celKeys: List[Transform.CelKey] =
+  def celKeys: List[Cel.Key] =
     typed.fold(_ => Nil, _.keys) ++ valueWhile.toList.flatMap(_.celKeys)
 
   /** Its [[valueWhile]] over the entity it is decided over. The one rule the
@@ -158,7 +158,7 @@ final case class BoundSlot(
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
       values.values.toList.map(_.source).collect { case Value.Fetch(f) =>
-        SlotAsk(f, Transform.Stage.Passthrough)
+        SlotAsk(f, SlotAsk.Stage.Passthrough)
       }
 
   /** What the renderer keys a value by (signal names, the once-cache): two
@@ -297,8 +297,7 @@ enum SlotShape derives CanEqual:
   case Fetch(ask: SlotAsk)
 
 /** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render. */
-case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
-    derives CanEqual:
+case class SlotAsk(fetch: FetchTemplate, stage: SlotAsk.Stage) derives CanEqual:
 
   /** `validate` proved the declared values resolve, and the write refuses a
     * chosen one that does not, so a `Left` here is a bug.
@@ -314,6 +313,19 @@ case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
       stage
     )
 
+object SlotAsk:
+  /** How a fetch's answer becomes the hole's content: its [[Step.Chart]], or
+    * the answer as JSON when it has none.
+    */
+  enum Stage derives CanEqual:
+    case Passthrough
+    case Chart(params: ChartStyle = ChartStyle())
+
+  object Stage:
+    def key(s: Stage): String = s match
+      case Stage.Passthrough  => "passthrough"
+      case Stage.Chart(style) => s"chart:$style"
+
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
 
@@ -324,8 +336,7 @@ object Fetching:
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
-case class SlotRead(fetch: FetchRequest, stage: Transform.Stage)
-    derives CanEqual
+case class SlotRead(fetch: FetchRequest, stage: SlotAsk.Stage) derives CanEqual
 
 /** When a slot is read, and whether that is a reason to re-render:
   *
@@ -1298,13 +1309,13 @@ case class Dashboard(
           cardReads.get(cardName).flatMap(_.toOption).flatMap { reads =>
             val hasRaw = reads.raw(name)
             src.stage match {
-              case Transform.Stage.Passthrough if hasRaw =>
+              case SlotAsk.Stage.Passthrough if hasRaw =>
                 Some(
                   s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
                     "hole, but its transform is passthrough, whose value is " +
                     s"DATA — write {{$name}}, or the page emits unescaped JSON"
                 )
-              case Transform.Stage.Chart(_) if !hasRaw =>
+              case SlotAsk.Stage.Chart(_) if !hasRaw =>
                 Some(
                   s"$nodeId: card '$cardName' places slot '$name' in an " +
                     "ESCAPED hole, but its transform draws markup — write " +
@@ -1520,7 +1531,7 @@ case class Dashboard(
               "the URL mirror"
           )
           .toList ++ d.initialTransform.flatMap(t =>
-          Transform
+          Cel
             .parse(t.celKey)
             .left
             .toOption
@@ -2326,7 +2337,7 @@ case class Dashboard(
 
   /** The CEL expressions to compile, each with the names it is typed against.
     */
-  private def celKeys: List[Transform.CelKey] =
+  private def celKeys: List[Cel.Key] =
     ((slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList
@@ -2335,7 +2346,7 @@ case class Dashboard(
         initialKeys(s.content)
       ))).distinct
 
-  private def initialKeys(n: LayoutNode): List[Transform.CelKey] = n match
+  private def initialKeys(n: LayoutNode): List[Cel.Key] = n match
     case c: LayoutNode.Component =>
       c.vars.flatMap(_.initialTransform).map(_.celKey) ++
         c.allChildren.flatMap(initialKeys)
@@ -2363,8 +2374,8 @@ case class Dashboard(
       case errs => Left(errs)
 
   // Only after `validate` proved each compiles, so a `Left` cannot occur.
-  private def compileTransforms: Map[Transform.CelKey, Transform.Compiled] =
-    celKeys.flatMap(k => Transform.parse(k).toOption.map(k -> _)).toMap
+  private def compileTransforms: Map[Cel.Key, Cel.Program] =
+    celKeys.flatMap(k => Cel.parse(k).toOption.map(k -> _)).toMap
 
 object Dashboard:
 
@@ -2389,7 +2400,7 @@ object Dashboard:
     /** The one spelling of its key: validated, compiled and run by it, as a
       * slot's transform is by [[BoundSlot.celKey]].
       */
-    def celKey: Transform.CelKey = Transform.CelKey(transform)
+    def celKey: Cel.Key = Cel.Key(transform)
 
   /** The slot naming a card's subject, which Pkl names on every other slot that
     * names no entity. Not HA's `entity_id` field or `fh.Entity`'s, which share
@@ -2427,7 +2438,7 @@ object Dashboard:
     */
   case class Validated private[model] (
       dashboard: Dashboard,
-      transforms: Map[Transform.CelKey, Transform.Compiled],
+      transforms: Map[Cel.Key, Cel.Program],
       templates: Templates,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.

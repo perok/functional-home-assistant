@@ -32,7 +32,7 @@ import fh.view.model.{
   SlotRead,
   TapCall,
   ThemeClasses,
-  Transform,
+  SlotAsk,
   Value
 }
 import fs2.Stream
@@ -2319,7 +2319,7 @@ object Server {
           chart.map(_.render),
           onFailure = (k, e) =>
             log.warn(e)(
-              s"${Transform.Stage.key(k.stage)} of ${k.question._2} failed; " +
+              s"${SlotAsk.Stage.key(k.stage)} of ${k.question._2} failed; " +
                 "it shows its error until a retry"
             )
         )

@@ -1,36 +1,26 @@
-package fh.view.model
+package fh.view.runtime
 
-import fh.view.history.ChartStyle
-import fh.view.runtime.{Cel, EntityState}
+import fh.view.model.{Lit, Op, Part, Step, Value}
 
-/** Slot transforms in [CEL](https://cel.dev), over `value` (the value before
-  * the step), the named inputs, `dashboard_slug` and `time_zone`. A whole
-  * entity is the struct `fh.Entity {state, attr, entity_id, domain}`; its
-  * `attr` is an adapted JVM map, so a raw `attr['x']` on an absent key is an
-  * error: reads are guarded with `attr[?'x']`. `str(x)` renders numbers exactly
-  * as the engine renders a bare numeric result.
+/** What each simple step makes of the value before it, its operands already
+  * read: the arithmetic [[Evaluator]] composes, which decides what is read and
+  * when.
   *
-  * Compiled once at validation. A failing evaluation renders its error message
-  * in that one card; `null` renders `""`.
+  * The engine-free tier (ADR 0028), selected by form alone: a source read and
+  * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
+  * and nothing infers one from the other. A condition is its bool half, so it
+  * fills a slot as directly as it decides a `c.iff`: one compiler runs both.
+  *
+  * A step belongs here when it is a static lookup and TOTAL over every value a
+  * live entity can produce — the load-bearing half, since `double('unknown')`
+  * would put an error on a wall panel. Speed is the other: ~0.9 kB per CEL
+  * evaluation against ~45 B for a direct read (`RenderBench.cel` vs `direct`).
+  * Where a step has a CEL spelling (documented on its case), StepsSuite holds
+  * [[format]] byte-equal to it over a hostile sweep and pins the few
+  * divergences where CEL would error.
   */
-object Transform {
+object Steps {
 
-  type Compiled = Cel.Program
-
-  /** The engine-free tier (ADR 0028), selected by form alone: a source read and
-    * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
-    * and nothing infers one from the other. A condition is its bool half, so it
-    * fills a slot as directly as it decides a `c.iff`: one compiler runs both
-    * (`Evaluator`).
-    *
-    * A step belongs here when it is a static lookup and TOTAL over every value
-    * a live entity can produce — the load-bearing half, since
-    * `double('unknown')` would put an error on a wall panel. Speed is the
-    * other: ~0.9 kB per CEL evaluation against ~45 B for a direct read
-    * (`RenderBench.cel` vs `direct`). Where a step has a CEL spelling
-    * (documented on its case), TransformSuite holds [[format]] byte-equal to it
-    * over a hostile sweep and pins the few divergences where CEL would error.
-    */
   def read(part: Part, entity: EntityState): Any = part match
     case Part.State      => entity.state
     case Part.Attr(name) => entity.attribute(name)
@@ -190,7 +180,7 @@ object Transform {
     case s: String           => s.toDoubleOption
     case _                   => None
 
-  /** [[num]] defined, and its value. */
+  /** [[number]] defined, without its `Option`. */
   private def isNum(v: Any): Boolean = v match
     case _: java.lang.Number => true
     case s: String           => s.toDoubleOption.isDefined
@@ -204,54 +194,4 @@ object Transform {
   // As CEL's `math.round`.
   private def roundAway(d: Double): Double =
     BigDecimal(d).setScale(0, BigDecimal.RoundingMode.HALF_UP).toDouble
-
-  /** A CEL source and the typed names it compiles against: the named inputs it
-    * reads, empty for nearly every slot, and the type its `value` is declared
-    * as, `None` for a CEL source, which has none.
-    */
-  case class CelKey(
-      src: String,
-      env: List[(String, ValueType)] = Nil,
-      value: Option[ValueType] = Some(ValueType.Entity)
-  )
-
-  def parse(src: String): Either[String, Compiled] = parse(CelKey(src))
-
-  def parse(key: CelKey): Either[String, Compiled] =
-    Cel.parse(key.src, key.env, key.value)
-
-  /** What it produces, or why it does not compile. */
-  def resultType(key: CelKey): Either[String, ValueType] =
-    Cel.resultType(key.src, key.env, key.value)
-
-  /** Over a whole entity, as a node variable's start is. Never throws into the
-    * render: a failure returns its message.
-    */
-  def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
-    SlotValue.text(runValue(expr, entity.celValue, dashboardSlug))
-
-  def runValue(
-      expr: Compiled,
-      value: Any,
-      dashboardSlug: String,
-      values: Map[String, Object] = Map.empty
-  ): SlotValue =
-    Cel.runValue(expr, value, dashboardSlug, values)
-
-  /** How a fetch's answer becomes the hole's content: its [[Step.Chart]], or
-    * the answer as JSON when it has none.
-    */
-  enum Stage derives CanEqual {
-    case Passthrough
-    case Chart(params: ChartStyle = ChartStyle())
-  }
-
-  object Stage {
-
-    def key(s: Stage): String = s match {
-      case Stage.Passthrough  => "passthrough"
-      case Stage.Chart(style) => s"chart:$style"
-    }
-  }
-
 }

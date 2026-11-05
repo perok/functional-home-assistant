@@ -6,7 +6,7 @@
 /// renders as its own message on a wall panel. Anything more is CEL.
 ///
 /// Where a step has a CEL spelling, its constructor documents it and
-/// `TransformSuite`'s parity sweep pins the rendered bytes equal to it. Where
+/// `StepsSuite`'s parity sweep pins the rendered bytes equal to it. Where
 /// the engine would error, the step renders its absent form instead — the
 /// documented divergence, pinned too. Each class is `fh.view.model.Step`'s case
 /// of the same name and fields, which `WireShapeSuite` checks.

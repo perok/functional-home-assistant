@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.runtime.Steps
 import io.circe.parser.decode
 
 /** The condition kinds (plan Part B): a list and the steps that decide over it,
@@ -169,7 +170,7 @@ class ValueExprSuite extends munit.FunSuite {
 
   test("the renderer's fold runs the new steps as the condition reader does") {
     def run(s: Step.Simple, v: Any, a: Any = null) =
-      Transform.formatWith(s, v, a, null)
+      Steps.formatWith(s, v, a, null)
     assertEquals(run(Step.AllOf, List(true, false)), false)
     assertEquals(run(Step.AnyOf, List(false, true)), true)
     assertEquals(run(Step.Not, true), false)

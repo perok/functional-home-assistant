@@ -2,6 +2,7 @@ package fh.view.model
 
 import cats.syntax.all.*
 import fh.view.history.ChartStyle
+import fh.view.runtime.{Cel, Steps}
 import io.circe.{ACursor, Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -26,7 +27,7 @@ final case class ValueExpr(
     case (Value.Literal(l), Nil | List(Step.ThemeClasses)) =>
       Some(l match
         case Lit.Bool(b) => b
-        case other       => Transform.text(other.raw))
+        case other       => Steps.text(other.raw))
     case _ => None
 
   /** A [[constant]] that is text. */
@@ -159,10 +160,10 @@ final case class ValueExpr(
     def cel(
         src: String,
         value: Option[ValueType],
-        keys: List[Transform.CelKey]
+        keys: List[Cel.Key]
     ) =
-      val k = Transform.CelKey(src, env, value)
-      Transform
+      val k = Cel.Key(src, env, value)
+      Cel
         .resultType(k)
         .left
         .map(ValueExpr.Mistyped(_, Some(src)))
@@ -223,7 +224,7 @@ object ValueExpr:
 
   /** [[ValueExpr.typed]]'s answer: the CEL it compiles, in order, and its type.
     */
-  final case class Typed(keys: List[Transform.CelKey], out: ValueType)
+  final case class Typed(keys: List[Cel.Key], out: ValueType)
 
   /** Why it does not type; `cel` is the CEL source at fault, if one is. */
   final case class Mistyped(message: String, cel: Option[String] = None)

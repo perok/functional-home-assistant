@@ -22,8 +22,7 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface,
-  Transform
+  Surface
 }
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
@@ -282,14 +281,14 @@ class RenderBench {
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var stLights: Map[String, EntityState] = null
-  private var celProbes: List[Transform.Compiled] = null
-  private var celComplex: Transform.Compiled = null
+  private var celProbes: List[Cel.Program] = null
+  private var celComplex: Cel.Program = null
   // The explicit fast tier's probes and the two shipped shapes that stay on
   // the engine (fill colour, attribute comprehension) — the same 4-of-6 mix a
   // shipped page dispatches.
   private var simpleProbes: List[RenderBench.Probe] = null
   // A boolean input's condition, as CEL reading it through a named value.
-  private var conditionViaCel: Transform.Compiled = null
+  private var conditionViaCel: Cel.Program = null
   private lazy val isOn =
     Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
   private lazy val isOnValue = Map(
@@ -298,7 +297,7 @@ class RenderBench {
   // Compiled once, as a renderer's plan or a member graph compiles them.
   private lazy val isOnRun = Evaluator.plain(isOn)
   private lazy val isOnInputs = Evaluator.inputs(isOnValue)
-  private var engineShapes: List[Transform.Compiled] = null
+  private var engineShapes: List[Cel.Program] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
   // The wire bench's inputs: three real node bytes (morph payloads) and the
@@ -376,8 +375,8 @@ class RenderBench {
     shared = Renderer.create(
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
-    def cparse(src: String): Transform.Compiled =
-      Transform
+    def cparse(src: String): Cel.Program =
+      Cel
         .parse(src)
         .fold(
           e => sys.error(s"cel won't compile: $src [$e]"),
@@ -403,8 +402,8 @@ class RenderBench {
       List(CelShapes.TransformFillColor, CelShapes.TransformAttrLines).map(
         cparse
       )
-    conditionViaCel = Transform
-      .parse(Transform.CelKey("on", List("on" -> ValueType.Bool), None))
+    conditionViaCel = Cel
+      .parse(Cel.Key("on", List("on" -> ValueType.Bool), None))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
@@ -663,7 +662,7 @@ class RenderBench {
     while (i < Leaves) {
       val e = st(entityId(i))
       simpleProbes.foreach(s => bh.consume(runProbe(s, e)))
-      engineShapes.foreach(t => bh.consume(Transform.run(t, e, "dashboard")))
+      engineShapes.foreach(t => bh.consume(Cel.run(t, e, "dashboard")))
       i += 1
     }
   }
@@ -673,18 +672,17 @@ class RenderBench {
     * uses it, but authors are not limited to the shipped shapes, so its cost is
     * what guarding against "someone writes something worse" has to swallow.
     */
-  /** The SHIPPED engine ([[fh.view.model.Transform]]) at the same count and
-    * shapes: each compiled once via `Transform.parse` and evaluated per entity
-    * through `Transform.run` — the engine-only baseline the fast tier is
-    * measured against. The gap against [[simple]] is what the catalog saves per
-    * evaluation.
+  /** The SHIPPED engine ([[fh.view.runtime.Cel]]) at the same count and shapes:
+    * each compiled once via `Cel.parse` and evaluated per entity through
+    * `Cel.run` — the engine-only baseline the fast tier is measured against.
+    * The gap against [[simple]] is what the catalog saves per evaluation.
     */
   @Benchmark
   def cel(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      celProbes.foreach(p => bh.consume(Transform.run(p, e, "dashboard")))
+      celProbes.foreach(p => bh.consume(Cel.run(p, e, "dashboard")))
       i += 1
     }
   }
@@ -738,7 +736,7 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       bh.consume(
-        Transform.runValue(
+        Cel.runValue(
           conditionViaCel,
           null,
           "dashboard",
@@ -823,7 +821,7 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(Transform.run(celComplex, e, "dashboard"))
+      bh.consume(Cel.run(celComplex, e, "dashboard"))
       i += 1
     }
   }
@@ -1873,12 +1871,12 @@ object RenderBench {
     */
   final case class Probe(part: Part, steps: Step.Simple*):
     val run: EntityState => Any =
-      steps.foldLeft[EntityState => Any](e => Transform.read(part, e)) {
+      steps.foldLeft[EntityState => Any](e => Steps.read(part, e)) {
         (prev, f) =>
           val ops = Step.operands(f).map(operand)
           val a = ops.lift(0).getOrElse(absent)
           val b = ops.lift(1).getOrElse(absent)
-          e => Transform.formatWith(f, prev(e), a(e), b(e))
+          e => Steps.formatWith(f, prev(e), a(e), b(e))
       }
 
   private val absent: EntityState => Any = _ => null
@@ -1886,14 +1884,14 @@ object RenderBench {
     case Value.Literal(l) =>
       val c = l.raw
       _ => c
-    case Value.Entity(_, part, _, _) => e => Transform.read(part, e)
+    case Value.Entity(_, part, _, _) => e => Steps.read(part, e)
     case _                           => _ => ""
 
   private val unit = Part.Attr("unit_of_measurement")
   private def text(s: String): Value.Operand = Value.Literal(Lit.Text(s))
   private def real(d: Double): Value.Operand = Value.Literal(Lit.Real(d))
 
-  def runProbe(p: Probe, e: EntityState): String = Transform.text(p.run(e))
+  def runProbe(p: Probe, e: EntityState): String = Steps.text(p.run(e))
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40

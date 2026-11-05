@@ -67,7 +67,7 @@ class SimpleReadsSuite extends munit.FunSuite {
 
   /** An operand read off `e`, as the renderer reads one off its entity. */
   private def over(e: EntityState): Value => Any = {
-    case Value.Entity(_, part, _, _) => Transform.read(part, e)
+    case Value.Entity(_, part, _, _) => Steps.read(part, e)
     case Value.Literal(l)            => l.raw
     case _                           => ""
   }
@@ -136,9 +136,9 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(value(d, states("on")), List[SlotValue]("80"))
     // One the store does not hold has no value.
     assertEquals(
-      Transform.format(
+      Steps.format(
         Step.Percent(whole(0), whole(255)),
-        Transform.read(Part.Attr("brightness"), EntityState.none),
+        Steps.read(Part.Attr("brightness"), EntityState.none),
         over(EntityState.none)
       ),
       null
@@ -148,9 +148,9 @@ class SimpleReadsSuite extends munit.FunSuite {
   test("an attribute with its unit, total over a number and an absence") {
     def read(attrs: (String, Json)*) =
       val e = EntityState("sensor.t", "on", attrs.toMap)
-      Transform.format(
+      Steps.format(
         Step.WithUnit(Value.Entity(None, Part.Attr("unit_of_measurement"))),
-        Transform.read(Part.Attr("temperature"), e),
+        Steps.read(Part.Attr("temperature"), e),
         over(e)
       )
     val unit = "unit_of_measurement" -> Json.fromString("°C")
@@ -171,7 +171,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     def read(effect: String) =
       val e =
         EntityState("light.l", "on", Map("effect" -> Json.fromString(effect)))
-      Transform.format(labels, Transform.read(Part.Attr("effect"), e), over(e))
+      Steps.format(labels, Steps.read(Part.Attr("effect"), e), over(e))
     assertEquals(read("rainbow"), "Rainbow")
     assertEquals(read("candle"), "candle")
     val byEffect = reading(None, Part.Attr("effect"))(labels)

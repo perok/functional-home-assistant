@@ -4,7 +4,7 @@
 - **Date:** 2026-08-20
 - **Scope:** `fh/view/auth/` (new: `AuthGate`, `AuthRoutes`, `AuthSessions`,
   `HaOAuth`), `fh/view/model/Access.scala` (new),
-  `model/Dashboard.scala`, `model/Transform.scala`, `build/Site.scala`,
+  `model/Dashboard.scala`, `runtime/Cel.scala`, `build/Site.scala`,
   `runtime/Server.scala`, `runtime/ServerApp.scala`, `runtime/Renderer.scala`,
   `runtime/EditorRoutes.scala`, `lib/core/tap.pkl`, `lib/components/slider.pkl`,
   `ha-api` (`auth/current_user`), `lib/core/access.pkl` (new), `lib/entry.pkl`,
