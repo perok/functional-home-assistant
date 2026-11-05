@@ -23,17 +23,17 @@ abstract class Predicate extends slotMod.ValueExpr {
   function not(): PNot = let (l = this) new PNot { item = l }
 }
 
-/// `property <op> value`, where `property` is `"state"` or `"attr:<name>"`.
-/// `value` rides as JSON, so a threshold stays a number.
+/// `part <op> value`: the state, or the attribute `part` names. `value` rides
+/// as JSON, so a threshold stays a number.
 class Cmp extends Predicate {
-  hidden property: String
+  hidden part: simpleMod.Attr? = null
   hidden op: PredicateOp
   hidden value: Any
   /// Absent means the entity this is about: a card's subject, or the member a
   /// guard is decided for. Present names another, which reaches the reverse
   /// index through the reading's entities, or the node is never woken by it.
   hidden entity: String? = null
-  source = let (c = this) (propertyRead(c.property)) { of = c.entity }
+  source = let (c = this) new slotMod.EntityRead { of = c.entity; part = c.part }
   steps = let (c = this) new Listing { new simpleMod.CompareStep { op = c.op; to = c.value } }
 }
 
@@ -155,18 +155,9 @@ class SortTerm {
   dir: "asc"|"desc" = "asc"
 }
 
-/// The member's `state` or `attr:<name>`.
-const function propertyKey(property: String): slotMod.Reading =
-  new slotMod.Reading { source = propertyRead(property) }
-
-/// `state` or `attr:<name>` of the entity this is about.
-const function propertyRead(property: String): slotMod.EntityRead =
-  new slotMod.EntityRead {
-    part =
-      if (property == "state") null
-      else if (property.startsWith("attr:")) new simpleMod.Attr { name = property.drop(5) }
-      else throw("a live read is of 'state' or 'attr:<name>', not '\(property)'")
-  }
+/// The member's state, or the attribute `attr` names.
+const function propertyKey(attr: simpleMod.Attr?): slotMod.Reading =
+  new slotMod.Reading { source = new slotMod.EntityRead { part = attr } }
 
 /// Vacuously true, and reads nothing: [[iff]] of a condition the build settled
 /// as true.

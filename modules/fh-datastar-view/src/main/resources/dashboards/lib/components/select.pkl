@@ -61,17 +61,13 @@ const local function targetName(t: Over): String =
 const local function offered(t: Over): List<String> =
   if (t is hass.Options) t.list.toList() else List()
 
-/// The property holding the entity's current value, as a condition reads it.
-const local function currentOf(o: hass.Options): String =
-  if (o.attr != null) "attr:" + o.attr!! else "state"
-
 /// The part of the entity holding it: null is the state.
 const local function currentPart(o: hass.Options): simpleMod.Attr? =
   if (o.attr != null) new simpleMod.Attr { name = o.attr!! } else null
 
 /// Whether `v` is the entity's current value.
 const local function entityChosen(o: hass.Options, v: String): predMod.Predicate =
-  new predMod.Cmp { property = currentOf(o); op = "eq"; value = v; entity = o.owner.entity_id }
+  new predMod.Cmp { part = currentPart(o); op = "eq"; value = v; entity = o.owner.entity_id }
 
 const local function entityCall(o: hass.Options, v: String): tapMod.Call =
   tapMod.call(o.service, o.owner).with(o.key, v)

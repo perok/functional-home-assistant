@@ -18,6 +18,7 @@
 module query
 
 import "core/predicate.pkl" as pred
+import "core/simple.pkl" as simpleMod
 import "core/node.pkl" as nodes
 import "hass.pkl"
 
@@ -131,6 +132,14 @@ function optional(p: PropName): PropName = (p) { optional = true }
 
 const stateProp: PropName = new PropName { name = "state" }
 
+/// A property the build reads off the registry, by name. What [[resolveProp]]
+/// answers otherwise is a live read: the state (null) or an attribute.
+local class RegFact { name: String }
+
+/// A live read of `name`: the state, or that attribute.
+const local function livePart(attrName: String): simpleMod.Attr? =
+  if (attrName == "state") null else new simpleMod.Attr { name = attrName }
+
 /// See [[CandidateTerm]].
 function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
   new { fn = f }
@@ -139,10 +148,10 @@ function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
 /// typo fails the build instead of never matching. Only candidates with a
 /// non-empty schema are checked: empty means the domain is not modelled yet
 /// (ADR 0013).
-const local function checkLive(items: List<hass.Entity>, name: String): String =
+const local function checkLive(items: List<hass.Entity>, name: String): simpleMod.Attr? =
   let (modelled = items.filter((e) -> !e.volatileAttrs.isEmpty))
     if (modelled.isEmpty || modelled.any((e) -> e.volatileAttrs.containsKey(name)))
-      "attr:" + name
+      livePart(name)
     else
       throw("""
         No candidate can report a live attribute called '\(name)'.
@@ -170,15 +179,17 @@ const local function carries(e: hass.Entity, name: String): Boolean =
 /// calls its own members. Otherwise
 /// ALL candidates carry it => a registry fact; NONE => a live attribute; SOME
 /// => a build error unless `optional`.
-const local function resolveProp(items: List<hass.Entity>, p: PropName): String =
-  if (p.name == "state") "state"
-  else if (p is LiveAttr) "attr:" + p.name
-  else if (items.any((e) -> e.volatileAttrs.containsKey(p.name))) "attr:" + p.name
+const local function resolveProp(
+  items: List<hass.Entity>, p: PropName
+): (RegFact|simpleMod.Attr)? =
+  if (p.name == "state") null
+  else if (p is LiveAttr) livePart(p.name)
+  else if (items.any((e) -> e.volatileAttrs.containsKey(p.name))) livePart(p.name)
   else
     let (have = items.filter((e) -> carries(e, p.name)).length)
       if (items.isEmpty || have == 0) checkLive(items, p.name)
-      else if (have == items.length) "reg:" + p.name
-      else if (p.optional) "reg:" + p.name
+      else if (have == items.length) new RegFact { name = p.name }
+      else if (p.optional) new RegFact { name = p.name }
       else throw("""
         Property '\(p.name)' is present on \(have) of \(items.length) candidates.
         That is ambiguous: it would be a registry fact for some members and a
@@ -188,7 +199,7 @@ const local function resolveProp(items: List<hass.Entity>, p: PropName): String 
         """)
 
 const local function isBuildReadable(items: List<hass.Entity>, p: PropName): Boolean =
-  resolveProp(items, p).startsWith("reg:")
+  resolveProp(items, p) is RegFact
 
 const local function applyOp(cmpOp: String, l: Any, r: Any): Boolean =
   if (cmpOp == "eq") l == r
@@ -246,7 +257,7 @@ const local function cmpOn(
         else true)
     new {
       entity = who
-      property = if (k.name == "state") "state" else "attr:" + k.name
+      part = livePart(k.name)
       op = cmpOp
       value = v
     }
@@ -339,8 +350,8 @@ const local function liveTerm(
     by =
       if (s.by is Pending)
         let (pd = s.by as Pending)
-          new pred.Cmp { property = resolveProp(items, pd.key); op = pd.op; value = pd.value }
-      else pred.propertyKey(resolveProp(items, s.by as PropName))
+          new pred.Cmp { part = resolveProp(items, pd.key) as simpleMod.Attr?; op = pd.op; value = pd.value }
+      else pred.propertyKey(resolveProp(items, s.by as PropName) as simpleMod.Attr?)
     dir = s.dir
   }
 
@@ -586,11 +597,11 @@ const local function ready(items: List<hass.Entity>, f: Any): Ready =
   else if (f is Pending)
     let (pd = f as Pending)
       let (from = resolveProp(items, pd.key))
-        if (from.startsWith("reg:"))
+        if (from is RegFact)
           new ReadyReg { name = pd.key.name; op = pd.op; value = pd.value }
         else
           new ReadyConst {
-            value = new pred.Cmp { property = from; op = pd.op; value = pd.value }
+            value = new pred.Cmp { part = from as simpleMod.Attr?; op = pd.op; value = pd.value }
           }
   else new ReadyConst { value = f as (Boolean|pred.Predicate) }
 

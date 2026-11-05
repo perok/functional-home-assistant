@@ -181,7 +181,7 @@ facts {
     local pct: hass.SensorEntity = new { entity_id = "sensor.pct"; translation_key = "progress"; unit_of_measurement = "%" }
     local battery: hass.SensorEntity = new { entity_id = "sensor.bat"; device_class = "battery"; unit_of_measurement = "%" }
     local function cmp(id: String, o: pred.PredicateOp, v: Int|String): pred.Cmp =
-      new { entity = id; property = "state"; op = o; value = v }
+      new { entity = id; op = o; value = v }
     local washer = c.progress(onDevice(left, List(total, words("st", "status"))))
     washer.running == cmp("sensor.rem", "gt", 0)
     // The bar is structure, gone while idle; the countdown is a value, empty.

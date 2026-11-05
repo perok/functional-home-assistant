@@ -483,8 +483,6 @@ names, and are corrected where they did.
     `bypassesInside`, `entities`, `isLive`), where a new step or value kind falls through silently.
   - Pkl's `Expr` folded into `Reading`, as `Predicate` was into `ValueExpr`: about 15
     `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
-  - `query.pkl` and `Cmp` carry a property as a typed `Part`, not `"attr:<name>"` text parsed back
-    by `propertyRead`.
   - `SlotAsk.Stage`, a copy of the fetch stages `Step` already has, folded into `Step`.
   - One definition of a condition (`isCondition` by shape, `conditionError` by type). A state
     surface's unnamed-entity check still reads `readsMissingSubject` alone, since it runs after
