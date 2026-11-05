@@ -1360,14 +1360,10 @@ case class Dashboard(
               "this node — names are the node's own and are not inherited"
           )
         else
-          c.values(name) match
-            // A value is shared by content across nodes, so it has no subject.
-            case v if v.isCondition && v.readsMissingSubject =>
-              List(
-                s"$nodeId: expression value '$name' compares an entity it " +
-                  "does not name — name it with q.entity(e)"
-              )
-            case v => shapeError(nodeId, s"expression value '$name'", v)
+          // A value is shared by content across nodes, so it has no subject.
+          val v = c.values(name)
+          v.unnamedComparison(s"$nodeId: expression value '$name'")
+            .fold(shapeError(nodeId, s"expression value '$name'", v))(List(_))
       } ++ c.templateSlots.toList.sortBy(_._1).flatMap { (slot, src) =>
         val read = c.bound.get(slot).fold(Set.empty[String])(_.values.keySet)
         src.values.keys.toList.sorted.flatMap { name =>
@@ -1415,11 +1411,9 @@ case class Dashboard(
           s"$nodeId: slot '${Dashboard.SubjectSlot}' must be a literal — it " +
             "names the entity the card's other slots read, which is a " +
             "build-time fact"
-        case (slot, src)
-            if src.expr.isCondition && src.expr.readsMissingSubject =>
-          s"$nodeId: slot '$slot' compares an entity it does not name, and " +
-            "has no entity of its own — name it with q.entity(e)"
-      }
+      } ++ labelled(c.bound).flatMap((_, n, s) =>
+        s.expr.unnamedComparison(s"$nodeId: slot '$n'")
+      )
 
     def valueWhileErrors(
         nodeId: String,
@@ -1439,15 +1433,7 @@ case class Dashboard(
                   "valueWhile — it would keep its first answer forever"
               )
               .toList ++
-            Option
-              .when(
-                w.expr.isCondition && w.expr.readsMissingSubject
-              )(
-                s"$nodeId: slot '$name' has a valueWhile comparing an entity " +
-                  "it does not name, and has no entity of its own — name it " +
-                  "with q.entity(e)"
-              )
-              .toList
+            w.expr.unnamedComparison(s"$nodeId: slot '$name''s valueWhile")
         }
       }
 

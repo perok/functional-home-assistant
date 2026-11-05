@@ -59,6 +59,14 @@ final case class ValueExpr(
       case _                           => false
     }
 
+  /** Why `what`, a condition, cannot be decided: it compares an entity it does
+    * not name, where nothing names one for it.
+    */
+  def unnamedComparison(what: String): Option[String] =
+    Option.when(isCondition && readsMissingSubject)(
+      s"$what compares an entity it does not name — name it with q.entity(e)"
+    )
+
   /** Whether its own source asks for the bypass. */
   def bypassesSource: Boolean = source match
     case e: Value.Entity => e.bypassUnavailable

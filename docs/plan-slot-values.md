@@ -485,8 +485,10 @@ names, and are corrected where they did.
     `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
   - `query.pkl` and `Cmp` carry a property as a typed `Part`, not `"attr:<name>"` text parsed back
     by `propertyRead`.
-  - `Transform.Stage` folded into `Step.Chart`; one definition of a condition (`isCondition` by
-    shape, `conditionError` by type); the four `isCondition && readsMissingSubject` checks as one.
+  - `SlotAsk.Stage`, a copy of the fetch stages `Step` already has, folded into `Step`.
+  - One definition of a condition (`isCondition` by shape, `conditionError` by type). A state
+    surface's unnamed-entity check still reads `readsMissingSubject` alone, since it runs after
+    `conditionError`; with one definition it is `unnamedComparison` like the slot checks.
   - `validate` out of `Dashboard.scala` into its own file.
 
 ## Checks
