@@ -1016,7 +1016,7 @@ fetch is `IO` over a socket and a JavaScript engine.
 **A provider fetches; what its answer BECOMES is the slot's step.** That split is the whole of the
 second kind of input. A provider answers `Answer(version, json)` and has no opinion about
 presentation; a fetch slot's one step, a `Step.Chart` stage, turns that into what the card puts in
-its hole, SVG. With no step it is the provider's JSON (`SlotAsk.Stage.Passthrough` on the ask),
+its hole, SVG. With no step it is the provider's JSON (an ask whose `stage` is `None`),
 which is the contract a third party reads against.
 It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
@@ -1049,7 +1049,7 @@ ask of every clause: what a node may read does not depend on what it reads now.
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both decode PURE, so
 a bad fetch or stage fails the build with nothing wired: each is typed as the wire is decoded
-(`Stage.Chart` carries a `ChartStyle`, `FetchTemplate` its window), and `Dashboard.validate`
+(`Step.Chart` carries a `ChartStyle`, `FetchTemplate` its window), and `Dashboard.validate`
 checks what spans fields (a window's period against its span, a chosen window's declared key). Only `FetchResolver` holds the
 running machinery.
 

@@ -16,7 +16,7 @@ class ValueWhileSuite extends munit.FunSuite {
   private val history = FetchTemplate("sensor.left", Choice.Fixed(Windows.day))
   private val read = SlotRead(
     FetchRequest.History("sensor.left", Windows.day),
-    SlotAsk.Stage.Passthrough
+    None
   )
   private val answered = FetchSnapshot.of(
     Map(read -> Staged(7L, """{"points":[[0,0.0],[60000,101.0]]}"""))

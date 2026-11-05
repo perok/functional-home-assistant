@@ -277,7 +277,7 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   private def readAt(window: String) = SlotRead(
     FetchRequest.History("sensor.t", Windows.presets(window)),
-    SlotAsk.Stage.Chart(ChartStyle(width = 600))
+    Some(Step.Chart(ChartStyle(width = 600)))
   )
 
   /** The answers a viewer was given, and the values they were fetched for. */

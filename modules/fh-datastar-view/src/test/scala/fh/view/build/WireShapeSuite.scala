@@ -292,7 +292,9 @@ class WireShapeSuite extends munit.FunSuite {
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple
-      ] ++ caseNames[Step.Stage]) -> Set(
+      ] ++ caseNames[Step.Stage] - "FetchStage" ++ caseNames[
+        Step.FetchStage
+      ]) -> Set(
         "Cel",
         "Prefix",
         "Suffix",

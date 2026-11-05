@@ -2,7 +2,7 @@ package fh.view.fetch
 
 import cats.effect.IO
 import fh.view.history.{ChartDraw, ChartStage, History, Window}
-import fh.view.model.SlotAsk
+import fh.view.model.Step
 
 import io.circe.Json
 
@@ -48,11 +48,15 @@ object Staged {
     * never the page's. Data (passthrough) is simply absent — its hole is
     * escaped, so it cannot hold markup.
     */
-  def failed(stage: SlotAsk.Stage): Staged = stage match {
-    case SlotAsk.Stage.Chart(_) =>
-      Staged(FailedVersion, label("error", "Chart unavailable"))
-    case SlotAsk.Stage.Passthrough => Staged(FailedVersion, "")
-  }
+  def failed(stage: Option[Step.FetchStage]): Staged =
+    Staged(
+      FailedVersion,
+      stage
+        .filter(Step.draws)
+        .fold("")(s =>
+          label("error", s"${Step.label(s).capitalize} unavailable")
+        )
+    )
 
   /** The runtime's copy of `core/text.pkl`'s `label`: one structure, whose
     * classes are the base CSS every dashboard carries, so what the runtime
@@ -98,7 +102,7 @@ final class FetchResolver private (
   def stage(
       identity: FetchIdentity,
       fetch: FetchRequest,
-      stage: SlotAsk.Stage,
+      stage: Option[Step.FetchStage],
       answered: Answer
   ): IO[Staged] =
     staged
@@ -107,11 +111,10 @@ final class FetchResolver private (
       )
       .map(Staged(answered.version, _))
 
-  private def run(stage: SlotAsk.Stage, data: Json): IO[String] =
-    stage match {
-      case SlotAsk.Stage.Passthrough  => IO(data.noSpaces)
-      case SlotAsk.Stage.Chart(style) => ChartStage.draw(chart, style, data)
-    }
+  private def run(stage: Option[Step.FetchStage], data: Json): IO[String] =
+    stage match
+      case None                    => IO(data.noSpaces)
+      case Some(Step.Chart(style)) => ChartStage.draw(chart, style, data)
 
   private[fetch] def keys: IO[Set[StageKey]] = staged.keys
 }
@@ -130,7 +133,7 @@ object FetchResolver {
     */
   final case class StageKey(
       question: Question,
-      stage: SlotAsk.Stage,
+      stage: Option[Step.FetchStage],
       version: Long
   )
 

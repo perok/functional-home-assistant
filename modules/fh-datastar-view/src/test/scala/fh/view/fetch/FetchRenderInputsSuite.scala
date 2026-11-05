@@ -60,7 +60,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     * two drawings.
     */
   private def drawn(width: Int = 600) =
-    SlotAsk.Stage.Chart(ChartStyle(width = width.refineUnsafe))
+    Some(drawnStep(width))
 
   private def drawnStep(width: Int = 600) =
     Step.Chart(ChartStyle(width = width.refineUnsafe))
@@ -246,7 +246,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   test("passthrough puts the provider's DATA in the hole, undrawn") {
     // The third-party contract: the JSON a client library reads, nothing drawn,
     // so cheaper than a chart.
-    val raw = SlotRead(resolved(), SlotAsk.Stage.Passthrough)
+    val raw = SlotRead(resolved(), None)
     for {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
@@ -260,7 +260,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       d <- draws.get
     } yield {
       assertEquals(d, 0)
-      val rawAsk = SlotAsk(chart(), SlotAsk.Stage.Passthrough)
+      val rawAsk = SlotAsk(chart(), None)
       assert(
         f.value("n", rawAsk).contains("\"points\""),
         clue = f.value("n", rawAsk)

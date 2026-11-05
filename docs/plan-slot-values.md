@@ -480,7 +480,6 @@ names, and are corrected where they did.
     renderer pairs each CEL with its program by position (`ValueExpr.typed`'s key order).
   - Pkl's `Expr` folded into `Reading`, as `Predicate` was into `ValueExpr`: about 15
     `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
-  - `SlotAsk.Stage`, a copy of the fetch stages `Step` already has, folded into `Step`.
   - One definition of a condition (`isCondition` by shape, `conditionError` by type). A state
     surface's unnamed-entity check still reads `readsMissingSubject` alone, since it runs after
     `conditionError`; with one definition it is `unnamedComparison` like the slot checks.

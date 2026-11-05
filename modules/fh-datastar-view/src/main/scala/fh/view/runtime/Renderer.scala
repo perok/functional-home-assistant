@@ -1870,7 +1870,7 @@ class Renderer(validated: Dashboard.Validated) {
       f: FetchTemplate
   ): Object =
     Series.celPoints(
-      fragments.value(node, SlotAsk(f, SlotAsk.Stage.Passthrough))
+      fragments.value(node, SlotAsk(f, None))
     )
 
   /** For sites `validate` keeps from reading a fetch (a `once` slot, a

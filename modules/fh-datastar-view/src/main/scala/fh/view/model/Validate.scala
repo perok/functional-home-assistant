@@ -141,9 +141,9 @@ private[model] object Validate:
                     "attribute (disabled, hidden), a string for everything else"
                 )
               // Only a hand-written wire gets here.
-              case _: Step.Chart =>
+              case s: Step.FetchStage =>
                 Some(
-                  s"$nodeId: slot '$name' has a chart step but reads no " +
+                  s"$nodeId: slot '$name' has a ${Step.label(s)} step but reads no " +
                     "fetch — a stage turns a provider's answer into the " +
                     "hole's content, and a state slot has no answer to turn"
                 )
@@ -217,32 +217,31 @@ private[model] object Validate:
       src.fetch.toList.flatMap { template =>
         val parseErrors = askErrors(nodeId, name, template, scope)
         val stageError = src.expr.steps match {
-          case Nil | List(_: Step.Chart) => None
-          case _                         =>
+          case Nil | List(_: Step.FetchStage) => None
+          case _                              =>
             Some(
               s"$nodeId: slot '$name' reads a fetch, so its one step may be " +
-                "a chart — for CEL over it, name the fetch as an input of a " +
+                "a stage such as a chart — for CEL over it, name the fetch as an input of a " +
                 "slot that reads state"
             )
         }
         val rawHole =
           cardReads.get(cardName).flatMap(_.toOption).flatMap { reads =>
             val hasRaw = reads.raw(name)
-            src.stage match {
-              case SlotAsk.Stage.Passthrough if hasRaw =>
-                Some(
-                  s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
-                    "hole, but its transform is passthrough, whose value is " +
-                    s"DATA — write {{$name}}, or the page emits unescaped JSON"
-                )
-              case SlotAsk.Stage.Chart(_) if !hasRaw =>
-                Some(
-                  s"$nodeId: card '$cardName' places slot '$name' in an " +
-                    "ESCAPED hole, but its transform draws markup — write " +
-                    s"{{{$name}}}, or the page shows the markup as text"
-                )
-              case _ => None
-            }
+            val markup = src.stage.exists(Step.draws)
+            if (!markup && hasRaw)
+              Some(
+                s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
+                  "hole, but its value is DATA — write " +
+                  s"{{$name}}, or the page emits unescaped JSON"
+              )
+            else if (markup && !hasRaw)
+              Some(
+                s"$nodeId: card '$cardName' places slot '$name' in an " +
+                  "ESCAPED hole, but its transform draws markup — write " +
+                  s"{{{$name}}}, or the page shows the markup as text"
+              )
+            else None
           }
         parseErrors ++ stageError.toList ++
           rawHole.toList

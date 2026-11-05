@@ -661,8 +661,18 @@ object Step:
     */
   case object ThemeClasses extends Stage
 
+  /** What a fetch's answer becomes in its hole; with none it is the answer as
+    * JSON, the contract a third party reads against (ADR 0031). A closed set,
+    * so a new one is a case here and in `FetchResolver.run`.
+    */
+  sealed trait FetchStage extends Stage
+
   /** A fetch's answer drawn as SVG (ADR 0032). */
-  final case class Chart(style: ChartStyle = ChartStyle()) extends Stage
+  final case class Chart(style: ChartStyle = ChartStyle()) extends FetchStage
+
+  /** Whether it makes markup, which only a raw hole takes, rather than data. */
+  def draws(s: FetchStage): Boolean =
+    ValueType.after(s, ValueType.Series).contains(ValueType.Markup)
 
   def about(subject: Option[String])(s: Step): Step =
     val v: Value.Operand => Value.Operand = {

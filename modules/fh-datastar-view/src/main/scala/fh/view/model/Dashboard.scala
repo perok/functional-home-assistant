@@ -4,7 +4,7 @@ import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.fetch.FetchRequest
-import fh.view.history.{ChartStyle, Window}
+import fh.view.history.Window
 import fh.view.runtime.{Cel, Templates}
 import io.circe.{Decoder, DecodingFailure, JsonObject}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
@@ -115,10 +115,8 @@ final case class BoundSlot(
     case e: Value.Entity => e.bypassUnavailable
     case _               => false
 
-  def stage: SlotAsk.Stage =
-    expr.steps
-      .collectFirst { case Step.Chart(s) => SlotAsk.Stage.Chart(s) }
-      .getOrElse(SlotAsk.Stage.Passthrough)
+  def stage: Option[Step.FetchStage] =
+    expr.steps.collectFirst { case s: Step.FetchStage => s }
 
   def isBool: Boolean = `type` == SlotType.Bool
 
@@ -158,7 +156,7 @@ final case class BoundSlot(
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
       values.values.toList.map(_.source).collect { case Value.Fetch(f) =>
-        SlotAsk(f, SlotAsk.Stage.Passthrough)
+        SlotAsk(f, None)
       }
 
   /** What the renderer keys a value by (signal names, the once-cache): two
@@ -296,8 +294,11 @@ enum SlotShape derives CanEqual:
   case State(slot: BoundSlot)
   case Fetch(ask: SlotAsk)
 
-/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render. */
-case class SlotAsk(fetch: FetchTemplate, stage: SlotAsk.Stage) derives CanEqual:
+/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render.
+  * Its answer fills the hole as `stage` makes it, or as JSON with none.
+  */
+case class SlotAsk(fetch: FetchTemplate, stage: Option[Step.FetchStage])
+    derives CanEqual:
 
   /** `validate` proved the declared values resolve, and the write refuses a
     * chosen one that does not, so a `Left` here is a bug.
@@ -313,19 +314,6 @@ case class SlotAsk(fetch: FetchTemplate, stage: SlotAsk.Stage) derives CanEqual:
       stage
     )
 
-object SlotAsk:
-  /** How a fetch's answer becomes the hole's content: its [[Step.Chart]], or
-    * the answer as JSON when it has none.
-    */
-  enum Stage derives CanEqual:
-    case Passthrough
-    case Chart(params: ChartStyle = ChartStyle())
-
-  object Stage:
-    def key(s: Stage): String = s match
-      case Stage.Passthrough  => "passthrough"
-      case Stage.Chart(style) => s"chart:$style"
-
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
 
@@ -336,7 +324,8 @@ object Fetching:
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
-case class SlotRead(fetch: FetchRequest, stage: SlotAsk.Stage) derives CanEqual
+case class SlotRead(fetch: FetchRequest, stage: Option[Step.FetchStage])
+    derives CanEqual
 
 /** When a slot is read, and whether that is a reason to re-render:
   *
