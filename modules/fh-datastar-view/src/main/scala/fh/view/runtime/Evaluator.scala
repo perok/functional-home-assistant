@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import scala.jdk.CollectionConverters.*
+
 import fh.view.model.{
   FetchTemplate,
   Lit,
@@ -45,7 +47,10 @@ private[view] object Evaluator {
       slug: String,
       inputs: Inputs
   ): Run = {
-    // The early stops, picked once: each decides without building the list.
+    // How a source is read, picked once from the step after it: where that
+    // step can stop early, the items or candidates are read one at a time
+    // and the list is never built. A list CEL built is already whole, so its
+    // and/or is the step's own.
     val (start, rest) = (e.source, e.steps) match
       case (
             p: Value.Present,
@@ -53,9 +58,9 @@ private[view] object Evaluator {
           ) =>
         (countIs(p.candidates, present(p), op, n), r)
       case (Value.List(items), Step.AllOf :: r) =>
-        (kleene(items.map(plain(_)), decides = false), r)
+        (junction(items.map(plain(_)), decides = false), r)
       case (Value.List(items), Step.AnyOf :: r) =>
-        (kleene(items.map(plain(_)), decides = true), r)
+        (junction(items.map(plain(_)), decides = true), r)
       case (source, steps) => (read(source, programs, slug, inputs), steps)
     rest.foldLeft(start)((prev, s) => step(s, prev, programs, slug, inputs))
   }
@@ -263,9 +268,13 @@ private[view] object Evaluator {
         (subject, _) =>
           if (subject == null) null else Transform.read(part, subject)
 
-  /** CEL's optional is the value or `null` once it leaves the step. */
+  /** CEL's optional is the value or `null` once it leaves the step, and its
+    * list the `List` every list step reads: a Java list read as no value in
+    * each of them.
+    */
   private def lift(v: Any): Any = v match
     case o: java.util.Optional[?] => if (o.isPresent) o.get else null
+    case l: java.util.List[?]     => List.from(l.iterator.asScala)
     case other                    => other
 
   /** Whether a candidate is present: unguarded, or its guard holds over it. */
@@ -313,25 +322,15 @@ private[view] object Evaluator {
       holdsAt(lo)
   }
 
-  /** And (`decides = false`) or or (`true`), Kleene's: the value that decides
-    * stops it, else `null` if any item had none.
-    */
-  private def kleene(items: List[Run], decides: Boolean): Run =
+  /** An and/or over a list source's items, each run only until one decides. */
+  private def junction(items: List[Run], decides: Boolean): Run =
     (subject, states, fetched) =>
       var rest = items
-      var unknown = false
-      var decided = false
-      while (rest.nonEmpty) {
-        rest.head(subject, states, fetched) match
-          case b: java.lang.Boolean if b.booleanValue == decides =>
-            decided = true
-            rest = Nil
-          case _: java.lang.Boolean => rest = rest.tail
-          case _                    =>
-            unknown = true
-            rest = rest.tail
+      Transform.kleene(decides)(rest.nonEmpty) {
+        val v = rest.head(subject, states, fetched)
+        rest = rest.tail
+        v
       }
-      if (decided) decides else if (unknown) null else !decides
 
   /** One pass, each key read once; the earliest wins a tie, as a set's stable
     * sort keeps candidate order.

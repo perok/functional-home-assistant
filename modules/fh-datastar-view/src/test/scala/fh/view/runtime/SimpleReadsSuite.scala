@@ -82,6 +82,45 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(value(d, states("off")), List[SlotValue](false))
   }
 
+  test("a list CEL built is a list to every step that takes one") {
+    // A Java list read as no value in each, though `validate` typed it a list.
+    def text(cel: String, step: Step) = dashboard(
+      slot(reading(Some("binary_sensor.door"), Part.Whole)(Step.Cel(cel), step))
+    )
+    val count = text("['a', 'b']", Step.Count)
+    assertEquals(count.validate(), Nil)
+    assertEquals(value(count, states("on")), List[SlotValue]("2"))
+    val leader = text("['sensor.b', 'sensor.a']", Step.First())
+    assertEquals(leader.validate(), Nil)
+    assertEquals(value(leader, states("on")), List[SlotValue]("sensor.b"))
+  }
+
+  test("an and/or over a list CEL built decides as over a list source") {
+    // Only a list source's run is fused; a CEL's list is whole when it lands.
+    def over(step: Step) = dashboard(
+      slot(
+        reading(Some("binary_sensor.door"), Part.Whole)(
+          Step.Cel("[value.state == 'on', value.state == 'open']"),
+          step
+        ),
+        bool = true
+      )
+    )
+    for (step, door, holds) <- List(
+        (Step.AnyOf, "on", true),
+        (Step.AnyOf, "off", false),
+        (Step.AllOf, "on", false),
+        (Step.AllOf, "off", false)
+      )
+    do
+      assertEquals(over(step).validate(), Nil)
+      assertEquals(
+        value(over(step), states(door)),
+        List[SlotValue](holds),
+        clue = (step, door)
+      )
+  }
+
   test("a condition naming no entity reads the card's subject") {
     val d = dashboard(
       slot(condition(Conds.cmp("state", Op.Gt, Json.fromInt(0))), true)

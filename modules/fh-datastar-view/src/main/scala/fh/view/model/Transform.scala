@@ -101,25 +101,39 @@ object Transform {
             a match
               case flag: Boolean => flag
               case other         => text(other)
-      case Step.AllOf           => kleene(value, decides = false)
-      case Step.AnyOf           => kleene(value, decides = true)
+      case Step.AllOf | Step.AnyOf =>
+        value match
+          // A list CEL built, the one a list source's own run did not fuse.
+          case xs: List[?] =>
+            var rest = xs
+            kleene(step == Step.AnyOf)(rest.nonEmpty) {
+              val h = rest.head
+              rest = rest.tail
+              h
+            }
+          case _ => null
       case Step.Compare(op, to) => compare(value, a, op, to)
       case Step.Not             =>
         value match
           case b: Boolean => !b
           case _          => null
 
-  /** Kleene's and (`decides = false`) or or (`true`) over a list's bools: the
-    * value that decides it, else `null` if an item had none.
+  /** Kleene's and (`decides = false`) or or (`true`), the one spelling of the
+    * rule (ADR 0035): `next` is read while `more` holds, stopping at the item
+    * that decides, else `null` if an item had none. Inline, so a caller's item
+    * reads expand in place and allocate nothing.
     */
-  private def kleene(value: Any, decides: Boolean): Any = value match
-    case xs: List[?] =>
-      if (xs.exists { case b: Boolean => b == decides; case _ => false })
-        decides
-      else if (xs.forall { case _: Boolean => true; case _ => false })
-        !decides
-      else null
-    case _ => null
+  private[view] inline def kleene(decides: Boolean)(inline more: Boolean)(
+      inline next: Any
+  ): Any =
+    var unknown = false
+    var decided = false
+    while (!decided && more) {
+      next match
+        case b: java.lang.Boolean => decided = b.booleanValue == decides
+        case _                    => unknown = true
+    }
+    if (decided) decides else if (unknown) null else !decides
 
   /** The operand's type picks the comparison, as CEL's checker picks an
     * overload: a number literal on the number line, `eq` included, a text side
