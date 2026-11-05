@@ -1,6 +1,6 @@
 /// The conditions and candidate-set wire that `query.pkl` builds and the
-/// backend decodes. A condition is a bool reading, `fh.view.model.ValueExpr`
-/// (its `source` and `steps`), decided without CEL: each class here keeps what
+/// backend decodes. A condition is a bool `fh.view.model.ValueExpr` (its
+/// `source` and `steps`), decided without CEL: each class here keeps what
 /// its builder names hidden and writes that wire. Here rather than in
 /// `query.pkl` so the query language and the card library share the wire
 /// without depending on each other. There are no free constructors, so a term
@@ -13,10 +13,11 @@ import "slot.pkl" as slotMod
 
 typealias PredicateOp = simpleMod.CompareOp
 
-/// A condition: a reading of a bool, decided without CEL (ADR 0035), so it goes
-/// wherever a reading does. The combinators are methods, since the operators
-/// `&&`/`||`/`!` do not cross the seam.
-abstract class Predicate extends slotMod.Reading {
+/// A condition: a [[slotMod.ValueExpr]] of a bool, decided without CEL (ADR
+/// 0035). It is not a [[slotMod.Reading]], so a slot's fields (`entityId`,
+/// `default`, …) are refused rather than ignored. The combinators are methods,
+/// since the operators `&&`/`||`/`!` do not cross the seam.
+abstract class Predicate extends slotMod.ValueExpr {
   function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
   function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
   function not(): PNot = let (l = this) new PNot { item = l }
@@ -150,7 +151,7 @@ class SetNode extends nodes.LayoutNode {
 /// ([[propertyKey]]), or whether a condition holds, true first under `asc`. A
 /// registry key never reaches it: it folds into the candidate order.
 class SortTerm {
-  by: slotMod.Reading
+  by: slotMod.ValueExpr
   dir: "asc"|"desc" = "asc"
 }
 

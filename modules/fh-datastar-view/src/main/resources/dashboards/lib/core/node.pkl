@@ -18,17 +18,19 @@ typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predi
 
 /// What fills a boolean slot: a `Boolean` the build knows, a reading
 /// (`c.isOn(l)`), an `Expr` (`c.expr("on > 2")`), or a condition
-/// (`q.from(lights).where(…).any()`), which is a reading decided without CEL. An
-/// aggregate the build can settle IS a `Boolean`, so a room with no lights needs
-/// no live slot.
-typealias BooleanInput = Boolean|slotMod.Reading|slotMod.Expr
+/// (`q.from(lights).where(…).any()`), decided without CEL. An aggregate the
+/// build can settle IS a `Boolean`, so a room with no lights needs no live slot.
+typealias BooleanInput = Boolean|slotMod.ValueExpr|slotMod.Expr
 
-/// The reading a live [[BooleanInput]] is.
-const function booleanReading(input: slotMod.Reading|slotMod.Expr): slotMod.Reading =
-  if (input is slotMod.Reading) input else slotMod.exprReading(input)
+/// The reading a live [[BooleanInput]] is; a condition becomes one holding its
+/// source and steps.
+const function booleanReading(input: slotMod.ValueExpr|slotMod.Expr): slotMod.Reading =
+  if (input is slotMod.Reading) input
+  else if (input is slotMod.Expr) slotMod.exprReading(input)
+  else let (p = input as slotMod.ValueExpr) new slotMod.Reading { source = p.source; steps = p.steps }
 
 /// `at` holding a live [[BooleanInput]], read as a bool.
-const function booleanSlot(at: slotMod.Slot, input: slotMod.Reading|slotMod.Expr): slotMod.Slot =
+const function booleanSlot(at: slotMod.Slot, input: slotMod.ValueExpr|slotMod.Expr): slotMod.Slot =
   (at) { value = booleanReading(input); type = "bool" }
 
 /// A card's own `disabled`, as the slot `tapMod.refused` ORs in: not set for
@@ -37,7 +39,7 @@ const function disabledSlot(d: BooleanInput?): slotMod.Slot =
   if (d == null || d == false) tapMod.disabled
   else if (d == true) tapMod.disabled.of(true)
   else
-    (booleanSlot(tapMod.disabled, d as slotMod.Reading|slotMod.Expr)) {
+    (booleanSlot(tapMod.disabled, d as slotMod.ValueExpr|slotMod.Expr)) {
       signal = slotMod.asHandler
     }
 
@@ -261,7 +263,7 @@ abstract class ActiveNode extends Node {
   }
   liveClasses {
     when (!(active is Boolean)) {
-      ["fh-active"] = booleanReading(active as slotMod.Reading|slotMod.Expr)
+      ["fh-active"] = booleanReading(active as slotMod.ValueExpr|slotMod.Expr)
     }
   }
 }

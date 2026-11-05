@@ -709,4 +709,11 @@ facts {
     local leads = latest.eq(a) as pred.First
     lit.source == leads.source && lit.steps == leads.steps
   }
+
+  ["a condition refuses a slot's fields rather than ignoring them"] {
+    // A condition is a ValueExpr, not a Reading: `entityId` would name no read.
+    module.catch(() -> new pred.Cmp { property = "state"; op = "eq"; value = "on"; entityId = "light.x" })
+      .contains("entityId")
+    module.catch(() -> (pred.alwaysHolds) { default = "x" }).contains("default")
+  }
 }

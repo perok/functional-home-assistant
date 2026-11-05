@@ -74,8 +74,10 @@ What a reading means — typed reads, `null` as the one absent value, every step
 comparison picks its meaning, where a value leaves it — is ADR 0035, the value language; one
 evaluator runs every reading, slot and condition alike.
 
-**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate` in Pkl, a **Reading** of a bool:
-`q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
+**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate` in Pkl, a `slotMod.ValueExpr`
+of a bool — like a **Reading** a source and its steps, without a reading's slot fields:
+`q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")`). A boolean input takes one where it takes a
+reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
 which is not a condition: it is a viewer's selection, so it is not shared and never flips. On the
 wire it is a bool `ValueExpr` of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`,
 `AllOf`/`AnyOf` over a `List`, `Count` over a set's **present** ids, `First` over a list of ids — decided by the

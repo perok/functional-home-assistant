@@ -13,12 +13,18 @@ import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
 import "node.pkl" as nodes
 
-/// What a slot reads, with no binding yet (`docs/terminology.md`): a value read
-/// from its [[source]], then each of its [[steps]] run on it. The card it is
-/// handed to puts it in a [[Slot]], which says where it lands.
-/// `fh.view.model.ValueExpr`; build one with [[simpleMod]]'s constructors, a
-/// [[Cel]] step, or [[expr]].
-open class Reading {
+/// A value read from its [[source]], then each of its [[steps]] run on it
+/// (`fh.view.model.ValueExpr`): a [[Reading]], or a condition
+/// (`predicate.pkl`), which sets both and has no slot fields to ignore.
+open class ValueExpr {
+  source: Value|String|Number|Boolean
+  steps: Listing<simpleMod.Step> = new {}
+}
+
+/// What a slot reads, with no binding yet (`docs/terminology.md`). The card it
+/// is handed to puts it in a [[Slot]], which says where it lands. Build one
+/// with [[simpleMod]]'s constructors, a [[Cel]] step, or [[expr]].
+open class Reading extends ValueExpr {
   /// The entity read when not the card's own (its subject).
   hidden entityId: String? = null
   /// Which part of it; null is the state.
@@ -44,9 +50,8 @@ open class Reading {
   hidden fetch: Fetch? = null
   /// What the value is read from: by default an entity, as the four fields
   /// above say, or a fetch. A bare literal, a list, a set's ids or a
-  /// [[CelRead]] are set here; a condition sets its steps too
-  /// ([[nodes.booleanReading]]).
-  source: Value|String|Number|Boolean =
+  /// [[CelRead]] are set here.
+  source =
     let (r = this)
       if (r.fetch != null) new FetchRead { fetch = r.fetch!! }
       else new EntityRead {
@@ -55,7 +60,6 @@ open class Reading {
         reads = if (r.reads == "live") null else r.reads
         bypassUnavailable = if (r.bypassUnavailable) true else null
       }
-  steps: Listing<simpleMod.Step> = new {}
   /// What an empty result shows instead, of the slot's type.
   default: (String|Boolean)? = null
   /// When this slot has a value at all; otherwise it is `""`, its steps do not
@@ -69,7 +73,7 @@ open class Reading {
   valueWhileSlot: Reading? =
     if (valueWhile == true) null
     else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
-    else nodes.booleanReading(valueWhile as Reading|Expr)
+    else nodes.booleanReading(valueWhile as ValueExpr|Expr)
 }
 
 /// A step's operand: a literal, or a part of an entity.
