@@ -473,16 +473,10 @@ names, and are corrected where they did.
 - **Strict `Dyn`** is an open question in ADR 0035, beside the `Option` type.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
 - **From the 2026-11-05 review**, to do after this stack:
-  - A CEL's named inputs live once, on the slot: the wire puts them on each CEL step and source,
-    and bind merges them per slot, so every CEL in a slot gets all of them. One concept, four
-    names (Pkl `values`, wire `inputs`, Scala `values`, "expression values").
-  - Type-check and compile as one step, so `validate` hands the renderer compiled runs: today the
-    renderer pairs each CEL with its program by position (`ValueExpr.typed`'s key order).
   - Pkl's `Expr` folded into `Reading`, as `Predicate` was into `ValueExpr`: about 15
     `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
-  - One definition of a condition (`isCondition` by shape, `conditionError` by type). A state
-    surface's unnamed-entity check still reads `readsMissingSubject` alone, since it runs after
-    `conditionError`; with one definition it is `unnamedComparison` like the slot checks.
+  - Compiling every expression once, a CEL's own inputs, and one definition of a condition are
+    `plan-one-compile.md`'s.
 
 ## Checks
 
