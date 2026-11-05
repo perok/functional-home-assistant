@@ -6,6 +6,7 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
+  SortTerm,
   Part,
   Activation,
   CardDef,
@@ -300,9 +301,9 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("a slot shows the leader a first step picks, through a CEL step") {
-    val brightest = LayoutNode.SortTerm(
+    val brightest = SortTerm(
       ValueExpr(Value.Entity(None, Part.Attr("brightness"))),
-      "desc"
+      SortTerm.Dir.Desc
     )
     val leader = ValueExpr(
       Value.Present(List("light.a", "light.b")),
@@ -373,7 +374,7 @@ class RendererSuite extends munit.FunSuite {
     // `Reads.Once` resolves once per (entity, transform), which keeps the set
     // render path cheap. A state-reading transform, a deliberate misuse,
     // exposes the memo: its value freezes at the first render.
-    def node(reads: String): LayoutNode =
+    def node(reads: Reads): LayoutNode =
       LayoutNode.Component(
         card = "act",
         templateSlots = Map(
@@ -1358,7 +1359,7 @@ class RendererSuite extends munit.FunSuite {
     * on the slot's own declaration.
     */
   test("structure may READ an entity, as long as the slot is not reactive") {
-    def dash(mode: String) = Dashboard(
+    def dash(mode: Reads) = Dashboard(
       cards + ("box" -> CardDef(
         """<div title="{{name}}">{{{children}}}</div>""",
         regions = Map("children" -> Region())

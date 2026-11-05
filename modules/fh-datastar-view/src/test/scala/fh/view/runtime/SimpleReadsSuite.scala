@@ -26,7 +26,7 @@ class SimpleReadsSuite extends munit.FunSuite {
   private def reading(
       of: Option[String],
       part: Part = Part.State,
-      reads: String = Reads.Live
+      reads: Reads = Reads.Live
   )(steps: Step*) =
     ValueExpr(
       Value.Entity(of, part, reads, bypassUnavailable = false),
@@ -72,7 +72,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     case _                           => ""
   }
 
-  private def whole(n: Long) = Value.Literal(Lit.Whole(n))
+  private def whole(n: Long): Value.Operand = Value.Literal(Lit.Whole(n))
 
   test("a condition is a slot's source, woken by the entity it names") {
     val d = dashboard(slot(condition(doorOpen), bool = true))
@@ -204,7 +204,7 @@ class SimpleReadsSuite extends munit.FunSuite {
   }
 
   test("only a text slot's own read of a state or a whole entity bypasses") {
-    def bypassing(part: Part) =
+    def bypassing(part: Part): Value.Operand =
       Value.Entity(Some("sensor.a"), part, bypassUnavailable = true)
     def refused(v: TemplateSlot) =
       dashboard(v).validate().exists(_.contains(ValueExpr.MisplacedBypass))
@@ -251,5 +251,60 @@ class SimpleReadsSuite extends munit.FunSuite {
         """{"source": {"kind": "Entity"}, "steps": [{"kind": "Match", "cases": {}}]}"""
       ).isLeft
     )
+  }
+
+  test(
+    "an operand is a literal or an entity read, in every step that has one"
+  ) {
+    // The evaluator reads no other shape, so the wire cannot carry one.
+    val steps = List(
+      """{"kind": "Compare", "op": "eq", "to": %s}""",
+      """{"kind": "Prefix", "text": %s}""",
+      """{"kind": "Suffix", "text": %s}""",
+      """{"kind": "WithUnit", "unit": %s}""",
+      """{"kind": "Percent", "min": %s, "max": 1}""",
+      """{"kind": "Fill", "min": 0, "max": %s}""",
+      """{"kind": "Match", "cases": {}, "otherwise": %s}"""
+    )
+    def step(shape: String, operand: String) =
+      decode[ValueExpr](
+        s"""{"source": {"kind": "Entity"}, "steps": [${shape.format(
+            operand
+          )}]}"""
+      )
+    for shape <- steps do
+      assert(step(shape, "\"x\"").isRight, clue = shape)
+      assert(step(shape, """{"kind": "Entity", "of": "a.b"}""").isRight, shape)
+      for other <- List(
+          """{"kind": "List", "items": []}""",
+          """{"kind": "Present", "candidates": []}""",
+          """{"kind": "Cel", "src": "1"}""",
+          """{"kind": "Fetch", "fetch": {"provider": "history", "entity": "a.b", "window": {"kind": "Raw", "span": 3600}}}"""
+        )
+      do
+        assert(
+          step(shape, other).left.exists(
+            _.getMessage.contains("a literal or an entity read")
+          ),
+          clue = (shape, other)
+        )
+  }
+
+  test(
+    "`reads` and an order term's `dir` decode only as the wire spells them"
+  ) {
+    def reads(r: String) =
+      decode[ValueExpr](s"""{"source": {"kind": "Entity", "reads": "$r"}}""")
+        .map(_.source)
+    for r <- Reads.values do
+      assertEquals(reads(r.wire), Right(Value.Entity(reads = r)))
+    assert(reads("Live").isLeft)
+    def dir(d: String) =
+      decode[SortTerm](
+        s"""{"by": {"source": {"kind": "Entity"}}, "dir": "$d"}"""
+      )
+        .map(_.dir)
+    for d <- SortTerm.Dir.values do assertEquals(dir(d.wire), Right(d))
+    assert(dir("Desc").isLeft)
   }
 }

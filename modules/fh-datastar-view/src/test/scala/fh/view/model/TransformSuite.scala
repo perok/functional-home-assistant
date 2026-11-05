@@ -314,8 +314,8 @@ class TransformSuite extends munit.FunSuite {
     ValueExpr(Value.Entity(None, part), steps.toList)
   private def state(steps: Step*) = on(Part.State, steps*)
   private def attr(name: String, steps: Step*) = on(Part.Attr(name), steps*)
-  private def text(s: String) = Value.Literal(Lit.Text(s))
-  private def real(d: Double) = Value.Literal(Lit.Real(d))
+  private def text(s: String): Value.Operand = Value.Literal(Lit.Text(s))
+  private def real(d: Double): Value.Operand = Value.Literal(Lit.Real(d))
   private def unit(name: String) =
     Step.WithUnit(Value.Entity(None, Part.Attr(name)))
   private def matchOf(cases: Map[String, String], otherwise: String) =

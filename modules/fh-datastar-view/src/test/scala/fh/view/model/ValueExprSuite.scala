@@ -8,7 +8,7 @@ import io.circe.parser.decode
 class ValueExprSuite extends munit.FunSuite {
 
   private def state(of: String) = Value.Entity(Some(of))
-  private val on = Value.Literal(Lit.Text("on"))
+  private val on: Value.Operand = Value.Literal(Lit.Text("on"))
 
   private def isOn(of: String) =
     ValueExpr(state(of), List(Step.Compare(Op.Eq, on)))
@@ -133,7 +133,7 @@ class ValueExprSuite extends munit.FunSuite {
       typeOf(present(ValueExpr(Value.Cel("true")), Step.Count)),
       Left("the guard on 'a.a': a condition is read without CEL")
     )
-    val byCel = LayoutNode.SortTerm(ValueExpr(Value.Cel("true")))
+    val byCel = SortTerm(ValueExpr(Value.Cel("true")))
     assertEquals(
       typeOf(present(isOn("a.a"), Step.First(List(byCel)))),
       Left("an order term is read without CEL")

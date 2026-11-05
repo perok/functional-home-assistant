@@ -105,7 +105,7 @@ final case class BoundSlot(
   /** A fetch's answer is never pushed, and a CEL source with no live input is a
     * constant, held like a `once` read.
     */
-  def reads: String = expr.source match
+  def reads: Reads = expr.source match
     case e: Value.Entity                                 => e.reads
     case _: Value.Fetch                                  => Reads.OnRender
     case _: Value.Cel if !values.values.exists(_.isLive) => Reads.Once
@@ -339,12 +339,19 @@ case class SlotRead(fetch: FetchRequest, stage: Transform.Stage)
   *
   * Three values, not two flags: `(wake me, never re-read)` is incoherent.
   */
-object Reads:
-  val Live: String = "live"
-  val OnRender: String = "onRender"
-  val Once: String = "once"
+enum Reads(val wire: String) derives CanEqual:
+  case Live extends Reads("live")
+  case OnRender extends Reads("onRender")
+  case Once extends Reads("once")
 
-  val All: Set[String] = Set(Live, OnRender, Once)
+object Reads:
+  given Decoder[Reads] = Decoder[String].emap(s =>
+    values
+      .find(_.wire == s)
+      .toRight(
+        s"unknown reads '$s' — one of ${values.map(_.wire).mkString(", ")}"
+      )
+  )
 
 /** What a card reads a slot's value as. A `Bool` slot decides a class or an
   * attribute by truthiness, where the string `"false"` is ON, so the build
@@ -689,34 +696,6 @@ object LayoutNode:
       when: Option[ValueExpr] = None,
       node: LayoutNode
   ) derives ConfiguredDecoder
-
-  /** Present only when ordering needs live state; otherwise
-    * [[SetNode.candidates]] is pre-sorted, a registry key included. `by` is
-    * read per member, an unnamed read reading it: a condition sorts true first
-    * under `asc`, any other value as `Evaluator.Keys` says.
-    */
-  case class SortTerm(
-      by: ValueExpr,
-      dir: String = "asc"
-  ) derives ConfiguredDecoder:
-    def descending: Boolean = dir == "desc"
-
-    def key: String = s"$dir:${by.inputKey}"
-
-    /** What it names besides the member it is read for. */
-    def entities: List[String] = by.entities
-
-    /** Read without the engine, as a condition is. */
-    def readError: Option[String] =
-      if (by.isCondition) by.conditionError
-      else
-        by.typed(Nil) match
-          case Left(m)                     => Some(m.message)
-          case Right(t) if t.keys.nonEmpty =>
-            Some("an order term is read without CEL")
-          case Right(_) if by.bypassesAnywhere =>
-            Some(ValueExpr.MisplacedBypass)
-          case Right(_) => None
 
   case class Step(region: String, index: Int)
 
@@ -1412,13 +1391,13 @@ case class Dashboard(
         case (slot, src)
             if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
           s"$nodeId: slot '$slot' reads a live count, condition or fetch but is " +
-            s"read '${Reads.Once}' — it would show the first count forever; " +
-            s"read it '${Reads.Live}'"
+            s"read '${Reads.Once.wire}' — it would show the first count forever; " +
+            s"read it '${Reads.Live.wire}'"
         case (slot, src)
             if src.reads == Reads.Once && src.valueEntities.nonEmpty =>
           s"$nodeId: slot '$slot' reads another entity but is read " +
-            s"'${Reads.Once}' — it would show its first state forever; read " +
-            s"it '${Reads.Live}'"
+            s"'${Reads.Once.wire}' — it would show its first state forever; read " +
+            s"it '${Reads.Live.wire}'"
         // Pkl names every entity a slot reads from it, so it cannot move.
         case (slot, src)
             if slot == Dashboard.SubjectSlot && src.literal.isEmpty =>
@@ -1445,7 +1424,7 @@ case class Dashboard(
             .toList ++
             Option
               .when(src.reads == Reads.Once)(
-                s"$nodeId: slot '$name' is read '${Reads.Once}' and has a " +
+                s"$nodeId: slot '$name' is read '${Reads.Once.wire}' and has a " +
                   "valueWhile — it would keep its first answer forever"
               )
               .toList ++
@@ -1724,7 +1703,7 @@ case class Dashboard(
                     s"entities (${c.liveEntities.mkString(", ")}) — an " +
                     "unwrapped node has no morph target, so its live updates " +
                     "would never apply; make those slots literal or " +
-                    s"reads='${Reads.OnRender}', or drop the opt-out"
+                    s"reads='${Reads.OnRender.wire}', or drop the opt-out"
                 )
                 .toList ++
                 Option

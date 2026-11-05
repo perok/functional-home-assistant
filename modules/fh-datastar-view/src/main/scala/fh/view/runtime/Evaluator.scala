@@ -2,10 +2,10 @@ package fh.view.runtime
 
 import fh.view.model.{
   FetchTemplate,
-  LayoutNode,
   Lit,
   Op,
   Reads,
+  SortTerm,
   Step,
   Transform,
   Value,
@@ -101,7 +101,7 @@ private[view] object Evaluator {
     * value's, no value last in either direction, else numbers on the number
     * line and text as text, numeric when both parse.
     */
-  final class Keys(terms: List[LayoutNode.SortTerm]) {
+  final class Keys(terms: List[SortTerm]) {
     private val runs = terms.map(t => plain(t.by)).toArray
     private val bool =
       terms.map(_.by.typed(Nil).exists(_.out == ValueType.Bool)).toArray
@@ -249,7 +249,7 @@ private[view] object Evaluator {
 
   /** A step's operand: a literal, read once here, or an entity's part. */
   private def operand(
-      v: Value
+      v: Value.Operand
   ): (EntityState | Null, Map[String, EntityState]) => Any =
     v match
       case Value.Literal(l) =>
@@ -262,7 +262,6 @@ private[view] object Evaluator {
       case Value.Entity(None, part, _, _) =>
         (subject, _) =>
           if (subject == null) null else Transform.read(part, subject)
-      case _ => (_, _) => null
 
   /** CEL's optional is the value or `null` once it leaves the step. */
   private def lift(v: Any): Any = v match

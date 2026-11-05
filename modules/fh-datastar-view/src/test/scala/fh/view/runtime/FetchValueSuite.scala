@@ -27,7 +27,7 @@ class FetchValueSuite extends munit.FunSuite {
       values: Map[String, ValueExpr] = Map(
         "past" -> ValueExpr(Value.Fetch(history))
       ),
-      reads: String = Reads.Live
+      reads: Reads = Reads.Live
   ) = TemplateSlot(
     ValueExpr(
       Value.Entity(Some("sensor.left"), reads = reads, part = Part.Whole),

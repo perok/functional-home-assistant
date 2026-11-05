@@ -128,7 +128,12 @@ object Transform {
     * numbers on the number line, anything else as text, ordering numeric when
     * both parse.
     */
-  private def compare(value: Any, operand: Any, op: Op, to: Value): Boolean =
+  private def compare(
+      value: Any,
+      operand: Any,
+      op: Op,
+      to: Value.Operand
+  ): Boolean =
     to match
       // `ne` is not `eq`, as in CEL, where values of two types are unequal.
       case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
@@ -141,7 +146,7 @@ object Transform {
           case _     => false
       case Value.Literal(Lit.Text(_)) =>
         textCompare(text(value), text(operand), op)
-      case _ =>
+      case _: Value.Entity =>
         (value, operand) match
           case (l: java.lang.Number, r: java.lang.Number) =>
             onLine(l.doubleValue, r.doubleValue, op)

@@ -5,6 +5,7 @@ import fh.view.runtime.RendererTestOps.*
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  SortTerm,
   ValueType,
   Activation,
   CardDef,
@@ -801,7 +802,7 @@ class RenderBench {
       Conds.first(
         candidates = List.tabulate(Pills)(entityId),
         orderBy =
-          List(LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")),
+          List(SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)),
         entity = entityId(i)
       )
     )
@@ -1844,9 +1845,9 @@ object RenderBench {
   final val Pills = 10
 
   /** Lit first, then brightest: a condition key and a value key. */
-  lazy val LitBrightest: List[LayoutNode.SortTerm] = List(
-    LayoutNode.SortTerm(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
-    LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
+  lazy val LitBrightest: List[SortTerm] = List(
+    SortTerm(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+    SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)
   )
 
   /** The shipped `entityCard`'s one BYTE slot. Every other slot on it is either
@@ -1889,8 +1890,8 @@ object RenderBench {
     case _                           => _ => ""
 
   private val unit = Part.Attr("unit_of_measurement")
-  private def text(s: String) = Value.Literal(Lit.Text(s))
-  private def real(d: Double) = Value.Literal(Lit.Real(d))
+  private def text(s: String): Value.Operand = Value.Literal(Lit.Text(s))
+  private def real(d: Double): Value.Operand = Value.Literal(Lit.Real(d))
 
   def runProbe(p: Probe, e: EntityState): String = Transform.text(p.run(e))
 
@@ -2139,7 +2140,7 @@ object RenderBench {
   def setTree(
       leaves: Int,
       signals: Boolean = true,
-      orderBy: List[LayoutNode.SortTerm] = Nil
+      orderBy: List[SortTerm] = Nil
   ): LayoutNode =
     LayoutNode.Component(
       "col",

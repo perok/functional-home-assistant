@@ -525,7 +525,7 @@ class SignalSlotSuite extends ServerHarness {
       "none" -> Map.empty[String, TemplateSlot]
     )
     // Of these, only a `once` slot may be read as `.jsValue` (`readErrors`).
-    def dash(reads: String, subject: Map[String, TemplateSlot]): Dashboard =
+    def dash(reads: Reads, subject: Map[String, TemplateSlot]): Dashboard =
       val read =
         if reads == Reads.Once then """ data-r="{{{on.jsValue}}}"""" else ""
       Dashboard(
@@ -550,7 +550,7 @@ class SignalSlotSuite extends ServerHarness {
         )
       )
     for
-      reads <- Reads.All.toList.sorted
+      reads <- Reads.values.toList
       (shape, subject) <- subjects
     do
       val clue = s"reads=$reads subject=$shape"
