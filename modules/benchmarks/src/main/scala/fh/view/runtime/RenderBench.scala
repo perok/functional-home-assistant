@@ -295,8 +295,10 @@ class RenderBench {
     "on" -> isOn
   )
   // Compiled once, as a renderer's plan or a member graph compiles them.
-  private lazy val isOnRun = Evaluator.plain(isOn)
-  private lazy val isOnInputs = Evaluator.inputs(isOnValue)
+  private lazy val isOnRun =
+    Evaluator.runOf(isOn, Nil, Evaluator.Scope.onDemand(""))
+  private lazy val isOnInputs =
+    Evaluator.inputs(isOnValue, Evaluator.Scope.onDemand(""))
   private var engineShapes: List[Cel.Program] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -720,8 +722,10 @@ class RenderBench {
     List(Step.Count, Step.Compare(Op.Gt, Value.Literal(Lit.Real(0.0))))
   )
 
-  private lazy val anyOnRun = Evaluator.plain(anyOn)
-  private lazy val anyOnFullRun = Evaluator.plain(anyOnFull)
+  private lazy val anyOnRun =
+    Evaluator.runOf(anyOn, Nil, Evaluator.Scope.onDemand(""))
+  private lazy val anyOnFullRun =
+    Evaluator.runOf(anyOnFull, Nil, Evaluator.Scope.onDemand(""))
 
   @Benchmark
   def countAny(bh: Blackhole): Unit =
@@ -763,7 +767,8 @@ class RenderBench {
     )
   )
 
-  private lazy val litNotDimRun = Evaluator.plain(litNotDim)
+  private lazy val litNotDimRun =
+    Evaluator.runOf(litNotDim, Nil, Evaluator.Scope.onDemand(""))
 
   /** An and over an or and a not, per leaf: every kind of step a tree nests. */
   @Benchmark
@@ -778,7 +783,11 @@ class RenderBench {
   }
 
   private lazy val brightRun =
-    Evaluator.plain(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
+    Evaluator.runOf(
+      Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)),
+      Nil,
+      Evaluator.Scope.onDemand("")
+    )
 
   /** A guard over an attribute, on a state as a frame hands it over: a copy, so
     * nothing a read caches on the state is there yet.
@@ -796,13 +805,15 @@ class RenderBench {
 
   // Each pill lit while its own light leads, as `first().eq(e)` writes it.
   private lazy val leaders = Array.tabulate(Pills)(i =>
-    Evaluator.plain(
+    Evaluator.runOf(
       Conds.first(
         candidates = List.tabulate(Pills)(entityId),
         orderBy =
           List(SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)),
         entity = entityId(i)
-      )
+      ),
+      Nil,
+      Evaluator.Scope.onDemand("")
     )
   )
 

@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.testkit.Conds
 
-import fh.view.model.{Lit, Op, Part, Step, Value, ValueExpr}
+import fh.view.model.{Lit, Op, Part, Step, Value, ValueExpr, ValueType}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
@@ -30,7 +30,11 @@ class ConditionsSuite extends munit.FunSuite {
       st: EntityState,
       states: Map[String, EntityState]
   ) =
-    Evaluator.plain(p)(st, states, Evaluator.noFetch)
+    Evaluator.runOf(p, Nil, Evaluator.Scope.onDemand(""))(
+      st,
+      states,
+      Evaluator.noFetch
+    )
 
   private def holds(
       p: ValueExpr,
@@ -241,7 +245,13 @@ class ConditionsSuite extends munit.FunSuite {
       op <- Op.values.toList
       n <- -1 to size + 1
     } {
-      val full = Evaluator.presentOf(Value.Present(ids, guards), states).size
+      val full = Evaluator
+        .presentOf(
+          Value.Present(ids, guards),
+          Evaluator.Scope.onDemand(""),
+          states
+        )
+        .size
       assertEquals(
         holds(
           Conds.count(ids, guards, op, Json.fromInt(n)),
@@ -259,7 +269,7 @@ class ConditionsSuite extends munit.FunSuite {
     val off = (isOn("light.missing"))
     val on = (isOn("light.a"))
     def of(step: Step, items: ValueExpr*) =
-      ValueExpr(Value.List(items.toList), List(step))
+      ValueExpr(Value.List(ValueType.Bool, items.toList), List(step))
     assert(!holds(of(Step.AllOf, off, on), s, snapshot(s)))
     assert(holds(of(Step.AnyOf, on, off), s, snapshot(s)))
     assert(holds(of(Step.AllOf), s, snapshot(s)))

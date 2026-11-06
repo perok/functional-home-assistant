@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId, ValueExpr}
+import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -171,6 +171,7 @@ private[runtime] final case class Synced(
 private[runtime] final class MemberGraph(
     setNodes: Map[NodeId, LayoutNode.SetNode],
     rootOfIndexed: Map[NodeId, String],
+    scope: Evaluator.Scope,
     decided: Decided = Decided()
 ) {
 
@@ -203,7 +204,7 @@ private[runtime] final class MemberGraph(
 
     def stable: Boolean = s.orderBy.isEmpty && s.limit.isEmpty
 
-    private val keys = Evaluator.Keys(s.orderBy)
+    private val keys = Evaluator.Keys(s.orderBy, scope)
 
     /** Over present members only: a hidden member's key moving emits nothing. A
       * cut member is absent, like one whose clauses did not match.
@@ -252,7 +253,7 @@ private[runtime] final class MemberGraph(
         : Map[String, List[(Option[Evaluator.Run], Option[Member])]] =
       src.s.members.map { case (e, m) =>
         e -> m.clauses.zipWithIndex.map { case (c, i) =>
-          c.when.map(Evaluator.plain) -> (c.node match {
+          c.when.map(Evaluator.runOf(_, Nil, scope)) -> (c.node match {
             case comp: LayoutNode.Component => Some(member(this, e, comp, i))
             case _                          => None
           })

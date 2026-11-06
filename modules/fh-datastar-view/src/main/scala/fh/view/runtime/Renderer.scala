@@ -28,6 +28,7 @@ import fh.view.model.{
   SignalId,
   BoundSlot,
   SlotValue,
+  ValueExpr,
   Surface,
   TapCall,
   ThemeClasses
@@ -141,6 +142,7 @@ class Renderer(validated: Dashboard.Validated) {
   // Every CEL program, once per distinct source and names. Looked up when a
   // node is planned ([[Planned]]), never by a paint.
   private val programs = validated.transforms
+  private val scope = Evaluator.Scope(programs, dashboard.slug)
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
   // value.
   val access: Access = validated.access
@@ -468,6 +470,7 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] val members: MemberGraph = new MemberGraph(
     allIndexed.collect { case (id, (s: LayoutNode.SetNode, _)) => id -> s },
     rootOfIndexed,
+    scope,
     decided
   )
 
@@ -483,7 +486,13 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** Selection and visibility, exposed on the same terms as [[members]]. */
   private[runtime] val surfaces: SurfaceGraph =
-    new SurfaceGraph(dashboard.surfaces, rootOfIndexed, members, decided)
+    new SurfaceGraph(
+      dashboard.surfaces,
+      rootOfIndexed,
+      members,
+      scope,
+      decided
+    )
 
   /** Static nodes only: which members bind an entity depends on the membership
     * the recorder holds ([[Membership.binding]]).
@@ -1624,11 +1633,11 @@ class Renderer(validated: Dashboard.Validated) {
   private def live(source: BoundSlot): Planned.Live =
     Planned.Live(
       source,
-      Evaluator.compile(
+      Evaluator.runOf(
         source.expr,
-        source.typed.fold(_ => Nil, _.keys).iterator.map(programs),
-        dashboard.slug,
-        Evaluator.inputs(source.values)
+        ValueExpr.env(source.values),
+        scope,
+        Evaluator.inputs(source.values, scope)
       )
     )
 

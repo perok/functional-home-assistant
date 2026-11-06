@@ -53,7 +53,11 @@ class MemberGraphSuite extends munit.FunSuite {
   private def graphOf(
       s: LayoutNode.SetNode,
       root: String = ""
-  ): MemberGraph = new MemberGraph(Map(gid -> s), Map(gid -> root))
+  ): MemberGraph = new MemberGraph(
+    Map(gid -> s),
+    Map(gid -> root),
+    Evaluator.Scope.onDemand("")
+  )
 
   extension (g: MemberGraph)
     // The main page's: a root of `""`.

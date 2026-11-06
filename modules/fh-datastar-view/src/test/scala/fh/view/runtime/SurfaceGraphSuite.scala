@@ -60,12 +60,14 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def graphOf(
       surfaces: Map[String, Surface],
       roots: Map[String, String] = Map.empty,
-      members: MemberGraph = new MemberGraph(Map.empty, Map.empty)
+      members: MemberGraph =
+        new MemberGraph(Map.empty, Map.empty, Evaluator.Scope.onDemand(""))
   ): SurfaceGraph =
     new SurfaceGraph(
       surfaces,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
-      members
+      members,
+      Evaluator.Scope.onDemand("")
     )
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
@@ -369,7 +371,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val outer: NodeId = "s_det__c"
     val members =
-      new MemberGraph(Map(outer -> setNode), Map(outer -> "det"))
+      new MemberGraph(
+        Map(outer -> setNode),
+        Map(outer -> "det"),
+        Evaluator.Scope.onDemand("")
+      )
     val g = graphOf(
       Map("det" -> user("c", "t0", 0)),
       roots = Map("c" -> ""),
@@ -407,7 +413,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
     val outer: NodeId = "s_det__c"
-    val members = new MemberGraph(Map(outer -> setNode), Map(outer -> "det"))
+    val members = new MemberGraph(
+      Map(outer -> setNode),
+      Map(outer -> "det"),
+      Evaluator.Scope.onDemand("")
+    )
     val g = graphOf(Map("det" -> user("c", "t0", 0)), members = members)
     val setId = members.setContainer(outer).get
     val off = snapshot(st("light.a", "off"))

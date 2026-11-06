@@ -1,9 +1,9 @@
 # Plan: one compile for every value expression
 
-Branch `one-compile`, stacked on `pkl-reading` (#670). Discussed in chat on 2026-11-05; it takes
-over items 5, 8 and 9 of `plan-slot-values.md`'s review follow-ups.
+Branch `one-compile`, stacked on `pkl-reading` (#670). Discussed in chat on 2026-11-05 and
+2026-11-06; it takes over items 5, 7, 8 and 9 of `plan-slot-values.md`'s review follow-ups.
 
-**State:** plan only. The open questions below are answered before O1 starts.
+**State:** design agreed; O1 starts with the decoder spike.
 
 ## Why
 
@@ -19,33 +19,51 @@ There is one evaluator (`Evaluator.compile`), but CEL reaches it only in a slot:
    the plan is built.
 
 So `validate` refuses CEL in those places, four times over: `conditionError`, `SortTerm.readError`,
-`listOf` and `inputType`'s shape list. ADR 0035 gives cost as the reason ("they run per member
-per change"), but a guard runs when its member changes, as a slot reading that member does, and
-slots run CEL. Before Part C the old condition reader skipped CEL silently; the refusal replaced
-that wrong answer with a gap. It is surprising to an author: `disabled = c.expr("…")` takes a
-CEL bool, `c.iff(…)` cannot.
+`listOf` and `inputType`'s shape list. ADR 0035 gives cost as the reason, but a guard runs when
+its member changes, as a slot reading that member does, and slots run CEL. It surprises an
+author: `disabled = c.expr("…")` takes a CEL bool, `c.iff(…)` cannot.
 
 Two more things follow from the same gap:
 
 - **Two definitions of a condition.** `isCondition` asks for a deciding step, `conditionError`
-  for a bool type. They disagree on a `Match` whose arms are all bools (a bool, no deciding
-  step) and on `… |> First` (a deciding step, text).
+  for a bool type. They disagree on a `Match` whose arms are all bools and on `… |> First`.
 - **Inputs merged per slot.** The wire puts a CEL's named inputs on its own step or source, but
   `BoundSlot.bindAt` merges every CEL's inputs and the node's values into the slot, so each CEL
   in a slot sees all of them.
 
+And the runtime re-derives what wakes an expression in several walks (`entities`,
+`operandEntities`, `BoundSlot.valueEntities`, the reverse index) that do not all follow the same
+paths.
+
 ## The design
 
-1. **`validate` outputs runs.** Every value expression, wherever it sits, is type-checked and
-   compiled in one walk into `Compiled(run: Evaluator.Run, out: ValueType)`. A CEL's program is
-   built inside that walk and held by the run; nothing outside the compile step sees a
-   `Cel.Program` or a `Cel.Key`.
-2. **Every place compiles the same way:** template and cell slots, `valueWhile`, node variables'
-   start values, guards, set clauses, state surfaces, order terms, a list's items, and named
-   inputs.
+1. **Two stages of one model.** Every class that holds an expression takes a parameter for it:
+   `LayoutNode[E]`, `TemplateSlot[E]`, `Cell[E]`, `SetClause[E]`, `SortTerm[E]`,
+   `Activation[E]`, and a node's `values: Map[String, E]`. The decoder gives
+   `E = ValueExpr`, the wire as today. `validated` walks the tree once, each node with its
+   card's entity and declared values, and gives `E = Compiled`. The renderer, `MemberGraph`,
+   `SurfaceGraph`, the order keys and set calls take the compiled tree, so nothing that runs
+   can reach an expression that has no run, and there is no lookup that could miss. Compiling
+   stays in `validate`, not the decoder: it can fail (collected into the whole dashboard's
+   errors) and needs the node's context. Inner expressions (guards, list items, CEL inputs)
+   take no parameter; they compile into their parent's run.
+2. **`Compiled` is the expression made ready to run:**
+
+   ```scala
+   final case class Compiled(run: Evaluator.Run, out: ValueType,
+                             wakes: Set[String], key: String, reads: Reads,
+                             constant: Option[SlotValue], fetches: List[SlotAsk])
+   ```
+
+   The expression lives inside `run`: the closure holds its steps and their programs. Nothing
+   outside it reads the `ValueExpr` again, so it is not a field. The rest are facts the runtime
+   derives from the expression today, collected in the same walk: what it wakes on (flattened
+   over its source, operands, items, guards, order terms and every input, recursively), its
+   signal/cache key, `reads`, a constant value, its fetch asks. `BoundSlot` shrinks to where the
+   value lands (signal, type), its compiled `valueWhile`, and the compiled value.
 3. **Each unique CEL compiles once.** The walk memoises programs by `Cel.Key`: the source and the
-   types it is checked against (`value`'s, and each of its inputs' by name). `Cel.asts`, the
-   process-wide cache of checked trees, stays for the re-validation a dump refresh does.
+   types it is checked against. `Cel.asts`, the process-wide cache of checked trees, stays for
+   the re-validation a dump refresh does.
 4. **A CEL's inputs are its own.** Each CEL step and source keeps its `inputs`, each a value
    expression compiled the same way, recursively, so an input may be anything that compiles,
    CEL included. Its node's declared values are in scope by name, its own winning. The per-slot
@@ -59,40 +77,44 @@ Two more things follow from the same gap:
    against `condition`). A CEL error in a condition reads as not holding, as `null` does.
 7. **One bypass rule** over every read: only a text slot's own read of a state or a whole entity
    takes `bypassUnavailable`. Its copies in `conditionError` and `readError` go.
-8. **The wire does not change.** Every position already holds a value expression, and CEL
-   already carries its inputs. The snapshots and goldens hold.
-
-## Open questions
-
-1. **How a consumer finds its run.** `Validated` holds `Map[ValueExpr, Compiled]`, keyed by the
-   bound expression, so identical expressions share one; a plan looks its runs up when it is
-   built, never at render. The alternative is a compiled model whose expression fields hold
-   `Compiled`, which types more but rewrites `LayoutNode`. Recommended: the map.
-2. **The Pkl spelling of a CEL condition.** `c.iff`, `where`, a clause and `orderBy` take a
-   `pred.Predicate`; a CEL bool is a `slotMod.Expr`. Either those take `slotMod.ValueExpr`, or
-   `Expr` becomes a predicate. Ties into folding `Expr` into `Reading` (item 7).
-3. **Changed messages.** Errors now come from the compile walk, so some texts move. Tests that
-   assert a substring of one are listed with O1 and O3, and changed only with a yes.
+8. **Pkl: a condition is a value expression.** `c.iff`, `where`, set clauses, `orderBy`, the
+   boolean inputs (`disabled`, `active`, `cellClassWhen`) and a card's `label`/`value` take
+   `slotMod.ValueExpr`. `c.expr`/`c.exprOf` return a `Reading` (the existing `celReading`: the
+   whole entity plus one CEL step), so the `Expr` class, `exprReading` and the `is Expr`
+   conversions go, and `BooleanInput` is `Boolean|ValueExpr`. `c.iff` also keeps a plain
+   `Boolean` and `v.valueIs(x)`. Pkl does not parse CEL, so a text CEL in a bool place is now
+   refused by the build, not the editor.
+9. **The wire changes in one place: a list source declares its item type** (`itemType`), so an
+   empty list is typed as any other and its size is the runtime's (ADR 0035). Otherwise every
+   position already holds a value expression, CEL already carries its inputs, and the Reading
+   `c.expr` returns is what is emitted today. No snapshot or golden holds a list source, so they
+   hold.
 
 ## Steps
 
-- **O1 — runs from `validate`.** The compile walk (typing and compiling as one), `Compiled`, the
-  memo, and `Validated`'s runs; the renderer, `MemberGraph`, `SurfaceGraph` and the order keys
-  use them. `Evaluator.plain`, the iterator pairing, `compileTransforms`, `celKeys` and
-  `initialKeys` go. CEL is still refused where it is today: no behaviour change.
+- **O0 — a list's item type.** Design point 9's wire change; "a list has no items" goes.
+- **O1 — the compiled model.** Starts with a spike: the derived decoder for the parametrised
+  model and one consumer. If the parameter spreads badly, fall back to `Validated` holding
+  `Map[ValueExpr, Compiled]` and say so before going on. Then the compile walk (typing and
+  compiling as one), `Compiled`, the memo; the renderer, `MemberGraph`, `SurfaceGraph`, the order
+  keys and set calls take the compiled tree. `Evaluator.plain`, the iterator pairing,
+  `compileTransforms`, `celKeys`, `initialKeys` and the re-deriving wake walks go. CEL is still
+  refused where it is today: no behaviour change.
 - **O2 — a CEL's own inputs.** Inputs compile with the walk; the node's values are in scope by
   name; `bindAt`'s merge and `inputType`'s shape list go.
 - **O3 — CEL in every place.** The refusals go; a bool is `out == Bool`; one bypass rule;
   `isCondition`, `conditionError` and `readError` go.
-- **O4 — Pkl and docs.** The author spelling (open question 2), `writing-components.md`,
-  `writing-dashboards.md`, `terminology.md`, ADRs 0028, 0034 and 0035, the architecture map.
+- **O4 — Pkl and docs.** Design point 8; `writing-components.md`, `writing-dashboards.md`,
+  `terminology.md`, ADRs 0028, 0034 and 0035, the architecture map.
 
 ## Tests
 
 New: CEL in a guard, a clause, a state surface, an order term, a list's item and an input's
 input, each deciding as the same expression in a slot does and waking on what it reads; a CEL
-that errors in a guard leaves the member absent; one program per unique key. Existing tests stay
-as they are, apart from the messages in open question 3.
+that errors in a guard leaves the member absent; one program per unique key; a text CEL in
+`c.iff` refused by the build. Existing tests change where the change makes sense (a moved
+message, a constructor taking the parameter, an API that went); each step's summary lists what
+changed and why.
 
 ## Checks
 
@@ -104,4 +126,11 @@ O3; three rounds for the PR's numbers.
 ## Not in this plan
 
 - One name for named inputs: Pkl `values`, wire `inputs`, Scala `values`, "expression values".
-- Pkl's `Expr` folded into `Reading` (item 7), unless open question 2 takes it in.
+- **Type variables:** a step typed over any `T` (`Count` takes `List(T)`, a `First` that keeps
+  its items' type), so a list's item type could be left open until a step fixes it. Today
+  `ValueType.List(of)` is parameterised but every type is concrete.
+- **A runtime error isolated to its node:** an error kind beside `FHError.internal`, so a failure
+  while one node renders fails that node, not the session's step (today a throw there drops the
+  step's frames and keeps the old state). A CEL failure would become that error instead of a
+  `"cel error: …"` string carried as a value, which is the one way a step meets an input its type
+  rules out (`First`, `AllOf` or `AnyOf` over a non-list).

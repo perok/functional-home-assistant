@@ -1,6 +1,15 @@
 package fh.view.testkit
 
-import fh.view.model.{Lit, Op, Part, SortTerm, Step, Value, ValueExpr}
+import fh.view.model.{
+  Lit,
+  Op,
+  Part,
+  SortTerm,
+  Step,
+  Value,
+  ValueExpr,
+  ValueType
+}
 import io.circe.Json
 
 /** Conditions as `core/predicate.pkl` writes them, so a suite states one in the
@@ -36,11 +45,11 @@ object Conds {
   /** The empty one is the build's settled `true`, as `alwaysHolds` is. */
   def and(items: List[ValueExpr]): ValueExpr =
     if (items.isEmpty) always
-    else ValueExpr(Value.List(items), List(Step.AllOf))
+    else ValueExpr(Value.List(ValueType.Bool, items), List(Step.AllOf))
 
   def or(items: List[ValueExpr]): ValueExpr =
     if (items.isEmpty) never
-    else ValueExpr(Value.List(items), List(Step.AnyOf))
+    else ValueExpr(Value.List(ValueType.Bool, items), List(Step.AnyOf))
 
   def not(item: ValueExpr): ValueExpr =
     item.copy(steps = item.steps :+ Step.Not)

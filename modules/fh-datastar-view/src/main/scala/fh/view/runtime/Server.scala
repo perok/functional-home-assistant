@@ -274,7 +274,7 @@ class Server(
             .map(TapCall(s"$domain/$service", _, data.map(_._1)))
             .flatMap(permission.reachOf(user, _)) match {
             case Some(reach) =>
-              targetAtPress(reach).flatMap {
+              targetAtPress(reach, slug).flatMap {
                 case Some(target) =>
                   callService(
                     domain,
@@ -300,13 +300,18 @@ class Server(
     * subset of the candidates fixed at build, so a press reaches nothing the
     * dashboard does not name.
     */
-  private def targetAtPress(reach: CallReach): IO[Option[ServiceTarget]] =
+  private def targetAtPress(
+      reach: CallReach,
+      slug: String
+  ): IO[Option[ServiceTarget]] =
     reach match {
       case t: ServiceTarget => IO.pure(Some(t))
       case t: Value.Present =>
         stateStore.snapshot.map(states =>
           NonEmptyList
-            .fromList(Evaluator.presentOf(t, states))
+            .fromList(
+              Evaluator.presentOf(t, Evaluator.Scope.onDemand(slug), states)
+            )
             .map(ServiceTarget.Entities(_))
         )
     }

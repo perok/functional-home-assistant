@@ -472,11 +472,8 @@ names, and are corrected where they did.
 - The tap call design round: a declared call id in place of the URL a template spells out.
 - **Strict `Dyn`** is an open question in ADR 0035, beside the `Option` type.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
-- **From the 2026-11-05 review**, to do after this stack:
-  - Pkl's `Expr` folded into `Reading`, as `Predicate` was into `ValueExpr`: about 15
-    `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
-  - Compiling every expression once, a CEL's own inputs, and one definition of a condition are
-    `plan-one-compile.md`'s.
+- **From the 2026-11-05 review:** compiling every expression once, a CEL's own inputs, one
+  definition of a condition, and Pkl's `Expr` folded into `Reading` are `plan-one-compile.md`'s.
 
 ## Checks
 

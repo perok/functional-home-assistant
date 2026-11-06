@@ -21,6 +21,11 @@ Text, whole, real, bool, list, entity, series, markup, and `null`, the one absen
 in a condition alike (`Steps.read`). A typed read of one attribute converts only that one
 until something has built the entity's whole attribute map (`EntityState.attribute`).
 
+**A list source declares its item type** (`itemType`; Pkl's `ListRead` is a list of predicates,
+so `bool`), and each item is held to it. The type is the list's own, never read off its items or
+the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
+over none holds, `AnyOf` over none does not, `Count` is 0.
+
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
 entity does not report, a JSON `null`. And a step with no result: `First` over an empty list,
 `Percent`, `Fill` and `Duration` over text that is not a number, CEL returning `null`. A `once`

@@ -153,11 +153,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
-        Evaluator.plain(
+        Evaluator.runOf(
           ValueExpr(
             Value.Entity(),
             List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
-          )
+          ),
+          Nil,
+          Evaluator.Scope.onDemand("")
         )(state, Map(state.entityId -> state), Evaluator.noFetch),
         "on W"
       )

@@ -29,6 +29,7 @@ private[runtime] final class SurfaceGraph(
     surfaces: Map[String, Surface],
     rootOfIndexed: Map[NodeId, String],
     members: MemberGraph,
+    scope: Evaluator.Scope,
     decided: Decided = Decided()
 ) {
 
@@ -256,8 +257,9 @@ private[runtime] final class SurfaceGraph(
   private val conditions: Map[String, Evaluator.Run] =
     surfaces.flatMap { (sid, s) =>
       s.activation match
-        case Activation.State(Some(c)) => Some(sid -> Evaluator.plain(c))
-        case _                         => None
+        case Activation.State(Some(c)) =>
+          Some(sid -> Evaluator.runOf(c, Nil, scope))
+        case _ => None
     }
 
   // Subject-free (`validate`). An else holds.

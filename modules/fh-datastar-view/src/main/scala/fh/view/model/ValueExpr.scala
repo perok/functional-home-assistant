@@ -180,10 +180,10 @@ final case class ValueExpr(
         .map(ValueExpr.Typed(keys :+ k, _))
     def plain(t: ValueType) = Right(ValueExpr.Typed(Nil, t))
     val start = source match
-      case Value.Cel(src, _)                   => cel(src, None, Nil)
-      case Value.List(items)                   => ValueExpr.listOf(items, env)
-      case Value.Literal(l)                    => plain(ValueType.of(l))
-      case Value.Entity(_, Part.State, _, _)   => plain(ValueType.Text)
+      case Value.Cel(src, _)                 => cel(src, None, Nil)
+      case Value.List(t, items)              => ValueExpr.listOf(t, items, env)
+      case Value.Literal(l)                  => plain(ValueType.of(l))
+      case Value.Entity(_, Part.State, _, _) => plain(ValueType.Text)
       case Value.Entity(_, _: Part.Attr, _, _) => plain(ValueType.Dyn)
       case Value.Entity(_, Part.Whole, _, _)   => plain(ValueType.Entity)
       case Value.Fetch(_)                      => plain(ValueType.Series)
@@ -216,7 +216,7 @@ final case class ValueExpr(
   /** Live: what it answers moves, so a once-read cannot hold it. */
   lazy val isLive: Boolean =
     (source match
-      case Value.Literal(_) | Value.List(_) | Value.Cel(_, _) => false
+      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) => false
       case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) =>
         true
     ) || parts.exists {
@@ -231,7 +231,7 @@ final case class ValueExpr(
     (source match
       case Value.Entity(of, _, _, _) => of.toList
       case Value.Present(cs, _)      => cs
-      case Value.Literal(_) | Value.Fetch(_) | Value.List(_) |
+      case Value.Literal(_) | Value.Fetch(_) | Value.List(_, _) |
           Value.Cel(_, _) =>
         Nil
     ) ++ parts.flatMap {
@@ -270,25 +270,23 @@ object ValueExpr:
   final case class Mistyped(message: String, cel: Option[String] = None)
 
   /** Its items decide without the engine, as a condition does, so a CEL item is
-    * refused rather than compiled.
+    * refused rather than compiled. Empty, it is still a list of `itemType`.
     */
   private def listOf(
+      itemType: ValueType,
       items: List[ValueExpr],
       env: List[(String, ValueType)]
   ): Either[Mistyped, Typed] =
     items.traverse(_.typed(env)).flatMap { ts =>
-      ts.map(_.out).distinct match
-        case _ if ts.exists(_.keys.nonEmpty) =>
-          Left(Mistyped("a list's items are read without CEL"))
-        case List(t) => Right(Typed(Nil, ValueType.List(t)))
-        case Nil     => Left(Mistyped("a list has no items"))
-        case outs    =>
-          Left(
-            Mistyped(
-              "a list's items are one type, not " +
-                outs.map(_.name).mkString(" and ")
+      if (ts.exists(_.keys.nonEmpty))
+        Left(Mistyped("a list's items are read without CEL"))
+      else
+        ts.map(_.out).find(_ != itemType) match
+          case Some(t) =>
+            Left(
+              Mistyped(s"a list's items are ${itemType.name}, not ${t.name}")
             )
-          )
+          case None => Right(Typed(Nil, ValueType.List(itemType)))
     }
 
   def env(inputs: Map[String, ValueExpr]): List[(String, ValueType)] =
@@ -333,6 +331,17 @@ object ValueType:
 
   /** A fetch's answer: `[epochMillis, value]` pairs. */
   val Series: ValueType = List(List(Real))
+
+  /** A list source's item type, as Pkl names it. */
+  given Decoder[ValueType] = Decoder[String].emap {
+    case "text"   => Right(Text)
+    case "bool"   => Right(Bool)
+    case "int"    => Right(Int)
+    case "real"   => Right(Real)
+    case "dyn"    => Right(Dyn)
+    case "entity" => Right(Entity)
+    case other    => Left(s"unknown item type: $other")
+  }
 
   private val numberLike = Set[ValueType](Text, Int, Real, Dyn)
 
@@ -439,10 +448,11 @@ enum Value derives CanEqual:
       when: Map[String, ValueExpr] = Map.empty
   )
 
-  /** Its items in order, one type ([[ValueExpr.typed]]): what an and/or runs
-    * [[Step.AllOf]] or [[Step.AnyOf]] over.
+  /** Its items in order, each an `itemType` ([[ValueExpr.typed]]): what an
+    * and/or runs [[Step.AllOf]] or [[Step.AnyOf]] over. Declared, so an empty
+    * list is typed too.
     */
-  case List(items: scala.List[ValueExpr])
+  case List(itemType: ValueType, items: scala.List[ValueExpr])
 
   /** Computed from nothing before it: CEL over its named inputs and the
     * renderer's bindings, with no `value`.
@@ -472,15 +482,15 @@ object Value:
   }
 
   def about(subject: Option[String])(v: Value): Value = v match
-    case e: Entity   => named(subject)(e)
-    case List(items) => List(items.map(_.about(subject)))
+    case e: Entity      => named(subject)(e)
+    case List(t, items) => List(t, items.map(_.about(subject)))
     case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _)) => v
 
   /** [[ValueExpr.parts]] of a source. */
   def parts(v: Value): scala.List[ValueExpr.Inner] = v match
     case Present(_, when) =>
       when.values.toList.map(ValueExpr.Inner.PerMember(_))
-    case List(items)    => items.map(ValueExpr.Inner.Item(_))
+    case List(_, items) => items.map(ValueExpr.Inner.Item(_))
     case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
     case Literal(_) | Entity(_, _, _, _) | Fetch(_) => Nil
 
@@ -502,7 +512,8 @@ object Value:
           .sortBy(_._1)
           .map((id, g) => s"$id=${sized(g.inputKey)}")
           .mkString + ")"
-    case List(items) =>
+    // Not its item type: two lists that type with the same items are one value.
+    case List(_, items) =>
       items.map(i => sized(i.inputKey)).mkString("list(", "", ")")
     // Its inputs are keyed beside it, as a step's are (`BoundSlot.valueKey`).
     case Cel(src, _) => s"cel:${src.length}:$src"
@@ -538,8 +549,10 @@ object Value:
             c.getOrElse[Map[String, ValueExpr]]("when")(Map.empty)
           ).mapN(Present.apply)
         case "List" =>
-          Strict.only(c, Set("kind", "items")) *>
-            c.get[scala.List[ValueExpr]]("items").map(List(_))
+          Strict.only(c, Set("kind", "itemType", "items")) *> (
+            c.get[ValueType]("itemType"),
+            c.get[scala.List[ValueExpr]]("items")
+          ).mapN(List.apply)
         case "Cel" =>
           Strict.only(c, Set("kind", "src", "inputs")) *> (
             c.get[String]("src"),

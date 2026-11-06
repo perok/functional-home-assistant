@@ -105,11 +105,12 @@ class FetchRead extends Value {
   fetch: Fetch
 }
 
-/// Its items in order, one or more, of one type and without CEL: what an and
-/// or an or decides over (`predicate.pkl`'s `PAnd`, `POr`). A set's present
-/// ids are a `predMod.Tally`.
+/// Its items in order, each an `itemType` and without CEL: what an and or an or
+/// decides over (`predicate.pkl`'s `PAnd`, `POr`). The type is declared so the
+/// build types an empty list too. A set's present ids are a `predMod.Tally`.
 class ListRead extends Value {
   kind: "List" = "List"
+  itemType: "bool" = "bool"
   items: Listing<predMod.Predicate>
 }
 

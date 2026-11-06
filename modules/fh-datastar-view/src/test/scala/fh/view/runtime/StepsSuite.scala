@@ -324,7 +324,11 @@ class StepsSuite extends munit.FunSuite {
   /** What the renderer's evaluator makes of `shape` over `e`. */
   private def runShape(shape: ValueExpr, e: EntityState): String =
     val out = Steps.text(
-      Evaluator.plain(shape)(e, Map(e.entityId -> e), Evaluator.noFetch)
+      Evaluator.runOf(shape, Nil, Evaluator.Scope.onDemand(""))(
+        e,
+        Map(e.entityId -> e),
+        Evaluator.noFetch
+      )
     )
     // As a slot shows it: nothing to show takes the reading's default.
     if (out.nonEmpty) out
