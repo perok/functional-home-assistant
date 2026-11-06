@@ -296,9 +296,11 @@ class RenderBench {
   )
   // Compiled once, as a renderer's plan or a member graph compiles them.
   private lazy val isOnRun =
-    Evaluator.runOf(isOn, Nil, Evaluator.Scope.onDemand(""))
+    Conds.run(isOn)
   private lazy val isOnInputs =
-    Evaluator.inputs(isOnValue, Evaluator.Scope.onDemand(""))
+    Evaluator
+      .inputs(isOnValue, Evaluator.Scope(""))
+      .fold(m => throw AssertionError(m.message), identity)
   private var engineShapes: List[Cel.Program] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -723,9 +725,9 @@ class RenderBench {
   )
 
   private lazy val anyOnRun =
-    Evaluator.runOf(anyOn, Nil, Evaluator.Scope.onDemand(""))
+    Conds.run(anyOn)
   private lazy val anyOnFullRun =
-    Evaluator.runOf(anyOnFull, Nil, Evaluator.Scope.onDemand(""))
+    Conds.run(anyOnFull)
 
   @Benchmark
   def countAny(bh: Blackhole): Unit =
@@ -768,7 +770,7 @@ class RenderBench {
   )
 
   private lazy val litNotDimRun =
-    Evaluator.runOf(litNotDim, Nil, Evaluator.Scope.onDemand(""))
+    Conds.run(litNotDim)
 
   /** An and over an or and a not, per leaf: every kind of step a tree nests. */
   @Benchmark
@@ -783,11 +785,7 @@ class RenderBench {
   }
 
   private lazy val brightRun =
-    Evaluator.runOf(
-      Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)),
-      Nil,
-      Evaluator.Scope.onDemand("")
-    )
+    Conds.run(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
 
   /** A guard over an attribute, on a state as a frame hands it over: a copy, so
     * nothing a read caches on the state is there yet.
@@ -805,15 +803,13 @@ class RenderBench {
 
   // Each pill lit while its own light leads, as `first().eq(e)` writes it.
   private lazy val leaders = Array.tabulate(Pills)(i =>
-    Evaluator.runOf(
+    Conds.run(
       Conds.first(
         candidates = List.tabulate(Pills)(entityId),
         orderBy =
           List(SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)),
         entity = entityId(i)
-      ),
-      Nil,
-      Evaluator.Scope.onDemand("")
+      )
     )
   )
 

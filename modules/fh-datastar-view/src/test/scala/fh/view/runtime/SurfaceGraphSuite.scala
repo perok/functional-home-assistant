@@ -69,7 +69,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
       members
     )
 
-  private val compile = Ready.Compile(Evaluator.Scope.onDemand(""))
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def surface(s: Surface): Ready.Surface = Conds.compiled(walk.surface(s))
+    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap

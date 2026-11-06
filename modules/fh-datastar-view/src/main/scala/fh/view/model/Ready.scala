@@ -1,7 +1,8 @@
 package fh.view.model
 
 import api.homeassistant.ServiceTarget
-import fh.view.runtime.{EntityState, Evaluator}
+import cats.syntax.all.*
+import fh.view.runtime.{Cel, EntityState, Evaluator}
 
 /** The compiled model: what `Dashboard.validated` walks the wire into, every
   * expression beside its run, and all the runtime reads. A class here stands in
@@ -128,91 +129,110 @@ object Ready:
 
   final class SetCall(val present: Map[String, EntityState] => List[String])
 
-  /** The compile walk, over expressions `validate` checked. */
+  /** The compile walk, from `validate`'s typing of each slot; a `Left` is an
+    * expression `validate` passed but that does not compile.
+    */
   final class Compile(scope: Evaluator.Scope):
+    private type Built[A] = Evaluator.Built[A]
 
-    def dashboard(d: fh.view.model.Dashboard): Dashboard =
-      Dashboard(
-        d.cards,
+    def dashboard(d: fh.view.model.Dashboard): Built[Dashboard] =
+      (
         node(d.card),
-        d.theme,
-        d.surfaces.view.mapValues(surface).toMap,
-        d.slug,
-        d.title,
-        d.css,
-        d.cardCss,
-        d.cardScripts,
-        d.referencedEntities,
-        d.watchedEntities,
-        d.calls.view.mapValues {
-          case t: ServiceTarget => t
-          case p: Value.Present => SetCall(Evaluator.presentOf(p, scope))
-        }.toMap,
-        d.varScopes,
-        d.warnings
+        d.surfaces.toList.traverse((k, s) => surface(s).map(k -> _)),
+        d.calls.toList.traverse((call, r) => reach(r).map(call -> _)),
+        d.varScopes.values.toList
+          .flatMap(_.values.flatMap(_.declaration.initialTransform))
+          .map(_.celKey)
+          .distinct
+          .traverse(k => scope.program(k).map(k -> _))
+      ).mapN((card, surfaces, calls, initials) =>
+        Dashboard(
+          d.cards,
+          card,
+          d.theme,
+          surfaces.toMap,
+          d.slug,
+          d.title,
+          d.css,
+          d.cardCss,
+          d.cardScripts,
+          d.referencedEntities,
+          d.watchedEntities,
+          calls.toMap,
+          initials.toMap,
+          d.varScopes,
+          d.warnings
+        )
       )
 
-    def node(n: LayoutNode): Node = n match
+    def node(n: LayoutNode): Built[Node] = n match
       case c: LayoutNode.Component => component(c)
       case s: LayoutNode.SetNode   => set(s)
 
-    def component(c: LayoutNode.Component): Component =
-      Component(
-        c.card,
-        c.bound.view.mapValues(slot).toMap,
-        c.regions.view.mapValues(_.map(node)).toMap,
-        c.cell.map(_.ready),
-        c.id,
-        c.vars,
-        c.subjectEntity
+    def component(c: LayoutNode.Component): Built[Component] =
+      (
+        c.bound.toList.traverse((k, b) => slot(b).map(k -> _)),
+        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _))
+      ).mapN((slots, regions) =>
+        Component(
+          c.card,
+          slots.toMap,
+          regions.toMap,
+          c.cell.map(_.ready),
+          c.id,
+          c.vars,
+          c.subjectEntity
+        )
       )
 
-    def set(s: LayoutNode.SetNode): SetNode =
-      SetNode(
-        s.candidates,
-        s.members.view
-          .mapValues(m =>
-            SetMember(
-              m.clauses
-                .map(cl => SetClause(cl.when.map(condition), node(cl.node)))
+    def set(s: LayoutNode.SetNode): Built[SetNode] =
+      (
+        s.members.toList.traverse((e, m) =>
+          m.clauses
+            .traverse(cl =>
+              (cl.when.traverse(condition), node(cl.node)).mapN(SetClause(_, _))
             )
-          )
-          .toMap,
-        Option.when(s.orderBy.nonEmpty)(Evaluator.Keys(s.orderBy, scope)),
-        s.limit,
-        s.cell.map(_.ready)
-      )
-
-    def surface(s: fh.view.model.Surface): Surface =
-      Surface(
-        node(s.content),
-        s.bakeInto,
-        s.bakeAs,
-        s.bakeIndex,
-        activation(s.activation),
-        s.clause
-      )
-
-    private def activation(a: fh.view.model.Activation): Activation = a match
-      case fh.view.model.Activation.User(d)    => Activation.User(d)
-      case fh.view.model.Activation.Var(n, at) => Activation.Var(n, at)
-      case fh.view.model.Activation.State(c)   =>
-        Activation.State(c.map(condition))
-
-    private def slot(b: BoundSlot): Slot =
-      Slot(
-        b,
-        Evaluator.runOf(
-          b.expr,
-          ValueExpr.env(b.values),
-          scope,
-          Evaluator.inputs(b.values, scope)
+            .map(e -> SetMember(_))
         ),
-        b.valueWhile.map(slot)
+        s.orderBy match
+          case Nil   => Right(None)
+          case terms => Evaluator.Keys.of(terms, scope).map(Some(_))
+      ).mapN((members, order) =>
+        SetNode(
+          s.candidates,
+          members.toMap,
+          order,
+          s.limit,
+          s.cell.map(_.ready)
+        )
       )
 
-    private def condition(e: ValueExpr): Condition =
-      Condition(Evaluator.runOf(e, Nil, scope), e.entities)
+    def surface(s: fh.view.model.Surface): Built[Surface] =
+      (node(s.content), activation(s.activation)).mapN((content, a) =>
+        Surface(content, s.bakeInto, s.bakeAs, s.bakeIndex, a, s.clause)
+      )
+
+    private def activation(a: fh.view.model.Activation): Built[Activation] =
+      a match
+        case fh.view.model.Activation.User(d)    => Right(Activation.User(d))
+        case fh.view.model.Activation.Var(n, at) => Right(Activation.Var(n, at))
+        case fh.view.model.Activation.State(c)   =>
+          c.traverse(condition).map(Activation.State(_))
+
+    private def reach(r: CallReach): Built[Reach] = r match
+      case t: ServiceTarget => Right(t)
+      case p: Value.Present => Evaluator.presentOf(p, scope).map(SetCall(_))
+
+    private def slot(b: BoundSlot): Built[Slot] =
+      for
+        typed <- b.typed
+        inputs <- Evaluator.inputs(b.values, scope)
+        c <- Evaluator.compiled(b.expr, typed, scope, inputs)
+        valueWhile <- b.valueWhile.traverse(slot)
+      yield Slot(b, c.run, valueWhile)
+
+    private def condition(e: ValueExpr): Built[Condition] =
+      Evaluator.compile(e, Nil, scope).map(c => Condition(c.run, e.entities))
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(
@@ -228,6 +248,8 @@ object Ready:
       referencedEntities: Set[String],
       watchedEntities: Set[String],
       calls: Map[TapCall, Reach],
+      // Where a session opens a node variable, by its transform.
+      initials: Map[Cel.Key, Cel.Program],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
       warnings: List[String]
   )

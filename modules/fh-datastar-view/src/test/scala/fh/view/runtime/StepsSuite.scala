@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.model.*
 import io.circe.Json
 
@@ -324,7 +326,7 @@ class StepsSuite extends munit.FunSuite {
   /** What the renderer's evaluator makes of `shape` over `e`. */
   private def runShape(shape: ValueExpr, e: EntityState): String =
     val out = Steps.text(
-      Evaluator.runOf(shape, Nil, Evaluator.Scope.onDemand(""))(
+      Conds.run(shape)(
         e,
         Map(e.entityId -> e),
         Evaluator.noFetch

@@ -50,7 +50,10 @@ import java.time.Instant
   */
 class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
-  private val compile = Ready.Compile(Evaluator.Scope.onDemand(""))
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def component(c: LayoutNode.Component): Ready.Component =
+      Conds.compiled(walk.component(c))
 
   /** A window written down resolves to itself in any environment, so the
     * assertions stay about the fetch slot, not variables. Named by preset.

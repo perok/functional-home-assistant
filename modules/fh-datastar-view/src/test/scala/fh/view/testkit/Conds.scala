@@ -1,5 +1,6 @@
 package fh.view.testkit
 
+import fh.view.runtime.Evaluator
 import fh.view.model.{
   Lit,
   Op,
@@ -16,6 +17,16 @@ import io.circe.Json
   * author's terms: `cmp("state", Op.Eq, on)` rather than its reading.
   */
 object Conds {
+
+  /** A reading compiled alone, as the walk compiles one: a suite's own, so a
+    * reading that does not compile fails the suite rather than returning.
+    */
+  def run(e: ValueExpr): Evaluator.Run =
+    compiled(Evaluator.compile(e, Nil, Evaluator.Scope(""))).run
+
+  /** What compiled, as the walk would have it. */
+  def compiled[A](b: Evaluator.Built[A]): A =
+    b.fold(m => throw AssertionError(m.message), identity)
 
   private def lit(v: Json): Value.Operand =
     Value.Literal(v.as[Lit].fold(e => throw e, identity))

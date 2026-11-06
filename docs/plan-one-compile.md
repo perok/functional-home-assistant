@@ -3,11 +3,7 @@
 Branch `one-compile`, stacked on `pkl-reading` (#670). Discussed in chat on 2026-11-05 and
 2026-11-06; it takes over items 5, 7, 8 and 9 of `plan-slot-values.md`'s review follow-ups.
 
-**State:** O0 and O1's single compile entry point committed. O1's compiled model is in
-(`model/Ready.scala`): the renderer and the member and surface graphs walk only it. Left in O1: a
-slot's facts still come from its `BoundSlot`, not `Compiled`; a set call's reach is still the wire's
-`Value.Present`, compiled at the press (`Scope.onDemand`); `compileTransforms`, `celKeys` and
-`initialKeys` stay.
+**State:** O0 and O1 built (O1 in `model/Ready.scala`); O2 next.
 
 ## Why
 
@@ -35,9 +31,9 @@ Two more things follow from the same gap:
   `BoundSlot.bindAt` merges every CEL's inputs and the node's values into the slot, so each CEL
   in a slot sees all of them.
 
-And the runtime re-derives what wakes an expression in several walks (`entities`,
-`operandEntities`, `BoundSlot.valueEntities`, the reverse index) that do not all follow the same
-paths.
+And an entity source's slot lists what wakes it by its own walk over its steps' operands
+(`operandEntities`), beside the one over everything an expression holds (`ValueExpr.parts`).
+They agree on everything typing admits, but only because `First` cannot follow an entity read.
 
 ## The design
 
@@ -56,22 +52,15 @@ paths.
    type-directed derivation has no place for. Compiling stays in `validate`, not the decoder:
    it can fail (collected into the whole dashboard's errors) and needs the node's context.
    Inner expressions (guards, list items, CEL inputs) compile into their parent's run.
-2. **`Compiled` is the expression made ready to run:**
-
-   ```scala
-   final case class Compiled(run: Evaluator.Run, out: ValueType,
-                             wakes: Set[String], key: String, reads: Reads,
-                             constant: Option[SlotValue], fetches: List[SlotAsk])
-   ```
-
-   The expression lives inside `run`: the closure holds its steps and their programs. Nothing
-   outside it reads the `ValueExpr` again, so it is not a field. The rest are facts the runtime
-   derives from the expression today, collected in the same walk: what it wakes on (flattened
-   over its source, operands, items, guards, order terms and every input, recursively), its
-   signal/cache key, `reads`, a constant value, its fetch asks. `BoundSlot` shrinks to where the
-   value lands (signal, type), its compiled `valueWhile`, and the compiled value.
-3. **Each unique CEL compiles once.** The walk memoises programs by `Cel.Key`: the source and the
-   types it is checked against. `Cel.asts`, the process-wide cache of checked trees, stays for
+2. **A compiled slot is its run beside its bind pass's facts.** `Ready.Slot` holds the run
+   (the closure holds the steps and their programs, so the `ValueExpr` is not read again) and
+   reads its `BoundSlot`'s facts once into values: what it reads, its key, `reads`, a constant,
+   its fetch asks. `BoundSlot` stays the bind pass's output, which `validate` checks. What wakes
+   an expression is one walk over what it holds (`ValueExpr.parts`). The walk compiles from
+   `validate`'s typing (`BoundSlot.typed`) rather than typing again, and an expression that does
+   not compile is an error of `validated`, not a throw.
+3. **Each unique CEL compiles once.** The walk's scope builds each program the first time it is
+   asked for, by `Cel.Key`: the source and the types it is checked against. `Cel.asts`, the process-wide cache of checked trees, stays for
    the re-validation a dump refresh does.
 4. **A CEL's inputs are its own.** Each CEL step and source keeps its `inputs`, each a value
    expression compiled the same way, recursively, so an input may be anything that compiles,
@@ -102,11 +91,11 @@ paths.
 ## Steps
 
 - **O0 — a list's item type.** Design point 9's wire change; "a list has no items" goes.
-- **O1 — the compiled model.** The compiled family and the walk (typing and compiling as one),
-  `Compiled`, the memo; `validate`'s checks that read node facts run on the compiled tree;
-  the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls take it. `Evaluator.plain`, the iterator pairing,
-  `compileTransforms`, `celKeys`, `initialKeys` and the re-deriving wake walks go. CEL is still
-  refused where it is today: no behaviour change.
+- **O1 — the compiled model.** The compiled family and the walk, from `validate`'s typing; the
+  memoising scope; the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls
+  take the compiled tree. `Evaluator.plain`, the iterator pairing, `runOf`, `compileTransforms`,
+  `celKeys`, `initialKeys` and `operandEntities` go. CEL is still refused where it is today: no
+  behaviour change.
 - **O2 — a CEL's own inputs.** Inputs compile with the walk; the node's values are in scope by
   name; `bindAt`'s merge and `inputType`'s shape list go.
 - **O3 — CEL in every place.** The refusals go; a bool is `out == Bool`; one bypass rule;

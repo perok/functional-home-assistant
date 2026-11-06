@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.build.DashboardBuild
 import fh.view.model.{
   CardDef,
@@ -153,13 +155,11 @@ class TransformsSuite extends munit.CatsEffectSuite {
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
-        Evaluator.runOf(
+        Conds.run(
           ValueExpr(
             Value.Entity(),
             List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
-          ),
-          Nil,
-          Evaluator.Scope.onDemand("")
+          )
         )(state, Map(state.entityId -> state), Evaluator.noFetch),
         "on W"
       )
@@ -275,9 +275,12 @@ class TransformsSuite extends munit.CatsEffectSuite {
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
       "+ \"/\" + value.entity_id + \"', {filterSignals:{exclude:'.*'}})\""
 
+  private def program(src: String): Cel.Program =
+    Cel.parse(Cel.Key(src)).fold(fail(_), identity)
+
   private def programOf(d: Dashboard, src: String): Cel.Program =
     d.validated()
-      .fold(e => fail(e.mkString("\n")), _.scope.programs(Cel.Key(src)))
+      .fold(e => fail(e.mkString("\n")), _ => program(src))
 
   private def dashboard(slug: String) =
     Dashboard(
@@ -352,7 +355,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         assertEquals(validated.dashboard.slug, "renamed")
         assertEquals(
           Cel.run(
-            validated.scope.programs(Cel.Key(tapUrl)),
+            program(tapUrl),
             state,
             validated.dashboard.slug
           ),

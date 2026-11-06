@@ -132,7 +132,7 @@ final case class BoundSlot(
     */
   def valueEntities: List[String] =
     (expr.source match
-      case _: Value.Entity => expr.operandEntities
+      case _: Value.Entity => expr.partEntities
       case _               => expr.entities
     ) ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
@@ -1204,15 +1204,18 @@ case class Dashboard(
     val compiled = compiledCards
     Validate.errors(this, locateTransform, compiled) match
       case Nil =>
-        val scope = Evaluator.Scope.onDemand(slug)
-        Right(
-          Dashboard.Validated(
-            this,
-            Ready.Compile(scope).dashboard(this),
-            scope,
-            Templates(compiled.collect { case (n, Right(c)) => n -> c })
+        Ready
+          .Compile(Evaluator.Scope(slug))
+          .dashboard(this)
+          .left
+          .map(m => List(m.message))
+          .map(ready =>
+            Dashboard.Validated(
+              this,
+              ready,
+              Templates(compiled.collect { case (n, Right(c)) => n -> c })
+            )
           )
-        )
       case errs => Left(errs)
 
 object Dashboard:
@@ -1278,8 +1281,6 @@ object Dashboard:
       dashboard: Dashboard,
       // What the runtime walks; `dashboard` is the source it came from.
       ready: Ready.Dashboard,
-      // Each CEL program, built once as the walk or a session first asks.
-      scope: Evaluator.Scope,
       templates: Templates,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.

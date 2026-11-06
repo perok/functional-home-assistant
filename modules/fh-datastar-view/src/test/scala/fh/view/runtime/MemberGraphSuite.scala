@@ -56,7 +56,10 @@ class MemberGraphSuite extends munit.FunSuite {
       root: String = ""
   ): MemberGraph = new MemberGraph(Map(gid -> compile.set(s)), Map(gid -> root))
 
-  private val compile = Ready.Compile(Evaluator.Scope.onDemand(""))
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
+    def node(n: LayoutNode): Ready.Node = Conds.compiled(walk.node(n))
 
   extension (g: MemberGraph)
     // The main page's: a root of `""`.

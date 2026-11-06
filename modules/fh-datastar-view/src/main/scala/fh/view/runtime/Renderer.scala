@@ -270,7 +270,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private lazy val initialPrograms: List[(VarKey, String, Cel.Program)] =
     vars.initialTransforms.toList.map((key, t) =>
-      (key, t.entityId, validated.scope.programs(t.celKey))
+      (key, t.entityId, dashboard.initials(t.celKey))
     )
 
   def initialValuesFor(

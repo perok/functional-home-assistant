@@ -30,7 +30,7 @@ class ConditionsSuite extends munit.FunSuite {
       st: EntityState,
       states: Map[String, EntityState]
   ) =
-    Evaluator.runOf(p, Nil, Evaluator.Scope.onDemand(""))(
+    Conds.run(p)(
       st,
       states,
       Evaluator.noFetch
@@ -246,9 +246,8 @@ class ConditionsSuite extends munit.FunSuite {
       n <- -1 to size + 1
     } {
       val full = Evaluator
-        .presentOf(Value.Present(ids, guards), Evaluator.Scope.onDemand(""))(
-          states
-        )
+        .presentOf(Value.Present(ids, guards), Evaluator.Scope(""))
+        .fold(m => fail(m.message), _(states))
         .size
       assertEquals(
         holds(

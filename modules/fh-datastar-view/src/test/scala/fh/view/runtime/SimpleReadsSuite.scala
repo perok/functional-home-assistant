@@ -67,11 +67,7 @@ class SimpleReadsSuite extends munit.FunSuite {
 
   /** One step over `part` of `e`, as the evaluator runs it. */
   private def run(part: Part, step: Step, e: EntityState): Any =
-    Evaluator.runOf(
-      ValueExpr(Value.Entity(None, part), List(step)),
-      Nil,
-      Evaluator.Scope.onDemand("")
-    )(
+    Conds.run(ValueExpr(Value.Entity(None, part), List(step)))(
       e,
       Map(e.entityId -> e),
       Evaluator.noFetch
@@ -193,7 +189,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(
       reading(None)(
         labels.copy(otherwise = Value.Entity(Some("sensor.b")))
-      ).operandEntities,
+      ).partEntities,
       List("sensor.b")
     )
   }

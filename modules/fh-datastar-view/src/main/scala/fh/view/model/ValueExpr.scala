@@ -52,11 +52,15 @@ final case class ValueExpr(
   def parts: List[ValueExpr.Inner] =
     Value.parts(source) ++ steps.flatMap(Step.parts)
 
-  /** Every entity a step's operand names: what wakes the slot besides its
-    * source.
+  /** Every entity what it holds names ([[parts]]): what wakes it besides its
+    * source's own read.
     */
-  def operandEntities: List[String] =
-    steps.flatMap(Step.operands).flatMap(Value.Operand.entity)
+  def partEntities: List[String] = parts.flatMap {
+    case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v)
+    case ValueExpr.Inner.Item(e)      => e.entities
+    case ValueExpr.Inner.PerMember(e) => e.entities
+    case ValueExpr.Inner.Input(_)     => Nil
+  }
 
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
@@ -234,12 +238,7 @@ final case class ValueExpr(
       case Value.Literal(_) | Value.Fetch(_) | Value.List(_, _) |
           Value.Cel(_, _) =>
         Nil
-    ) ++ parts.flatMap {
-      case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v)
-      case ValueExpr.Inner.Item(e)      => e.entities
-      case ValueExpr.Inner.PerMember(e) => e.entities
-      case ValueExpr.Inner.Input(_)     => Nil
-    }
+    ) ++ partEntities
 
 object ValueExpr:
 
