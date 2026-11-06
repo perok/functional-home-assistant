@@ -986,9 +986,10 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
-Compile keeps one program per distinct CEL source, typed names and type of `value`
-(`Validated.transforms`). The build compiles each slot into one closure (`Ready.Slot.run`, through `Evaluator.compile`, the
-one evaluator every reading runs on, ADR 0035), with each CEL program looked up and each literal
+Compile builds one program per distinct CEL source, typed names and type of `value`, the first
+time the walk asks for it (`Validated.scope`). The build compiles each slot into one closure
+(`Ready.Slot.run`, through `Evaluator.compile`, the one evaluator every reading runs on, ADR
+0035), with each CEL program looked up and each literal
 operand read up front, so a paint walks no step list and looks nothing up. The renderer plans each
 slot once per node (`Planned`): a value that never moves is `Planned.Constant`, folded with its JS
 spelling (a literal, a literal through the theme's swap, or a `once` read through the identity

@@ -1,6 +1,7 @@
 package fh.view.model
 
-import fh.view.runtime.Evaluator
+import api.homeassistant.ServiceTarget
+import fh.view.runtime.{EntityState, Evaluator}
 
 /** The compiled model: what `Dashboard.validated` walks the wire into, every
   * expression beside its run, and all the runtime reads. A class here stands in
@@ -120,6 +121,13 @@ object Ready:
       case Activation.Var(_, at) => Some(at)
       case _                     => None
 
+  /** What a declared call acts on: its fixed target, or a set a press narrows
+    * to the candidates present then.
+    */
+  type Reach = ServiceTarget | SetCall
+
+  final class SetCall(val present: Map[String, EntityState] => List[String])
+
   /** The compile walk, over expressions `validate` checked. */
   final class Compile(scope: Evaluator.Scope):
 
@@ -136,7 +144,10 @@ object Ready:
         d.cardScripts,
         d.referencedEntities,
         d.watchedEntities,
-        d.calls,
+        d.calls.view.mapValues {
+          case t: ServiceTarget => t
+          case p: Value.Present => SetCall(Evaluator.presentOf(p, scope))
+        }.toMap,
         d.varScopes,
         d.warnings
       )
@@ -216,7 +227,7 @@ object Ready:
       cardScripts: List[String],
       referencedEntities: Set[String],
       watchedEntities: Set[String],
-      calls: Map[TapCall, CallReach],
+      calls: Map[TapCall, Reach],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
       warnings: List[String]
   )

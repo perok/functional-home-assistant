@@ -277,7 +277,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
   private def programOf(d: Dashboard, src: String): Cel.Program =
     d.validated()
-      .fold(e => fail(e.mkString("\n")), _.transforms(Cel.Key(src)))
+      .fold(e => fail(e.mkString("\n")), _.scope.programs(Cel.Key(src)))
 
   private def dashboard(slug: String) =
     Dashboard(
@@ -352,7 +352,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         assertEquals(validated.dashboard.slug, "renamed")
         assertEquals(
           Cel.run(
-            validated.transforms(Cel.Key(tapUrl)),
+            validated.scope.programs(Cel.Key(tapUrl)),
             state,
             validated.dashboard.slug
           ),

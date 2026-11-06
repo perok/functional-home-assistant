@@ -246,9 +246,7 @@ class ConditionsSuite extends munit.FunSuite {
       n <- -1 to size + 1
     } {
       val full = Evaluator
-        .presentOf(
-          Value.Present(ids, guards),
-          Evaluator.Scope.onDemand(""),
+        .presentOf(Value.Present(ids, guards), Evaluator.Scope.onDemand(""))(
           states
         )
         .size

@@ -46,12 +46,18 @@ private[view] object Evaluator {
   final case class Scope(programs: Cel.Key => Cel.Program, slug: String)
 
   object Scope:
-    /** Each program built as it is asked for, over the process's checked trees:
-      * for one already validated.
+    /** Each program built the first time it is asked for, once per scope, over
+      * the process's checked trees: for a dashboard `validate` checked.
       */
     def onDemand(slug: String): Scope =
+      val built =
+        new java.util.concurrent.ConcurrentHashMap[Cel.Key, Cel.Program]()
       Scope(
-        k => Cel.parse(k).fold(m => throw FHError.internal(m), identity),
+        k =>
+          built.computeIfAbsent(
+            k,
+            k => Cel.parse(k).fold(m => throw FHError.internal(m), identity)
+          ),
         slug
       )
 
@@ -118,14 +124,13 @@ private[view] object Evaluator {
   /** For readings `validate` keeps from a fetch: a condition, an order key. */
   val noFetch: FetchTemplate => Object = _ => ""
 
-  /** A set's candidates present now: what a call over it acts on. */
+  /** A set's candidates present in a snapshot: what a call over it acts on. */
   def presentOf(
       p: Value.Present,
-      scope: Scope,
-      states: Map[String, EntityState]
-  ): List[String] =
+      scope: Scope
+  ): Map[String, EntityState] => List[String] =
     val is = present(p, scope)
-    p.candidates.filter(is(_, states))
+    states => p.candidates.filter(is(_, states))
 
   /** CEL's named inputs, each compiled once, read as CEL takes them: a fetch
     * its answer, a bool `true` only for `true`, anything else its value, `null`

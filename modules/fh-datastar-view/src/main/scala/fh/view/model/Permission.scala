@@ -10,7 +10,7 @@ import api.homeassistant.ws.domain.HaUser
   */
 final case class Permission(
     access: Access,
-    calls: TapCall => Option[CallReach]
+    calls: TapCall => Option[Ready.Reach]
 ) {
 
   def mayView(user: Option[HaUser]): Boolean = access.permits(user)
@@ -20,7 +20,7 @@ final case class Permission(
     * and an area call reaches entities the dashboard never names. Static is
     * sound: a candidate list does not grow while it runs (ADR 0003).
     */
-  def reachOf(user: Option[HaUser], call: TapCall): Option[CallReach] =
+  def reachOf(user: Option[HaUser], call: TapCall): Option[Ready.Reach] =
     if (mayView(user)) calls(call) else None
 }
 

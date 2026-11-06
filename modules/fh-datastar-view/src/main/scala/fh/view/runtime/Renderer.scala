@@ -6,7 +6,6 @@ import fh.view.build.LibPackage
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.history.Series
 import fh.view.model.{
-  CallReach,
   Access,
   Cell,
   ChromeColors,
@@ -138,8 +137,6 @@ class Renderer(validated: Dashboard.Validated) {
 
   private val dashboard = validated.ready
   private val templates = validated.templates
-  // A variable's initial transforms; every slot's program is in its run.
-  private val programs = validated.transforms
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
   // value.
   val access: Access = validated.access
@@ -273,7 +270,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private lazy val initialPrograms: List[(VarKey, String, Cel.Program)] =
     vars.initialTransforms.toList.map((key, t) =>
-      (key, t.entityId, programs(t.celKey))
+      (key, t.entityId, validated.scope.programs(t.celKey))
     )
 
   def initialValuesFor(
@@ -530,7 +527,7 @@ class Renderer(validated: Dashboard.Validated) {
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
-  def reachOf(call: TapCall): Option[CallReach] = dashboard.calls.get(call)
+  def reachOf(call: TapCall): Option[Ready.Reach] = dashboard.calls.get(call)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities

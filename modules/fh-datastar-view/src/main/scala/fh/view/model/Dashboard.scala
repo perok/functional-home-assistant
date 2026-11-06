@@ -126,9 +126,6 @@ final case class BoundSlot(
   lazy val typed: Either[ValueExpr.Mistyped, ValueExpr.Typed] =
     expr.typed(ValueExpr.env(values))
 
-  def celKeys: List[Cel.Key] =
-    typed.fold(_ => Nil, _.keys) ++ valueWhile.toList.flatMap(_.celKeys)
-
   /** Every entity that can move this slot besides its own: those its source and
     * its steps name, those of the live values it reads, and its
     * [[valueWhile]]'s.
@@ -1184,9 +1181,6 @@ case class Dashboard(
       s.fetches.map(_.resolve(scope))
     }.distinct
 
-  private def slotSources(n: LayoutNode): List[BoundSlot] =
-    scopedSlots(n, Map.empty).map(_._1)
-
   /** `scope` is where a tree starts: empty, or a surface's [[scopeOf]]. */
   private def scopedSlots(
       n: LayoutNode,
@@ -1201,28 +1195,8 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(c => scopedSlots(c.node, scope))
 
-  /** The CEL expressions to compile, each with the names it is typed against.
-    */
-  private def celKeys: List[Cel.Key] =
-    ((slotSources(card) ++ surfaces.values.flatMap(s =>
-      slotSources(s.content)
-    )).toList
-      .flatMap(_.celKeys) ++
-      (initialKeys(card) ++ surfaces.values.flatMap(s =>
-        initialKeys(s.content)
-      ))).distinct
-
-  private def initialKeys(n: LayoutNode): List[Cel.Key] = n match
-    case c: LayoutNode.Component =>
-      c.vars.flatMap(_.initialTransform).map(_.celKey) ++
-        c.allChildren.flatMap(initialKeys)
-    case s: LayoutNode.SetNode =>
-      s.members.values.toList
-        .flatMap(_.clauses)
-        .flatMap(cl => initialKeys(cl.node))
-
-  /** [[validate]] plus the compiled transforms and templates, so the renderer
-    * never recompiles or defends against a bad expression.
+  /** [[validate]] plus the compiled tree and templates, so the renderer never
+    * recompiles or defends against a bad expression.
     */
   def validated(
       locateTransform: String => Option[String] = _ => None
@@ -1230,20 +1204,16 @@ case class Dashboard(
     val compiled = compiledCards
     Validate.errors(this, locateTransform, compiled) match
       case Nil =>
-        val transforms = compileTransforms
+        val scope = Evaluator.Scope.onDemand(slug)
         Right(
           Dashboard.Validated(
             this,
-            Ready.Compile(Evaluator.Scope(transforms, slug)).dashboard(this),
-            transforms,
+            Ready.Compile(scope).dashboard(this),
+            scope,
             Templates(compiled.collect { case (n, Right(c)) => n -> c })
           )
         )
       case errs => Left(errs)
-
-  // Only after `validate` proved each compiles, so a `Left` cannot occur.
-  private def compileTransforms: Map[Cel.Key, Cel.Program] =
-    celKeys.flatMap(k => Cel.parse(k).toOption.map(k -> _)).toMap
 
 object Dashboard:
 
@@ -1308,7 +1278,8 @@ object Dashboard:
       dashboard: Dashboard,
       // What the runtime walks; `dashboard` is the source it came from.
       ready: Ready.Dashboard,
-      transforms: Map[Cel.Key, Cel.Program],
+      // Each CEL program, built once as the walk or a session first asks.
+      scope: Evaluator.Scope,
       templates: Templates,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.

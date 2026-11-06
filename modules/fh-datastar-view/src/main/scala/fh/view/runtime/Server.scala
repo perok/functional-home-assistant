@@ -22,7 +22,7 @@ import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.model.{
-  CallReach,
+  Ready,
   ChromeColors,
   Dashboard,
   DomId,
@@ -32,8 +32,7 @@ import fh.view.model.{
   SlotRead,
   TapCall,
   ThemeClasses,
-  Step,
-  Value
+  Step
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -274,7 +273,7 @@ class Server(
             .map(TapCall(s"$domain/$service", _, data.map(_._1)))
             .flatMap(permission.reachOf(user, _)) match {
             case Some(reach) =>
-              targetAtPress(reach, slug).flatMap {
+              targetAtPress(reach).flatMap {
                 case Some(target) =>
                   callService(
                     domain,
@@ -300,18 +299,13 @@ class Server(
     * subset of the candidates fixed at build, so a press reaches nothing the
     * dashboard does not name.
     */
-  private def targetAtPress(
-      reach: CallReach,
-      slug: String
-  ): IO[Option[ServiceTarget]] =
+  private def targetAtPress(reach: Ready.Reach): IO[Option[ServiceTarget]] =
     reach match {
       case t: ServiceTarget => IO.pure(Some(t))
-      case t: Value.Present =>
+      case s: Ready.SetCall =>
         stateStore.snapshot.map(states =>
           NonEmptyList
-            .fromList(
-              Evaluator.presentOf(t, Evaluator.Scope.onDemand(slug), states)
-            )
+            .fromList(s.present(states))
             .map(ServiceTarget.Entities(_))
         )
     }
