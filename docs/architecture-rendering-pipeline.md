@@ -193,7 +193,7 @@ layers only look it up.
 
 | Layer | Once per | Input | What it produces |
 |---|---|---|---|
-| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed |
+| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
 | **Decisions** | state snapshot | the entity states | what they decide (`Decisions`): which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Kept by the snapshot's identity (`Decided`), so every viewer rendering one version shares them |
 
@@ -987,12 +987,12 @@ of what the render reads, not all of it: an entity reached only through a signal
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
 Compile keeps one program per distinct CEL source, typed names and type of `value`
-(`Validated.transforms`). The renderer plans each slot once per node (`Planned`): a value that never
-moves is `Planned.Constant`, folded with its JS spelling (a literal, a literal through the theme's
-swap, or a `once` read through the identity cache, which is every click transform), and anything else
-`Planned.Live`, its source and steps compiled into one closure (`Evaluator.compile`, the one
-evaluator every reading runs on, ADR 0035) with each CEL program looked up and each literal operand
-read up front, so a paint walks no step list and looks nothing up.
+(`Validated.transforms`). The build compiles each slot into one closure (`Ready.Slot.run`, through `Evaluator.compile`, the
+one evaluator every reading runs on, ADR 0035), with each CEL program looked up and each literal
+operand read up front, so a paint walks no step list and looks nothing up. The renderer plans each
+slot once per node (`Planned`): a value that never moves is `Planned.Constant`, folded with its JS
+spelling (a literal, a literal through the theme's swap, or a `once` read through the identity
+cache, which is every click transform), and anything else `Planned.Live`, which runs that closure.
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
@@ -1098,7 +1098,7 @@ Three boxes move, and no others:
   (`Value.Fetch` or another). Every site that CLASSIFIES slots matches on
   it, so the combinations that would be wrong — a fetch that is `live`, `once`, or a signal — are
   not rejected by rules, they are unreachable.
-- **`Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
+- **`Ready.Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
   and separate for the same reason those two are: what makes a node a candidate and what makes its
   bytes stale are different questions.
 

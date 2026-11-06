@@ -93,9 +93,9 @@ class FetchValueSuite extends munit.FunSuite {
 
   test("a value's fetch is the node's, so a render reads it first") {
     val d = dashboard()
-    val fetches = d.card match
-      case c: LayoutNode.Component => c.fetches
-      case other                   => fail(s"not a component: $other")
+    val fetches = d.validated().map(_.ready.card) match
+      case Right(c: Ready.Component) => c.fetches
+      case other                     => fail(s"not a component: $other")
     assertEquals(fetches, List(SlotAsk(history, None)))
     assertEquals(d.allFetches, List(read))
   }

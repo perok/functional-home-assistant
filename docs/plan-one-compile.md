@@ -3,7 +3,11 @@
 Branch `one-compile`, stacked on `pkl-reading` (#670). Discussed in chat on 2026-11-05 and
 2026-11-06; it takes over items 5, 7, 8 and 9 of `plan-slot-values.md`'s review follow-ups.
 
-**State:** design agreed; O1 starts with the decoder spike.
+**State:** O0 and O1's single compile entry point committed. O1's compiled model is in
+(`model/Ready.scala`): the renderer and the member and surface graphs walk only it. Left in O1: a
+slot's facts still come from its `BoundSlot`, not `Compiled`; a set call's reach is still the wire's
+`Value.Present`, compiled at the press (`Scope.onDemand`); `compileTransforms`, `celKeys` and
+`initialKeys` stay.
 
 ## Why
 
@@ -37,16 +41,21 @@ paths.
 
 ## The design
 
-1. **Two stages of one model.** Every class that holds an expression takes a parameter for it:
-   `LayoutNode[E]`, `TemplateSlot[E]`, `Cell[E]`, `SetClause[E]`, `SortTerm[E]`,
-   `Activation[E]`, and a node's `values: Map[String, E]`. The decoder gives
-   `E = ValueExpr`, the wire as today. `validated` walks the tree once, each node with its
-   card's entity and declared values, and gives `E = Compiled`. The renderer, `MemberGraph`,
-   `SurfaceGraph`, the order keys and set calls take the compiled tree, so nothing that runs
-   can reach an expression that has no run, and there is no lookup that could miss. Compiling
-   stays in `validate`, not the decoder: it can fail (collected into the whole dashboard's
-   errors) and needs the node's context. Inner expressions (guards, list items, CEL inputs)
-   take no parameter; they compile into their parent's run.
+1. **Two models and one walk between them.** The wire model stays as it is: the decoder only
+   decodes. `validated` walks it once, each node with its card's entity and declared values,
+   into a second family of classes that hold `Compiled` where the wire holds a `ValueExpr`
+   (`Ready.*`, name to pick). The renderer, `MemberGraph`, `SurfaceGraph`, the order keys and
+   set calls take that family, so nothing that runs can reach an expression that has no run,
+   and there is no lookup that could miss. A class with no expression in it (`Placement`,
+   `Region`, `CardDef`, `Theme`, a declaration, …) is shared, not copied. Only the classes that
+   hold an expression or a node have a twin, and each member lives once, on the stage that
+   reads it: the node facts the runtime caches (`fetching`, `liveEntities`, a cell's entries)
+   are plain lazy vals on the compiled class, as today, so a paint reads them as it does now.
+   Not one parametrised model: the stages want different members, and sharing a class
+   between them took a cast. Not chimney: compiling needs each node's context, which its
+   type-directed derivation has no place for. Compiling stays in `validate`, not the decoder:
+   it can fail (collected into the whole dashboard's errors) and needs the node's context.
+   Inner expressions (guards, list items, CEL inputs) compile into their parent's run.
 2. **`Compiled` is the expression made ready to run:**
 
    ```scala
@@ -93,11 +102,9 @@ paths.
 ## Steps
 
 - **O0 — a list's item type.** Design point 9's wire change; "a list has no items" goes.
-- **O1 — the compiled model.** Starts with a spike: the derived decoder for the parametrised
-  model and one consumer. If the parameter spreads badly, fall back to `Validated` holding
-  `Map[ValueExpr, Compiled]` and say so before going on. Then the compile walk (typing and
-  compiling as one), `Compiled`, the memo; the renderer, `MemberGraph`, `SurfaceGraph`, the order
-  keys and set calls take the compiled tree. `Evaluator.plain`, the iterator pairing,
+- **O1 — the compiled model.** The compiled family and the walk (typing and compiling as one),
+  `Compiled`, the memo; `validate`'s checks that read node facts run on the compiled tree;
+  the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls take it. `Evaluator.plain`, the iterator pairing,
   `compileTransforms`, `celKeys`, `initialKeys` and the re-deriving wake walks go. CEL is still
   refused where it is today: no behaviour change.
 - **O2 — a CEL's own inputs.** Inputs compile with the walk; the node's values are in scope by

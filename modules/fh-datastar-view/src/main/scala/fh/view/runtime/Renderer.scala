@@ -18,6 +18,7 @@ import fh.view.model.{
   MemberId,
   NodeId,
   Reads,
+  Ready,
   SlotAsk,
   SlotKey,
   SlotRead,
@@ -26,9 +27,7 @@ import fh.view.model.{
   SetId,
   SignalBind,
   SignalId,
-  BoundSlot,
   SlotValue,
-  ValueExpr,
   Surface,
   TapCall,
   ThemeClasses
@@ -137,12 +136,10 @@ case class RenderInputs(
   */
 class Renderer(validated: Dashboard.Validated) {
 
-  private val dashboard = validated.dashboard
+  private val dashboard = validated.ready
   private val templates = validated.templates
-  // Every CEL program, once per distinct source and names. Looked up when a
-  // node is planned ([[Planned]]), never by a paint.
+  // A variable's initial transforms; every slot's program is in its run.
   private val programs = validated.transforms
-  private val scope = Evaluator.Scope(programs, dashboard.slug)
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
   // value.
   val access: Access = validated.access
@@ -158,32 +155,32 @@ class Renderer(validated: Dashboard.Validated) {
   private val expandCell: java.util.function.Function[String, String] =
     cls => themeClasses.expand(cls).map(" " + _).mkString
 
-  private class Index(root: LayoutNode, val idPrefix: String) {
+  private class Index(root: Ready.Node, val idPrefix: String) {
 
     // Recorded by the walk that mints the ids, so the two cannot disagree.
     val parents: Map[NodeId, NodeId] = {
-      def walk(node: LayoutNode, id: NodeId): List[(NodeId, NodeId)] =
+      def walk(node: Ready.Node, id: NodeId): List[(NodeId, NodeId)] =
         node match {
-          case c: LayoutNode.Component =>
+          case c: Ready.Component =>
             LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               val cid = LayoutNode.childId(idPrefix, id, step, ch)
               (cid -> id) :: walk(ch, cid)
             }
-          case _: LayoutNode.SetNode => Nil
+          case _: Ready.SetNode => Nil
         }
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
 
-    val indexed: Map[NodeId, LayoutNode] = {
-      def walk(node: LayoutNode, id: NodeId): List[(NodeId, LayoutNode)] = {
+    val indexed: Map[NodeId, Ready.Node] = {
+      def walk(node: Ready.Node, id: NodeId): List[(NodeId, Ready.Node)] = {
         val self = id -> node
         node match {
-          case c: LayoutNode.Component =>
+          case c: Ready.Component =>
             self :: LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               walk(ch, LayoutNode.childId(idPrefix, id, step, ch))
             }
           // A leaf here: its members are addressed by `memberId`, not a path.
-          case _: LayoutNode.SetNode => List(self)
+          case _: Ready.SetNode => List(self)
         }
       }
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
@@ -192,15 +189,15 @@ class Renderer(validated: Dashboard.Validated) {
     // So a render's reads cost the charts, not the tree.
     val fetching: List[(NodeId, Fetching)] =
       indexed.toList.sortBy(_._1).flatMap {
-        case (id, c: LayoutNode.Component) => c.fetching.map(id -> _)
-        case _                             => Nil
+        case (id, c: Ready.Component) => c.fetching.map(id -> _)
+        case _                        => Nil
       }
     val setIds: List[NodeId] =
-      indexed.toList.collect { case (id, _: LayoutNode.SetNode) => id }.sorted
+      indexed.toList.collect { case (id, _: Ready.SetNode) => id }.sorted
 
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
-        .collect { case (id, c: LayoutNode.Component) => id -> c }
+        .collect { case (id, c: Ready.Component) => id -> c }
         .flatMap { case (id, c) => c.liveEntities.map(_ -> id) }
         .groupMap(_._1)(_._2)
         .view
@@ -246,7 +243,7 @@ class Renderer(validated: Dashboard.Validated) {
       sid -> new Index(s.content, Renderer.surfacePrefix(sid))
     }
 
-  private val allIndexed: Map[NodeId, (LayoutNode, String)] =
+  private val allIndexed: Map[NodeId, (Ready.Node, String)] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
@@ -401,9 +398,9 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState]
   ): List[(NodeId, Fetching)] =
     allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _)) => c.fetching.map(id -> _)
-      case Some(_)                            => Nil
-      case None                               =>
+      case Some((c: Ready.Component, _)) => c.fetching.map(id -> _)
+      case Some(_)                       => Nil
+      case None                          =>
         members.nodeAt(id, states) match {
           case Some((m, _)) if m.id == id => memberAsks(m, states)
           case Some((_, c))               => c.fetching.map(id -> _)
@@ -454,7 +451,7 @@ class Renderer(validated: Dashboard.Validated) {
   private def nodeAt(
       id: NodeId,
       states: Map[String, EntityState]
-  ): Option[(LayoutNode, String)] =
+  ): Option[(Ready.Node, String)] =
     allIndexed
       .get(id)
       .orElse(
@@ -468,9 +465,8 @@ class Renderer(validated: Dashboard.Validated) {
     * renderer decided membership.
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
-    allIndexed.collect { case (id, (s: LayoutNode.SetNode, _)) => id -> s },
+    allIndexed.collect { case (id, (s: Ready.SetNode, _)) => id -> s },
     rootOfIndexed,
-    scope,
     decided
   )
 
@@ -490,7 +486,6 @@ class Renderer(validated: Dashboard.Validated) {
       dashboard.surfaces,
       rootOfIndexed,
       members,
-      scope,
       decided
     )
 
@@ -506,8 +501,8 @@ class Renderer(validated: Dashboard.Validated) {
       states: Map[String, EntityState]
   ): List[String] =
     nodeAt(id, states) match {
-      case Some((c: LayoutNode.Component, _)) => c.liveEntities
-      case _                                  => Nil
+      case Some((c: Ready.Component, _)) => c.liveEntities
+      case _                             => Nil
     }
 
   /** A member's are its whole subtree's ([[everyClauseAsks]]); a node below one
@@ -515,7 +510,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def fetchesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _)) =>
+      case Some((c: Ready.Component, _)) =>
         c.fetches
       case _ =>
         everyClauseAsks.getOrElse(id, belowMemberAsks.getOrElse(id, Nil))
@@ -559,7 +554,7 @@ class Renderer(validated: Dashboard.Validated) {
       .get(surfaceId)
       .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
 
-  def surface(surfaceId: String): Option[Surface] =
+  def surface(surfaceId: String): Option[Ready.Surface] =
     dashboard.surfaces.get(surfaceId)
 
   def stylesheets: List[String] = dashboard.theme.stylesheets
@@ -911,10 +906,10 @@ class Renderer(validated: Dashboard.Validated) {
     * [[elementId]] for structural patches. `Dashboard.validate` enforces the
     * same rule when it rejects a live bytes slot on structure.
     */
-  private def ownRenderingOf(node: LayoutNode): Boolean = node match {
-    case c: LayoutNode.Component =>
+  private def ownRenderingOf(node: Ready.Node): Boolean = node match {
+    case c: Ready.Component =>
       !dashboard.cards.get(c.card).exists(_.isStructure)
-    case _: LayoutNode.SetNode => false
+    case _: Ready.SetNode => false
   }
 
   /** [[ownRenderingOf]] for a node of the static tree; a member's or one below
@@ -1011,7 +1006,7 @@ class Renderer(validated: Dashboard.Validated) {
         )
       case None =>
         allIndexed.get(id).collect {
-          case (c: LayoutNode.Component, _) if ownRenderingOf(c) =>
+          case (c: Ready.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, states),
               fragments.versions(id, asked(c, states))
@@ -1036,7 +1031,7 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: FetchSnapshot
   ): Option[Map[String, String]] =
     allIndexed.get(id).flatMap {
-      case (c: LayoutNode.Component, _) if hasOwnRendering(id) =>
+      case (c: Ready.Component, _) if hasOwnRendering(id) =>
         if (surfaces.bakeGroup(id).nonEmpty)
           sys.error(
             s"node $id has its own rendering AND a bake group; ADR 0012 holds " +
@@ -1076,7 +1071,7 @@ class Renderer(validated: Dashboard.Validated) {
     * walk, and `DigestPropertySuite` pins that the two agree.
     */
   private def render(
-      node: LayoutNode,
+      node: Ready.Node,
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
@@ -1084,7 +1079,7 @@ class Renderer(validated: Dashboard.Validated) {
       form: SlotForm,
       fragments: FetchSnapshot
   ): Option[String] = node match {
-    case c: LayoutNode.Component if form.isPatch =>
+    case c: Ready.Component if form.isPatch =>
       val plan = planOf(id, c, states)
       val resolved = resolvePlanned(plan, states, Map.empty, fragments)
       Some(Sink.scratched { buf =>
@@ -1119,15 +1114,15 @@ class Renderer(validated: Dashboard.Validated) {
 
   // A static floor for sizing a buffer; a set's live membership is bounded by
   // its candidates and members.
-  private def nodeCount(node: LayoutNode): Int = node match {
-    case c: LayoutNode.Component =>
+  private def nodeCount(node: Ready.Node): Int = node match {
+    case c: Ready.Component =>
       1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
-    case s: LayoutNode.SetNode =>
+    case s: Ready.SetNode =>
       1 + math.max(s.candidates.size, s.members.size)
   }
 
   private def traced(
-      node: LayoutNode,
+      node: Ready.Node,
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
@@ -1154,7 +1149,7 @@ class Renderer(validated: Dashboard.Validated) {
     * buffer is presized: growing it is the copy this walk exists to remove.
     */
   private def tracedHtml(
-      node: LayoutNode,
+      node: Ready.Node,
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
@@ -1165,8 +1160,8 @@ class Renderer(validated: Dashboard.Validated) {
   ): String = {
     val out = Sink.buffer(
       Renderer.NodeBytesHint * (node match {
-        case c: LayoutNode.Component => planOf(id, c, states).nodeCount
-        case _                       => nodeCount(node)
+        case c: Ready.Component => planOf(id, c, states).nodeCount
+        case _                  => nodeCount(node)
       })
     )
     tracedInto(
@@ -1191,7 +1186,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def tracedInto(
       out: Sink,
-      node: LayoutNode,
+      node: Ready.Node,
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
@@ -1201,7 +1196,7 @@ class Renderer(validated: Dashboard.Validated) {
       within: WalkAt = WalkAt.Static
   ): Unit =
     node match {
-      case c: LayoutNode.Component =>
+      case c: Ready.Component =>
         val gid = within match {
           case WalkAt.Static      => id
           case m: WalkAt.InMember => surfaces.groupAt(id, m.clause)
@@ -1228,9 +1223,9 @@ class Renderer(validated: Dashboard.Validated) {
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
 
-        def childId(region: String, i: Int, child: LayoutNode) =
+        def childId(region: String, i: Int, child: Ready.Node) =
           (child, within) match {
-            case (set: LayoutNode.SetNode, m: WalkAt.InMember) =>
+            case (set: Ready.SetNode, m: WalkAt.InMember) =>
               val at = m.into(LayoutNode.Step(region, i))
               members.innerSetId(at.member, at.clause, at.path, set)
             case _ =>
@@ -1342,7 +1337,7 @@ class Renderer(validated: Dashboard.Validated) {
           case None => ()
       // Each member is walked like any node, so the trace holds each patch
       // target inside it; the root has no rendering.
-      case s: LayoutNode.SetNode =>
+      case s: Ready.SetNode =>
         val setId = SetId.of(id, s)
         out.append(groupOpen)
         // `validate` refuses a set's live cell slot.
@@ -1369,7 +1364,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def wrapperInto(
       buf: Sink,
-      c: LayoutNode.Component,
+      c: Ready.Component,
       id: NodeId,
       plan: NodePlan,
       resolved: Resolved,
@@ -1476,7 +1471,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def cellOpenInto(
       buf: Sink,
-      cell: Option[Cell],
+      cell: Option[Ready.Cell],
       r: Resolved,
       form: SlotForm
   ): Unit = {
@@ -1501,7 +1496,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def cellClassesInto(
       buf: Sink,
-      cell: Option[Cell],
+      cell: Option[Ready.Cell],
       paint: Map[SlotKey, SlotValue] | Null
   ): Unit = cell match
     case Some(c) =>
@@ -1523,7 +1518,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def cellBindingsInto(
       buf: Sink,
-      cell: Option[Cell],
+      cell: Option[Ready.Cell],
       r: Resolved
   ): Unit = {
     def bind(e: Cell.Entry): Unit =
@@ -1599,7 +1594,7 @@ class Renderer(validated: Dashboard.Validated) {
     * selection.
     */
   private case class NodePlan(
-      node: LayoutNode.Component,
+      node: Ready.Component,
       tpl: Mustache,
       structural: Map[String, String],
       constants: Map[SlotKey, SlotValue],
@@ -1628,24 +1623,15 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private enum Planned:
     case Constant(value: SlotValue, js: String)
-    case Live(source: BoundSlot, run: Evaluator.Run)
+    case Live(source: Ready.Slot)
 
-  private def live(source: BoundSlot): Planned.Live =
-    Planned.Live(
-      source,
-      Evaluator.runOf(
-        source.expr,
-        ValueExpr.env(source.values),
-        scope,
-        Evaluator.inputs(source.values, scope)
-      )
-    )
+  private def live(source: Ready.Slot): Planned.Live = Planned.Live(source)
 
   /** `once` reads only identity, so the plan holds it; the memo is keyed by
     * entity, which is why a fetch slot never enters it.
     */
   private def plan(
-      source: BoundSlot,
+      source: Ready.Slot,
       states: Map[String, EntityState]
   ): Planned = source.constant match
     case Some(flag: Boolean)   => Planned.Constant(flag, Datastar.jsValue(flag))
@@ -1661,7 +1647,7 @@ class Renderer(validated: Dashboard.Validated) {
       Planned.Constant(once, Datastar.jsValue(once))
     case None => live(source)
 
-  /** A `valueWhile` composed once per renderer, by what it decides. */
+  /** A `valueWhile` planned once per renderer, by what it decides. */
   private val gateRuns =
     new java.util.concurrent.ConcurrentHashMap[String, Planned.Live]()
 
@@ -1673,7 +1659,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** The asks whose slot has a value now. */
   private def asked(
-      c: LayoutNode.Component,
+      c: Ready.Component,
       states: Map[String, EntityState]
   ): List[SlotAsk] =
     c.fetching
@@ -1689,7 +1675,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def planOf(
       id: NodeId,
-      node: LayoutNode.Component,
+      node: Ready.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
     val cached = nodePlans.getOrDefault(id, Nil)
@@ -1702,13 +1688,13 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def buildPlan(
       id: NodeId,
-      c: LayoutNode.Component,
+      c: Ready.Component,
       states: Map[String, EntityState]
   ): NodePlan = {
-    val slots = c.bound.view.mapValues(plan(_, states)).toMap
+    val slots = c.slots.view.mapValues(plan(_, states)).toMap
     // A signal slot is always `live` and non-literal, so its name is constant
     // per node.
-    val named = c.bound.toList.flatMap { case (slot, src) =>
+    val named = c.slots.toList.flatMap { case (slot, src) =>
       Renderer.signalBind(src).map { kind =>
         (
           slot,
@@ -1743,7 +1729,7 @@ class Renderer(validated: Dashboard.Validated) {
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
-      declaresSignals = c.bound.values.exists(Renderer.isSignalSlot),
+      declaresSignals = c.slots.values.exists(Renderer.isSignalSlot),
       wrapped = !noWrapCards(c.card),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
@@ -1803,11 +1789,11 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def signalsOfSlots(
       id: NodeId,
-      node: LayoutNode,
+      node: Ready.Node,
       states: Map[String, EntityState],
       fragments: FetchSnapshot
   ): Map[SignalId, SlotValue] = node match {
-    case c: LayoutNode.Component =>
+    case c: Ready.Component =>
       val plan = planOf(id, c, states)
       if (plan.signalNameBySlot.isEmpty) Map.empty
       else {
@@ -1830,7 +1816,7 @@ class Renderer(validated: Dashboard.Validated) {
         }
         b.result()
       }
-    case _: LayoutNode.SetNode => Map.empty
+    case _: Ready.SetNode => Map.empty
   }
 
   /** Resolves before any state arrives, so a `domain` action still works. */
@@ -1903,7 +1889,7 @@ class Renderer(validated: Dashboard.Validated) {
     // The bypass, not the transform, keeps an unavailable entity readable.
     else if (source.bypassUnavailable && st != null && st.unavailable) st.state
     else {
-      val v = planned.run(st, states, fetched)
+      val v = planned.source.run(st, states, fetched)
       // Where a value leaves the language: a bool slot is `true` only for
       // `true`, a text slot with nothing to show takes its default.
       if (source.isBool)
@@ -1928,7 +1914,7 @@ class Renderer(validated: Dashboard.Validated) {
   }
 
   /** The one swap of a themed value's classes, wherever it resolves. */
-  private def classed(source: BoundSlot, value: String): String =
+  private def classed(source: Ready.Slot, value: String): String =
     if (source.themed) themeClasses.expandAll(value)
     else value
 }
@@ -1948,11 +1934,11 @@ object Renderer {
 
   /** A subtree's asks, stopping at a nested set, whose members ask their own.
     */
-  private[runtime] def subtreeAsks(node: LayoutNode): List[SlotAsk] =
+  private[runtime] def subtreeAsks(node: Ready.Node): List[SlotAsk] =
     node match {
-      case c: LayoutNode.Component =>
+      case c: Ready.Component =>
         c.fetches ++ c.allChildren.flatMap(subtreeAsks)
-      case _: LayoutNode.SetNode => Nil
+      case _: Ready.SetNode => Nil
     }
 
   /** The chrome's scope: no names, only the body and dialog holes. */
@@ -1975,7 +1961,7 @@ object Renderer {
     * the model, not the JSON text: `toString` is deterministic, since the maps
     * are `String`-keyed and hold no identity hashes.
     */
-  private[runtime] def headFingerprint(dashboard: Dashboard): String =
+  private[runtime] def headFingerprint(dashboard: Ready.Dashboard): String =
     fingerprint(
       (
         dashboard.theme.stylesheets,
@@ -1992,7 +1978,7 @@ object Renderer {
   /** Follows the device's scheme outside the installed app; Chrome ignores it
     * inside one ([[PwaAssets]]).
     */
-  private[runtime] def themeColorTags(dashboard: Dashboard): String =
+  private[runtime] def themeColorTags(dashboard: Ready.Dashboard): String =
     ChromeColors.from(dashboard.theme).fold("") { c =>
       List("light" -> c.light, "dark" -> c.dark)
         .map { case (scheme, color) =>
@@ -2001,7 +1987,7 @@ object Renderer {
         .mkString("\n  ")
     }
 
-  private[runtime] def styleFingerprint(dashboard: Dashboard): String =
+  private[runtime] def styleFingerprint(dashboard: Ready.Dashboard): String =
     fingerprint(
       (
         dashboard.theme.tokens,
@@ -2095,10 +2081,10 @@ object Renderer {
     * inline seed is the whole story. Answering `None` everywhere yields the
     * plain form (ADR 0017).
     */
-  def signalBind(src: BoundSlot): Option[SignalBind] =
+  def signalBind(src: Ready.Slot): Option[SignalBind] =
     src.signal.filter(_ => src.constant.isEmpty && src.reads == Reads.Live)
 
-  def isSignalSlot(src: BoundSlot): Boolean = signalBind(src).isDefined
+  def isSignalSlot(src: Ready.Slot): Boolean = signalBind(src).isDefined
 
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)

@@ -1,6 +1,7 @@
 package fh.view.runtime
 
-import fh.view.model.{Activation, Dashboard, DomId, NodeId, Surface}
+import fh.view.model.{Dashboard, DomId, NodeId, Ready, Surface}
+import fh.view.model.Ready.Activation
 
 /** What one viewer has selected: the popup it has open, and the member of each
   * bake group a node variable selects (ADR 0033). A state group's branch is
@@ -26,10 +27,9 @@ object Selections {
   *   for [[rootOf]] of materialised members and nested sets.
   */
 private[runtime] final class SurfaceGraph(
-    surfaces: Map[String, Surface],
+    surfaces: Map[String, Ready.Surface],
     rootOfIndexed: Map[NodeId, String],
     members: MemberGraph,
-    scope: Evaluator.Scope,
     decided: Decided = Decided()
 ) {
 
@@ -81,7 +81,7 @@ private[runtime] final class SurfaceGraph(
     */
   def memberAt(gid: NodeId, value: String): Option[Int] = {
     val members = bakeGroup(gid).map(surfaces.get)
-    def first(p: Surface => Boolean): Option[Int] =
+    def first(p: Ready.Surface => Boolean): Option[Int] =
       Some(members.indexWhere(_.exists(p))).filter(_ >= 0)
     first(_.selectedAt.contains(value)).orElse(first(_.isOtherwise))
   }
@@ -91,7 +91,7 @@ private[runtime] final class SurfaceGraph(
     bakeGroup(gid).flatMap(surfaces.get(_).flatMap(_.selectedAt))
 
   /** A popup open from the first paint; a bake group's member is chosen. */
-  private def defaultOpenPopup(s: Surface): Boolean = s.activation match {
+  private def defaultOpenPopup(s: Ready.Surface): Boolean = s.activation match {
     case Activation.User(d) => d
     case _                  => false
   }
@@ -253,13 +253,12 @@ private[runtime] final class SurfaceGraph(
   ): Boolean =
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
 
-  /** Each state surface's condition, compiled once; an else has none. */
+  /** Each state surface's condition; an else has none. */
   private val conditions: Map[String, Evaluator.Run] =
     surfaces.flatMap { (sid, s) =>
       s.activation match
-        case Activation.State(Some(c)) =>
-          Some(sid -> Evaluator.runOf(c, Nil, scope))
-        case _ => None
+        case Activation.State(Some(c)) => Some(sid -> c.run)
+        case _                         => None
     }
 
   // Subject-free (`validate`). An else holds.

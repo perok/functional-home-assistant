@@ -138,7 +138,9 @@ named as a compiler names them:
   where a value lands (`x.bind` in Pkl, `{{{x.bind}}}` in the template).
 - **check**: the rules across fields and nodes (`validate`).
 - **compile**: CEL against the names and types binding gave it; each card's template, once, theme
-  classes applied (`Templates.card`), which check reads its names off and the renderer runs.
+  classes applied (`Templates.card`), which check reads its names off and the renderer runs; and
+  every expression beside its run, in the compiled tree the runtime walks (`Ready.Compile`,
+  `Validated.ready`).
 
 Bind and compile fix CEL's **environment**, the names and their types. The values are its
 **activation**, computed on every render (`Evaluator.inputs`).

@@ -613,10 +613,11 @@ private[model] object Validate:
           val wrapErrors =
             if (!noWrap(card)) Nil
             else
+              val live = BoundSlot.liveEntities(c.bound.values)
               Option
-                .when(c.liveEntities.nonEmpty)(
+                .when(live.nonEmpty)(
                   s"$nodeId: card '$card' has wrapAsCell=false but binds live " +
-                    s"entities (${c.liveEntities.mkString(", ")}) — an " +
+                    s"entities (${live.mkString(", ")}) — an " +
                     "unwrapped node has no morph target, so its live updates " +
                     "would never apply; make those slots literal or " +
                     s"reads='${Reads.OnRender.wire}', or drop the opt-out"
@@ -695,7 +696,7 @@ private[model] object Validate:
     val structureLiveSlotErrors: List[String] = {
       def walk(node: LayoutNode): List[String] = node match {
         case c: LayoutNode.Component =>
-          val asBytes = c.liveEntitiesAsBytes
+          val asBytes = BoundSlot.liveEntitiesAsBytes(c.bound.values)
           val here = cards
             .get(c.card)
             .filter(_.isStructure)

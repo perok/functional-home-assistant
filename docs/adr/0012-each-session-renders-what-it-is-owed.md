@@ -49,7 +49,7 @@ CHURN — every frame moves one, so the generation for the previous version is d
 moment it is replaced.
 
 Not every entity the node READS, though: only those whose movement can change its BYTES
-(`LayoutNode.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
+(`Ready.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
 the patch form entirely (ADR 0017), so its value moving cannot move these bytes, and keying
 on it would throw away a generation whose re-render is identical. The reverse index still
 wants the wider list — a signal has to make its node a candidate or no frame is ever computed

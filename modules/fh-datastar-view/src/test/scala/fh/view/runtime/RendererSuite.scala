@@ -965,12 +965,12 @@ class RendererSuite extends munit.FunSuite {
     val styled =
       base.copy(cards = Map("a" -> CardDef("<i></i>", css = ".a{color:green}")))
     assertNotEquals(
-      Renderer.styleFingerprint(base),
-      Renderer.styleFingerprint(styled)
+      Renderer.create(base).styleHash,
+      Renderer.create(styled).styleHash
     )
     assertNotEquals(
-      Renderer.styleFingerprint(base),
-      Renderer.styleFingerprint(base.copy(css = ":root{--fh-accent:teal}"))
+      Renderer.create(base).styleHash,
+      Renderer.create(base.copy(css = ":root{--fh-accent:teal}")).styleHash
     )
   }
 

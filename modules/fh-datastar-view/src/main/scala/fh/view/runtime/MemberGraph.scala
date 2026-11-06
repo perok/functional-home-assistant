@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId}
+import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, Ready, SetId}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -9,8 +9,8 @@ import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId}
 private[runtime] object Member {
 
   /** The whole subtree's entities, the set membership index's edges. */
-  def entitiesOf(node: LayoutNode): List[String] = node match {
-    case c: LayoutNode.Component =>
+  def entitiesOf(node: Ready.Node): List[String] = node match {
+    case c: Ready.Component =>
       (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
     // Not into a nested set, whose members patch themselves; descending would
     // wake the whole tile on any bulb inside it.
@@ -24,15 +24,15 @@ private[runtime] object Member {
     */
   def subtree(
       id: NodeId,
-      node: LayoutNode.Component
-  ): List[(NodeId, LayoutNode.Component, Option[NodeId])] = {
+      node: Ready.Component
+  ): List[(NodeId, Ready.Component, Option[NodeId])] = {
     def walk(
-        n: LayoutNode.Component,
+        n: Ready.Component,
         at: NodeId,
         parent: Option[NodeId]
-    ): List[(NodeId, LayoutNode.Component, Option[NodeId])] =
+    ): List[(NodeId, Ready.Component, Option[NodeId])] =
       (at, n, parent) :: LayoutNode.steps(n.regions).flatMap {
-        case (step, c: LayoutNode.Component) =>
+        case (step, c: Ready.Component) =>
           walk(c, LayoutNode.childId("", at, step, c), Some(at))
         case _ => Nil
       }
@@ -46,13 +46,13 @@ private[runtime] case class Member(
     root: String,
     key: MemberKey,
     id: MemberId,
-    node: LayoutNode.Component,
+    node: Ready.Component,
     // Part of a nested set's id, so two clauses holding sets cannot share one.
     clause: Int
 ) {
 
   /** Its own node and every component below it, by id. */
-  lazy val nodes: Map[NodeId, LayoutNode.Component] =
+  lazy val nodes: Map[NodeId, Ready.Component] =
     Member.subtree(id, node).map((at, n, _) => at -> n).toMap
 
   /** What its nodes read, each under its own id, in id order. */
@@ -169,13 +169,12 @@ private[runtime] final case class Synced(
   *   static node id -> its layout tree (`""` for the main page).
   */
 private[runtime] final class MemberGraph(
-    setNodes: Map[NodeId, LayoutNode.SetNode],
+    setNodes: Map[NodeId, Ready.SetNode],
     rootOfIndexed: Map[NodeId, String],
-    scope: Evaluator.Scope,
     decided: Decided = Decided()
 ) {
 
-  private case class MemberSource(s: LayoutNode.SetNode) {
+  private case class MemberSource(s: Ready.SetNode) {
 
     private val position: Map[String, Int] = s.candidates.zipWithIndex.toMap
 
@@ -202,9 +201,7 @@ private[runtime] final class MemberGraph(
     def ordinal(entityId: String): (Int, String) =
       (position.getOrElse(entityId, Int.MaxValue), entityId)
 
-    def stable: Boolean = s.orderBy.isEmpty && s.limit.isEmpty
-
-    private val keys = Evaluator.Keys(s.orderBy, scope)
+    def stable: Boolean = s.order.isEmpty && s.limit.isEmpty
 
     /** Over present members only: a hidden member's key moving emits nothing. A
       * cut member is absent, like one whose clauses did not match.
@@ -213,9 +210,9 @@ private[runtime] final class MemberGraph(
         members: Vector[Member],
         states: Map[String, EntityState]
     ): Vector[Member] = {
-      val ordered =
-        if (s.orderBy.isEmpty) members
-        else
+      val ordered = s.order match
+        case None       => members
+        case Some(keys) =>
           // Stable over candidate order: the tiebreak that stops ties
           // reshuffling on every tick.
           members
@@ -253,9 +250,9 @@ private[runtime] final class MemberGraph(
         : Map[String, List[(Option[Evaluator.Run], Option[Member])]] =
       src.s.members.map { case (e, m) =>
         e -> m.clauses.zipWithIndex.map { case (c, i) =>
-          c.when.map(Evaluator.runOf(_, Nil, scope)) -> (c.node match {
-            case comp: LayoutNode.Component => Some(member(this, e, comp, i))
-            case _                          => None
+          c.when.map(_.run) -> (c.node match {
+            case comp: Ready.Component => Some(member(this, e, comp, i))
+            case _                     => None
           })
         }
       }
@@ -305,7 +302,7 @@ private[runtime] final class MemberGraph(
   private def member(
       s: Source,
       entityId: String,
-      node: LayoutNode.Component,
+      node: Ready.Component,
       clause: Int
   ): Member = {
     val key = MemberKey.Entity(entityId)
@@ -319,7 +316,7 @@ private[runtime] final class MemberGraph(
       member: MemberId,
       clauseIdx: Int,
       path: List[LayoutNode.Step],
-      set: LayoutNode.SetNode
+      set: LayoutNode.SetNode | Ready.SetNode
   ): SetId =
     SetId.of(LayoutNode.innerSetId(member, clauseIdx, path), set)
 
@@ -348,15 +345,15 @@ private[runtime] final class MemberGraph(
     def setsIn(
         member: MemberId,
         clauseIdx: Int,
-        node: LayoutNode,
+        node: Ready.Node,
         path: List[LayoutNode.Step],
         root: String
     ): List[Source] = node match {
-      case c: LayoutNode.Component =>
+      case c: Ready.Component =>
         LayoutNode.steps(c.regions).flatMap { case (step, child) =>
           setsIn(member, clauseIdx, child, path :+ step, root)
         }
-      case inner: LayoutNode.SetNode =>
+      case inner: Ready.SetNode =>
         val id = innerSetId(member, clauseIdx, path, inner)
         val found = Source(
           id,
@@ -418,7 +415,7 @@ private[runtime] final class MemberGraph(
   def nodeAt(
       id: NodeId,
       states: Map[String, EntityState]
-  ): Option[(Member, LayoutNode.Component)] =
+  ): Option[(Member, Ready.Component)] =
     memberOwning(id)
       .flatMap(memberAt(_, states))
       .flatMap(m => m.nodes.get(id).map(m -> _))
@@ -427,7 +424,7 @@ private[runtime] final class MemberGraph(
   def memberIdsBelow: Iterable[NodeId] = ownerBelow.keys
 
   /** What `id` can be in each clause, presence aside: a node's static reads. */
-  def clauseNodesAt(id: NodeId): List[LayoutNode.Component] =
+  def clauseNodesAt(id: NodeId): List[Ready.Component] =
     memberOwning(id).flatMap(memberSlot.get).toList.flatMap { (s, e) =>
       s.clauseMembers(e).flatMap(_.nodes.get(id))
     }
@@ -461,7 +458,7 @@ private[runtime] final class MemberGraph(
   def memberIds: Iterable[NodeId] = memberSlot.keys
 
   /** What a member may render, one node per clause. */
-  def clauseNodesOf(member: NodeId): List[LayoutNode] =
+  def clauseNodesOf(member: NodeId): List[Ready.Node] =
     memberSlot.get(member).toList.flatMap { case (s, e) =>
       s.src.s.members.get(e).toList.flatMap(_.clauses).map(_.node)
     }

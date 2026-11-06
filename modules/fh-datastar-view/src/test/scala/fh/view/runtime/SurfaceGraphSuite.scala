@@ -9,6 +9,7 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
+  Ready,
   Surface,
   ValueExpr
 }
@@ -60,15 +61,15 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def graphOf(
       surfaces: Map[String, Surface],
       roots: Map[String, String] = Map.empty,
-      members: MemberGraph =
-        new MemberGraph(Map.empty, Map.empty, Evaluator.Scope.onDemand(""))
+      members: MemberGraph = new MemberGraph(Map.empty, Map.empty)
   ): SurfaceGraph =
     new SurfaceGraph(
-      surfaces,
+      surfaces.view.mapValues(compile.surface).toMap,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
-      members,
-      Evaluator.Scope.onDemand("")
+      members
     )
+
+  private val compile = Ready.Compile(Evaluator.Scope.onDemand(""))
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
@@ -371,11 +372,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val outer: NodeId = "s_det__c"
     val members =
-      new MemberGraph(
-        Map(outer -> setNode),
-        Map(outer -> "det"),
-        Evaluator.Scope.onDemand("")
-      )
+      new MemberGraph(Map(outer -> compile.set(setNode)), Map(outer -> "det"))
     val g = graphOf(
       Map("det" -> user("c", "t0", 0)),
       roots = Map("c" -> ""),
@@ -413,11 +410,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
     val outer: NodeId = "s_det__c"
-    val members = new MemberGraph(
-      Map(outer -> setNode),
-      Map(outer -> "det"),
-      Evaluator.Scope.onDemand("")
-    )
+    val members =
+      new MemberGraph(Map(outer -> compile.set(setNode)), Map(outer -> "det"))
     val g = graphOf(Map("det" -> user("c", "t0", 0)), members = members)
     val setId = members.setContainer(outer).get
     val off = snapshot(st("light.a", "off"))
