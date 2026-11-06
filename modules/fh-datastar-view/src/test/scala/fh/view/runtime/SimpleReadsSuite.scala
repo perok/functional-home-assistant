@@ -264,7 +264,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       ValueExpr(
         bypassing(Part.State),
         List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
-      ).conditionError.contains(ValueExpr.MisplacedBypass)
+      ).bypassError(ownMay = false).contains(ValueExpr.MisplacedBypass)
     )
   }
 

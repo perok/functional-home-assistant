@@ -962,14 +962,34 @@ class BuildPhaseSuite extends munit.FunSuite {
       op = Op.Gt,
       value = Json.fromInt(0)
     )
-    for (c <- List(named, count, Conds.and(Nil), Conds.or(List(count))))
+    // CEL decides as a condition does: a step on a read, or a source over its
+    // own inputs.
+    val celStep =
+      ValueExpr(Value.Entity(Some("light.a")), List(Step.Cel("value == 'on'")))
+    val celSource = ValueExpr(
+      Value.Cel(
+        "x == 'on'",
+        Map("x" -> ValueExpr(Value.Entity(Some("light.a"))))
+      )
+    )
+    for (
+      c <- List(
+        named,
+        count,
+        Conds.and(Nil),
+        Conds.or(List(count)),
+        celStep,
+        celSource,
+        Conds.and(List(celStep, named))
+      )
+    )
       assertEquals(dash(c).validate(), Nil, clue = c)
   }
 
   test("validate refuses a clause or a state surface that does not decide") {
     // A wire Pkl never writes, so only a hand-built one reaches this.
     val text = ValueExpr(Value.Entity(Some("light.a")))
-    val viaCel = ValueExpr(Value.Cel("true"))
+    val viaCel = ValueExpr(Value.Cel("'on'"))
     val ok = Map(
       "ok" -> CardDef(
         "<i>{{{branch}}}</i>",
@@ -993,6 +1013,25 @@ class BuildPhaseSuite extends munit.FunSuite {
         .exists(_.contains("a clause of 'light.a' does not decide")),
       clue = set.validate()
     )
+    def clause(when: ValueExpr) = set.copy(card = set.card match
+      case s: LayoutNode.SetNode =>
+        s.copy(members =
+          s.members.view
+            .mapValues(m =>
+              m.copy(clauses = m.clauses.map(_.copy(when = Some(when))))
+            )
+            .toMap
+        )
+      case other => other)
+    val celClause =
+      ValueExpr(Value.Entity(Some("light.a")), List(Step.Cel("value == 'on'")))
+    assertEquals(clause(celClause).validate(), Nil)
+    assert(
+      clause(viaCel)
+        .validate()
+        .exists(_.contains("a clause of 'light.a' does not decide")),
+      clue = clause(viaCel).validate()
+    )
     val surface = Dashboard(
       cards = ok,
       card = LayoutNode.Component("ok"),
@@ -1009,7 +1048,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(
       surface
         .validate()
-        .exists(_.contains("a condition is read without CEL")),
+        .exists(_.contains("a condition is a bool, not text")),
       clue = surface.validate()
     )
   }

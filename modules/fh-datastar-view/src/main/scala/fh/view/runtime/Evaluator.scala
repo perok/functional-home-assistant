@@ -146,7 +146,7 @@ private[view] object Evaluator {
       activation(k.env.map((n, _) => n -> all(n)))
     }
 
-  /** Read per member or per item, with no named inputs. */
+  /** Read per member, with no named inputs. */
   private def inner(e: ValueExpr, scope: Scope): Built[Compiled] =
     compile(e, scope)
 
@@ -168,9 +168,9 @@ private[view] object Evaluator {
           ) =>
         present(p, scope).map(is => (countIs(p.candidates, is, op, n), r))
       case (Value.List(_, items), Step.AllOf :: r) =>
-        runs(items, scope).map(rs => (junction(rs, decides = false), r))
+        runs(items, scope, named).map(rs => (junction(rs, decides = false), r))
       case (Value.List(_, items), Step.AnyOf :: r) =>
-        runs(items, scope).map(rs => (junction(rs, decides = true), r))
+        runs(items, scope, named).map(rs => (junction(rs, decides = true), r))
       case (source, steps) =>
         read(source, programs, scope, named).map(_ -> steps)
     start.flatMap((run, rest) =>
@@ -178,8 +178,13 @@ private[view] object Evaluator {
     )
   }
 
-  private def runs(items: List[ValueExpr], scope: Scope): Built[List[Run]] =
-    items.traverse(inner(_, scope).map(_.run))
+  /** A list's items, in their expression's scope, as `validate` types them. */
+  private def runs(
+      items: List[ValueExpr],
+      scope: Scope,
+      named: Map[String, Named]
+  ): Built[List[Run]] =
+    items.traverse(compile(_, scope, named).map(_.run))
 
   /** For readings `validate` keeps from a fetch: a condition, an order key. */
   val noFetch: FetchTemplate => Object = _ => ""
@@ -288,7 +293,7 @@ private[view] object Evaluator {
         (_, states, _) => p.candidates.filter(is(_, states))
       )
     case Value.List(_, items) =>
-      runs(items, scope).map(rs =>
+      runs(items, scope, named).map(rs =>
         (subject, states, fetched) => rs.map(_(subject, states, fetched))
       )
     case Value.Cel(_, own) =>

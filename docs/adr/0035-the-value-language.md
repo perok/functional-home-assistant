@@ -104,7 +104,7 @@ them. `bypassUnavailable` is the one exception, and it makes sense in one place:
 own source, reading an entity's state or the whole entity**. There a no-value state shows the
 word and no step runs (`CASE WHEN state IN (…) THEN state ELSE <the reading> END`). It defaults
 to `false`, how a read behaves everywhere else; the wire omits the default; `validate` refuses it
-anywhere else (`ValueExpr.MisplacedBypass`) — an operand, a guard, a list item, a condition, an
+anywhere else (`ValueExpr.bypassError`) — an operand, a guard, a list item, a condition, an
 order key, a CEL input, an attribute read, a bool slot. The library opts in on the builders that
 show a state as text (`valueSlot`, the secondary line, the slider's readout).
 
@@ -136,8 +136,11 @@ unavailable switch.
   whose work lives in shared helpers, so a faster dispatch only shortens the gaps between them,
   2–4% of a render as profiled. The measurement, and what would reopen it, is in
   `docs/experiments.md` ("A faster dispatch for the value-language evaluator").
-- **The tier rule is about cost, not the evaluator:** a clause, guard, state surface and order
-  term refuse CEL (`conditionError`, ADR 0028), since they run per member per change.
+- **CEL is allowed wherever a value is read:** a clause, a guard, a state surface, an order term
+  and a list's item compile it as a slot does, and a bool is the one rule where a bool is
+  required (`ValueExpr.boolError`). The library's builders still write simple steps (ADR 0028);
+  CEL in a guard is the author's choice, at about three times the allocation
+  (`RenderBench.conditionCel` against `condition`). A CEL that fails reads as not holding.
 
 ## Open questions: what the type should tell `validate`
 

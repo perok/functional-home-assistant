@@ -93,11 +93,14 @@ final case class BoundSlot(
     case Value.Fetch(f) => Some(f)
     case _              => None
 
-  /** The entity it reads, or a condition is decided over. */
+  /** The entity it reads, or a bool read without CEL is decided over: what its
+    * signal is named by.
+    */
   def entityId: Option[String] = expr.source match
-    case Value.Entity(of, _, _, _) => of
-    case _ if expr.isCondition     => subject
-    case _                         => None
+    case Value.Entity(of, _, _, _)                  => of
+    case _: Value.Cel                               => None
+    case _ if typed.exists(_.out == ValueType.Bool) => subject
+    case _                                          => None
 
   /** A fetch's answer is never pushed, and a CEL source with no live input is a
     * constant, held like a `once` read.

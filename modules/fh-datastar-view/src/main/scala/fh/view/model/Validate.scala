@@ -152,13 +152,11 @@ private[model] object Validate:
         val ownBypass = src.expr.source match
           case Value.Entity(_, Part.State | Part.Whole, _, _) => !src.isBool
           case _                                              => false
-        val bypassErrors = Option
-          .when(
-            src.expr.bypassesInside ||
-              (src.expr.bypassesSource && !ownBypass) ||
-              src.values.values.exists(_.bypassesAnywhere)
-          )(s"$nodeId: slot '$name': ${ValueExpr.MisplacedBypass}")
-          .toList
+        val bypassErrors =
+          (src.expr.bypassError(ownBypass) ++
+            src.values.values.flatMap(_.bypassError(ownMay = false))).headOption
+            .map(e => s"$nodeId: slot '$name': $e")
+            .toList
         stepErrors ++ bypassErrors ++ signalErrors(
           nodeId,
           cardName,
@@ -301,10 +299,12 @@ private[model] object Validate:
         else
           // A value is shared by content across nodes, so it has no subject.
           val v = c.values(name)
-          v.unnamedComparison(s"$nodeId: expression value '$name'")
-            .fold(inputErrors(nodeId, s"expression value '$name'", v, Nil))(
-              List(_)
-            )
+          v.unnamedComparison(
+            s"$nodeId: expression value '$name'",
+            v.typed(Nil)
+          ).fold(inputErrors(nodeId, s"expression value '$name'", v, Nil))(
+            List(_)
+          )
       } ++ c.templateSlots.toList.sortBy(_._1).flatMap { (slot, src) =>
         // Each CEL's own, read by that CEL; the node's are in scope beside.
         val env = ValueExpr.env(c.values)
@@ -353,7 +353,7 @@ private[model] object Validate:
             "names the entity the card's other slots read, which is a " +
             "build-time fact"
       } ++ labelled(c.bound).flatMap((_, n, s) =>
-        s.expr.unnamedComparison(s"$nodeId: slot '$n'")
+        s.expr.unnamedComparison(s"$nodeId: slot '$n'", s.typed)
       )
 
     def valueWhileErrors(
@@ -374,7 +374,10 @@ private[model] object Validate:
                   "valueWhile — it would keep its first answer forever"
               )
               .toList ++
-            w.expr.unnamedComparison(s"$nodeId: slot '$name''s valueWhile")
+            w.expr.unnamedComparison(
+              s"$nodeId: slot '$name''s valueWhile",
+              w.typed
+            )
         }
       }
 
@@ -674,12 +677,15 @@ private[model] object Validate:
           val setId = nodeId
           setCellErrors(setId, s.cell) ++
             s.orderBy
-              .flatMap(_.readError)
+              .flatMap(t =>
+                t.by.typed(Nil).left.toOption.map(_.message) orElse
+                  t.by.bypassError(ownMay = false)
+              )
               .map(e => s"$setId: an order term cannot be read: $e") ++
             s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
               m.clauses
                 .flatMap(_.when)
-                .flatMap(_.conditionError)
+                .flatMap(conditionError)
                 .map(e =>
                   s"$setId: a clause of '$candidate' does not decide: $e"
                 )
@@ -1032,8 +1038,8 @@ private[model] object Validate:
     val unboundConditions: List[String] =
       surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
         s.activation match
-          case Activation.State(Some(c)) if c.conditionError.nonEmpty =>
-            c.conditionError.toList.map(e =>
+          case Activation.State(Some(c)) if conditionError(c).nonEmpty =>
+            conditionError(c).toList.map(e =>
               s"surface '$sid' is shown by a condition that does not decide: $e"
             )
           case Activation.State(Some(c)) if c.readsMissingSubject =>
@@ -1091,6 +1097,11 @@ private[model] object Validate:
           scopeOf(surface)
         ).map(err => s"surface '$sid': $err")
       }
+
+  /** A clause's or a state surface's condition: a bool that bypasses nothing.
+    */
+  private def conditionError(e: ValueExpr): Option[String] =
+    e.boolError orElse e.bypassError(ownMay = false)
 
   /** A variable-selected group needs its variable in scope at the host, and a
     * declared value that is a member index: the declared value is what bakes

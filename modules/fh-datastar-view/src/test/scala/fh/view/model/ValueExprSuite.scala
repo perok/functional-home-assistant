@@ -64,7 +64,7 @@ class ValueExprSuite extends munit.FunSuite {
     )
   }
 
-  test("a list's items are its item type, none included, read without CEL") {
+  test("a list's items are its item type, none included, CEL among them") {
     assertEquals(
       typeOf(list(Step.AllOf, isOn("a.a"), ValueExpr(state("a.b")))),
       Left("a list's items are bool, not text")
@@ -74,7 +74,11 @@ class ValueExprSuite extends munit.FunSuite {
     assertEquals(typeOf(list(Step.Count)), Right(ValueType.Int))
     assertEquals(
       typeOf(list(Step.AnyOf, ValueExpr(Value.Cel("true")))),
-      Left("a list's items are read without CEL")
+      Right(ValueType.Bool)
+    )
+    assertEquals(
+      typeOf(list(Step.AnyOf, ValueExpr(Value.Cel("'on'")))),
+      Left("a list's items are bool, not text")
     )
   }
 
@@ -124,7 +128,7 @@ class ValueExprSuite extends munit.FunSuite {
     )
   }
 
-  test("a set's guards and order terms must decide: a bool, without CEL") {
+  test("a set's guards are bools and its order terms type, CEL or not") {
     def present(guard: ValueExpr, steps: Step*) = ValueExpr(
       Value.Present(List("a.a"), Map("a.a" -> guard)),
       steps.toList
@@ -139,12 +143,24 @@ class ValueExprSuite extends munit.FunSuite {
     )
     assertEquals(
       typeOf(present(ValueExpr(Value.Cel("true")), Step.Count)),
-      Left("the guard on 'a.a': a condition is read without CEL")
+      Right(ValueType.Int)
+    )
+    assertEquals(
+      typeOf(present(ValueExpr(Value.Cel("'on'")), Step.Count)),
+      Left("the guard on 'a.a': a condition is a bool, not text")
     )
     val byCel = SortTerm(ValueExpr(Value.Cel("true")))
     assertEquals(
       typeOf(present(isOn("a.a"), Step.First(List(byCel)))),
-      Left("an order term is read without CEL")
+      Right(ValueType.Text)
+    )
+    assert(
+      typeOf(
+        present(
+          isOn("a.a"),
+          Step.First(List(SortTerm(ValueExpr(Value.Cel("x")))))
+        )
+      ).isLeft
     )
   }
 

@@ -73,23 +73,30 @@ final case class ValueExpr(
       case ValueExpr.Inner.PerMember(_) | ValueExpr.Inner.Input(_) => false
     }
 
-  /** Why `what`, a condition, cannot be decided: it compares an entity it does
-    * not name, where nothing names one for it.
+  /** Why `what`, a bool as `typed` answers it, cannot be decided: it compares
+    * an entity it does not name, where nothing names one for it.
     */
-  def unnamedComparison(what: String): Option[String] =
-    Option.when(isCondition && readsMissingSubject)(
+  def unnamedComparison(
+      what: String,
+      typed: Either[ValueExpr.Mistyped, ValueExpr.Typed]
+  ): Option[String] =
+    Option.when(readsMissingSubject && typed.exists(_.out == ValueType.Bool))(
       s"$what compares an entity it does not name — name it with q.entity(e)"
     )
 
-  /** Whether its own source asks for the bypass. */
-  def bypassesSource: Boolean = source match
+  private def bypassesSource: Boolean = source match
     case e: Value.Entity => e.bypassUnavailable
     case _               => false
 
-  /** Whether a read other than its own source asks for the bypass, which only a
-    * text slot's own read of a state or a whole entity may (`validate`).
+  /** Why it asks for the bypass where it may not: only a text slot's own read
+    * of a state or a whole entity takes it (`ownMay`), and no other read.
     */
-  def bypassesInside: Boolean = parts.exists {
+  def bypassError(ownMay: Boolean): Option[String] =
+    Option.when(bypassesInside || (bypassesSource && !ownMay))(
+      ValueExpr.MisplacedBypass
+    )
+
+  private def bypassesInside: Boolean = parts.exists {
     case ValueExpr.Inner.Operand(e: Value.Entity)  => e.bypassUnavailable
     case ValueExpr.Inner.Operand(_: Value.Literal) => false
     case ValueExpr.Inner.Item(e)                   => e.bypassesAnywhere
@@ -97,7 +104,7 @@ final case class ValueExpr(
     case ValueExpr.Inner.Input(e)                  => e.bypassesAnywhere
   }
 
-  def bypassesAnywhere: Boolean = bypassesSource || bypassesInside
+  private def bypassesAnywhere: Boolean = bypassesSource || bypassesInside
 
   /** Injective, for signal names and the once-cache. The source's own entity is
     * not in it: the signal path names that entity.
@@ -132,30 +139,15 @@ final case class ValueExpr(
       val read = cels.flatMap((src, own) => Cel.identifiers(src) -- own.keySet)
       values.filter((n, _) => read.contains(n))
 
-  /** A condition: no CEL, and a step that decides (`AllOf`, `AnyOf`, `Not`,
-    * `Compare`, `First`). What a clause, a guard, a state surface and an order
-    * term are held to, and whose missing subject `validate` names.
+  /** Why it cannot decide where a bool is required, read with no named values:
+    * a clause, a guard, a state surface.
     */
-  lazy val isCondition: Boolean =
-    celSources.isEmpty && steps.exists {
-      case Step.AllOf | Step.AnyOf | Step.Not | _: Step.Compare |
-          _: Step.First =>
-        true
-      case _ => false
-    }
-
-  /** Why it cannot decide where only a condition may: a clause, a state
-    * surface, a guard, an order term.
-    */
-  def conditionError: Option[String] =
+  def boolError: Option[String] =
     typed(Nil) match
-      case Left(m)                     => Some(m.message)
-      case Right(t) if t.keys.nonEmpty =>
-        Some("a condition is read without CEL")
+      case Left(m)                             => Some(m.message)
       case Right(t) if t.out != ValueType.Bool =>
         Some(s"a condition is a bool, not ${t.out.name}")
-      case Right(_) if bypassesAnywhere => Some(ValueExpr.MisplacedBypass)
-      case Right(_)                     => None
+      case Right(_) => None
 
   /** Its type checked in order: each CEL compiled with `value` declared as the
     * type before it, beside the named inputs `env` types, and what the last
@@ -205,13 +197,14 @@ final case class ValueExpr(
         when.toList
           .sortBy(_._1)
           .collectFirstSome((id, g) =>
-            g.conditionError.map(e => s"the guard on '$id': $e")
+            g.boolError.map(e => s"the guard on '$id': $e")
           ) match
           case Some(e) => Left(ValueExpr.Mistyped(e))
           case None    => plain(ValueType.List(ValueType.Text))
     val orderErrors = steps.collectFirstSome {
-      case Step.First(orderBy) => orderBy.collectFirstSome(_.readError)
-      case _                   => None
+      case Step.First(orderBy) =>
+        orderBy.collectFirstSome(_.by.typed(Nil).left.toOption.map(_.message))
+      case _ => None
     }
     val checked = orderErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
     steps.foldLeft(checked)((acc, step) =>
@@ -278,25 +271,24 @@ object ValueExpr:
   /** Why it does not type; `cel` is the CEL source at fault, if one is. */
   final case class Mistyped(message: String, cel: Option[String] = None)
 
-  /** Its items decide without the engine, as a condition does, so a CEL item is
-    * refused rather than compiled. Empty, it is still a list of `itemType`.
+  /** Each item typed in its expression's scope. Empty, it is still a list of
+    * `itemType`.
     */
   private def listOf(
       itemType: ValueType,
       items: List[ValueExpr],
       env: List[(String, ValueType)]
   ): Either[Mistyped, Typed] =
-    items.traverse(_.typed(env)).flatMap { ts =>
-      if (ts.exists(_.keys.nonEmpty))
-        Left(Mistyped("a list's items are read without CEL"))
-      else
-        ts.map(_.out).find(_ != itemType) match
+    items
+      .traverse(_.typed(env))
+      .flatMap(
+        _.map(_.out).find(_ != itemType) match
           case Some(t) =>
             Left(
               Mistyped(s"a list's items are ${itemType.name}, not ${t.name}")
             )
           case None => Right(Typed(Nil, ValueType.List(itemType)))
-    }
+      )
 
   /** A node's values as names a CEL may read, each its own type; one that does
     * not type is left out, and `validate` says why.
@@ -819,18 +811,6 @@ case class SortTerm(
 
   /** What it names besides the member it is read for. */
   def entities: List[String] = by.entities
-
-  /** Read without the engine, as a condition is. */
-  def readError: Option[String] =
-    if (by.isCondition) by.conditionError
-    else
-      by.typed(Nil) match
-        case Left(m)                     => Some(m.message)
-        case Right(t) if t.keys.nonEmpty =>
-          Some("an order term is read without CEL")
-        case Right(_) if by.bypassesAnywhere =>
-          Some(ValueExpr.MisplacedBypass)
-        case Right(_) => None
 
 object SortTerm:
   enum Dir(val wire: String) derives CanEqual:
