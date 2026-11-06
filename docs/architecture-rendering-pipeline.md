@@ -996,8 +996,8 @@ spelling (a literal, a literal through the theme's swap, or a `once` read throug
 cache, which is every click transform), and anything else `Planned.Live`, which runs that closure.
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
-names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates and the
+live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CELs
+read (`BoundSlot`), each CEL keeping its own inputs beside them, so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is

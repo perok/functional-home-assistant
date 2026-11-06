@@ -167,7 +167,7 @@ private[model] object Validate:
         ) ++
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, cardName, name, src, scope) ++
-          src.values.values.toList
+          src.inputs
             .map(_.source)
             .collect { case Value.Fetch(f) =>
               askErrors(nodeId, name, f, scope)
@@ -247,14 +247,34 @@ private[model] object Validate:
           rawHole.toList
       }
 
-    // Only a hand-written wire gets here: Pkl writes only these.
-    def shapeError(nodeId: String, what: String, v: ValueExpr): List[String] =
-      Option
-        .when(v.inputType.isEmpty)(
-          s"$nodeId: $what is not a literal, a count, the ids present, a " +
-            "condition, a fetch or an entity it names"
-        )
+    // A value is read with no subject, so an unnamed read reads nothing; one
+    // that fetches is read as the answer, which its steps would never see.
+    def inputErrors(
+        nodeId: String,
+        what: String,
+        v: ValueExpr,
+        env: List[(String, ValueType)]
+    ): List[String] =
+      def unnamed(e: ValueExpr): Boolean =
+        e.readsMissingSubject || e.cels.exists(_._2.values.exists(unnamed))
+      v.typed(env)
+        .left
+        .toOption
         .toList
+        .map(m => s"$nodeId: $what ${m.message}") ++
+        Option
+          .when(unnamed(v))(
+            s"$nodeId: $what reads an entity it does not name — an " +
+              "expression value has no subject"
+          )
+          .toList ++
+        Option
+          .when(v.steps.nonEmpty && (v.source match
+            case _: Value.Fetch => true
+            case _              => false))(
+            s"$nodeId: $what fetches, so it is read as the answer, with no steps"
+          )
+          .toList
 
     /** At the declaration, so an unreferenced variable is still wrong loudly.
       */
@@ -282,40 +302,42 @@ private[model] object Validate:
           // A value is shared by content across nodes, so it has no subject.
           val v = c.values(name)
           v.unnamedComparison(s"$nodeId: expression value '$name'")
-            .fold(shapeError(nodeId, s"expression value '$name'", v))(List(_))
+            .fold(inputErrors(nodeId, s"expression value '$name'", v, Nil))(
+              List(_)
+            )
       } ++ c.templateSlots.toList.sortBy(_._1).flatMap { (slot, src) =>
-        val read = c.bound.get(slot).fold(Set.empty[String])(_.values.keySet)
-        src.values.keys.toList.sorted.flatMap { name =>
-          if (
-            !Dashboard.ExpressionValueName.matches(name) ||
-            Cel.fixedNames.contains(name)
-          )
-            List(
-              s"$nodeId: slot '$slot' has an expression value '$name' its " +
-                "expression cannot read — letters, digits and '_', and not " +
-                s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
+        // Each CEL's own, read by that CEL; the node's are in scope beside.
+        val env = ValueExpr.env(c.values)
+        src.expr.cels.flatMap { (cel, own) =>
+          val read = Cel.identifiers(cel)
+          own.keys.toList.sorted.flatMap { name =>
+            if (
+              !Dashboard.ExpressionValueName.matches(name) ||
+              Cel.fixedNames.contains(name)
             )
-          else if (c.values.contains(name))
-            List(
-              s"$nodeId: slot '$slot' has an expression value '$name', and " +
-                "so does its node — rename one"
-            )
-          else if (!read.contains(name))
-            List(
-              s"$nodeId: slot '$slot' has an expression value '$name' its " +
-                "expression does not read"
-            )
-          else
-            shapeError(
-              nodeId,
-              s"slot '$slot' has an expression value '$name' that",
-              src.values(name)
-            )
+              List(
+                s"$nodeId: slot '$slot' has an expression value '$name' its " +
+                  "expression cannot read — letters, digits and '_', and not " +
+                  s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
+              )
+            else if (!read.contains(name))
+              List(
+                s"$nodeId: slot '$slot' has an expression value '$name' its " +
+                  "expression does not read"
+              )
+            else
+              inputErrors(
+                nodeId,
+                s"slot '$slot''s expression value '$name'",
+                own(name),
+                env
+              )
+          }
         }
       } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
-            if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
+            if src.reads == Reads.Once && src.inputs.exists(_.isLive) =>
           s"$nodeId: slot '$slot' reads a live count, condition or fetch but is " +
             s"read '${Reads.Once.wire}' — it would show the first count forever; " +
             s"read it '${Reads.Live.wire}'"

@@ -34,11 +34,20 @@ private[view] object Evaluator {
         FetchTemplate => Object
     ) => Any
 
-  /** CEL's named inputs as the slot resolves them. */
+  /** A CEL's named inputs, as it reads them. */
   type Inputs =
     (Map[String, EntityState], FetchTemplate => Object) => Map[String, Object]
 
   private val noInputs: Inputs = (_, _) => Map.empty
+
+  /** A named input made ready, read as CEL takes it: a fetch its answer, a bool
+    * `true` only for `true`, anything else its value, `null` CEL's `null`.
+    * Subject-free, as `validate` holds them.
+    */
+  final case class Named(
+      read: (Map[String, EntityState], FetchTemplate => Object) => Object,
+      out: ValueType
+  )
 
   /** A compile's answer: an expression that does not compile says why. */
   type Built[A] = Either[ValueExpr.Mistyped, A]
@@ -60,39 +69,93 @@ private[view] object Evaluator {
   /** An expression made ready to run, and the type it answers. */
   final case class Compiled(run: Run, out: ValueType)
 
-  /** Typed against `env`, the named inputs its CEL reads, and compiled: every
-    * expression inside it the same way, through the same [[Scope]].
+  /** Typed with `named` in scope, and compiled: every expression inside it the
+    * same way, through the same [[Scope]].
     */
   def compile(
       e: ValueExpr,
-      env: List[(String, ValueType)],
       scope: Scope,
-      inputs: Inputs = noInputs
+      named: Map[String, Named] = Map.empty
   ): Built[Compiled] =
-    e.typed(env).flatMap(compiled(e, _, scope, inputs))
+    e.typed(env(named)).flatMap(compiled(e, _, scope, named))
 
   /** From a typing already done, `validate`'s, so nothing is typed twice. */
   def compiled(
       e: ValueExpr,
       typed: ValueExpr.Typed,
       scope: Scope,
-      inputs: Inputs = noInputs
+      named: Map[String, Named] = Map.empty
   ): Built[Compiled] =
     typed.keys
-      .traverse(scope.program)
-      .flatMap(ps => build(e, ps.iterator, scope, inputs))
+      .traverse(k => scope.program(k).map(k -> _))
+      .flatMap(ps => build(e, ps.iterator, scope, named))
       .map(Compiled(_, typed.out))
+
+  /** The types `named` declares, as [[ValueExpr.typed]] takes them. */
+  def env(named: Map[String, Named]): List[(String, ValueType)] =
+    named.toList.map((n, v) => n -> v.out).sortBy(_._1)
+
+  /** Each value made a named input; `outer` is in scope of a CEL inside one, as
+    * a node's values are of a CEL's own.
+    */
+  def named(
+      values: Map[String, ValueExpr],
+      scope: Scope,
+      outer: Map[String, Named] = Map.empty
+  ): Built[Map[String, Named]] =
+    values.toList
+      .traverse((n, e) => input(e, scope, outer).map(n -> _))
+      .map(_.toMap)
+
+  private def input(
+      e: ValueExpr,
+      scope: Scope,
+      outer: Map[String, Named]
+  ): Built[Named] = e.source match
+    case Value.Fetch(f) if e.steps.isEmpty =>
+      Right(Named((_, fetched) => fetched(f), ValueType.Series))
+    case _ =>
+      compile(e, scope, outer).map { c =>
+        val run = c.run
+        if (c.out == ValueType.Bool)
+          Named(
+            (states, fetched) =>
+              java.lang.Boolean.valueOf(holds(run(null, states, fetched))),
+            c.out
+          )
+        else
+          Named((states, fetched) => Cel.arg(run(null, states, fetched)), c.out)
+      }
+
+  /** What one CEL reads by name: those its key declares. */
+  def activation(names: List[(String, Named)]): Inputs =
+    if (names.isEmpty) noInputs
+    else
+      (states, fetched) =>
+        names.map((n, v) => n -> v.read(states, fetched)).toMap
+
+  /** Its own inputs, `named` beside them, its own winning. */
+  private def celInputs(
+      k: Cel.Key,
+      own: Map[String, ValueExpr],
+      scope: Scope,
+      named: Map[String, Named]
+  ): Built[Inputs] =
+    Evaluator.named(own, scope, named).map { mine =>
+      val all = named ++ mine
+      activation(k.env.map((n, _) => n -> all(n)))
+    }
 
   /** Read per member or per item, with no named inputs. */
   private def inner(e: ValueExpr, scope: Scope): Built[Compiled] =
-    compile(e, Nil, scope)
+    compile(e, scope)
 
   /** `programs`: each CEL's, in the order [[ValueExpr.typed]] keys them. */
   private def build(
       e: ValueExpr,
-      programs: Iterator[Cel.Program],
+      programs: Iterator[(Cel.Key, Cel.Program)],
       scope: Scope,
-      inputs: Inputs
+      named: Map[String, Named]
   ): Built[Run] = {
     // How a source is read, picked once from the step after it: where that
     // step can stop early, the items or candidates are read one at a time
@@ -109,9 +172,9 @@ private[view] object Evaluator {
       case (Value.List(_, items), Step.AnyOf :: r) =>
         runs(items, scope).map(rs => (junction(rs, decides = true), r))
       case (source, steps) =>
-        read(source, programs, scope, inputs).map(_ -> steps)
+        read(source, programs, scope, named).map(_ -> steps)
     start.flatMap((run, rest) =>
-      rest.foldLeftM(run)((prev, s) => step(s, prev, programs, scope, inputs))
+      rest.foldLeftM(run)((prev, s) => step(s, prev, programs, scope, named))
     )
   }
 
@@ -127,35 +190,6 @@ private[view] object Evaluator {
       scope: Scope
   ): Built[Map[String, EntityState] => List[String]] =
     present(p, scope).map(is => states => p.candidates.filter(is(_, states)))
-
-  /** CEL's named inputs, each compiled once, read as CEL takes them: a fetch
-    * its answer, a bool `true` only for `true`, anything else its value, `null`
-    * CEL's `null`. Subject-free, as `validate` holds them.
-    */
-  def inputs(values: Map[String, ValueExpr], scope: Scope): Built[Inputs] =
-    if (values.isEmpty) Right(noInputs)
-    else
-      values.toList
-        .traverse { (name, e) =>
-          val read: Built[
-            (Map[String, EntityState], FetchTemplate => Object) => Object
-          ] =
-            e.source match
-              case Value.Fetch(f) => Right((_, fetched) => fetched(f))
-              case _              =>
-                inner(e, scope).map(c =>
-                  val run = c.run
-                  if (e.inputType.contains(ValueType.Bool))
-                    (states, fetched) =>
-                      java.lang.Boolean
-                        .valueOf(holds(run(null, states, fetched)))
-                  else (states, fetched) => Cel.arg(run(null, states, fetched))
-                )
-          read.map(name -> _)
-        }
-        .map(runs =>
-          (states, fetched) => runs.map((n, r) => n -> r(states, fetched)).toMap
-        )
 
   /** An ordering, its keys read once per candidate rather than per comparison
     * (`publishSetOrdered`): a bool key sorts `true` first under `asc`; a
@@ -226,9 +260,9 @@ private[view] object Evaluator {
 
   private def read(
       v: Value,
-      programs: Iterator[Cel.Program],
+      programs: Iterator[(Cel.Key, Cel.Program)],
       scope: Scope,
-      inputs: Inputs
+      named: Map[String, Named]
   ): Built[Run] = v match
     // A `once` read is of which entity this is, which it is whether or not
     // the store holds it: a service picked by its domain.
@@ -257,10 +291,11 @@ private[view] object Evaluator {
       runs(items, scope).map(rs =>
         (subject, states, fetched) => rs.map(_(subject, states, fetched))
       )
-    case _: Value.Cel =>
-      val p = programs.next()
-      Right((_, states, fetched) =>
-        lift(Cel.eval(p, null, scope.slug, inputs(states, fetched)))
+    case Value.Cel(_, own) =>
+      val (k, p) = programs.next()
+      celInputs(k, own, scope, named).map(inputs =>
+        (_, states, fetched) =>
+          lift(Cel.eval(p, null, scope.slug, inputs(states, fetched)))
       )
     // Its answer is drawn by its stage, never read here.
     case _: Value.Fetch => Right((_, _, _) => "")
@@ -268,16 +303,17 @@ private[view] object Evaluator {
   private def step(
       s: Step,
       prev: Run,
-      programs: Iterator[Cel.Program],
+      programs: Iterator[(Cel.Key, Cel.Program)],
       scope: Scope,
-      inputs: Inputs
+      named: Map[String, Named]
   ): Built[Run] = s match
-    case _: Step.Cel =>
-      val p = programs.next()
-      Right((subject, states, fetched) =>
-        val v = prev(subject, states, fetched)
-        if (v == null) null
-        else lift(Cel.eval(p, v, scope.slug, inputs(states, fetched)))
+    case Step.Cel(_, own) =>
+      val (k, p) = programs.next()
+      celInputs(k, own, scope, named).map(inputs =>
+        (subject, states, fetched) =>
+          val v = prev(subject, states, fetched)
+          if (v == null) null
+          else lift(Cel.eval(p, v, scope.slug, inputs(states, fetched)))
       )
     case Step.First(orderBy) =>
       Keys

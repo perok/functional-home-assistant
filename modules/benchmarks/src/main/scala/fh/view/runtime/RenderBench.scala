@@ -299,8 +299,11 @@ class RenderBench {
     Conds.run(isOn)
   private lazy val isOnInputs =
     Evaluator
-      .inputs(isOnValue, Evaluator.Scope(""))
-      .fold(m => throw AssertionError(m.message), identity)
+      .named(isOnValue, Evaluator.Scope(""))
+      .fold(
+        m => throw AssertionError(m.message),
+        n => Evaluator.activation(n.toList)
+      )
   private var engineShapes: List[Cel.Program] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -595,8 +598,8 @@ class RenderBench {
   /** [[pageSignals]] with each card's fill colour reading two expression
     * values: the only page here whose CEL is typed against named values, so the
     * only one that prices the compile key and the per-render activation
-    * (`Evaluator.inputs`). Rebuilding that key per render cost 139 KB a page
-    * here (#615).
+    * (`Evaluator.activation`). Rebuilding that key per render cost 139 KB a
+    * page here (#615).
     */
   @Benchmark
   def pageValued(bh: Blackhole): Unit = bh.consume(valued.renderPageTraced(st))

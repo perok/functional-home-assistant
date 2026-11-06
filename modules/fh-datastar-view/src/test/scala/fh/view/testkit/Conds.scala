@@ -22,7 +22,7 @@ object Conds {
     * reading that does not compile fails the suite rather than returning.
     */
   def run(e: ValueExpr): Evaluator.Run =
-    compiled(Evaluator.compile(e, Nil, Evaluator.Scope(""))).run
+    compiled(Evaluator.compile(e, Evaluator.Scope(""))).run
 
   /** What compiled, as the walk would have it. */
   def compiled[A](b: Evaluator.Built[A]): A =

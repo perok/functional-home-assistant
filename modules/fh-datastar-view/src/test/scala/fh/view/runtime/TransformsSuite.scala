@@ -9,6 +9,7 @@ import fh.view.model.{
   LayoutNode,
   Lit,
   Part,
+  Ready,
   SlotType,
   Step,
   Value,
@@ -389,5 +390,47 @@ class TransformsSuite extends munit.CatsEffectSuite {
       Cel.run(programOf(plain, "value.state"), state, "x"),
       "on"
     )
+  }
+
+  /** A slot's value as the compiled tree runs it. */
+  private def slotRun(
+      e: ValueExpr,
+      nodeValues: Map[String, ValueExpr] = Map.empty
+  ): String =
+    Dashboard(
+      Map("c" -> CardDef("<b>{{v}}</b>")),
+      LayoutNode.Component(
+        "c",
+        templateSlots = Map("v" -> TemplateSlot(e)),
+        values = nodeValues
+      )
+    ).validated()
+      .fold(errs => fail(errs.mkString("\n")), _.ready.card) match
+      case c: Ready.Component =>
+        Steps.text(c.slots("v").run(null, Map.empty, Evaluator.noFetch))
+      case other => fail(s"not a component: $other")
+
+  private def whole(n: Long) = ValueExpr(Value.Literal(Lit.Whole(n)))
+
+  test("each CEL reads its own inputs, not another CEL's of the same name") {
+    val e = ValueExpr(
+      Value.Cel("x", Map("x" -> whole(1))),
+      List(Step.Cel("value + x", Map("x" -> whole(10))))
+    )
+    assertEquals(slotRun(e), "11")
+  }
+
+  test("a CEL's input may be any expression that compiles, CEL included") {
+    val e = ValueExpr(Value.Cel("y + 1", Map("y" -> ValueExpr(Value.Cel("2")))))
+    assertEquals(slotRun(e), "3")
+  }
+
+  test("a CEL's own input wins over its node's value of that name") {
+    // The step reads the node's: the source's own `x` is the source's alone.
+    val e = ValueExpr(
+      Value.Cel("x", Map("x" -> whole(5))),
+      List(Step.Cel("value + x"))
+    )
+    assertEquals(slotRun(e, Map("x" -> whole(1))), "6")
   }
 }

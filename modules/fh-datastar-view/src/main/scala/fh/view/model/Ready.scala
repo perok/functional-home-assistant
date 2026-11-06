@@ -226,13 +226,13 @@ object Ready:
     private def slot(b: BoundSlot): Built[Slot] =
       for
         typed <- b.typed
-        inputs <- Evaluator.inputs(b.values, scope)
-        c <- Evaluator.compiled(b.expr, typed, scope, inputs)
+        named <- Evaluator.named(b.values, scope)
+        c <- Evaluator.compiled(b.expr, typed, scope, named)
         valueWhile <- b.valueWhile.traverse(slot)
       yield Slot(b, c.run, valueWhile)
 
     private def condition(e: ValueExpr): Built[Condition] =
-      Evaluator.compile(e, Nil, scope).map(c => Condition(c.run, e.entities))
+      Evaluator.compile(e, scope).map(c => Condition(c.run, e.entities))
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(

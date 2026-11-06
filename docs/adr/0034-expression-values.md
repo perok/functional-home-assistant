@@ -50,16 +50,18 @@ Float → `double`, Boolean → `bool`, a tally → `int` (a `Present` source an
 present ids alone are a `list(string)`), a condition → `bool`, a fetch → its provider's answer
 (history's points, `list(list(double))` of `[epochMillis, value]`), an entity → the struct
 `fh.Entity` (`kitchen.attr.brightness`). Numbers decode by their SPELLING, as Pkl wrote them, since
-a `Float` 2.0 and an `Int` 2 have one value. The type is `ValueExpr.inputType`; another shape is
-refused, so no input is computed by CEL and inputs cannot form a cycle. The expression compiles
-against `value`, `dashboard_slug`, `time_zone` and the node's names (`Cel.Key`: source,
-typed names and `value`'s type), so a typo, an unknown name or `lights_on + ' on'` (no
+a `Float` 2.0 and an `Int` 2 have one value. Its type is the one it compiles to, so an input may
+be any expression that compiles, CEL included. A node's values do not see each other, and a CEL's
+own input sees only its node's, so inputs cannot form a cycle. Each CEL compiles against `value`,
+`dashboard_slug`, `time_zone` and the names it reads: its own inputs, and its node's values, its
+own winning (`Cel.Key`: source, typed names and `value`'s type). So a typo, an unknown name or `lights_on + ' on'` (no
 `int + string` overload) fails the BUILD. Refused too: a name that is not a CEL identifier, one
 hiding `value`/`dashboard_slug`/`time_zone`, a value
 no slot reads, a slot read `once` that reads a count or a condition (the once-cache keys by what a
 value IS, so it would show the first answer forever; a fetch too), and a condition comparing an entity it does
 not name — a value is shared by content across nodes, so it has no subject, as a state condition
-has none.
+has none; any unnamed read in a value is refused for the same reason. A fetch value is read as its
+answer, so one with steps is refused.
 
 **Node-local names, shared by content.** Nothing below the node sees its names. That is a node
 variable's job (ADR 0033), and a different fact: a viewer's choice, inherited, against a computed
@@ -69,15 +71,17 @@ count the same thing.
 
 **Bound on the node.** Binding is the build pass that connects a name to its definition and type
 (`docs/terminology.md`). `LayoutNode.Component.bound` runs it lazily, once per node: it pairs each
-slot, live cell classes and properties included, with the values its CEL names, by the identifiers
-the expression PARSES to, so a word inside a string literal is not a read. A slot binds at a
+slot, live cell classes and properties included, with the node's values its CELs read, by the
+identifiers each PARSES to, so a word inside a string literal is not a read; a name a CEL's own
+input has is that input's, and each CEL keeps its own. A slot binds at a
 `Placement`, its signal binding and the type it is read as: a template slot's comes off the wire,
 and a cell slot's from its key (`CellKey.placement`: a class is a bool bound by name, a property
 text). A literal cell class is not bound at all: the renderer writes it straight from the cell. It is derived from the decoded node rather than written back into it, so no slot can be seen
 before it is bound, or bound twice, and the decoder only decodes. The bound slot says alone what it
 reads: the compile key, the signal name and the watched entities all come off it, and no render
 path takes the node's values as an argument. The binding fixes each name's type, not its value,
-which `Evaluator.inputs` computes on every render, each input compiled once.
+which each CEL's activation computes on every render (`Evaluator.activation`), each input
+compiled once.
 
 ### A slot's own values
 

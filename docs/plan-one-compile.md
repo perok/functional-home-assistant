@@ -3,7 +3,7 @@
 Branch `one-compile`, stacked on `pkl-reading` (#670). Discussed in chat on 2026-11-05 and
 2026-11-06; it takes over items 5, 7, 8 and 9 of `plan-slot-values.md`'s review follow-ups.
 
-**State:** O0 and O1 built (O1 in `model/Ready.scala`); O2 next.
+**State:** O0, O1 and O2 built; O3 next.
 
 ## Why
 

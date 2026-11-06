@@ -124,7 +124,8 @@ class FetchValueSuite extends munit.FunSuite {
           Map("past" -> ValueExpr(Value.Literal(Lit.Whole(1))))
         )
       )
-        .contains("and so does its node")
+        // The slot's own wins, so the node's is read by nothing.
+        .contains("expression value 'past' is read by no expression")
     )
     assert(
       errs(
@@ -162,7 +163,7 @@ class FetchValueSuite extends munit.FunSuite {
         |  "fallback": true}}}}}}]}""".stripMargin
     )
     assertEquals(
-      slot.map(_.values),
+      slot.map(_.expr.cels.flatMap(_._2).toMap),
       Right(Map("past" -> ValueExpr(Value.Fetch(history))))
     )
   }

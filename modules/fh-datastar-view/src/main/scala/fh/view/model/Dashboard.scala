@@ -37,9 +37,6 @@ final case class TemplateSlot(
 ):
   def literal: Option[String] = expr.literal
 
-  /** The named inputs its CEL declares, beside its node's. */
-  def values: Map[String, ValueExpr] = expr.celInputs
-
   def placement: Placement = Placement(signal, `type`)
 
 object TemplateSlot:
@@ -67,10 +64,10 @@ object Placement:
   /** A `valueWhile`: decided before the slot it gates, never bound. */
   val Bool: Placement = Placement(None, SlotType.Bool)
 
-/** A slot with its subject named and the expression values its CEL names, the
-  * node's and its own: the build's bind pass, run lazily on the node
-  * ([[LayoutNode.Component.bound]]). It fixes each name's definition and type,
-  * not its value, which is resolved per render.
+/** A slot with its subject named and the node's expression values its CELs
+  * read, each CEL's own inputs being in it: the build's bind pass, run lazily
+  * on the node ([[LayoutNode.Component.bound]]). It fixes each name's
+  * definition and type, not its value, which is resolved per render.
   *
   * @param subject
   *   the node's: what a condition that names no entity compares.
@@ -106,10 +103,10 @@ final case class BoundSlot(
     * constant, held like a `once` read.
     */
   def reads: Reads = expr.source match
-    case e: Value.Entity                                 => e.reads
-    case _: Value.Fetch                                  => Reads.OnRender
-    case _: Value.Cel if !values.values.exists(_.isLive) => Reads.Once
-    case _                                               => Reads.Live
+    case e: Value.Entity                          => e.reads
+    case _: Value.Fetch                           => Reads.OnRender
+    case _: Value.Cel if !inputs.exists(_.isLive) => Reads.Once
+    case _                                        => Reads.Live
 
   def bypassUnavailable: Boolean = expr.source match
     case e: Value.Entity => e.bypassUnavailable
@@ -146,9 +143,11 @@ final case class BoundSlot(
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
-      values.values.toList.map(_.source).collect { case Value.Fetch(f) =>
-        SlotAsk(f, None)
-      }
+      inputs.map(_.source).collect { case Value.Fetch(f) => SlotAsk(f, None) }
+
+  /** Every named input its CELs read: the node's, and each CEL's own. */
+  def inputs: List[ValueExpr] =
+    values.values.toList ++ expr.cels.flatMap(_._2.values)
 
   /** What the renderer keys a value by (signal names, the once-cache): two
     * nodes saying the same thing over the same values share a signal. A themed
@@ -200,18 +199,9 @@ object BoundSlot:
       subject: Option[String]
   )(e: ValueExpr, valueWhile: Option[ValueExpr] = None): BoundSlot =
     val expr = e.about(subject)
-    val named = expr.celSources match
-      case Nil  => Map.empty[String, ValueExpr]
-      case srcs =>
-        // The slot's own win a clash, which `validate` refuses anyway.
-        val all = values ++ expr.celInputs
-        if (all.isEmpty) Map.empty[String, ValueExpr]
-        else
-          val read = srcs.flatMap(Cel.identifiers).toSet
-          all.filter((n, _) => read.contains(n))
     BoundSlot(
       expr,
-      named,
+      expr.readsNamed(values),
       valueWhile.map(bindAt(values, Placement.Bool, subject)(_)),
       at.signal,
       at.`type`,
