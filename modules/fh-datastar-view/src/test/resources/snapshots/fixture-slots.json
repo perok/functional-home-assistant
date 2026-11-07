@@ -2097,10 +2097,12 @@
               }
             },
             "secondary" : {
+              "default" : "",
               "signal" : {
                 "kind" : "Text"
               },
               "source" : {
+                "bypassUnavailable" : true,
                 "kind" : "Entity",
                 "of" : "sensor.washer_status"
               }

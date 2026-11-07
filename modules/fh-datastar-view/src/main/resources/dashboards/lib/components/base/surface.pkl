@@ -103,7 +103,7 @@ hidden tabs: Tabs = new Tabs {}
 /// window chooser's is, so the declaration and its writers cannot drift.
 const tabVar: varMod.Variable = new { name = "tab" }
 
-const local function stateActivation(p: pred.Predicate?): surfaceMod.StateActivation =
+const local function stateActivation(p: slotMod.Expr?): surfaceMod.StateActivation =
   new { condition = p }
 
 /// A conditional section: `then` while `condition` holds, the optional `else`
@@ -126,7 +126,7 @@ class If extends nodes.Node {
     template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
   }
   cellClasses { "fh-cols-full" }
-  hidden condition: pred.Predicate|varMod.ValueIs
+  hidden condition: slotMod.Expr|varMod.ValueIs
   hidden `then`: Listing<nodes.LayoutNode> = new {}
   hidden `else`: Listing<nodes.LayoutNode> = new {}
   // First match in `bakeIndex` order; `else` is the always-true member 1. Both
@@ -167,7 +167,7 @@ class If extends nodes.Node {
 /// entities it reads (`q.entity(e)`, or an aggregate over `q.from(…)`). A
 /// `Boolean` is accepted because the build folds: `q.from(emptyRoom).any()` is
 /// already `false`. `v.valueIs(x)` chooses by a node variable instead.
-function iff(p: pred.Predicate|Boolean|varMod.ValueIs): If =
+function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): If =
   new If {
     condition =
       if (p is Boolean) (if (p) pred.alwaysHolds else pred.neverHolds)

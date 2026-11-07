@@ -14,23 +14,22 @@ import "tap.pkl" as tapMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate|slotMod.Fetch|hass.Entity
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|slotMod.Expr|slotMod.Fetch|hass.Entity
 
-/// What fills a boolean slot: a `Boolean` the build knows, a reading
-/// (`c.isOn(l)`), an `Expr` (`c.expr("on > 2")`), or a condition
-/// (`q.from(lights).where(…).any()`), decided without CEL. An aggregate the
-/// build can settle IS a `Boolean`, so a room with no lights needs no live slot.
-typealias BooleanInput = Boolean|slotMod.ValueExpr|slotMod.Expr
+/// What fills a boolean slot: a `Boolean` the build knows, or a value
+/// expression of a bool: a reading (`c.isOn(l)`, `c.expr("on > 2")`) or a
+/// condition (`q.from(lights).where(…).any()`). An aggregate the build can
+/// settle IS a `Boolean`, so a room with no lights needs no live slot.
+typealias BooleanInput = Boolean|slotMod.Expr
 
 /// The reading a live [[BooleanInput]] is; a condition becomes one holding its
 /// source and steps.
-const function booleanReading(input: slotMod.ValueExpr|slotMod.Expr): slotMod.Reading =
+const function booleanReading(input: slotMod.Expr): slotMod.Reading =
   if (input is slotMod.Reading) input
-  else if (input is slotMod.Expr) slotMod.exprReading(input)
-  else let (p = input as slotMod.ValueExpr) new slotMod.Reading { source = p.source; steps = p.steps }
+  else let (p = input as slotMod.Expr) new slotMod.Reading { source = p.source; steps = p.steps }
 
 /// `at` holding a live [[BooleanInput]], read as a bool.
-const function booleanSlot(at: slotMod.Slot, input: slotMod.ValueExpr|slotMod.Expr): slotMod.Slot =
+const function booleanSlot(at: slotMod.Slot, input: slotMod.Expr): slotMod.Slot =
   (at) { value = booleanReading(input); type = "bool" }
 
 /// A card's own `disabled`, as the slot `tapMod.refused` ORs in: not set for
@@ -39,7 +38,7 @@ const function disabledSlot(d: BooleanInput?): slotMod.Slot =
   if (d == null || d == false) tapMod.disabled
   else if (d == true) tapMod.disabled.of(true)
   else
-    (booleanSlot(tapMod.disabled, d as slotMod.ValueExpr|slotMod.Expr)) {
+    (booleanSlot(tapMod.disabled, d as slotMod.Expr)) {
       signal = slotMod.asHandler
     }
 
@@ -127,12 +126,10 @@ abstract class LayoutNode {
   ///     // css: .fh-cell>button { background-size: var(--fh-fill) 100% }
   ///
   /// Only `--…`: a plain property would fight the theme's framework.
-  function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading|slotMod.Expr): LayoutNode =
+  function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading): LayoutNode =
     let (self = this)
-    let (s = if (reading is slotMod.Expr) slotMod.exprReading(reading)
-      else reading as slotMod.Reading)
       if (!(self is Node)) throw("cellStyle: a live style is a slot, which only a card node has — put it on the clause's node")
-      else (self) { liveStyles { [name] = s } }
+      else (self) { liveStyles { [name] = reading } }
   // One class per family (`fh-cols-*`, `fh-text-*`, hug or grow, one edge): two
   // would be decided by stylesheet order, not by the author's last word. This is
   // also what lets a card default its span, or a pill its hug, and still be
@@ -263,7 +260,7 @@ abstract class ActiveNode extends Node {
   }
   liveClasses {
     when (!(active is Boolean)) {
-      ["fh-active"] = booleanReading(active as slotMod.ValueExpr|slotMod.Expr)
+      ["fh-active"] = booleanReading(active as slotMod.Expr)
     }
   }
 }

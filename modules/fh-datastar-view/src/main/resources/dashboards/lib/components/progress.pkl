@@ -89,7 +89,7 @@ class ProgressCard extends entityMod.EntityCard {
   /// Also drops a found [[percent]], so the bar is the one asked for.
   function total(t: hass.SensorEntity): ProgressCard = let (self = this) (self) { total = t; percent = null }
   function status(s: hass.SensorEntity): ProgressCard = let (self = this) (self) { status = s }
-  function label(l: String|slotMod.Expr): ProgressCard = let (self = this) (self) { label = l }
+  function label(l: String|slotMod.Reading): ProgressCard = let (self = this) (self) { label = l }
   function icon(i: String): ProgressCard = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): ProgressCard = let (self = this) (self) { tapAction = t }
 }

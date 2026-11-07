@@ -45,7 +45,7 @@ open class Switch extends nodes.ActiveNode {
       .fh-tile>.fh-switch{flex:0 0 auto}
       """
   }
-  hidden label: (String|slotMod.Expr)? = null
+  hidden label: (String|slotMod.Reading)? = null
   /// A reading yielding `"on"` or `""`: the bundle compares a string signal
   /// against `value="on"`, and `""` closes the document form's section.
   ///
@@ -69,7 +69,7 @@ open class Switch extends nodes.ActiveNode {
     ...tapMod.guardSlots(tapAction)
     ...badgeMod.slots(active)
   }
-  function label(l: String|slotMod.Expr): Switch = let (self = this) (self) { label = l }
+  function label(l: String|slotMod.Reading): Switch = let (self = this) (self) { label = l }
   function tapAction(a: tapMod.TapAction): Switch = let (self = this) (self) { tapAction = a }
   function active(a: nodes.BooleanInput): Switch = let (self = this) (self) { active = a }
 }

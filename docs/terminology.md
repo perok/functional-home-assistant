@@ -74,14 +74,15 @@ What a reading means — typed reads, `null` as the one absent value, every step
 comparison picks its meaning, where a value leaves it — is ADR 0035, the value language; one
 evaluator runs every reading, slot and condition alike.
 
-**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate` in Pkl, a `slotMod.ValueExpr`
-of a bool — like a **Reading** a source and its steps, without a reading's slot fields:
-`q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")`). A boolean input takes one where it takes a
-reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
-which is not a condition: it is a viewer's selection, so it is not shared and never flips. On the
-wire it is a bool `ValueExpr` of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`,
-`AllOf`/`AnyOf` over a `List`, `Count` over a set's **present** ids, `First` over a list of ids — decided by the
-one evaluator with no CEL (ADR 0035). So a slot can read one, which is how every boolean input (`active`,
+**Condition** — the yes/no thing `c.iff` takes: any `slotMod.Expr` of a bool (the wire's
+`ValueExpr`). The library's are `pred.Predicate`s — like a **Reading** a source and its steps,
+without a reading's slot fields: `q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")` — and a
+reading of a bool is one too, CEL included (`c.exprOf(e, "value.state == 'on'")`). A boolean input
+takes one where it takes a reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
+which is not a condition: it is a viewer's selection, so it is not shared and never flips. The library
+writes one of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`, `AllOf`/`AnyOf` over a
+`List`, `Count` over a set's **present** ids, `First` over a list of ids — and the one evaluator
+decides it as it fills a slot (ADR 0035); a build refuses one that is not a bool. So a slot can read one, which is how every boolean input (`active`,
 `disabled`, `cellClassWhen`) takes one directly. The same thing guards a clause, picks a state
 surface, and orders a set, true first under `asc`. An unnamed read in it reads the entity it is
 about: the card's subject, or in a guard or an order term the member. It can

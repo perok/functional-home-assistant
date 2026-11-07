@@ -110,7 +110,11 @@ q.from(dump.lights.all)
   order.
 - `.where(…)` keeps only the ones matching. A condition on registry data, such
   as `q.prop("device_class")`, is settled when the dashboard builds; one on
-  state is followed live.
+  state is followed live. A condition can also be CEL over each member:
+  `.where(c.expr("value.state == 'on'"))`, and `.orderBy(…)` and `c.iff(…)` take
+  one too (`c.iff(c.exprOf(e, "value.state == 'on'"))`). It must be a yes/no:
+  the build refuses one that gives text. The builders above are cheaper, so
+  reach for CEL when they cannot say it.
 - `.render(card)` gives every member the same card. `.caseOf(condition, card)`
   picks a card per member, the first match winning, and `` .`else`(card) ``
   takes the rest. A member matching no case is not shown, so `.caseOf(…)` with

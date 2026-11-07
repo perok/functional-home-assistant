@@ -5,7 +5,7 @@
 module core.surface
 
 import "node.pkl" as nodes
-import "predicate.pkl" as pred
+import "slot.pkl" as slotMod
 
 /// One surface (`fh.view.model.Surface`). `bake*` drive first-paint baking
 /// (tabs, [[If]] branches); `activation` null is user-activated and closed.
@@ -64,7 +64,7 @@ class AtOtherwise {
 /// own entity, and one that names none is a `Dashboard.validate` error.
 class StateActivation {
   kind: "State" = "State"
-  condition: pred.Predicate? = null
+  condition: slotMod.Expr? = null
 }
 
 /// A registered popup whose `body` is wrapped in the [[Popup]] dialog. The

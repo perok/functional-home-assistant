@@ -248,7 +248,7 @@ peak.of(new slotMod.Reading {
 
 It takes what `active` and `disabled` take: `true`/`false`, a condition
 (`q.entity(e).gt(…)`, `.stateIs(…)`, `q.from(…).any()`), or a reading that is a
-`bool` (`slotMod.expr("int(state) > 0")`). A condition is the fast choice, and
+`bool` (`slotMod.expr("int(value.state) > 0")`). A condition is the fast choice, and
 one that names no entity reads the slot's. A reading cannot use a fetch.
 Your template decides what `""` looks like; the progress bar hides.
 

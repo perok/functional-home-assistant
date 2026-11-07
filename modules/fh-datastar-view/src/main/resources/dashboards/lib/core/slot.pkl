@@ -16,7 +16,7 @@ import "node.pkl" as nodes
 /// A value read from its [[source]], then each of its [[steps]] run on it
 /// (`fh.view.model.ValueExpr`): a [[Reading]], or a condition
 /// (`predicate.pkl`), which sets both and has no slot fields to ignore.
-open class ValueExpr {
+open class Expr {
   source: Value|String|Number|Boolean
   steps: Listing<simpleMod.Step> = new {}
 }
@@ -24,7 +24,7 @@ open class ValueExpr {
 /// What a slot reads, with no binding yet (`docs/terminology.md`). The card it
 /// is handed to puts it in a [[Slot]], which says where it lands. Build one
 /// with [[simpleMod]]'s constructors, a [[Cel]] step, or [[expr]].
-open class Reading extends ValueExpr {
+open class Reading extends Expr {
   /// The entity read when not the card's own (its subject).
   hidden entityId: String? = null
   /// Which part of it; null is the state.
@@ -67,13 +67,13 @@ open class Reading extends ValueExpr {
   ///
   ///   valueWhile = q.entity(left).gt(q.prop("state"), 0)
   ///
-  /// A constant, a condition (decided without CEL, over the card's subject
-  /// when it names none), or a reading of a bool; none may read a fetch.
+  /// A constant, or a value expression of a bool (a condition, a reading, CEL),
+  /// over the card's subject when it names none; none may read a fetch.
   hidden valueWhile: nodes.BooleanInput = true
   valueWhileSlot: Reading? =
     if (valueWhile == true) null
     else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
-    else nodes.booleanReading(valueWhile as ValueExpr|Expr)
+    else nodes.booleanReading(valueWhile as Expr)
 }
 
 /// A step's operand: a literal, or a part of an entity.
@@ -105,13 +105,13 @@ class FetchRead extends Value {
   fetch: Fetch
 }
 
-/// Its items in order, each an `itemType` and without CEL: what an and or an or
-/// decides over (`predicate.pkl`'s `PAnd`, `POr`). The type is declared so the
+/// Its items in order, each an `itemType`: what an and or an or decides over
+/// (`predicate.pkl`'s `PAnd`, `POr`). The type is declared so the
 /// build types an empty list too. A set's present ids are a `predMod.Tally`.
 class ListRead extends Value {
   kind: "List" = "List"
   itemType: "bool" = "bool"
-  items: Listing<predMod.Predicate>
+  items: Listing<Expr>
 }
 
 /// CEL computed from nothing before it, so it has no `value`: over its named
@@ -133,7 +133,7 @@ const function wireInput(v: nodes.ExpressionValue): Any =
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
   else if (v is predMod.PresentList) Map("source", v)
   else if (v is predMod.Tally) Map("source", v, "steps", List(new simpleMod.CountStep {}))
-  else if (v is predMod.Predicate) v
+  else if (v is Expr) v
   else if (v is Fetch) Map("source", new FetchRead { fetch = v })
   else v
 
@@ -321,61 +321,55 @@ const CLOCK_TIME_EXPR: String = #"""
 
 /// What an entity card reads out when told nothing: the clock time of a scene
 /// or a button's last activation, else null (the state with its unit).
-const function readingOf(e: hass.Entity): Expr? =
-  if (activeTables.lastHappened.contains(e.domain)) new Expr { transform = CLOCK_TIME_EXPR }
+const function readingOf(e: hass.Entity): Reading? =
+  if (activeTables.lastHappened.contains(e.domain)) celReading(CLOCK_TIME_EXPR)
   else null
 
 
 /// A live value for a display field that also takes a plain string, CEL over
 /// the whole entity as `value`:
 /// `label = expr(#"value.attr[?'friendly_name'].orValue('') + ' ' + value.state"#)`.
-class Expr {
-  entityId: String? = null
-  transform: String
-}
-
-function expr(s: String): Expr = new { transform = s }
+function expr(s: String): Reading = celReading(s)
 
 /// [[expr]] over another entity than the card's.
-function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
+function exprOf(eo: hass.Entity, s: String): Reading =
+  (celReading(s)) { entityId = eo.entity_id }
 
 /// A CEL over the card's whole entity.
 const function celReading(expression: String): Reading =
   new Reading { part = new simpleMod.Whole {}; steps { simpleMod.cel(expression) } }
 
-/// An [[Expr]] as the reading it is: its CEL over its whole entity.
-const function exprReading(x: Expr): Reading =
-  new Reading {
-    entityId = x.entityId
-    part = new simpleMod.Whole {}
-    steps { simpleMod.cel(x.transform) }
-  }
+/// `r` as a text hole shows it: a read of a state or a whole entity shows an
+/// unavailable entity's word in place of its reading, the one place the bypass
+/// may be.
+const function textReading(r: Reading): Reading =
+  let (src = r.source)
+    if (src is EntityRead && (src.part == null || src.part is simpleMod.Whole))
+      (r) { bypassUnavailable = true }
+    else r
 
 // null bakes the friendly name.
-const function labelSlot(entity: hass.Entity?, label: (String|Expr|Reading)?): Reading|String =
-  if (label is Expr) exprReading(label)
-  else if (label != null) label
+const function labelSlot(entity: hass.Entity?, label: (String|Reading)?): Reading|String =
+  if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
 // null: the state plus the entity's unit. A String names an attribute, with the
-// unit. An Expr or Simple is used as given, unit and all. The state and an Expr
-// show an unavailable entity's word; an attribute reads as is.
-const function valueSlot(value: (String|Expr|Reading)?): Reading =
-  if (value is Expr) (exprReading(value)) { bypassUnavailable = true }
-  else if (value is Reading) value
+// unit. A Reading is used as given, unit and all, as [[textReading]] shows it.
+const function valueSlot(value: (String|Reading)?): Reading =
+  if (value is Reading) textReading(value)
   else if (value == null) (simpleMod.suffixUnit("unit_of_measurement")) { bypassUnavailable = true }
   else simpleMod.attrUnit(value)
 
 /// A card's second line. A String is the text itself, never an attribute name
 /// (that is [[attr]]).
-typealias Secondary = String|Expr|Reading
+typealias Secondary = String|Reading
 
 /// `at` holding a second line. A live reading becomes a text signal, so a card
 /// places it with `textMod.liveRun` under [[Slot.ifSet]].
 const function secondary(at: Slot, s: Secondary?): Slot =
-  if (s is Expr) (at) { value = (exprReading(s)) { default = ""; bypassUnavailable = true }; signal = asText }
-  else if (s is Reading && s.fetch == null && s.reads == "live") (at) { value = s; signal = asText }
+  if (s is Reading && s.fetch == null && s.reads == "live")
+    (at) { value = (textReading(s)) { default = s.default ?? "" }; signal = asText }
   else at.of(s)
 
 /// `at` holding `v` as a signal bound as `kind`.

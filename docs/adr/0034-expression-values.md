@@ -39,9 +39,11 @@ node-level declaration, and each slot is bound to the ones its CEL reads (`Bound
 below builds on that one path, and nothing gains a second evaluator.
 
 **Declaration.** `Node.expressionValues: Mapping<String, ExpressionValue>`, where
-`ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate|slot.Fetch|hass.Entity`, written as an amend or with
+`ExpressionValue = String|Int|Float|Boolean|pred.Tally|slot.Expr|slot.Fetch|hass.Entity`, written as an amend or with
 the `expressionValues(m)` builder. On the wire it is `Component.values`, each a `ValueExpr`
-(`slotMod.wireInput`: a literal bare, anything else as the source it reads), absent when empty. Two
+(`slotMod.wireInput`: a literal bare, an expression as itself, anything else as the source it
+reads), absent when empty. An expression may be any that types, a condition or a CEL reading
+(`c.exprOf(e, "value.state")`) included, but names its entity: a value has no subject. Two
 properties, because a `Mapping?` defaulting to null can be neither amended nor `new {}`'d — both
 infer `Dynamic` (measured) — and an always-present `{}` would sit on every node's wire.
 
@@ -131,11 +133,11 @@ refused, since a template reads one by truthiness. A CEL `list`, `map`, `timesta
 `WithUnit`, `Percent`, `Fill`, `Duration`) take the same, so a whole entity or a list is refused
 before them. A literal is checked like any value: a `setIf` flag's slot is `slotMod.bool`.
 
-**What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
-fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
-`q.entity(l).stateIs("on")`). `active`, `disabled` and `cellClassWhen` all take one. A condition IS the
-bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by the one evaluator (ADR 0035) with
-no CEL and no name; a comparison that names no entity reads the slot's, and the build refuses one
+**What fills one** is a `BooleanInput`, `Boolean|slot.Expr`: a `Boolean` the build knows, or an
+expression of a bool — a reading (`c.isOn(l)`, the fast tier, or `c.expr("on > 2")` over the
+node's values) or a condition (`lit.any()`, `q.entity(l).stateIs("on")`). `active`, `disabled` and
+`cellClassWhen` all take one. A condition IS the bool slot's transform, the fast tier's bool half
+(ADR 0028), decided directly by the one evaluator (ADR 0035) with no name; a comparison that names no entity reads the slot's, and the build refuses one
 on a slot that has none. An aggregate the build can settle IS a `Boolean` —
 `any()` over a room with no lights is `false` — and then there is no live slot at all, and a
 `true` `disabled` is the bare attribute.
@@ -175,7 +177,7 @@ and a slot behind it runs nothing.
 ### A live custom property on any node
 
 `.cellStyle(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
-produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), an `Expr` may read the
+produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), a `c.expr` may read the
 node's values. It is `cellClassWhen`'s twin: both are cell slots (`cell.styles` beside `cell.classes`,
 ADR 0008), the value inline
 (`style="--x:…"`) in the document form and a `data-style:--x` binding after the wrapper's seed in

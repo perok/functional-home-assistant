@@ -3,7 +3,7 @@
 Branch `one-compile`, stacked on `pkl-reading` (#670). Discussed in chat on 2026-11-05 and
 2026-11-06; it takes over items 5, 7, 8 and 9 of `plan-slot-values.md`'s review follow-ups.
 
-**State:** O0 to O3 built; O4 next.
+**State:** O0 to O4 built.
 
 ## Why
 
@@ -75,18 +75,23 @@ They agree on everything typing admits, but only because `First` cannot follow a
    against `condition`). A CEL error in a condition reads as not holding, as `null` does.
 7. **One bypass rule** over every read: only a text slot's own read of a state or a whole entity
    takes `bypassUnavailable`. Its copies in `conditionError` and `readError` go.
-8. **Pkl: a condition is a value expression.** `c.iff`, `where`, set clauses, `orderBy`, the
-   boolean inputs (`disabled`, `active`, `cellClassWhen`) and a card's `label`/`value` take
-   `slotMod.ValueExpr`. `c.expr`/`c.exprOf` return a `Reading` (the existing `celReading`: the
-   whole entity plus one CEL step), so the `Expr` class, `exprReading` and the `is Expr`
-   conversions go, and `BooleanInput` is `Boolean|ValueExpr`. `c.iff` also keeps a plain
-   `Boolean` and `v.valueIs(x)`. Pkl does not parse CEL, so a text CEL in a bool place is now
-   refused by the build, not the editor.
-9. **The wire changes in one place: a list source declares its item type** (`itemType`), so an
-   empty list is typed as any other and its size is the runtime's (ADR 0035). Otherwise every
-   position already holds a value expression, CEL already carries its inputs, and the Reading
-   `c.expr` returns is what is emitted today. No snapshot or golden holds a list source, so they
-   hold.
+8. **Pkl: a condition is a value expression.** Pkl's twin of `ValueExpr` is `slotMod.Expr`
+   (`c.Expr`), `Reading` its subclass with a slot's fields. `c.iff`, `where`, set clauses,
+   `orderBy`, the boolean inputs (`disabled`, `active`, `cellClassWhen`), an expression value
+   and a card's `label`/`value` take one. `c.expr`/`c.exprOf` return a `Reading` (the whole
+   entity plus one CEL step), so the old `Expr` class, `exprReading` and the `is Expr`
+   conversions go, and `BooleanInput` is `Boolean|Expr`. The bypass and a second line's empty
+   default are the card's, not the reading's: a text hole sets them on any reading of a state
+   or a whole entity it is handed (`textReading`). `c.iff` also keeps a plain `Boolean` and
+   `v.valueIs(x)`. Pkl does not parse CEL, so a text CEL in a bool place is refused by the
+   build, not the editor.
+9. **The wire changes in two places.** A list source declares its item type (`itemType`), so an
+   empty list is typed as any other and its size is the runtime's (ADR 0035); no snapshot or
+   golden holds one. And a plain reading of a state handed to a second line now takes the bypass
+   and the empty default point 8 gives every text hole, so its signal is its own rather than the
+   entity's shared `state` (`fixture-slots`, `smoke-appliance`). Otherwise every position already
+   holds a value expression, CEL already carries its inputs, and the Reading `c.expr` returns is
+   what is emitted today.
 
 ## Steps
 

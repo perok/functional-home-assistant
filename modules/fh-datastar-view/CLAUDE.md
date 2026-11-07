@@ -376,8 +376,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   before gave (`value.state` on a `c.expr`), compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
-  the button/tile/slider, `cellClassWhen`: a Boolean, a reading, an `Expr` or a condition directly —
-  `.disabled(lit.none())` — the condition is the bool slot's source, decided without CEL; a `slotMod.bool` handle
+  the button/tile/slider, `cellClassWhen`: a Boolean, or any `slotMod.Expr` of a bool — a reading,
+  `c.expr`, or a condition directly, `.disabled(lit.none())` — which is the bool slot's source; a `slotMod.bool` handle
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
   tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
   reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the

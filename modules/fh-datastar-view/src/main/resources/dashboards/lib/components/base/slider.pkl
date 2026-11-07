@@ -264,7 +264,7 @@ class SliderControls extends nodes.Node {
 open class Slider extends nodes.Node {
   card = "slider"
   hidden title: String|slotMod.Reading
-  /// On an entity slider, often an [[slotMod.Expr]] naming a DIFFERENT entity
+  /// On an entity slider, often a `c.exprOf` reading of a DIFFERENT entity
   /// (the room's temperature beside its lights).
   hidden secondary: slotMod.Secondary? = null
   /// The badge's MDI class (`mdi-lightbulb`). Null renders no badge.

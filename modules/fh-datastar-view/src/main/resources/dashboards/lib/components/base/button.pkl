@@ -116,7 +116,7 @@ open class Button extends nodes.ActiveNode {
     template = hrefSlot.ifTrueElse(buttonAnchor, buttonPress)
     css = pressCss
   }
-  hidden label: (String|slotMod.Expr)? = null
+  hidden label: (String|slotMod.Reading)? = null
   /// A smaller, dimmer second line: a literal, an expression or any reading.
   hidden secondary: slotMod.Secondary? = null
   /// A glyph before the label, as an MDI name (`mdi:power`). With `label = ""`
@@ -172,7 +172,7 @@ open class Button extends nodes.ActiveNode {
       ...tapMod.guardSlots(tapAction)
     }
   }
-  function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
+  function label(l: String|slotMod.Reading): Button = let (self = this) (self) { label = l }
   /// `c.button("Stue", tap).secondary("Turns off 4 lights")`.
   function secondary(s: slotMod.Secondary): Button = let (self = this) (self) { secondary = s }
   function icon(i: String): Button = let (self = this) (self) { icon = i }
@@ -220,7 +220,7 @@ class Pill extends nodes.ActiveNode {
   /// See [[Button.icon]]; the tap's by default.
   hidden icon: String? = tapAction.icon
   /// The text shown: the author's, else the tap's when there is no icon.
-  hidden label: (String|slotMod.Expr)? = if (icon == null) tapAction.label else null
+  hidden label: (String|slotMod.Reading)? = if (icon == null) tapAction.label else null
   // The accessible name of a pill showing no text.
   local name: String? = if (label == null) tapAction.label else null
   local round: Boolean =
@@ -243,7 +243,7 @@ class Pill extends nodes.ActiveNode {
       ...tapMod.guardSlots(tapAction)
     }
   }
-  function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
+  function label(l: String|slotMod.Reading): Pill = let (self = this) (self) { label = l }
   function icon(i: String): Pill = let (self = this) (self) { icon = i }
   /// Text only, without the tap's icon: `c.pill(c.tap.toggle(k)).label("Kveld").noIcon()`.
   function noIcon(): Pill = let (self = this) (self) { icon = null }
