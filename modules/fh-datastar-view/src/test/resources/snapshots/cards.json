@@ -1,0 +1,2310 @@
+{
+  "card" : {
+    "card" : "fhcol",
+    "kind" : "Component",
+    "regions" : {
+      "children" : [
+        {
+          "card" : "tile",
+          "inlineSurfaces" : {
+            "self" : {
+              "content" : {
+                "card" : "popup",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "fhcol",
+                      "kind" : "Component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "tile",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "entity_id" : "sensor.outside_temp",
+                              "icon" : {
+                                "source" : "mdi mdi-thermometer",
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
+                              },
+                              "label" : "Outside Temperature",
+                              "value" : {
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "bypassUnavailable" : true,
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "vars" : [
+                            ]
+                          },
+                          {
+                            "card" : "chooser",
+                            "cell" : {
+                              "classes" : {
+                                "fh-cols-full" : true
+                              },
+                              "styles" : {
+                                
+                              }
+                            },
+                            "kind" : "Component",
+                            "regions" : {
+                              "bar" : [
+                                {
+                                  "card" : "selectButtons",
+                                  "kind" : "Component",
+                                  "regions" : {
+                                    "children" : [
+                                      {
+                                        "card" : "tab",
+                                        "kind" : "Component",
+                                        "templateSlots" : {
+                                          "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
+                                          "busy" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "label" : "1h",
+                                          "onclick" : {
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                            }
+                                          }
+                                        },
+                                        "vars" : [
+                                        ]
+                                      },
+                                      {
+                                        "card" : "tab",
+                                        "kind" : "Component",
+                                        "templateSlots" : {
+                                          "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
+                                          "busy" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "label" : "24h",
+                                          "onclick" : {
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                            }
+                                          }
+                                        },
+                                        "vars" : [
+                                        ]
+                                      },
+                                      {
+                                        "card" : "tab",
+                                        "kind" : "Component",
+                                        "templateSlots" : {
+                                          "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
+                                          "busy" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "label" : "7d",
+                                          "onclick" : {
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                            }
+                                          }
+                                        },
+                                        "vars" : [
+                                        ]
+                                      },
+                                      {
+                                        "card" : "tab",
+                                        "kind" : "Component",
+                                        "templateSlots" : {
+                                          "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
+                                          "busy" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "label" : "30d",
+                                          "onclick" : {
+                                            "source" : {
+                                              "kind" : "Cel",
+                                              "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                            }
+                                          }
+                                        },
+                                        "vars" : [
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "templateSlots" : {
+                                    
+                                  },
+                                  "vars" : [
+                                  ]
+                                }
+                              ],
+                              "children" : [
+                                {
+                                  "card" : "historyChart",
+                                  "kind" : "Component",
+                                  "templateSlots" : {
+                                    "chart" : {
+                                      "source" : {
+                                        "fetch" : {
+                                          "entity" : "sensor.outside_temp",
+                                          "provider" : "history",
+                                          "window" : {
+                                            "by" : {
+                                              "var" : "window"
+                                            },
+                                            "kind" : "Chosen",
+                                            "options" : {
+                                              "1h" : {
+                                                "kind" : "Raw",
+                                                "span" : 3600
+                                              },
+                                              "24h" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "5minute",
+                                                "span" : 86400
+                                              },
+                                              "30d" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "hour",
+                                                "span" : 2592000
+                                              },
+                                              "7d" : {
+                                                "fallback" : true,
+                                                "kind" : "Statistics",
+                                                "period" : "hour",
+                                                "span" : 604800
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "kind" : "Fetch"
+                                      },
+                                      "steps" : [
+                                        {
+                                          "kind" : "Chart",
+                                          "style" : {
+                                            "unit" : "°C"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "vars" : [
+                                  ]
+                                }
+                              ]
+                            },
+                            "templateSlots" : {
+                              
+                            },
+                            "vars" : [
+                              {
+                                "default" : "24h",
+                                "inUrl" : true,
+                                "name" : "window"
+                              }
+                            ]
+                          },
+                          {
+                            "card" : "entityInfo",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "attributes" : {
+                                "default" : "",
+                                "source" : {
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
+                              },
+                              "entity_id" : "sensor.outside_temp"
+                            },
+                            "vars" : [
+                            ]
+                          },
+                          {
+                            "card" : "button",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "label" : "Close",
+                              "onclick" : "$ui_popups && history.back()",
+                              "size" : {
+                                "source" : "fh-size-large",
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
+                              }
+                            },
+                            "vars" : [
+                            ]
+                          }
+                        ]
+                      },
+                      "templateSlots" : {
+                        
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "sensor.outside_temp",
+            "icon" : {
+              "source" : "mdi mdi-thermometer",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Outside Temperature",
+            "onclick" : {
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "light.kitchen",
+            "icon" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Kitchen",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "light/toggle",
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "targetId" : "light.kitchen",
+            "targetKind" : "entity",
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "light.living_room",
+            "icon" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Living Room",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "light/toggle",
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "targetId" : "light.living_room",
+            "targetKind" : "entity",
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "climate.hallway",
+            "icon" : {
+              "source" : "mdi mdi-thermostat",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Hallway",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "climate/toggle",
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "targetId" : "climate.hallway",
+            "targetKind" : "entity",
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "inlineSurfaces" : {
+            "self" : {
+              "content" : {
+                "card" : "popup",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "fhcol",
+                      "kind" : "Component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "tile",
+                            "cell" : {
+                              "classes" : {
+                                "fh-active" : {
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "off" : false,
+                                        "unavailable" : false,
+                                        "unknown" : false
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : true
+                                    }
+                                  ]
+                                }
+                              },
+                              "styles" : {
+                                
+                              }
+                            },
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "entity_id" : "binary_sensor.front_door",
+                              "icon" : {
+                                "source" : "mdi mdi-door-open",
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
+                              },
+                              "label" : "Front Door",
+                              "onoff" : {
+                                "source" : true,
+                                "type" : "bool"
+                              },
+                              "value" : {
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "bypassUnavailable" : true,
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "vars" : [
+                            ]
+                          },
+                          {
+                            "card" : "entityInfo",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "attributes" : {
+                                "default" : "",
+                                "source" : {
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
+                              },
+                              "entity_id" : "binary_sensor.front_door"
+                            },
+                            "vars" : [
+                            ]
+                          },
+                          {
+                            "card" : "button",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "label" : "Close",
+                              "onclick" : "$ui_popups && history.back()",
+                              "size" : {
+                                "source" : "fh-size-large",
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
+                              }
+                            },
+                            "vars" : [
+                            ]
+                          }
+                        ]
+                      },
+                      "templateSlots" : {
+                        
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "binary_sensor.front_door",
+            "icon" : {
+              "source" : "mdi mdi-door-open",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Front Door",
+            "onclick" : {
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
+            },
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "standby" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "media_player.tv",
+            "icon" : {
+              "source" : "mdi mdi-speaker",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Living Room TV",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "media_player/toggle",
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "targetId" : "media_player.tv",
+            "targetKind" : "entity",
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "locked" : false,
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "inlineSurfaces" : {
+            "self" : {
+              "content" : {
+                "card" : "popup",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "fhcol",
+                      "kind" : "Component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "tile",
+                            "cell" : {
+                              "classes" : {
+                                "fh-active" : {
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "locked" : false,
+                                        "off" : false,
+                                        "unavailable" : false,
+                                        "unknown" : false
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : true
+                                    }
+                                  ]
+                                }
+                              },
+                              "styles" : {
+                                
+                              }
+                            },
+                            "kind" : "Component",
+                            "regions" : {
+                              "features" : [
+                                {
+                                  "card" : "fhrow",
+                                  "kind" : "Component",
+                                  "regions" : {
+                                    "children" : [
+                                      {
+                                        "card" : "button",
+                                        "kind" : "Component",
+                                        "templateSlots" : {
+                                          "busy" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "entity_id" : "lock.front_door",
+                                          "glyph" : {
+                                            "source" : "mdi mdi-lock",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "label" : "Lock",
+                                          "service" : "lock/lock",
+                                          "size" : {
+                                            "source" : "fh-size-large",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "tapDisabled" : {
+                                            "signal" : {
+                                              "kind" : "Handler"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "locked" : true,
+                                                  "locking" : true,
+                                                  "opening" : true,
+                                                  "unavailable" : true,
+                                                  "unlocking" : true
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : false
+                                              }
+                                            ],
+                                            "type" : "bool"
+                                          },
+                                          "targetId" : "lock.front_door",
+                                          "targetKind" : "entity"
+                                        },
+                                        "vars" : [
+                                        ]
+                                      },
+                                      {
+                                        "card" : "button",
+                                        "kind" : "Component",
+                                        "templateSlots" : {
+                                          "busy" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "entity_id" : "lock.front_door",
+                                          "glyph" : {
+                                            "source" : "mdi mdi-lock-open-variant",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "label" : "Unlock",
+                                          "service" : "lock/unlock",
+                                          "size" : {
+                                            "source" : "fh-size-large",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "tapDisabled" : {
+                                            "signal" : {
+                                              "kind" : "Handler"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "locking" : true,
+                                                  "opening" : true,
+                                                  "unavailable" : true,
+                                                  "unlocked" : true,
+                                                  "unlocking" : true
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : false
+                                              }
+                                            ],
+                                            "type" : "bool"
+                                          },
+                                          "targetId" : "lock.front_door",
+                                          "targetKind" : "entity"
+                                        },
+                                        "vars" : [
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "templateSlots" : {
+                                    
+                                  },
+                                  "vars" : [
+                                  ]
+                                },
+                                {
+                                  "card" : "button",
+                                  "inlineSurfaces" : {
+                                    "self" : {
+                                      "content" : {
+                                        "card" : "popup",
+                                        "kind" : "Component",
+                                        "regions" : {
+                                          "children" : [
+                                            {
+                                              "card" : "fhcol",
+                                              "kind" : "Component",
+                                              "regions" : {
+                                                "children" : [
+                                                  {
+                                                    "card" : "sectionTitle",
+                                                    "kind" : "Component",
+                                                    "templateSlots" : {
+                                                      "label" : "Open the door?"
+                                                    },
+                                                    "vars" : [
+                                                    ]
+                                                  },
+                                                  {
+                                                    "card" : "tile",
+                                                    "cell" : {
+                                                      "classes" : {
+                                                        "fh-active" : {
+                                                          "source" : {
+                                                            "kind" : "Entity"
+                                                          },
+                                                          "steps" : [
+                                                            {
+                                                              "cases" : {
+                                                                "locked" : false,
+                                                                "off" : false,
+                                                                "unavailable" : false,
+                                                                "unknown" : false
+                                                              },
+                                                              "kind" : "Match",
+                                                              "otherwise" : true
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      "styles" : {
+                                                        
+                                                      }
+                                                    },
+                                                    "kind" : "Component",
+                                                    "templateSlots" : {
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "entity_id" : "lock.front_door",
+                                                      "icon" : {
+                                                        "signal" : {
+                                                          "kind" : "Attr",
+                                                          "name" : "class"
+                                                        },
+                                                        "source" : {
+                                                          "kind" : "Entity"
+                                                        },
+                                                        "steps" : [
+                                                          {
+                                                            "cases" : {
+                                                              "jammed" : "mdi mdi-lock-alert",
+                                                              "locked" : "mdi mdi-lock",
+                                                              "locking" : "mdi mdi-lock-clock",
+                                                              "open" : "mdi mdi-lock-open-variant",
+                                                              "opening" : "mdi mdi-lock-open-variant",
+                                                              "unlocked" : "mdi mdi-lock-open",
+                                                              "unlocking" : "mdi mdi-lock-clock"
+                                                            },
+                                                            "kind" : "Match",
+                                                            "otherwise" : "mdi mdi-lock"
+                                                          },
+                                                          {
+                                                            "kind" : "ThemeClasses"
+                                                          }
+                                                        ]
+                                                      },
+                                                      "label" : "Front Door Lock",
+                                                      "onoff" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "service" : {
+                                                        "signal" : {
+                                                          "kind" : "Handler"
+                                                        },
+                                                        "source" : {
+                                                          "kind" : "Entity"
+                                                        },
+                                                        "steps" : [
+                                                          {
+                                                            "cases" : {
+                                                              "locked" : "lock/unlock"
+                                                            },
+                                                            "kind" : "Match",
+                                                            "otherwise" : "lock/lock"
+                                                          }
+                                                        ]
+                                                      },
+                                                      "tapDisabled" : {
+                                                        "signal" : {
+                                                          "kind" : "Handler"
+                                                        },
+                                                        "source" : {
+                                                          "kind" : "Entity"
+                                                        },
+                                                        "steps" : [
+                                                          {
+                                                            "cases" : {
+                                                              "locking" : true,
+                                                              "opening" : true,
+                                                              "unavailable" : true,
+                                                              "unlocking" : true
+                                                            },
+                                                            "kind" : "Match",
+                                                            "otherwise" : false
+                                                          }
+                                                        ],
+                                                        "type" : "bool"
+                                                      },
+                                                      "tappable" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "targetId" : "lock.front_door",
+                                                      "targetKind" : "entity",
+                                                      "value" : {
+                                                        "signal" : {
+                                                          "kind" : "Text"
+                                                        },
+                                                        "source" : {
+                                                          "bypassUnavailable" : true,
+                                                          "kind" : "Entity"
+                                                        },
+                                                        "steps" : [
+                                                          {
+                                                            "kind" : "WithUnit",
+                                                            "unit" : {
+                                                              "kind" : "Entity",
+                                                              "part" : {
+                                                                "kind" : "Attr",
+                                                                "name" : "unit_of_measurement"
+                                                              }
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    },
+                                                    "vars" : [
+                                                    ]
+                                                  },
+                                                  {
+                                                    "card" : "button",
+                                                    "kind" : "Component",
+                                                    "templateSlots" : {
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "label" : "Open the door",
+                                                      "service" : "lock/open",
+                                                      "size" : {
+                                                        "source" : "fh-size-large",
+                                                        "steps" : [
+                                                          {
+                                                            "kind" : "ThemeClasses"
+                                                          }
+                                                        ]
+                                                      },
+                                                      "tapDisabled" : {
+                                                        "signal" : {
+                                                          "kind" : "Handler"
+                                                        },
+                                                        "source" : {
+                                                          "kind" : "Entity",
+                                                          "of" : "lock.front_door"
+                                                        },
+                                                        "steps" : [
+                                                          {
+                                                            "cases" : {
+                                                              "locking" : true,
+                                                              "open" : true,
+                                                              "opening" : true,
+                                                              "unavailable" : true,
+                                                              "unlocking" : true
+                                                            },
+                                                            "kind" : "Match",
+                                                            "otherwise" : false
+                                                          }
+                                                        ],
+                                                        "type" : "bool"
+                                                      },
+                                                      "targetId" : "lock.front_door",
+                                                      "targetKind" : "entity"
+                                                    },
+                                                    "vars" : [
+                                                    ]
+                                                  },
+                                                  {
+                                                    "card" : "button",
+                                                    "kind" : "Component",
+                                                    "templateSlots" : {
+                                                      "label" : "Cancel",
+                                                      "onclick" : "$ui_popups && history.back()",
+                                                      "size" : {
+                                                        "source" : "fh-size-large",
+                                                        "steps" : [
+                                                          {
+                                                            "kind" : "ThemeClasses"
+                                                          }
+                                                        ]
+                                                      }
+                                                    },
+                                                    "vars" : [
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              "templateSlots" : {
+                                                
+                                              },
+                                              "vars" : [
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        "templateSlots" : {
+                                          
+                                        },
+                                        "vars" : [
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "templateSlots" : {
+                                    "busy" : {
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "disabled" : {
+                                      "signal" : {
+                                        "kind" : "Handler"
+                                      },
+                                      "source" : {
+                                        "kind" : "Entity"
+                                      },
+                                      "steps" : [
+                                        {
+                                          "cases" : {
+                                            "locking" : true,
+                                            "open" : true,
+                                            "opening" : true,
+                                            "unlocking" : true
+                                          },
+                                          "kind" : "Match",
+                                          "otherwise" : false
+                                        }
+                                      ],
+                                      "type" : "bool"
+                                    },
+                                    "entity_id" : "lock.front_door",
+                                    "glyph" : {
+                                      "source" : "mdi mdi-door-open",
+                                      "steps" : [
+                                        {
+                                          "kind" : "ThemeClasses"
+                                        }
+                                      ]
+                                    },
+                                    "label" : "Open",
+                                    "onclick" : {
+                                      "source" : {
+                                        "kind" : "Cel",
+                                        "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                                      }
+                                    },
+                                    "size" : {
+                                      "source" : "fh-size-large",
+                                      "steps" : [
+                                        {
+                                          "kind" : "ThemeClasses"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "vars" : [
+                                  ]
+                                }
+                              ]
+                            },
+                            "templateSlots" : {
+                              "entity_id" : "lock.front_door",
+                              "icon" : {
+                                "signal" : {
+                                  "kind" : "Attr",
+                                  "name" : "class"
+                                },
+                                "source" : {
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "cases" : {
+                                      "jammed" : "mdi mdi-lock-alert",
+                                      "locked" : "mdi mdi-lock",
+                                      "locking" : "mdi mdi-lock-clock",
+                                      "open" : "mdi mdi-lock-open-variant",
+                                      "opening" : "mdi mdi-lock-open-variant",
+                                      "unlocked" : "mdi mdi-lock-open",
+                                      "unlocking" : "mdi mdi-lock-clock"
+                                    },
+                                    "kind" : "Match",
+                                    "otherwise" : "mdi mdi-lock"
+                                  },
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
+                              },
+                              "label" : "Front Door Lock",
+                              "onoff" : {
+                                "source" : true,
+                                "type" : "bool"
+                              },
+                              "value" : {
+                                "signal" : {
+                                  "kind" : "Text"
+                                },
+                                "source" : {
+                                  "bypassUnavailable" : true,
+                                  "kind" : "Entity"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "WithUnit",
+                                    "unit" : {
+                                      "kind" : "Entity",
+                                      "part" : {
+                                        "kind" : "Attr",
+                                        "name" : "unit_of_measurement"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "vars" : [
+                            ]
+                          },
+                          {
+                            "card" : "entityInfo",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "attributes" : {
+                                "default" : "",
+                                "source" : {
+                                  "kind" : "Entity",
+                                  "part" : {
+                                    "kind" : "Whole"
+                                  }
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Cel",
+                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                  }
+                                ]
+                              },
+                              "entity_id" : "lock.front_door"
+                            },
+                            "vars" : [
+                            ]
+                          },
+                          {
+                            "card" : "button",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "label" : "Close",
+                              "onclick" : "$ui_popups && history.back()",
+                              "size" : {
+                                "source" : "fh-size-large",
+                                "steps" : [
+                                  {
+                                    "kind" : "ThemeClasses"
+                                  }
+                                ]
+                              }
+                            },
+                            "vars" : [
+                            ]
+                          }
+                        ]
+                      },
+                      "templateSlots" : {
+                        
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "lock.front_door",
+            "icon" : {
+              "signal" : {
+                "kind" : "Attr",
+                "name" : "class"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "jammed" : "mdi mdi-lock-alert",
+                    "locked" : "mdi mdi-lock",
+                    "locking" : "mdi mdi-lock-clock",
+                    "open" : "mdi mdi-lock-open-variant",
+                    "opening" : "mdi mdi-lock-open-variant",
+                    "unlocked" : "mdi mdi-lock-open",
+                    "unlocking" : "mdi mdi-lock-clock"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : "mdi mdi-lock"
+                },
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Front Door Lock",
+            "onclick" : {
+              "source" : {
+                "kind" : "Cel",
+                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+              }
+            },
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "switch",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "on" : true
+                    },
+                    "kind" : "Match",
+                    "otherwise" : false
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "checked" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Bind"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
+            },
+            "entity_id" : "light.kitchen",
+            "icon" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Kitchen",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "light/toggle",
+            "switched" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Attr",
+                "name" : "data-switched"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "targetId" : "light.kitchen",
+            "targetKind" : "entity"
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "switch",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "on" : true
+                    },
+                    "kind" : "Match",
+                    "otherwise" : false
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "checked" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Bind"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
+            },
+            "entity_id" : "light.living_room",
+            "icon" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Living Room",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "light/toggle",
+            "switched" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Attr",
+                "name" : "data-switched"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "targetId" : "light.living_room",
+            "targetKind" : "entity"
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "switch",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "on" : true
+                    },
+                    "kind" : "Match",
+                    "otherwise" : false
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "checked" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Bind"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
+            },
+            "entity_id" : "light.plug",
+            "icon" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Plug",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "light/toggle",
+            "switched" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Attr",
+                "name" : "data-switched"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "on" : "on"
+                  },
+                  "kind" : "Match",
+                  "otherwise" : ""
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "targetId" : "light.plug",
+            "targetKind" : "entity"
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "button",
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "light.kitchen",
+            "glyph" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Kitchen",
+            "service" : "light/toggle",
+            "size" : {
+              "source" : "fh-size-large",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "targetId" : "light.kitchen",
+            "targetKind" : "entity"
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "tile",
+          "cell" : {
+            "classes" : {
+              "fh-active" : {
+                "source" : {
+                  "kind" : "Entity"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "off" : false,
+                      "unavailable" : false,
+                      "unknown" : false
+                    },
+                    "kind" : "Match",
+                    "otherwise" : true
+                  }
+                ]
+              }
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "light.spotlights",
+            "icon" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Kitchen Ceiling Spotlights Above The Sink",
+            "onoff" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "service" : "light/toggle",
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "tappable" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "targetId" : "light.spotlights",
+            "targetKind" : "entity",
+            "value" : {
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "kind" : "WithUnit",
+                  "unit" : {
+                    "kind" : "Entity",
+                    "part" : {
+                      "kind" : "Attr",
+                      "name" : "unit_of_measurement"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "button",
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "entity_id" : "light.spotlights",
+            "glyph" : {
+              "source" : "mdi mdi-lightbulb",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "label" : "Kitchen Ceiling Spotlights Above The Sink",
+            "secondary" : "on",
+            "service" : "light/toggle",
+            "size" : {
+              "source" : "fh-size-large",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            },
+            "targetId" : "light.spotlights",
+            "targetKind" : "entity"
+          },
+          "vars" : [
+          ]
+        }
+      ]
+    },
+    "templateSlots" : {
+      
+    },
+    "vars" : [
+    ]
+  },
+  "cards" : {
+    "button" : {
+      "template" : "{{#href}}<a class=\"fh-button {{#round.has}}fh-circle{{/round.has}}{{^round.has}}fh-press {{size}} {{#glyph.has}}fh-badged{{/glyph.has}}{{/round.has}} {{#current}}fh-current-dashboard{{/current}}\"{{#current}} aria-current=\"page\"{{/current}} href=\"{{{href}}}\">{{#glyph.has}}{{#round.has}}<i class=\"{{glyph}}\" {{{glyph.bind}}}></i>{{/round.has}}{{^round.has}}<span class=\"fh-badge\"><i class=\"{{glyph}}\" {{{glyph.bind}}}></i></span>{{/round.has}}{{/glyph.has}}{{#secondary.has}}<span class=\"fh-lines\">{{/secondary.has}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>{{/secondary.has}}</a>{{/href}}{{^href}}<button class=\"{{#round.has}}fh-circle{{/round.has}}{{^round.has}}fh-press {{size}} {{#glyph.has}}fh-badged{{/glyph.has}}{{/round.has}}\" data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}}{{#glyph.has}}{{#round.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/round.has}}{{/glyph.has}}{{/busyVisual.has}}>{{#glyph.has}}{{#round.has}}<i class=\"{{glyph}}\" {{{glyph.bind}}}></i>{{/round.has}}{{^round.has}}<span class=\"fh-badge fh-icon-shape\"{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}><i class=\"{{glyph}}\" {{{glyph.bind}}}></i></span>{{/round.has}}{{/glyph.has}}{{#secondary.has}}<span class=\"fh-lines\">{{/secondary.has}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>{{/secondary.has}}</button>{{/href}}"
+    },
+    "chooser" : {
+      "regions" : {
+        "bar" : {
+          "fill" : "eager"
+        },
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-col\">{{{bar}}}{{{children}}}</div>"
+    },
+    "entityInfo" : {
+      "template" : "<div class=\"fh-card fh-entity-info\">\n  <code class=\"fh-entity-info-id\">{{entity_id}}</code>{{#attributes}}\n  <pre class=\"fh-entity-info-attrs\">{{attributes}}</pre>{{/attributes}}\n</div>"
+    },
+    "fhcol" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+    },
+    "fhrow" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-row {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+    },
+    "historyChart" : {
+      "template" : "<div class=\"fh-card fh-chart\">{{{chart}}}</div>"
+    },
+    "popup" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-popup-backdrop\" data-on:click=\"$ui_popups && history.back()\"></div><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{{children}}}</dialog>"
+    },
+    "sectionTitle" : {
+      "template" : "<h2 class=\"fh-section fh-text\"><span class=\"fh-text-run\">{{label}}</span></h2>"
+    },
+    "selectButtons" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-tabs fh-select\">{{{children}}}</div>"
+    },
+    "switch" : {
+      "template" : "<article class=\"fh-card fh-toggle fh-tile-card\" {{{switched.bind}}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>\n  <div class=\"fh-tile\">{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></span>\n  <label class=\"fh-switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked.bind}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}} {{#checked.signal}}data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && (${{checked.signal}} = {{{switched.jsValue}}})\"{{/checked.signal}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}} />\n    <span></span>\n  </label></div>\n</article>"
+    },
+    "tab" : {
+      "template" : "<a data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{{onclick}}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>",
+      "wrapAsCell" : false
+    },
+    "tile" : {
+      "regions" : {
+        "features" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<article class=\"fh-card fh-entity fh-tile-card\">\n  <div class=\"fh-tile {{#tappable.has}}fh-tappable{{/tappable.has}} {{#tapDisabled}}fh-disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}fh-disabled{{/disabled}}{{/tapDisabled}}\"{{#tappable.has}}\n  data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{/tappable.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\" {{{label.bind}}}>{{label}}</span></span>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value.bind}}}>{{value}}</span></span>{{#secondary.has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</span></div>{{{features}}}\n</article>"
+    }
+  },
+  "surfaces" : {
+    
+  }
+}

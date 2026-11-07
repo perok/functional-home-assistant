@@ -66,10 +66,12 @@ same commit; ADRs that change the pipeline update it too.
 3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
-   the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
+   the starter and the test dashboards (`testkit/FixtureEntries`, one concern each: a new
+   shape joins the dashboard of its concern, or gets one), so
+   `sbt 'fh-datastar-view/testFull'` catches any drift.
    Regenerate them deliberately when the wire format is *meant* to change, with
    **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
-   What those dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
+   What the test dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
    (`src/test/resources/goldens/`, the same command) hold each body, surface and node patch, so a
    change that moves the wire wholesale can still show it sends the same bytes.
 

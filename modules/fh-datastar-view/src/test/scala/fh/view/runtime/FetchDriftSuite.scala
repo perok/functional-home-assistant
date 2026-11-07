@@ -166,7 +166,7 @@ class FetchDriftSuite extends munit.FunSuite {
   }
 
   private lazy val cases =
-    List(fixture("fixture-features"), fixture("fixture-surfaces"), shapes)
+    List("cards", "readings", "charts").map(fixture) :+ shapes
 
   /** No selection, each member of each tab group, and each popup open. */
   private def uiStates(c: Case): List[Selections] = {

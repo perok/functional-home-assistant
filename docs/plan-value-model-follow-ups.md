@@ -7,12 +7,6 @@ is built, and the order below is a proposal.
 
 **State:** not started.
 
-## Before the stack merges
-
-- **The PR's numbers:** three interleaved rounds of `RenderBench` (`condition`, `conditionTree`,
-  `conditionCel`, `conditionAttr`, `page`, `tickRender`) and `ValidateBench`, `main` against the
-  stack's head; each step so far has one round.
-
 ## Small
 
 - **`EntityState.none` is test-only** (`StateStore.scala`): its callers are `ConditionsSuite` and
@@ -32,7 +26,6 @@ is built, and the order below is a proposal.
   step's frames and keeps the old state). A CEL failure would become that error instead of a
   `"cel error: …"` string carried as a value, which is the one way a step meets an input its type
   rules out (`First`, `AllOf` or `AnyOf` over a non-list).
-- **Goldens as short, specific dashboards,** in place of whole fixture and smoke pages.
 - **The tap call design:** a declared call id in place of the URL a template spells out. A
   `number` slot type (slot-views point 4) waits on it.
 - **One machinery for "a value picks what fills a region":** a state `c.iff` is a bake group
