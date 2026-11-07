@@ -253,15 +253,13 @@ private[model] object Validate:
         v: ValueExpr,
         env: List[(String, ValueType)]
     ): List[String] =
-      def unnamed(e: ValueExpr): Boolean =
-        e.readsMissingSubject || e.cels.exists(_._2.values.exists(unnamed))
       v.typed(env)
         .left
         .toOption
         .toList
         .map(m => s"$nodeId: $what ${m.message}") ++
         Option
-          .when(unnamed(v))(
+          .when(v.readsMissingSubject)(
             s"$nodeId: $what reads an entity it does not name — an " +
               "expression value has no subject"
           )
@@ -305,33 +303,41 @@ private[model] object Validate:
           ).fold(inputErrors(nodeId, s"expression value '$name'", v, Nil))(
             List(_)
           )
-      } ++ c.templateSlots.toList.sortBy(_._1).flatMap { (slot, src) =>
-        // Each CEL's own, read by that CEL; the node's are in scope beside.
-        val env = ValueExpr.env(c.values)
-        src.expr.cels.flatMap { (cel, own) =>
-          val read = Cel.identifiers(cel)
-          own.keys.toList.sorted.flatMap { name =>
-            if (
-              !Dashboard.ExpressionValueName.matches(name) ||
-              Cel.fixedNames.contains(name)
-            )
-              List(
-                s"$nodeId: slot '$slot' has an expression value '$name' its " +
-                  "expression cannot read — letters, digits and '_', and not " +
-                  s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
+      } ++ (
+        labelled(c.bound).map((_, n, s) =>
+          (s"slot '$n'", s.expr, ValueExpr.env(c.values))
+        ) ++ c.values.toList
+          .sortBy(_._1)
+          .map((n, v) => (s"expression value '$n'", v, Nil))
+      ).flatMap { (where, expr, env) =>
+        // Each CEL's own at any depth, read by that CEL; the node's are in
+        // scope beside, but not inside a guard or an order term.
+        expr.scoped.flatMap { (e, nodeScope) =>
+          e.cels.flatMap { (cel, own) =>
+            val read = Cel.identifiers(cel)
+            own.keys.toList.sorted.flatMap { name =>
+              if (
+                !Dashboard.ExpressionValueName.matches(name) ||
+                Cel.fixedNames.contains(name)
               )
-            else if (!read.contains(name))
-              List(
-                s"$nodeId: slot '$slot' has an expression value '$name' its " +
-                  "expression does not read"
-              )
-            else
-              inputErrors(
-                nodeId,
-                s"slot '$slot''s expression value '$name'",
-                own(name),
-                env
-              )
+                List(
+                  s"$nodeId: $where has an expression value '$name' its " +
+                    "expression cannot read — letters, digits and '_', and not " +
+                    s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
+                )
+              else if (!read.contains(name))
+                List(
+                  s"$nodeId: $where has an expression value '$name' its " +
+                    "expression does not read"
+                )
+              else
+                inputErrors(
+                  nodeId,
+                  s"$where's expression value '$name'",
+                  own(name),
+                  if (nodeScope) env else Nil
+                )
+            }
           }
         }
       } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {

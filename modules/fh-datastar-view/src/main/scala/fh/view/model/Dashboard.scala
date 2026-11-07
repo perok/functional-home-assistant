@@ -141,16 +141,22 @@ final case class BoundSlot(
     fetch.fold(SlotShape.State(this))(q => SlotShape.Fetch(SlotAsk(q, stage)))
 
   /** What a render must answer before it reads this slot: its own fetch, or the
-    * fetches among the values its CEL reads, as their raw answers.
+    * fetches among the inputs it reads, as their raw answers.
     */
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
       inputs.map(_.source).collect { case Value.Fetch(f) => SlotAsk(f, None) }
 
-  /** Every named input its CELs read: the node's, and each CEL's own. */
+  /** Every named input it reads, at any depth: the node's values, each CEL's
+    * own, and theirs.
+    */
   def inputs: List[ValueExpr] =
-    values.values.toList ++ expr.cels.flatMap(_._2.values)
+    values.values.toList ++
+      (expr :: values.values.toList)
+        .flatMap(_.all)
+        .flatMap(_.cels)
+        .flatMap(_._2.values)
 
   /** What the renderer keys a value by (signal names, the once-cache): two
     * nodes saying the same thing over the same values share a signal. A themed

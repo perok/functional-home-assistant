@@ -216,7 +216,7 @@ private[runtime] final class MemberGraph(
           // Stable over candidate order: the tiebreak that stops ties
           // reshuffling on every tick.
           members
-            .map(m => m -> keys.of(entityOf(m), states))
+            .map(m => m -> keys.of(entityOf(m), states, Evaluator.noFetch))
             .sortWith((a, b) => keys.compare(a._2, b._2) < 0)
             .map(_._1)
       s.limit.fold(ordered)(ordered.take)

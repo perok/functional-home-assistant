@@ -85,13 +85,17 @@ path takes the node's values as an argument. The binding fixes each name's type,
 which each CEL's activation computes on every render (`Evaluator.activation`), each input
 compiled once.
 
-### A slot's own values
+### A CEL's own values
 
-A slot may carry values of its own (`Slot.expressionValues`, `values` on the wire beside the
-node's), the same kinds. A function can then hand out a finished slot that brings its inputs —
-`c.bar.remainingOfPeak(left)`'s whole carries the countdown's history — with no node having to
-declare them, and two slots can use one name for different reads. Binding merges the node's and
-the slot's; a name in both is a build error, as is one the slot's own expression does not read.
+A CEL may carry values of its own (`values` on a `simpleMod.Cel` step or a `CelRead`, `inputs` on
+the wire), the same kinds as a node's. A function can then hand out a finished reading that brings
+its inputs — `c.bar.remainingOfPeak(left)`'s whole carries the countdown's history — with no node
+having to declare them, and two CELs can use one name for different reads. **Its own shadow the
+node's:** a name in both reads the CEL's own there, so a helper's input never clashes with a name
+the author picked. A node value every CEL shadows is read by none, which is refused, as is an own
+value its CEL does not read. An own value may hold a CEL with values of its own, and every rule
+here holds at any depth: what a slot binds, fetches and checks is every input it holds, its
+inputs' inputs included.
 
 ### A fetch is a value read on demand
 

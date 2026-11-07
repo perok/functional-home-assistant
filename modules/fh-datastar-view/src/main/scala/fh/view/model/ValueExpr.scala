@@ -128,15 +128,33 @@ final case class ValueExpr(
       case _                  => Nil
     ) ++ steps.collect { case Step.Cel(src, in) => src -> in }
 
-  def celSources: List[String] = cels.map(_._1)
+  /** It and every expression inside it ([[parts]]) at any depth, each with
+    * whether its CELs see the node's values: a guard and an order term, read
+    * per member, see none, and nor does anything inside them.
+    */
+  def scoped: List[(ValueExpr, Boolean)] = within(nodeScope = true)
 
-  /** The node's values its CELs read: by name, where no input of that CEL's own
-    * has it.
+  private def within(nodeScope: Boolean): List[(ValueExpr, Boolean)] =
+    (this, nodeScope) :: parts.flatMap {
+      case ValueExpr.Inner.Item(e)      => e.within(nodeScope)
+      case ValueExpr.Inner.Input(e)     => e.within(nodeScope)
+      case ValueExpr.Inner.PerMember(e) => e.within(nodeScope = false)
+      case ValueExpr.Inner.Operand(_)   => Nil
+    }
+
+  /** It and every expression inside it, at any depth. */
+  def all: List[ValueExpr] = scoped.map(_._1)
+
+  /** The node's values its CELs read, at any depth: by name, where no input of
+    * that CEL's own has it.
     */
   def readsNamed(values: Map[String, ValueExpr]): Map[String, ValueExpr] =
     if (values.isEmpty) values
     else
-      val read = cels.flatMap((src, own) => Cel.identifiers(src) -- own.keySet)
+      val read = scoped
+        .collect { case (e, true) => e }
+        .flatMap(_.cels)
+        .flatMap((src, own) => Cel.identifiers(src) -- own.keySet)
       values.filter((n, _) => read.contains(n))
 
   /** Why it cannot decide where a bool is required, read with no named values:

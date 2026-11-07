@@ -186,7 +186,9 @@ private[view] object Evaluator {
   ): Built[List[Run]] =
     items.traverse(compile(_, scope, named).map(_.run))
 
-  /** For readings `validate` keeps from a fetch: a condition, an order key. */
+  /** For a decision outside a render, where no fetch is answered: a set's
+    * clause, guard and order, a state surface, a press on a set.
+    */
   val noFetch: FetchTemplate => Object = _ => ""
 
   /** A set's candidates present in a snapshot: what a call over it acts on. */
@@ -194,7 +196,9 @@ private[view] object Evaluator {
       p: Value.Present,
       scope: Scope
   ): Built[Map[String, EntityState] => List[String]] =
-    present(p, scope).map(is => states => p.candidates.filter(is(_, states)))
+    present(p, scope).map(is =>
+      states => p.candidates.filter(is(_, states, noFetch))
+    )
 
   /** An ordering, its keys read once per candidate rather than per comparison
     * (`publishSetOrdered`): a bool key sorts `true` first under `asc`; a
@@ -208,12 +212,16 @@ private[view] object Evaluator {
   ) {
 
     /** A candidate the store lacks reads as nothing: false, or no value. */
-    def of(id: String, states: Map[String, EntityState]): Array[Any] =
+    def of(
+        id: String,
+        states: Map[String, EntityState],
+        fetched: FetchTemplate => Object
+    ): Array[Any] =
       val st = states.getOrElse(id, null)
       val out = new Array[Any](runs.length)
       var i = 0
       while (i < runs.length) {
-        out(i) = runs(i)(st, states, noFetch)
+        out(i) = runs(i)(st, states, fetched)
         i += 1
       }
       out
@@ -290,7 +298,7 @@ private[view] object Evaluator {
       Right((_, _, _) => c)
     case p: Value.Present =>
       present(p, scope).map(is =>
-        (_, states, _) => p.candidates.filter(is(_, states))
+        (_, states, fetched) => p.candidates.filter(is(_, states, fetched))
       )
     case Value.List(_, items) =>
       runs(items, scope, named).map(rs =>
@@ -326,7 +334,7 @@ private[view] object Evaluator {
         .map(keys =>
           (subject, states, fetched) =>
             prev(subject, states, fetched) match
-              case ids: List[?] => leader(ids, keys, states)
+              case ids: List[?] => leader(ids, keys, states, fetched)
               case _            => null
         )
     case f: Step.Simple => Right(simple(f, prev))
@@ -396,16 +404,18 @@ private[view] object Evaluator {
   private def present(
       p: Value.Present,
       scope: Scope
-  ): Built[(String, Map[String, EntityState]) => Boolean] =
+  ): Built[
+    (String, Map[String, EntityState], FetchTemplate => Object) => Boolean
+  ] =
     p.when.toList
       .traverse((id, g) => inner(g, scope).map(id -> _.run))
       .map { list =>
         val guards = list.toMap
-        (id, states) =>
+        (id, states, fetched) =>
           val g = guards.getOrElse(id, null)
           g == null || {
             val st = states.getOrElse(id, null)
-            st != null && holds(g(st, states, noFetch))
+            st != null && holds(g(st, states, fetched))
           }
       }
 
@@ -414,7 +424,11 @@ private[view] object Evaluator {
     */
   private def countIs(
       candidates: List[String],
-      is: (String, Map[String, EntityState]) => Boolean,
+      is: (
+          String,
+          Map[String, EntityState],
+          FetchTemplate => Object
+      ) => Boolean,
       op: Op,
       n: Long
   ): Run = {
@@ -430,12 +444,12 @@ private[view] object Evaluator {
       case Op.Eq | Op.Ne => lo == hi || n < lo || n > hi
       case _             => holdsAt(lo) == holdsAt(hi)
     val size = candidates.size.toLong
-    (_, states, _) =>
+    (_, states, fetched) =>
       var lo = 0L
       var hi = size
       var rest = candidates
       while (rest.nonEmpty && !settled(lo, hi)) {
-        if (is(rest.head, states)) lo += 1 else hi -= 1
+        if (is(rest.head, states, fetched)) lo += 1 else hi -= 1
         rest = rest.tail
       }
       holdsAt(lo)
@@ -457,13 +471,14 @@ private[view] object Evaluator {
   private def leader(
       ids: List[?],
       keys: Keys,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fetched: FetchTemplate => Object
   ): Any =
     var best: String | Null = null
     var bestKeys: Array[Any] = Array.empty
     ids.foreach {
       case id: String =>
-        val k = keys.of(id, states)
+        val k = keys.of(id, states, fetched)
         if (best == null || keys.compare(k, bestKeys) < 0) {
           best = id
           bestKeys = k

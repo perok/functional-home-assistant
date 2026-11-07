@@ -1024,10 +1024,13 @@ lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, a
 re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
-**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034): the slot
+**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034), at any
+depth: an input's own input, a list item, a guard or an order term inside the slot. The slot
 keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
-pipeline one argument, not a box. A value's fetch is a `SlotAsk` with the passthrough stage among
-the node's `fetches`, so the page's pre-read and the render key carry it already; the patch step's
+pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
+surface, a press on a set) has no answers to read: a fetch there reads as none. A value's fetch
+is a `SlotAsk` with the passthrough stage among the node's `fetches`, so the page's pre-read and
+the render key carry it already; the patch step's
 `readsForPull(touchedIds, …)` already pre-reads the fetches of the nodes whose signals it updates,
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.

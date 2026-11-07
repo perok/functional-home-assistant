@@ -1873,7 +1873,7 @@ class PklBuildSuite extends munit.FunSuite {
     val value = node.bound("value")
     assertEquals(value.entityId, Some("sensor.power"))
     assertEquals(value.literal, None)
-    assertEquals(value.expr.celSources.headOption, Some("value.state"))
+    assertEquals(value.expr.cels.headOption.map(_._1), Some("value.state"))
     val plain = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
         |node = new c.EntityCard { entity = light; value = c.expr("value.state") }""".stripMargin
@@ -2148,7 +2148,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(rowOf(other).bound("state").entityId, Some("sensor.w"))
     assertEquals(
-      rowOf(other).bound("state").expr.celSources.headOption,
+      rowOf(other).bound("state").expr.cels.headOption.map(_._1),
       Some("""value.state + ' W'""")
     )
     assertEquals(
@@ -2429,13 +2429,13 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(row.templateSlots("valueRest").literal, Some(",100"))
     // The hue is `hs_color[0]`, guarded: a light that is off reports none.
     assertEquals(
-      row.bound("value").expr.celSources.headOption,
+      row.bound("value").expr.cels.headOption.map(_._1),
       Some(
         "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
       )
     )
     assertEquals(
-      row.bound("fill").expr.celSources.headOption,
+      row.bound("fill").expr.cels.headOption.map(_._1),
       Some(
         "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
       )
@@ -2513,14 +2513,14 @@ class PklBuildSuite extends munit.FunSuite {
     // shape is a contract. The colour-temperature span is the light's own range
     // baked (4535.0), not a constant.
     assertEquals(
-      rowOf(kids(0)).bound("fillColor").expr.celSources.headOption,
+      rowOf(kids(0)).bound("fillColor").expr.cels.headOption.map(_._1),
       Some("""value.attr[?'rgb_color'].optMap(rgb,
         |  size(rgb) == 3
         |    ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
         |    : '').orValue('')""".stripMargin)
     )
     assertEquals(
-      rowOf(kids(1)).bound("fillColor").expr.celSources.headOption,
+      rowOf(kids(1)).bound("fillColor").expr.cels.headOption.map(_._1),
       Some(
         """value.attr[?'color_temp_kelvin'].optMap(k,
         |  cel.bind(t,

@@ -27,7 +27,7 @@ class Cel extends Step {
   src: String
   /// Named inputs of this expression alone, beside its node's
   /// ([[nodes.Node.expressionValues]]): the same kinds, a fetch included
-  /// (`p.history.of(e, w)`). A name in both is a build error.
+  /// (`p.history.of(e, w)`). A name in both reads this one.
   hidden values: Mapping<String, nodes.ExpressionValue>? = null
   inputs: Map<String, Any>? = values?.toMap()?.mapValues((_, v) -> slotMod.wireInput(v))
 }
