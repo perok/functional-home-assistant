@@ -987,7 +987,7 @@ of what the render reads, not all of it: an entity reached only through a signal
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
 Compile builds one program per distinct CEL source, typed names and type of `value`, the first
-time the walk asks for it (`Validated.scope`). The build compiles each slot into one closure
+time the walk asks for it (`Evaluator.Scope`). The build compiles each slot into one closure
 (`Ready.Slot.run`, through `Evaluator.compile`, the one evaluator every reading runs on, ADR
 0035), with each CEL program looked up and each literal
 operand read up front, so a paint walks no step list and looks nothing up. The renderer plans each
@@ -1044,7 +1044,7 @@ runs; otherwise read the fetches and run the transform. The order reaches back i
 pre-read: each fetching slot carries its `valueWhile` (`Fetching.Gate`), and the pre-read asks
 its fetches only where the snapshot's `Decisions` say it holds. So a slot whose `valueWhile` does
 not hold asks for no history, and the pre-read, the render key (`Renderer.asked`) and the paint
-(`Renderer.withheld`) all go through one `gateHolds`, over the gate `BoundSlot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
+(`Renderer.withheld`) all go through one `gateHolds`, over the gate `Ready.Slot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
 ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a

@@ -21,8 +21,8 @@ Text, whole, real, bool, list, entity, series, markup, and `null`, the one absen
 in a condition alike (`Steps.read`). A typed read of one attribute converts only that one
 until something has built the entity's whole attribute map (`EntityState.attribute`).
 
-**A list source declares its item type** (`itemType`; Pkl's `ListRead` is a list of predicates,
-so `bool`), and each item is held to it. The type is the list's own, never read off its items or
+**A list source declares its item type** (`itemType`; Pkl's `ListRead` is the and/or of
+conditions, so `bool`), and each item is held to it. The type is the list's own, never read off its items or
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
 over none holds, `AnyOf` over none does not, `Count` is 0.
 
@@ -116,11 +116,20 @@ unavailable switch.
 
 ## The evaluator
 
-- **One compiler, compiled once per consumer.** `Evaluator.compile` turns a `ValueExpr` into a
+- **One compiler, run once, at the build.** `Evaluator.compile` turns a `ValueExpr` into a
   closure `(subject, states, fetched) => Any` (SICP's `analyze`: the tree is walked once, at
-  compile, never per call). The renderer compiles per slot plan, `MemberGraph` and `SurfaceGraph`
-  when built, a CEL source's inputs with their slot. `Validated` carries the CEL programs it
-  consumes.
+  compile, never per call). `Dashboard.validated` walks the wire model into a second, compiled
+  one (`Ready`, `Ready.Compile`), every expression beside its run, from `validate`'s own typing;
+  the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls read only that tree,
+  so nothing that runs can reach an expression with no run. An expression inside another (a CEL
+  input, a guard, a list's item) compiles into its parent's run. One scope per dashboard
+  (`Evaluator.Scope`) builds each CEL program the first time a `Cel.Key` asks; `Cel.asts`, the
+  process-wide cache of checked trees, serves the re-validation a dump refresh does.
+- **Two models, not one:** a class holding an expression or a node has a compiled twin, the rest
+  are shared. One model parametrised by its expression type needed a cast between the stages;
+  chimney's type-directed derivation has nowhere to pass a node's context; and compiling in the
+  decoder would make a decoder fail on what is not a decoding error, outside the errors
+  `validated` collects for the whole dashboard.
 - **Early stops are picked at compile time:** `Present |> Count |> Compare(op, n)` counts until
   the answer is settled, `List |> AllOf/AnyOf` stops at the item that decides it, `First` is one
   pass with no sorted list.

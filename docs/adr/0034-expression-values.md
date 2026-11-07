@@ -153,10 +153,10 @@ countdown has no value while nothing runs. It is the slot-sized case of what the
 regions: a `c.iff` branch that does not show and a candidate that is not present are not asked
 either. It is lowered as the others are, onto a bool slot nested in
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
-or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
+or a constant (`false` is `neverHolds`, a literal `false`); it reads the card's subject when it names none.
 
 It is decided first, and **once per state snapshot**, in that snapshot's decisions (the pipeline
-doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gate` being the one
+doc's §1a), keyed by content (the entity it is decided over, `Ready.Slot.gate` being the one
 rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
 their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
 render key, the paint and the signal path ask the same decisions, so none decides it again. A

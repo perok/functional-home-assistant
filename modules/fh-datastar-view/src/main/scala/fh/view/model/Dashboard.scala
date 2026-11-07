@@ -1231,9 +1231,7 @@ object Dashboard:
   /** Where a session opens a node variable: CEL over one entity's state. */
   final case class InitialTransform(entityId: String, transform: String)
       derives ConfiguredDecoder:
-    /** The one spelling of its key: validated, compiled and run by it, as a
-      * slot's transform is by [[BoundSlot.celKey]].
-      */
+    /** The one spelling of its key: validated, compiled and run by it. */
     def celKey: Cel.Key = Cel.Key(transform)
 
   /** The slot naming a card's subject, which Pkl names on every other slot that

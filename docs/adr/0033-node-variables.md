@@ -62,8 +62,8 @@ name → default view most readers want. Nothing else: no type, no list of allow
 
 **Initial transform.** `Declaration.initialTransform` (`withInitialTransform(e, cel)` in Pkl): CEL
 over one whole entity as `value` (`InitialTransform(entityId, transform)`). It is compiled at
-validate into the same table as a slot's CEL, by one key (`InitialTransform.celKey`, as a slot's are
-`BoundSlot.typed`'s), and only looked up after. The page route runs it as it mints the session, and a result every
+validate through the same scope as every CEL, by one key (`InitialTransform.celKey`), into the
+compiled tree (`Ready.Dashboard.initials`), and only looked up after. The page route runs it as it mints the session, and a result every
 reader takes (`Renderer.refusals`) becomes `SessionState.initialValues`, under the viewer's
 choices and over the default. A light's slider
 opens its `control` on brightness, and with `.opensOn(…)` on the head for the mode the light is in
