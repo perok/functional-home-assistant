@@ -115,6 +115,14 @@ them to `signalsFor`. A site that reads no snapshot (a `once` slot, a subject) r
 build time and raises if one ever reaches it. Its entity is written down at build time, as a
 fetch slot's is, so no viewer's value can move it (ADR 0023).
 
+A decision reads one too: a set's clause and order, a state surface's condition, a `valueWhile`,
+the set a press acts on. Those are made outside a render, once per snapshot for every viewer, so
+the build lists every fetch they read and the server answers the list before anything decides,
+wherever it reads a snapshot for a renderer. Because the decision is shared, the build refuses a
+fetch in one that reads a viewer's variable (a chooser's window); without one, the answers depend
+on no snapshot, and the renderer keeps the newest. As in a slot, a moved answer wakes nothing: the
+decision is made again when its entities change.
+
 ### Boolean slots, and what fills one
 
 A slot carries a **type** (`Slot.type`: `"text"` by default, or `"bool"`), set by the card where it
