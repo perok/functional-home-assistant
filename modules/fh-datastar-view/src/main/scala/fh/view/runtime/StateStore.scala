@@ -65,9 +65,6 @@ case class EntityState(
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
 
-  /** A subject where there is none; nothing reads it. */
-  val none: EntityState = EntityState("", "", Map.empty)
-
   // HA's compressed feed sends epoch seconds as a float.
   def fromEpoch(seconds: Double): Instant =
     Instant.ofEpochMilli(math.round(seconds * 1000d))

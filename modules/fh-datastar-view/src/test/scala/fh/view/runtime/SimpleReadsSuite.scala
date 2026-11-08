@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import fh.view.testkit.Conds
+import fh.view.testkit.DashboardBuilders.noSubject
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.*
@@ -144,7 +145,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       run(
         Part.Attr("brightness"),
         Step.Percent(whole(0), whole(255)),
-        EntityState.none
+        noSubject
       ),
       null
     )

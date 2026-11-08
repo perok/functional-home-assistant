@@ -5,22 +5,22 @@ plans (`plan-slot-values.md`, `plan-one-compile.md`) are built and deleted; thei
 in ADRs 0028, 0034 and 0035. Nothing here is agreed yet: each item needs a design round before it
 is built, and the order below is a proposal.
 
-**State:** not started.
+**State:** the small items are in progress on `value-model-small`.
 
 ## Small
 
-- **`EntityState.none` is test-only** (`StateStore.scala`): its callers are `ConditionsSuite` and
-  `SimpleReadsSuite`, so it moves to the testkit.
-- **One name for named inputs:** Pkl `values`, the wire's `inputs`, Scala's `values` and the docs'
-  "expression values" are one thing. A rename, and the wire moves with it. With it, the Pkl type
-  narrows toward `slotMod.Expr`: if `count()` and `p.history.of` answered an `Expr`, an input would
-  be an `Expr` or a literal or entity shorthand, and `wireInput` would lose its tally and fetch
-  cases.
-- **A number parsed once where it is read twice:** `Evaluator.Keys` parses both sides of every
-  comparison of a sort, where once per candidate does; `Percent` and `Fill` parse a text operand
-  twice (`isNum`, then `dbl`).
+- **One name for named inputs** (agreed 2026-11-08): Pkl `values`/`expressionValues`, the wire's
+  `inputs`/`values`, Scala's `values` and the docs' "expression values" are one thing, and every
+  reader's name becomes `inputs`: the author writes `inputs { … }` or `.inputs(…)`, the Pkl type is
+  `Input`, and Scala and the docs say inputs. The wire field is `wireInputs`, because a Pkl class
+  cannot hold the author's field and the converted wire field under one name; only the decoder
+  and the snapshots see it.
 
 ## Design rounds
+
+- **An input is an `Expr`:** if `count()` and `p.history.of` answered a `slotMod.Expr`, an input
+  would be an `Expr` or a literal or entity shorthand, and `wireInput` would lose its tally and
+  fetch cases. With no conversion left, the wire field could take the author's name.
 
 - **Typing answers a typed expression, and the compile reads it:** `ValueExpr.typed` keeps only the
   root's type and a flat list of CEL keys, so `Evaluator.build` takes the CEL programs as an

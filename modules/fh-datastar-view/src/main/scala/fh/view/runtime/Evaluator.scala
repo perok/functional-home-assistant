@@ -222,17 +222,26 @@ private[view] object Evaluator {
       val reads: Set[SlotRead]
   ) {
 
-    /** A candidate the store lacks reads as nothing: false, or no value. */
+    /** A candidate the store lacks reads as nothing: false, or no value. Term
+      * `i`'s value is at `i`, `null` when it is no value, and its number, when
+      * it parses, at `runs.length + i`.
+      */
     def of(
         id: String,
         states: Map[String, EntityState],
         fetched: FetchTemplate => Object
     ): Array[Any] =
       val st = states.getOrElse(id, null)
-      val out = new Array[Any](runs.length)
+      val n = runs.length
+      val out = new Array[Any](2 * n)
       var i = 0
-      while (i < runs.length) {
-        out(i) = runs(i)(st, states, fetched)
+      while (i < n) {
+        val v = runs(i)(st, states, fetched)
+        if (bool(i)) out(i) = v
+        else if (!noValue(v)) {
+          out(i) = v
+          Steps.number(v).foreach(d => out(n + i) = d)
+        }
         i += 1
       }
       out
@@ -242,22 +251,27 @@ private[view] object Evaluator {
       var i = 0
       var c = 0
       while (c == 0 && i < runs.length) {
-        c = term(i, a(i), b(i))
+        c = term(i, a, b)
         i += 1
       }
       c
 
-    private def term(i: Int, l: Any, r: Any): Int =
+    private def term(i: Int, a: Array[Any], b: Array[Any]): Int =
       def directed(raw: Int) = if (descending(i)) -raw else raw
+      val l = a(i)
+      val r = b(i)
       if (bool(i)) directed(java.lang.Boolean.compare(holds(r), holds(l)))
       // Last in either direction: `unknown` is no value, not the largest
       // string, which under `desc` crowned a scene never activated.
-      else if (noValue(l) || noValue(r))
-        java.lang.Boolean.compare(noValue(l), noValue(r))
+      else if (l == null || r == null)
+        java.lang.Boolean.compare(l == null, r == null)
       else
-        directed((Steps.number(l), Steps.number(r)) match
-          case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
-          case _                  => Steps.text(l).compareTo(Steps.text(r)))
+        directed(a(runs.length + i) match
+          case x: Double =>
+            b(runs.length + i) match
+              case y: Double => java.lang.Double.compare(x, y)
+              case _         => Steps.text(l).compareTo(Steps.text(r))
+          case _ => Steps.text(l).compareTo(Steps.text(r)))
 
     private def noValue(v: Any): Boolean = v match
       case null      => true

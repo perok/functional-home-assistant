@@ -12,7 +12,7 @@ import fh.view.model.{
   ValueExpr,
   ValueType
 }
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{noSubject, st}
 import io.circe.Json
 
 /** A condition compiled and decided against live state, for a set clause's
@@ -143,7 +143,7 @@ class ConditionsSuite extends munit.FunSuite {
       op = Op.Eq,
       value = Json.fromInt(2)
     )
-    assert(holds(count, EntityState.none, states), clue = states)
+    assert(holds(count, noSubject, states), clue = states)
   }
 
   test("a guarded candidate the snapshot lacks does not count") {
@@ -157,7 +157,7 @@ class ConditionsSuite extends munit.FunSuite {
       op = Op.Eq,
       value = Json.fromInt(1)
     )
-    assert(holds(count, EntityState.none, states))
+    assert(holds(count, noSubject, states))
   }
 
   test("a condition decides as the rule says, over a sweep") {
@@ -261,7 +261,7 @@ class ConditionsSuite extends munit.FunSuite {
       assertEquals(
         holds(
           Conds.count(ids, guards, op, Json.fromInt(n)),
-          EntityState.none,
+          noSubject,
           states
         ),
         onLine(full.toDouble, n.toDouble, op),
@@ -308,7 +308,7 @@ class ConditionsSuite extends munit.FunSuite {
       b <- List("on", "off")
     ) {
       val states = snapshot(st("light.a", a), st("light.b", b))
-      val s = EntityState.none
+      val s = noSubject
       def same(cel: ValueExpr, plain: ValueExpr) =
         assertEquals(holds(cel, s, states), holds(plain, s, states), (a, b))
       same(count(e => celOn(Some(e))), count(isOn))
@@ -334,7 +334,7 @@ class ConditionsSuite extends munit.FunSuite {
       op = Op.Eq,
       value = Json.fromInt(0)
     )
-    assert(holds(none, EntityState.none, states))
+    assert(holds(none, noSubject, states))
   }
 
   test("one scope builds each CEL program once") {
@@ -345,7 +345,7 @@ class ConditionsSuite extends munit.FunSuite {
 
   test("a read of an entity the snapshot lacks is no value, not a stand-in") {
     val ghost = ValueExpr(Value.Entity(Some("light.ghost")))
-    assertEquals(run(ghost, EntityState.none, Map.empty), null)
+    assertEquals(run(ghost, noSubject, Map.empty), null)
   }
 
   private def onLine(l: Double, r: Double, op: Op): Boolean = op match
