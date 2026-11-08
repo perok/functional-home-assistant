@@ -1,0 +1,108 @@
+<!-- ==== as fixtured · body ==== -->
+<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell fh-active" id="c_0"
+  data-signals="{_e: {light: {spotlights: {t#1: true, t#2: false, t#3: 'on'}}}}"
+  data-class:fh-active="$_e.light.spotlights.t#1">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.spotlights.t#2 ? '' : @post('sse/call/smoke-long-title/' + 'light/toggle' + '/entity/light.spotlights?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-indicator="_c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
+  data-fh-node="c_0"
+  data-class:fh-disabled="$_c_0__busy || $_e.light.spotlights.t#2"
+  data-class:fh-loading="$_c_0__busy"
+  data-class:fh-error="$_c_0__error"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0__busy_slow = $_c_0__busy"
+  data-class:shape="$_c_0__busy_slow"
+  data-class:loading-indicator="$_c_0__busy_slow"
+  data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen Ceiling Spotlights Above The Sink</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.light.spotlights.t#3">on</span></span></span></div>
+</article></div>
+<div class="fh-cell" id="c_1"
+  data-signals="{_e: {light: {spotlights: {t#2: false}}}}"><button class="fh-press large fh-badged"
+  data-on:click="$_c_1__busy ? '' : $_e.light.spotlights.t#2 ? '' : @post('sse/call/smoke-long-title/' + 'light/toggle' + '/entity/light.spotlights?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.spotlights.t#2"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.spotlights.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error"><span class="fh-badge fh-icon-shape"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span><span class="fh-sub fh-text"><span class="fh-text-run" >on</span></span></span></button></div></div></div>
+<!-- ==== as fixtured · patch c_1 ==== -->
+<div class="fh-cell" id="c_1"><button class="fh-press large fh-badged"
+  data-on:click="$_c_1__busy ? '' : $_e.light.spotlights.t#2 ? '' : @post('sse/call/smoke-long-title/' + 'light/toggle' + '/entity/light.spotlights?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.spotlights.t#2"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.spotlights.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error"><span class="fh-badge fh-icon-shape"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span><span class="fh-sub fh-text"><span class="fh-text-run" >on</span></span></span></button></div>
+<!-- ==== flipped · body ==== -->
+<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell" id="c_0"
+  data-signals="{_e: {light: {spotlights: {t#1: false, t#2: false, t#3: 'off'}}}}"
+  data-class:fh-active="$_e.light.spotlights.t#1">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.spotlights.t#2 ? '' : @post('sse/call/smoke-long-title/' + 'light/toggle' + '/entity/light.spotlights?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-indicator="_c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
+  data-fh-node="c_0"
+  data-class:fh-disabled="$_c_0__busy || $_e.light.spotlights.t#2"
+  data-class:fh-loading="$_c_0__busy"
+  data-class:fh-error="$_c_0__error"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0__busy_slow = $_c_0__busy"
+  data-class:shape="$_c_0__busy_slow"
+  data-class:loading-indicator="$_c_0__busy_slow"
+  data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen Ceiling Spotlights Above The Sink</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.light.spotlights.t#3">off</span></span></span></div>
+</article></div>
+<div class="fh-cell" id="c_1"
+  data-signals="{_e: {light: {spotlights: {t#2: false}}}}"><button class="fh-press large fh-badged"
+  data-on:click="$_c_1__busy ? '' : $_e.light.spotlights.t#2 ? '' : @post('sse/call/smoke-long-title/' + 'light/toggle' + '/entity/light.spotlights?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.spotlights.t#2"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.spotlights.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error"><span class="fh-badge fh-icon-shape"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span><span class="fh-sub fh-text"><span class="fh-text-run" >on</span></span></span></button></div></div></div>
+<!-- ==== flipped · patch c_1 ==== -->
+<div class="fh-cell" id="c_1"><button class="fh-press large fh-badged"
+  data-on:click="$_c_1__busy ? '' : $_e.light.spotlights.t#2 ? '' : @post('sse/call/smoke-long-title/' + 'light/toggle' + '/entity/light.spotlights?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.spotlights.t#2"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.spotlights.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error"><span class="fh-badge fh-icon-shape"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span><span class="fh-sub fh-text"><span class="fh-text-run" >on</span></span></span></button></div>

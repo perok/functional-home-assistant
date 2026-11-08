@@ -1,0 +1,260 @@
+<!-- ==== as fixtured · body ==== -->
+<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell fh-active" id="c_0"
+  data-signals="{_e: {light: {plug: {t#1: true, t#2: false, t#3: 'on'}}}}"
+  data-class:fh-active="$_e.light.plug.t#1">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-indicator="_c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
+  data-fh-node="c_0"
+  data-class:fh-disabled="$_c_0__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_0__busy"
+  data-class:fh-error="$_c_0__error"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0__busy_slow = $_c_0__busy"
+  data-class:shape="$_c_0__busy_slow"
+  data-class:loading-indicator="$_c_0__busy_slow"
+  data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Plug</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.light.plug.t#3">on</span></span></span></div>
+</article></div>
+<div class="fh-cell fh-active" id="c_1"
+  data-signals="{_c_1__checked: 'on', _e: {light: {plug: {t#2: false, t#4: true, t#5: 'on'}}}}"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on" checked data-bind="_c_1__checked"
+  data-on:click="$_c_1__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_1__error$/}"
+  data-on-signal-patch="$_c_1__error && ($_c_1__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1" />
+    <span></span>
+  </label></div>
+</article></div>
+<div class="fh-cell fh-active" id="c_2"
+  data-signals="{_c_2__checked: 'on', _e: {light: {plug: {t#2: false, t#4: true, t#5: 'on'}}}}"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_2__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_2__busy"
+  data-class:fh-error="$_c_2__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
+  data-class:shape="$_c_2__busy_slow"
+  data-class:loading-indicator="$_c_2__busy_slow"
+  data-attr:aria-busy="$_c_2__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on" checked data-bind="_c_2__checked"
+  data-on:click="$_c_2__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_2', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_2__error$/}"
+  data-on-signal-patch="$_c_2__error && ($_c_2__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
+  data-fh-node="c_2" />
+    <span></span>
+  </label></div>
+</article></div></div></div>
+<!-- ==== as fixtured · patch c_1 ==== -->
+<div class="fh-cell" id="c_1"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on"  data-bind="_c_1__checked"
+  data-on:click="$_c_1__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_1__error$/}"
+  data-on-signal-patch="$_c_1__error && ($_c_1__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1" />
+    <span></span>
+  </label></div>
+</article></div>
+<!-- ==== as fixtured · patch c_2 ==== -->
+<div class="fh-cell" id="c_2"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_2__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_2__busy"
+  data-class:fh-error="$_c_2__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
+  data-class:shape="$_c_2__busy_slow"
+  data-class:loading-indicator="$_c_2__busy_slow"
+  data-attr:aria-busy="$_c_2__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on"  data-bind="_c_2__checked"
+  data-on:click="$_c_2__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_2', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_2__error$/}"
+  data-on-signal-patch="$_c_2__error && ($_c_2__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
+  data-fh-node="c_2" />
+    <span></span>
+  </label></div>
+</article></div>
+<!-- ==== flipped · body ==== -->
+<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell" id="c_0"
+  data-signals="{_e: {light: {plug: {t#1: false, t#2: false, t#3: 'off'}}}}"
+  data-class:fh-active="$_e.light.plug.t#1">
+<article class="fh-card fh-entity fh-tile-card">
+  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-indicator="_c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
+  data-fh-node="c_0"
+  data-class:fh-disabled="$_c_0__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_0__busy"
+  data-class:fh-error="$_c_0__error"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0__busy_slow = $_c_0__busy"
+  data-class:shape="$_c_0__busy_slow"
+  data-class:loading-indicator="$_c_0__busy_slow"
+  data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Plug</span></span>
+  <span class="fh-reading fh-text"><span class="fh-text-run"
+  data-text="$_e.light.plug.t#3">off</span></span></span></div>
+</article></div>
+<div class="fh-cell" id="c_1"
+  data-signals="{_c_1__checked: '', _e: {light: {plug: {t#2: false, t#4: false, t#5: ''}}}}"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on"  data-bind="_c_1__checked"
+  data-on:click="$_c_1__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_1__error$/}"
+  data-on-signal-patch="$_c_1__error && ($_c_1__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1" />
+    <span></span>
+  </label></div>
+</article></div>
+<div class="fh-cell" id="c_2"
+  data-signals="{_c_2__checked: '', _e: {light: {plug: {t#2: false, t#4: false, t#5: ''}}}}"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_2__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_2__busy"
+  data-class:fh-error="$_c_2__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
+  data-class:shape="$_c_2__busy_slow"
+  data-class:loading-indicator="$_c_2__busy_slow"
+  data-attr:aria-busy="$_c_2__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on"  data-bind="_c_2__checked"
+  data-on:click="$_c_2__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_2', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_2__error$/}"
+  data-on-signal-patch="$_c_2__error && ($_c_2__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
+  data-fh-node="c_2" />
+    <span></span>
+  </label></div>
+</article></div></div></div>
+<!-- ==== flipped · patch c_1 ==== -->
+<div class="fh-cell" id="c_1"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_1__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_1__busy"
+  data-class:fh-error="$_c_1__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_1__busy_slow = $_c_1__busy"
+  data-class:shape="$_c_1__busy_slow"
+  data-class:loading-indicator="$_c_1__busy_slow"
+  data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on"  data-bind="_c_1__checked"
+  data-on:click="$_c_1__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_1__error$/}"
+  data-on-signal-patch="$_c_1__error && ($_c_1__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
+  data-fh-node="c_1" />
+    <span></span>
+  </label></div>
+</article></div>
+<!-- ==== flipped · patch c_2 ==== -->
+<div class="fh-cell" id="c_2"
+  data-class:fh-active="$_e.light.plug.t#4">
+<article class="fh-card fh-toggle fh-tile-card"
+  data-attr:data-switched="$_e.light.plug.t#5"
+  data-class:fh-disabled="$_c_2__busy || $_e.light.plug.t#2"
+  data-class:fh-loading="$_c_2__busy"
+  data-class:fh-error="$_c_2__error">
+  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
+  data-class:shape="$_c_2__busy_slow"
+  data-class:loading-indicator="$_c_2__busy_slow"
+  data-attr:aria-busy="$_c_2__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></span></span>
+  <label class="fh-switch switch">
+    <input type="checkbox" value="on"  data-bind="_c_2__checked"
+  data-on:click="$_c_2__busy ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/smoke-switch-cards/' + 'light/toggle' + '/entity/light.plug?node=c_2', {filterSignals:{exclude:'.*'}})"
+  data-attr:disabled="$_e.light.plug.t#2"
+  data-on-signal-patch-filter="{include:/^_c_2__error$/}"
+  data-on-signal-patch="$_c_2__error && ($_c_2__checked = $_e.light.plug.t#5)"
+  data-indicator="_c_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
+  data-fh-node="c_2" />
+    <span></span>
+  </label></div>
+</article></div>
