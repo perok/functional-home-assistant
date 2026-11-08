@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.history.Windows
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
@@ -14,34 +16,39 @@ class ValueWhileSuite extends munit.FunSuite {
   private val history = FetchTemplate("sensor.left", Choice.Fixed(Windows.day))
   private val read = SlotRead(
     FetchRequest.History("sensor.left", Windows.day),
-    Transform.Stage.Passthrough
+    Step.Json
   )
   private val answered = FetchSnapshot.of(
     Map(read -> Staged(7L, """{"points":[[0,0.0],[60000,101.0]]}"""))
   )
 
-  private def above0(entity: Option[String]) = SlotSource(
-    transform = Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity),
-    bypassUnavailable = false,
-    `type` = SlotType.Bool
-  )
+  // A comparison that names no entity reads the card's subject.
+  private def above0(entity: Option[String]) =
+    Conds.cmp("state", Op.Gt, Json.fromInt(0), entity)
 
   // The peak of the history: what the bar's whole reads.
-  private def peak(valueWhile: Option[SlotSource]) = SlotSource(
-    transform = "math.greatest(past.transformList(i, p, p[1]))",
-    signal = Some(SignalBind.Text),
-    values = Map("past" -> ExprValue.Fetched(history)),
-    valueWhileSlot = valueWhile
+  private def peak(valueWhile: Option[ValueExpr]) = TemplateSlot(
+    ValueExpr(
+      Value.Entity(Some("sensor.left"), Part.Whole),
+      List(
+        Step.Cel(
+          "math.greatest(past.transformList(i, p, p[1]))",
+          Map("past" -> ValueExpr(Value.Fetch(history)))
+        )
+      )
+    ),
+    valueWhile = valueWhile,
+    signal = Some(SignalBind.Text)
   )
 
   private val bar = CardDef(
-    """<b {{{of__bind}}}>{{of}}</b>"""
+    """<b {{{of.bind}}}>{{of}}</b>"""
   )
 
-  private def node(of: SlotSource) = LayoutNode.Component(
+  private def node(of: TemplateSlot) = LayoutNode.Component(
     card = "bar",
-    slots = Map(
-      "entity_id" -> SlotSource(literal = Some("sensor.left")),
+    templateSlots = Map(
+      "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
       "of" -> of
     )
   )
@@ -76,32 +83,37 @@ class ValueWhileSuite extends munit.FunSuite {
     val d = dashboard(node(peak(Some(above0(None)))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
+    assertEquals(
+      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      Nil
+    )
     // Unanswered, and still renders: the transform never ran.
     assertEquals(
-      r.signalsFor(idOf(d, 0), states("0"), FetchSnapshot.empty).values.toList,
+      r.signalsFor(idOf(d, 0), Shared.of(states("0")), FetchSnapshot.empty)
+        .values
+        .toList,
       List("")
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, states("46"), Map.empty),
+      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
       List(read)
     )
     assertEquals(
-      r.signalsFor(idOf(d, 0), states("46"), answered).values.toList,
+      r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered).values.toList,
       List("101")
     )
   }
 
   test("one snapshot decides each thing once, for every reader of it") {
     val decided = Decided()
-    val snapshot = states("46")
+    val snapshot = StoreState(states("46"), 1L)
     var runs = 0
-    def ask(at: Map[String, EntityState]) =
-      decided.at(at).holds("k") { runs += 1; true }
+    def ask(at: StoreState) =
+      decided.at(at).holds("k", Set.empty) { _ => runs += 1; true }
     assert(ask(snapshot) && ask(snapshot))
     assertEquals(runs, 1)
     // Equal content, another map: decided afresh, never assumed.
-    assert(ask(states("46")))
+    assert(ask(StoreState(states("46"), 1L)))
     assertEquals(runs, 2)
   }
 
@@ -109,16 +121,15 @@ class ValueWhileSuite extends munit.FunSuite {
     def chart(e: String) = LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(e, Choice.Fixed(Windows.day))
-          ),
-          transform = Transform.Stage.Passthrough,
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          ValueExpr(
+            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
+            List(Step.Json, Step.JsonText)
+          )
         )
       )
     )
-    val on = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    val on = Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
     def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
     val d = Dashboard(
       cards = Map("chart" -> CardDef("<div>{{chart}}</div>")),
@@ -139,9 +150,11 @@ class ValueWhileSuite extends munit.FunSuite {
     def asked(a: String, b: String) =
       r.fetchesForPage(
         Set.empty,
-        Map(
-          "light.a" -> EntityState("light.a", a, Map.empty),
-          "light.b" -> EntityState("light.b", b, Map.empty)
+        Shared.of(
+          Map(
+            "light.a" -> EntityState("light.a", a, Map.empty),
+            "light.b" -> EntityState("light.b", b, Map.empty)
+          )
         ),
         Map.empty
       ).map { case SlotRead(FetchRequest.History(e, _), _) => e }
@@ -150,17 +163,24 @@ class ValueWhileSuite extends munit.FunSuite {
   }
 
   test("CEL decides it as well, when an author writes CEL") {
-    val cel = SlotSource(
-      transform = "double(state) > 0.0",
-      bypassUnavailable = false,
-      `type` = SlotType.Bool
-    )
+    val cel =
+      ValueExpr(
+        Value.Entity(
+          Some("sensor.left"),
+          bypassUnavailable = false,
+          part = Part.Whole
+        ),
+        List(Step.Cel("double(value.state) > 0.0"))
+      )
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
     assertEquals(
-      r.fetchesForPage(Set.empty, states("46"), Map.empty),
+      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      Nil
+    )
+    assertEquals(
+      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
       List(read)
     )
   }
@@ -176,43 +196,78 @@ class ValueWhileSuite extends munit.FunSuite {
       node(peak(Some(above0(None))))
     )
     val r = Renderer.create(d)
-    val plain = r.signalsFor(idOf(d, 0), states("0"), answered)
-    val gated = r.signalsFor(idOf(d, 1), states("0"), answered)
+    val plain = r.signalsFor(idOf(d, 0), Shared.of(states("0")), answered)
+    val gated = r.signalsFor(idOf(d, 1), Shared.of(states("0")), answered)
     assert(plain.keySet.intersect(gated.keySet).isEmpty, clue = (plain, gated))
     assertEquals(plain.values.toList, List("101"))
     assertEquals(gated.values.toList, List(""))
   }
 
-  test("the build refuses one that reads a fetch, is not a bool, or is once") {
-    def errs(of: SlotSource) = dashboard(node(of)).validate().mkString("\n")
-    val readsFetch = SlotSource(
-      transform = "size(past) > 0",
-      `type` = SlotType.Bool,
-      values = Map("past" -> ExprValue.Fetched(history))
+  test("one that reads a fetch decides by the answer the server prepared") {
+    val readsFetch = ValueExpr(
+      Value.Cel(
+        "size(past) > 1",
+        Map("past" -> ValueExpr(Value.Fetch(history)))
+      )
     )
+    val d = dashboard(node(peak(Some(readsFetch))))
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
+    def of(decided: String) =
+      r.decide(reads =>
+        cats.effect.IO.pure(
+          FetchSnapshot.of(reads.map(_ -> Staged(1L, decided)).toMap)
+        )
+      )(run =>
+        r.signalsFor(
+          idOf(d, 0),
+          Shared.of(states("46")).asking(run),
+          answered
+        ).values
+          .toList
+      ).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
     assert(
-      errs(peak(Some(readsFetch))).contains("valueWhile that reads a fetch")
+      intercept[fh.view.FHError](
+        r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered)
+      ).getMessage.contains("outside a run")
     )
+    assertEquals(of("""{"points":[[0,0.0],[60000,101.0]]}"""), List("101"))
+    assertEquals(of("""{"points":[[0,0.0]]}"""), List(""))
+  }
+
+  test("the build refuses one that is not a bool, or is once") {
+    def errs(of: TemplateSlot) = dashboard(node(of)).validate().mkString("\n")
     assert(
-      errs(peak(Some(SlotSource(transform = "state", `type` = SlotType.Bool))))
+      errs(
+        peak(
+          Some(
+            ValueExpr(
+              Value.Entity(Some("sensor.left"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
+          )
+        )
+      )
         .contains("'of.valueWhile' is a boolean slot")
     )
     assert(
       errs(
-        SlotSource(
-          reads = Reads.Once,
-          valueWhileSlot = Some(above0(None))
+        TemplateSlot(
+          ValueExpr(
+            Value.Entity(Some("sensor.left"), reads = Reads.Once)
+          ),
+          valueWhile = Some(above0(None))
         )
       ).contains("has a valueWhile — it would keep its first answer")
     )
   }
 
-  test("the wire nests it as a slot") {
+  test("the wire nests it as a value beside the slot's") {
     assertEquals(
-      decode[SlotSource](
-        """{"transform": "state", "valueWhileSlot": {"transform": "on", "type": "bool"}}"""
-      ).map(_.valueWhileSlot.map(_.transform)),
-      Right(Some("on"))
+      decode[TemplateSlot](
+        """{"source": {"kind": "Entity"}, "valueWhile": {"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "on"}]}}"""
+      ).map(_.valueWhile.map(_.steps)),
+      Right(Some(List(Step.Cel("on"))))
     )
   }
 }

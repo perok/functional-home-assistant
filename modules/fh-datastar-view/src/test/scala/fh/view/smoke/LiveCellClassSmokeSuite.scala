@@ -27,9 +27,8 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |import "@fh-dashboard/core/simple.pkl" as simpleMod
          |import "@fh-home/dump.pkl" as dump
          |
-         |local kitchenOn = new slotMod.Slot {
+         |local kitchenOn = (simpleMod.stateIn(new Listing { "on" })) {
          |  entityId = dump.entities.${kitchen.dumpKey}.entity_id
-         |  transform = simpleMod.stateIn(new Listing { "on" })
          |  bypassUnavailable = false
          |}
          |
@@ -38,8 +37,8 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |    // The label is BYTES, so a rename re-renders this node while the
          |    // class's own signal stands still.
          |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
-         |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
-         |    }).classWhen("warm", kitchenOn)
+         |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "value.attr[?'friendly_name'].orValue('')")
+         |    }).cellClassWhen("warm", kitchenOn)
          |    (c.button("Lock", c.tap.toggle(dump.entities.${lock.dumpKey}))) {
          |      disabled = kitchenOn
          |    }
@@ -63,10 +62,9 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |card = (c.column) {
          |  children {
          |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
-         |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
-         |    }).cssProperty("--fh-level", new slotMod.Slot {
+         |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "value.attr[?'friendly_name'].orValue('')")
+         |    }).cellStyle("--fh-level", (simpleMod.attr("brightness")) {
          |      entityId = dump.entities.${kitchen.dumpKey}.entity_id
-         |      transform = simpleMod.attr("brightness")
          |    })
          |  }
          |}
@@ -86,7 +84,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
     )
 
   test(
-    "a live cssProperty follows its reading, and survives a morph of its node"
+    "a live cellStyle follows its reading, and survives a morph of its node"
   ) {
     withPage(propertyScene) { (page, ts) =>
       def dimmed(name: String, b: Int) =

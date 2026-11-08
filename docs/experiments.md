@@ -3,7 +3,15 @@
 Measurements and spikes whose answer was "don't build it", kept so they are not rerun from
 scratch. Each entry has the question, how it was measured, the numbers and the verdict, and what
 would make it worth asking again. An experiment that led to a change belongs in that change's PR
-or ADR, not here.
+or ADR, not here. The section below is the exception: how to measure, learned the hard way.
+
+## Before measuring
+
+- An `alloc.rate.norm` change in code the diff never runs is usually the JIT, not an allocation:
+  rerun both sides with `-jvmArgsAppend -XX:-DoEscapeAnalysis`. Equal numbers there mean nothing
+  new is allocated (#657: `publishIdle` +640 B and `pageSetPlain` +14 KB were this).
+- Pass JFR as `-jvmArgsAppend -XX:StartFlightRecording=settings=…,filename=…`, not
+  `-prof jfr:a;b`: sbt reads the `;` as a command separator and drops the benchmark filter.
 
 Recorded elsewhere:
 
@@ -184,3 +192,84 @@ got the same `module.` answer. No pkl-lsp or pkl-intellij issue covers the missi
 IntelliJ was not tested.
 
 **Worth asking again if** Pkl resolves inherited properties in nested scopes, or #1150 lands.
+
+## A faster dispatch for the value-language evaluator
+
+2026-11-04, slot-conditions at 0fc5b8cb. **Not worth doing.**
+
+**Question.** Should `Evaluator` (ADR 0035), which compiles a reading into closures once, move
+to one of the three usual faster designs: a flat opcode VM with an instruction loop, Truffle
+nodes with `@Specialization`, or a class generated per reading (ASM, Byte Buddy, or JDK 25's
+`java.lang.classfile`)?
+
+**How.** `RenderBench` under the JMH stack sampler, one fork:
+`benchmarks/Jmh/run -i 3 -wi 3 -f 1 -prof stack:top=40 .*RenderBench.(page|tickRender)`, the share
+of RUNNABLE samples whose top frame is in `Evaluator` or `Transform`. Per-evaluation cost from
+`condition` and `conditionTree` (200 evaluations each).
+
+**Numbers.** A condition costs about 40 ns (8.4 µs for 200), `conditionTree` allocating 0 B.
+`Evaluator`'s frames are 2.3% of `page` and 3.6% of `tickRender`, most of it the entity read, a
+map lookup any design keeps. The CEL engine's own frames, Mustache and map building each weigh
+more.
+
+**Verdict, per design.**
+
+- **Opcode VM:** made for short-lived code with little warm-up; a reading here is compiled once
+  and runs on every state change. It swaps a virtual call per step for a switch per instruction,
+  values still boxed on an operand stack that needs one per call or per thread: no gain expected.
+- **Truffle:** on OpenJDK 25, which the add-on runs (a jlinked Temurin 25), the optimizing Truffle
+  runtime is available only through a polyglot isolate (GraalVM's runtime support table);
+  in-heap it is the fallback interpreter. Its DSL is a Java annotation processor, so the nodes
+  would be Java. An isolate costs hundreds of MB on a Pi (ADR 0032).
+- **A class per reading:** fits a standard JVM and a hot path, and removes the one real cost
+  closures leave: a closure class per step kind is shared by every reading, so HotSpot cannot
+  inline across steps. Bounded by the 2–4% above, about half of it realistically, for a hidden
+  class per distinct reading (unloaded on reload), metaspace on a Pi, and generated code to debug.
+
+**Worth asking again if** `Evaluator`'s frames pass about 10% of a `tickRender` profile. A class
+per reading, through `java.lang.classfile` (no dependency), would be the one to try first.
+
+## `Percent` and `Fill` parsing a text operand once
+
+2026-11-08, value-model-small at e92be6b0. **Not worth doing.**
+
+**Question.** `Steps` checks a slider's min and max with `isNum`, then reads them with `dbl`, so a
+text operand is parsed twice. Is one parse (`dbl` answering `NaN` for no number) cheaper?
+
+**How.** `RenderBench.tickRender`, `-f 1 -wi 5 -i 5 -prof gc -jvmArgsAppend
+-XX:-DoEscapeAnalysis`. Three builds: base ee8f7997, the change, and the change with the old
+`Steps.scala` put back. The base was run again with `-f 2`.
+
+**Numbers.** The base allocates 100,576 B/op (both runs, ±0). The change allocates 101,536 B/op,
+whether the operands are parsed before or after the value. The old `Steps.scala` gives 100,576
+again. Time is the same within error, at 35–37 µs.
+
+**Verdict.** It allocates 960 B more per tick and saves no time, so the old code stays. The cause
+is not found: by count, both versions build one `Option` per text operand.
+
+**Worth asking again if** a profile shows `Steps.dbl` or `isNum` in a slider tick's top frames.
+
+## Sort keys with unboxed numbers
+
+2026-11-08, value-model-small. **Not worth doing.**
+
+**Question.** `Evaluator.Keys` holds each candidate's parsed number as a boxed `Double` in its
+`Array[Any]`. Would a primitive layout pay: an `Array[Double]` beside the values for a leader's
+two reused buffers, and for a sort one flat buffer for every candidate, ordered by an insertion
+sort over indices? A SIMD compare was ruled out first: the keys come from map lookups and
+compiled readings, mix booleans, numbers, text and no value, branch per comparison, and a set
+holds 10–20 candidates.
+
+**How.** Estimated from `RenderBench` with escape analysis off (`-prof gc -jvmArgsAppend
+-XX:-DoEscapeAnalysis`), after the keys stopped allocating a closure and a second box per
+candidate and a leader started reusing two buffers: `leaderRow` (10 pills over 10 candidates)
+3,120 B/op, `publishSetOrdered` 575,903 B/op.
+
+**Numbers.** One 16 B box per number: about 1.6 KB of `leaderRow`'s 3,120 B, and under 1% of
+`publishSetOrdered`, whose bytes are membership and rendering, not keys.
+
+**Verdict.** A second array per key, or a hand-written sort, for at most 1.6 KB per row of
+leaders per tick.
+
+**Worth asking again if** a profile shows `Keys.into` or `Keys.compare` in a tick's top frames,
+or sets grow to hundreds of candidates.

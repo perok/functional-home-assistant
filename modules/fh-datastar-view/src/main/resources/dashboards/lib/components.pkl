@@ -125,6 +125,7 @@ typealias SurfaceDef = surfaceMod.SurfaceDef
 typealias PopupSurface = surfaceMod.PopupSurface
 typealias Popup = surfaceMod.Popup
 typealias TapAction = tapMod.TapAction
+/// A value expression: a reading, a condition, or CEL (`c.expr`).
 typealias Expr = slotMod.Expr
 typealias SectionTitle = textMod.SectionTitle
 typealias Label = textMod.Label
@@ -214,19 +215,19 @@ function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
 /// `(c.chooser(c.select(view).options(List("simple", "detail")))) { children { … } }`.
 function chooser(s: selectMod.Select): selectMod.Chooser = selectMod.chooser(s)
 /// A section shown while `p` holds over live state.
-function iff(p: pred.Predicate|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
-/// `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
-function expr(s: String): slotMod.Expr = slotMod.expr(s)
+function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
+/// `c.expr(#"str(math.round(num(value.state) * 10.0) / 10.0) + ' V'"#)`.
+function expr(s: String): slotMod.Reading = slotMod.expr(s)
 /// [[expr]] over another entity than the card's.
-function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
+function exprOf(eo: hass.Entity, s: String): slotMod.Reading = slotMod.exprOf(eo, s)
 /// One live attribute of the card's entity:
 /// `c.entityCard(l).secondary(c.attr("device_class"))`.
-function attr(attrName: String): slotMod.Slot = slotMod.attr(attrName)
+function attr(attrName: String): slotMod.Reading = slotMod.attr(attrName)
 /// Whether `e`'s state is one of `states`, live:
 /// `c.button(…).disabled(c.stateIn(l, List("open")))`.
-function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
+function stateIn(e: hass.Entity, states: List<String>): slotMod.Reading = slotMod.stateIn(e, states)
 /// Whether `e` is `on`, live: `c.entityButton(l).active(c.isOn(l))`.
-function isOn(e: hass.Entity): slotMod.Slot = slotMod.stateIn(e, List("on"))
+function isOn(e: hass.Entity): slotMod.Reading = slotMod.stateIn(e, List("on"))
 /// What `c.view.moreInfo(e)`'s popup holds.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 

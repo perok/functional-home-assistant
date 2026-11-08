@@ -1,6 +1,5 @@
 package fh.view.runtime
 
-import fh.view.fetch.FetchSnapshot
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
@@ -10,7 +9,9 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Region,
-  SlotSource,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{declared, st}
@@ -56,7 +57,11 @@ class RenderCacheContentionSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "card",
-                slots = Map("state" -> SlotSource(Some("sensor.shared")))
+                templateSlots = Map(
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.shared")))
+                  )
+                )
               )
             )
           ),
@@ -68,7 +73,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t0" -> Surface(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.a")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a")))
+            )
+          )
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -78,7 +87,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t1" -> Surface(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.b")))
+            )
+          )
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -101,7 +114,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.shared")))
+            )
+          )
         )
       )
     )
@@ -122,15 +139,14 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     override def renderNodeById(
         id: NodeId,
-        states: Map[String, EntityState],
-        selections: Selections,
-        form: SlotForm,
-        fragments: FetchSnapshot
+        shared: Shared,
+        viewing: Viewing,
+        form: SlotForm
     ): Option[String] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))
         .incrementAndGet()
-      super.renderNodeById(id, states, selections, form, fragments)
+      super.renderNodeById(id, shared, viewing, form)
     }
 
     def reset: IO[Unit] = IO(counts.clear())

@@ -6,6 +6,7 @@ module components.base.surface
 import "../../core/node.pkl" as nodes
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/predicate.pkl" as pred
+import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/variable.pkl" as varMod
 import "../../layout.pkl" as layout
@@ -15,7 +16,7 @@ import "../../layout.pkl" as layout
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class:fh-chosen="{{{active}}}">{{label}}</a>"#
+    template = #"<a data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)">\#(labelSlot)</a>"#
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
     // than shortened. Unwrapped, so a theme can style the bar's `> a`.
     wrapAsCell = false
@@ -25,16 +26,15 @@ class TabButton extends nodes.Node {
   /// A Datastar boolean expression for `fh-chosen`, the open tab.
   hidden active: String
   slots {
-    ["label"] = label
-    ["active"] = active
-    for (k, v in tapMod.tapRoute(tapAction)) {
-      [k] = v
-    }
-    for (k, v in tapMod.guardSlots(tapAction)) {
-      [k] = v
-    }
+    labelSlot.of(label)
+    activeSlot.of(active)
+    ...tapMod.tapRoute(tapAction)
+    ...tapMod.guardSlots(tapAction)
   }
 }
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local activeSlot: slotMod.Slot = slotMod.textRaw("active")
 
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
 /// over a node variable — a [[Tabs]], `c.select(v)`.
@@ -103,7 +103,7 @@ hidden tabs: Tabs = new Tabs {}
 /// window chooser's is, so the declaration and its writers cannot drift.
 const tabVar: varMod.Variable = new { name = "tab" }
 
-const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivation =
+const local function stateActivation(p: slotMod.Expr?): surfaceMod.StateActivation =
   new { condition = p }
 
 /// A conditional section: `then` while `condition` holds, the optional `else`
@@ -126,7 +126,7 @@ class If extends nodes.Node {
     template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
   }
   cellClasses { "fh-cols-full" }
-  hidden condition: pred.Predicate|varMod.ValueIs
+  hidden condition: slotMod.Expr|varMod.ValueIs
   hidden `then`: Listing<nodes.LayoutNode> = new {}
   hidden `else`: Listing<nodes.LayoutNode> = new {}
   // First match in `bakeIndex` order; `else` is the always-true member 1. Both
@@ -151,7 +151,7 @@ class If extends nodes.Node {
         bakeIndex = 1
         activation =
           if (condition is varMod.ValueIs) condition.variable.selectingAnyOther
-          else stateActivation(pred.alwaysHolds)
+          else stateActivation(null)
       }
     }
   }
@@ -167,7 +167,7 @@ class If extends nodes.Node {
 /// entities it reads (`q.entity(e)`, or an aggregate over `q.from(…)`). A
 /// `Boolean` is accepted because the build folds: `q.from(emptyRoom).any()` is
 /// already `false`. `v.valueIs(x)` chooses by a node variable instead.
-function iff(p: pred.Predicate|Boolean|varMod.ValueIs): If =
+function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): If =
   new If {
     condition =
       if (p is Boolean) (if (p) pred.alwaysHolds else pred.neverHolds)

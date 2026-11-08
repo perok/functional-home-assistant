@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -9,9 +11,10 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
-  SlotSource,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface
 }
 import fh.view.fetch.FetchSnapshot
@@ -40,14 +43,17 @@ class MemberNodesSuite extends ServerHarness {
 
   private def tile(id: String) = LayoutNode.Component(
     "tile",
-    Map("entity_id" -> SlotSource(literal = Some(id)), "state" -> SlotSource())
+    Map(
+      "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+    )
   )
 
   private def col(children: LayoutNode*) =
     LayoutNode.Component("col", regions = LayoutNode.kids(children*))
 
-  private val whileOn: Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+  private val whileOn: ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   private val lights =
     List("light.c", "light.a", "light.b", "light.d", "light.e")
@@ -83,7 +89,11 @@ class MemberNodesSuite extends ServerHarness {
     val painted =
       """id="([^"]+)"""".r.findAllMatchIn(html).map(_.group(1)).toList
     val leaves = painted.filter(id =>
-      r.renderNodeById(id, allOn, fragments = FetchSnapshot.empty).isDefined
+      r.renderNodeById(
+        id,
+        Shared.of(allOn),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ).isDefined
     )
     // Two leaves per member, each renderable on its own.
     assertEquals(leaves.size, 2 * lights.size, clue = painted)
@@ -174,7 +184,10 @@ class MemberNodesSuite extends ServerHarness {
     val ids = List("light.a", "light.b")
     def panel(member: String, i: Int, text: String) = Surface(
       LayoutNode
-        .Component("text", Map("text" -> SlotSource(literal = Some(text)))),
+        .Component(
+          "text",
+          Map("text" -> TemplateSlot(ValueExpr.literal(text)))
+        ),
       bakeInto = Some(member),
       bakeAs = Some("panel"),
       bakeIndex = Some(i),
@@ -197,7 +210,11 @@ class MemberNodesSuite extends ServerHarness {
                     None,
                     LayoutNode.Component(
                       "host",
-                      Map("entity_id" -> SlotSource(literal = Some(id)))
+                      Map(
+                        "entity_id" -> TemplateSlot(
+                          ValueExpr.literal(id)
+                        )
+                      )
                     )
                   )
                 )
@@ -257,11 +274,13 @@ class MemberNodesSuite extends ServerHarness {
           .surfaces("a0")
           .copy(activation =
             Activation.State(
-              Predicate.Cmp(
-                "state",
-                Op.Eq,
-                Json.fromString("on"),
-                entity = Some("light.a")
+              Some(
+                Conds.cmp(
+                  "state",
+                  Op.Eq,
+                  Json.fromString("on"),
+                  entity = Some("light.a")
+                )
               )
             )
           )

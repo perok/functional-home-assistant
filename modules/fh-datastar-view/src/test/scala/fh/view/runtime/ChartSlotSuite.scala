@@ -3,15 +3,20 @@ package fh.view.runtime
 import fh.view.history.Windows
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.{
+  SlotType,
+  Part,
   CardDef,
   Dashboard,
   LayoutNode,
   FetchTemplate,
-  Reads,
   Choice,
   SlotRead,
-  SlotSource,
-  Transform
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Theme,
+  ThemeClasses
 }
 import fh.view.history.ChartStyle
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
@@ -22,7 +27,7 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 class ChartSlotSuite extends munit.FunSuite {
 
   private val chartFetch = FetchTemplate("sensor.t", Choice.Fixed(Windows.day))
-  private val stage = Transform.Stage.Chart(ChartStyle(width = 600))
+  private val stage = Step.Chart(ChartStyle(width = 600))
   // Every parameter is written down, so the ask resolves to this whatever the
   // environment — which is what keeps this suite about the chart slot.
   private val read = SlotRead(
@@ -40,14 +45,21 @@ class ChartSlotSuite extends munit.FunSuite {
       ),
       card = LayoutNode.Component(
         card = "chart",
-        slots = Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.t")),
-          "chart" -> SlotSource(
-            fetch = Some(chartFetch),
-            transform = stage,
-            reads = Reads.OnRender
+        templateSlots = Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(chartFetch),
+              List(Step.Chart(ChartStyle(width = 600)))
+            ),
+            `type` = SlotType.TextRaw
           ),
-          "name" -> SlotSource(transform = "state")
+          "name" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
+          )
         )
       )
     )
@@ -65,10 +77,33 @@ class ChartSlotSuite extends munit.FunSuite {
     val html =
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, fragments())
+        .renderBodyTraced(
+          Shared.of(states),
+          Viewing(Selections.none, fragments())
+        )
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
+  }
+
+  test(
+    "a failed chart's label takes the theme's class rules; a drawing does not"
+  ) {
+    val classes = ThemeClasses(Map("fh-label" -> List("fh-label", "chip")))
+    val d = dashboardWith("{{{chart}}}").copy(theme = Theme(classes = classes))
+    def body(f: FetchSnapshot) =
+      Renderer
+        .create(d)
+        .renderBodyTraced(Shared.of(states), Viewing(Selections.none, f))
+        .html
+    val failed =
+      body(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
+    assert(
+      failed.contains("""<span class="fh-label chip fh-label-error"""),
+      failed
+    )
+    val drawn = body(fragments("""<svg class="fh-label"/>"""))
+    assert(drawn.contains("""<svg class="fh-label"/>"""), drawn)
   }
 
   test("rendering a chart nobody resolved is an error, not an empty slot") {
@@ -78,7 +113,10 @@ class ChartSlotSuite extends munit.FunSuite {
     val e = intercept[fh.view.FHError](
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, FetchSnapshot.empty)
+        .renderBodyTraced(
+          Shared.of(states),
+          Viewing(Selections.none, FetchSnapshot.empty)
+        )
     )
     assertEquals(e.status, 500)
     assert(e.getMessage.contains("not resolved for this render"))
@@ -88,7 +126,10 @@ class ChartSlotSuite extends munit.FunSuite {
     val html =
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, fragments())
+        .renderBodyTraced(
+          Shared.of(states),
+          Viewing(Selections.none, fragments())
+        )
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
@@ -98,8 +139,8 @@ class ChartSlotSuite extends munit.FunSuite {
     val r = Renderer.create(dashboardWith("{{{chart}}}"))
     val id = rootId(dashboardWith("{{{chart}}}"))
     assertNotEquals(
-      r.renderInputs(id, states, fragments()),
-      r.renderInputs(id, states, fragments(version = 200L))
+      r.renderInputs(id, Shared.of(states), fragments()),
+      r.renderInputs(id, Shared.of(states), fragments(version = 200L))
     )
   }
 
@@ -110,8 +151,8 @@ class ChartSlotSuite extends munit.FunSuite {
     val r = Renderer.create(d)
     val id = rootId(d)
     assertNotEquals(
-      r.byteSlotValues(id, states, fragments()),
-      r.byteSlotValues(id, states, fragments("<svg>other</svg>"))
+      r.byteSlotValues(id, Shared.of(states), fragments()),
+      r.byteSlotValues(id, Shared.of(states), fragments("<svg>other</svg>"))
     )
   }
 }

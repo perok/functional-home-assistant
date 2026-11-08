@@ -1,14 +1,19 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import cats.effect.IO
 import fh.view.model.{
+  Part,
   CardDef,
   Dashboard,
   LayoutNode,
   Op,
-  Predicate,
   Region,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.st
@@ -47,11 +52,15 @@ class SetMembershipSuite extends ServerHarness {
       List("light.a", "light.b"),
       List(
         (
-          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
+          Some(Conds.cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          Map("state" -> SlotSource())
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
-        (None, "dim", Map("state" -> SlotSource()))
+        (
+          None,
+          "dim",
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
+        )
       )
     )
   )
@@ -71,8 +80,10 @@ class SetMembershipSuite extends ServerHarness {
           None,
           "dot",
           Map(
-            "state" -> SlotSource(),
-            "extra" -> SlotSource(Some("sensor.outside"))
+            "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
+            "extra" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.outside")))
+            )
           )
         )
       )
@@ -92,11 +103,15 @@ class SetMembershipSuite extends ServerHarness {
       List("light.a", "light.b"),
       List(
         (
-          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
+          Some(Conds.cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          Map("state" -> SlotSource())
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
-        (None, "plain", Map("label" -> SlotSource(literal = Some("off-duty"))))
+        (
+          None,
+          "plain",
+          Map("label" -> TemplateSlot(ValueExpr.literal("off-duty")))
+        )
       )
     )
   )
@@ -138,7 +153,7 @@ class SetMembershipSuite extends ServerHarness {
 
   test("a case switch to a card binding NOTHING is still recorded") {
     // The arriving card contributes no entity edge, so the member's id is the
-    // handle: `syncMembers` reports what it replaced and `record` touches that.
+    // handle: `deltas` reports what it replaced and `record` touches that.
     viewing(literalCaseDash, Map("light.a" -> mode("light.a", "bright"))) { v =>
       step(v, mode("light.a", "dim")).map { patches =>
         assertEquals(patches.size, 1, clue = patches)
@@ -268,9 +283,16 @@ class SetMembershipSuite extends ServerHarness {
               None,
               "dot",
               Map(
-                "state" -> SlotSource(),
-                "level" -> SlotSource(transform =
-                  "'level' in attr ? attr['level'] : ''"
+                "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
+                "level" -> TemplateSlot(
+                  ValueExpr(
+                    Value.Entity(None, Part.Whole),
+                    List(
+                      Step.Cel(
+                        "'level' in value.attr ? value.attr['level'] : ''"
+                      )
+                    )
+                  )
                 )
               )
             )
@@ -322,24 +344,35 @@ class SetMembershipSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.SetNode(
           candidates = List("area.stue"),
-          members = Map(
-            "area.stue" -> LayoutNode.SetMember(
-              List(
-                LayoutNode.SetClause(
-                  None,
-                  LayoutNode.Component(
-                    "col",
-                    regions = LayoutNode.kids(
-                      onSet(
-                        List("light.a", "light.b"),
-                        List((None, "dot", Map("state" -> SlotSource())))
+          members =
+            Map(
+              "area.stue" -> LayoutNode.SetMember(
+                List(
+                  LayoutNode.SetClause(
+                    None,
+                    LayoutNode.Component(
+                      "col",
+                      regions = LayoutNode.kids(
+                        onSet(
+                          List("light.a", "light.b"),
+                          List(
+                            (
+                              None,
+                              "dot",
+                              Map(
+                                "state" -> TemplateSlot(
+                                  ValueExpr(Value.Entity(None))
+                                )
+                              )
+                            )
+                          )
+                        )
                       )
                     )
                   )
                 )
               )
             )
-          )
         )
       ),
       "other" -> Surface(LayoutNode.Component("col"))

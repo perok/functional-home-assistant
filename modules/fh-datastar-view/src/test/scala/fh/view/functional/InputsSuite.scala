@@ -7,12 +7,12 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** A node's expression values, from a real Pkl entry: a live count read by name
-  * in a slot's CEL, carried as one display signal. The contract is partly
-  * negative — a tick that leaves the count alone must send nothing — so the
-  * flip test is the control that shows the harness would have seen it.
+/** A node's inputs, from a real Pkl entry: a live count read by name in a
+  * slot's CEL, carried as one display signal. The contract is partly negative —
+  * a tick that leaves the count alone must send nothing — so the flip test is
+  * the control that shows the harness would have seen it.
   */
-class ExpressionValuesSuite extends munit.CatsEffectSuite {
+class InputsSuite extends munit.CatsEffectSuite {
 
   private val kitchen = HouseFixture.kitchenLight
   private val living = HouseFixture.livingRoomLight
@@ -26,7 +26,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
       over: String = "lights"
   ): String =
     s"""    ((c.button("$label", c.view.closePopup())) {
-       |      expressionValues {
+       |      inputs {
        |        ["lights_on"] = q.from($over).where(q.eq(q.stateProp, "on")).count()
        |        ["lights_total"] = $over.length
        |      }
@@ -98,6 +98,29 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
           clue = sent
         )
         assert(!sent.contains("fh-sub"), clue = sent)
+      }
+    }
+  }
+
+  test("present() reaches CEL as the ids present, and follows a light") {
+    val body =
+      s"""    ((c.button("Stue", c.view.closePopup())) {
+         |      inputs {
+         |        ["lit"] = q.from(lights).where(q.eq(q.stateProp, "on")).present()
+         |      }
+         |    }).secondary(c.expr(#"lit.join(', ')"#))""".stripMargin
+    val both = s"${kitchen.entityId}, ${living.entityId}"
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = onlySignal(html)
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains(s">${kitchen.entityId}</span>"), clue = html)
+        assert(
+          sent.contains(s"${sig.split('.').last}\":\"$both\""),
+          clue = sent
+        )
       }
     }
   }
@@ -190,7 +213,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def valueErrors(value: String, expr: String): List[String] =
     errorsOf(
       s"""    ((c.button("Stue", c.view.closePopup())) {
-         |      expressionValues { ["v"] = $value }
+         |      inputs { ["v"] = $value }
          |    }).secondary(c.expr(#"$expr"#))""".stripMargin
     )
 
@@ -207,8 +230,8 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("a slot read once cannot read a live count") {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
-        |    }).secondary(new slotMod.Slot { transform = "string(n)"; reads = "once" })""".stripMargin
+        |      inputs { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+        |    }).secondary(new slotMod.Reading { entityId = lights.first.entity_id; steps { simpleMod.cel("string(n)") }; reads = "once" })""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would show the first count forever")), errs)
   }
@@ -218,7 +241,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   private def anyOn(value: String): String =
     s"""    ((c.button("Stue", c.view.closePopup())) {
-       |      expressionValues { ["any_on"] = $value }
+       |      inputs { ["any_on"] = $value }
        |    }).secondary(c.expr("any_on ? 'Some on' : 'All off'"))""".stripMargin
 
   test(
@@ -257,7 +280,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a condition comparing an entity it does not name fails the build") {
     val errs = errorsOf(
-      anyOn("""new pred.Cmp { property = "state"; op = "eq"; value = "on" }""")
+      anyOn("""new pred.Cmp { op = "eq"; value = "on" }""")
     )
     assert(errs.exists(_.contains("does not name")), errs)
   }
@@ -290,10 +313,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("a value that would hide a name every expression has fails the build") {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["state"] = "x" }
-        |    }).secondary(c.expr("state"))""".stripMargin
+        |      inputs { ["value"] = "x" }
+        |    }).secondary(c.expr("value.state"))""".stripMargin
     val errs = errorsOf(body)
-    assert(errs.exists(_.contains("would hide the 'state'")), errs)
+    assert(errs.exists(_.contains("would hide the 'value'")), errs)
   }
 
   // A boolean slot filled as `input` says, beside a second line reading the count
@@ -301,7 +324,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def yesNo(input: String): List[String] =
     errorsOf(
       s"""    ((c.button("Stue", c.view.closePopup())) {
-         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+         |      inputs { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
          |      $input
          |    }).secondary(c.expr("string(n)"))""".stripMargin
     )
@@ -309,10 +332,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private val notBool = "does not produce a bool"
 
   test("a boolean slot whose CEL is not a bool fails the build") {
-    val int = """new slotMod.Slot { transform = "n" }"""
+    val int = """slotMod.celReading("n")"""
     assert(
       yesNo(
-        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }"""
+        s"""liveClasses { ["x"] = $int }"""
       )
         .exists(_.contains(notBool))
     )
@@ -321,14 +344,14 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a boolean slot whose Simple shape is text fails the build") {
     val text =
-      s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
+      s"""(simpleMod.attr("friendly_name")) { entityId = "${kitchen.entityId}" }"""
     assert(yesNo(s"disabled = $text").exists(_.contains(notBool)))
   }
 
   test(
     "a comparison, a boolean match and a condition all fill a boolean slot"
   ) {
-    val cmp = """new slotMod.Slot { transform = "n > 0" }"""
+    val cmp = """slotMod.celReading("n > 0")"""
     assertEquals(
       yesNo(s"disabled = $cmp").filter(_.contains(notBool)),
       Nil
@@ -346,7 +369,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |      .secondary(c.expr("string(n) + ' on'"))
        |      .active(q.from($over).where(q.eq(q.stateProp, "on")).any())
        |      .disabled(q.from($over).where(q.eq(q.stateProp, "on")).none())
-       |      .expressionValues(new Mapping { ["n"] = q.from($over).where(q.eq(q.stateProp, "on")).count() })""".stripMargin
+       |      .inputs(new Mapping { ["n"] = q.from($over).where(q.eq(q.stateProp, "on")).count() })""".stripMargin
 
   private def classSignals(html: String): List[String] =
     """data-class:fh-active="\$([^"]+)"""".r
@@ -401,18 +424,18 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
       assertEquals(classSignals(html), Nil, clue = html)
       assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
-      assert(html.contains("<button class=\"fh-press large\""), clue = html)
+      assert(html.contains("<button class=\"fh-press large \""), clue = html)
       assert(staticallyDisabled(html), clue = html)
     }
   }
 
-  test("classWhen takes a condition and an expression over values") {
+  test("cellClassWhen takes a condition and an expression over values") {
     val body =
       s"""    c.button("Stue", c.view.closePopup())
          |      .secondary(c.expr("string(n) + ' on'"))
-         |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
-         |      .classWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
-         |      .classWhen("fh-many", c.expr("n > 1"))""".stripMargin
+         |      .inputs(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+         |      .cellClassWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
+         |      .cellClassWhen("fh-many", c.expr("n > 1"))""".stripMargin
     withServer(body) { ts =>
       for {
         html <- ts.page()
@@ -491,7 +514,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     s"""    ((c.entitySlider(dump.entities.${kitchen.dumpKey})
        |      .secondary(c.expr($secondary))
        |      .readout(c.expr($readout)))) {
-       |      expressionValues {
+       |      inputs {
        |        ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
        |        ["lights_total"] = lights.length
        |      }
@@ -521,13 +544,13 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def propertyButton(property: String): String =
     s"""    c.button("Stue", c.view.closePopup())
        |      .secondary(c.expr("string(n) + ' on'"))
-       |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+       |      .inputs(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
        |      $property""".stripMargin
 
-  test("a cssProperty is inline in the document and moves by one frame") {
+  test("a cellStyle is inline in the document and moves by one frame") {
     val body =
       propertyButton(
-        """.cssProperty("--fh-fill", c.expr("string(n * 50) + '%'"))"""
+        """.cellStyle("--fh-fill", c.expr("string(n * 50) + '%'"))"""
       )
     withServer(body) { ts =>
       for {
@@ -545,28 +568,101 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a cssProperty takes a Simple reading, on the fast tier") {
+  test("a cellStyle takes a Simple reading, on the fast tier") {
     val body = propertyButton(
-      s""".cssProperty("--fh-name", new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+      s""".cellStyle("--fh-name", (simpleMod.attr("friendly_name")) { entityId = "${kitchen.entityId}" })"""
     )
     withServer(body)(_.page()).map { html =>
       assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)
     }
   }
 
-  test("a cssProperty that reads a bool fails the build") {
+  test("a cellStyle that reads a bool fails the build") {
     val isOn = propertyButton(
-      s""".cssProperty("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
+      s""".cellStyle("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
     )
     assert(errorsOf(isOn).exists(_.contains("reads a bool")), errorsOf(isOn))
-    val cmp = propertyButton(""".cssProperty("--fh-on", c.expr("n > 0"))""")
+    val cmp = propertyButton(""".cellStyle("--fh-on", c.expr("n > 0"))""")
     assert(errorsOf(cmp).exists(_.contains("reads a bool")), errorsOf(cmp))
   }
 
-  test("a cssProperty must be a custom property") {
-    val body = propertyButton(""".cssProperty("color", c.expr("'red'"))""")
+  test("a cellStyle must be a custom property") {
+    val body = propertyButton(""".cellStyle("color", c.expr("'red'"))""")
     val err =
       scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
     assert(err.contains("""startsWith("--")"""), clue = err)
+  }
+
+  // CEL is a value expression like any other (ADR 0035): a condition takes it.
+  private def kitchenIs(cel: String): String =
+    s"""c.exprOf(dump.entities.${kitchen.dumpKey}, "$cel")"""
+
+  test("c.iff decides by CEL, and the build refuses a text one") {
+    val body =
+      s"""    c.iff(${kitchenIs("value.state == 'on'")})
+         |      .then(c.title("lit")).`else`(c.title("dark"))""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains("lit"), clue = html)
+        assert(sent.contains("dark"), clue = sent)
+      }
+    }.map { _ =>
+      val errs = errorsOf(
+        s"""    c.iff(${kitchenIs("value.state")}).then(c.title("x"))"""
+      )
+      assert(errs.exists(_.contains("a condition is a bool, not")), errs)
+    }
+  }
+
+  private def ordered(by: String): String =
+    s"""    q.from(lights).orderBy($by)
+       |      .render((e) -> c.title("t-" + e.entity_id)).build()""".stripMargin
+
+  test("a set's where and orderBy take CEL, read per member") {
+    val where =
+      s"""    q.from(lights).where(c.expr("value.state == 'on'"))
+         |      .render((e) -> c.title("t-" + e.entity_id)).build()""".stripMargin
+    val onFirst = ordered("""q.asc(c.expr("value.state == 'on'"))""")
+    val onLast = ordered("""q.desc(c.expr("value.state == 'on'"))""")
+    def order(html: String) =
+      html.indexOf(s"t-${kitchen.entityId}") < html.indexOf(
+        s"t-${living.entityId}"
+      )
+    for {
+      _ <- withServer(where) { ts =>
+        for {
+          html <- ts.page()
+          sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+        } yield {
+          assert(html.contains(s"t-${kitchen.entityId}"), clue = html)
+          assert(!html.contains(s"t-${living.entityId}"), clue = html)
+          assert(sent.contains(s"t-${living.entityId}"), clue = sent)
+        }
+      }
+      first <- withServer(onFirst)(_.page())
+      last <- withServer(onLast)(_.page())
+    } yield {
+      assert(order(first), clue = first)
+      assert(!order(last), clue = last)
+    }
+  }
+
+  test("an input may itself be CEL") {
+    val body =
+      s"""    ((c.button("Stue", c.view.closePopup())) {
+         |      inputs { ["s"] = ${kitchenIs("value.state")} }
+         |    }).secondary(c.expr("string(s) + '!'"))""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains(">on!</span>"), clue = html)
+        assert(sent.contains("off!"), clue = sent)
+      }
+    }
   }
 }

@@ -1,6 +1,8 @@
 package fh.view.testkit
 
-import fh.view.model.{Dashboard, LayoutNode, SlotSource}
+import fh.view.model.{Cell, Dashboard, LayoutNode, ValueExpr, TemplateSlot}
+
+import scala.collection.immutable.ListMap
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -30,6 +32,9 @@ object DashboardBuilders {
   def st(entityId: String, state: String, attrs: (String, Json)*): EntityState =
     EntityState(entityId, state, attrs.toMap)
 
+  /** A subject where there is none; nothing reads it. */
+  val noSubject: EntityState = EntityState("", "", Map.empty)
+
   /** A node's `vars`: each name at its default, in the URL, opened nowhere
     * else.
     */
@@ -37,12 +42,16 @@ object DashboardBuilders {
     defaults.toList.map(Dashboard.Declaration(_, _))
 
   /** A constant literal slot (a bare value, no entity/transform). */
-  def lit(s: String): SlotSource = SlotSource(literal = Some(s))
+  def lit(s: String): TemplateSlot = TemplateSlot(ValueExpr.literal(s))
+
+  /** A cell holding these classes, each always there. */
+  def classes(names: String*): Cell =
+    Cell(classes = ListMap.from(names.map(_ -> ValueExpr.literal("1"))))
 
   /** A leaf/container component referencing `card` with the given slots. */
   def component(
       card: String,
-      slots: (String, SlotSource)*
+      slots: (String, TemplateSlot)*
   ): LayoutNode.Component =
     LayoutNode.Component(card, slots.toMap)
 

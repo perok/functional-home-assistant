@@ -1,8 +1,18 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Op,
+  Value,
+  ValueExpr,
+  TemplateSlot
+}
 import fh.view.model.NodeId
 import fh.view.testkit.TestIds.{setId, given}
 import cats.effect.IO
@@ -26,12 +36,12 @@ class ResumePatchesSuite extends munit.FunSuite {
           id -> LayoutNode.SetMember(
             List(
               LayoutNode.SetClause(
-                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "dot",
                   Map(
-                    "entity_id" -> SlotSource(literal = Some(id)),
-                    "state" -> SlotSource()
+                    "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+                    "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
                   )
                 )
               )
@@ -62,7 +72,8 @@ class ResumePatchesSuite extends munit.FunSuite {
             _,
             log,
             Map.empty,
-            states,
+            Shared.of(states),
+            noDecisionFetches,
             _ => IO.pure(FetchSnapshot.empty),
             Map.empty,
             v

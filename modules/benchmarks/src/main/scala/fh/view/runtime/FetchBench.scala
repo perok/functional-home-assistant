@@ -5,19 +5,21 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
+  SlotType,
   Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
   SlotRead,
-  SlotSource,
-  Surface,
-  Transform
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Surface
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
@@ -54,14 +56,14 @@ class FetchBench {
 
   private var renderer: Renderer = null
   private var resolver: FetchResolver = null
-  private var st: Map[String, EntityState] = null
+  private var st: Shared = null
   private var cache: RenderCache = null
   private val asOf = Instant.parse("2026-09-24T12:00:00Z")
   private var rot = 0L
 
   @Setup(Level.Trial)
   def setup(): Unit = {
-    st = RenderBench.states(RenderBench.Leaves)
+    st = Shared.of(RenderBench.states(RenderBench.Leaves))
     renderer = Renderer.create(dashboard)
     resolver = (for {
       history <- History.create(
@@ -110,6 +112,7 @@ class FetchBench {
         FragmentLog("bench").touched(node, rot),
         Map.empty,
         st,
+        reads => answer(reads.toList),
         answer,
         Map.empty,
         rot,
@@ -145,8 +148,7 @@ class FetchBench {
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
         st,
-        Selections.none,
-        f
+        Viewing(Selections.none, f)
       )
     )
   }
@@ -164,12 +166,12 @@ object FetchBench {
     LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(entity, Choice.Fixed(Windows.day))
+        "chart" -> TemplateSlot(
+          ValueExpr(
+            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
+            List(Step.Chart())
           ),
-          transform = Transform.Stage.Chart(),
-          reads = Reads.OnRender
+          `type` = SlotType.TextRaw
         )
       ),
       id = id

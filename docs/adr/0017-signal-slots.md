@@ -13,7 +13,7 @@ already has the mechanism: a signal, and an element bound to it.
 
 ## Decision
 
-**A slot opts in — `SlotSource.signal = true` — and its value then travels as a Datastar signal
+**A slot opts in — `TemplateSlot.signal`, a `SignalBind` — and its value then travels as a Datastar signal
 instead of as bytes inside the node's element.** A change to it costs one
 `datastar-patch-signals` frame for the whole batch rather than a re-rendered card each.
 
@@ -21,7 +21,9 @@ instead of as bytes inside the node's element.** A change to it costs one
 entity shown on three cards is one signal and one frame entry (issue #134). The transform is one
 path segment — `state`, `attr_<name>`, or `t<hash>` for a computed expression — because the slot
 NAME cannot serve: two cards naming one transform differently would stop sharing, and one name over
-two transforms would collide.
+two transforms would collide. A `cssClass` slot's reading keys apart (`BoundSlot.valueKey`, always a
+hashed segment): its value is the theme's swap of what it reads (ADR 0020), so it must not share a
+signal with a text slot reading the same thing.
 
 Dots are path separators, not characters: the bundle rewrites `$_e.light.taklys.state` to
 `$['_e']['light']['taklys']['state']`, and `datastar-patch-signals` applies `mergePatch`, which
@@ -91,37 +93,43 @@ Each form is load-bearing:
 The **binding** is present in both forms and absent from neither: it is what the seeded signal
 feeds, and a morph that dropped it would leave the element inert for good.
 
-### A section around a signal slot tests a companion flag, never the value
+### A section around a signal slot tests whether the slot is set, never its value
 
 The patch form's missing value is not merely absent text — to Mustache it is a FALSE section. So
 `{{#value}}…{{/value}}` around a signal slot renders on the document form and **collapses on every
 patch**, deleting the element and the binding inside it. Nothing recovers: a binding that is no
-longer in the DOM is never written to again. The guard has to be a separate literal slot, present
-in both forms:
+longer in the DOM is never written to again. The guard is the slot's `has` view, which holds in
+both forms whenever the node sets the slot:
 
 ```
-{{#hasIcon}}<i class="{{icon}}" {{{icon__bind}}}></i>{{/hasIcon}}
+{{#icon.has}}<i class="{{icon}}" {{{icon.bind}}}></i>{{/icon.has}}
 ```
+
+`has` is answered for every slot, not only a signal one, because a card may not know its slot's
+tier (`EntityCard`'s icon is a signal for some domains only).
 
 **This bit.** `tile` wrapped its icon in `{{#icon}}` — correct while `icon` was a literal,
 wrong the moment it became a signal slot. The glyph vanished on the first tap and came back only
 on reload, because the tap's patch re-rendered the card in patch form and took the whole `<i>`
-with it. It is silent in exactly the way the other guard is not: `Dashboard.validate` rejects a
-signal slot whose template never places `{{{<slot>__bind}}}`, but a template that places it
-*inside a section keyed on the value* passes.
+with it. So `Dashboard.validate` rejects a `{{{x.bind}}}` inside a section on `x` itself, as well
+as a signal slot whose template places no `{{{x.bind}}}` at all.
 
-So every card carrying a signal slot also carries a hand-written literal flag — `hasLit`,
-`hasInert`, `liveIcon`, `busy`. **That idiom is a bug generator and the renderer should derive
-it**: it already synthesises `<slot>__bind` and `<slot>__signal` per signal slot, and a
-`<slot>__has` beside them would delete the flag, the `when` that sets it and the comment
-explaining it from every card at once.
+### A slot's views are parsed once
+
+`bind`, `has`, `jsValue` and `signal` are a slot's **views**, spelled with Mustache's own
+namespacing, `x.view`. The template's compiled tree records which views of which slot it reads
+(`Templates.Reads.views`), so every rule here is a question about that tree, never a search of the
+template text, and an unknown view is a build error naming its spelling.
+The renderer splits a view once, when mustache binds the name (`FhObjectHandler.createBinding`;
+mustache.java's own lookup splits a dotted name at every call), and answers it by slot and view. A
+slot name may not contain `.`.
 
 ### The renderer owns the binding; the card places it
 
 A card gets one extra template var per signal slot, spliced raw beside the ordinary hole:
 
 ```
-<span class="state fh-text"><span class="fh-text-run" {{{value__bind}}}>{{value}}</span></span>
+<span class="state fh-text"><span class="fh-text-run" {{{value.bind}}}>{{value}}</span></span>
 ```
 
 It goes on the element whose text it IS, which is not always the card's outermost one: a
@@ -130,7 +138,7 @@ whatever else the wrapper holds. (Here the wrapper is the label box of `core/tex
 entity card's reading is clipped or scrolled like any other text — and the binding rides on the
 run inside it.)
 
-`value__bind` is the whole attribute (`data-text="$_c_1__value"`), not a signal name. Three things
+`value.bind` is the whole attribute (`data-text="$_c_1__value"`), not a signal name. Three things
 follow that a template-authored `data-text` would not give:
 
 - **The plain form stays a one-predicate seam.** `Renderer.isSignalSlot` answering `false`
@@ -155,22 +163,26 @@ binding pointed at a signal nothing ever writes — silent, and permanent.
 ### Six binding kinds, because a value does not always land in text
 
 `signal`'s value says **where** the value lands — the one thing the renderer cannot infer. It is a
-renderer-side enumeration (`SignalBind`, one string on the wire) rather than an attribute the card
-writes, which is what keeps the plain form reachable: a card that wrote `data-text` itself could not
-have it un-written.
+renderer-side enumeration (`SignalBind`, an object on the wire whose `kind` names its case, built by
+`slotMod.asText`, `asStyle(p)`, …) rather than an attribute the card writes, which is what keeps the
+plain form reachable: a card that wrote `data-text` itself could not have it un-written.
 
 | kind | attribute | for |
 |---|---|---|
-| `text` | `data-text="$sig"` | a reading, a label, a state |
-| `style:<prop>` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
-| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute — a String value fills it, a BOOLEAN sets or removes it |
-| `class:<name>` | `data-class:<name>="$sig"` | one class, present while the value is truthy |
-| `bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
-| `handler` | none | a value nothing paints — an event handler reads it by name (see below) |
+| `Text` | `data-text="$sig"` | a reading, a label, a state |
+| `Style(property)` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
+| `Attr(name)` | `data-attr:<name>="$sig"` | one attribute — a String value fills it, a BOOLEAN sets or removes it |
+| `Class(name)` | `data-class:<name>="$sig"` | one class, present while the value is truthy |
+| `Bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
+| `Handler` | none | a value nothing paints — an event handler reads it by name (see below) |
+
+The binding is checked against the slot's type rather than implying it: a `Class` needs a bool
+slot, a `Text` or `Style` refuses one (it would print `true`), an `Attr` takes either, and a
+`Handler` anything.
 
 Every kind reads the signal **bare**, with no expression around it, because the value carries
 whatever it needs — a fill arrives as `39.37%`, a colour as `#ffb46b`. An expression in the
-attribute would be a second place a value's shape is decided, and the transform already decides it.
+attribute would be a second place a value's shape is decided, and the reading already decides it.
 
 ### Which runtime evaluates a state-dependent value
 
@@ -218,29 +230,47 @@ placeholder for the signal name or `{{dashboardSlug}}`. `tap.serviceClick` is th
 the way `tap.guard` already is — and `?node={{id}}` comes free with it, where a transform had to
 read `el.dataset.fhNode` at click time and got nothing on an unguarded tap.
 
-### `<slot>__read` — a value as an expression, so the card cannot tell the tiers apart
+### `<slot>.jsValue` — the value as JavaScript, so the card cannot tell the tiers apart
 
-A card composing a slot into a handler gets one var, and the renderer decides its spelling:
+A card composing a slot into a handler reads one view, and the renderer decides its spelling:
 
-| slot | `service__read` |
+| slot | `service.jsValue` |
 |---|---|
 | signal | `$_e.lock.front.t4d7a74a1` |
 | literal / identity-`once` | `'light/toggle'` (quoted through the seed's own escaper) |
 
 So the *static* tap and the *state-dependent* one are the same template — a card branching on
 which tier filled a slot is the mistake `liveIcon` already made once, and this is the same fix as
-`__has` applied to a value instead of a section. It also keeps the plain form reachable: with
+`has` applied to a value instead of a section. A literal needs this too: inside an attribute,
+Mustache's `&#39;` decodes back to `'` before the JS runs and closes the string. It also keeps the plain form reachable: with
 `signalBind` answering `None` everywhere (issue #133) the slot falls back to its quoted literal and
 a state-dependent tap still works with no JS at all.
 
-Two `validate` rules, because both failures are silent:
+The name holds for both rows, since `$<signal>` evaluates to the value. Not `jsReference`: half
+the time it is a literal, and **Reference** is already a defined term (`terminology.md`). Not
+`read` either, which is a Pkl reserved word (ADR 0006).
 
-- A `Handler` slot must be READ — `{{{<slot>__read}}}` or the bare `{{<slot>__signal}}` — where a
-  painted kind must place `{{{<slot>__bind}}}`. It has no binding to place, so the existing rule
+A card's own handler READS a signal slot through `jsValue` too, never by spelling `$` before its
+name, and WRITES one through the Pkl `x.assign(js)` (`$<signal> = js`): a drag painting the fill
+before the commit, a refusal copying the server's value back. `{{x.signal}}`, the bare name, is
+left for a signal-patch filter.
+
+Three `validate` rules, because each failure is silent:
+
+- A `Handler` slot must be READ — `{{{<slot>.jsValue}}}` or the bare `{{<slot>.signal}}` — where a
+  painted kind must place `{{{<slot>.bind}}}`. It has no binding to place, so the existing rule
   could not have covered it.
-- A slot read as `__read` must not be **live and non-signal**. That is the one shape with no
+- A slot read as `jsValue` must not be **live and non-signal**. That is the one shape with no
   answer, and refusing it is the rule rather than a gap: such a value moves in the element's bytes
   every tick, which is precisely what carrying it as a signal exists to stop.
+- `{{x.signal}}` (and so `assign`) must sit inside `x.ifSignal(…)`, the section `{{#x.signal}}`:
+  the name prints nothing where `x` is not a signal, and a write there would be `$ = …`. The
+  name is in both render forms, so unlike `{{#x}}` the section never closes on the first patch. A
+  rule on the template alone (`Templates.Reads.unguardedSignals`), checked once per card. It
+  replaced settling each node's sections around each placement, at a price: a card whose author
+  forgot `signal = …` now gets a write that paints nothing, where the build used to name the
+  slot. A separator goes inside the section (`", " + x.assign(js)`), since a leftover `a, ` is
+  broken JavaScript.
 
 **"You send what you saw" is preserved, and is why this is safe.** The signal is patched in the
 same frame as the visible state, so at click time it holds what the user is looking at: the command
@@ -270,7 +300,7 @@ string SETS, and while `""` was the only falsy value a slot could produce, `attr
 boolean attribute on and never off again.
 
 A real `false` is what turns it off, so `SlotValue = String | Boolean`
-(`Transform.Simple.Match`'s arms, and any CEL expression whose result is a `bool`). The binding
+(`Step.Match`'s arms, and any CEL expression whose result is a `bool`). The binding
 stays bare, and the mechanism is the plugin's own branch rather than anything invented here.
 
 **Both ends have to carry it, and they fail independently:**
@@ -358,7 +388,7 @@ Deliberately not acted on here: a capability surface designed against no client 
 to avoid. Recorded on the issue too.
 
 For the one thing a canned attribute cannot cover — a card composing the signal into an expression
-of its own, as the slider's action URL does — the renderer also injects `<slot>__signal`, the bare
+of its own, as the slider's action URL does — the renderer also answers `<slot>.signal`, the bare
 name. Not a binding, so it does not compromise the plain form; a card that uses it is simply
 relying on a signal existing.
 
@@ -474,12 +504,12 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
   `RenderInputs` does not grow.
 - `Dashboard.validate` rejects the two otherwise-silent mistakes: `signal` on a constant `literal`
   (nothing to patch), and a card declaring a signal slot whose template never places
-  `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
+  `{{{<slot>.bind}}}` (the patch form withholds the value and nothing puts it back).
 - Applied to `EntityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
   `tapDisabled` reading of a service tap on an entity, as a `handler` signal; to the `service` of a
   `CallByState` tap, as a `handler` signal; to all four of the slider's moving slots; and to a
   LIVE `secondary` on every card that places one (tile, button, `sliderText`), which
-  `slotMod.secondarySlot` decides once — a literal, or a reading read once or on render, stays
+  `slotMod.secondary` decides once — a literal, or a reading read once or on render, stays
   bytes. `label` stays a registry fact and never moves.
 
 ## What was deliberately left out

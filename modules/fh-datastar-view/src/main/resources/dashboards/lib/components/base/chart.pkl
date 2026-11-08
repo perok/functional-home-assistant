@@ -2,7 +2,7 @@
 /// SVG out (ADR 0032). Knows no provider and no HA.
 module components.base.chart
 
-import "../../core/stage.pkl" as stageMod
+import "../../core/simple.pkl" as simpleMod
 
 /// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
 /// asked, so two sizes of one chart share one fetch.
@@ -11,7 +11,7 @@ const function chartStage(
   chartHeight: Int?,
   chartUnit: String?
 ): ChartStage = new ChartStage {
-  params {
+  style {
     width = chartWidth
     height = chartHeight
     unit = chartUnit
@@ -32,7 +32,8 @@ class ChartParams {
   unit: String?
 }
 
-class ChartStage extends stageMod.Stage {
-  stage: "Chart" = "Chart"
-  params: ChartParams = new ChartParams {}
+/// A fetch's answer drawn as SVG: the step a chart slot's reading ends with.
+class ChartStage extends simpleMod.Step {
+  kind: "Chart" = "Chart"
+  style: ChartParams = new ChartParams {}
 }

@@ -27,52 +27,64 @@ Here is the smallest component that works:
 module mycards
 
 import "@fh-dashboard/core/node.pkl" as nodes
+import "@fh-dashboard/core/slot.pkl" as slotMod
+
+const local message = slotMod.slot("message")
 
 class Banner extends nodes.Node {
   card = "banner"
   cardDef = new nodes.CardDef {
     template = """
-      <div class="banner">{{message}}</div>
+      <div class="banner">\(message)</div>
       """
   }
   hidden text: String
   slots {
-    ["message"] = text
+    message.of(text)
   }
 }
 
 function banner(t: String): Banner = new Banner { text = t }
 ```
 
-Three things are going on:
+Four things are going on:
 
-- `card = "banner"` is the name. It has to be unique across every component
-  module the dashboard loads.
-- `cardDef` is the shared half: the HTML, shared by every banner.
-- `slots { ["message"] = text }` is the per-copy half: what this particular
-  banner says.
+- `const local message = slotMod.slot("message")` names the slot, once. Every
+  other place uses `message`, so a typo is a Pkl error at that line, in the
+  editor too. Give it a name none of the card's own properties has: inside the
+  class, a property of the same name wins.
+- `card = "banner"` is the card's name. It has to be unique across every
+  component module the dashboard loads.
+- `cardDef` is the shared half: the HTML, shared by every banner. `\(message)`
+  writes the hole, `{{message}}`.
+- `slots { message.of(text) }` is the per-copy half: what this particular
+  banner says. A slot whose value is `null` is left out.
 
-The build holds the two halves to each other. A name written outside every
-`{{#…}}` section, like `{{message}}` here, must be a slot the banner sets;
-inside a section it may be left out, so wrap anything optional:
-`{{#icon}}<i>{{icon}}</i>{{/icon}}` shows the icon only when there is one. A
-piece that is always there needs no section: set it as finished text, `""` when
-there is nothing, as `historyReadings` sets `postfix` to `" °C"`. And every
-slot you set must be named somewhere in the template, so a misspelt
-`{{#mesage}}` fails the build instead of showing nothing.
+The build holds the two halves to each other. A slot placed outside every
+section, like `message` here, must be one the banner sets. Wrap anything
+optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node
+sets it, and `ifUnset` is the other half. `ifTrue`/`ifFalse` test a yes/no
+value instead. Where one is the other's alternative, write both in one call:
+`icon.ifSetElse("<i>\(icon)</i>", "<span>\(label)</span>")`, or `ifTrueElse`.
+For a switch of your own card's, such as a size or a direction, declare the
+slot with `slotMod.bool("flag")` instead of `slotMod.slot(…)`:
+`flag.setIf(isDown)` sets it only while it holds, and the template reads it
+with `flag.ifSet(…)`. Inside `class="…"`, put the separating space before a
+section, never inside it: `"my-card \(flag.ifSet("my-card-down"))"`. A section
+that does not show leaves a trailing space, which HTML ignores. A piece that is always there needs no section: set it as
+finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
+to `" °C"`. And every slot you set must be placed somewhere in the template.
 
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
 
 ## Using it
 
-Add your module to `componentModules` in your entry file:
+Import your module and use the card:
 
 ```pkl
 import "components.pkl" as c
 import "mycards.pkl" as mine
-
-componentModules { mine }
 
 card = (c.column) {
   children {
@@ -81,13 +93,8 @@ card = (c.column) {
 }
 ```
 
-You have to name your module explicitly. Pkl cannot look at your imports and
-find your cards by itself. If you forget, you get a clear "card not found" error
-when the dashboard builds — not a broken page later.
-
-Your cards must be in their own file, not written inline in the entry. Classes
-in an entry file have to be `local`, and `local` classes are invisible to the
-part of Pkl that collects cards.
+There is nothing to register: the build finds each card on the nodes that use
+it. A card class may also be written in the entry itself, as a `local class`.
 
 If your card should follow the workspace's `defaults` (set in its
 `components.pkl`), have your function take them: `mine.banner("Hello",
@@ -107,37 +114,38 @@ import "@fh-dashboard/core/slot.pkl" as slotMod
 hidden entity: hass.Entity
 
 slots {
-  ["message"] = new slotMod.Slot {
-    entityId = entity.entity_id
-    transform = "state"
-  }
+  message.of(new slotMod.Reading { entityId = entity.entity_id })
 }
 ```
 
-`transform` says what to show. Leave it out and the slot shows the entity's
-state. It can be a fast read from `core/simple.pkl`, which runs without an
-expression engine — `simpleMod.attr("battery")`, `simpleMod.attrUnit("temperature")`
-(the attribute with its unit), `simpleMod.duration(60)` — or, for a yes/no slot,
-a condition such as `q.entity(door).stateIs("on")`. Either may read another
-entity than the slot's: a condition names its own, and a fast read takes
-`entity`, as in `(simpleMod.attr("battery")) { entity = phone.entity_id }`.
+A reading shows the entity's state, after running its `steps` on it in order.
+Leave `entityId` out and it reads the card's own entity. `core/simple.pkl` has
+readings that need no expression engine — `simpleMod.attr("battery")`,
+`simpleMod.attrUnit("temperature")` (the attribute with its unit),
+`simpleMod.duration(60)` — and, for a yes/no slot, a condition such as
+`q.entity(door).stateIs("on")` fills one directly. Either may read another
+entity than the card's: a condition names its own, and a reading takes
+`entityId`, as in `(simpleMod.attr("battery")) { entityId = phone.entity_id }`.
 
-For anything more, `transform` is a small expression (CEL):
+For anything more, a step is a small expression (CEL) over `value`, what the
+step before it gave: the state, on a plain reading. To read more of the entity,
+read the whole of it, as `slotMod.celReading` does, and write `value.state` and
+`value.attr`:
 
 ```pkl
-transform = "state + ' °C'"
-transform = "attr['friendly_name']"
-transform = "state == 'on' ? 'Running' : 'Idle'"
+steps { simpleMod.cel("value + ' °C'") }
+slotMod.celReading("value.attr[?'friendly_name'].orValue('')")
+slotMod.celReading("value.state == 'on' ? 'Running' : 'Idle'")
 ```
 
 It is checked when the dashboard is built, names and types both, so
-`state + 1` fails there rather than on the page. What it gives back must be
+`value.state + 1` fails there rather than on the page. What it gives back must be
 something a card can show: text, a number or a true/false. A list or a map
 fails the build; `str(…)` turns one into text.
 
 ### How often should it be read?
 
-Every slot has a `reads` setting. It matters, so it is worth understanding.
+Every reading has a `reads` setting. It matters, so it is worth understanding.
 
 | `reads` | What it means | Use it for |
 |---|---|---|
@@ -157,20 +165,31 @@ If a value changes often, redrawing the whole card each time is wasteful. Mark
 the slot as a **signal** instead, and only that one value is sent:
 
 ```pkl
-["temperature"] = new slotMod.Slot {
-  entityId = entity.entity_id
-  signal = "text"
+(temperature) {
+  value = new slotMod.Reading { entityId = entity.entity_id }
+  signal = slotMod.asText
 }
 ```
 
 Then place both the value and its binding in the template:
 
-```html
-<span {{{temperature__bind}}}>{{temperature}}</span>
+```pkl
+<span \(temperature.bind)>\(temperature)</span>
 ```
 
-The `{{temperature}}` part is what a browser sees on first load. The
-`{{{temperature__bind}}}` part is what keeps it fresh afterwards. You need both.
+The `\(temperature)` part is what a browser sees on first load. The
+`\(temperature.bind)` part is what keeps it fresh afterwards. You need both,
+and the build refuses the binding inside `temperature.ifTrue(…)`: a signal
+slot's value is blank between redraws, so that section would vanish with the
+binding that refills it. `ifSet` is safe.
+
+Your card's own JavaScript can write a signal slot too, such as a drag that
+paints the fill before the device answers: `fill.assign("'40%'")` is
+`$<its signal> = '40%'`. Wrap every write in `fill.ifSignal(…)`, which keeps it
+out of a node where `fill` is not a signal; the build refuses one outside it.
+Put a separator inside that section, the opposite of the class rule above,
+because a leftover `a, ` is broken JavaScript:
+`"a = 1" + fill.ifSignal(", " + fill.assign(js))`.
 
 ### Reading an entity's history
 
@@ -180,11 +199,15 @@ by a name you give it:
 ```pkl
 import "@fh-dashboard/providers.pkl" as p
 
-["peak"] = new slotMod.Slot {
+peak.of(new slotMod.Reading {
   entityId = entity.entity_id
-  transform = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-  expressionValues { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
-}
+  steps {
+    new simpleMod.Cel {
+      src = "str(math.greatest(past.transformList(i, p, true, p[1])))"
+      inputs = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
+    }
+  }
+})
 ```
 
 `past` is a list of `[time, value]` pairs, oldest first: time in milliseconds,
@@ -207,23 +230,37 @@ or a function handed the providers, so its users need no import.
 
 ### A value only while something holds
 
-`valueWhile` on a slot says when it has a value at all. Until then the value
+`valueWhile` on a reading says when it has a value at all. Until then the value
 is `""`, the expression does not run, and its history is not read:
 
 ```pkl
-["peak"] = new slotMod.Slot {
+peak.of(new slotMod.Reading {
   entityId = entity.entity_id
   valueWhile = q.entity(entity).gt(q.prop("state"), 0)
-  transform = "…"
-  expressionValues { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
-}
+  steps {
+    new simpleMod.Cel {
+      src = "…"
+      inputs = new Mapping { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
+    }
+  }
+})
 ```
 
 It takes what `active` and `disabled` take: `true`/`false`, a condition
 (`q.entity(e).gt(…)`, `.stateIs(…)`, `q.from(…).any()`), or a reading that is a
-`bool` (`slotMod.expr("int(state) > 0")`). A condition is the fast choice, and
-one that names no entity reads the slot's. A reading cannot use a fetch.
+`bool` (`slotMod.expr("int(value.state) > 0")`). A condition is the fast choice, and
+one that names no entity reads the slot's. A reading here can read history as
+above, and so can one in a set's `where` or `orderBy` or in a `c.iff`, but not
+through `p.history.chosen`: these are decided once for every viewer, so the
+build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
+
+Such a decision is kept until an entity it reads changes, and the history's own
+sensor is not one of them: a `where` over `size(past) > 0` alone keeps its first
+answer. Add `.updateOnEntityChange()` to the history,
+`p.history.of(sensor, p.history.raw(24.h)).updateOnEntityChange()`, and it is
+decided again whenever `sensor` changes. A decision inside a hidden tab or
+branch reads no history until it is shown.
 
 ---
 
@@ -237,20 +274,18 @@ import "@fh-dashboard/core/tap.pkl" as tapMod
 hidden tapAction: tapMod.TapAction
 
 slots {
-  for (k, v in tapMod.tapSlots(tapAction)) {
-    [k] = v
-  }
+  ...tapMod.tapSlots(tapAction)
 }
 ```
 
-```html
+```pkl
 <button data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard)>
-  {{label}}
+  \(label)
 </button>
 ```
 
 That is the whole thing. You do not write any signal names, and you do not need
-an `{{#busy}}` section around anything — the pieces bring their own, so you
+a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their own, so you
 place them whether or not this particular card guards its tap.
 
 **Do not build the click yourself.** The slots carry more than the click: the
@@ -260,7 +295,7 @@ button the server refuses.
 
 `refusedAttr` disables the control while the tap would be refused (its entity is
 unavailable, say). It is for a `<button>` or other form control; on an element
-that cannot be disabled, use `\(tapMod.refusedNow(" fh-disabled"))` in its
+that cannot be disabled, use `\(tapMod.refusedNow("fh-disabled"))` in its
 `class` instead, as the tile does.
 
 Between them they give you everything a working control needs:
@@ -274,10 +309,11 @@ If the tap is not a guarded one, both pieces come out empty and your card
 renders exactly as if none of this existed.
 
 **One exception.** If your card has an icon and you want it to spin during a
-slow action, you place that yourself:
+slow action, you place that yourself, in the icon's `class` (`glyph` being your
+icon's slot):
 
-```html
-{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}
+```pkl
+\(tapMod.busyVisual.ifSet(glyph.ifTrue(" " + tapMod.busyShapeClass)))
 ```
 
 The spinner is separate because its class name comes from the theme, and only
@@ -327,14 +363,28 @@ Two rules keep your card working under any theme:
 - When you do need a colour, use the `--fh-*` variables, never a colour name
   from a CSS framework. Someone may be using a theme that never loaded it.
 
+A theme may rename the `fh-` classes your template writes. It sees a class
+written in the template text, and a class held in a slot made with
+`slotMod.cssClass("size")` instead of `slotMod.slot(…)`. Use that for any slot
+you place inside `class="…"`, and put a whole class name in it
+(`size.of("fh-size-small")`), not a piece the template completes.
+
 ---
 
 ## Escaping: two kinds of hole
 
-- `{{name}}` escapes the value. Use this for anything a person typed or
-  anything that came from Home Assistant.
-- `{{{name}}}` does not escape. Use it only for values that are meant to be
-  markup or code — child HTML, a URL you built, a click expression.
+- `\(name)` (`{{name}}`) escapes the value. Use this for anything a person
+  typed or anything that came from Home Assistant.
+- `name.raw` (`{{{name}}}`) does not escape. Use it only for values that are
+  meant to be markup or code, such as a click expression, and
+  declare that slot with `slotMod.textRaw("name")` instead of
+  `slotMod.slot(…)`: the build refuses a plain slot in a raw hole, and a raw
+  one in an escaped hole. A region is always placed this way.
+
+A number or a yes/no value shows as text in either hole (`true` or `false`).
+A history answer does not: give its reading the steps
+`new simpleMod.JsonStage {}` then `new simpleMod.JsonTextStep {}` to place it
+as JSON text, as `historyReadings` does.
 
 When in doubt, use two braces.
 

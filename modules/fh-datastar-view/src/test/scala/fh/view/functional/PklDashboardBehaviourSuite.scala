@@ -111,7 +111,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // BeerCSS's own class, through the theme's class rules.
       assert(
         html.contains(
-          """<a class="fh-button button fh-press large" href="d/other">""" +
+          """<a class="fh-button button fh-press large  " href="d/other">""" +
             """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
         ),
         clue = html
@@ -699,13 +699,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // The service is spliced as a quoted literal, the spelling a
           // state-dependent tap fills with a signal read, so one template
           // serves both (ADR 0017).
+          // The refusal's signal is named by a hash of what it reads.
           assert(
-            html.contains(
-              "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
-                "$_e.light.plug.t9e4d7fac ? '' : " +
-                "@post('sse/call/fixture-plug/' + 'light/toggle' + " +
-                "'/entity/light.plug?node=c_0_head_0'"
-            ),
+            (raw"""data-on:click="\$$_c_0_head_0__busy_change \? '' : """ +
+              raw"""\$$_e\.light\.plug\.t[0-9a-f]{8} \? '' : """ +
+              raw"""@post\('sse/call/fixture-plug/' \+ 'light/toggle' \+ """ +
+              raw"""'/entity/light\.plug\?node=c_0_head_0'""").r
+              .findFirstIn(html)
+              .isDefined,
             clue = html
           )
           // The switch-fill token: a switch-only light reports no colour.

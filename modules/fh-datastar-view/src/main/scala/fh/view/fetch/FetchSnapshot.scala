@@ -30,8 +30,18 @@ final class FetchSnapshot private (
   def versions(node: NodeId, asks: List[SlotAsk]): Map[SlotRead, Long] =
     asks.view.map(read(node, _)).map(r => r -> staged(r).version).toMap
 
-  def value(node: NodeId, ask: SlotAsk): String =
-    staged(read(node, ask)).value
+  def value(node: NodeId, ask: SlotAsk): String = staged(node, ask).value
+
+  /** For an ask no viewer's variable shapes: a decision's. */
+  def shared(ask: SlotAsk): String = staged(ask.resolve(Map.empty)).value
+
+  def staged(node: NodeId, ask: SlotAsk): Staged = staged(read(node, ask))
+
+  def has(read: SlotRead): Boolean = answers.contains(read)
+
+  /** A decision run's rounds so far: its answers grow, its vars are none. */
+  def ++(more: FetchSnapshot): FetchSnapshot =
+    new FetchSnapshot(answers ++ more.answers, vars)
 
   private def staged(read: SlotRead): Staged =
     answers.getOrElse(

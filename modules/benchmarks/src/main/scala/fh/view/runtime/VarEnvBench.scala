@@ -3,15 +3,16 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
+  Step,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
-  SlotSource,
-  Transform
+  Value,
+  ValueExpr,
+  TemplateSlot
 }
 import fh.view.fetch.FetchSnapshot
 import fh.view.history.Windows
@@ -41,14 +42,14 @@ class VarEnvBench {
   import VarEnvBench.*
 
   private var renderer: Renderer = null
-  private var st: Map[String, EntityState] = null
+  private var st: Shared = null
   private var cache: RenderCache = null
   private var rot = 0L
   private val window = VarKey(NodeId.derived("root"), "window")
 
   @Setup(Level.Trial)
   def setup(): Unit = {
-    st = RenderBench.states(RenderBench.Leaves)
+    st = Shared.of(RenderBench.states(RenderBench.Leaves))
     renderer = Renderer.create(dashboard)
     cache = RenderCache.create.unsafeRunSync()
     println(s"\nnodes in scope: ${renderer.vars.env(Map.empty).size}")
@@ -76,6 +77,7 @@ class VarEnvBench {
           FragmentLog("bench").touched(FetchBench.PlainId, rot),
           Map.empty,
           st,
+          _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
           rot,
@@ -93,12 +95,13 @@ object VarEnvBench {
     LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
-          ),
-          transform = Transform.Stage.Passthrough,
-          reads = Reads.OnRender
+        "chart" -> TemplateSlot(
+          ValueExpr(
+            Value.Fetch(
+              FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
+            ),
+            List(Step.Json, Step.JsonText)
+          )
         )
       )
     )

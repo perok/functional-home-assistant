@@ -1,6 +1,6 @@
 package fh.view.model
 
-import fh.view.runtime.EntityState
+import fh.view.runtime.{Cel, EntityState}
 import fh.view.testkit.PklWorkspace
 import org.pkl.core.{EvaluatorBuilder, ModuleSource}
 
@@ -9,7 +9,7 @@ import org.pkl.core.{EvaluatorBuilder, ModuleSource}
   */
 class ClockTimeExprSuite extends munit.FunSuite {
 
-  private val inOslo: Transform.Compiled = {
+  private val inOslo: Cel.Program = {
     val slot = (PklWorkspace.resourcesLib / "core" / "slot.pkl").toNIO.toUri
     val ev = EvaluatorBuilder.preconfigured().build()
     val src =
@@ -19,13 +19,13 @@ class ClockTimeExprSuite extends munit.FunSuite {
           "s.CLOCK_TIME_EXPR"
         )
       finally ev.close()
-    Transform
+    Cel
       .parse(src.replace("time_zone", "'Europe/Oslo'"))
       .fold(e => fail(e), identity)
   }
 
   private def clock(state: String): String =
-    Transform.run(inOslo, EntityState("scene.kveld", state, Map.empty), "d")
+    Cel.run(inOslo, EntityState("scene.kveld", state, Map.empty), "d")
 
   test("an instant reads as the local clock time, summer and winter") {
     assertEquals(clock("2026-10-12T16:03:11.552123+00:00"), "18:03")

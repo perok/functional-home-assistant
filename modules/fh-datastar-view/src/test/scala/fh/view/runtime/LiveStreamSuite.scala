@@ -7,7 +7,9 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Region,
-  SlotSource,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.FixtureEntity
@@ -112,7 +114,11 @@ class LiveStreamSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.shared")))
+            )
+          )
         ),
         LayoutNode.Component("ifhost")
       )
@@ -207,8 +213,8 @@ class LiveStreamSuite extends ServerHarness {
         .create(dash)
         .renderNodeById(
           "s_det__c_0",
-          Map("sensor.a" -> es("sensor.a", "cold")),
-          fragments = FetchSnapshot.empty
+          Shared.of(Map("sensor.a" -> es("sensor.a", "cold"))),
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
         .get
     )
@@ -328,9 +334,8 @@ class LiveStreamSuite extends ServerHarness {
           r,
           r.hostId("c_0"),
           Some("then"),
-          armed,
-          Selections.none,
-          fragments = FetchSnapshot.empty
+          Shared.of(armed),
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
         .get
 
@@ -339,12 +344,19 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed, fragments = FetchSnapshot.empty)
-        .map(Held.of)
+      r.renderNodeById(
+        leaf,
+        Shared.of(armed),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ).map(Held.of)
     )
     val root = NodeId.derived("s_then__c")
     assertEquals(
-      r.renderNodeById(root, armed, fragments = FetchSnapshot.empty),
+      r.renderNodeById(
+        root,
+        Shared.of(armed),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ),
       None
     )
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
@@ -368,7 +380,11 @@ class LiveStreamSuite extends ServerHarness {
     val holds: Map[NodeId, Held] =
       Map(
         host -> Held.of(
-          r.renderNodeById(host, states, fragments = FetchSnapshot.empty).get
+          r.renderNodeById(
+            host,
+            Shared.of(states),
+            Viewing(Selections.none, FetchSnapshot.empty)
+          ).get
         )
       )
     val owed = resumeNow(
@@ -414,8 +430,11 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderNodeById(id, before, mine, fragments = FetchSnapshot.empty)
-        .map(h => id -> Held.of(h))
+      r.renderNodeById(
+        id,
+        Shared.of(before),
+        Viewing(mine, FetchSnapshot.empty)
+      ).map(h => id -> Held.of(h))
     }.toMap
 
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
@@ -543,7 +562,11 @@ class LiveStreamSuite extends ServerHarness {
             "bar" -> List(
               LayoutNode.Component(
                 "bar",
-                slots = Map("title" -> SlotSource(Some("sensor.title")))
+                templateSlots = Map(
+                  "title" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.title")))
+                  )
+                )
               )
             )
           ),
@@ -750,11 +773,19 @@ class LiveStreamSuite extends ServerHarness {
         regions = LayoutNode.kids(
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some("sensor.a")))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
+            )
           ),
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some("sensor.b")))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
+            )
           )
         )
       )

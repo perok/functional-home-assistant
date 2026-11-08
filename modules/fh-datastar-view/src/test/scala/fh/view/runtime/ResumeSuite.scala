@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.std.Supervisor
@@ -9,8 +11,9 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
-  SlotSource,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface,
   Theme
 }
@@ -197,13 +200,18 @@ class ResumeSuite extends ServerHarness {
           supervisor
         )
         for {
+          before <- store.frames.take(1).compile.lastOrError
           _ <- store.update(hot)
+          after <- store.frames.take(1).compile.lastOrError
           _ <- server.recordFrame(
             "dashboard",
             renderer,
             live.log,
-            Membership.empty,
-            List(StateChange("sensor.a", cold.get("sensor.a"), hot))
+            renderer.shared(before.state),
+            Frame(
+              List(StateChange.Moved("sensor.a", cold.get("sensor.a"), hot)),
+              after.state
+            )
           )
           logId <- live.log.get.map(_.id)
           version <- store.version
@@ -245,8 +253,15 @@ class ResumeSuite extends ServerHarness {
           "light.a" -> LayoutNode.SetMember(
             List(
               LayoutNode.SetClause(
-                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-                LayoutNode.Component("pill", Map("state" -> SlotSource()))
+                Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+                LayoutNode.Component(
+                  "pill",
+                  Map(
+                    "state" -> TemplateSlot(
+                      ValueExpr(Value.Entity(Some("light.a")))
+                    )
+                  )
+                )
               )
             )
           )
@@ -275,12 +290,16 @@ class ResumeSuite extends ServerHarness {
           supervisor
         )
         for {
+          before <- store.frames.take(1).compile.lastOrError
           _ <- server.recordFrame(
             "dashboard",
             renderer,
             live.log,
-            Membership.empty,
-            List(StateChange("light.a", None, off("light.a")))
+            renderer.shared(StoreState(Map.empty, before.state.version - 1)),
+            Frame(
+              List(StateChange.Moved("light.a", None, off("light.a"))),
+              before.state
+            )
           )
           _ <- store.update(es("light.a", "on"))
           resp <- server.routes.orNotFound.run(
@@ -337,7 +356,11 @@ class ResumeSuite extends ServerHarness {
       mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.b")))
+            )
+          )
         ),
         "c_1",
         1
@@ -380,7 +403,11 @@ class ResumeSuite extends ServerHarness {
         "det" -> Surface(
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some("sensor.b")))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
+            )
           )
         )
       )
@@ -432,7 +459,11 @@ class ResumeSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "detail",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.b")))
+            )
+          )
         )
       )
     )
@@ -524,7 +555,11 @@ class ResumeSuite extends ServerHarness {
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          slots = Map("state" -> SlotSource(Some("sensor.b")))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.b")))
+            )
+          )
         ),
         "c_1",
         1

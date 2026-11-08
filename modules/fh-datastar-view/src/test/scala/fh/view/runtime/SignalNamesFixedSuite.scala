@@ -2,21 +2,24 @@ package fh.view.runtime
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
+  Part,
   CardDef,
   Dashboard,
   NodeId,
   Region,
   SignalBind,
-  SlotSource
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit, st}
 import io.circe.Json
 
-/** For a node with a constant subject, its signal names are fixed; only values
-  * move. True by construction in `Renderer.buildPlan`, asserted anyway because
-  * `Datastar.SignalSeed` bakes the names into a skeleton, and drift would nest
-  * the wrong paths in a well-formed attribute, silently killing every binding.
-  * Dynamic subjects are excluded: [[DynamicSubjectSuite]].
+/** A node's signal names are fixed; only values move. True by construction in
+  * `Renderer.buildPlan`, asserted anyway because `Datastar.SignalSeed` bakes
+  * the names into a skeleton, and drift would nest the wrong paths in a
+  * well-formed attribute, silently killing every binding.
   */
 class SignalNamesFixedSuite extends munit.FunSuite {
 
@@ -26,15 +29,23 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       regions = Map("children" -> Region())
     ),
     "card" -> CardDef(
-      """<span {{{value__bind}}}>{{value}}</span>"""
+      """<span {{{value.bind}}}>{{value}}</span>"""
     ),
     "two" -> CardDef(
-      """<span {{{a__bind}}} {{{b__bind}}}>{{a}}{{b}}</span>"""
+      """<span {{{a.bind}}} {{{b.bind}}}>{{a}}{{b}}</span>"""
     )
   )
 
   private def sig(entity: String, transform: String = "state") =
-    SlotSource(Some(entity), transform, signal = Some(SignalBind.Text))
+    TemplateSlot(
+      if (transform == "state") ValueExpr(Value.Entity(Some(entity)))
+      else
+        ValueExpr(
+          Value.Entity(Some(entity), Part.Whole),
+          List(Step.Cel(transform))
+        ),
+      signal = Some(SignalBind.Text)
+    )
 
   private val dash = Dashboard(
     cards = cards,
@@ -42,7 +53,7 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       component("card", "value" -> sig("sensor.a")),
       component(
         "two",
-        "a" -> sig("sensor.a", "attr.brightness"),
+        "a" -> sig("sensor.a", "value.attr.brightness"),
         "b" -> sig("sensor.b")
       ),
       component("card", "value" -> lit("constant"))
@@ -78,7 +89,9 @@ class SignalNamesFixedSuite extends munit.FunSuite {
     val perWorld = worlds.map { states =>
       ids
         .map(id =>
-          id -> renderer.signalsFor(id, states, FetchSnapshot.empty).keySet
+          id -> renderer
+            .signalsFor(id, Shared.of(states), FetchSnapshot.empty)
+            .keySet
         )
         .toMap
     }
@@ -102,7 +115,7 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       val html = renderer.renderBody(states)
       ids.foreach { id =>
         val expected = Datastar.signalsAttr(
-          renderer.signalsFor(id, states, FetchSnapshot.empty)
+          renderer.signalsFor(id, Shared.of(states), FetchSnapshot.empty)
         )
         if (expected.nonEmpty) {
           assert(

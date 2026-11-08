@@ -212,8 +212,7 @@ object Datastar {
       sb.toString
 
   /** A seed with its values cut out, built at plan time since only values move;
-    * `chunks` is one longer than `order`. A transform subject has no fixed
-    * names and keeps [[signalsAttr]].
+    * `chunks` is one longer than `order`.
     */
   final class SignalSeed private[runtime] (
       val chunks: Array[String],
@@ -333,7 +332,7 @@ object Datastar {
     val _ = sb.append('}')
   }
 
-  /** What `<slot>__bind` renders (ADR 0017). The signal is read bare: the value
+  /** What `<slot>.bind` renders (ADR 0017). The signal is read bare: the value
     * carries its own shape (`39.37%`, `#ffb46b`, a real boolean), so the
     * transform is the one place that decides it. `data-bind` takes the name,
     * since it writes back.
@@ -361,7 +360,7 @@ object Datastar {
     case b: Boolean => b.toString
     case s: String  => jsLiteral(s)
 
-  /** The non-signal half of `<slot>__read`, through the seed's escaper. */
+  /** The non-signal half of `<slot>.jsValue`, through the seed's escaper. */
   def jsLiteral(value: String): String = {
     val sb = new java.lang.StringBuilder(value.length + 2)
     val _ = sb.append('\'')

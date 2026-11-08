@@ -5,246 +5,229 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.fetch.FetchRequest
 import fh.view.history.Window
-import fh.view.runtime.{Cel, Templates}
-import io.circe.{Decoder, DecodingFailure, Json}
+import fh.view.runtime.{Cel, Evaluator, Templates}
+import io.circe.{Decoder, DecodingFailure, JsonObject}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
+
+import scala.collection.immutable.ListMap
 
 // The wire names each case exactly as here (`WireShapeSuite` checks Pkl's
 // literals), `SetNode` included: `LayoutNode.Set` would shadow `scala.Set`.
 given Configuration =
-  Configuration.default.withDefaults.withDiscriminator("kind")
+  Configuration.default.withDefaults
+    .withDiscriminator("kind")
+    .withTransformMemberNames(Strict.wireName)
 
-/** Where one mustache slot gets its value.
+/** A template slot: what it shows, and how the card places it (Pkl's `Slot`).
+  * The wire is flat, the [[ValueExpr]]'s fields beside these, or a bare
+  * literal.
   *
-  *   - `transform`: a CEL string or a [[Transform.Simple]] object, a condition
-  *     included — the form is the tier (ADR 0028) — or, on a fetch slot, a
-  *     [[Transform.Stage]]. CEL reaches the slot's own entity and the
-  *     expression values it names, the node's and its own ([[BoundSlot]]); a
-  *     `Simple` read may name any entity.
-  *   - `default`: used when the transform yields `""`, which keeps a numeric
-  *     initialiser like `{bri: {{x}}}` valid while a light is off.
-  *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
-  *     running the transform. Off for an action, a label or a slider position.
-  *   - `entityId`: `None` inherits the card's `entity_id`.
-  *   - `literal`: a verbatim value, authored as a bare string; all else unused.
+  *   - `valueWhile`: a bool over the same subject; while it is not `true` the
+  *     slot is `""`, decided before its steps run or any of its fetches is
+  *     read.
   *   - `signal`: carry the value as a Datastar signal, so a change is one
   *     signal frame rather than a re-rendered card (ADR 0017). The card puts
-  *     `{{{<slot>__bind}}}` on the element beside its `{{<slot>}}` hole.
-  *   - `fetch`: a fetch slot, which ignores `reads` and `signal`
-  *     ([[SlotShape]]).
-  *   - `values`: expression values of this slot alone, beside the node's
-  *     ([[BoundSlot]]); a name in both is a build error.
+  *     `{{{<slot>.bind}}}` on the element beside its `{{<slot>}}` hole.
+  *   - `type`: what the card reads the value AS, which the binding is checked
+  *     against: a `Class` needs a bool, a `Text` or `Style` text.
   */
-case class SlotSource(
-    entityId: Option[String] = None,
-    transform: String | Transform.Simple | Transform.Stage =
-      Transform.Simple.State(),
-    default: Option[String] = None,
-    bypassUnavailable: Boolean = true,
-    literal: Option[String] = None,
-    reads: String = Reads.Live,
+final case class TemplateSlot(
+    expr: ValueExpr,
+    valueWhile: Option[ValueExpr] = None,
     signal: Option[SignalBind] = None,
-    // What the card reads the value AS, set where it binds the slot. Declared
-    // where the binding cannot say it: a `class:` binding is a bool by kind.
-    `type`: SlotType = SlotType.Text,
-    fetch: Option[FetchTemplate] = None,
-    values: Map[String, ExprValue] = Map.empty,
-    // A `bool` slot over the same subject: while it is not `true` this slot is
-    // `""`, decided before its transform runs or any of its fetches is read.
-    valueWhileSlot: Option[SlotSource] = None
-) {
+    `type`: SlotType = SlotType.Text
+):
+  def literal: Option[String] = expr.literal
 
-  def isBool: Boolean =
-    `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
+  def placement: Placement = Placement(signal, `type`)
 
-  /** Total so `validate` can call it; `validate` rejects a fetch slot whose
-    * transform is not a stage, so the fallback never renders.
-    */
-  def stage: Transform.Stage = transform match {
-    case st: Transform.Stage => st
-    case _                   => Transform.Stage.Passthrough
-  }
+object TemplateSlot:
+  private val Fields =
+    ValueExpr.fieldNames ++ Set("valueWhile", "signal", "type")
 
-  /** The transform's own key; [[BoundSlot.valueKey]] adds the values it reads.
-    * Lazy: the `Simple` arm builds a string, 4.3% of a signals tick's
-    * allocation as a `def` (`RenderBench.resumeSignals`).
-    */
-  lazy val valueKey: String = transform match {
-    case s: String            => s
-    case sm: Transform.Simple => Transform.Simple.key(sm)
-    case st: Transform.Stage  => Transform.Stage.key(st)
-  }
-}
+  given Decoder[TemplateSlot] = Decoder.instance(c =>
+    if (!c.value.isObject) c.as[ValueExpr].map(TemplateSlot(_))
+    else
+      Strict.only(c, Fields) *> (
+        ValueExpr.fields(c),
+        c.getOrElse[Option[ValueExpr]]("valueWhile")(None),
+        c.getOrElse[Option[SignalBind]]("signal")(None),
+        c.getOrElse[SlotType]("type")(SlotType.Text)
+      ).mapN(TemplateSlot.apply)
+  )
 
-/** A slot with the expression values its CEL names, the node's and its own: the
-  * build's bind pass, run lazily on the node ([[LayoutNode.Component.bound]]).
-  * It fixes each name's definition and type, not its value, which is resolved
-  * per render.
+/** How a card places a slot: the signal it is bound as, and what it reads the
+  * value as. A template slot's comes off the wire, a cell slot's from its key
+  * ([[CellKey.placement]]).
+  */
+final case class Placement(signal: Option[SignalBind], `type`: SlotType)
+
+object Placement:
+  /** A `valueWhile`: decided before the slot it gates, never bound. */
+  val Bool: Placement = Placement(None, SlotType.Bool)
+
+/** A slot with its subject named and the node's inputs its CELs read, each
+  * CEL's own inputs being in it: the build's bind pass, run lazily on the node
+  * ([[LayoutNode.Component.bound]]). It fixes each name's definition and type,
+  * not its value, which is resolved per render.
+  *
+  * @param subject
+  *   the node's: what a condition that names no entity compares.
   */
 final case class BoundSlot(
-    source: SlotSource,
-    values: Map[String, ExprValue],
-    valueWhile: Option[BoundSlot] = None
+    expr: ValueExpr,
+    inputs: Map[String, ValueExpr],
+    valueWhile: Option[BoundSlot] = None,
+    signal: Option[SignalBind] = None,
+    `type`: SlotType = SlotType.Text,
+    subject: Option[String] = None
 ):
-  export source.{
-    entityId,
-    transform,
-    default,
-    bypassUnavailable,
-    literal,
-    reads,
-    signal,
-    `type`,
-    fetch,
-    isBool,
-    stage
-  }
+  def literal: Option[String] = expr.literal
 
-  /** What the compiled program is keyed by: one source compiles differently
-    * against a different set of typed names. None for a literal, which runs no
-    * program.
+  def constant: Option[SlotValue] = expr.constant
+
+  def default: Option[Lit] = expr.default
+
+  /** Its value is classes the theme swaps ([[Step.ThemeClasses]]). */
+  lazy val themed: Boolean = expr.steps.lastOption.contains(Step.ThemeClasses)
+
+  def fetch: Option[FetchTemplate] = expr.source match
+    case Value.Fetch(f) => Some(f)
+    case _              => None
+
+  /** The entity it reads, or a bool read without CEL is decided over: what its
+    * signal is named by.
     */
-  lazy val celKey: Option[Transform.CelKey] = transform match
-    case t: String if literal.isEmpty =>
-      Some(Transform.CelKey(t, ExprValue.env(values)))
-    case _ => None
+  def entityId: Option[String] = expr.source match
+    case Value.Entity(of, _, _, _)                  => of
+    case _: Value.Cel                               => None
+    case _ if typed.exists(_.out == ValueType.Bool) => subject
+    case _                                          => None
 
-  def celKeys: List[Transform.CelKey] =
-    celKey.toList ++ valueWhile.toList.flatMap(_.celKeys)
-
-  /** Its [[valueWhile]] over the entity it is decided over: its own, else the
-    * slot's. The one rule the pre-read and the paint share.
+  /** A fetch's answer is never pushed, and a CEL source with no live input is a
+    * constant, held like a `once` read.
     */
-  def gate(slotEntity: Option[String]): Option[Fetching.Gate] =
-    valueWhile.map(w => Fetching.Gate(w, w.entityId.orElse(slotEntity)))
+  def reads: Reads = expr.source match
+    case e: Value.Entity                             => e.reads
+    case _: Value.Fetch                              => Reads.OnRender
+    case _: Value.Cel if !allInputs.exists(_.isLive) => Reads.Once
+    case _                                           => Reads.Live
 
-  /** Every entity that can move this slot besides its own: those its transform
-    * names, those of the live values it reads, and its [[valueWhile]]'s.
+  def bypassUnavailable: Boolean = expr.source match
+    case e: Value.Entity => e.bypassUnavailable
+    case _               => false
+
+  def isBool: Boolean = `type` == SlotType.Bool
+
+  /** Its type checked in order, and the key of each CEL it compiles: one source
+    * compiles differently against other typed names or `value`.
+    */
+  lazy val typed: Either[ValueExpr.Mistyped, ValueExpr.Typed] =
+    expr.typed(ValueExpr.env(inputs))
+
+  /** Every entity that can move this slot besides its own: those its source and
+    * its steps name, those of the live inputs it reads, and its
+    * [[valueWhile]]'s.
     */
   def valueEntities: List[String] =
-    (transform match
-      case s: Transform.Simple => Transform.Simple.referencedEntities(s)
-      case _                   => Nil
-    ) ++ values.values.toList.flatMap(_.entities) ++
+    (expr.source match
+      case _: Value.Entity => expr.partEntities
+      case _               => expr.entities
+    ) ++ inputs.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
+  /** `validate` refuses a fetch slot without a stage: its series fits no slot.
+    */
   def shape: SlotShape =
-    fetch.fold(SlotShape.State(this))(q => SlotShape.Fetch(SlotAsk(q, stage)))
+    fetch.fold(SlotShape.State(this))(q =>
+      SlotShape.Fetch(
+        SlotAsk(
+          q,
+          expr.steps
+            .collectFirst { case s: Step.FetchStage => s }
+            .getOrElse(Step.Json)
+        )
+      )
+    )
 
   /** What a render must answer before it reads this slot: its own fetch, or the
-    * fetches among the values its CEL reads, as their raw answers.
+    * fetches among the inputs it reads, as their answers.
     */
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
-      values.values.toList.collect { case ExprValue.Fetched(f) =>
-        SlotAsk(f, Transform.Stage.Passthrough)
+      allInputs.map(_.source).collect { case Value.Fetch(f) =>
+        SlotAsk(f, Step.Json)
       }
 
+  /** Every named input it reads, at any depth: the node's inputs, each CEL's
+    * own, and theirs.
+    */
+  def allInputs: List[ValueExpr] =
+    inputs.values.toList ++
+      (expr :: inputs.values.toList)
+        .flatMap(_.all)
+        .flatMap(_.cels)
+        .flatMap(_._2.values)
+
   /** What the renderer keys a value by (signal names, the once-cache): two
-    * nodes saying the same thing over the same values share a signal.
+    * nodes saying the same thing over the same inputs share a signal. A themed
+    * value's key has its [[Step.ThemeClasses]], so it never shares with text.
     */
   lazy val valueKey: String =
-    source.valueKey + values.toList
+    expr.key + inputs.toList
       .sortBy(_._1)
-      .map((n, v) => s"|$n=${ExprValue.key(v)}")
+      .map((n, v) => s"|$n=${v.inputKey}")
       .mkString + valueWhile.fold("")(w =>
       s"|while=${w.entityId.getOrElse("")}:${w.valueKey}"
     )
 
 object BoundSlot:
+
+  /** A node's reverse index entries: what its live slots read. */
+  def liveEntities(slots: Iterable[BoundSlot]): List[String] =
+    entitiesOf(stateSlots(slots).filter(isLive))
+
+  /** Minus entities reached only through signal slots: what the render key and
+    * the structure rule use. The two fail in opposite directions if swapped —
+    * this list in the reverse index silently stops signal frames.
+    */
+  def liveEntitiesAsBytes(slots: Iterable[BoundSlot]): List[String] =
+    entitiesOf(stateSlots(slots).filter(s => isLive(s) && s.signal.isEmpty))
+
+  private def stateSlots(slots: Iterable[BoundSlot]): List[BoundSlot] =
+    slots.toList.flatMap(_.shape match
+      case SlotShape.State(src) => Some(src)
+      case SlotShape.Fetch(_)   => None)
+
+  private def isLive(s: BoundSlot): Boolean =
+    s.reads == Reads.Live && s.constant.isEmpty
+
+  private def entitiesOf(slots: List[BoundSlot]): List[String] =
+    slots.flatMap(s => s.entityId.toList ++ s.valueEntities).distinct
+
+  def bind(inputs: Map[String, ValueExpr], subject: Option[String])(
+      s: TemplateSlot
+  ): BoundSlot =
+    bindAt(inputs, s.placement, subject)(s.expr, s.valueWhile)
+
   /** By the identifiers the expression PARSES to, so a name inside a string
     * literal is not a read.
     */
-  def bind(values: Map[String, ExprValue])(s: SlotSource): BoundSlot =
-    // The slot's own win a clash, which `validate` refuses anyway.
-    val all = values ++ s.values
-    val valueWhile = s.valueWhileSlot.map(bind(values))
-    s.transform match
-      case t: String if all.nonEmpty && s.literal.isEmpty =>
-        val read = Cel.identifiers(t)
-        BoundSlot(s, all.filter((n, _) => read.contains(n)), valueWhile)
-      case _ => BoundSlot(s, Map.empty, valueWhile)
-
-/** A named input of a node's or a slot's expressions (`expressionValues`): a
-  * literal the build wrote down, a [[Predicate.Tally]] counted live, a
-  * condition decided live — `c.iff`'s, read as a `bool` — or a fetch, read as
-  * its provider's answer.
-  */
-enum ExprValue derives CanEqual:
-  case Text(value: String)
-  // A Pkl `Int`; a `Float` is `Real` even when whole, decoded by spelling.
-  case Whole(value: Long)
-  case Real(value: Double)
-  case Flag(value: Boolean)
-  case Count(tally: Predicate.Tally)
-  case Holds(condition: Predicate)
-  case Fetched(fetch: FetchTemplate)
-
-  def kind: ExprValue.Kind = this match
-    case _: Text             => ExprValue.Kind.Str
-    case _: Whole | _: Count => ExprValue.Kind.Int
-    case _: Real             => ExprValue.Kind.Dbl
-    case _: Flag | _: Holds  => ExprValue.Kind.Bool
-    // `history` is the one provider (`FetchTemplate`).
-    case _: Fetched => ExprValue.Kind.Series
-
-  /** Live: what it answers moves, so a once-read cannot hold it. */
-  def isLive: Boolean = this match
-    case _: Count | _: Holds | _: Fetched => true
-    case _                                => false
-
-  /** Every entity that can move it. */
-  def entities: List[String] = this match
-    case Count(t) => t.referencedEntities
-    case Holds(p) => Predicate.referencedEntities(p)
-    case _        => Nil
-
-object ExprValue:
-
-  /** The CEL type a value is declared as. `Series` is a history answer's
-    * points, `list(list(double))` of `[epochMillis, value]`.
-    */
-  enum Kind derives CanEqual:
-    case Str, Int, Dbl, Bool, Series
-
-  def env(values: Map[String, ExprValue]): List[(String, Kind)] =
-    values.toList.sortBy(_._1).map((n, v) => n -> v.kind)
-
-  /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
-  def key(v: ExprValue): String = v match
-    case Text(s)    => s"s:$s"
-    case Whole(n)   => s"i:$n"
-    case Real(d)    => s"d:$d"
-    case Flag(b)    => s"b:$b"
-    case Count(t)   => s"t:${Predicate.tallyKey(t)}"
-    case Holds(p)   => s"p:${Predicate.key(p)}"
-    case Fetched(f) => s"f:${f.key}"
-
-  given Decoder[ExprValue] = Decoder.instance { c =>
-    c.value.fold(
-      Left(DecodingFailure("an expression value cannot be null", c.history)),
-      b => Right(Flag(b)),
-      // By SPELLING, as Pkl wrote it: a `Float` 2.0 and an `Int` 2 have one
-      // value, and an expression typed against the wrong one fails its build.
-      n =>
-        Right(
-          if (n.toString.exists(ch => ch == '.' || ch == 'e' || ch == 'E'))
-            Real(n.toDouble)
-          else n.toLong.fold(Real(n.toDouble))(Whole(_))
-        ),
-      s => Right(Text(s)),
-      _ =>
-        Left(
-          DecodingFailure("an expression value cannot be a list", c.history)
-        ),
-      // A condition carries its `kind`, a fetch its `provider`; a tally neither.
-      o =>
-        if (o.contains("kind")) c.as[Predicate].map(Holds(_))
-        else if (o.contains("provider")) c.as[FetchTemplate].map(Fetched(_))
-        else c.as[Predicate.Tally].map(Count(_))
+  def bindAt(
+      inputs: Map[String, ValueExpr],
+      at: Placement,
+      subject: Option[String]
+  )(e: ValueExpr, valueWhile: Option[ValueExpr] = None): BoundSlot =
+    val expr = e.about(subject)
+    BoundSlot(
+      expr,
+      expr.readsNamed(inputs),
+      valueWhile.map(bindAt(inputs, Placement.Bool, subject)(_)),
+      at.signal,
+      at.`type`,
+      subject
     )
-  }
 
 /** A value written down, or picked by a node variable from a table the build
   * checked whole (issue #209). A variable's value lives in a URL and a signal,
@@ -329,15 +312,17 @@ object FetchTemplate:
     }
   }
 
-/** Decided once from the wire form, which keeps one `SlotSource` so snapshots
-  * do not churn. The match makes a `live`, `once` or signal fetch unreachable.
+/** Decided once from the slot's source. The match makes a `live`, `once` or
+  * signal fetch unreachable.
   */
 enum SlotShape derives CanEqual:
   case State(slot: BoundSlot)
   case Fetch(ask: SlotAsk)
 
-/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render. */
-case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
+/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render.
+  * Its answer is read as `stage` makes it.
+  */
+case class SlotAsk(fetch: FetchTemplate, stage: Step.FetchStage)
     derives CanEqual:
 
   /** `validate` proved the declared values resolve, and the write refuses a
@@ -354,17 +339,29 @@ case class SlotAsk(fetch: FetchTemplate, stage: Transform.Stage)
       stage
     )
 
+object SlotAsk:
+  /** What a decision reads of `fetches`: raw, at no viewer's variables, which
+    * `validate` refuses there.
+    */
+  def decision(fetches: List[FetchTemplate]): Set[SlotRead] =
+    fetches.map(SlotAsk(_, Step.Json).resolve(Map.empty)).toSet
+
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
 
 object Fetching:
-  /** A slot's `valueWhile` over `entity` ([[BoundSlot.gate]]). */
-  final case class Gate(valueWhile: BoundSlot, entity: Option[String]):
+  /** A slot's `valueWhile` over the entity it is decided over: the one rule the
+    * pre-read and the paint share ([[Ready.Slot.gate]]).
+    */
+  final case class Gate(valueWhile: Ready.Slot, entity: Option[String]):
+    lazy val reads: Set[SlotRead] =
+      SlotAsk.decision(valueWhile.bound.fetches.map(_.fetch))
+
     /** By content, so two slots gated alike share one decision. */
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
-case class SlotRead(fetch: FetchRequest, stage: Transform.Stage)
+case class SlotRead(fetch: FetchRequest, stage: Step.FetchStage)
     derives CanEqual
 
 /** When a slot is read, and whether that is a reason to re-render:
@@ -379,49 +376,39 @@ case class SlotRead(fetch: FetchRequest, stage: Transform.Stage)
   *
   * Three values, not two flags: `(wake me, never re-read)` is incoherent.
   */
+enum Reads(val wire: String) derives CanEqual:
+  case Live extends Reads("live")
+  case OnRender extends Reads("onRender")
+  case Once extends Reads("once")
+
 object Reads:
-  val Live: String = "live"
-  val OnRender: String = "onRender"
-  val Once: String = "once"
-
-  val All: Set[String] = Set(Live, OnRender, Once)
-
-object SlotSource:
-  // Lazy and by name: `valueWhileSlot` makes the derivation recursive.
-  private lazy val objDecoder: Decoder[SlotSource] = ConfiguredDecoder.derived
-
-  given Decoder[SlotSource] = Decoder.instance(c =>
-    c.as[String].map(s => SlotSource(literal = Some(s))).orElse(objDecoder(c))
+  given Decoder[Reads] = Decoder[String].emap(s =>
+    values
+      .find(_.wire == s)
+      .toRight(
+        s"unknown reads '$s' — one of ${values.map(_.wire).mkString(", ")}"
+      )
   )
 
-  /** Chosen by key, not by trying each arm, so a bad chart param reports the
-    * stage's error rather than the last arm's.
-    */
-  given Decoder[String | Transform.Simple | Transform.Stage] =
-    Decoder.instance { c =>
-      if (c.value.isString) c.as[String]
-      else if (c.downField("stage").succeeded) c.as[Transform.Stage]
-      else c.as[Transform.Simple]
-    }
-
-/** What a card reads a slot's value as. A `Bool` slot decides a class or an
+/** What a card reads a slot's value as, which names the hole it is placed in:
+  * `{{x}}`, `{{{x}}}`, or a section. A `Bool` slot decides a class or an
   * attribute by truthiness, where the string `"false"` is ON, so the build
   * refuses a reading on one that does not produce a bool.
   */
-enum SlotType derives CanEqual:
-  case Text, Bool
+enum SlotType(val wire: String) derives CanEqual:
+  case Text extends SlotType("text")
+  case TextRaw extends SlotType("textRaw")
+  case Bool extends SlotType("bool")
 
 object SlotType:
-  given Decoder[SlotType] = Decoder[String].emap {
-    case "text" => Right(Text)
-    case "bool" => Right(Bool)
-    case other  => Left(s"unknown slot type: $other")
-  }
+  given Decoder[SlotType] = Decoder[String].emap(s =>
+    values.find(_.wire == s).toRight(s"unknown slot type: $s")
+  )
 
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the
   * attribute, not the card, so the plain form (no binding, no seed) stays one
-  * predicate away. One wire string: `"text"`, `"bind"`, `"style:--_end"`,
-  * `"attr:title"`.
+  * predicate away. On the wire an object: `{"kind": "Style", "property":
+  * "--_end"}`.
   *
   *   - `Text`: `data-text`, the element's whole text content.
   *   - `Style`: `data-style:<property>`; the value carries its own unit.
@@ -433,7 +420,7 @@ object SlotType:
   *   - `Bind`: two-way `data-bind` on a form control; such a card needs a
   *     client signal in any form.
   *   - `Handler`: no attribute; the value is read by an event handler via
-  *     `{{<slot>__signal}}`.
+  *     `{{{<slot>.jsValue}}}` or `{{<slot>.signal}}`.
   */
 enum SignalBind derives CanEqual:
   case Text
@@ -445,20 +432,11 @@ enum SignalBind derives CanEqual:
 
 object SignalBind:
 
-  /** No default for an unknown spelling: a typo turned into `data-text` would
-    * put a colour in an element's text and look like a rendering bug.
+  /** Strict: a typo turned into `data-text` would put a colour in an element's
+    * text and look like a rendering bug.
     */
-  def parse(s: String): Option[SignalBind] = s.split(":", 2).toList match
-    case "text" :: Nil          => Some(Text)
-    case "bind" :: Nil          => Some(Bind)
-    case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
-    case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
-    case "class" :: name :: Nil => Option.when(name.nonEmpty)(Class(name))
-    case "handler" :: Nil       => Some(Handler)
-    case _                      => None
-
   given Decoder[SignalBind] =
-    Decoder[String].emap(s => parse(s).toRight(s"unknown signal binding: $s"))
+    ConfiguredDecoder.derived(using Strict.configuration)
 
 /** A card in the shared library. What it reads is its `template`'s names
   * ([[fh.view.runtime.Templates.card]]), which `validate` holds every node of
@@ -508,11 +486,71 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** The static classes on the node's `.fh-cell` wrapper; the live ones are slots
-  * ([[Dashboard.CellClassPrefix]]). An object so it can grow
-  * `grid_options`-style fields without a wire break.
+/** The node's cell slots, which the renderer places on its `.fh-cell` wrapper
+  * ([[CellKey]]): classes by name, `"1"` for one always there, and custom
+  * properties. In wire order, which is the class attribute's. An object so it
+  * can grow `grid_options`-style fields without a wire break.
   */
-case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
+case class Cell(
+    classes: ListMap[String, ValueExpr] = ListMap.empty,
+    styles: ListMap[String, ValueExpr] = ListMap.empty
+) derives ConfiguredDecoder:
+
+  /** Keyed once for the render walk: a `ListMap` iterates by building a list,
+    * and each wrapper of each paint walks both.
+    */
+  def ready: Ready.Cell = Ready.Cell(
+    classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.constant)),
+    styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.constant))
+  )
+
+  /** The entries that read: a literal class the renderer writes as it is. */
+  def live: List[(CellKey, ValueExpr)] =
+    classes.toList.collect {
+      case (n, s) if s.constant.isEmpty => CellKey.Class(n) -> s
+    } ++ styles.toList.collect {
+      case (p, s) if s.constant.isEmpty => CellKey.Style(p) -> s
+    }
+
+object Cell:
+  final case class Entry(
+      name: String,
+      key: CellKey,
+      constant: Option[SlotValue]
+  )
+
+  private given Decoder[ListMap[String, ValueExpr]] = Decoder.instance(c =>
+    c.as[JsonObject]
+      .flatMap(
+        _.keys.toList.traverse(k => c.downField(k).as[ValueExpr].map(k -> _))
+      )
+      .map(ListMap.from)
+  )
+
+/** Where a slot is placed: a template slot by its name, a cell slot by its
+  * [[CellKey]]. The name stays a bare `String` so a template's lookup allocates
+  * nothing, and a cell key never equals one.
+  */
+type SlotKey = String | CellKey
+
+enum CellKey:
+  case Class(name: String)
+  case Style(property: String)
+
+  /** A class is on while its bool holds; a style carries its text. */
+  def placement: Placement = this match
+    case Class(n) => Placement(Some(SignalBind.Class(n)), SlotType.Bool)
+    case Style(p) => Placement(Some(SignalBind.Style(p)), SlotType.Text)
+
+object CellKey:
+  given CanEqual[SlotKey, SlotKey] = CanEqual.derived
+
+object SlotKey:
+  /** For messages; nothing reads it back. */
+  def label(k: SlotKey): String = k match
+    case name: String            => name
+    case CellKey.Class(name)     => s"cell.classes.$name"
+    case CellKey.Style(property) => s"cell.styles.$property"
 
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
@@ -524,107 +562,6 @@ object Op:
       .toRight(s"unknown op: $s")
   )
 
-/** `property` is `"domain"`, `"state"` or `"attr:<name>"`. */
-sealed trait Predicate derives ConfiguredDecoder
-object Predicate:
-  case class And(items: List[Predicate]) extends Predicate
-  case class Or(items: List[Predicate]) extends Predicate
-  case class Not(item: Predicate) extends Predicate
-
-  /** `entity` absent means the subject. A named one must reach the reverse
-    * index ([[referencedEntities]]) or the node is never woken by it.
-    */
-  case class Cmp(
-      property: String,
-      op: Op,
-      value: Json,
-      entity: Option[String] = None
-  ) extends Predicate
-
-  /** How many of a static candidate list are present, against a number — which
-    * retires the quantifiers (`any` is `> 0`, `all` is `== length`). `when`
-    * guards per candidate, as a [[LayoutNode.SetMember]] does, because
-    * residuals diverge across one set's candidates. Subject-independent.
-    */
-  case class Count(
-      candidates: List[String] = Nil,
-      when: Map[String, Predicate] = Map.empty,
-      op: Op,
-      value: Json
-  ) extends Predicate:
-    def tally: Tally = Tally(candidates, when)
-
-  /** Whether `entity` is the first present candidate under `orderBy`, ties
-    * going to candidate order. Subject-independent, as a [[Count]] is.
-    */
-  case class First(
-      candidates: List[String] = Nil,
-      when: Map[String, Predicate] = Map.empty,
-      orderBy: List[LayoutNode.SortTerm] = Nil,
-      entity: String
-  ) extends Predicate:
-    def tally: Tally = Tally(candidates, when)
-
-    /** The sort reads every candidate's state, so a holds-key's own entities
-      * can move the leader too.
-      */
-    def referencedEntities: List[String] =
-      tally.referencedEntities ++ orderBy.flatMap(_.by match
-        case LayoutNode.SortKey.Holds(p) => Predicate.referencedEntities(p)
-        case _: LayoutNode.SortKey.Prop  => Nil)
-
-  /** A static candidate list and which of it is present: a [[Count]] before the
-    * comparison.
-    */
-  case class Tally(
-      candidates: List[String] = Nil,
-      when: Map[String, Predicate] = Map.empty
-  ) derives ConfiguredDecoder:
-    def referencedEntities: List[String] =
-      candidates ++ when.values.flatMap(Predicate.referencedEntities)
-
-  def referencedEntities(p: Predicate): List[String] = p match
-    case Cmp(_, _, _, e) => e.toList
-    case And(items)      => items.flatMap(referencedEntities)
-    case Or(items)       => items.flatMap(referencedEntities)
-    case Not(item)       => referencedEntities(item)
-    case c: Count        => c.tally.referencedEntities
-    case f: First        => f.referencedEntities
-
-  def tallyKey(t: Predicate.Tally): String =
-    t.candidates.mkString(",") + "/" +
-      t.when.toList
-        .sortBy(_._1)
-        .map((id, p) => s"$id=${key(p)}")
-        .mkString(";")
-
-  /** Canonical, unlike `toString`: a small `Map` keeps insertion order. */
-  def key(p: Predicate): String = p match
-    case Predicate.Cmp(prop, op, v, e) =>
-      s"cmp($prop,$op,${v.noSpaces},${e.getOrElse("")})"
-    case Predicate.And(xs)  => xs.map(key).mkString("and(", ",", ")")
-    case Predicate.Or(xs)   => xs.map(key).mkString("or(", ",", ")")
-    case Predicate.Not(x)   => s"not(${key(x)})"
-    case c: Predicate.Count =>
-      s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
-    case f: Predicate.First =>
-      s"first(${tallyKey(f.tally)},${f.orderBy.map(sortKey).mkString(";")},${f.entity})"
-
-  private def sortKey(t: LayoutNode.SortTerm): String = t.by match
-    case LayoutNode.SortKey.Prop(p)  => s"${t.dir}:prop($p)"
-    case LayoutNode.SortKey.Holds(p) => s"${t.dir}:holds(${key(p)})"
-
-  /** Rejected under an [[Activation.State]], which supplies no subject. The
-    * guards of a count or a leader are bound to their own candidates, so they
-    * do not count.
-    */
-  def hasFreeSubject(p: Predicate): Boolean = p match
-    case Cmp(_, _, _, entity) => entity.isEmpty
-    case And(items)           => items.exists(hasFreeSubject)
-    case Or(items)            => items.exists(hasFreeSubject)
-    case Not(item)            => hasFreeSubject(item)
-    case _: Count | _: First  => false
-
 /** How a [[Surface]] becomes visible.
   *
   *   - `User`: a popup, opened by a tap, optionally from first paint. The
@@ -634,7 +571,7 @@ object Predicate:
   *     and declared, so the server knows what selects it.
   *   - `State`: while a subject-free `condition` holds — server truth, the same
   *     for every viewer, so never in a session's open set. First match in
-  *     `bakeIndex` order wins; an "else" is `And(Nil)`.
+  *     `bakeIndex` order wins; an "else" has none, and always holds.
   *
   * A bake group must be one mode, `Var` or `State` (`validate`), so any member
   * decides it.
@@ -642,7 +579,7 @@ object Predicate:
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
   case Var(name: String, at: VarAt = VarAt.Index)
-  case State(condition: Predicate)
+  case State(condition: Option[ValueExpr] = None)
 
 /** Which values of an [[Activation.Var]]'s variable select its member: one (a
   * slider's main controls, a `c.select`'s options), its `bakeIndex` as a number
@@ -654,11 +591,9 @@ enum VarAt derives ConfiguredDecoder, CanEqual:
   case Index
   case Otherwise
 
-sealed trait LayoutNode derives ConfiguredDecoder {
+sealed trait LayoutNode extends LayoutNode.Identified
+    derives ConfiguredDecoder {
 
-  /** Only a component: a tab bar's id reaches users through `ui.<id>`, while
-    * set members are addressed by entity.
-    */
   def authoredId: Option[String] = this match {
     case c: LayoutNode.Component => c.id
     case _: LayoutNode.SetNode   => None
@@ -666,6 +601,12 @@ sealed trait LayoutNode derives ConfiguredDecoder {
 }
 
 object LayoutNode:
+
+  /** Only a component has one: a tab bar's id reaches users through `ui.<id>`,
+    * while set members are addressed by entity.
+    */
+  trait Identified:
+    def authoredId: Option[String]
 
   /** Pkl's bare `children { … }` normalises to this before emitting, so no
     * region is nameless downstream. Same string as `core/node.pkl`'s
@@ -682,7 +623,7 @@ object LayoutNode:
     */
   case class Component(
       card: String,
-      slots: Map[String, SlotSource] = Map.empty,
+      templateSlots: Map[String, TemplateSlot] = Map.empty,
       regions: Map[String, List[LayoutNode]] = Map.empty,
       cell: Option[Cell] = None,
       // Replaces the position-derived id and roots its descendants' — see
@@ -692,14 +633,23 @@ object LayoutNode:
       // nearest wins. No allowed-values list: the write refuses what a reader
       // cannot parse.
       vars: List[Dashboard.Declaration] = Nil,
-      // Expression values, this node's alone: never resolved up the
+      // Inputs, this node's alone: never resolved up the
       // ancestors, and bound to the slots that read them ([[bound]]).
-      values: Map[String, ExprValue] = Map.empty
+      inputs: Map[String, ValueExpr] = Map.empty
   ) extends LayoutNode:
 
-    /** [[slots]] with the expression values each one's CEL names. */
-    lazy val bound: Map[String, BoundSlot] =
-      slots.view.mapValues(BoundSlot.bind(values)).toMap
+    /** [[templateSlots]] and the [[cell]]'s live ones, each with the inputs its
+      * CEL names; a cell slot is placed by its key.
+      */
+    lazy val bound: Map[SlotKey, BoundSlot] =
+      templateSlots.map((n, s) =>
+        (n: SlotKey) -> BoundSlot.bind(inputs, subjectEntity)(s)
+      ) ++
+        cell.toList
+          .flatMap(_.live)
+          .map((k, s) =>
+            k -> BoundSlot.bindAt(inputs, k.placement, subjectEntity)(s)
+          )
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[LayoutNode] =
@@ -711,62 +661,9 @@ object LayoutNode:
     lazy val defaults: Map[String, String] =
       vars.map(d => d.name -> d.default).toMap
 
-    /** Only a literal `entity_id`: a transform one resolves at render time. */
+    /** `validate` holds `entity_id` to a literal. */
     lazy val subjectEntity: Option[String] =
-      slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
-
-    /** The reverse index. Empty means static HTML, never patched. */
-    lazy val liveEntities: List[String] =
-      stateSlots
-        .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
-        .flatMap(s =>
-          s.entityId.orElse(subjectEntity).toList ++ s.valueEntities
-        )
-        .distinct
-
-    /** Minus entities reached only through signal slots: what the render key
-      * and the structure rule use. The two fail in opposite directions if
-      * swapped — this list in the reverse index silently stops signal frames.
-      */
-    lazy val liveEntitiesAsBytes: List[String] =
-      stateSlots
-        .filter(s =>
-          s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
-        )
-        .flatMap(s =>
-          s.entityId.orElse(subjectEntity).toList ++ s.valueEntities
-        )
-        .distinct
-
-    /** Every ask, whatever the `valueWhile`s decide: what a variable's value is
-      * checked against (ADR 0023). The pre-read and the render key take
-      * [[fetching]] as the decisions filter it.
-      */
-    lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
-
-    /** Per slot, each with the `valueWhile` it waits for. In the render key but
-      * not [[liveEntities]]: otherwise a sensor ticking every second would
-      * refetch its history every second. Ungated without an entity to decide
-      * over: a dynamic subject is known only per paint, and asking too much is
-      * safe where too little raises.
-      */
-    lazy val fetching: List[Fetching] =
-      bound.values.toList.flatMap { s =>
-        val asks = s.shape match
-          case SlotShape.State(src) => src.fetches
-          case SlotShape.Fetch(q)   => List(q)
-        Option.when(asks.nonEmpty)(
-          Fetching(
-            asks,
-            s.gate(s.entityId.orElse(subjectEntity)).filter(_.entity.isDefined)
-          )
-        )
-      }
-
-    private lazy val stateSlots: List[BoundSlot] =
-      bound.values.toList.flatMap(_.shape match
-        case SlotShape.State(src) => Some(src)
-        case SlotShape.Fetch(_)   => None)
+      templateSlots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in
@@ -783,40 +680,18 @@ object LayoutNode:
     def liveEntities: List[String] =
       (candidates ++ members.values
         .flatMap(_.clauses)
-        .flatMap(c =>
-          c.when.toList.flatMap(Predicate.referencedEntities)
-        )).distinct
+        .flatMap(_.when.toList.flatMap(_.entities))).distinct
 
   /** The first clause whose `when` holds decides; none means not rendered. */
   case class SetMember(clauses: List[SetClause] = Nil) derives ConfiguredDecoder
 
   /** A guard and the complete node it renders; nothing is shared between
-    * clauses.
+    * clauses. An unnamed read in the guard reads the member; none holds.
     */
   case class SetClause(
-      when: Option[Predicate] = None,
+      when: Option[ValueExpr] = None,
       node: LayoutNode
   ) derives ConfiguredDecoder
-
-  /** Present only when ordering needs live state; otherwise
-    * [[SetNode.candidates]] is pre-sorted.
-    */
-  case class SortTerm(
-      by: SortKey,
-      dir: String = "asc"
-  ) derives ConfiguredDecoder:
-    def descending: Boolean = dir == "desc"
-
-  /** A value has an order, a predicate only true/false; neither expresses the
-    * other.
-    */
-  sealed trait SortKey derives ConfiguredDecoder
-  object SortKey:
-    /** `state`, `attr:<name>`, `reg:<name>`, as in [[Predicate.Cmp]]. */
-    case class Prop(property: String) extends SortKey
-
-    /** True first under `asc`. */
-    case class Holds(predicate: Predicate) extends SortKey
 
   case class Step(region: String, index: Int)
 
@@ -839,7 +714,7 @@ object LayoutNode:
   def pathId(path: List[Step]): NodeId =
     NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
 
-  def rootId(prefix: String, node: LayoutNode): NodeId =
+  def rootId(prefix: String, node: Identified): NodeId =
     NodeId.derived(prefix + node.authoredId.getOrElse("c"))
 
   /** An authored id still carries `prefix`: the runtime attributes a node to
@@ -849,7 +724,7 @@ object LayoutNode:
       prefix: String,
       parent: NodeId,
       step: Step,
-      child: LayoutNode
+      child: Identified
   ): NodeId =
     child.authoredId.fold(NodeId.derived(s"${parent}_${segment(step)}"))(a =>
       NodeId.derived(prefix + a)
@@ -859,7 +734,7 @@ object LayoutNode:
     NodeId.derived(prefix + pathId(path))
 
   /** Name order, for a reproducible walk; each step names its own region. */
-  def steps(children: Map[String, List[LayoutNode]]): List[(Step, LayoutNode)] =
+  def steps[N](children: Map[String, List[N]]): List[(Step, N)] =
     children.toList.sortBy(_._1).flatMap { case (region, nodes) =>
       nodes.zipWithIndex.map { case (n, i) => Step(region, i) -> n }
     }
@@ -980,34 +855,46 @@ case class Surface(
     bakeIndex: Option[Int] = None,
     activation: Activation = Activation.User(false),
     clause: Option[Int] = None
-) derives ConfiguredDecoder:
-
-  /** Its bake group. Not `bakeInto` alone: every clause of a member gives its
-    * nodes the same ids, so two clauses' sliders would pool their heads into
-    * one group (#556).
-    */
-  def group: Option[NodeId] = bakeInto.map(Surface.groupId(_, clause))
-
-  /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
-    * popup host.
-    */
-  def hostId: DomId = (bakeInto, bakeAs) match
-    case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
-    case _                      => Dashboard.PopupHostId
-
-  /** The value of its variable that selects this member ([[Activation.Var]]).
-    */
-  def selectedAt: Option[String] = activation match
-    case Activation.Var(_, VarAt.Value(v)) => Some(v)
-    case Activation.Var(_, VarAt.Index)    => bakeIndex.map(_.toString)
-    case _                                 => None
-
-  /** Selected at every value no other member of its group names. */
-  def isOtherwise: Boolean = activation match
-    case Activation.Var(_, VarAt.Otherwise) => true
-    case _                                  => false
+) extends Surface.Placed derives ConfiguredDecoder:
+  def selects: Option[VarAt] = activation match
+    case Activation.Var(_, at) => Some(at)
+    case _                     => None
 
 object Surface:
+
+  /** Where a surface is placed, the wire's and the compiled one's alike. */
+  trait Placed:
+    def bakeInto: Option[NodeId]
+    def bakeAs: Option[String]
+    def bakeIndex: Option[Int]
+    def clause: Option[Int]
+
+    /** Its [[Activation.Var]]'s values, for a variable-selected member. */
+    def selects: Option[VarAt]
+
+    /** Its bake group. Not `bakeInto` alone: every clause of a member gives its
+      * nodes the same ids, so two clauses' sliders would pool their heads into
+      * one group (#556).
+      */
+    def group: Option[NodeId] = bakeInto.map(Surface.groupId(_, clause))
+
+    /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
+      * popup host. Once: a flip scans every surface for its host
+      * (`SurfaceGraph.surfacesAt`), which was most of
+      * `RenderBench.publishSetIfsFlip`'s allocation.
+      */
+    lazy val hostId: DomId = (bakeInto, bakeAs) match
+      case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
+      case _                      => Dashboard.PopupHostId
+
+    /** The value of its variable that selects this member. */
+    def selectedAt: Option[String] = selects match
+      case Some(VarAt.Value(v)) => Some(v)
+      case Some(VarAt.Index)    => bakeIndex.map(_.toString)
+      case _                    => None
+
+    /** Selected at every value no other member of its group names. */
+    def isOtherwise: Boolean = selects.contains(VarAt.Otherwise)
 
   /** `<host>_k<clause>`: no derived node id has a lone `k<n>` segment, since a
     * step is an index or `<region>_<index>` ([[LayoutNode.segment]]) and an
@@ -1063,7 +950,7 @@ case class Dashboard(
     */
   lazy val referencedEntities: Set[String] = {
     def fromSlots(
-        slots: Map[String, BoundSlot],
+        slots: Map[SlotKey, BoundSlot],
         subject: Option[String]
     ): List[String] =
       slots.values.toList.flatMap(s => s.entityId.toList ++ s.valueEntities) ++
@@ -1093,29 +980,38 @@ case class Dashboard(
       call -> reach
     }.toMap
 
-  private lazy val declaredCalls: List[Dashboard.Declared] = {
-    def services(s: SlotSource): List[String] =
-      s.literal.toList ++ (s.transform match {
-        case Transform.Simple.Match(cases, otherwise, _, _) =>
-          (otherwise :: cases.values.toList).collect { case v: String => v }
+  private[model] lazy val declaredCalls: List[Dashboard.Declared] = {
+    def services(s: ValueExpr): List[String] =
+      s.literal.toList ++ s.steps.flatMap {
+        case Step.Match(cases, otherwise) =>
+          (otherwise match
+            case Value.Literal(Lit.Text(v)) => List(v)
+            case _                          => Nil
+          ) ++ cases.values.toList.collect { case Lit.Text(v) => v }
         case _ => Nil
-      })
+      }
 
     def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
-      def lit(name: String) = c.slots.get(name).flatMap(_.literal)
+      def lit(name: String) = c.templateSlots.get(name).flatMap(_.literal)
       def reachOf(target: ServiceTarget | CallSet): Option[CallReach] =
         target match {
           case t: ServiceTarget => Some(t)
           case _: CallSet       =>
             lit(Dashboard.TargetSetSlot).flatMap(
-              io.circe.parser.decode[Predicate.Tally](_).toOption
+              io.circe.parser
+                .decode[Value](_)
+                .toOption
+                .collect { case p: Value.Present => p }
             )
         }
       for {
         kind <- lit(Dashboard.TargetKindSlot).toList
         id <- lit(Dashboard.TargetIdSlot).toList
         target <- TapCall.targetOf(kind, id).toList
-        service <- c.slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
+        service <- c.templateSlots
+          .get(Dashboard.ServiceSlot)
+          .toList
+          .flatMap(s => services(s.expr))
       } yield Dashboard.Declared(
         TapCall(service, target, lit(Dashboard.DataKeySlot)),
         c.card,
@@ -1151,7 +1047,7 @@ case class Dashboard(
         set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl =>
-            cl.when.toList.flatMap(Predicate.referencedEntities) ++
+            cl.when.toList.flatMap(_.entities) ++
               deciders(cl.node)
           )
     }
@@ -1159,12 +1055,12 @@ case class Dashboard(
     // A set call's guards are read at the press, and an entity only a guard
     // names would otherwise be missing from the store, failing its guard.
     referencedEntities ++ calls.values.flatMap {
-      case t: Predicate.Tally => t.referencedEntities
-      case _: ServiceTarget   => Nil
+      case p: Value.Present => ValueExpr(p).entities
+      case _: ServiceTarget => Nil
     } ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>
         deciders(s.content) ++ (s.activation match {
-          case Activation.State(c) => Predicate.referencedEntities(c)
+          case Activation.State(c) => c.toList.flatMap(_.entities)
           case _: Activation.User | _: Activation.Var => Nil
         })
       )
@@ -1175,7 +1071,7 @@ case class Dashboard(
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
-  ): List[String] = errors(locateTransform, compiledCards)
+  ): List[String] = Validate.errors(this, locateTransform, compiledCards)
 
   // Each template once, theme classes applied, so what validation reads is
   // what renders.
@@ -1187,968 +1083,6 @@ case class Dashboard(
         cd.regions.keySet
       )
     )
-
-  private def errors(
-      locateTransform: String => Option[String],
-      compiled: Map[String, Either[String, Templates.Card]]
-  ): List[String] =
-    val cardReads: Map[String, Either[String, Templates.Reads]] =
-      compiled.view.mapValues(_.map(_.reads)).toMap
-
-    // A section marks its names optional, and the library guards one name by
-    // another's section (`{{#service}}…{{targetId}}`), so only a name outside
-    // every section must be set; a misspelt section shows as its slot unread.
-    def templateErrors(
-        nodeId: String,
-        cardName: String,
-        slotNames: Set[String],
-        filled: Set[String]
-    ): List[String] =
-      cards.get(cardName) match
-        case None =>
-          List(s"$nodeId: references unknown card '$cardName'")
-        case Some(cd) =>
-          val undeclared = (filled -- cd.regions.keySet).toList.sorted.map(r =>
-            s"$nodeId: fills region '$r', which card '$cardName' does not " +
-              "declare — its children would never render"
-          ) ++ slotNames
-            .intersect(cd.regions.keySet)
-            .toList
-            .sorted
-            .map(r =>
-              s"$nodeId: slot '$r' is named like card '$cardName''s region, " +
-                "whose children its hole shows instead — rename the slot"
-            )
-          val names = cardReads.get(cardName).flatMap(_.toOption)
-          val known = slotNames ++ Dashboard.injectedStatic ++
-            cd.regions.keySet ++
-            Option.when(cd.bakedRegions.nonEmpty)(Dashboard.BakeIndexVar)
-          val unset = names.toList
-            .flatMap(_.required)
-            .filterNot(n =>
-              known(n) || Dashboard.derivedFrom(n).exists(slotNames)
-            )
-            .sorted
-          val read =
-            names.toList
-              .flatMap(_.names)
-              .map(n => Dashboard.derivedFrom(n).getOrElse(n))
-              .toSet
-          val unread = names.toList.flatMap(_ =>
-            slotNames.toList.sorted.filterNot(s =>
-              read(s) || Dashboard.readByRenderer(s)
-            )
-          )
-          undeclared ++
-            Option
-              .when(unset.nonEmpty)(
-                s"$nodeId: card '$cardName' missing slots: " +
-                  unset.mkString(", ") +
-                  " — its template reads them; set \"\" for nothing"
-              )
-              .toList ++
-            Option
-              .when(unread.nonEmpty)(
-                s"$nodeId: card '$cardName' never reads slots: " +
-                  unread.mkString(", ") +
-                  " — its template names none of them; drop them"
-              )
-              .toList
-
-    def slotErrors(
-        nodeId: String,
-        cardName: String,
-        slots: Map[String, BoundSlot],
-        scope: Map[String, String]
-    ): List[String] =
-      slots.toList.sortBy(_._1).flatMap { case (name, src) =>
-        val transformError =
-          // A fetch slot's transform is `fetchErrors`' to check.
-          if (src.literal.isDefined || src.fetch.isDefined) None
-          else
-            src.transform match {
-              case p: Transform.Simple.Percent if p.max == p.min =>
-                Some(
-                  s"$nodeId: slot '$name' has a degenerate percent range " +
-                    s"(${p.min}..${p.max}) — it would divide by zero"
-                )
-              case f: Transform.Simple.Fill if f.max == f.min =>
-                Some(
-                  s"$nodeId: slot '$name' has a degenerate fill range " +
-                    s"(${f.min}..${f.max}) — it would divide by zero"
-                )
-              // Only a hand-written scale gets here (the Pkl helper answers
-              // null for a unit it cannot scale).
-              case d: Transform.Simple.Duration if d.scale <= 0 =>
-                Some(
-                  s"$nodeId: slot '$name' has a non-positive duration scale " +
-                    s"(${d.scale}) — every reading would render '0s'"
-                )
-              // CEL needs one type across the arms, so a mixed Match has no
-              // CEL equivalent (ADR 0028).
-              // A read as `otherwise` is text.
-              case m: Transform.Simple.Match
-                  if (m.otherwise :: m.cases.values.toList)
-                    .map(_.isInstanceOf[Boolean])
-                    .distinct
-                    .sizeIs > 1 =>
-                Some(
-                  s"$nodeId: slot '$name' has a match with both string and " +
-                    "boolean arms — pick one; a boolean arm is for a boolean " +
-                    "attribute (disabled, hidden), a string for everything else"
-                )
-              case t: String =>
-                Transform
-                  .parse(Transform.CelKey(t, ExprValue.env(src.values)))
-                  .left
-                  .toOption
-                  .map { err =>
-                    val at =
-                      locateTransform(t).fold("")(loc => s" (at $loc)")
-                    s"$nodeId: slot '$name' has an invalid transform$at: $err"
-                  }
-              case _: Transform.Simple => None
-              // Only a hand-written wire gets here.
-              case st: Transform.Stage =>
-                Some(
-                  s"$nodeId: slot '$name' has a '${Transform.Stage.key(st)}' " +
-                    "transform but reads no fetch — a stage turns a " +
-                    "provider's answer into the hole's content, and a state " +
-                    "slot has no answer to turn"
-                )
-            }
-        transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
-          readErrors(nodeId, cardName, name, src) ++
-          fetchErrors(nodeId, cardName, name, src, scope) ++
-          src.values.values.toList.collect { case ExprValue.Fetched(f) =>
-            askErrors(nodeId, name, f, scope)
-          }.flatten
-      }
-
-    /** A fetch's references are declared above it, its declared values pick an
-      * option, and every option it could pick is a window HA answers; a
-      * viewer's value is checked at the write.
-      */
-    def askErrors(
-        nodeId: String,
-        name: String,
-        template: FetchTemplate,
-        scope: Map[String, String]
-    ): List[String] =
-      val refErrors = template.references.distinct.sorted
-        .filterNot(scope.contains)
-        .map(v =>
-          s"$nodeId: slot '$name' reads the variable '$v', which no " +
-            "ancestor declares — declare it on the node that owns the " +
-            "choice, or write the value down"
-        )
-      if (refErrors.nonEmpty) refErrors
-      else
-        (template
-          .resolve(scope)
-          .left
-          .toOption
-          .map(e =>
-            s"$nodeId: slot '$name' reads the variable " +
-              s"'${template.references.mkString}' at its declared value: $e"
-          ) ++ template.window.all
-          .flatMap(_.problem)
-          .distinct
-          .map(p => s"$nodeId: slot '$name' $p")).toList
-
-    /** Otherwise a bad fetch renders blank forever with nothing saying why. */
-    def fetchErrors(
-        nodeId: String,
-        cardName: String,
-        name: String,
-        src: BoundSlot,
-        scope: Map[String, String]
-    ): List[String] =
-      src.fetch.toList.flatMap { template =>
-        val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
-          s"$nodeId: slot '$name' reads a fetch, so its 'reads' must be " +
-            s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
-            "answer is never pushed, so nothing about it is a reason to render"
-        )
-        val parseErrors = askErrors(nodeId, name, template, scope)
-        val stageError = src.transform match {
-          case _: Transform.Stage => None
-          case _                  =>
-            Some(
-              s"$nodeId: slot '$name' reads a fetch, so its transform must " +
-                "be a STAGE (a chart, or passthrough) — a CEL expression and " +
-                "a simple transform both read an entity's state, and a fetch " +
-                "slot has none"
-            )
-        }
-        val rawHole =
-          cardReads.get(cardName).flatMap(_.toOption).flatMap { reads =>
-            val hasRaw = reads.raw(name)
-            src.stage match {
-              case Transform.Stage.Passthrough if hasRaw =>
-                Some(
-                  s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
-                    "hole, but its transform is passthrough, whose value is " +
-                    s"DATA — write {{$name}}, or the page emits unescaped JSON"
-                )
-              case Transform.Stage.Chart(_) if !hasRaw =>
-                Some(
-                  s"$nodeId: card '$cardName' places slot '$name' in an " +
-                    "ESCAPED hole, but its transform draws markup — write " +
-                    s"{{{$name}}}, or the page shows the markup as text"
-                )
-              case _ => None
-            }
-          }
-        untruthfulReads.toList ++ parseErrors ++ stageError.toList ++
-          rawHole.toList
-      }
-
-    /** At the declaration, so an unreferenced variable is still wrong loudly.
-      */
-    // Bound to every slot that reads one, so "read by no slot" is the
-    // binding's absence.
-    def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
-      val read = c.bound.values.flatMap(_.values.keySet).toSet
-      c.values.keys.toList.sorted.flatMap { name =>
-        if (!Dashboard.ExpressionValueName.matches(name))
-          List(
-            s"$nodeId: expression value '$name' is not a name an expression " +
-              "can read — letters, digits and '_', not starting with a digit"
-          )
-        else if (Cel.fixedNames.contains(name))
-          List(
-            s"$nodeId: expression value '$name' would hide the '$name' every " +
-              "expression already reads — rename it"
-          )
-        else if (!read.contains(name))
-          List(
-            s"$nodeId: expression value '$name' is read by no expression on " +
-              "this node — names are the node's own and are not inherited"
-          )
-        else
-          c.values(name) match
-            // A value is shared by content across nodes, so it has no subject.
-            case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
-              List(
-                s"$nodeId: expression value '$name' compares an entity it " +
-                  "does not name — name it with q.entity(e)"
-              )
-            case _ => Nil
-      } ++ c.slots.toList.sortBy(_._1).flatMap { (slot, src) =>
-        val read = c.bound.get(slot).fold(Set.empty[String])(_.values.keySet)
-        src.values.keys.toList.sorted.flatMap { name =>
-          if (
-            !Dashboard.ExpressionValueName.matches(name) ||
-            Cel.fixedNames.contains(name)
-          )
-            List(
-              s"$nodeId: slot '$slot' has an expression value '$name' its " +
-                "expression cannot read — letters, digits and '_', and not " +
-                s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
-            )
-          else if (c.values.contains(name))
-            List(
-              s"$nodeId: slot '$slot' has an expression value '$name', and " +
-                "so does its node — rename one"
-            )
-          else if (!read.contains(name))
-            List(
-              s"$nodeId: slot '$slot' has an expression value '$name' its " +
-                "expression does not read"
-            )
-          else Nil
-        }
-      } ++ c.bound.toList.sortBy(_._1).collect {
-        // The once-cache keys by what a value IS, not by what it counts now.
-        case (slot, src)
-            if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
-          s"$nodeId: slot '$slot' reads a live count, condition or fetch but is " +
-            s"read '${Reads.Once}' — it would show the first count forever; " +
-            s"read it '${Reads.Live}'"
-        case (slot, src)
-            if src.reads == Reads.Once && src.valueEntities.nonEmpty =>
-          s"$nodeId: slot '$slot' reads another entity but is read " +
-            s"'${Reads.Once}' — it would show its first state forever; read " +
-            s"it '${Reads.Live}'"
-        case (slot, src)
-            if src.entityId.isEmpty &&
-              !c.slots.contains(Dashboard.SubjectSlot) &&
-              (src.transform match
-                case p: Predicate => Predicate.hasFreeSubject(p)
-                case _ => false) =>
-          s"$nodeId: slot '$slot' compares an entity it does not name, and " +
-            "has no entity of its own — name it with q.entity(e)"
-      }
-
-    def valueWhileErrors(
-        nodeId: String,
-        slots: Map[String, BoundSlot],
-        hasSubject: Boolean
-    ): List[String] =
-      slots.toList.sortBy(_._1).flatMap { (name, src) =>
-        src.valueWhile.toList.flatMap { w =>
-          Option
-            .when(w.fetch.isDefined || w.fetches.nonEmpty)(
-              s"$nodeId: slot '$name' has a valueWhile that reads a fetch — " +
-                "it is decided before any fetch is read"
-            )
-            .toList ++
-            Option
-              .when(src.reads == Reads.Once)(
-                s"$nodeId: slot '$name' is read '${Reads.Once}' and has a " +
-                  "valueWhile — it would keep its first answer forever"
-              )
-              .toList ++
-            Option
-              .when(
-                src
-                  .gate(src.entityId)
-                  .exists(_.entity.isEmpty) && !hasSubject &&
-                  (w.transform match
-                    case p: Predicate => Predicate.hasFreeSubject(p)
-                    case _            => false)
-              )(
-                s"$nodeId: slot '$name' has a valueWhile comparing an entity " +
-                  "it does not name, and has no entity of its own — name it " +
-                  "with q.entity(e)"
-              )
-              .toList
-        }
-      }
-
-    def typeErrors(
-        nodeId: String,
-        slots: Map[String, BoundSlot]
-    ): List[String] =
-      slots.toList.sortBy(_._1).collect {
-        case (name, src)
-            if src.isBool && src.literal.isEmpty && src.fetch.isEmpty &&
-              !Dashboard.yieldsBool(src) =>
-          s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
-            "produce a bool — compare it (`on > 0`), or use a condition"
-      } ++ slots.toList.sortBy(_._1).flatMap { case (name, src) =>
-        Option
-          .when(!src.isBool && src.literal.isEmpty && src.fetch.isEmpty)(
-            src.celKey.flatMap(Transform.nonTextType)
-          )
-          .flatten
-          .map(t =>
-            s"$nodeId: slot '$name' yields a $t, which a card cannot show — " +
-              "make it text, `str(…)` or `string(…)`"
-          )
-      }
-
-    def varErrors(
-        nodeId: String,
-        vars: List[Dashboard.Declaration]
-    ): List[String] =
-      vars
-        .groupBy(_.name)
-        .collect {
-          case (name, ds) if ds.sizeIs > 1 =>
-            s"$nodeId: declares the variable '$name' more than once"
-        }
-        .toList
-        .sorted ++ vars.sortBy(_.name).flatMap { d =>
-        Option
-          .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
-            s"$nodeId: variable '${d.name}' is not a plain name " +
-              "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
-              "the URL mirror"
-          )
-          .toList ++ d.initialTransform.flatMap(t =>
-          Transform
-            .parse(t.celKey)
-            .left
-            .toOption
-            .map(e =>
-              s"$nodeId: the initial transform for '${d.name}' does not " +
-                s"compile: $e"
-            )
-        )
-      }
-
-    /** `<slot>__read` has no answer for a live non-signal slot (ADR 0017);
-      * without this the var renders empty and the handler is silently
-      * malformed.
-      */
-    def readErrors(
-        nodeId: String,
-        cardName: String,
-        name: String,
-        src: BoundSlot
-    ): List[String] =
-      if (
-        src.literal.isDefined || src.signal.isDefined ||
-        src.reads == Reads.Once
-      ) Nil
-      else
-        cards
-          .get(cardName)
-          .toList
-          .filter(_.template.contains(s"{{{${name}__read}}}"))
-          .map(_ =>
-            s"$nodeId: card '$cardName' reads slot '$name' as {{{${name}__read}}}, " +
-              "but the slot is live and not a signal — its value moves in the " +
-              "element's bytes, so make it a signal slot or a literal"
-          )
-
-    // Each of these otherwise fails silently: the value stops updating.
-    def signalErrors(
-        nodeId: String,
-        cardName: String,
-        name: String,
-        src: BoundSlot
-    ): List[String] =
-      if (name.startsWith(Dashboard.CellClassPrefix))
-        cellClassErrors(
-          nodeId,
-          name.stripPrefix(Dashboard.CellClassPrefix),
-          src
-        )
-      else if (name.startsWith(Dashboard.CellStylePrefix))
-        cellStyleErrors(
-          nodeId,
-          name.stripPrefix(Dashboard.CellStylePrefix),
-          src
-        )
-      else if (src.signal.isEmpty) Nil
-      else if (src.literal.isDefined)
-        List(
-          s"$nodeId: slot '$name' is a constant literal and cannot be a " +
-            "signal slot — a value that never moves has nothing to patch"
-        )
-      else if (name == Dashboard.SubjectSlot)
-        // A signal moves only in the browser, so the server would resolve the
-        // card against one subject while the DOM claimed another.
-        List(
-          s"$nodeId: slot '${Dashboard.SubjectSlot}' cannot be a signal " +
-            "slot — it names " +
-            "the entity the card's other slots read, which is a build-time " +
-            "fact, not a value that moves"
-        )
-      else
-        // The card must place the value's consumer, or the patch form
-        // withholds it and nothing puts it back. A `Handler` has no binding, so
-        // one of its two read forms must appear instead.
-        val placed =
-          if (src.signal.contains(SignalBind.Handler))
-            List(s"{{{${name}__read}}}", s"{{${name}__signal}}")
-          else List(s"{{{${name}__bind}}}")
-        cards
-          .get(cardName)
-          .toList
-          .filterNot(cd => placed.exists(cd.template.contains))
-          .map(_ =>
-            s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
-              s"slot, but no part of its template places " +
-              placed.mkString(" or ") + " — the value would stop updating"
-          )
-
-    def childErrors(
-        kids: Map[String, List[LayoutNode]],
-        prefix: String,
-        id: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope)
-      }
-
-    // Interpolated into a `class` attribute unescaped.
-    def classTokenErrors(nodeId: String, cls: String): List[String] =
-      Option
-        .when(!cls.matches("[A-Za-z0-9_-]+"))(
-          s"$nodeId: cell class '$cls' is not a plain CSS class token " +
-            "([A-Za-z0-9_-]+)"
-        )
-        .toList
-
-    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
-      cell.toList.flatMap(_.classes).flatMap(classTokenErrors(nodeId, _))
-
-    // The renderer places the binding itself, so only the shape can be wrong —
-    // and each wrong shape is a class that silently never moves.
-    def cellClassErrors(
-        nodeId: String,
-        cls: String,
-        src: BoundSlot
-    ): List[String] =
-      classTokenErrors(nodeId, cls) ++
-        Option
-          .when(
-            !(src.signal.contains(SignalBind.Class(cls)) &&
-              src.literal.isEmpty && src.reads == Reads.Live)
-          )(
-            s"$nodeId: live cell class '$cls' must read live state as a " +
-              s"'class:$cls' signal — anything else is never bound"
-          )
-          .toList
-
-    def cellStyleErrors(
-        nodeId: String,
-        property: String,
-        src: BoundSlot
-    ): List[String] =
-      Option
-        .when(!Dashboard.CustomProperty.matches(property))(
-          s"$nodeId: cssProperty '$property' is not a custom property " +
-            "(`--name`) — a plain property would fight the theme's framework"
-        )
-        .toList ++
-        Option
-          .when(
-            !(src.signal.contains(SignalBind.Style(property)) &&
-              src.literal.isEmpty && src.reads == Reads.Live)
-          )(
-            s"$nodeId: cssProperty '$property' must read live state as a " +
-              s"'style:$property' signal — anything else is never bound"
-          )
-          .toList ++
-        Option
-          .when(Dashboard.onlyBool(src))(
-            s"$nodeId: cssProperty '$property' reads a bool, which is no CSS " +
-              "value — use classWhen for an on/off look"
-          )
-          .toList
-
-    def noWrap(cardName: String): Boolean =
-      cards.get(cardName).exists(!_.wrapAsCell)
-
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        nodeId: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _) =>
-          val wrapErrors =
-            if (!noWrap(card)) Nil
-            else
-              Option
-                .when(c.liveEntities.nonEmpty)(
-                  s"$nodeId: card '$card' has wrapAsCell=false but binds live " +
-                    s"entities (${c.liveEntities.mkString(", ")}) — an " +
-                    "unwrapped node has no morph target, so its live updates " +
-                    "would never apply; make those slots literal or " +
-                    s"reads='${Reads.OnRender}', or drop the opt-out"
-                )
-                .toList ++
-                Option
-                  .when(cell.isDefined)(
-                    s"$nodeId: card '$card' has wrapAsCell=false but carries " +
-                      "cell params — they ride on the .fh-cell wrapper this " +
-                      "card opts out of"
-                  )
-                  .toList
-          val here = scope ++ c.defaults
-          // Each `valueWhile` is checked as the slot it is, under its own name.
-          val checked = c.bound ++ c.bound.flatMap((n, s) =>
-            s.valueWhile.map(s"$n.valueWhile" -> _)
-          )
-          templateErrors(
-            nodeId,
-            card,
-            slots.keySet,
-            c.regions.keySet
-          ) ++ slotErrors(nodeId, card, checked, here) ++
-            varErrors(nodeId, vars) ++
-            valueErrors(nodeId, c) ++
-            valueWhileErrors(
-              nodeId,
-              c.bound,
-              c.slots.contains(Dashboard.SubjectSlot)
-            ) ++
-            typeErrors(nodeId, checked) ++
-            cellErrors(nodeId, cell) ++
-            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
-        // Clauses carry complete nodes, validated as ordinary ones.
-        case s: LayoutNode.SetNode =>
-          val setId = nodeId
-          cellErrors(setId, s.cell) ++
-            s.candidates.filterNot(s.members.contains).map { c =>
-              s"$setId: candidate '$c' has no member entry — it could never " +
-                "render, so the build dropped it inconsistently"
-            } ++
-            s.members.toList.sortBy(_._1).flatMap { case (candidate, m) =>
-              m.clauses.zipWithIndex.flatMap { case (clause, i) =>
-                walk(
-                  clause.node,
-                  prefix,
-                  LayoutNode.childId(
-                    prefix,
-                    nodeId,
-                    LayoutNode.Step(LayoutNode.DefaultRegion, i),
-                    clause.node
-                  ),
-                  scope
-                ) ++ (clause.node match {
-                  case c: LayoutNode.Component if noWrap(c.card) =>
-                    List(
-                      s"$setId/$candidate: card '${c.card}' has " +
-                        "wrapAsCell=false and cannot be a set clause — every " +
-                        "member is wrapped as its own patch target"
-                    )
-                  case _ => Nil
-                })
-              }
-            }
-
-    // Structure is never a patch target, so a live bytes slot on it never
-    // reaches the DOM; a signal slot needs no patch target (ADR 0017). The Pkl
-    // layer checks this too, but a pushed wire bypasses it.
-    val structureLiveSlotErrors: List[String] = {
-      def walk(node: LayoutNode): List[String] = node match {
-        case c: LayoutNode.Component =>
-          val asBytes = c.liveEntitiesAsBytes
-          val here = cards
-            .get(c.card)
-            .filter(_.isStructure)
-            .toList
-            .filter(_ => asBytes.nonEmpty)
-            .map(_ =>
-              s"card '${c.card}' holds regions and so is never a patch " +
-                s"target, but this node binds live entities " +
-                s"(${asBytes.sorted.mkString(", ")}) as BYTES — they would " +
-                "never reach the DOM. Put the live markup in a region as a " +
-                "node, or make the slot a signal slot"
-            )
-          here ++ c.allChildren.flatMap(walk)
-        case s: LayoutNode.SetNode =>
-          s.members.toList
-            .sortBy(_._1)
-            .flatMap(_._2.clauses)
-            .flatMap(cl => walk(cl.node))
-      }
-      (walk(card) ++ surfaces.toList
-        .sortBy(_._1)
-        .flatMap(s => walk(s._2.content))).distinct
-    }
-
-    // A region renders its children under fixed ids, so it is placed exactly
-    // once and unconditionally: twice duplicates the ids, inside a section the
-    // server patches ids the page may not have, and with no hole nothing shows.
-    val regionHoleErrors: List[String] =
-      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        cardReads(name) match
-          case Left(e) =>
-            List(s"card '$name': its template does not compile: $e")
-          case Right(reads) =>
-            cd.regions.toList.sortBy(_._1).flatMap { case (r, region) =>
-              val hole = cd.holeOf(r)
-              if reads.misplacedRegions(r) then
-                List(
-                  s"card '$name': region '$r' is placed other than as $hole " +
-                    "outside every section (escaped, as a section, or " +
-                    s"inside one) — write $hole, where {{#$r}}{{{html}}}{{/$r}} " +
-                    "was"
-                )
-              else
-                reads.regionHoles.getOrElse(r, 0) match
-                  case 0 =>
-                    List(
-                      s"card '$name': declares region '$r' (${region.fill}) " +
-                        s"but its `template` places no $hole hole for it — " +
-                        "nothing would ever appear there"
-                    )
-                  case 1 => Nil
-                  case n =>
-                    List(
-                      s"card '$name': places region '$r' $n times — its " +
-                        "children would render twice under the same ids"
-                    )
-            }
-      }
-
-    // Keeps the id grammar's two shapes apart ([[LayoutNode.segment]]): an
-    // all-digit name would read as an index.
-    val regionNameErrors: List[String] =
-      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        cd.regions.keys.toList.sorted.collect {
-          case r if r.isEmpty || !r.matches("[A-Za-z0-9_]+") =>
-            s"card '$name': region name '$r' is not a plain token " +
-              "([A-Za-z0-9_]+) — region names enter node ids"
-          case r if r.forall(_.isDigit) =>
-            s"card '$name': region name '$r' is all digits, which a node id " +
-              "cannot tell from a child index — name it something a number " +
-              "could not be"
-        }
-      }
-
-    /** What an authored `id` has to satisfy: a plain token, used once, and not
-      * inside a candidate set's clause.
-      *
-      * Deliberately NOT a rule: that an id must not read as another node's
-      * descendant. Ancestry comes from [[fh.view.runtime.NodeAncestry]], which
-      * asks the tree, so `detail` and `detail_0` may be unrelated.
-      */
-    val authoredIdErrors: List[String] = {
-      def walkIds(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          inSet: Boolean
-      ): List[(NodeId, Boolean, Option[String])] =
-        (id, inSet, node.authoredId) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              walkIds(
-                ch,
-                prefix,
-                LayoutNode.childId(prefix, id, step, ch),
-                inSet
-              )
-            }
-          // A clause node renders once per member, so every member would
-          // claim its id.
-          case s: LayoutNode.SetNode =>
-            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
-              m.clauses.flatMap(cl => walkIds(cl.node, prefix, id, true))
-            }
-        })
-
-      val all =
-        walkIds(card, "", LayoutNode.rootId("", card), false) ++
-          surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
-          }
-      val authored = all.collect { case (id, inSet, Some(name)) =>
-        (id, inSet, name)
-      }
-      val ids = all.map(_._1)
-
-      val shape = authored.flatMap { case (id, inSet, name) =>
-        if (inSet)
-          List(
-            s"node id '$name' is inside a candidate set's clause, which is " +
-              "rendered once per member — every member would claim the name"
-          )
-        else if (!name.matches("[A-Za-z0-9_]+"))
-          List(
-            s"node id '$name' is not a plain token ([A-Za-z0-9_]+) — ids are " +
-              "interpolated into `id` attributes and signal names"
-          )
-        else if (ids.count(_ == id) > 1)
-          List(s"node id '$name' is used more than once")
-        else Nil
-      }
-
-      shape.distinct
-    }
-
-    val chromeErrors: List[String] =
-      Option
-        .when(
-          theme.chrome.nonEmpty && !theme.chrome.contains("id=\"dashboard\"")
-        )(
-          "theme.chrome must contain an element with id=\"dashboard\" wrapping {{{body}}}"
-        )
-        .toList
-
-    // The hoist mints `bakeInto`, so a dangling one means the build's and the
-    // renderer's id derivations drifted; otherwise the symptom is a blank
-    // panel, indistinguishable from an unmatched state group.
-    val danglingBakes: List[String] = {
-      // Every node under the id the runtime gives it, set members' included:
-      // a member's nodes own bake groups too, a slider's heads (#556).
-      def nodesIn(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          within: Option[(NodeId, Int, List[LayoutNode.Step])]
-      ): List[(NodeId, LayoutNode, Boolean)] =
-        (id, node, within.isDefined) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              nodesIn(
-                ch,
-                prefix,
-                LayoutNode.childIdWithin(prefix, id, step, ch, within),
-                within.map((m, cl, path) => (m, cl, path :+ step))
-              )
-            }
-          case set: LayoutNode.SetNode =>
-            set.members.toList.flatMap { (entityId, m) =>
-              val member =
-                NodeId.derived(LayoutNode.memberSegment(id, entityId))
-              m.clauses.zipWithIndex.flatMap((clause, ci) =>
-                nodesIn(clause.node, prefix, member, Some((member, ci, Nil)))
-              )
-            }
-        })
-      val walked =
-        nodesIn(card, "", LayoutNode.rootId("", card), None) ++
-          surfaces.toList.flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            nodesIn(s.content, p, LayoutNode.rootId(p, s.content), None)
-          }
-      val nodes: Map[NodeId, LayoutNode] =
-        walked.map((id, n, _) => id -> n).toMap
-      val inMember: Set[NodeId] =
-        walked.collect { case (id, _, true) => id }.toSet
-      def hostCard(gid: NodeId): Option[CardDef] =
-        nodes
-          .get(gid)
-          .collect { case c: LayoutNode.Component => c.card }
-          .flatMap(cards.get)
-
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.bakeInto.toList.flatMap { gid =>
-          if (!nodes.contains(gid))
-            List(
-              s"surface '$sid' bakes into '$gid', which is not a node in this " +
-                "dashboard (main tree or any surface's content)"
-            )
-          // Every clause of a candidate mints the same ids below the member, so
-          // only the clause tells two clauses' groups apart (`Surface.group`).
-          else if (inMember(gid) && s.clause.isEmpty)
-            List(
-              s"surface '$sid' bakes into '$gid', inside a candidate set's " +
-                "clause, but names no clause"
-            )
-          else
-            // `bakeAs` must be a baked region of that node's card.
-            (s.bakeAs, hostCard(gid)) match {
-              case (Some(region), Some(cd))
-                  if !cd.regions.get(region).exists(_.fill == Region.Baked) =>
-                val baked = cd.bakedRegions.keys.toList.sorted
-                List(
-                  s"surface '$sid' bakes into '$gid' as '$region', but that " +
-                    s"node's card declares no baked region '$region'" +
-                    (if (baked.isEmpty) " (it declares none)"
-                     else s" — it has ${baked.mkString(", ")}")
-                )
-              // Incoherent: the node owns a bake group while `hostId` falls to
-              // the popup host. Also what keeps "a bake owner is structure"
-              // true, which the render cache relies on.
-              case (None, _) =>
-                List(
-                  s"surface '$sid' bakes into '$gid' but names no 'bakeAs' — " +
-                    "a baked surface must name the region it fills"
-                )
-              case _ => Nil
-            }
-        }
-      }
-    }
-
-    // Selection is per session or server truth per group, never both.
-    val activationErrors: List[String] =
-      surfaces.toList
-        .flatMap { case (sid, s) => s.group.map((_, sid, s.activation)) }
-        .groupBy(_._1)
-        .toList
-        .sortBy(_._1)
-        .flatMap { case (gid, members) =>
-          val kinds = members.map {
-            case (_, _, _: Activation.User)  => "user"
-            case (_, _, _: Activation.Var)   => "var"
-            case (_, _, _: Activation.State) => "state"
-          }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
-            n
-          }
-          // A baked member has a host, and what fills a host is a choice the
-          // server knows: a viewer's variable or a condition (ADR 0033).
-          val unchosen = members.collect { case (_, sid, _: Activation.User) =>
-            sid
-          }.sorted
-          Option
-            .when(unchosen.nonEmpty)(
-              s"bake group '$gid' has members nothing selects (" +
-                unchosen.mkString(", ") + "): a baked surface is chosen by a " +
-                "node variable (activation kind \"var\") or a condition " +
-                "(\"state\")"
-            )
-            .toList ++ Option
-            .when(kinds.size > 1 && unchosen.isEmpty)(
-              s"bake group '$gid' mixes var- and state-activated members: " +
-                members.map(_._2).sorted.mkString(", ")
-            )
-            .toList ++ names.distinct.match {
-            case List(name) =>
-              // In [[SurfaceGraph.bakeGroup]]'s order.
-              val inOrder = members
-                .map(_._2)
-                .sorted
-                .flatMap(surfaces.get)
-                .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
-              varSelectionErrors(
-                gid,
-                inOrder.flatMap(_.bakeInto).headOption.getOrElse(gid),
-                name,
-                inOrder.flatMap(_.selectedAt),
-                inOrder.count(_.isOtherwise)
-              )
-            case Nil  => Nil
-            case many =>
-              List(
-                s"bake group '$gid' is selected by more than one variable: " +
-                  many.sorted.mkString(", ")
-              )
-          }
-        }
-
-    val unboundConditions: List[String] =
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.activation match
-          case Activation.State(c) if Predicate.hasFreeSubject(c) =>
-            List(
-              s"surface '$sid' is shown by a condition that compares an " +
-                "unnamed entity; a state condition must name the entity each " +
-                "comparison reads"
-            )
-          case _ => Nil
-      }
-
-    // Without its tally a press would have nothing to filter. `tapRoute` always
-    // writes one, so this is a node built some other way.
-    val callSetErrors: List[String] =
-      declaredCalls.collect {
-        case Dashboard.Declared(TapCall(_, CallSet(id), _), card, None) =>
-          s"card '$card' places a call over the set '$id' without a " +
-            s"readable '${Dashboard.TargetSetSlot}' slot — build its route " +
-            "with tapMod.tapRoute"
-      }.distinct ++ declaredCalls
-        .collect {
-          case Dashboard.Declared(
-                TapCall(_, CallSet(id), _),
-                _,
-                Some(t: Predicate.Tally)
-              ) =>
-            id -> t
-        }
-        .groupMap(_._1)(_._2)
-        .toList
-        .sortBy(_._1)
-        .collect {
-          case (id, ts) if ts.distinct.size > 1 =>
-            s"two different sets share the call id '$id'"
-        }
-
-    authoredIdErrors ++
-      callSetErrors ++
-      structureLiveSlotErrors ++
-      regionHoleErrors ++
-      regionNameErrors ++
-      chromeErrors ++
-      theme.classes.errors ++
-      danglingBakes ++
-      activationErrors ++
-      unboundConditions ++
-      walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
-        val p = LayoutNode.surfacePrefix(sid)
-        walk(
-          surface.content,
-          p,
-          LayoutNode.rootId(p, surface.content),
-          scopeOf(surface)
-        ).map(err => s"surface '$sid': $err")
-      }
 
   /** Problems that still build but are silent in the browser, both about the
     * popup host only the theme can place (ADR 0002).
@@ -2176,6 +1110,37 @@ case class Dashboard(
     (fetchesIn(card) ++ surfaces.values.toList.flatMap(s =>
       fetchesIn(s.content, scopeOf(s))
     )).distinct
+
+  /** Every fetch a decision reads, beside where it is read: a set's clauses and
+    * order, a `valueWhile`, a state surface, a set a press acts on.
+    */
+  lazy val decisionFetches: List[(String, FetchTemplate)] = {
+    def walk(n: LayoutNode): List[(String, FetchTemplate)] = n match
+      case c: LayoutNode.Component =>
+        c.bound.toList.sortBy((k, _) => SlotKey.label(k)).flatMap { (k, s) =>
+          s.valueWhile.toList
+            .flatMap(_.fetches)
+            .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _.fetch)
+        } ++ c.allChildren.flatMap(walk)
+      case s: LayoutNode.SetNode =>
+        s.orderBy.flatMap(_.by.fetches).map("a set's order" -> _) ++
+          s.members.values.toList.flatMap(_.clauses).flatMap { cl =>
+            cl.when.toList.flatMap(_.fetches).map("a set's clause" -> _) ++
+              walk(cl.node)
+          }
+
+    (walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
+      (s.activation match
+        case Activation.State(Some(c)) =>
+          c.fetches.map(s"surface '$sid''s condition" -> _)
+        case _ => Nil
+      ) ++ walk(s.content)
+    } ++ calls.values.toList
+      .collect { case p: Value.Present => p }
+      .flatMap(
+        ValueExpr(_).fetches.map("a set a press acts on" -> _)
+      )).distinct
+  }
 
   /** Node variables in scope at every node, by name (issue #209). A popup is
     * its own scope root, since one content may be opened from many places. An
@@ -2252,42 +1217,6 @@ case class Dashboard(
     )
   }
 
-  /** A variable-selected group needs its variable in scope at the host, and a
-    * declared value that is a member index: the declared value is what bakes
-    * before anyone chooses, and only a viewer's choice is checked at the write.
-    */
-  private def varSelectionErrors(
-      gid: NodeId,
-      host: NodeId,
-      name: String,
-      values: List[String],
-      fallbacks: Int
-  ): List[String] =
-    Option
-      .when(values.distinct.size != values.size)(
-        s"bake group '$gid' has two members selected at one value of '$name': " +
-          values.mkString(", ")
-      )
-      .toList ++ Option
-      .when(fallbacks > 1)(
-        s"bake group '$gid' has $fallbacks members selected at every other " +
-          s"value of '$name'; one can be"
-      )
-      .toList ++ (varScopes.get(host).flatMap(_.get(name)) match {
-      case None =>
-        List(
-          s"bake group '$gid' is selected by the variable '$name', which no " +
-            "node at or above it declares"
-        )
-      case Some(in)
-          if fallbacks == 0 && !values.contains(in.declaration.default) =>
-        List(
-          s"bake group '$gid' is selected by '$name', declared '${in.declaration.default}' " +
-            s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
-        )
-      case Some(_) => Nil
-    })
-
   /** The declared values a surface's content starts with ([[varScopes]]). */
   def scopeOf(s: Surface): Map[String, String] =
     s.bakeInto
@@ -2305,9 +1234,6 @@ case class Dashboard(
       s.fetches.map(_.resolve(scope))
     }.distinct
 
-  private def slotSources(n: LayoutNode): List[BoundSlot] =
-    scopedSlots(n, Map.empty).map(_._1)
-
   /** `scope` is where a tree starts: empty, or a surface's [[scopeOf]]. */
   private def scopedSlots(
       n: LayoutNode,
@@ -2322,47 +1248,28 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(c => scopedSlots(c.node, scope))
 
-  /** The CEL expressions to compile, each with the names it is typed against.
-    */
-  private def celKeys: List[Transform.CelKey] =
-    ((slotSources(card) ++ surfaces.values.flatMap(s =>
-      slotSources(s.content)
-    )).toList
-      .flatMap(_.celKeys) ++
-      (initialKeys(card) ++ surfaces.values.flatMap(s =>
-        initialKeys(s.content)
-      ))).distinct
-
-  private def initialKeys(n: LayoutNode): List[Transform.CelKey] = n match
-    case c: LayoutNode.Component =>
-      c.vars.flatMap(_.initialTransform).map(_.celKey) ++
-        c.allChildren.flatMap(initialKeys)
-    case s: LayoutNode.SetNode =>
-      s.members.values.toList
-        .flatMap(_.clauses)
-        .flatMap(cl => initialKeys(cl.node))
-
-  /** [[validate]] plus the compiled transforms and templates, so the renderer
-    * never recompiles or defends against a bad expression.
+  /** [[validate]] plus the compiled tree and templates, so the renderer never
+    * recompiles or defends against a bad expression.
     */
   def validated(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
     val compiled = compiledCards
-    errors(locateTransform, compiled) match
+    Validate.errors(this, locateTransform, compiled) match
       case Nil =>
-        Right(
-          Dashboard.Validated(
-            this,
-            compileTransforms,
-            Templates(compiled.collect { case (n, Right(c)) => n -> c })
+        Ready
+          .Compile(Evaluator.Scope(slug))
+          .dashboard(this)
+          .left
+          .map(m => List(m.message))
+          .map(ready =>
+            Dashboard.Validated(
+              this,
+              ready,
+              Templates(compiled.collect { case (n, Right(c)) => n -> c })
+            )
           )
-        )
       case errs => Left(errs)
-
-  // Only after `validate` proved each compiles, so a `Left` cannot occur.
-  private def compileTransforms: Map[Transform.CelKey, Transform.Compiled] =
-    celKeys.flatMap(k => Transform.parse(k).toOption.map(k -> _)).toMap
 
 object Dashboard:
 
@@ -2384,54 +1291,18 @@ object Dashboard:
   /** Where a session opens a node variable: CEL over one entity's state. */
   final case class InitialTransform(entityId: String, transform: String)
       derives ConfiguredDecoder:
-    /** The one spelling of its key: validated, compiled and run by it, as a
-      * slot's transform is by [[BoundSlot.celKey]].
-      */
-    def celKey: Transform.CelKey = Transform.CelKey(transform)
+    /** The one spelling of its key: validated, compiled and run by it. */
+    def celKey: Cel.Key = Cel.Key(transform)
 
-  /** The slot naming a card's subject, which every other slot inherits. Not
-    * HA's `entity_id` field or the CEL `entity_id` binding, which share only
-    * the spelling.
+  /** The slot naming a card's subject, which Pkl names on every other slot that
+    * names no entity. Not HA's `entity_id` field or `fh.Entity`'s, which share
+    * only the spelling.
     */
   val SubjectSlot: String = "entity_id"
 
   /** A CEL identifier. A reserved word fails the expression's compile. */
-  val ExpressionValueName: scala.util.matching.Regex =
+  val InputName: scala.util.matching.Regex =
     "[A-Za-z_][A-Za-z0-9_]*".r
-
-  /** Per tier: CEL by its checked type, `Simple` exactly — a condition, or a
-    * `match` whose every outcome is a Boolean; every other shape is text.
-    */
-  def yieldsBool(src: BoundSlot): Boolean = src.transform match
-    case _: String =>
-      src.celKey.forall(Transform.yieldsBool)
-    case m: Transform.Simple.Match => allBoolean(m)
-    case _: Predicate              => true
-    case _: Transform.Simple       => false
-    case _: Transform.Stage        => true
-
-  /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), a
-    * condition, or a `match` whose every outcome is a Boolean.
-    */
-  def onlyBool(src: BoundSlot): Boolean = src.transform match
-    case _: String =>
-      src.celKey.exists(Transform.isBoolTyped)
-    case m: Transform.Simple.Match => allBoolean(m)
-    case _: Predicate              => true
-    case _                         => false
-
-  private def allBoolean(m: Transform.Simple.Match): Boolean =
-    m.otherwise.isInstanceOf[Boolean] &&
-      m.cases.values.forall(_.isInstanceOf[Boolean])
-
-  /** Where Pkl puts a live cell class among a node's slots (`core/node.pkl`'s
-    * `cellClassPrefix`). The `:` keeps it out of any name a card's template
-    * could place.
-    */
-  val CellClassPrefix: String = "cell.class:"
-
-  /** [[CellClassPrefix]]'s twin for a live custom property (`cssProperty`). */
-  val CellStylePrefix: String = "cell.style:"
 
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
@@ -2448,7 +1319,7 @@ object Dashboard:
   /** A call a node's tap declares; `reach` is `None` where a set call's card
     * placed the route without its tally.
     */
-  private final case class Declared(
+  private[model] final case class Declared(
       call: TapCall,
       card: String,
       reach: Option[CallReach]
@@ -2459,7 +1330,8 @@ object Dashboard:
     */
   case class Validated private[model] (
       dashboard: Dashboard,
-      transforms: Map[Transform.CelKey, Transform.Compiled],
+      // What the runtime walks; `dashboard` is the source it came from.
+      ready: Ready.Dashboard,
       templates: Templates,
       // Resolved once by `Site.decode` ([[withAccess]]). The default is the
       // restrictive one, so forgetting to resolve demands a login.
@@ -2498,21 +1370,17 @@ object Dashboard:
   /** The chosen member's index, which the renderer gives a bake owner. */
   val BakeIndexVar: String = "bakeIndex"
 
-  private val derivedSuffixes = List("__bind", "__has", "__read", "__signal")
+  /** How a template places a slot's view. */
+  def spell(slot: String, view: Templates.View): String = view match
+    case Templates.View.Has    => s"{{#$slot.has}}…{{/$slot.has}}"
+    case Templates.View.Signal => s"{{$slot.signal}}"
+    case v                     => s"{{{$slot.${v.spelling}}}}"
 
-  /** The slot a renderer-derived name (`label__bind`) is read from. */
-  def derivedFrom(name: String): Option[String] =
-    derivedSuffixes.collectFirst {
-      case s if name.endsWith(s) && name.length > s.length =>
-        name.dropRight(s.length)
-    }
-
-  /** Slots the server reads itself, so no template need name them: the subject,
-    * the live cell, and a tap's route ([[calls]]).
+  /** Slots the server reads itself, so no template need name them: the subject
+    * and a tap's route ([[calls]]).
     */
   def readByRenderer(slot: String): Boolean =
-    slot == SubjectSlot || slot.startsWith(CellClassPrefix) ||
-      slot.startsWith(CellStylePrefix) || routeSlots(slot)
+    slot == SubjectSlot || routeSlots(slot)
 
   private val routeSlots: Set[String] =
     Set(ServiceSlot, TargetKindSlot, TargetIdSlot, DataKeySlot, TargetSetSlot)

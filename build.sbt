@@ -231,7 +231,7 @@ lazy val `ha-api` = project // todo add api layer here as well
       // "Failed to load class ... StaticLoggerBinder" lines at the top of
       // every run of this module's suites. The app's binding is not visible
       // here, because a library must not impose one.
-      "ch.qos.logback" % "logback-classic" % "1.6.5" % Test
+      "ch.qos.logback" % "logback-classic" % "1.6.6" % Test
     )
   )
 
@@ -500,7 +500,7 @@ lazy val `fh-datastar-view` = project
       "io.circe" %% "circe-parser" % "0.14.17",
       "io.github.iltotore" %% "iron-circe" % "3.4.1",
       // filesystem paths/IO for the build phase
-      "com.lihaoyi" %% "os-lib" % "0.11.8",
+      "com.lihaoyi" %% "os-lib" % "0.11.10",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
       "org.pkl-lang" % "pkl-core" % "0.32.2",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
@@ -514,7 +514,7 @@ lazy val `fh-datastar-view` = project
       "dev.cel" % "cel" % "0.15.0",
       // already a runtime dep of cel; explicit so Digest can use murmur3 (keep
       // version in lockstep with what cel resolves)
-      "com.google.guava" % "guava" % "33.7.2-jre",
+      "com.google.guava" % "guava" % "33.8.0-jre",
       // LTTB for chart series. The major version is the class-file baseline:
       // 21, because CI tests on JDK 21 (25.x fails there to load).
       "com.ggalmazor" % "downsampling" % "25.2.0",
@@ -541,7 +541,7 @@ lazy val `fh-datastar-view` = project
       // Kept in this module because it assembles the add-on jar — a binding
       // belongs to the application, not to a library.
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
-      "ch.qos.logback" % "logback-classic" % "1.6.5",
+      "ch.qos.logback" % "logback-classic" % "1.6.6",
       "org.typelevel" %% "otel4s-oteljava" % otel4sVersion,
       "org.http4s" %% "http4s-otel4s-middleware-trace-server" % otelMiddlewareVersion,
       "org.http4s" %% "http4s-otel4s-middleware-trace-client" % otelMiddlewareVersion,

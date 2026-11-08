@@ -1,9 +1,13 @@
 package fh.view.fetch
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.{FetchRequest, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
+  SlotType,
+  Part,
   Activation,
   BoundSlot,
   CardDef,
@@ -11,22 +15,30 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
-  Reads,
   SignalBind,
   Choice,
   FetchTemplate,
   SlotAsk,
   SlotRead,
+  Ready,
   Region,
   SlotShape,
-  SlotSource,
-  Surface,
-  Transform
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Surface
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{EntityState, RenderInputs, Renderer, Selections}
+import fh.view.runtime.{
+  EntityState,
+  Evaluator,
+  RenderInputs,
+  Renderer,
+  Selections,
+  sharedOf
+}
 import io.circe.Json
 import io.github.iltotore.iron.*
 import fh.view.testkit.TestIds.given
@@ -39,6 +51,11 @@ import java.time.Instant
   * the render key.
   */
 class FetchRenderInputsSuite extends munit.CatsEffectSuite {
+
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def component(c: LayoutNode.Component): Ready.Component =
+      Conds.compiled(walk.component(c))
 
   /** A window written down resolves to itself in any environment, so the
     * assertions stay about the fetch slot, not variables. Named by preset.
@@ -57,25 +74,32 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     * two drawings.
     */
   private def drawn(width: Int = 600) =
-    Transform.Stage.Chart(ChartStyle(width = width.refineUnsafe))
+    drawnStep(width)
+
+  private def drawnStep(width: Int = 600) =
+    Step.Chart(ChartStyle(width = width.refineUnsafe))
 
   private def read(window: String = "24h", width: Int = 600) =
     SlotRead(resolved(window), drawn(width))
 
   private def chartSource(window: String = "24h", width: Int = 600) =
-    SlotSource(
-      fetch = Some(chart(window)),
-      transform = drawn(width),
-      reads = Reads.OnRender
+    TemplateSlot(
+      ValueExpr(Value.Fetch(chart(window)), List(drawnStep(width))),
+      `type` = SlotType.TextRaw
     )
 
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
       card = "historyChart",
-      slots = Map(
-        "entity_id" -> SlotSource(literal = Some("sensor.t")),
+      templateSlots = Map(
+        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
         "chart" -> chartSource(window),
-        "name" -> SlotSource(transform = "state")
+        "name" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(Some("sensor.t"), Part.Whole),
+            List(Step.Cel("value.state"))
+          )
+        )
       )
     )
 
@@ -84,14 +108,19 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // does not re-fetch its history every second. Both entity lists come from
     // state slots, and a fetch slot is not one, even at `reads`'s `live`
     // default.
-    assertEquals(chartNode().liveEntities, List("sensor.t")) // from `name`
     assertEquals(
-      LayoutNode
-        .Component(
-          card = "historyChart",
-          slots = Map(
-            "entity_id" -> SlotSource(literal = Some("sensor.t")),
-            "chart" -> chartSource()
+      compile.component(chartNode()).liveEntities,
+      List("sensor.t") // from `name`
+    )
+    assertEquals(
+      compile
+        .component(
+          LayoutNode.Component(
+            card = "historyChart",
+            templateSlots = Map(
+              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+              "chart" -> chartSource()
+            )
           )
         )
         .liveEntities,
@@ -102,27 +131,31 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   test("a fetch slot is not a signal slot, whatever it says") {
     // A `SlotShape.Fetch` has no signal to read, so the signal path cannot
     // reach it; no rule is needed.
-    val src = chartSource().copy(
-      signal = Some(SignalBind.Text),
-      reads = Reads.Live
-    )
-    assertEquals(BoundSlot(src, Map.empty).shape, SlotShape.Fetch(ask()))
+    val src = TemplateSlot(chartSource().expr, signal = Some(SignalBind.Text))
     assertEquals(
-      LayoutNode
-        .Component(card = "c", slots = Map("chart" -> src))
+      BoundSlot.bind(Map.empty, None)(src).shape,
+      SlotShape.Fetch(ask())
+    )
+    assertEquals(
+      compile
+        .component(
+          LayoutNode.Component(card = "c", templateSlots = Map("chart" -> src))
+        )
         .liveEntitiesAsBytes,
       Nil
     )
   }
 
   test("a node's fetches are its fetch slots, deduplicated") {
-    assertEquals(chartNode().fetches, List(ask()))
-    val two = LayoutNode.Component(
-      card = "twoCharts",
-      slots = Map(
-        "a" -> chartSource("1h"),
-        "b" -> chartSource("1h"),
-        "c" -> chartSource("30d")
+    assertEquals(compile.component(chartNode()).fetches, List(ask()))
+    val two = compile.component(
+      LayoutNode.Component(
+        card = "twoCharts",
+        templateSlots = Map(
+          "a" -> chartSource("1h"),
+          "b" -> chartSource("1h"),
+          "c" -> chartSource("30d")
+        )
       )
     )
     assertEquals(two.fetches.toSet, Set(ask("1h"), ask("30d")))
@@ -237,7 +270,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   test("passthrough puts the provider's DATA in the hole, undrawn") {
     // The third-party contract: the JSON a client library reads, nothing drawn,
     // so cheaper than a chart.
-    val raw = SlotRead(resolved(), Transform.Stage.Passthrough)
+    val raw = SlotRead(resolved(), Step.Json)
     for {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
@@ -251,7 +284,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       d <- draws.get
     } yield {
       assertEquals(d, 0)
-      val rawAsk = SlotAsk(chart(), Transform.Stage.Passthrough)
+      val rawAsk = SlotAsk(chart(), Step.Json)
       assert(
         f.value("n", rawAsk).contains("\"points\""),
         clue = f.value("n", rawAsk)
@@ -331,11 +364,13 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
               "children" -> List(
                 LayoutNode.Component(
                   card = "chart",
-                  slots = Map(
-                    "chart" -> SlotSource(
-                      fetch = Some(chart()),
-                      transform = drawn(),
-                      reads = Reads.OnRender
+                  templateSlots = Map(
+                    "chart" -> TemplateSlot(
+                      ValueExpr(
+                        Value.Fetch(chart()),
+                        List(drawnStep())
+                      ),
+                      `type` = SlotType.TextRaw
                     )
                   )
                 )
@@ -347,11 +382,21 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     )
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForSurface("popup", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface(
+        "popup",
+        sharedOf(Map.empty),
+        Selections.none,
+        Map.empty
+      ),
       List(read())
     )
     assertEquals(
-      r.fetchesForSurface("nope", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface(
+        "nope",
+        sharedOf(Map.empty),
+        Selections.none,
+        Map.empty
+      ),
       Nil
     )
   }
@@ -362,7 +407,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     def panel(w: String) =
       LayoutNode.Component(
         card = "chart",
-        slots = Map("chart" -> chartSource(w))
+        templateSlots = Map("chart" -> chartSource(w))
       )
     def host(id: String) = LayoutNode.Component(card = "host", id = Some(id))
     def baked(into: String, idx: Int, w: String, activation: Activation) =
@@ -374,7 +419,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         activation = activation
       )
     val lightOn =
-      Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val r = Renderer.create(
       Dashboard(
         cards =
@@ -401,12 +446,12 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         surfaces = Map(
           "t0" -> baked("tabs", 0, "1h", Activation.Var("tab")),
           "t1" -> baked("tabs", 1, "7d", Activation.Var("tab")),
-          "on" -> baked("branch", 0, "24h", Activation.State(lightOn)),
+          "on" -> baked("branch", 0, "24h", Activation.State(Some(lightOn))),
           "off" -> baked(
             "branch",
             1,
             "30d",
-            Activation.State(Predicate.And(Nil))
+            Activation.State()
           )
         )
       )
@@ -414,7 +459,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     def light(s: String) =
       Map("light.a" -> EntityState("light.a", s, Map.empty))
     def windows(selected: String, states: Map[String, EntityState]) =
-      r.fetchesForPage(Set(selected), states, Map.empty)
+      r.fetchesForPage(Set(selected), sharedOf(states), Map.empty)
         .map(r =>
           Windows.presets
             .collectFirst {
@@ -427,10 +472,13 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(windows("t1", light("off")), Set("7d", "30d"))
   }
 
-  private def dashboard(src: SlotSource) =
+  private def dashboard(src: TemplateSlot) =
     Dashboard(
       cards = Map("chart" -> CardDef("""<div id="{{id}}">{{{chart}}}</div>""")),
-      card = LayoutNode.Component(card = "chart", slots = Map("chart" -> src))
+      card = LayoutNode.Component(
+        card = "chart",
+        templateSlots = Map("chart" -> src)
+      )
     )
 
   test("an unknown provider fails the decode, naming the ones that exist") {
@@ -443,49 +491,44 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assert(err.contains("history"), clue = err)
   }
 
-  test("an ESCAPED hole for a fetch slot is a build error") {
+  test("an ESCAPED hole for a chart slot is a build error") {
     // Otherwise `{{chart}}` renders `&lt;svg …` as text.
     def errsFor(hole: String) =
       Dashboard(
         cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
-          slots = Map(
+          templateSlots = Map(
             "chart" -> chartSource()
           )
         )
       ).validate()
 
     assert(
-      errsFor("{{chart}}").exists(_.contains("ESCAPED hole")),
+      errsFor("{{chart}}").exists(
+        _.contains("places slot 'chart' as {{chart}}")
+      ),
       clue = errsFor("{{chart}}")
     )
     assertEquals(errsFor("{{{chart}}}"), Nil)
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
-  test("a fetch slot whose wire says 'live' is rejected as untruthful") {
-    // Inert, since a `SlotShape.Fetch` never reads it: this keeps the wire from
-    // lying. The Pkl default derives `onRender` from the fetch.
-    val errs = dashboard(
-      chartSource().copy(reads = Reads.Live)
-    ).validate()
-    assert(errs.exists(_.contains("never pushed")), clue = errs)
-  }
-
   test("statistics at a period no shorter than the span is a build error") {
     // HA answers `hour` over one hour with nothing (measured), so the chart
     // would be blank forever.
     val errs = dashboard(
-      SlotSource(
-        fetch = Some(
-          FetchTemplate(
-            "sensor.t",
-            Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
-          )
+      TemplateSlot(
+        ValueExpr(
+          Value.Fetch(
+            FetchTemplate(
+              "sensor.t",
+              Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
+            )
+          ),
+          List(drawnStep())
         ),
-        transform = drawn(),
-        reads = Reads.OnRender
+        `type` = SlotType.TextRaw
       )
     ).validate()
     assert(errs.exists(_.contains("shorter than the span")), clue = errs)

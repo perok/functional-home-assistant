@@ -66,9 +66,14 @@ same commit; ADRs that change the pipeline update it too.
 3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
-   the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
+   the starter and the test dashboards (`testkit/FixtureEntries`, one concern each: a new
+   shape joins the dashboard of its concern, or gets one), so
+   `sbt 'fh-datastar-view/testFull'` catches any drift.
    Regenerate them deliberately when the wire format is *meant* to change, with
    **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
+   What the test dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
+   (`src/test/resources/goldens/`, the same command) hold each body, surface and node patch, so a
+   change that moves the wire wholesale can still show it sends the same bytes.
 
    **Use the command; do not hand-roll the flag.** Two footguns it exists to close, both of
    which have fired: a shell `FH_UPDATE_SNAPSHOTS=1` export sticks to the long-lived sbt
@@ -118,7 +123,7 @@ same commit; ADRs that change the pipeline update it too.
 
 | File | Role |
 |---|---|
-| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
+| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`); `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.32.1) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
 | `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.pkl/cache`, and whichever workspace dir the run was given). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
@@ -132,7 +137,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience: **`core/`** — `node`, `css`, `slot`, `text`, `icon`, `tap`, `surface`, `predicate`, `badge` (the glyph seat a tile, a switch and a slider head share) — is what a COMPONENT author imports, beside **`providers.pkl` + `providers/`** (what a component reads beyond state, one namespace per provider: `p.history`); **`layout.pkl`** (Row/Column/Grid) and **`components.pkl` + `components/`** (`entity`, `control`, `slider`, `light`, `lock`, `moreinfo`, …, and `base/` — `button`, `onoff`, `tile` (which holds its features as nodes), `bar` (a progress bar, one such feature), `slider`, `text`, `surface`, `chart` (the SVG drawing stage) — for the cards that know nothing of HA, which an HA card is a thin subclass of: ADR 0015) are what a DASHBOARD author imports, `components.pkl` being a FACADE that declares no cards; **`recipes.pkl`** is whole opinionated sections. `internal/dump-base.pkl` is generator-facing, and `entry.pkl` stays at the root because it is what every entry amends. **Adding a module, or re-exporting through the facade — read ADR 0015 first**: it owns the tiering and the two rules a re-export cannot break, both of which exist to keep editor completion working THROUGH the module |
 | `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. Every SCOPE answers ONE name — `all` — on `Area` (derived from the generator-filled `allWithHidden`), `Floor` (its areas') and `Device` (its entities'); `all` leaves out entities hidden in HA, which stay reachable by name and through `allWithHidden`, so `q.from(...)` takes any scope; a DOMAIN comes out of one through a selector (`hass.lights(area.all)`, `hass.locks(…)`, …), which is also what derives the house namespaces' `all`. A new modelled domain adds one selector and removes itself from `generic` — not a list on four classes. The dump's NAMESPACES answer `all` as well: `dump.entities.all` (the house), `dump.lights.all`/`dump.scenes.all`/… per selector, `dump.floors.all` (level order), `dump.areas.all`, `dump.devices.all`, `dump.users.all` — a floor is `dump.floors.<slug>`, never a top-level property (ADR 0013) |
 | `resources/dashboards/lib/internal/dump-base.pkl` | The house-wide NAMESPACES as a CONTRACT (`open module`; an `open class` per namespace whose lists default to `List()`) that the generated `@fh-home/dump.pkl` **extends**, subclassing each one it has members for: `dump.entities`, and one per selector (`dump.lights`, …, `dump.scenes`, `dump.generic`), each answering `all` and naming its members by object id (`dump.scenes.kveld`). **ADR 0013** owns why they are declared here rather than emitted per home, and why `extends` and not `amends` |
-| `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`: `where`/`orderBy`/`limit`/`caseOf`/`render`, the aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), `first().eq(e)` (whether `e` leads the live ordering — a condition, so a fixed row of pills can light the scene activated last), nested sets, `q.entity(e)` for naming a DIFFERENT entity than the member, and `q.prop`/`q.attr`/`q.optional` for names. The wire classes live in `core/predicate.pkl` — query.pkl depends on the CORE, never on the shipped cards. **Plain Pkl stays the first answer**: a `for` over a typed dump list is still the right way to render a fixed set of lights, and this earns its place only when membership must react to live state. **ADR 0003** owns the build-time/live fold and how a property name resolves |
+| `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`: `where`/`orderBy`/`limit`/`caseOf`/`render`, the aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), `first().eq(e)` (whether `e` leads the live ordering — a condition, so a fixed row of pills can light the scene activated last), nested sets, `q.entity(e)` for naming a DIFFERENT entity than the member, and `q.prop`/`q.attr`/`q.optional` for names. The condition and set classes live in `core/predicate.pkl`, each condition writing a bool reading (ADR 0004) — query.pkl depends on the CORE, never on the shipped cards. **Plain Pkl stays the first answer**: a `for` over a typed dump list is still the right way to render a fixed set of lights, and this earns its place only when membership must react to live state. **ADR 0003** owns the build-time/live fold and how a property name resolves |
 | `resources/dashboards/lib/hass/actions.pkl` | **What a TAP means, per domain**, vendored: a `Call` (a build-time literal like `light/toggle`), a `CallByState` for the four domains whose service the live state picks, or **absent**. Adding a domain is one row, and nothing in Scala knows an HA domain. **ADR 0016** owns why absence is the load-bearing case and which absences are deliberate |
 | `resources/dashboards/lib/hass/icons.pkl` | The MDI glyph tables HA's own frontend derives an icon from, VENDORED — per device_class, per domain, and per STATE. `core/icon.pkl` keeps the resolution (`iconFor`/`stateIconFor`/`mdiClass`), which is what a component author calls; the tables are here because the reader who matters is whoever re-syncs against a new HA release, and every vendored table is under `hass/` for them. Only 24% of a real instance's entities carry an `icon`, so these render three quarters of the cards |
 | `resources/dashboards/lib/hass/light.pkl` | HA's `light` domain model VENDORED — the `ColorMode` union + `LightEntityFeature` bits. The union's generator-side copy is `HassVocabulary.scala`, like every vendored union that types a dump field, so a mode a newer HA adds is dropped rather than failing the eval. Imported by `hass.pkl` **with an `as` alias** — Pkl binds an import to its FILE name, so the alias keeps `light` from reading as a light ENTITY; a `///` doc comment on an import is also a parse error. **ADR 0013** owns why copying HA's `*EntityFeature` flags is safe, and the pattern other domains follow |
@@ -146,7 +151,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/components_default.pkl` | The seeded workspace `components.pkl` ([[AddonBootstrap.starterComponents]]): amends the facade and sets the user's `defaults` (`lib/components/defaults.pkl`). Every workspace file imports it as `c`. **Adding a default — read ADR 0015's "Your components" first**: a card carries the whole object and the facade and recipes hand it over, so a facade-only default would miss the library's own sections |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
-| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
+| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`Reading.valueWhileSlot`, which the wire nests on the template slot as `valueWhile`) |
 
 A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
 renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
@@ -237,12 +242,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   region; every slot must be named, unless the server reads it itself (`Dashboard.readByRenderer`). Call-style factories / classes return layout nodes referencing a card
   by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
   **colon** syntax (`data-on:click`,
-  `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
-  when a light is off).
-- **Signal slots (ADR 0017)**: a slot with `signal = true` carries its value as a Datastar signal
+  `data-bind`, `data-signals`). A reading's `default` (`ValueExpr.default`) fills an empty result
+  (e.g. brightness when a light is off).
+- **Signal slots (ADR 0017)**: a slot with a `signal` carries its value as a Datastar signal
   instead of as bytes in the element, so a change to it costs one
   `datastar-patch-signals` frame for the batch rather than a re-rendered card each. The card places
-  the renderer-supplied binding — `\(slot.signalBind("value"))` in Pkl, `{{{value__bind}}}` in the
+  the renderer-supplied binding — `\(value.bind)` in Pkl, `{{{value.bind}}}` in the
   emitted template — beside the ordinary `{{value}}` hole. A display signal is named by WHAT IT
   READS — `_e.<domain>.<object_id>.<transform>` — so one entity on three cards is one signal and one
   frame entry (#134); dots are PATH separators, so a frame carries nested JSON and never a flat
@@ -252,9 +257,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (value inline + a node-level `data-signals` seed on the `.fh-cell` wrapper; what a page load,
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
-  The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
-  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`,
-  `class:<name>`, `bind` (`data-bind`, two-way on a form control), or `handler` (NO binding at
+  The slot's `signal` names the BINDING KIND (`SignalBind`, an object on the wire): `Text`
+  (`data-text`), `Style(property)` (`data-style:<prop>`, custom properties included), `Attr(name)`,
+  `Class(name)`, `Bind` (`data-bind`, two-way on a form control), or `Handler` (NO binding at
   all — nothing paints the value; an event handler reads it by name, which is how a lock tile's
   tap knows which service to post without the URL being in its bytes). Every painted kind reads
   the signal bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides
@@ -366,17 +371,18 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   beneath it, its bar a `tab` node per option whose `choose` names the chooser by
   `Variable.declarer` (a build token); `c.history.chooser` and `c.controlChooser` are two, read by
   `.fromChooser()` on a chart or a light slider),
-  **expression values** (a node's or a slot's `expressionValues`: literals, a live `q.from(…).where(…).count()`,
-  a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on
-  demand, waking nothing — ADR 0034), read BY NAME as typed variables in that node's own
-  CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
+  **inputs** (a node's or a slot's `inputs`: literals, a live `q.from(…).where(…).count()`,
+  the ids present (`….present()`, a `list(string)`), a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on
+  demand, waking nothing — ADR 0034), or an entity (read whole, `kitchen.attr.brightness`), read BY NAME
+  as typed variables in that node's own CEL — `string(lights_on) + ' on'` — beside `value`, what the step
+  before gave (`value.state` on a `c.expr`), compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
-  the button/tile/slider, `classWhen`: a Boolean, a reading, an `Expr` or a condition directly —
-  `.disabled(lit.none())` — the condition is the bool slot's transform, decided without CEL; `Slot.type = "bool"`
+  the button/tile/slider, `cellClassWhen`: a Boolean, or any `slotMod.Expr` of a bool — a reading,
+  `c.expr`, or a condition directly, `.disabled(lit.none())` — which is the bool slot's source; a `slotMod.bool` handle
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
-  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cssProperty("--x",
-  reading)`, `classWhen`'s value twin, any tier; it cannot drive the slider fill, which the
+  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
+  reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus

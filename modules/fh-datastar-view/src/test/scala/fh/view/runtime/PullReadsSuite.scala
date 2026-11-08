@@ -4,19 +4,21 @@ import fh.view.history.Windows
 import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
+  SlotType,
   Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
   SlotRead,
-  SlotSource,
-  Surface,
-  Transform
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Surface
 }
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
@@ -30,8 +32,8 @@ class PullReadsSuite extends munit.FunSuite {
   private def plain(id: String) = LayoutNode.Component(
     "dot",
     Map(
-      "entity_id" -> SlotSource(literal = Some("light.a")),
-      "state" -> SlotSource()
+      "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
     ),
     id = Some(id)
   )
@@ -40,12 +42,12 @@ class PullReadsSuite extends munit.FunSuite {
     LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(entity, Choice.Fixed(Windows.day))
+        "chart" -> TemplateSlot(
+          ValueExpr(
+            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
+            List(Step.Chart())
           ),
-          transform = Transform.Stage.Chart(),
-          reads = Reads.OnRender
+          `type` = SlotType.TextRaw
         )
       ),
       id = id
@@ -92,7 +94,7 @@ class PullReadsSuite extends munit.FunSuite {
   private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
-        .fetchesForPage(Set("withChart"), Map.empty, Map.empty)
+        .fetchesForPage(Set("withChart"), Shared.of(Map.empty), Map.empty)
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -104,7 +106,8 @@ class PullReadsSuite extends munit.FunSuite {
         cache,
         log,
         Map.empty,
-        Map("light.a" -> EntityState("light.a", "on", Map.empty)),
+        Shared.of(Map("light.a" -> EntityState("light.a", "on", Map.empty))),
+        noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
         Map.empty,
         0L,

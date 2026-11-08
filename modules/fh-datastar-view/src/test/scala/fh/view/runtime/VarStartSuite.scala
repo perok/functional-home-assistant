@@ -35,7 +35,7 @@ class VarStartSuite extends CatsEffectSuite {
 
   // What `opensOn` will write: the head the light's mode is on.
   private val byMode =
-    """attr[?'color_mode'].orValue('') == 'hs' ? 'colour' : (attr[?'color_mode'].orValue('') == 'color_temp' ? 'colourTemp' : 'nonsense')"""
+    """value.attr[?'color_mode'].orValue('') == 'hs' ? 'colour' : (value.attr[?'color_mode'].orValue('') == 'color_temp' ? 'colourTemp' : 'nonsense')"""
 
   private def entry(start: String, after: String = "") =
     s"""amends "@fh-dashboard/entry.pkl"

@@ -1,0 +1,332 @@
+{
+  "card" : {
+    "card" : "fhcol",
+    "kind" : "Component",
+    "regions" : {
+      "children" : [
+        {
+          "card" : "historyChart",
+          "kind" : "Component",
+          "templateSlots" : {
+            "chart" : {
+              "source" : {
+                "fetch" : {
+                  "entity" : "sensor.outside_temp",
+                  "provider" : "history",
+                  "window" : {
+                    "fallback" : true,
+                    "kind" : "Statistics",
+                    "period" : "5minute",
+                    "span" : 86400
+                  }
+                },
+                "kind" : "Fetch"
+              },
+              "steps" : [
+                {
+                  "kind" : "Chart",
+                  "style" : {
+                    "unit" : "°C"
+                  }
+                }
+              ],
+              "type" : "textRaw"
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "chooser",
+          "cell" : {
+            "classes" : {
+              "fh-cols-full" : true
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "regions" : {
+            "bar" : [
+              {
+                "card" : "selectButtons",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "tab",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
+                          "type" : "textRaw"
+                        },
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "label" : "1h",
+                        "onclick" : {
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                          },
+                          "type" : "textRaw"
+                        }
+                      },
+                      "vars" : [
+                      ]
+                    },
+                    {
+                      "card" : "tab",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
+                          "type" : "textRaw"
+                        },
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "label" : "24h",
+                        "onclick" : {
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                          },
+                          "type" : "textRaw"
+                        }
+                      },
+                      "vars" : [
+                      ]
+                    },
+                    {
+                      "card" : "tab",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
+                          "type" : "textRaw"
+                        },
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "label" : "7d",
+                        "onclick" : {
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                          },
+                          "type" : "textRaw"
+                        }
+                      },
+                      "vars" : [
+                      ]
+                    },
+                    {
+                      "card" : "tab",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
+                          "type" : "textRaw"
+                        },
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "label" : "30d",
+                        "onclick" : {
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                          },
+                          "type" : "textRaw"
+                        }
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            ],
+            "children" : [
+              {
+                "card" : "historyChart",
+                "kind" : "Component",
+                "templateSlots" : {
+                  "chart" : {
+                    "source" : {
+                      "fetch" : {
+                        "entity" : "sensor.outside_temp",
+                        "provider" : "history",
+                        "window" : {
+                          "by" : {
+                            "var" : "window"
+                          },
+                          "kind" : "Chosen",
+                          "options" : {
+                            "1h" : {
+                              "kind" : "Raw",
+                              "span" : 3600
+                            },
+                            "24h" : {
+                              "fallback" : true,
+                              "kind" : "Statistics",
+                              "period" : "5minute",
+                              "span" : 86400
+                            },
+                            "30d" : {
+                              "fallback" : true,
+                              "kind" : "Statistics",
+                              "period" : "hour",
+                              "span" : 2592000
+                            },
+                            "7d" : {
+                              "fallback" : true,
+                              "kind" : "Statistics",
+                              "period" : "hour",
+                              "span" : 604800
+                            }
+                          }
+                        }
+                      },
+                      "kind" : "Fetch"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Chart",
+                        "style" : {
+                          "unit" : "°C"
+                        }
+                      }
+                    ],
+                    "type" : "textRaw"
+                  }
+                },
+                "vars" : [
+                ]
+              }
+            ]
+          },
+          "templateSlots" : {
+            
+          },
+          "vars" : [
+            {
+              "default" : "24h",
+              "inUrl" : true,
+              "name" : "window"
+            }
+          ]
+        },
+        {
+          "card" : "historyReadings",
+          "kind" : "Component",
+          "templateSlots" : {
+            "entity_id" : "sensor.outside_temp",
+            "label" : "Outside Temperature",
+            "postfix" : " °C",
+            "readings" : {
+              "source" : {
+                "fetch" : {
+                  "entity" : "sensor.outside_temp",
+                  "provider" : "history",
+                  "window" : {
+                    "fallback" : true,
+                    "kind" : "Statistics",
+                    "period" : "5minute",
+                    "span" : 86400
+                  }
+                },
+                "kind" : "Fetch"
+              },
+              "steps" : [
+                {
+                  "kind" : "Json"
+                },
+                {
+                  "kind" : "JsonText"
+                }
+              ]
+            }
+          },
+          "vars" : [
+          ]
+        }
+      ]
+    },
+    "templateSlots" : {
+      
+    },
+    "vars" : [
+    ]
+  },
+  "cards" : {
+    "chooser" : {
+      "regions" : {
+        "bar" : {
+          "fill" : "eager"
+        },
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-col\">{{{bar}}}{{{children}}}</div>"
+    },
+    "fhcol" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+    },
+    "historyChart" : {
+      "template" : "<div class=\"fh-card fh-chart\">{{{chart}}}</div>"
+    },
+    "historyReadings" : {
+      "template" : "<article class=\"fh-card fh-readings\" data-signals:_hist_{{id}}=\"{{readings}}\">\n  <header><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <dl>\n    <div><dt>Now</dt><dd data-text=\"(p => p.length ? Math.round(p[p.length - 1] * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Low</dt><dd data-text=\"(p => p.length ? Math.round(Math.min(...p) * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>High</dt><dd data-text=\"(p => p.length ? Math.round(Math.max(...p) * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Covers</dt><dd class=\"fh-readings-span\" data-text=\"(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')($_hist_{{id}}.points)\"></dd></div>\n  </dl>\n</article>"
+    },
+    "selectButtons" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-tabs fh-select\">{{{children}}}</div>"
+    },
+    "tab" : {
+      "template" : "<a data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{{onclick}}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>",
+      "wrapAsCell" : false
+    }
+  },
+  "surfaces" : {
+    
+  }
+}

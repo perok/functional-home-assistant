@@ -31,6 +31,13 @@ import org.http4s.server.websocket.WebSocketBuilder2
 
 import scala.concurrent.duration.*
 
+extension (store: StateStore) {
+
+  /** Each change list after the seed, as the recorder sees the store move. */
+  def changes: fs2.Stream[IO, List[StateChange]] =
+    store.frames.drop(1).map(_.changes)
+}
+
 /** [[ServerApp.assemble]] with only its edges stubbed: the HA socket is a
   * [[FakeHomeAssistant]] handed over as a connection only [[haDown]] closes,
   * HA's token endpoint and the asset CDN are in-process stubs, and the source

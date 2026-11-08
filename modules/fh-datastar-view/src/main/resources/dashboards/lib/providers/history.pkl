@@ -1,9 +1,9 @@
 /// The `history` provider, as `p.history`: one sensor's recorded past over a
 /// window. A chart draws it (`c.history.chart`); a component's CEL reads it as
-/// an expression value, `list(list(double))` of `[epochMillis, value]`, oldest
+/// an input, `list(list(double))` of `[epochMillis, value]`, oldest
 /// first:
 ///
-///     expressionValues { ["past"] = p.history.of(left, p.history.raw(7.d)) }
+///     inputs { ["past"] = p.history.of(left, p.history.raw(7.d)) }
 ///
 /// The answer is every reading of a raw window and every bucket of a statistics
 /// one; a chart thins what it draws. The author picks the window; the server
@@ -21,6 +21,12 @@ class HistoryFetch extends slotMod.Fetch {
   hidden sensor: hass.SensorEntity
   fixed entity: String = sensor.entity_id
   window: Over
+
+  /// Whatever reads this is read again when the sensor changes: a decision
+  /// over it is made again, a slot re-rendered. Off, a history is read again
+  /// only when something else it is read with moves.
+  function updateOnEntityChange(): HistoryFetch =
+    (this) { dependsOn = List(entity) }
 }
 
 /// `e` over `w`.

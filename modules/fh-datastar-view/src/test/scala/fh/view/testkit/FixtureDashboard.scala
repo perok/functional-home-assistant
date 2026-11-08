@@ -1,14 +1,17 @@
 package fh.view.testkit
 
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   Op,
-  Predicate,
   Region,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
@@ -62,7 +65,7 @@ object FixtureDashboard {
   /** `guard` is every member's presence condition, `None` for always shown. */
   def set(
       candidates: List[String],
-      guard: Option[Predicate] = None
+      guard: Option[ValueExpr] = None
   ): LayoutNode.SetNode =
     LayoutNode.SetNode(
       candidates = candidates,
@@ -73,13 +76,21 @@ object FixtureDashboard {
               when = guard,
               node = LayoutNode.Component(
                 "member",
-                slots = Map(
-                  "entity_id" -> SlotSource(literal = Some(id)),
-                  "name" -> SlotSource(
-                    transform =
-                      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                templateSlots = Map(
+                  "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+                  "name" -> TemplateSlot(
+                    ValueExpr(
+                      Value.Entity(Some(id), Part.Whole),
+                      List(
+                        Step.Cel(
+                          "('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"
+                        )
+                      )
+                    )
                   ),
-                  "state" -> SlotSource()
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some(id)))
+                  )
                 )
               )
             )
@@ -88,18 +99,24 @@ object FixtureDashboard {
       }.toMap
     )
 
-  def stateIs(s: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(s))
+  def stateIs(s: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(s))
 
   /** The unit read is guarded: an absent attribute reads nothing, not an error.
     */
   def reading(e: FixtureEntity): LayoutNode.Component =
     component(
       "reading",
-      "state" -> SlotSource(Some(e.entityId)),
-      "unit" -> SlotSource(
-        Some(e.entityId),
-        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e.entityId)))),
+      "unit" -> TemplateSlot(
+        ValueExpr(
+          Value.Entity(Some(e.entityId), Part.Whole),
+          List(
+            Step.Cel(
+              "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
+            )
+          )
+        )
       )
     )
 
@@ -107,14 +124,14 @@ object FixtureDashboard {
     component(
       "light",
       "name" -> lit(label),
-      "state" -> SlotSource(Some(e.entityId))
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e.entityId))))
     )
 
   /** It names its entity: a state condition has no subject to supply (ADR
     * 0007).
     */
-  private def entityIs(id: String, state: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
+  private def entityIs(id: String, state: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   /** An `ifhost` root ("c") whose `then` bakes while `condEntity` holds
     * `activeState`, and whose always-true `else` bakes otherwise (ADR 0007).
@@ -139,14 +156,14 @@ object FixtureDashboard {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(entityIs(condEntity, activeState))
+          activation = Activation.State(Some(entityIs(condEntity, activeState)))
         ),
         "c_else" -> Surface(
           elseBranch,
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(1),
-          activation = Activation.State(Predicate.And(Nil))
+          activation = Activation.State()
         )
       ),
       slug = "ifhome",

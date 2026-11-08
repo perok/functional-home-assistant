@@ -1,23 +1,26 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.history.Windows
 import fh.view.build.DashboardBuild
 import fh.view.model.{
+  SlotType,
   Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
   SlotRead,
-  SlotSource,
-  Surface,
-  Transform
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Surface
 }
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.HouseFixture
@@ -37,7 +40,7 @@ class FetchDriftSuite extends munit.FunSuite {
       name: String,
       renderer: Renderer,
       dashboard: Dashboard,
-      houses: List[Map[String, EntityState]]
+      houses: List[Shared]
   )
 
   private def built(d: Dashboard): Renderer =
@@ -60,7 +63,7 @@ class FetchDriftSuite extends munit.FunSuite {
     val flip = Map("on" -> "off", "off" -> "on")
     val flipped =
       base.view.mapValues(s => s.copy(state = flip.getOrElse(s.state, s.state)))
-    Case(name, built(d), d, List(base, flipped.toMap))
+    Case(name, built(d), d, List(Shared.of(base), Shared.of(flipped.toMap)))
   }
 
   /** A distinct sensor in every place a chart can hide, so no read is answered
@@ -71,12 +74,12 @@ class FetchDriftSuite extends munit.FunSuite {
     def chart(e: String) = LayoutNode.Component(
       "chart",
       Map(
-        "chart" -> SlotSource(
-          fetch = Some(
-            FetchTemplate(e, Choice.Fixed(Windows.day))
+        "chart" -> TemplateSlot(
+          ValueExpr(
+            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
+            List(Step.Chart())
           ),
-          transform = Transform.Stage.Chart(),
-          reads = Reads.OnRender
+          `type` = SlotType.TextRaw
         )
       )
     )
@@ -94,12 +97,12 @@ class FetchDriftSuite extends munit.FunSuite {
         activation = a
       )
     val on =
-      Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val plain = LayoutNode.Component(
       "dot",
       Map(
-        "entity_id" -> SlotSource(literal = Some("light.a")),
-        "state" -> SlotSource()
+        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
       )
     )
     val d = Dashboard(
@@ -126,7 +129,7 @@ class FetchDriftSuite extends munit.FunSuite {
             "light.a" -> LayoutNode.SetMember(
               List(
                 LayoutNode.SetClause(
-                  Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                  Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                   chart("sensor.set")
                 )
               )
@@ -141,13 +144,13 @@ class FetchDriftSuite extends munit.FunSuite {
           "branch",
           0,
           col(plain, chart("sensor.on"), host("inner")),
-          Activation.State(on)
+          Activation.State(Some(on))
         ),
         "off" -> baked(
           "branch",
           1,
           chart("sensor.off"),
-          Activation.State(Predicate.And(Nil))
+          Activation.State()
         ),
         "i0" -> baked(
           Renderer.surfacePrefix("on") + "inner",
@@ -161,11 +164,16 @@ class FetchDriftSuite extends munit.FunSuite {
     def light(s: String) = Map(
       "light.a" -> EntityState("light.a", s, Map.empty)
     )
-    Case("shapes", built(d), d, List(light("on"), light("off")))
+    Case(
+      "shapes",
+      built(d),
+      d,
+      List(Shared.of(light("on")), Shared.of(light("off")))
+    )
   }
 
   private lazy val cases =
-    List(fixture("fixture-features"), fixture("fixture-surfaces"), shapes)
+    List("cards", "readings", "charts").map(fixture) :+ shapes
 
   /** No selection, each member of each tab group, and each popup open. */
   private def uiStates(c: Case): List[Selections] = {
@@ -201,8 +209,7 @@ class FetchDriftSuite extends munit.FunSuite {
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
         states,
-        ui,
-        snapshot
+        Viewing(ui, snapshot)
       )
     }
   }
@@ -216,8 +223,10 @@ class FetchDriftSuite extends munit.FunSuite {
       val _ = r.renderSurfaceTraced(
         sid,
         states,
-        ui,
-        answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
+        Viewing(
+          ui,
+          answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
+        )
       )
     }
   }
@@ -232,13 +241,15 @@ class FetchDriftSuite extends munit.FunSuite {
             r.renderPageInto(
               Sink.buffer(r.pageBytesHint),
               states,
-              Selections.none,
-              answered(
-                r,
-                r.fetchesForPage(
-                  r.surfaces.selectedSurfaces(),
-                  states,
-                  defaults(r)
+              Viewing(
+                Selections.none,
+                answered(
+                  r,
+                  r.fetchesForPage(
+                    r.surfaces.selectedSurfaces(),
+                    states,
+                    defaults(r)
+                  )
                 )
               )
             ).keys
@@ -255,10 +266,12 @@ class FetchDriftSuite extends munit.FunSuite {
           val f = asked(List(id), Nil)
           val _ = (
             r.renderInputs(id, states, f),
-            r.renderNodeById(id, states, ui, fragments = f)
+            r.renderNodeById(id, states, Viewing(ui, f))
           )
         }
-        hosts.foreach(h => r.renderHost(h, states, ui, asked(Nil, List(h))))
+        hosts.foreach(h =>
+          r.renderHost(h, states, Viewing(ui, asked(Nil, List(h))))
+        )
       }
       // Precise, not everything: a plain node asks nothing, a chart asks.
       val (quiet, loud) = nodes.partition(id =>

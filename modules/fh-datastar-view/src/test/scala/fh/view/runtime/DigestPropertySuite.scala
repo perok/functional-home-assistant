@@ -35,19 +35,24 @@ class DigestPropertySuite extends HedgehogSuite {
   private val genSignal: Gen[Boolean] =
     Gen.boolean
 
-  private def at(v: String): Map[String, EntityState] =
-    Map(
-      "alpha" -> EntityState("alpha", v, Map.empty),
-      "beta" -> EntityState("beta", v, Map.empty)
+  private def at(v: String): Shared =
+    Shared.of(
+      Map(
+        "alpha" -> EntityState("alpha", v, Map.empty),
+        "beta" -> EntityState("beta", v, Map.empty)
+      )
     )
 
-  private def valueSlot(signal: Boolean): SlotSource =
-    SlotSource(signal = if signal then Some(SignalBind.Text) else None)
+  private def valueSlot(signal: Boolean): TemplateSlot =
+    TemplateSlot(
+      ValueExpr(Value.Entity(None)),
+      signal = if signal then Some(SignalBind.Text) else None
+    )
 
   // A signal slot is placed by its bind; without one the value never updates.
   private def card(signal: Boolean): CardDef =
     CardDef(
-      if signal then """<b {{{v__bind}}} data-t="{{v}}">{{v}}</b>"""
+      if signal then """<b {{{v.bind}}} data-t="{{v}}">{{v}}</b>"""
       else """<b data-t="{{v}}">{{v}}</b>"""
     )
 
@@ -57,7 +62,7 @@ class DigestPropertySuite extends HedgehogSuite {
       LayoutNode.Component(
         "card",
         Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.a")),
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
           "v" -> valueSlot(signal)
         )
       )
@@ -71,7 +76,7 @@ class DigestPropertySuite extends HedgehogSuite {
             node = LayoutNode.Component(
               "card",
               Map(
-                "entity_id" -> SlotSource(literal = Some(e)),
+                "entity_id" -> TemplateSlot(ValueExpr.literal(e)),
                 "v" -> valueSlot(signal)
               )
             )
@@ -94,7 +99,7 @@ class DigestPropertySuite extends HedgehogSuite {
       // The trace records digests, so the fingerprint the walk wrote must be
       // the one the live path's bytes hash to.
       val recorded = r
-        .renderBodyTraced(at(v), fragments = FetchSnapshot.empty)
+        .renderBodyTraced(at(v), Viewing(Selections.none, FetchSnapshot.empty))
         .own
         .values
         .head
@@ -104,7 +109,7 @@ class DigestPropertySuite extends HedgehogSuite {
           r.renderNodeById(
             NodeId.derived("c"),
             at(v),
-            fragments = FetchSnapshot.empty
+            Viewing(Selections.none, FetchSnapshot.empty)
           ).get
         )
       assert(recorded == rendered)
@@ -119,14 +124,18 @@ class DigestPropertySuite extends HedgehogSuite {
       val r = Renderer.create(setDashboard(signal))
       val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
       val recorded = r
-        .renderBodyTraced(at(v), fragments = FetchSnapshot.empty)
+        .renderBodyTraced(at(v), Viewing(Selections.none, FetchSnapshot.empty))
         .own
         .get(mid)
         .get
         .digest
       val rendered =
         Digest.of(
-          r.renderNodeById(mid, at(v), fragments = FetchSnapshot.empty).get
+          r.renderNodeById(
+            mid,
+            at(v),
+            Viewing(Selections.none, FetchSnapshot.empty)
+          ).get
         )
       assert(recorded == rendered)
     }

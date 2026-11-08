@@ -2,22 +2,28 @@ package fh.view.runtime
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
+import fh.view.testkit.Conds
 
 import fh.view.model.{
+  SlotType,
+  SortTerm,
+  ValueType,
   Activation,
   CardDef,
   Dashboard,
-  ExprValue,
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
   SignalBind,
   SignalId,
-  SlotSource,
-  Surface,
-  Transform
+  Lit,
+  Part,
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
+  Surface
 }
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
@@ -269,24 +275,39 @@ class RenderBench {
   private var narrow: Renderer = null
   private var flat: Renderer = null
   private var set: Renderer = null
+  private var setOrdered: Renderer = null
   private var setPlain: Renderer = null
   private var setTiles: Renderer = null
   private var manySets: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
+  private var stShared: Shared = null
+  private var flipShared: Shared = null
   private var stLights: Map[String, EntityState] = null
-  private var celProbes: List[Transform.Compiled] = null
-  private var celComplex: Transform.Compiled = null
+  private var celProbes: List[Cel.Program] = null
+  private var celComplex: Cel.Program = null
   // The explicit fast tier's probes and the two shipped shapes that stay on
   // the engine (fill colour, attribute comprehension) — the same 4-of-6 mix a
   // shipped page dispatches.
-  private var simpleProbes: List[Transform.Simple] = null
+  private var simpleProbes: List[RenderBench.Probe] = null
   // A boolean input's condition, as CEL reading it through a named value.
-  private var conditionViaCel: Transform.Compiled = null
+  private var conditionViaCel: Cel.Program = null
   private lazy val isOn =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
-  private lazy val isOnValue = Map("on" -> ExprValue.Holds(isOn))
-  private var engineShapes: List[Transform.Compiled] = null
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
+  private lazy val isOnValue = Map(
+    "on" -> isOn
+  )
+  // Compiled once, as a renderer's plan or a member graph compiles them.
+  private lazy val isOnRun =
+    Conds.run(isOn)
+  private lazy val isOnInputs =
+    Evaluator
+      .named(isOnValue, Evaluator.Scope(""))
+      .fold(
+        m => throw AssertionError(m.message),
+        n => Evaluator.activation(n.toList)
+      )
+  private var engineShapes: List[Cel.Program] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
   // The wire bench's inputs: three real node bytes (morph payloads) and the
@@ -320,8 +341,9 @@ class RenderBench {
   private var pubRot = 0
   // Built in setup, not per invocation: an alloc profile said building the
   // frame was 37% of what `publish` reported, i.e. the harness pricing itself.
-  // Two is enough to alternate, and alternating is a real change on every
-  // entity every call.
+  // Alternating is a real change on every entity every call. Four maps, not
+  // two: a renderer keeps the two newest versions by their map's identity, and
+  // a frame whose map it still held would read decisions instead of making them.
   private var pubFrames: Vector[Frame] = null
   private var flipFrames: Vector[Frame] = null
   private var idleFrames: Vector[Frame] = null
@@ -332,7 +354,7 @@ class RenderBench {
   private var ifStates: Map[String, EntityState] = null
   private var setIfsFrames: Vector[Frame] = null
   // What the recorder holds between frames, per fixture ([[publishPass]]).
-  private val heldBy = scala.collection.mutable.Map.empty[Renderer, Membership]
+  private val heldBy = scala.collection.mutable.Map.empty[Renderer, Shared]
   // [[memberClauseFlip]]: one member, and two ticks of its subject that switch
   // its clause and two that do not.
   private var clauseSet: Renderer = null
@@ -344,6 +366,7 @@ class RenderBench {
   @Setup(Level.Trial)
   def setup(): Unit = {
     st = states(Leaves)
+    stShared = Shared.of(st)
     stLights = st.view
       .mapValues(e => e.copy(attributes = LightAttributes ++ e.attributes))
       .toMap
@@ -355,6 +378,8 @@ class RenderBench {
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
+    setOrdered =
+      Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setTiles = Renderer.create(Dashboard(cards, tileSetTree(Leaves)))
@@ -362,8 +387,8 @@ class RenderBench {
     shared = Renderer.create(
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
-    def cparse(src: String): Transform.Compiled =
-      Transform
+    def cparse(src: String): Cel.Program =
+      Cel
         .parse(src)
         .fold(
           e => sys.error(s"cel won't compile: $src [$e]"),
@@ -378,19 +403,19 @@ class RenderBench {
     // no component has ever called — so the number this produced was for a
     // shape that does not ship.
     simpleProbes = List(
-      Transform.Simple.Match(Map("on" -> "lit"), ""),
-      Transform.Simple.State(),
-      Transform.Simple.Attr("brightness"),
-      Transform.Simple.SuffixUnit("unit_of_measurement"),
-      Transform.Simple.Fill("brightness", 1.0, 255.0),
-      Transform.Simple.Percent("brightness", 1.0, 255.0)
+      Probe(Part.State, Step.Match(Map("on" -> Lit.Text("lit")), text(""))),
+      Probe(Part.State),
+      Probe(Part.Attr("brightness")),
+      Probe(Part.State, Step.WithUnit(Value.Entity(None, unit))),
+      Probe(Part.Attr("brightness"), Step.Fill(real(1.0), real(255.0))),
+      Probe(Part.Attr("brightness"), Step.Percent(real(1.0), real(255.0)))
     )
     engineShapes =
       List(CelShapes.TransformFillColor, CelShapes.TransformAttrLines).map(
         cparse
       )
-    conditionViaCel = Transform
-      .parse(Transform.CelKey("on", List("on" -> ExprValue.Kind.Bool)))
+    conditionViaCel = Cel
+      .parse(Cel.Key("on", List("on" -> ValueType.Bool), None))
       .fold(e => sys.error(s"cel won't compile: on [$e]"), identity)
     entityTemplate = Templates.compile("entity", cards("entity").template)
     // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
@@ -399,7 +424,13 @@ class RenderBench {
       .renderPageTraced(st)
       .own
       .keys
-      .flatMap(signalled.renderNodeById(_, st, fragments = FetchSnapshot.empty))
+      .flatMap(
+        signalled.renderNodeById(
+          _,
+          stShared,
+          Viewing(Selections.none, FetchSnapshot.empty)
+        )
+      )
       .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
@@ -430,14 +461,15 @@ class RenderBench {
     // Disarmed, so the `else` branch is the one the fill supplies.
     flipStates =
       st + (FlipEntity -> EntityState(FlipEntity, "disarmed", Map.empty))
+    flipShared = Shared.of(flipStates)
     flipCache = RenderCache.create.unsafeRunSync()
     store = StateStore.inMemory(flipStates).unsafeRunSync()
-    pubFrames = Vector(publishFrame(st, 0), publishFrame(st, 1))
-    flipFrames =
-      Vector(publishFrame(flipStates, 0), publishFrame(flipStates, 1))
-    idleFrames = Vector(idleFrame(st, 0), idleFrame(st, 1))
-    pubIngests =
-      flipFrames.map(_.changes.map(c => Ingest.Replace(c.current): Ingest))
+    pubFrames = Vector.tabulate(4)(i => publishFrame(st, i % 2))
+    flipFrames = Vector.tabulate(4)(i => publishFrame(flipStates, i % 2))
+    idleFrames = Vector.tabulate(4)(i => idleFrame(st, i % 2))
+    pubIngests = flipFrames.map(f =>
+      f.changes.map(c => Ingest.Replace(f.states(c.entityId)): Ingest)
+    )
     dedupBatch = dedupIngests
     ifStates = st ++ List.tabulate(Leaves) { i =>
       windowId(i) -> EntityState(
@@ -448,10 +480,14 @@ class RenderBench {
       )
     }
     setIfs = Renderer.create(ifSetDash(Leaves, ifStates))
-    setIfsFrames = Vector(publishFrame(ifStates, 0), publishFrame(ifStates, 1))
+    setIfsFrames = Vector.tabulate(4)(i => publishFrame(ifStates, i % 2))
     if (
       setIfs.surfaces
-        .affectedStateGroups(List(windowFlip(1)._1), ifStates, windowFlip(1)._2)
+        .affectedStateGroups(
+          List(windowFlip(1)._1),
+          Shared.of(ifStates),
+          Shared.of(windowFlip(1)._2)
+        )
         .sizeIs != 1
     )
       sys.error("publishSetIfsFlip flips no member's If")
@@ -461,8 +497,9 @@ class RenderBench {
       id -> Held(Some(p.digest), p.signals)
     }
     // After `checkPublishShape`, whose frame left `set`'s membership held.
-    tickMemberIds =
-      tickEntities.flatMap(heldBy(set).binding(_, _.isEmpty).toList.sorted)
+    tickMemberIds = tickEntities.flatMap(
+      set.members.binding(_, _.isEmpty, heldBy(set)).toList.sorted
+    )
     checkTickShapes()
     clauseSet = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
     def lit(state: String, brightness: Int) =
@@ -478,13 +515,13 @@ class RenderBench {
     clauseSteady = Vector(lit("on", 10), lit("on", 20))
     clauseMember = clauseSet.members.memberIdOf(
       clauseSet.members.memberIds
-        .flatMap(clauseSet.members.memberAt(_, st))
+        .flatMap(clauseSet.members.memberAt(_, stShared))
         .head
         .gid,
       entityId(0)
     )
     def clauseAt(s: Map[String, EntityState]) =
-      clauseSet.members.memberAt(clauseMember, s).map(_.clause)
+      clauseSet.members.memberAt(clauseMember, Shared.of(s)).map(_.clause)
     if (clauseFlips.map(clauseAt).distinct.sizeIs != 2)
       sys.error("memberClauseFlip switches no clause")
     if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
@@ -578,8 +615,8 @@ class RenderBench {
   /** [[pageSignals]] with each card's fill colour reading two expression
     * values: the only page here whose CEL is typed against named values, so the
     * only one that prices the compile key and the per-render activation
-    * (`Conditions.resolve`). Rebuilding that key per render cost 139 KB a page
-    * here (#615).
+    * (`Evaluator.activation`). Rebuilding that key per render cost 139 KB a
+    * page here (#615).
     */
   @Benchmark
   def pageValued(bh: Blackhole): Unit = bh.consume(valued.renderPageTraced(st))
@@ -635,23 +672,21 @@ class RenderBench {
   @Benchmark
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
-  /** The EXPLICIT fast tier as the renderer runs it ([[Transform.runSimple]]):
-    * the four opted-in [[Transform.Simple]] shapes evaluate without the engine
-    * (~45 B); the fill colour and the attribute comprehension stay on the
-    * engine, exactly the shipped mix (4 of 6). The gap against [[cel]] (all six
-    * on the engine) is what the tier saves per page, and against [[direct]] it
-    * prices the dispatch on top of the raw read. `Reads.Once` slots excluded —
-    * the renderer memoises those.
+  /** The EXPLICIT fast tier as the renderer runs it ([[RenderBench.runProbe]]):
+    * the four opted-in read-and-format shapes evaluate without the engine (~45
+    * B); the fill colour and the attribute comprehension stay on the engine,
+    * exactly the shipped mix (4 of 6). The gap against [[cel]] (all six on the
+    * engine) is what the tier saves per page, and against [[direct]] it prices
+    * the dispatch on top of the raw read. `Reads.Once` slots excluded — the
+    * renderer memoises those.
     */
   @Benchmark
   def simple(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      simpleProbes.foreach(s =>
-        bh.consume(Transform.runSimple(s, e, Map.empty))
-      )
-      engineShapes.foreach(t => bh.consume(Transform.run(t, e, "dashboard")))
+      simpleProbes.foreach(s => bh.consume(runProbe(s, e)))
+      engineShapes.foreach(t => bh.consume(Cel.run(t, e, "dashboard")))
       i += 1
     }
   }
@@ -661,48 +696,151 @@ class RenderBench {
     * uses it, but authors are not limited to the shipped shapes, so its cost is
     * what guarding against "someone writes something worse" has to swallow.
     */
-  /** The SHIPPED engine ([[fh.view.model.Transform]]) at the same count and
-    * shapes: each compiled once via `Transform.parse` and evaluated per entity
-    * through `Transform.run` — the engine-only baseline the fast tier is
-    * measured against. The gap against [[simple]] is what the catalog saves per
-    * evaluation.
+  /** The SHIPPED engine ([[fh.view.runtime.Cel]]) at the same count and shapes:
+    * each compiled once via `Cel.parse` and evaluated per entity through
+    * `Cel.run` — the engine-only baseline the fast tier is measured against.
+    * The gap against [[simple]] is what the catalog saves per evaluation.
     */
   @Benchmark
   def cel(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      celProbes.foreach(p => bh.consume(Transform.run(p, e, "dashboard")))
+      celProbes.foreach(p => bh.consume(Cel.run(p, e, "dashboard")))
       i += 1
     }
   }
 
-  /** A condition filling a bool slot (`active`, `disabled`, `classWhen`), once
-    * per entity: decided directly, against [[conditionCel]]'s CEL reading the
-    * same decision through a named value.
+  /** A condition filling a bool slot (`active`, `disabled`, `cellClassWhen`),
+    * once per entity: decided directly, against [[conditionCel]]'s CEL reading
+    * the same decision through a named value.
     */
   @Benchmark
   def condition(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Transform.runSimpleValue(isOn, st(entityId(i)), st))
+      bh.consume(
+        Evaluator.holds(isOnRun(st(entityId(i)), st, Evaluator.unanswered))
+      )
       i += 1
     }
   }
+
+  // `q.from(lights).where(on).any()` over every leaf: against a whole number
+  // the count stops at the first present light; against `0.0` (no build emits
+  // one) it reads them all, the cost the early stop saves.
+  private lazy val anyOn = Conds.count(
+    candidates = List.tabulate(Leaves)(entityId),
+    when = List
+      .tabulate(Leaves)(entityId)
+      .map(id =>
+        id -> Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(id))
+      )
+      .toMap,
+    op = Op.Gt,
+    value = Json.fromInt(0)
+  )
+  private lazy val anyOnFull = anyOn.copy(steps =
+    List(Step.Count, Step.Compare(Op.Gt, Value.Literal(Lit.Real(0.0))))
+  )
+
+  private lazy val anyOnRun =
+    Conds.run(anyOn)
+  private lazy val anyOnFullRun =
+    Conds.run(anyOnFull)
+
+  @Benchmark
+  def countAny(bh: Blackhole): Unit =
+    bh.consume(Evaluator.holds(anyOnRun(null, st, Evaluator.unanswered)))
+
+  @Benchmark
+  def countAnyFull(bh: Blackhole): Unit =
+    bh.consume(Evaluator.holds(anyOnFullRun(null, st, Evaluator.unanswered)))
 
   @Benchmark
   def conditionCel(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      val e = st(entityId(i))
       bh.consume(
-        Transform.runValue(
+        Cel.runValue(
           conditionViaCel,
-          e,
+          null,
           "dashboard",
-          Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
+          isOnInputs(st, _ => sys.error("no fetch"))
         )
       )
+      i += 1
+    }
+  }
+
+  private lazy val leafStates = Array.tabulate(Leaves)(i => st(entityId(i)))
+
+  private lazy val litNotDim = Conds.and(
+    List(
+      Conds.cmp("state", Op.Eq, Json.fromString("on")),
+      Conds.not(
+        Conds.or(
+          List(
+            Conds.cmp("attr:brightness", Op.Lt, Json.fromInt(50)),
+            Conds.cmp("state", Op.Eq, Json.fromString("off"), Some(entityId(0)))
+          )
+        )
+      )
+    )
+  )
+
+  private lazy val litNotDimRun =
+    Conds.run(litNotDim)
+
+  /** An and over an or and a not, per leaf: every kind of step a tree nests. */
+  @Benchmark
+  def conditionTree(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(
+        Evaluator.holds(litNotDimRun(leafStates(i), st, Evaluator.unanswered))
+      )
+      i += 1
+    }
+  }
+
+  private lazy val brightRun =
+    Conds.run(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
+
+  /** A guard over an attribute, on a state as a frame hands it over: a copy, so
+    * nothing a read caches on the state is there yet.
+    */
+  @Benchmark
+  def conditionAttr(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(
+        Evaluator.holds(
+          brightRun(leafStates(i).copy(), st, Evaluator.unanswered)
+        )
+      )
+      i += 1
+    }
+  }
+
+  // Each pill lit while its own light leads, as `first().eq(e)` writes it.
+  private lazy val leaders = Array.tabulate(Pills)(i =>
+    Conds.run(
+      Conds.first(
+        candidates = List.tabulate(Pills)(entityId),
+        orderBy =
+          List(SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)),
+        entity = entityId(i)
+      )
+    )
+  )
+
+  /** A row of [[Pills]] pills over one candidate list: a leader per pill. */
+  @Benchmark
+  def leaderRow(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Pills) {
+      bh.consume(Evaluator.holds(leaders(i)(null, st, Evaluator.unanswered)))
       i += 1
     }
   }
@@ -712,14 +850,14 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(Transform.run(celComplex, e, "dashboard"))
+      bh.consume(Cel.run(celComplex, e, "dashboard"))
       i += 1
     }
   }
 
   /** The hand-rolled fast path for the two TRIVIAL shapes — a bare `state` and
     * a guarded attribute read — which is what the catalog ships INSTEAD of an
-    * engine for them ([[Transform.Simple]]). Same count and same three reads as
+    * engine for them (a read with no step). Same count and same three reads as
     * [[simple]], with the dispatch removed, so the gap between the two is what
     * recognizing-and-dispatching costs, and the gap against [[cel]] is the
     * floor the engines are compared against.
@@ -729,17 +867,9 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(Transform.runSimple(Transform.Simple.State(), e, Map.empty))
-      bh.consume(
-        Transform.runSimple(
-          Transform.Simple.Attr("friendly_name"),
-          e,
-          Map.empty
-        )
-      )
-      bh.consume(
-        Transform.runSimple(Transform.Simple.Attr("brightness"), e, Map.empty)
-      )
+      bh.consume(runProbe(StateRead, e))
+      bh.consume(runProbe(NameSlot, e))
+      bh.consume(runProbe(BrightnessRead, e))
       i += 1
     }
   }
@@ -865,8 +995,8 @@ class RenderBench {
     )
     val own = signalled.renderPageInto(
       Sink.streaming(w),
-      st,
-      fragments = FetchSnapshot.empty
+      stShared,
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -901,8 +1031,8 @@ class RenderBench {
     val own =
       plain.renderPageInto(
         Sink.streaming(w),
-        st,
-        fragments = FetchSnapshot.empty
+        stShared,
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
     w.flush()
     bh.consume(own.size)
@@ -928,8 +1058,8 @@ class RenderBench {
     val w = new java.io.OutputStreamWriter(sink, UTF_8)
     val own = signalled.renderPageInto(
       Sink.streaming(w),
-      st,
-      fragments = FetchSnapshot.empty
+      stShared,
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -960,8 +1090,8 @@ class RenderBench {
           )
           val own = signalled.renderPageInto(
             Sink.streaming(w),
-            st,
-            fragments = FetchSnapshot.empty
+            stShared,
+            Viewing(Selections.none, FetchSnapshot.empty)
           )
           w.flush()
           own.size
@@ -1107,9 +1237,8 @@ class RenderBench {
   private def memberRender(states: Map[String, EntityState]) =
     clauseSet.renderMemberTraced(
       clauseMember,
-      states,
-      Selections.none,
-      FetchSnapshot.empty
+      Shared.of(states),
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
@@ -1135,7 +1264,8 @@ class RenderBench {
           flipCache,
           log,
           Map.empty,
-          flipStates,
+          flipShared,
+          _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at
@@ -1162,17 +1292,25 @@ class RenderBench {
   @Benchmark
   def publish(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(signalled, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(signalled, pubFrames(pubRot % 4)))
   }
 
-  /** The same frame against a dashboard that is one candidate set, so
-    * `MemberGraph.syncMembers` rebuilds a touched container's whole member list
-    * — O(candidates), which the tree fixture never pays.
+  /** The same frame against a dashboard that is one candidate set, so the frame
+    * touches a container's member list, which the tree fixture never does.
     */
   @Benchmark
   def publishSet(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(set, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(set, pubFrames(pubRot % 4)))
+  }
+
+  /** [[publishSet]] ordered by [[LitBrightest]]: the touched set re-sorts, each
+    * comparison reading both members' keys.
+    */
+  @Benchmark
+  def publishSetOrdered(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(setOrdered, pubFrames(pubRot % 4)))
   }
 
   /** '''The question a pre-filter would answer''': what a frame costs when the
@@ -1183,16 +1321,16 @@ class RenderBench {
   @Benchmark
   def publishIdle(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(signalled, idleFrames(pubRot % 2)))
+    bh.consume(publishPass(signalled, idleFrames(pubRot % 4)))
   }
 
-  /** The same idle frame against the candidate-set dashboard, where
-    * `syncMembers` walks every set whether or not this frame touched one.
+  /** The same idle frame against the candidate-set dashboard, where no set is
+    * touched.
     */
   @Benchmark
   def publishIdleSet(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(set, idleFrames(pubRot % 2)))
+    bh.consume(publishPass(set, idleFrames(pubRot % 4)))
   }
 
   /** [[publishSet]]'s frame against the same leaves split into [[ManySets]]
@@ -1202,7 +1340,7 @@ class RenderBench {
   @Benchmark
   def publishManySets(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(manySets, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(manySets, pubFrames(pubRot % 4)))
   }
 
   /** The same frame plus the entity that CHOOSES a branch, so the pass also
@@ -1215,14 +1353,14 @@ class RenderBench {
   @Benchmark
   def publishFlip(bh: Blackhole): Unit = {
     pubRot += 1
-    val frame = flipFrames(pubRot % 2)
+    val frame = flipFrames(pubRot % 4)
     val was = frame.states(FlipEntity)
     val now = was.copy(state = if (pubRot % 2 == 0) "armed" else "disarmed")
     bh.consume(
       publishPass(
         flipped,
         Frame(
-          StateChange(FlipEntity, Some(was), now) :: frame.changes,
+          StateChange.Moved(FlipEntity, Some(was), now) :: frame.changes,
           frame.states.updated(FlipEntity, now)
         )
       )
@@ -1236,7 +1374,7 @@ class RenderBench {
   @Benchmark
   def publishSetIfs(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(setIfs, setIfsFrames(pubRot % 2)))
+    bh.consume(publishPass(setIfs, setIfsFrames(pubRot % 4)))
   }
 
   /** One member's window opening: one member's flip, whatever the set's size.
@@ -1252,7 +1390,7 @@ class RenderBench {
     val was = ifStates(windowId(i))
     val now = was.copy(state = "on")
     (
-      StateChange(windowId(i), Some(was), now),
+      StateChange.Moved(windowId(i), Some(was), now),
       ifStates.updated(windowId(i), now)
     )
   }
@@ -1269,7 +1407,7 @@ class RenderBench {
     val at = BaseInstant.plusSeconds(pubRot.toLong)
     bh.consume(
       store
-        .update(pubIngests(pubRot % 2).map {
+        .update(pubIngests(pubRot % 4).map {
           case Ingest.Replace(s) =>
             Ingest.Replace(s.copy(lastUpdated = Some(at)))
           case other => other
@@ -1314,8 +1452,8 @@ class RenderBench {
     bh.consume(store.update(Nil).unsafeRunSync())
 
   /** [[TickEntities]] entities whose content really moved, carrying the values
-    * they moved FROM — `beforeSnapshot` rewinds through `previous`, so a change
-    * that lied about it would hand the membership diff an instant that never
+    * they moved FROM — [[rewound]] rewinds through `previous`, so a change that
+    * lied about it would hand the membership diff an instant that never
     * existed.
     *
     * Setup-only: see [[pubFrames]].
@@ -1331,41 +1469,59 @@ class RenderBench {
         attributes = prev.attributes
           .updated("brightness", Json.fromInt(1 + (rot * 13) % 254))
       )
-      StateChange(id, Some(prev), next)
+      StateChange.Moved(id, Some(prev), next)
     }
     Frame(
       moved,
-      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+      applied(base, moved)
     )
   }
 
+  private def applied(
+      base: Map[String, EntityState],
+      changes: List[StateChange]
+  ): Map[String, EntityState] =
+    changes.foldLeft(base) { (m, c) =>
+      c match {
+        case StateChange.Moved(id, _, current) => m.updated(id, current)
+        case StateChange.Removed(id, _)        => m - id
+      }
+    }
+
+  private def rewound(
+      states: Map[String, EntityState],
+      changes: List[StateChange]
+  ): Map[String, EntityState] =
+    changes.foldLeft(states) { (m, c) =>
+      c match {
+        case StateChange.Moved(id, previous, _) =>
+          previous.fold(m - id)(m.updated(id, _))
+        case StateChange.Removed(id, previous) => m.updated(id, previous)
+      }
+    }
+
   /** `Server.recordFrame` with the `Ref`s and the nobody-is-watching gate taken
-    * off: the four pure steps a frame costs, in their production order.
+    * off: the pure steps a frame costs, in their production order.
     *
     * A fresh log per call, because `record` is a fold over one and a log that
     * grew across iterations would price its own history rather than the frame.
-    * The membership is carried over, as the recorder carries it: a fresh one
-    * would price every set's first materialisation.
+    * The previous version's [[Shared]] is carried over, as the recorder carries
+    * it: a fresh one would price every set's first materialisation.
     */
   private def publishPass(renderer: Renderer, frame: Frame): FragmentLog = {
     val Frame(changes, states) = frame
-    val before = Patches.beforeSnapshot(states, changes)
-    val synced = renderer.members.syncMembers(
-      heldBy.getOrElse(renderer, Membership.empty),
-      changes,
-      before,
-      states
-    )
-    heldBy(renderer) = synced.membership
-    val req = Patches.plan(
+    val prev = heldBy.getOrElse(
       renderer,
-      states,
-      before,
-      synced,
-      pubRot.toLong,
-      changes,
-      Set.empty
+      renderer.shared(
+        StoreState(rewound(states, changes), pubRot.toLong - 1L)
+      )
     )
+    val next = renderer.advance(
+      prev,
+      fh.view.runtime.Frame(changes, StoreState(states, pubRot.toLong))
+    )
+    heldBy(renderer) = next
+    val req = Patches.plan(renderer, prev, next, changes, Set.empty)
     Patches.record(renderer, FragmentLog("bench"), req)
   }
 
@@ -1391,11 +1547,11 @@ class RenderBench {
         Map("brightness" -> Json.fromInt(1 + (rot * 13) % 254)),
         lastUpdated = Some(BaseInstant.plusSeconds(rot.toLong + 1))
       )
-      StateChange(id, Some(next.copy(state = "idle")), next)
+      StateChange.Moved(id, Some(next.copy(state = "idle")), next)
     }
     Frame(
       moved,
-      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+      applied(base, moved)
     )
   }
 
@@ -1462,7 +1618,8 @@ class RenderBench {
           liveCache,
           log,
           held,
-          moved,
+          Shared.of(moved),
+          _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at,
@@ -1526,7 +1683,7 @@ class RenderBench {
     * The check resolves only the slots that travel as BYTES and compares them
     * to what the cache entry was built from. On the shipped `entityCard` that
     * is exactly one slot — the name, a guarded attr read through the production
-    * dispatch ([[Transform.runSimple]], ADR 0028's fast tier, no engine). The
+    * dispatch ([[RenderBench.runProbe]], ADR 0028's fast tier, no engine). The
     * signal slots are NOT in it: they are resolved on a signals tick
     * regardless, to fill the frame.
     *
@@ -1543,7 +1700,7 @@ class RenderBench {
     var i = 0
     while (i < tickEntities.size) {
       val e = moved(tickEntities(i))
-      bh.consume(Transform.runSimple(NameSlot, e, Map.empty))
+      bh.consume(runProbe(NameSlot, e))
       i += 1
     }
   }
@@ -1557,16 +1714,11 @@ class RenderBench {
     */
   @Benchmark
   def tickRender(bh: Blackhole): Unit = {
-    val moved = signalTick(wireRot)
+    // One version for every node, as a pull reads it.
+    val shared = Shared.of(signalTick(wireRot))
+    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
     tickNodeIds.foreach(id =>
-      bh.consume(
-        signalled.renderNodeById(
-          id,
-          moved,
-          Selections.none,
-          fragments = FetchSnapshot.empty
-        )
-      )
+      bh.consume(signalled.renderNodeById(id, shared, viewing))
     )
   }
 
@@ -1678,9 +1830,8 @@ class RenderBench {
       bh.consume(
         signalled.renderNodeById(
           id,
-          moved,
-          Selections.none,
-          fragments = FetchSnapshot.empty
+          Shared.of(moved),
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
       )
     }
@@ -1729,6 +1880,15 @@ object RenderBench {
   /** [[publishManySets]]'s sets: ten candidates each, so a tick spans two. */
   final val ManySets = 20
 
+  /** [[RenderBench.leaderRow]]'s pills, and the candidates they lead. */
+  final val Pills = 10
+
+  /** Lit first, then brightest: a condition key and a value key. */
+  lazy val LitBrightest: List[SortTerm] = List(
+    SortTerm(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+    SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)
+  )
+
   /** The shipped `entityCard`'s one BYTE slot. Every other slot on it is either
     * a literal or travels as a signal, which is precisely why one slot is what
     * re-admits the entity to the cache key (ADR 0012).
@@ -1742,8 +1902,37 @@ object RenderBench {
     * question for ADR 0012, not something this benchmark should answer by
     * modelling a slot the card does not have.
     */
-  final val NameSlot: Transform.Simple =
-    Transform.Simple.Attr("friendly_name")
+  final val NameSlot: Probe = Probe(Part.Attr("friendly_name"))
+  final val StateRead: Probe = Probe(Part.State)
+  final val BrightnessRead: Probe = Probe(Part.Attr("brightness"))
+
+  /** A read and its format steps, without the engine. */
+  /** A slot's read and format steps, composed once as the renderer composes
+    * one, its operands read off the same entity.
+    */
+  final case class Probe(part: Part, steps: Step.Simple*):
+    val run: EntityState => Any =
+      steps.foldLeft[EntityState => Any](e => Steps.read(part, e)) {
+        (prev, f) =>
+          val ops = Step.operands(f).map(operand)
+          val a = ops.lift(0).getOrElse(absent)
+          val b = ops.lift(1).getOrElse(absent)
+          e => Steps.formatWith(f, prev(e), a(e), b(e))
+      }
+
+  private val absent: EntityState => Any = _ => null
+  private def operand(v: Value): EntityState => Any = v match
+    case Value.Literal(l) =>
+      val c = l.raw
+      _ => c
+    case Value.Entity(_, part, _, _) => e => Steps.read(part, e)
+    case _                           => _ => ""
+
+  private val unit = Part.Attr("unit_of_measurement")
+  private def text(s: String): Value.Operand = Value.Literal(Lit.Text(s))
+  private def real(d: Double): Value.Operand = Value.Literal(Lit.Real(d))
+
+  def runProbe(p: Probe, e: EntityState): String = Steps.text(p.run(e))
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
@@ -1758,13 +1947,16 @@ object RenderBench {
   final val TransformAttrLines = CelShapes.TransformAttrLines
   final val TransformComplex = CelShapes.TransformComplex
 
-  /** [[TransformFillColor]] with its kelvin range read from expression values,
-    * so its program is typed against named values ([[RenderBench.pageValued]]).
+  /** [[TransformFillColor]] with its kelvin range read from inputs, so its
+    * program is typed against named values ([[RenderBench.pageValued]]).
     */
   final val TransformFillColorValued =
     TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
-  final val FillColorValues: Map[String, ExprValue] =
-    Map("lo" -> ExprValue.Real(2000.0), "span" -> ExprValue.Real(4500.0))
+  final val FillColorInputs: Map[String, ValueExpr] =
+    Map(
+      "lo" -> ValueExpr(real(2000.0)),
+      "span" -> ValueExpr(real(4500.0))
+    )
 
   /** A tap's action as the builder bakes it for one entity (ADR 0016): a
     * build-time literal per entity, so the card's action hole stays filled but
@@ -1776,7 +1968,7 @@ object RenderBench {
   def entityId(i: Int): String = s"light.tile_$i"
 
   /** An entity card shaped like the shipped ones: icon, name, state, a fill bar
-    * and a tap target. The `__bind` holes render empty for a slot that is not a
+    * and a tap target. The `.bind` holes render empty for a slot that is not a
     * signal slot, so ONE card set serves both dashboards and `signals` moves
     * only on the slot — which is what keeps [[RenderBench.page]] and
     * [[RenderBench.pageSignals]] a comparison of one variable.
@@ -1786,9 +1978,9 @@ object RenderBench {
       template = """<div class="fh-entity {{cls}}">""" +
         """<i class="fh-icon">{{icon}}</i>""" +
         """<div class="fh-body"><span class="fh-name">{{name}}</span>""" +
-        """<span class="fh-state" {{{state__bind}}}>{{state}}</span>""" +
-        """<div class="fh-bar" {{{fill__bind}}}></div>""" +
-        """<span class="fh-fillcolor" {{{fillColor__bind}}}></span>""" +
+        """<span class="fh-state" {{{state.bind}}}>{{state}}</span>""" +
+        """<div class="fh-bar" {{{fill.bind}}}></div>""" +
+        """<span class="fh-fillcolor" {{{fillColor.bind}}}></span>""" +
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
         """</div>"""
     ),
@@ -1805,7 +1997,7 @@ object RenderBench {
     *   difference between the two is exactly what one byte-reading slot costs
     *   the cache key, which is what [[RenderBench.resumeSignalsPure]] prices.
     * @param valued
-    *   the fill colour reads expression values ([[TransformFillColorValued]]).
+    *   the fill colour reads inputs ([[TransformFillColorValued]]).
     */
   def leaf(
       signals: Boolean,
@@ -1814,41 +2006,69 @@ object RenderBench {
       valued: Boolean = false
   )(
       i: Int
-  ): LayoutNode.Component =
+  ): LayoutNode.Component = {
+    // Pkl names the card's entity on every reading of it.
+    val subject = Some(entityId(i % distinct))
     LayoutNode.Component(
       "entity",
       Map(
-        "entity_id" -> SlotSource(literal = Some(entityId(i % distinct))),
-        "cls" -> SlotSource(literal = Some("fh-tile")),
+        "entity_id" -> TemplateSlot(
+          ValueExpr.literal(entityId(i % distinct))
+        ),
+        "cls" -> TemplateSlot(ValueExpr.literal("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
-        "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
-        "name" ->
-          (if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
-           else
-             SlotSource(
-               // Opted in (ADR 0028) — see [[NameSlot]] on what this models
-               // and what the shipped card actually does.
-               transform = Transform.Simple.Attr("friendly_name")
-             )),
-        "state" -> SlotSource(
-          transform = Transform.Simple.SuffixUnit("unit_of_measurement"),
+        "icon" -> TemplateSlot(ValueExpr.literal("mdi:lightbulb")),
+        "name" -> TemplateSlot(
+          if (signalOnly) ValueExpr.literal(s"Tile number $i")
+          else
+            // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
+            // what the shipped card actually does.
+            ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
+        ),
+        "state" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(subject),
+            List(
+              Step.WithUnit(
+                Value.Entity(subject, Part.Attr("unit_of_measurement"))
+              )
+            )
+          ),
           signal = Option.when(signals)(SignalBind.Text)
         ),
-        "fill" -> SlotSource(
-          transform = Transform.Simple.Fill("brightness", 1.0, 255.0),
+        "fill" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(subject, part = Part.Attr("brightness")),
+            List(
+              Step.Fill(
+                Value.Literal(Lit.Real(1.0)),
+                Value.Literal(Lit.Real(255.0))
+              )
+            )
+          ),
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
-        "fillColor" -> SlotSource(
-          transform =
-            if (valued) TransformFillColorValued else TransformFillColor,
+        "fillColor" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(subject, Part.Whole),
+            List(
+              Step.Cel(
+                if (valued) TransformFillColorValued else TransformFillColor
+              )
+            )
+          ),
           signal = Option.when(signals)(SignalBind.Style("background"))
         ),
         // Every dashboard has action slots, and ADR 0016 made them build-time
         // literals; leaving the hole out would not match a shipped card.
-        "action" -> SlotSource(literal = Some(actionLiteral(i, distinct)))
+        "action" -> TemplateSlot(
+          ValueExpr.literal(actionLiteral(i, distinct)),
+          `type` = SlotType.TextRaw
+        )
       ),
-      values = if (valued) FillColorValues else Map.empty
+      inputs = if (valued) FillColorInputs else Map.empty
     )
+  }
 
   /** `leaves` leaves under columns of `branching` children each, stacked until
     * one root remains.
@@ -1915,20 +2135,18 @@ object RenderBench {
         "then" -> branchSurface(
           tree(FlipLeaves, 4, signals),
           0,
-          Predicate.Cmp(
-            "state",
-            Op.Eq,
-            Json.fromString("armed"),
-            entity = Some(FlipEntity)
+          Some(
+            Conds.cmp(
+              "state",
+              Op.Eq,
+              Json.fromString("armed"),
+              entity = Some(FlipEntity)
+            )
           )
         ),
-        // An empty conjunction is vacuously true and reads no entity, which is
-        // what an `else` branch is.
-        "else" -> branchSurface(
-          tree(FlipLeaves, 4, signals),
-          1,
-          Predicate.And(Nil)
-        )
+        // No condition always holds and reads no entity, which is what an
+        // `else` branch is.
+        "else" -> branchSurface(tree(FlipLeaves, 4, signals), 1, None)
       )
     )
 
@@ -1940,7 +2158,7 @@ object RenderBench {
   private def branchSurface(
       content: LayoutNode,
       index: Int,
-      condition: Predicate
+      condition: Option[ValueExpr]
   ): Surface =
     Surface(
       content,
@@ -1959,12 +2177,17 @@ object RenderBench {
     * its own render), `false` the signal-less case where the two forms are
     * byte-identical and the fingerprint is sliced from the document bytes.
     */
-  def setTree(leaves: Int, signals: Boolean = true): LayoutNode =
+  def setTree(
+      leaves: Int,
+      signals: Boolean = true,
+      orderBy: List[SortTerm] = Nil
+  ): LayoutNode =
     LayoutNode.Component(
       "col",
       regions = LayoutNode.kids(
         LayoutNode.SetNode(
           candidates = List.tabulate(leaves)(entityId),
+          orderBy = orderBy,
           members = List
             .tabulate(leaves)(i =>
               entityId(i) -> LayoutNode.SetMember(
@@ -2021,7 +2244,7 @@ object RenderBench {
                 List(
                   LayoutNode.SetClause(
                     when = Some(
-                      Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+                      Conds.cmp("state", Op.Eq, Json.fromString("on"))
                     ),
                     node = tile(i)
                   ),
@@ -2100,7 +2323,12 @@ object RenderBench {
       )
     )
     val members = Renderer.create(bare).members
-    def branch(host: NodeId, at: Int, content: LayoutNode, when: Predicate) =
+    def branch(
+        host: NodeId,
+        at: Int,
+        content: LayoutNode,
+        when: Option[ValueExpr]
+    ) =
       Surface(
         content,
         bakeInto = Some(host),
@@ -2111,7 +2339,7 @@ object RenderBench {
       )
     val surfaces = members.memberIdsBelow.toList.flatMap { host =>
       members
-        .nodeAt(host, states)
+        .nodeAt(host, Shared.of(states))
         .toList
         .collect {
           case (m, n) if n.card == "ifhost" =>
@@ -2120,16 +2348,16 @@ object RenderBench {
               case MemberKey.Surface(s) =>
                 sys.error(s"not an entity member: $s")
             }
-            val open = Predicate.Cmp(
+            val open = Conds.cmp(
               "state",
               Op.Eq,
               Json.fromString("on"),
               entity = Some(windowId(i))
             )
             List(
-              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), open),
+              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), Some(open)),
               s"${host}_k0_else" ->
-                branch(host, 1, LayoutNode.Component("col"), Predicate.And(Nil))
+                branch(host, 1, LayoutNode.Component("col"), None)
             )
         }
         .flatten

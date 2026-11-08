@@ -28,14 +28,14 @@ const domainAxes: Mapping<String, hass.Axis> = new {
 // anything else the theme's paint. A hue axis has no fill, only a marker over
 // a track painted with the hues (`hueTrack`).
 //
-// Every read keeps a presence guard (`attr[?'x']…orValue('')`): capability is a
+// Every read keeps a presence guard (`value.attr[?'x']…orValue('')`): capability is a
 // build-time fact but a live state may drop the attribute, and in CEL a missing
 // key throws. Kelvin arrives as a Long and CEL's double overloads take no Long,
 // hence `double(k)`. The strings ship as written; only the indent and the edge
 // newline go.
 const local sliderFillColourRgb: String =
   #"""
-  attr[?'rgb_color'].optMap(rgb,
+  value.attr[?'rgb_color'].optMap(rgb,
     size(rgb) == 3
       ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
       : '').orValue('')
@@ -44,7 +44,7 @@ const local sliderFillColourRgb: String =
 // `\(minK).0`: the double literal CEL needs, from whole kelvin.
 const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
-  attr[?'color_temp_kelvin'].optMap(k,
+  value.attr[?'color_temp_kelvin'].optMap(k,
     cel.bind(t,
       (double(k) - \(minK).0) < 0.0 ? 0.0 :
       ((double(k) - \(minK).0) > \(maxK - minK).0
@@ -62,7 +62,7 @@ const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
 typealias SlideAxis = hass.Entity|hass.Axis
 
 /// The named readouts: the two that need the card's axis config, and none.
-/// Anything else is an [[Expr]]; see [[EntitySlider.readout]].
+/// Anything else is a reading; see [[EntitySlider.readout]].
 typealias Readout = "state"|"percent"|"none"
 
 /// A slider on an entity whose domain has a [[domainAxes]] row; any other is a
@@ -79,7 +79,7 @@ class EntitySlider extends sliderBase.Slider {
   hidden hue: Boolean = on is hass.Colour
   /// A list element no simple shape reaches, so such an axis reads through CEL.
   hidden element: Int? = axis.element
-  hidden label: (String|slotMod.Expr)? = null
+  hidden label: (String|slotMod.Reading)? = null
   // What the axis says, which an author's amend overrides.
   hidden action: String = axis.service
   hidden key: String = axis.key
@@ -112,8 +112,8 @@ class EntitySlider extends sliderBase.Slider {
     // The binding is named for the attribute (`hs`), as the hue's always was.
     if (element != null)
       let (b = valueAttr.split("_").first)
-        "attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
-    else "attr[?'\(valueAttr)']"
+        "value.attr[?'\(valueAttr)'].optMap(\(b), double(\(b)[\(element)]))"
+    else "value.attr[?'\(valueAttr)']"
   rangeMin = min
   rangeMax = max
   /// The range as CEL double literals, since `/` on two ints divides as
@@ -137,44 +137,40 @@ class EntitySlider extends sliderBase.Slider {
   /// overrides it; `null` renders none.
   hidden icon: String? = icons.iconFor(entity)
   /// What the line reads out: the state, the level as a percentage of the
-  /// range, nothing, or an [[Expr]]. The names are shorthands for readings that
+  /// range, nothing, or a reading. The names are shorthands for readings that
   /// need the axis config, which is exposed for splicing:
   ///
-  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
-  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
+  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + value.state") }
+  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"value.state + ' W'"#) }
   ///
   /// A head with member rows reads out nothing; the rows carry their own.
-  hidden readout: (Readout|slotMod.Expr) = if (members.isEmpty) "state" else "none"
+  hidden readout: (Readout|slotMod.Reading) = if (members.isEmpty) "state" else "none"
   // A readout, so whole numbers; no position (a light that is off) reads 0 %.
   hidden percentExpr: String =
     "\(valueExpr).optMap(v, str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %').orValue('0 %')"
   // A toggle-only row would read a permanent "0 %", and a group's rows usually
-  // get `percent` in one `map`. An author's own [[Expr]] is left alone.
-  hidden shownReadout: (Readout|slotMod.Expr) =
+  // get `percent` in one `map`. An author's own reading is left alone.
+  hidden shownReadout: (Readout|slotMod.Reading) =
     if (toggleOnly && readout == "percent") "state" else readout
   subject = entity.entity_id
   active = slotMod.activeOf(entity) ?? false
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".
-  position = new slotMod.Slot {
-    transform =
-      if (element != null) "\(valueExpr).optMap(v, str(math.round(v))).orValue('0')"
-      else simpleMod.attr(valueAttr)
-    default = "0"
-    bypassUnavailable = false
-  }
+  position =
+    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, str(math.round(v))).orValue('0')")
+    else simpleMod.attr(valueAttr)) {
+      default = "0"
+    }
   // Not rounded: beer.min.js recomputes the same percentage unrounded after
   // every morph, and a rounded value twitched into place.
-  fill = new slotMod.Slot {
-    transform =
-      if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
-      else if (hue) "\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')"
-      else simpleMod.fill(valueAttr, rangeMin, rangeMax)
-    default = "100%"
-    bypassUnavailable = false
-  }
-  fillColor = if (fillColourMoves) new slotMod.Slot { transform = fillColorExpr } else null
+  fill =
+    (if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
+    else if (hue) slotMod.celReading("\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')")
+    else simpleMod.fill(valueAttr, rangeMin, rangeMax)) {
+      default = "100%"
+    }
+  fillColor = if (fillColourMoves) slotMod.celReading(fillColorExpr) else null
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
   // reads as text: `--fh-default-color` is the paint for an assumed colour.
   fillDefault =
@@ -185,16 +181,13 @@ class EntitySlider extends sliderBase.Slider {
   kelvinTrack = on is hass.ColourTemp && reportsKelvin
   reading =
     if (shownReadout == "none") null
-    else if (shownReadout is slotMod.Expr)
-      new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform }
+    else if (shownReadout is slotMod.Reading) slotMod.textReading(shownReadout)
     else if (shownReadout == "percent")
-      new slotMod.Slot {
-        transform =
-          if (element != null) percentExpr else simpleMod.percent(valueAttr, rangeMin, rangeMax)
+      (if (element != null) slotMod.celReading(percentExpr)
+      else simpleMod.percent(valueAttr, rangeMin, rangeMax)) {
         default = "0 %"
-        bypassUnavailable = false
       }
-    else new slotMod.Slot { transform = simpleMod.state() }
+    else simpleMod.state()
   readingFollowsDrag = shownReadout == "percent"
   commit = commitTap
   press = if (toggleOnly) toggleTap else null
@@ -277,7 +270,7 @@ class EntitySlider extends sliderBase.Slider {
         if (a.inUseWhen == null) "'\(a.name)'"
         else
           let (w = a.inUseWhen!!)
-            "(attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
+            "(value.attr[?'\(w.attr)'].orValue('') in [\(w.values.map((v) -> "'\(v)'").join(", "))] ? '\(a.name)' : \(rest))")
   controlDeclaration =
     if (openingExpr == null) super.controlDeclaration
     else super.controlDeclaration.withInitialTransform(entity, openingExpr!!)
@@ -295,13 +288,13 @@ class EntitySlider extends sliderBase.Slider {
       controlHead(offeredControls[0], false, true)
     else super.headNode
 
-  function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
+  function label(l: String|slotMod.Reading): EntitySlider = let (self = this) (self) { label = l }
   function action(a: String): EntitySlider = let (self = this) (self) { action = a }
   function key(k: String): EntitySlider = let (self = this) (self) { key = k }
   function min(m: Int): EntitySlider = let (self = this) (self) { min = m }
   function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
   function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
-  function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
+  function readout(r: Readout|slotMod.Reading): EntitySlider = let (self = this) (self) { readout = r }
   /// No switch of its own: it shows the control chosen by the nearest switch
   /// above it, a group head's or [[controlChooser]]'s, greyed on one its light
   /// lacks. One press, the whole group on colour. A light with no main

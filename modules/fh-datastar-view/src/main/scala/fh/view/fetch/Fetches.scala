@@ -2,7 +2,7 @@ package fh.view.fetch
 
 import cats.effect.IO
 import fh.view.history.{ChartDraw, ChartStage, History, Window}
-import fh.view.model.Transform
+import fh.view.model.Step
 
 import io.circe.Json
 
@@ -45,14 +45,16 @@ object Staged {
   val FailedVersion: Long = -1L
 
   /** A read that could not be answered, in its own hole: one chart's error,
-    * never the page's. Data (passthrough) is simply absent — its hole is
-    * escaped, so it cannot hold markup.
+    * never the page's. Data (`json`) is simply absent — its hole is escaped, so
+    * it cannot hold markup.
     */
-  def failed(stage: Transform.Stage): Staged = stage match {
-    case Transform.Stage.Chart(_) =>
-      Staged(FailedVersion, label("error", "Chart unavailable"))
-    case Transform.Stage.Passthrough => Staged(FailedVersion, "")
-  }
+  def failed(stage: Step.FetchStage): Staged =
+    Staged(
+      FailedVersion,
+      if Step.draws(stage) then
+        label("error", s"${Step.label(stage).capitalize} unavailable")
+      else ""
+    )
 
   /** The runtime's copy of `core/text.pkl`'s `label`: one structure, whose
     * classes are the base CSS every dashboard carries, so what the runtime
@@ -98,7 +100,7 @@ final class FetchResolver private (
   def stage(
       identity: FetchIdentity,
       fetch: FetchRequest,
-      stage: Transform.Stage,
+      stage: Step.FetchStage,
       answered: Answer
   ): IO[Staged] =
     staged
@@ -107,11 +109,10 @@ final class FetchResolver private (
       )
       .map(Staged(answered.version, _))
 
-  private def run(stage: Transform.Stage, data: Json): IO[String] =
-    stage match {
-      case Transform.Stage.Passthrough  => IO(data.noSpaces)
-      case Transform.Stage.Chart(style) => ChartStage.draw(chart, style, data)
-    }
+  private def run(stage: Step.FetchStage, data: Json): IO[String] =
+    stage match
+      case Step.Json         => IO(data.noSpaces)
+      case Step.Chart(style) => ChartStage.draw(chart, style, data)
 
   private[fetch] def keys: IO[Set[StageKey]] = staged.keys
 }
@@ -130,7 +131,7 @@ object FetchResolver {
     */
   final case class StageKey(
       question: Question,
-      stage: Transform.Stage,
+      stage: Step.FetchStage,
       version: Long
   )
 

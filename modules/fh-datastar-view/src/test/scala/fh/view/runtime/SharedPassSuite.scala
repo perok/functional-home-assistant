@@ -10,7 +10,9 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Region,
-  SlotSource
+  Value,
+  ValueExpr,
+  TemplateSlot
 }
 import fh.view.testkit.TestIds.given
 
@@ -37,7 +39,9 @@ class SharedPassSuite extends ServerHarness {
         List("sensor.a", "sensor.b").map(e =>
           LayoutNode.Component(
             "card",
-            slots = Map("state" -> SlotSource(Some(e)))
+            templateSlots = Map(
+              "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e))))
+            )
           )
         )*
       )
@@ -64,7 +68,11 @@ class SharedPassSuite extends ServerHarness {
         val renderer = Renderer.create(twoLeafDash)
         def rendered(id: NodeId) =
           renderer
-            .renderNodeById(id, now.entities, fragments = FetchSnapshot.empty)
+            .renderNodeById(
+              id,
+              Shared.of(now.entities),
+              Viewing(Selections.none, FetchSnapshot.empty)
+            )
             .map(Held.of)
         // The repaint claimed everything it painted, and the tick re-claimed
         // the one node that moved at its new bytes: a record of what this

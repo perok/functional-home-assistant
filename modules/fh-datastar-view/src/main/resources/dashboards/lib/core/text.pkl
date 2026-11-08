@@ -44,17 +44,17 @@ const BOX: String = "fh-text"
 
 /// The text inside a box: a marquee translates it past the box, and a bare
 /// text node has nothing to translate.
-const function run(name: String): String =
-  #"<span class="fh-text-run">{{\#(name)}}</span>"#
+const function run(s: slotMod.Slot): String =
+  #"<span class="fh-text-run">\#(s)</span>"#
 
 /// [[run]] for a signal value. The binding sits on the run: on the box, a
 /// `data-text` patch would replace the run and the scrolling would stop.
-const function liveRun(name: String): String =
-  #"<span class="fh-text-run" \#(slotMod.signalBind(name))>{{\#(name)}}</span>"#
+const function liveRun(s: slotMod.Slot): String =
+  #"<span class="fh-text-run" \#(s.bind)>\#(s)</span>"#
 
 /// Box and run, for a card with no element of its own to mark.
-const function hole(name: String): String =
-  #"<span class="\#(BOX)">\#(run(name))</span>"#
+const function hole(s: slotMod.Slot): String =
+  #"<span class="\#(BOX)">\#(run(s))</span>"#
 
 /// `"normal"` is the card's own text colour; the others the `--fh-*` role.
 typealias Tone = "normal"|"dim"|"error"|"warning"

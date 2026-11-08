@@ -18,6 +18,8 @@
 module query
 
 import "core/predicate.pkl" as pred
+import "core/simple.pkl" as simpleMod
+import "core/slot.pkl" as slotMod
 import "core/node.pkl" as nodes
 import "hass.pkl"
 
@@ -35,7 +37,7 @@ typealias Scalar = String|Int|Float|Boolean
 
 /// Everything that can appear where a condition is expected, resolved or not.
 /// The two positions that would make the alias cyclic take `Any`.
-typealias Cond = Boolean|pred.Predicate|Pending|CandidateTerm|Group
+typealias Cond = Boolean|slotMod.Expr|Pending|CandidateTerm|Group
 
 /// A comparison whose key is not resolved yet: it folds to a `Boolean` on a
 /// registry fact, or becomes a live `pred.Cmp`.
@@ -59,49 +61,49 @@ class Group {
 }
 
 const local function isResolved(xs: List<Cond>): Boolean =
-  xs.every((i) -> i is Boolean || i is pred.Predicate)
+  xs.every((i) -> i is Boolean || i is slotMod.Expr)
 
 function all(xs: List<Cond>): Cond =
-  if (isResolved(xs)) foldAll(xs as List<Boolean|pred.Predicate>)
+  if (isResolved(xs)) foldAll(xs as List<Boolean|slotMod.Expr>)
   else new Group { gop = "all"; items = xs }
 
 /// A statically-true term short-circuits the whole thing, which is why presence
 /// residuals can differ between members of one set.
 function any(xs: List<Cond>): Cond =
-  if (isResolved(xs)) foldAny(xs as List<Boolean|pred.Predicate>)
+  if (isResolved(xs)) foldAny(xs as List<Boolean|slotMod.Expr>)
   else new Group { gop = "any"; items = xs }
 
 function not(x: Cond): Cond =
   if (x is Boolean) !x
-  else if (x is pred.Predicate) new pred.PNot { item = x }
+  else if (x is slotMod.Expr) new pred.PNot { item = x }
   else new Group { gop = "not"; items = List(x) }
 
 // Both folds canonicalise — flatten same-kind nesting, dedupe, unwrap a single
 // survivor — so a presence residual equal to a branch guard is not evaluated
 // twice. One level suffices, since every group is built through these.
 const local function flatten(
-  gop: String, ts: List<pred.Predicate>
-): List<pred.Predicate> =
+  gop: String, ts: List<slotMod.Expr>
+): List<slotMod.Expr> =
   ts.flatMap((t) ->
     if (gop == "and" && t is pred.PAnd) t.items.toList()
     else if (gop == "or" && t is pred.POr) t.items.toList()
     else List(t)).distinct
 
-const local function listing(ts: List<pred.Predicate>): Listing<pred.Predicate> =
+const local function listing(ts: List<slotMod.Expr>): Listing<slotMod.Expr> =
   new Listing { for (t in ts) { t } }
 
-const local function foldAll(xs: List<Boolean|pred.Predicate>): Boolean|pred.Predicate =
+const local function foldAll(xs: List<Boolean|slotMod.Expr>): Boolean|slotMod.Expr =
   if (xs.any((i) -> i is Boolean && i == false)) false
   else
-    let (rest = flatten("and", xs.filter((i) -> i is pred.Predicate) as List<pred.Predicate>))
+    let (rest = flatten("and", xs.filter((i) -> i is slotMod.Expr) as List<slotMod.Expr>))
       if (rest.isEmpty) true
       else if (rest.length == 1) rest.first
       else new pred.PAnd { items = listing(rest) }
 
-const local function foldAny(xs: List<Boolean|pred.Predicate>): Boolean|pred.Predicate =
+const local function foldAny(xs: List<Boolean|slotMod.Expr>): Boolean|slotMod.Expr =
   if (xs.any((i) -> i is Boolean && i == true)) true
   else
-    let (rest = flatten("or", xs.filter((i) -> i is pred.Predicate) as List<pred.Predicate>))
+    let (rest = flatten("or", xs.filter((i) -> i is slotMod.Expr) as List<slotMod.Expr>))
       if (rest.isEmpty) false
       else if (rest.length == 1) rest.first
       else new pred.POr { items = listing(rest) }
@@ -131,6 +133,14 @@ function optional(p: PropName): PropName = (p) { optional = true }
 
 const stateProp: PropName = new PropName { name = "state" }
 
+/// A property the build reads off the registry, by name. What [[resolveProp]]
+/// answers otherwise is a live read: the state (null) or an attribute.
+local class RegFact { name: String }
+
+/// A live read of `name`: the state, or that attribute.
+const local function livePart(attrName: String): simpleMod.Attr? =
+  if (attrName == "state") null else new simpleMod.Attr { name = attrName }
+
 /// See [[CandidateTerm]].
 function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
   new { fn = f }
@@ -139,10 +149,10 @@ function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
 /// typo fails the build instead of never matching. Only candidates with a
 /// non-empty schema are checked: empty means the domain is not modelled yet
 /// (ADR 0013).
-const local function checkLive(items: List<hass.Entity>, name: String): String =
+const local function checkLive(items: List<hass.Entity>, name: String): simpleMod.Attr? =
   let (modelled = items.filter((e) -> !e.volatileAttrs.isEmpty))
     if (modelled.isEmpty || modelled.any((e) -> e.volatileAttrs.containsKey(name)))
-      "attr:" + name
+      livePart(name)
     else
       throw("""
         No candidate can report a live attribute called '\(name)'.
@@ -170,15 +180,17 @@ const local function carries(e: hass.Entity, name: String): Boolean =
 /// calls its own members. Otherwise
 /// ALL candidates carry it => a registry fact; NONE => a live attribute; SOME
 /// => a build error unless `optional`.
-const local function resolveProp(items: List<hass.Entity>, p: PropName): String =
-  if (p.name == "state") "state"
-  else if (p is LiveAttr) "attr:" + p.name
-  else if (items.any((e) -> e.volatileAttrs.containsKey(p.name))) "attr:" + p.name
+const local function resolveProp(
+  items: List<hass.Entity>, p: PropName
+): (RegFact|simpleMod.Attr)? =
+  if (p.name == "state") null
+  else if (p is LiveAttr) livePart(p.name)
+  else if (items.any((e) -> e.volatileAttrs.containsKey(p.name))) livePart(p.name)
   else
     let (have = items.filter((e) -> carries(e, p.name)).length)
       if (items.isEmpty || have == 0) checkLive(items, p.name)
-      else if (have == items.length) "reg:" + p.name
-      else if (p.optional) "reg:" + p.name
+      else if (have == items.length) new RegFact { name = p.name }
+      else if (p.optional) new RegFact { name = p.name }
       else throw("""
         Property '\(p.name)' is present on \(have) of \(items.length) candidates.
         That is ambiguous: it would be a registry fact for some members and a
@@ -188,7 +200,7 @@ const local function resolveProp(items: List<hass.Entity>, p: PropName): String 
         """)
 
 const local function isBuildReadable(items: List<hass.Entity>, p: PropName): Boolean =
-  resolveProp(items, p).startsWith("reg:")
+  resolveProp(items, p) is RegFact
 
 const local function applyOp(cmpOp: String, l: Any, r: Any): Boolean =
   if (cmpOp == "eq") l == r
@@ -246,7 +258,7 @@ const local function cmpOn(
         else true)
     new {
       entity = who
-      property = if (k.name == "state") "state" else "attr:" + k.name
+      part = livePart(k.name)
       op = cmpOp
       value = v
     }
@@ -260,19 +272,26 @@ const local function cmpOn(
 /// One ordering position. `by` is a property (sort by its value) or a
 /// comparison (sort by whether it holds).
 class OrderSpec {
-  by: PropName|Pending
+  by: PropName|Pending|slotMod.Expr
   dir: "asc"|"desc" = "asc"
 }
 
-function asc(k: PropName|Pending): OrderSpec = new { by = k; dir = "asc" }
-function desc(k: PropName|Pending): OrderSpec = new { by = k; dir = "desc" }
+function asc(k: PropName|Pending|slotMod.Expr): OrderSpec = new { by = k; dir = "asc" }
+function desc(k: PropName|Pending|slotMod.Expr): OrderSpec = new { by = k; dir = "desc" }
 
 // `const` because [[EntitySet.orderBy]] calls it from a class body.
-const local function spec(k: OrderSpec|PropName|Pending): OrderSpec =
-  if (k is OrderSpec) k else new OrderSpec { by = k as (PropName|Pending) }
+const local function spec(k: OrderSpec|PropName|Pending|slotMod.Expr): OrderSpec =
+  if (k is OrderSpec) k else new OrderSpec { by = k as (PropName|Pending|slotMod.Expr) }
 
 const local function specKey(s: OrderSpec): PropName =
   if (s.by is Pending) (s.by as Pending).key else s.by as PropName
+
+// A value expression is read per member, live; a name may be a registry fact.
+const local function readsNow(items: List<hass.Entity>, s: OrderSpec): Boolean =
+  !(s.by is slotMod.Expr) && isBuildReadable(items, specKey(s))
+
+const local function specName(s: OrderSpec): String =
+  if (s.by is slotMod.Expr) "an expression" else specKey(s).name
 
 /// What the build sorted, and what the runtime must still compare.
 class Ordering {
@@ -288,16 +307,16 @@ const local function foldOrder(
 ): Ordering =
   if (specs.isEmpty || items.isEmpty) new Ordering { entities = items; terms = List() }
   else
-    let (liveAt = specs.findIndexOrNull((s) -> !isBuildReadable(items, specKey(s))))
+    let (liveAt = specs.findIndexOrNull((s) -> !readsNow(items, s)))
       if (liveAt == null)
         new Ordering { entities = sortNow(items, specs); terms = List() }
       else
         let (leading = specs.take(liveAt + 1))
         let (trailing = specs.drop(liveAt + 1))
-          if (leading.any((s) -> isBuildReadable(items, specKey(s))))
+          if (leading.any((s) -> readsNow(items, s)))
             throw("""
-              Cannot order by '\(leading.findOrNull((s) -> isBuildReadable(items, specKey(s))).ifNonNull((s) -> specKey(s).name))'
-              before the live key '\(specKey(specs[liveAt]).name)'. A registry
+              Cannot order by '\(leading.findOrNull((s) -> readsNow(items, s)).ifNonNull((s) -> specName(s)))'
+              before the live key '\(specName(specs[liveAt]))'. A registry
               fact that outranks a live value would have to be resolved by the
               runtime, which holds no registry. Put the registry keys LAST (they
               are then the tiebreak, and the build supplies it), or sort the
@@ -322,36 +341,33 @@ const local function sortNow(
           let (b = orderValue(prepared, items, s, y))
             if (s.dir == "desc") a > b else a < b))
 
-// A comparison sorts on its truth; `desc` puts true first, matching the
-// runtime's `holds` ordering.
+// As the runtime orders: a comparison on its truth, true first under `asc`; a
+// Boolean value as its text, false first. Pkl has no `<` on Booleans.
 const local function orderValue(
   prepared: Ready?, items: List<hass.Entity>, s: OrderSpec, e: hass.Entity
-): String|Int|Float|Boolean =
-  if (prepared != null) decide(prepared, items, e) as Boolean
-  else e.getProperty((s.by as PropName).name) as (String|Int|Float|Boolean)
+): String|Int|Float =
+  if (prepared != null) (if (decide(prepared, items, e) as Boolean) 0 else 1)
+  else
+    let (v = e.getProperty((s.by as PropName).name))
+      if (v is Boolean) (if (v) 1 else 0) else v as (String|Int|Float)
 
 const local function liveTerm(
   items: List<hass.Entity>, s: OrderSpec
 ): pred.SortTerm =
   new {
     by =
-      if (s.by is Pending)
+      if (s.by is slotMod.Expr) s.by
+      else if (s.by is Pending)
         let (pd = s.by as Pending)
-          new pred.SortHolds {
-            predicate = new pred.Cmp {
-              property = resolveProp(items, pd.key)
-              op = pd.op
-              value = pd.value
-            }
-          }
-      else new pred.SortProp { property = resolveProp(items, s.by as PropName) }
+          new pred.Cmp { part = resolveProp(items, pd.key) as simpleMod.Attr?; op = pd.op; value = pd.value }
+      else pred.propertyKey(resolveProp(items, s.by as PropName) as simpleMod.Attr?)
     dir = s.dir
   }
 
 // ---- the set ----------------------------------------------------------------
 
 class Branch {
-  key: (hass.Entity) -> Boolean|pred.Predicate
+  key: (hass.Entity) -> Boolean|slotMod.Expr
   render: (hass.Entity) -> nodes.Node
 }
 
@@ -376,10 +392,10 @@ class EntitySet {
 
   /// Lexicographic, most significant first.
   function orderBy(
-    ks: List<OrderSpec|PropName|Pending>|OrderSpec|PropName|Pending
+    ks: List<OrderSpec|PropName|Pending|slotMod.Expr>|OrderSpec|PropName|Pending|slotMod.Expr
   ): EntitySet =
     let (l = this)
-      let (asList = if (ks is List) ks as List<OrderSpec|PropName|Pending> else List(ks))
+      let (asList = if (ks is List) ks as List<OrderSpec|PropName|Pending|slotMod.Expr> else List(ks))
         (l) { specs = l.specs + asList.map((k) -> spec(k)) }
 
   /// At most `n` present members, after ordering. Every candidate still ships:
@@ -425,6 +441,12 @@ class EntitySet {
               .filter((p) -> !(p.second is Boolean && p.second == false))
       }
 
+  /// The ids of the candidates present now, as a named input: a `list(string)`
+  /// in CEL (`'light.kitchen' in lit`, `size(lit)`). Reads only `where`, as
+  /// [[count]] does.
+  function present(): pred.PresentList =
+    let (n = count()) new pred.PresentList { candidates = n.candidates; `when` = n.`when` }
+
   function any(): Cond = count().gt(0)
   function none(): Cond = count().eq(0)
   function all(): Cond = let (l = this) count().eq(l.count().residuals.length)
@@ -468,12 +490,12 @@ function from(xs: List<hass.Entity>): EntitySet = new EntitySet { items = xs }
 /// on a room with no lights is `false` at build time and its card is dropped.
 class CountRef extends pred.Tally {
   /// Candidate id -> `true` if the build settled it, else its live predicate.
-  hidden residuals: List<Pair<String, Boolean|pred.Predicate>>
+  hidden residuals: List<Pair<String, Boolean|slotMod.Expr>>
   candidates = new Listing { for (p in residuals) { p.first } }
   `when` = new Mapping {
     for (p in residuals) {
-      when (p.second is pred.Predicate) {
-        [p.first] = p.second as pred.Predicate
+      when (p.second is slotMod.Expr) {
+        [p.first] = p.second as slotMod.Expr
       }
     }
   }
@@ -504,10 +526,10 @@ class CountRef extends pred.Tally {
 class FirstRef {
   /// Candidate id -> its presence, in the build's order: `false` where the
   /// build dropped it, which is not the same as not being a candidate.
-  hidden residuals: List<Pair<String, Boolean|pred.Predicate>>
+  hidden residuals: List<Pair<String, Boolean|slotMod.Expr>>
   hidden terms: List<pred.SortTerm>
 
-  function eq(e: hass.Entity): Boolean|pred.Predicate =
+  function eq(e: hass.Entity): Boolean|slotMod.Expr =
     let (l = this)
       let (present = l.residuals.filter((p) -> p.second != false))
         if (!l.residuals.any((p) -> p.first == e.entity_id))
@@ -523,8 +545,8 @@ class FirstRef {
             candidates = new Listing { for (p in present) { p.first } }
             `when` = new Mapping {
               for (p in present) {
-                when (p.second is pred.Predicate) {
-                  [p.first] = p.second as pred.Predicate
+                when (p.second is slotMod.Expr) {
+                  [p.first] = p.second as slotMod.Expr
                 }
               }
             }
@@ -532,8 +554,8 @@ class FirstRef {
             entity = e.entity_id
           }
 
-  function ne(e: hass.Entity): Boolean|pred.Predicate =
-    let (r = this.eq(e)) if (r is Boolean) !r else (r as pred.Predicate).not()
+  function ne(e: hass.Entity): Boolean|slotMod.Expr =
+    let (r = this.eq(e)) if (r is Boolean) !r else new pred.PNot { item = r as slotMod.Expr }
 }
 
 const local function staticCompare(cmpOp: String, n: Int, v: Int): Boolean =
@@ -552,7 +574,7 @@ abstract class Ready
 
 /// A settled term, or a live [[pred.Cmp]], whose wire form is the same for
 /// every candidate.
-class ReadyConst extends Ready { value: Boolean|pred.Predicate }
+class ReadyConst extends Ready { value: Boolean|slotMod.Expr }
 
 /// A comparison on a registry fact, read off each candidate by the build.
 class ReadyReg extends Ready {
@@ -584,18 +606,18 @@ const local function ready(items: List<hass.Entity>, f: Any): Ready =
   else if (f is Pending)
     let (pd = f as Pending)
       let (from = resolveProp(items, pd.key))
-        if (from.startsWith("reg:"))
+        if (from is RegFact)
           new ReadyReg { name = pd.key.name; op = pd.op; value = pd.value }
         else
           new ReadyConst {
-            value = new pred.Cmp { property = from; op = pd.op; value = pd.value }
+            value = new pred.Cmp { part = from as simpleMod.Attr?; op = pd.op; value = pd.value }
           }
-  else new ReadyConst { value = f as (Boolean|pred.Predicate) }
+  else new ReadyConst { value = f as (Boolean|slotMod.Expr) }
 
 // `items` travels only to re-enter [[ready]] for a [[ReadyFn]].
 const local function decide(
   r: Ready, items: List<hass.Entity>, e: hass.Entity
-): Boolean|pred.Predicate =
+): Boolean|slotMod.Expr =
   if (r is ReadyConst) r.value
   else if (r is ReadyReg) applyOp(r.op, e.getPropertyOrNull(r.name), r.value)
   else if (r is ReadyFn) decide(ready(items, r.fn.apply(e)), items, e)
@@ -605,29 +627,29 @@ const local function decide(
         if (g.gop == "all") foldAll(kids)
         else if (g.gop == "any") foldAny(kids)
         else if (kids.first is Boolean) !(kids.first as Boolean)
-        else new pred.PNot { item = kids.first as pred.Predicate }
+        else new pred.PNot { item = kids.first as slotMod.Expr }
 
 // The branches that can still win for one candidate, with their residual
 // guards. An unconditional branch ends the list: nothing after it can win.
 const local function liveBranches(
   e: hass.Entity, branches: List<Branch>
-): List<Pair<Branch, pred.Predicate?>> =
+): List<Pair<Branch, slotMod.Expr?>> =
   let (evaluated = branches
         .map((b) -> Pair(b, b.key.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
     let (firstUnconditional = evaluated.findIndexOrNull((p) -> p.second == true))
       (if (firstUnconditional == null) evaluated else evaluated.take(firstUnconditional + 1))
         .map((p) ->
-          Pair(p.first, if (p.second is pred.Predicate) p.second as pred.Predicate else null))
+          Pair(p.first, if (p.second is slotMod.Expr) p.second as slotMod.Expr else null))
 
 // Through the fold, so a presence residual equal to the branch guard collapses.
 const local function conjoin(
-  presence: Boolean|pred.Predicate, branch: pred.Predicate?
-): pred.Predicate? =
+  presence: Boolean|slotMod.Expr, branch: slotMod.Expr?
+): slotMod.Expr? =
   let (parts =
-        (if (presence is pred.Predicate) List(presence as pred.Predicate) else List()) +
+        (if (presence is slotMod.Expr) List(presence as slotMod.Expr) else List()) +
         (if (branch != null) List(branch) else List()))
-    if (parts.isEmpty) null else foldAll(parts) as pred.Predicate
+    if (parts.isEmpty) null else foldAll(parts) as slotMod.Expr
 
 // `items` is the UNSORTED list: sorting must not change whether a name is a
 // registry fact. Presence is folded into each clause's guard, so presence and
@@ -637,7 +659,7 @@ const local function buildSet(
   items: List<hass.Entity>,
   branches: List<Branch>,
   cap: Int?,
-  presence: (hass.Entity) -> Boolean|pred.Predicate
+  presence: (hass.Entity) -> Boolean|slotMod.Expr
 ): pred.SetNode =
   let (kept = ordering.entities
         .map((e) -> Pair(e, presence.apply(e)))

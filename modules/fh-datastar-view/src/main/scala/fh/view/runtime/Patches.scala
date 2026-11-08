@@ -60,26 +60,12 @@ private[runtime] object Patches {
       // Membership only: a member that ticked is in `staticIds`.
       sets: List[SetId],
       flips: List[NodeId],
-      states: Map[String, EntityState],
-      before: Map[String, EntityState],
-      // Carried, not re-derived: the recorder's membership has already moved.
-      membership: Map[SetId, MemberDelta],
-      // Read with the snapshot, so nothing claims a version its HTML lacks.
-      at: Long
-  )
-
-  /** Every entity the frame moved rewound, not one: rewinding one alone
-    * describes an instant that never existed.
-    */
-  def beforeSnapshot(
-      states: Map[String, EntityState],
-      changes: List[StateChange]
-  ): Map[String, EntityState] =
-    changes.foldLeft(states) { (acc, change) =>
-      change.previous.fold(acc - change.entityId)(p =>
-        acc.updated(change.entityId, p)
-      )
-    }
+      prev: Shared,
+      next: Shared,
+      membership: Map[SetId, MemberDelta]
+  ):
+    // The frame's own, so nothing claims a version its HTML lacks.
+    def at: Long = next.version
 
   /** What one frame touches for every client, rendering nothing. `visible`
     * bounds what is recorded: wide records a node nobody pulls, narrow would
@@ -89,20 +75,18 @@ private[runtime] object Patches {
     * fill re-renders them). A surface binding a changed entity contributes only
     * if it is shown from the page or a visible surface
     * ([[SurfaceGraph.visibleSurface]]), so a hidden branch never gets updates.
-    * No viewer's [[Selections]] are read.
+    * No viewer's [[Selections]] are read. `prev` is the version before, so its
+    * decisions are what viewers were sent.
     */
   def plan(
       renderer: Renderer,
-      states: Map[String, EntityState],
-      before: Map[String, EntityState],
-      synced: Synced,
-      at: Long,
+      prev: Shared,
+      next: Shared,
       changes: List[StateChange],
       visible: Set[String]
   ): DiffRequest = {
-    val binding = synced.membership.binding
     val flips =
-      renderer.surfaces.affectedStateGroups(changes, before, states, visible)
+      renderer.surfaces.affectedStateGroups(changes, prev, next, visible)
     val flipped = flips.toSet
     // Per frame: every changed entity a branch binds asks of the same surface,
     // and each asking evaluates the conditions above it (`publishFlip`).
@@ -110,14 +94,22 @@ private[runtime] object Patches {
     val shown: String => Boolean = sid =>
       reached.getOrElseUpdate(
         sid,
-        renderer.surfaces.visibleSurface(sid, visible, states, flipped)
+        renderer.surfaces.visibleSurface(sid, visible, next, flipped)
       )
+    // First: `deltas` makes `next`'s set decisions incrementally, where a
+    // `binding` reading them first would rebuild each from scratch.
+    val membership = renderer.members.deltas(
+      renderer.members.affectedSetsWithin(changes, shown),
+      changes,
+      prev,
+      next
+    )
     // Members included, so a case slot naming a second entity ticks: that
     // entity need not be a candidate.
     val staticIds = changes
       .flatMap(c =>
         renderer.componentsFor(c.entityId).toList ++
-          binding(c.entityId, shown) ++
+          renderer.members.binding(c.entityId, shown, next) ++
           renderer
             .surfacesBinding(c.entityId)
             .filter(shown)
@@ -125,8 +117,14 @@ private[runtime] object Patches {
       )
       .distinct
       .filterNot(flipped)
-    val sets = renderer.members.affectedSetsWithin(changes, shown)
-    DiffRequest(staticIds, sets, flips, states, before, synced.deltas, at)
+    DiffRequest(
+      staticIds,
+      membership.keys.toList.sortBy(id => id: String),
+      flips,
+      prev,
+      next,
+      membership
+    )
   }
 
   /** Loud, rather than caching `""` forever if `renderInputs` and
@@ -180,7 +178,7 @@ private[runtime] object Patches {
     val at = req.at
     // Flips first: nothing may be suppressed against a pre-flip entry.
     val afterFlips = req.flips.foldLeft(log) { (l, gid) =>
-      recordFlip(renderer, l, gid, req.before, req.states, at)
+      recordFlip(renderer, l, gid, req.prev, req.next, at)
     }
     val afterNodes = req.staticIds.foldLeft(afterFlips)(_.touched(_, at))
     req.sets.foldLeft(afterNodes) { (l, gid) =>
@@ -195,16 +193,16 @@ private[runtime] object Patches {
       renderer: Renderer,
       log: FragmentLog,
       gid: NodeId,
-      before: Map[String, EntityState],
-      states: Map[String, EntityState],
+      prev: Shared,
+      next: Shared,
       at: Long
   ): FragmentLog = {
-    def memberAt(snapshot: Map[String, EntityState]): Option[String] =
+    def memberAt(shared: Shared): Option[String] =
       renderer.surfaces
-        .resolveActiveByState(gid, snapshot)
+        .resolveActiveByState(gid, shared)
         .flatMap(renderer.surfaces.bakeGroup(gid).lift)
-    val was = memberAt(before)
-    val now = memberAt(states)
+    val was = memberAt(prev)
+    val now = memberAt(next)
     if (was == now) log
     else {
       // The departing branch is gone from the DOM, not just stale.
@@ -307,35 +305,108 @@ private[runtime] object Patches {
       cache: RenderCache,
       log: FragmentLog,
       holds: Map[NodeId, Held],
-      states: Map[String, EntityState],
-      // Asked only for this pull's reads; most ask none.
+      shared: Shared,
+      // The decisions' fetches, then this pull's reads; most ask none.
+      decisions: Set[SlotRead] => IO[FetchSnapshot],
       answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
       selections: Selections = Selections.none
-  ): IO[List[Addressed]] = {
+  ): IO[List[Addressed]] =
+    renderer
+      .decide(decisions) { run =>
+        val at = shared.asking(run)
+        val o = owing(renderer, log, at, v, open)
+        (
+          at,
+          o,
+          renderer.readsForPull(o.touchedIds, o.hosts, at, selections, env)
+        )
+      }
+      .flatMap { (at, o, reads) =>
+        answers(reads).flatMap(snapshot =>
+          patches(renderer, cache, holds, at, Viewing(selections, snapshot), o)
+        )
+      }
+
+  /** What a pull owes one client, as `shared` decides it. */
+  private final case class Owing(
+      owed: Resume,
+      memberMoves: List[(NodeId, Mutation)],
+      branch: List[(NodeId, Mutation)],
+      fromOpenIds: List[NodeId],
+      changed: List[NodeId],
+      touchedIds: List[NodeId],
+      hosts: List[NodeId]
+  )
+
+  private def owing(
+      renderer: Renderer,
+      log: FragmentLog,
+      shared: Shared,
+      v: Long,
+      open: Set[String]
+  ): Owing = {
     val all = log.since(v, renderer.ancestry)
     // Only what this client can see; the rest would cost only bytes.
     val owed = all.copy(
       moved = all.moved.filter { case (_, m) =>
-        renderer.surfaces.visibleNode(m.container, open, states)
+        renderer.surfaces.visibleNode(m.container, open, shared)
       },
-      refill = all.refill.filter(renderer.surfaces.visibleNode(_, open, states))
+      refill = all.refill.filter(renderer.surfaces.visibleNode(_, open, shared))
     )
     // A set needs sibling-preserving deltas; a state group's host holds one
     // member and is overwritten.
     val (memberMoves, branch) = owed.moved.partition { case (_, m) =>
       renderer.members.setContainer(m.container).isDefined
     }
+    // Dropped when a mutation or refill re-supplies an ancestor.
+    val fromOpenIds = open.toList
+      // `open` includes a tab panel inside a hidden `If`.
+      .filter(renderer.surfaces.visibleSurface(_, open, shared))
+      .flatMap(renderer.surfaceNodeIds)
+      .distinct
+      .filterNot(id =>
+        owed.nodes.contains(id) || owed.moved.exists(_._1 == id) ||
+          log.coveredByMutation(
+            id,
+            owed.moved.map(_._1).toSet ++ owed.refill,
+            renderer.ancestry
+          )
+      )
+      .sorted
+    val changed = owed.nodes
+      .filter(renderer.surfaces.visibleNode(_, open, shared))
+      // Document order among siblings, since ids are location-derived.
+      .sorted
+    // From the candidates, not the patches: a signal-only change emits no
+    // patch.
+    val touchedIds =
+      (changed ++ fromOpenIds ++ memberMoves.collect {
+        case (nodeId, _: Mutation.Placed) => nodeId
+      }).distinct
+    val hosts = (branch.map(_._2.container) ++ owed.refill).distinct
+    Owing(owed, memberMoves, branch, fromOpenIds, changed, touchedIds, hosts)
+  }
+
+  private def patches(
+      renderer: Renderer,
+      cache: RenderCache,
+      holds: Map[NodeId, Held],
+      shared: Shared,
+      viewing: Viewing,
+      o: Owing
+  ): IO[List[Addressed]] = {
+    import o.*
     val gone = memberMoves.collect { case (nodeId, _: Mutation.Gone) => nodeId }
     // Without the replay, a client away across a flip sits on an empty host.
-    def branchFills(fragments: FetchSnapshot) = branch
+    def branchFills = branch
       .groupBy { case (_, m) => m.container }
       .toList
       .sortBy(_._1)
       .flatMap { case (gid, entries) =>
-        val content = renderer.renderHost(gid, states, selections, fragments)
+        val content = renderer.renderHost(gid, shared, viewing)
         branchPatch(
           renderer,
           gid,
@@ -351,14 +422,14 @@ private[runtime] object Patches {
           )
         )
       }
-    def places(fragments: FetchSnapshot) = memberMoves
+    def places = memberMoves
       .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
       .groupBy { case (_, p) => p.container }
       .toList
       .sortBy(_._1)
       .flatTraverse { case (container, moves) =>
         renderer.members.setContainer(container).toList.flatTraverse { gid =>
-          val members = renderer.members.memberEntities(gid, states)
+          val members = renderer.members.memberEntities(gid, shared)
           val position = members.zipWithIndex.toMap
           moves
             // Still a member (it may have arrived and left while away).
@@ -370,7 +441,7 @@ private[runtime] object Patches {
             }
             .sortBy { case (_, _, at) => -at }
             .flatTraverse { case (nodeId, entityId, _) =>
-              placed(renderer, cache, nodeId, states, selections, fragments)
+              placed(renderer, cache, nodeId, shared, viewing)
                 .map(_.toList.flatMap { (html, claims) =>
                   List(
                     Addressed(Patch.Remove(renderer.elementId(nodeId))),
@@ -392,9 +463,9 @@ private[runtime] object Patches {
       }
     // History no longer reaches this cursor: fill the host, still far cheaper
     // than a body repaint.
-    def refills(fragments: FetchSnapshot) = owed.refill.sorted.map { gid =>
+    def refills = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
-      val content = renderer.renderHost(gid, states, selections, fragments)
+      val content = renderer.renderHost(gid, shared, viewing)
       Addressed(
         Patch.Insert(
           content.parts.map(_._2).mkString,
@@ -406,49 +477,26 @@ private[runtime] object Patches {
         else hostEvicts(renderer, renderer.hostId(gid))
       )
     }
-    // Dropped when a mutation or refill re-supplies an ancestor.
-    val fromOpenIds = open.toList
-      // `open` includes a tab panel inside a hidden `If`.
-      .filter(renderer.surfaces.visibleSurface(_, open, states))
-      .flatMap(renderer.surfaceNodeIds)
-      .distinct
-      .filterNot(id =>
-        owed.nodes.contains(id) || owed.moved.exists(_._1 == id) ||
-          log.coveredByMutation(
-            id,
-            owed.moved.map(_._1).toSet ++ owed.refill,
-            renderer.ancestry
-          )
-      )
-      .sorted
-    val changed = owed.nodes
-      .filter(renderer.surfaces.visibleNode(_, open, states))
-      // Document order among siblings, since ids are location-derived.
-      .sorted
-    // From the candidates, not the patches: a signal-only change emits no
-    // patch.
-    val touchedIds =
-      (changed ++ fromOpenIds ++ memberMoves.collect {
-        case (nodeId, _: Mutation.Placed) => nodeId
-      }).distinct
-    val hosts = (branch.map(_._2.container) ++ owed.refill).distinct
     for {
-      fragments <- answers(
-        renderer.readsForPull(touchedIds, hosts, states, selections, env)
-      )
       morphs <- changed.traverseFilter(
-        morph(renderer, cache, holds, states, selections, fragments, _)
+        morph(renderer, cache, holds, shared, viewing, _)
       )
       open <- fromOpenIds.traverseFilter(
-        morph(renderer, cache, holds, states, selections, fragments, _)
+        morph(renderer, cache, holds, shared, viewing, _)
       )
-      placed <- places(fragments)
-    } yield signalFrame(renderer, holds, states, fragments, touchedIds) ++
+      placed <- places
+    } yield signalFrame(
+      renderer,
+      holds,
+      shared,
+      viewing.fragments,
+      touchedIds
+    ) ++
       morphs ++ open ++
       gone.toList.sorted.map(id =>
         Addressed(Patch.Remove(renderer.elementId(id)))
       ) ++
-      branchFills(fragments) ++ placed ++ refills(fragments)
+      branchFills ++ placed ++ refills
   }
 
   /** The batch's one signal frame (ADR 0017), diffed against `holds`. First,
@@ -458,7 +506,7 @@ private[runtime] object Patches {
   private def signalFrame(
       renderer: Renderer,
       holds: Map[NodeId, Held],
-      states: Map[String, EntityState],
+      shared: Shared,
       fragments: FetchSnapshot,
       ids: List[NodeId]
   ): List[Addressed] = {
@@ -472,7 +520,7 @@ private[runtime] object Patches {
       val held = holds.get(id).fold(Map.empty[SignalId, SlotValue])(_.signals)
       val nodeB = Map.newBuilder[SignalId, SlotValue]
       var nodeMoved = false
-      renderer.signalsFor(id, states, fragments).foreach { case (name, value) =>
+      renderer.signalsFor(id, shared, fragments).foreach { case (name, value) =>
         if (!held.get(name).contains(value)) {
           // A JSON boolean: the string `"false"` is truthy in every binding.
           payload += ((
@@ -499,12 +547,11 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       holds: Map[NodeId, Held],
-      states: Map[String, EntityState],
-      selections: Selections,
-      fragments: FetchSnapshot,
+      shared: Shared,
+      viewing: Viewing,
       id: NodeId
   ): IO[Option[Addressed]] =
-    bytes(renderer, cache, id, states, selections, fragments).map(_.flatMap {
+    bytes(renderer, cache, id, shared, viewing).map(_.flatMap {
       case NodeBytes(html, digest) =>
         Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
           Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
@@ -518,26 +565,20 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
-      states: Map[String, EntityState],
-      selections: Selections,
-      fragments: FetchSnapshot
+      shared: Shared,
+      viewing: Viewing
   ): IO[Option[NodeBytes]] =
-    renderer.renderInputs(id, states, fragments) match {
+    renderer.renderInputs(id, shared, viewing.fragments) match {
       case Some(inputs) =>
         cache(
           id,
           renderer,
           inputs,
-          renderer.byteSlotValues(id, states, fragments)
+          renderer.byteSlotValues(id, shared, viewing.fragments)
         )(
           IO(
             mustRender(
-              renderer.renderNodeById(
-                id,
-                states,
-                selections,
-                fragments = fragments
-              ),
+              renderer.renderNodeById(id, shared, viewing),
               id
             )
           )
@@ -545,7 +586,7 @@ private[runtime] object Patches {
       case None =>
         IO(
           renderer
-            .renderNodeById(id, states, selections, fragments = fragments)
+            .renderNodeById(id, shared, viewing)
             .map(NodeBytes.of)
         )
     }
@@ -558,18 +599,17 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
-      states: Map[String, EntityState],
-      selections: Selections,
-      fragments: FetchSnapshot
+      shared: Shared,
+      viewing: Viewing
   ): IO[Option[(String, Map[NodeId, Held])]] =
     if (renderer.memberIsTarget(id))
-      bytes(renderer, cache, id, states, selections, fragments).map(
+      bytes(renderer, cache, id, shared, viewing).map(
         _.map(b => b.html -> Map(id -> Held.bytes(b.digest)))
       )
     else
       IO(
         renderer
-          .renderMemberTraced(id, states, selections, fragments)
+          .renderMemberTraced(id, shared, viewing)
           .map(t => t.html -> t.claims)
       )
 
@@ -603,12 +643,11 @@ private[runtime] object Patches {
       renderer: Renderer,
       host: DomId,
       arriving: Option[String],
-      states: Map[String, EntityState],
-      selections: Selections,
-      fragments: FetchSnapshot
+      shared: Shared,
+      viewing: Viewing
   ): Option[(Addressed, String)] =
     arriving
-      .flatMap(renderer.renderSurfaceTraced(_, states, selections, fragments))
+      .flatMap(renderer.renderSurfaceTraced(_, shared, viewing))
       .map { t =>
         (
           Addressed(
@@ -628,18 +667,16 @@ private[runtime] object Patches {
     */
   private[runtime] def repaint(
       renderer: Renderer,
-      states: Map[String, EntityState],
-      selections: Selections,
-      fragments: FetchSnapshot
+      shared: Shared,
+      viewing: Viewing
   ): (List[SseFrame], Map[NodeId, Held]) = {
-    val body = renderer.renderBodyTraced(states, selections, fragments)
+    val body = renderer.renderBodyTraced(shared, viewing)
     val popup = hostFill(
       renderer,
       Dashboard.PopupHostId,
-      selections.popup,
-      states,
-      selections,
-      fragments
+      viewing.selections.popup,
+      shared,
+      viewing
     ).map(_._1)
     (
       Datastar.patch(body.html, PatchMode.Inner, Some("#dashboard")) ::

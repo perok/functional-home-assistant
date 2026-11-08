@@ -23,26 +23,27 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
 
 ## The decision
 
-1. **The tier is the transform's FORM, not a spelling.** A slot's `transform`
-   is ONE wire fact with two forms: a bare JSON string (a CEL expression — the
-   engine tier) or a `Simple` structure as a JSON object (the fast tier). The
-   form IS the tier selection; there is no recognition machinery at all, and
-   nothing else on the slot describes its tier.
+1. **The tier is each step's FORM, not a spelling.** A slot's value is a source and the steps run
+   on it in order (`ValueExpr`, ADR 0006). A step is `Cel` (the engine tier) or one of the
+   `Step.Simple` cases (the fast tier), each an object whose `kind` names it. The form IS the tier
+   selection; there is no recognition machinery at all.
 
-   **A condition is a `Simple` structure.** The `Predicate` a `c.iff`, a candidate set's guard
-   or a boolean input takes (`Cmp`, `And`/`Or`/`Not`, `Count`, `First`) is the tier's bool half,
-   so `transform = q.entity(e).stateIs("on")` is decided by `Conditions`, the one interpreter,
-   with no wrapper object and no CEL. In Scala, `Transform.Simple` is `Simple.Value | Predicate`:
-   one decoder, one key and one interpreter (`Transform.runSimpleValue`) over both halves.
+   **A condition is the tier's bool half.** What a `c.iff`, a candidate set's guard or a boolean
+   input takes is a bool `ValueExpr`, and the library writes one of simple steps: a read and
+   `Compare`, `Not`, `AllOf`/`AnyOf` over a `List`, `Count`/`First` over a list of ids. CEL is
+   allowed there too (ADR 0035), but only an author writes it. So `q.entity(e).stateIs("on")` is
+   decided with no CEL, by the one evaluator that fills every slot (ADR 0035); `core/predicate.pkl`'s classes (`Cmp`, `PAnd`, …) are how Pkl writes
+   one.
 
-   **The library writes no CEL the author did not.** A slot's default transform is
-   `simple.state()`, an attribute with its unit is `AttrUnit`, a boolean input's condition is its
-   slot's transform (ADR 0034), and `c.select` reads its current option with a `Cmp` and its label
+   **The library writes no CEL the author did not.** A slot's default reading is the state, an
+   attribute with its unit is the attribute and a `WithUnit` step, a boolean input's condition is
+   its slot's source (ADR 0034), and `c.select` reads its current option with a `Cmp` and its label
    with a `Match`. CEL the library writes on purpose stays CEL: the clock, the slider's composed
    readouts, the colour wheel's hue, more-info's attribute list, the bar's history peak.
 2. **A shape joins the catalog when it is a STATIC LOOKUP and TOTAL** — decided entirely at
    build time, and defined over every value a live entity can produce. Today that is
-   `state`, `attr`, `suffixUnit`, `prefix`, `suffix`, `match`, `percent`, `fill`, `duration`.
+   `Prefix`, `Suffix`, `WithUnit`, `Percent`, `Fill`, `Duration`, `Match` and `Count`, over a
+   source that reads the state, an attribute, a condition or the candidates present.
 
    Totality is the load-bearing half, and it is why the rule is not "the hot shapes". CEL's
    `double(state)` ERRORS on `unknown`, and a CEL error renders as its own message — on a wall
@@ -60,8 +61,8 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    live value drives beyond a comparison — is CEL, explicitly. That is what keeps this from
    growing back into a micro-language.
 
-   **Every read is of the slot's entity unless it names another** (`entity`, as a `Cmp` already
-   did). A named entity joins the slot's live entities, so it wakes the slot, and ADR 0023's
+   **Every read is of the slot's entity unless it names another** (`Value.Entity.of`, as a `Cmp`
+   already did); a step's operand is a value too, a literal or a read. A named entity joins the slot's live entities, so it wakes the slot, and ADR 0023's
    bound; one the store does not hold reads as an empty state, the shape's absent form. Reading
    one entity was a limit of CEL's bindings, not of the shapes.
 
@@ -91,8 +92,8 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    be invented precision that ticks in jumps. That is a rendering decision the catalog owns, so
    every card renders a duration the same way.
 
-   `match` is a lookup — `Map[String, SlotValue]` plus an `otherwise` — over a `property` (the
-   state unless it says `attr:<name>`), and it REPLACED the
+   `match` is a lookup — `Map[String, Lit]` plus an `otherwise` — over the value before it,
+   whatever the source read, and it REPLACED the
    two-armed `enum`, which is `match` with one entry. The count did not move, and the shapes it
    bought are ones no two-armed test could reach: HA's `isWaiting` (three states, one value), a
    state-derived icon class (arms to different values), and a `jammed` look. A `Map` rather than
@@ -118,88 +119,70 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    has no label for shows as itself. That is spelled, not implied — an absent `otherwise` meaning
    "the read" was built and dropped, because forgetting one then showed raw states silently and
    turned a boolean match into text. A read there is text, so it counts as a String arm.
-3. **`kind` names the shape, `op` the operator, and both levels are derived.** Pkl writes
-   `{kind: "Op", op: "Percent", attribute, min, max}` and `{kind: "Match", cases, otherwise}`,
-   each the Scala case name, as every discriminator on the wire is (ADR 0006); any other `kind`
-   is a condition's. They are two
-   fields because they answer two questions, and `kind` is the spelling `LayoutNode` and
-   `Predicate` already use. In Scala, `Transform.Simple` is a sealed trait
-   holding `Simple.Op`, an enum of the operators whose decoder is derived with discriminator
-   `op`, and `Simple.Match`, a derived case class. The operator cases are exported onto `Simple`,
-   so code still says `Simple.Percent`.
-
-   The one hand-written line picks the level: it reads `kind` and hands the object to the `Op`,
-   `Match` or `Predicate` decoder. circe's Scala 3 derivation cannot do it, because it flattens a nested sum
-   to its innermost case, so the outer discriminator would have to name the operator
-   (circe#2110, fixed that way by circe#2156). The other hand-written instance is for
-   `SlotValue`, a union circe can't derive. It tries BOOLEAN first: `Decoder[String]` fails on a
-   JSON boolean, and the narrower type goes first.
+3. **`kind` names the step, derived.** Pkl writes `{kind: "Percent", min, max}` and
+   `{kind: "Match", cases, otherwise}`, each the Scala case name, as every discriminator on the
+   wire is (ADR 0006). In Scala, `Step` is a sealed trait over `Cel`, `Simple` (the fast tier,
+   `Count` included) and `Stage` (`Chart`, `ThemeClasses`, which the renderer runs), derived with
+   discriminator `kind`; circe's Scala 3 derivation flattens the nested sums to their cases, which
+   is the one-level wire wanted.
 
    Decoding straight into the runtime type, with no flatter wire form parsed afterwards, is what
    keeps these three:
 
-   - The renderer keeps an **exhaustive match**, which is what stops a new shape quietly
-     skipping the parity suite. Matching on a `String` operator would let one fall through to a
-     default, green and unproven.
-   - **No evaluation pays a map lookup** for an argument it could have read off a field.
+   - The evaluator keeps an **exhaustive match**, which is what stops a new step quietly skipping
+     its tests. Matching on a `String` operator would let one fall through to a default, green
+     and unproven.
+   - **No evaluation pays a map lookup** for an argument it could have read off a field; a
+     reading is compiled into one closure per consumer (`Evaluator.compile`).
    - A malformed structure is a **build-time failure naming the dashboard** rather than a slot
-     that renders blank forever: a missing field, an unknown `kind` or an unknown `op` fails the
+     that renders blank forever: a missing field, an unknown field or an unknown `kind` fails the
      decode, with its JSON path.
 
-   In Pkl, each operator is a class of its own, named as its `Simple.Op` case and extending an
-   abstract `SimpleValue` that fixes `kind`; its `op` is that same name. Each class requires
-   exactly the fields its operator reads, so no argument is optional, and `WireShapeSuite` checks
-   every class's fields and `op` against its Scala case. The `const function` constructors in `core/simple.pkl` are still the door
-   authors use. `match` keeps a class of its own, because its payload is a Mapping whose arms
-   may be Boolean.
+   In Pkl, each step is a class of its own in `core/simple.pkl`, named as its case (`CountStep`
+   and `ThemeClassesStage` where a bare name would clash), and requires exactly the fields it
+   reads, so no argument is optional; `WireShapeSuite` checks every class's fields and `kind`
+   against its Scala case. The `const function` constructors are still the door authors use.
 
    Rejected: a `params` map beside one String `value`. It needed a hand-written step after
    decoding, numeric strings included, and a decoder should only decode (#607); a field per
-   argument needs no parser. `value` also meant an attribute for some operators and literal text
-   for others, which is why the fields are now `attribute` and `literal`. Also rejected:
-   - one `SimpleValue` class holding every operator's fields as optional, which Pkl could not
-     check and `WireShapeSuite` could not compare with any single Scala case;
-   - one `kind` per operator, which derives with no hand-written line but makes one field answer
-     both questions.
-4. **Each shape is defined on its own terms**, on its Scala case, and must be total. Where one
-   has an idiomatic CEL spelling it is documented there, and `TransformSuite`'s battery evaluates
-   that spelling through the engine, asserting **byte-equality with the fast read over the
-   hostile sweep**, so a shape and the CEL an author would write never disagree. A shape with no
-   CEL spelling — a named entity, a condition, `AttrUnit` (a number plus a string errors) — is
-   held by tests of its own. The mapping is a test suite, not a runtime mechanism.
+   argument needs no parser. Also rejected: one class holding every step's fields as optional,
+   which Pkl could not check and `WireShapeSuite` could not compare with any single Scala case.
+4. **Each step is defined on its own terms**, on its Scala case, and must be total. Where one has
+   an idiomatic CEL spelling it is documented there, and `StepsSuite`'s battery evaluates that
+   spelling through the engine, asserting **byte-equality with the fast read over the hostile
+   sweep**, so a step and the CEL an author would write never disagree. A step with no CEL
+   spelling — an operand naming an entity, `WithUnit` over a number (a number plus a string
+   errors), `Count` — is held by tests of its own. The mapping is a test suite, not a runtime mechanism.
 5. **No engine fallback: the opted-in tier owns its values.** Where the engine would ERROR on a
    mistyped value (`double("on")`, `' ' + 5`), the structure renders its absent-value form
    (`"0 %"`/`"100%"`, the state alone). The numeric domain of percent/fill mirrors `double()` —
    numbers and parseable strings — so plausible values still agree byte-for-byte. Each divergence
    is documented on its case and pinned in the suite's divergence tests.
-6. **Naming keys on the structure.** Signal names and the once-cache hash `Transform.Simple.key`
-   (`attr:brightness`, `percent:brightness:1.0:255.0`, `@sensor.b:attr:battery` for a named
-   entity, `p:cmp(…)` for a condition, as an expression value's key spells it) — injective by
-   construction, independent of any spelling, and never valid CEL, so no key is a CEL
-   transform's. `simple.state()` and the CEL `state` share `state`, as they share every value. `match` is the one case whose key is LENGTH-PREFIXED: its siblings can join on
-   `:` because their arity is fixed, and a variable-arity map joined that way would let a
-   separator inside a key forge a different map. A collision is two transforms sharing one
-   signal, so injectivity here is not a nicety.
+6. **Naming keys on the structure.** Signal names and the once-cache hash `ValueExpr.key`, the
+   source's key and each step's (`attr:brightness|percent(lit:d:1.0,lit:d:255.0)`,
+   `@sensor.b:attr:battery` for an operand naming an entity, `p:…` for a condition) — injective by
+   construction and independent of any spelling. A plain state read keys as `state`, which the
+   signal path spells out. Free text is LENGTH-PREFIXED (a CEL source, `match`'s map): a
+   fixed-arity step can join on `:`, and a variable-arity one joined that way would let a
+   separator inside a key forge another. A collision is two values sharing one signal, so
+   injectivity here is not a nicety.
 7. **Authoring is a namespace: `core/simple.pkl`** (the `c.tap` module-as-namespace pattern, typed
-   facade re-export `c.simple`). `Slot.transform` takes the structures; `labelSlot`/`valueSlot`/
-   `secondarySlot` accept a Simple beside `String`/`Expr`. The components opt in: the slider's
+   facade re-export `c.simple`). `Reading.steps` takes the steps; `labelSlot`/`valueSlot`/
+   `secondary` accept a reading beside `String` (`c.expr` is one). The components opt in: the slider's
    `value`/`percent`/`fill` slots and its default state readout, `control`'s two state matches, and
-   `slot.pkl`'s own auto-unit value and guarded secondary read, the default transform, and every
+   `slot.pkl`'s own auto-unit value and guarded secondary read, the default reading, and every
    boolean input's condition. The slider's `percentExpr`/
    `valueExpr`/`minExpr`/`maxExpr` stay CEL strings deliberately — they are the splice surface for
    composed readouts, which no atomic shape covers.
-8. **Validate stays the one gate.** A Simple structure is checked structurally
-   — degenerate ranges (the check the recognizer's `range()` used to own) are
-   build errors — and a CEL string must compile, located like any bad
-   expression. Both tiers are validated by the same pass.
+8. **Validate stays the one gate.** A simple step is checked structurally — degenerate ranges are
+   build errors — and a CEL step must compile, located like any bad expression. Every step's type
+   is checked in order (`ValueType`), so a `Percent` after a list fails the build. Both tiers are
+   validated by the same pass.
 
 ## Consequences
 
-- **The wire changed once, deliberately**: an opted-in slot carries the
-  structure AS its `transform` — an object where a CEL string used to sit.
-  (The first cut shipped the structure as a parallel `simple` field beside the
-  untouched string default; review collapsed it into the one union fact, the
-  shape the design always named.) Snapshots regenerated and read.
+- **The wire carries the structure**: an opted-in slot's steps are objects where a CEL string
+  would sit. Snapshots regenerated and read.
 - **Rendered bytes are unchanged for every well-typed value.** The only visible change is the
   documented one: a mistyped value now renders the absent-value form instead of the engine's error
   text — visible diagnosis traded for tier ownership, pinned in the suite.

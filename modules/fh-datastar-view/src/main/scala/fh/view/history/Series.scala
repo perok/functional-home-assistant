@@ -16,7 +16,7 @@ import scala.jdk.CollectionConverters.*
   * across it. A real gap would be a null point, through the downsampler and the
   * chart, which is not done yet.
   *
-  * The JSON is the history provider's answer, and the passthrough contract a
+  * The JSON is the history provider's answer, and the `json` stage's contract a
   * component's own chart library reads against; the chart stage decodes it
   * rather than taking a typed value so the two cannot drift.
   */
@@ -55,9 +55,9 @@ object Series {
 
   val empty: Series = Series(Vector.empty)
 
-  /** An answer as CEL reads it (`ExprValue.Kind.Series`): `[epochMillis,
-    * value]` doubles. One that does not decode, a failed read's `""` included,
-    * has no points.
+  /** An answer as CEL reads it (`ValueType.Series`): `[epochMillis, value]`
+    * doubles. One that does not decode, a failed read's `""` included, has no
+    * points.
     */
   def celPoints(
       json: String

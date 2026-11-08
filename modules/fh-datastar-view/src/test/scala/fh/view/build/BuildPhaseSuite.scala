@@ -1,21 +1,31 @@
 package fh.view.build
 
+import fh.view.testkit.Conds
+
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Cell,
   Dashboard,
   LayoutNode,
+  Lit,
   Op,
-  Predicate,
   Region,
-  SlotSource,
+  SignalBind,
+  SlotType,
+  Step,
+  Value,
+  ValueExpr,
+  TemplateSlot,
   Surface,
   VarAt
 }
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.DashboardBuilders.{classes, declared}
 import io.circe.{parser, Json}
+
+import scala.collection.immutable.ListMap
 
 class BuildPhaseSuite extends munit.FunSuite {
 
@@ -83,7 +93,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   private def oneCard(
       template: String,
-      slots: Map[String, SlotSource],
+      slots: Map[String, TemplateSlot],
       regions: Map[String, Region] = Map.empty,
       filled: Map[String, List[LayoutNode]] = Map.empty
   ): List[String] =
@@ -92,10 +102,11 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card" -> CardDef(template, regions = regions),
         "leaf" -> CardDef("<i></i>")
       ),
-      card = LayoutNode.Component("card", slots = slots, regions = filled)
+      card =
+        LayoutNode.Component("card", templateSlots = slots, regions = filled)
     ).validate()
 
-  private val text = SlotSource(literal = Some("x"))
+  private val text = TemplateSlot(ValueExpr.literal("x"))
 
   test("validate: a slot no template name reads is reported") {
     val errs =
@@ -108,9 +119,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("never reads slots: round")), clue = errs)
   }
 
-  test("validate: a derived name reads its slot; the route is the server's") {
+  test("validate: a view reads its slot; the route is the server's") {
     val errs = oneCard(
-      "<b {{{label__bind}}}></b>",
+      "<b {{{label.bind}}}></b>",
       Map(
         "label" -> text,
         Dashboard.ServiceSlot -> text,
@@ -118,6 +129,52 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
     assertEquals(errs, Nil)
+  }
+
+  test("validate: an unknown view is named") {
+    val errs = oneCard(
+      "<b {{{label.bnid}}}>{{label}}</b>",
+      Map("label" -> text)
+    )
+    assert(errs.exists(_.contains("reads 'label.bnid'")), clue = errs)
+  }
+
+  test("validate: a binding inside a section on its own value is rejected") {
+    def errs(tpl: String) = oneCard(tpl, Map("icon" -> text))
+    assert(
+      errs("{{#icon}}<i {{{icon.bind}}}></i>{{/icon}}")
+        .exists(_.contains("guard it with {{#icon.has}}")),
+      clue = errs("{{#icon}}<i {{{icon.bind}}}></i>{{/icon}}")
+    )
+    assertEquals(
+      errs("{{#icon.has}}<i {{{icon.bind}}}>{{icon}}</i>{{/icon.has}}"),
+      Nil
+    )
+  }
+
+  test("validate: x.signal is refused outside a section on x.signal") {
+    val unguarded = "places {{x.signal}} outside {{#x.signal}}"
+    // The rule reads the template alone: a signal slot is held to it too.
+    val signal = TemplateSlot(
+      ValueExpr(Value.Entity(Some("light.a"))),
+      signal = Some(SignalBind.Handler)
+    )
+    def placed(tpl: String) =
+      oneCard(s"<b>{{x}}</b>$tpl", Map("x" -> signal))
+        .filter(_.contains(unguarded))
+    val write = "<i data-on:x=\"${{x.signal}} = 1\"></i>"
+    val under = (s: String) => s"{{$s}}$write{{/${s.drop(1)}}}"
+    assertEquals(placed(write).length, 1)
+    assertEquals(placed(under("#x.signal")), Nil)
+    assertEquals(placed(s"{{#flag}}${under("#x.signal")}{{/flag}}"), Nil)
+    // Only its own, not inverted: anything else could still print nothing.
+    for s <- List("#flag", "#x.has", "#x", "^x.signal", "#y.signal") do
+      assertEquals(placed(under(s)).length, 1, clue = s)
+  }
+
+  test("validate: a slot name with a '.' is rejected") {
+    val errs = oneCard("<b>{{a}}</b>", Map("a" -> text, "a.b" -> text))
+    assert(errs.exists(_.contains("slot 'a.b' has a '.'")), clue = errs)
   }
 
   test("validate: a region is placed once, as {{{name}}}, outside sections") {
@@ -165,7 +222,14 @@ class BuildPhaseSuite extends munit.FunSuite {
     def cel(src: String) =
       oneCard(
         "{{v}}",
-        Map("v" -> SlotSource(Some("sensor.t"), transform = src))
+        Map(
+          "v" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel(src))
+            )
+          )
+        )
       )
     assert(
       cel("[1, 2]").exists(_.contains("yields a list")),
@@ -175,8 +239,53 @@ class BuildPhaseSuite extends munit.FunSuite {
       cel("{'a': 1}").exists(_.contains("yields a map")),
       clue = cel("{'a': 1}")
     )
-    assertEquals(cel("attr['x']"), Nil)
-    assertEquals(cel("num(state) * 2.0"), Nil)
+    assertEquals(cel("value.attr['x']"), Nil)
+    assertEquals(cel("num(value.state) * 2.0"), Nil)
+  }
+
+  test("validate: a text step takes text, a number or dyn, nothing else") {
+    val x: Value.Operand = Value.Literal(Lit.Text("x"))
+    val e = Some("sensor.t")
+    def errs(source: Value, step: Step) =
+      oneCard("{{v}}", Map("v" -> TemplateSlot(ValueExpr(source, List(step)))))
+    for step <- List(Step.Prefix(x), Step.Suffix(x), Step.WithUnit(x)) do
+      for src <- List(
+          Value.Entity(e, Part.State),
+          Value.Entity(e, Part.Attr("x")),
+          Value.Literal(Lit.Whole(2))
+        )
+      do assertEquals(errs(src, step), Nil, clue = (step, src))
+      for src <- List(
+          Value.Entity(e, Part.Whole),
+          Value.Present(Nil, Map.empty),
+          Value.Literal(Lit.Bool(true))
+        )
+      do
+        assert(
+          errs(src, step).exists(_.contains("takes a number or text")),
+          clue = (step, src, errs(src, step))
+        )
+  }
+
+  test("validate: a literal is checked against its slot's type") {
+    def errs(l: Lit, t: SlotType) =
+      oneCard(
+        if t == SlotType.Bool then "{{#v}}on{{/v}}" else "{{v}}",
+        Map("v" -> TemplateSlot(ValueExpr(Value.Literal(l)), `type` = t))
+      )
+    // A bool literal becomes text at a text slot, as a bool reading does.
+    for (l, t) <- List(
+        Lit.Bool(true) -> SlotType.Bool,
+        Lit.Bool(true) -> SlotType.Text,
+        Lit.Text("x") -> SlotType.Text,
+        Lit.Whole(2) -> SlotType.Text
+      )
+    do assertEquals(errs(l, t), Nil, clue = (l, t))
+    for (l, t) <- List(
+        Lit.Text("x") -> SlotType.Bool,
+        Lit.Whole(1) -> SlotType.Bool
+      )
+    do assert(errs(l, t).exists(_.contains("literal, which a")), clue = (l, t))
   }
 
   test("validate names a surface's node by the id it renders with") {
@@ -208,12 +317,41 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> CardDef("""<div>x</div>""")),
       card = LayoutNode.Component(
         card = "card",
-        cell = Some(Cell(classes = List("fh-cols-3", """bad"><script""")))
+        cell = Some(classes("fh-cols-3", """bad"><script"""))
       )
     )
     val errs = d.validate()
     assert(errs.exists(_.contains("cell class")), clue = errs)
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
+  }
+
+  test("validate takes a set's literal cell classes and refuses any reading") {
+    // A set has no slots to bind a reading with, so the wire alone could ask.
+    val reading = ValueExpr(Value.Entity(Some("light.a")))
+    val cell = Cell(
+      classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
+      styles = ListMap("--x" -> reading)
+    )
+    val errs = Dashboard(
+      cards = Map("card" -> CardDef("<i></i>")),
+      card = LayoutNode.SetNode(cell = Some(cell))
+    ).validate()
+    assert(errs.exists(_.contains("cell class 'fh-on' reads state")), errs)
+    assert(errs.exists(_.contains("cell style '--x' reads state")), errs)
+    assert(!errs.exists(_.contains("fh-cols-3")), errs)
+  }
+
+  test("validate refuses a literal cell style, which nothing would write") {
+    // A literal class is written as it is; a literal style is no cell slot.
+    val cell = Cell(styles = ListMap("--x" -> ValueExpr.literal("1")))
+    val errs = Dashboard(
+      cards = Map("card" -> CardDef("<i></i>")),
+      card = LayoutNode.Component("card", cell = Some(cell))
+    ).validate()
+    assert(
+      errs.exists(_.contains("cellStyle '--x' must read live state")),
+      errs
+    )
   }
 
   /** `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
@@ -230,7 +368,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                 "regions": { "children": [
                   { "kind": "Component", "card": "card" },
                   { "kind": "Component", "card": "button"$idField,
-                    "slots": { "onclick": "open @@NODE_ID@@_self" },
+                    "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                     "inlineSurfaces": { "self": {
                       "content": { "kind": "Component", "card": "card" } } } }
                 ] } } }
@@ -274,7 +412,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
                   { "node": { "kind": "Component", "card": "tile",
-                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } } }
                 ] } } }
@@ -342,14 +480,14 @@ class BuildPhaseSuite extends munit.FunSuite {
                       "regions": {
                         "actions": [
                           { "kind": "Component", "card": "sliderAction",
-                            "slots": { "onclick": "open @@NODE_ID@@_self" },
+                            "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                             "inlineSurfaces": { "self": {
                               "content": { "kind": "Component", "card": "card" } } } }
                         ] } }
                   ],
                   "children": [
                     { "kind": "Component", "card": "slider",
-                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } }
                   ] } }
@@ -379,7 +517,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       " }"
 
   private def tokenAt(name: String): String =
-    s""", "slots": { "g": "${DashboardBuild.declarerToken(name)}" }"""
+    s""", "templateSlots": { "g": "${DashboardBuild.declarerToken(name)}" }"""
 
   private def hoistCard(card: String, surfaces: String = "{}"): Json =
     DashboardBuild.hoistInlineSurfaces(
@@ -525,7 +663,7 @@ class BuildPhaseSuite extends munit.FunSuite {
               { "kind": "Component", "card": "button",
                 "params": { "label": "More" },
                 "entities": [],
-                "slots": { "onclick": { "entity": "",
+                "templateSlots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
                   "content": { "kind": "Component", "card": "card" } } } }
@@ -553,7 +691,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(
       trigger
-        .downField("slots")
+        .downField("templateSlots")
         .downField("onclick")
         .get[String]("transform")
         .toOption,
@@ -582,12 +720,12 @@ class BuildPhaseSuite extends munit.FunSuite {
         {
           "cards": {},
           "card": {
-            "kind": "Component", "card": "tabs", "entities": [], "slots": {},
+            "kind": "Component", "card": "tabs", "entities": [], "templateSlots": {},
             "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
             "regions": { "children": [
               { "kind": "Component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
-                "slots": { "onclick": { "entity": "",
+                "templateSlots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ] },
             "inlineSurfaces": {
@@ -636,7 +774,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(
       first
-        .downField("slots")
+        .downField("templateSlots")
         .downField("onclick")
         .get[String]("transform")
         .toOption,
@@ -682,15 +820,14 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     // No quantifier: the condition names the entities it reads.
     val cond =
-      """{ "kind": "Cmp", "property": "state", "op": "eq", "value": "on",
-         |  "entity": "light.a" }""".stripMargin
+      """{ "source": { "kind": "Entity", "of": "light.a" },
+         |  "steps": [{ "kind": "Compare", "op": "eq", "to": "on" }] }""".stripMargin
     assertEquals(
       surface(
         s"""{ "kind": "State", "condition": $cond }"""
       ).toOption.get.activation,
       Activation.State(
-        Predicate
-          .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
+        Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
       )
     )
   }
@@ -707,8 +844,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         activation = activation
       )
     val state = Activation.State(
-      Predicate
-        .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
+      Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
     )
     val mixed = Dashboard(
       // The bake target must declare the region its surfaces name.
@@ -789,7 +925,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate rejects a state condition that names no entity") {
-    def dash(condition: Predicate) = Dashboard(
+    def dash(condition: ValueExpr) = Dashboard(
       // The bake target must declare the region its surfaces name.
       cards = Map(
         "ok" -> CardDef(
@@ -804,14 +940,14 @@ class BuildPhaseSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(condition)
+          activation = Activation.State(Some(condition))
         )
       )
     )
-    val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+    val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
     // A surface supplies no subject, so this would mean "some entity in the
     // house is on". Rejected anywhere in the tree.
-    for (c <- List(on, Predicate.Not(on), Predicate.And(List(on))))
+    for (c <- List(on, Conds.not(on), Conds.and(List(on))))
       assert(
         dash(c).validate().exists(_.contains("unnamed entity")),
         clue = dash(c).validate()
@@ -819,15 +955,103 @@ class BuildPhaseSuite extends munit.FunSuite {
 
     // A candidate's guards are bound by their candidate; the empty conjunction
     // is an `else`.
-    val named = on.copy(entity = Some("light.a"))
-    val count = Predicate.Count(
+    val named =
+      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+    val count = Conds.count(
       candidates = List("light.a"),
       when = Map("light.a" -> on),
       op = Op.Gt,
       value = Json.fromInt(0)
     )
-    for (c <- List(named, count, Predicate.And(Nil), Predicate.Or(List(count))))
+    // CEL decides as a condition does: a step on a read, or a source over its
+    // own inputs.
+    val celStep =
+      ValueExpr(Value.Entity(Some("light.a")), List(Step.Cel("value == 'on'")))
+    val celSource = ValueExpr(
+      Value.Cel(
+        "x == 'on'",
+        Map("x" -> ValueExpr(Value.Entity(Some("light.a"))))
+      )
+    )
+    for (
+      c <- List(
+        named,
+        count,
+        Conds.and(Nil),
+        Conds.or(List(count)),
+        celStep,
+        celSource,
+        Conds.and(List(celStep, named))
+      )
+    )
       assertEquals(dash(c).validate(), Nil, clue = c)
+  }
+
+  test("validate refuses a clause or a state surface that does not decide") {
+    // A wire Pkl never writes, so only a hand-built one reaches this.
+    val text = ValueExpr(Value.Entity(Some("light.a")))
+    val viaCel = ValueExpr(Value.Cel("'on'"))
+    val ok = Map(
+      "ok" -> CardDef(
+        "<i>{{{branch}}}</i>",
+        regions = Map("branch" -> Region(Region.Baked))
+      )
+    )
+    val set = Dashboard(
+      cards = ok,
+      card = LayoutNode.SetNode(
+        candidates = List("light.a"),
+        members = Map(
+          "light.a" -> LayoutNode.SetMember(
+            List(LayoutNode.SetClause(Some(text), LayoutNode.Component("ok")))
+          )
+        )
+      )
+    )
+    assert(
+      set
+        .validate()
+        .exists(_.contains("a clause of 'light.a' does not decide")),
+      clue = set.validate()
+    )
+    def clause(when: ValueExpr) = set.copy(card = set.card match
+      case s: LayoutNode.SetNode =>
+        s.copy(members =
+          s.members.view
+            .mapValues(m =>
+              m.copy(clauses = m.clauses.map(_.copy(when = Some(when))))
+            )
+            .toMap
+        )
+      case other => other)
+    val celClause =
+      ValueExpr(Value.Entity(Some("light.a")), List(Step.Cel("value == 'on'")))
+    assertEquals(clause(celClause).validate(), Nil)
+    assert(
+      clause(viaCel)
+        .validate()
+        .exists(_.contains("a clause of 'light.a' does not decide")),
+      clue = clause(viaCel).validate()
+    )
+    val surface = Dashboard(
+      cards = ok,
+      card = LayoutNode.Component("ok"),
+      surfaces = Map(
+        "a" -> Surface(
+          LayoutNode.Component("ok"),
+          bakeInto = Some("c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(Some(viaCel))
+        )
+      )
+    )
+    assert(
+      surface
+        .validate()
+        .exists(_.contains("a condition is a bool, not text")),
+      clue = surface.validate()
+    )
   }
 
   /** A missing region fails as `danglingBakes` describes for a missing node: an
@@ -887,7 +1111,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(
       DashboardBuild.unresolvedTokens(
         json(
-          """{"card":{"slots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
+          """{"card":{"templateSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
             | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
         )
       ),
@@ -941,7 +1165,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("ok" -> CardDef("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
-        slots = Map("label" -> SlotSource(literal = Some("x")))
+        templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal("x")))
       ),
       surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
     )
@@ -959,7 +1183,14 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> CardDef("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
-        slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
+        templateSlots = Map(
+          "state" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("e.x"), Part.Whole),
+              List(Step.Cel("'unclosed"))
+            )
+          )
+        )
       )
     )
     assert(

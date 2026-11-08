@@ -105,7 +105,7 @@ the part of ADR 0001 that carries over unchanged.
 A lock needs `lock/unlock` when locked and `lock/lock` when not, so its service
 is genuinely not a build-time literal. Three shapes were weighed:
 
-- **(a) a conditional transform** on the click slot — `state == 'locked' ? … : …`;
+- **(a) a conditional transform** on the click slot — `value.state == 'locked' ? … : …`;
 - **(b) a server-side intent route** (`POST /sse/toggle/<entity_id>`) resolving
   domain + state in Scala;
 - **(c) both**, literals where a real `toggle` exists and a route where it does not.
@@ -123,7 +123,7 @@ conditional — that is the trigger to watch, not the row count.
 **You send what you saw, and this is deliberate.** A tap names only its SERVICE;
 the card's template assembles the URL around it (`tap.serviceClick`). A
 build-time service is a literal slot and a state-dependent one is a **handler
-signal** (ADR 0017), and the card reads both through `service__read` — so the
+signal** (ADR 0017), and the card reads both through `service.jsValue` — so the
 four rows here cost no card a branch, and the markup is constant either way:
 
 ```

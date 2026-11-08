@@ -5,16 +5,17 @@ import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
 import api.homeassistant.ws.domain.HistoryPoint
 import fh.view.model.{
+  Step,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
-  SlotSource,
-  Transform
+  Value,
+  ValueExpr,
+  TemplateSlot
 }
 import fh.view.history.Windows
 import fh.view.testkit.{FakeConfig, FixtureEntity}
@@ -45,13 +46,17 @@ class VarTapSuite extends ServerHarness {
 
   private val chartNode = LayoutNode.Component(
     "chart",
-    slots = Map(
-      "chart" -> SlotSource(
-        fetch = Some(
-          FetchTemplate("sensor.a", Choice.Chosen("window", Windows.presets))
-        ),
-        transform = Transform.Stage.Passthrough,
-        reads = Reads.OnRender
+    templateSlots = Map(
+      "chart" -> TemplateSlot(
+        ValueExpr(
+          Value.Fetch(
+            FetchTemplate(
+              "sensor.a",
+              Choice.Chosen("window", Windows.presets)
+            )
+          ),
+          List(Step.Json, Step.JsonText)
+        )
       )
     )
   )
@@ -72,14 +77,18 @@ class VarTapSuite extends ServerHarness {
     card = LayoutNode.Component(
       "panel",
       regions = LayoutNode.kids(
-        chartNode.copy(slots =
+        chartNode.copy(templateSlots =
           Map(
-            "chart" -> SlotSource(
-              fetch = Some(
-                FetchTemplate("sensor.b", Choice.Chosen("w", Windows.presets))
-              ),
-              transform = Transform.Stage.Passthrough,
-              reads = Reads.OnRender
+            "chart" -> TemplateSlot(
+              ValueExpr(
+                Value.Fetch(
+                  FetchTemplate(
+                    "sensor.b",
+                    Choice.Chosen("w", Windows.presets)
+                  )
+                ),
+                List(Step.Json, Step.JsonText)
+              )
             )
           )
         ),
@@ -260,17 +269,18 @@ class VarTapSuite extends ServerHarness {
     def chartOf(entity: String) = LayoutNode.SetMember(
       List(
         LayoutNode.SetClause(node =
-          chartNode.copy(slots =
+          chartNode.copy(templateSlots =
             Map(
-              "chart" -> SlotSource(
-                fetch = Some(
-                  FetchTemplate(
-                    entity,
-                    Choice.Chosen("window", Windows.presets)
-                  )
-                ),
-                transform = Transform.Stage.Passthrough,
-                reads = Reads.OnRender
+              "chart" -> TemplateSlot(
+                ValueExpr(
+                  Value.Fetch(
+                    FetchTemplate(
+                      entity,
+                      Choice.Chosen("window", Windows.presets)
+                    )
+                  ),
+                  List(Step.Json, Step.JsonText)
+                )
               )
             )
           )
@@ -542,8 +552,10 @@ class VarTapSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "both",
-          slots = chartNode.slots +
-            ("state" -> SlotSource(entityId = Some("sensor.a")))
+          templateSlots = chartNode.templateSlots +
+            ("state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a")))
+            ))
         )
       ),
       id = Some("panel"),

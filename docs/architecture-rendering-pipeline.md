@@ -75,14 +75,14 @@ flowchart TB
     direction TB
     PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>re-opened when the wanted set moves<br/>one HA frame = one fs2 chunk"]
     STORE["StateStore.update<br/>ONE store for every dashboard<br/>ONE Ref.modify per frame<br/>version++ only if content really moved<br/>each moved entity stamped with it"]
-    CH["changes topic · list of StateChange<br/>unbounded — the feed must never backpressure"]
+    CH["frames topic · Frame(changes, state)<br/>a subscriber starts from the current state<br/>unbounded — the feed must never backpressure"]
   end
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    SYNC["MemberGraph.syncMembers<br/>apply the frame to the recorder's MEMBERSHIP<br/>a value folded over the stream<br/>before the gate, and for every set:<br/>it tracks the stream, not who is watching"]
-    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · sets · flips"]
-    REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership from the graph, flips from state"]
+    SYNC["Renderer.advance<br/>the next version's Shared: the last one's<br/>decisions minus what the frame DIRTIES<br/>a value folded over the stream, before the gate:<br/>it tracks the stream, not who is watching"]
+    PLAN["Patches.plan, in one decide run<br/>WHAT this frame touches:<br/>staticIds (members included) · sets · flips<br/>a dirty decision is made only if shown"]
+    REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership and flips from the two Shareds"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
   end
 
@@ -175,8 +175,8 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the fetch side: `FetchResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
-| Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Membership` (held in its fold, reset per renderer), the `FragmentLog`, the doorbell, the `RenderCache` |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `frames` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the fetch side: `FetchResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
+| Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Shared` (held in its fold, reset per renderer) and the renderer's `Decided` (the two newest versions' `Shared`, which every viewer reads), the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
@@ -193,27 +193,39 @@ layers only look it up.
 
 | Layer | Once per | Input | What it produces |
 |---|---|---|---|
-| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed |
+| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | state snapshot | the entity states | what they decide (`Decisions`): which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Kept by the snapshot's identity (`Decided`), so every viewer rendering one version shares them |
+| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. A viewer's own part of a send is its `Viewing`: its `Selections` and its slot answers (§6) |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
 - **Nothing after the index walks the tree.** A new static fact (what a node asks, what a slot
   is gated on) belongs in the index, keyed by node id, so a render pays for the nodes it reaches
   and not for the dashboard.
-- **A decision is derived from the snapshot the render uses**, never read from the recorder.
-  The recorder's `Membership` is the one folded value, and it exists for the recorder's own
-  "before" (§4b, "readers derive, the recorder folds").
-- **A snapshot decides each thing once**, and the pre-read, the walk, the render key and the
-  paint agree because they ask the same `Decisions`. A decision derived twice could come out
+- **The recorder and the readers share one versioned cache.** The recorder folds the frames into
+  a chain of `Shared`, each the last one's decisions minus what its frame dirtied
+  (`Renderer.advance`); a reader takes its version's from `Decided` and fills in what it reaches.
+  A reader reuses only a decision made at its own version, or carried to it; one it makes after
+  the next version exists is offered on to it unless that frame dirtied it.
+- **Work happens only where a dirty mark meets something shown.** A dirty decision is made again
+  only when a walk reaches it: a viewer's, a press, the debug route, or the recorder's for what
+  some session has open. One nobody shows stays dirty and costs nothing. A plain tick dirties no
+  decision and ends as a `touched` entry; a removal (`StateChange.Removed`) is a change like any
+  other, so a decision that read the entity goes dirty.
+- **A version decides each thing once**, and the pre-read, the walk, the render key and the
+  paint agree because they ask the same `Shared`. A decision derived twice could come out
   differently between the pre-read and the walk, which is a fetch the walk needs and was not
-  asked (§6). A new per-update decision joins `Decisions`; it does not get a record of its own.
+  asked (§6). A new per-update decision joins `Shared`, with its dirty edges; it does not get a
+  record of its own.
+- **A decision that reads a fetch is made in rounds** (`Renderer.decide`): a walk that reaches
+  one it lacks the answers for notes them, reads it as not shown, and walks again once they are
+  answered in one batch. Siblings share a round, so the rounds are the nesting depth of such
+  decisions, and a hidden one's fetch is never asked. Outside a run, such a decision raises.
 
-`Decided` keeps the last two snapshots' decisions, not one: the recorder asks of a frame's
-"before" and "after" in turn. A map that is neither decides afresh, so a straggler (§5) is
-correct and only unshared. The viewer's own choices (an open popup, a selected tab) are not
-decisions: they are a lookup in its `Selections`.
+`Decided` keeps the two newest versions: the recorder asks of a frame's "before" and "after" in
+one run. An older version decides afresh, so a straggler (§5) is correct and only unshared. The
+viewer's own choices (an open popup, a selected tab) are not decisions: they are in its
+`Viewing`, and no decision reads them.
 
 ---
 
@@ -496,27 +508,37 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
   version++ ONLY if some entity's content really moved
   stamp each MOVED entity with that version  // EntityState.contentVersion;
                                              // a deduped re-seed keeps its old one
-  publish List[StateChange] on `changes`
+  publish Frame(changes, state) on `frames`  // a change is Moved or Removed;
+                                             // only when something changed
 
-every slug's recorder wakes
-  read snapshot+version together, and sessions.openSets(slug) + floor(slug)
-  syncMembers -> apply the frame to EVERY set in the recorder's membership, and
-      report what it did to each: the member lists before and after, plus the
-      members whose CASE was replaced in place. BEFORE the gate and for
-      every group, not the visible ones: the membership tracks the state
-      stream, so a frame nobody records still moves members and the next
-      recorded frame diffs from where the stream really is. Only a CHANGED entity can have crossed a query or case
-      boundary, so a frame costs the number of CHANGES, not the size of the
-      house — and a frame that only ticks members walks no member list at all
-      (10 µs on a 2 000-entity house, flat in group size)
+every slug's recorder wakes                  // its stream began with the state
+                                             // current when it subscribed
+  sessions.openSets(slug) + floor(slug)
+  advance -> the next Shared: the previous one's decisions minus those the
+      frame's changes DIRTY (an index lookup per change, no cascade: a decision
+      reads states and answers, never another decision), on the frame's own
+      states. BEFORE the gate: the chain tracks the state stream, so a frame
+      nobody records still moves it and the next recorded frame diffs from
+      where the stream really is. It makes nothing; a frame costs its CHANGES,
+      not the size of the house
     NO SESSIONS -> record nothing at all, just mark the gap (log.skipped) and
       stop. A dashboard with no browser on it is the normal state of a home
       instance. Safe only because a document registers its session BEFORE
       reading the snapshot it renders from, which makes any version skipped
       one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
-  plan    -> staticIds (members included — they are in the reverse index),
-             sets (which to ask about PRESENCE/ORDER), flips
+  plan    -> in ONE decide run over "before" and "after" (the previous and the
+             next Shared): a decision shown in either is made there, dirty or
+             never made; one nobody shows is not reached, so its fetch is not
+             asked
+             staticIds (members included — they are in the reverse index),
+             sets (which to ask about PRESENCE/ORDER: those a change dirties,
+             under a shown root, a nested one only under an owner present on
+             both sides), and each one's move: the member lists before and
+             after, plus the members whose CLAUSE was replaced in place. A
+             stable set looks only at the changed entities, so a frame that
+             ticks one member costs that member
+             flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
       static         -> node -> version    // members are in here: they are in
@@ -599,9 +621,9 @@ server itself last sent.
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
 `plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`) and kept a
 surface's nodes only where `SurfaceGraph.visibleSurface` says it is shown, so a hidden branch is never
-asked, and membership arrives already applied — `MemberGraph.syncMembers` moves the recorder's membership for every
-member container before the gate, and hands `record` each container's list before and after plus
-the members whose case it replaced.
+asked, and membership arrives already decided — `MemberGraph.deltas` reads each affected set in
+the "before" and "after" `Shared`, and hands `record` its list before and after plus the members
+whose case was replaced.
 
 ```mermaid
 flowchart TB
@@ -765,8 +787,8 @@ one — so the two shapes cannot be confused.
 
 The dashboard's graph has two halves. The **static** half (`Renderer.allIndexed`) is computed once
 from the `Dashboard`: every authored node, keyed by its location-derived id. The **live** half is a
-container's members. `MemberGraph` holds no state: it computes members from a snapshot, and the
-recorder carries them across the state stream as a `Membership` value it folds frame by frame.
+container's members. `MemberGraph` holds no state: it decides members into a version's `Shared`,
+which carries them to the next version unless a change dirties them (§1a).
 
 **One kind of container feeds it**: `LayoutNode.SetNode`, via `MemberGraph.MemberSource`.
 
@@ -821,7 +843,7 @@ browser does not have. `SetNodeSuite` pins the property rather than the spelling
 markup shows is one the graph registered, two levels deep.
 
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
-neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's
+neighbours, or push a different member past the cut, so `deltas` rebuilds that container's
 member list instead of patching one place in it (`MemberSource.stable`). The cost is O(candidates)
 for a container the frame actually touched — bounded and static, where the query group it replaces
 rescanned the whole house. Everything downstream is unchanged: a rebuild still reports arrivals,
@@ -856,11 +878,12 @@ finds it from the changed entities, not by walking every group (ADR 0007).
 Three properties hold it up, and each fails silently if broken:
 
 - **A member is selected like any other node.** `Patches.plan` adds the nodes inside members that
-  bind the entity (`Membership.binding`) to `componentsFor`'s static nodes, so a member's node re-renders because something it binds moved — the group's query is asked
+  bind the entity (`MemberGraph.binding`: a static entity-to-sets index, then each shown set's
+  decision in `Shared`; a nested set only while its owner is present) to `componentsFor`'s static nodes, so a member's node re-renders because something it binds moved — the group's query is asked
   about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
   did, silently), and `rootOf` must resolve a member through its group or a member inside a
   surface reaches clients who do not have it open. The one case the index cannot cover is a
-  switch to a card binding nothing live: no edge names it, so `syncMembers` reports the members
+  switch to a card binding nothing live: no edge names it, so `deltas` reports the members
   it REPLACED and the recorder touches those by id.
 - **Ids are key-derived, never positional.** A positional id renames every node below an arrival,
   which is exactly what a per-member delta exists to avoid. Position is the ORDER (the group's
@@ -869,20 +892,20 @@ Three properties hold it up, and each fails silently if broken:
   entity" stays a property of the predicate engine rather than of the id scheme. A CANDIDATE SET
   has no arrivals — its candidates are static — so the invariant is not load-bearing there; keyed
   ids stay anyway, because `c_light_taklys` is readable in a patch log and `c_3_7` is not.
-- **Readers derive, the recorder folds.** A page, pull or resume computes membership from the
-  snapshot it renders (`membersOf`, `memberAt`, kept in that snapshot's `Decisions`, §1a); only
-  the recorder holds a `Membership`, as the
-  "before" of its next frame. A reader that read the recorder's instead would pair a store ahead
-  of the recorder with members behind it: a page rendered between a store bump and that frame
-  shows the old members while claiming the new version, and the recorder then logs the arrival at
-  that same version, which the client skips (`ResumeSuite`). The reverse — a reader writing what
-  it derived — would make a page mid-frame that frame's "before", and the move would never be
-  recorded.
+- **A reader reads its own version's decisions, never a newer one's.** A page, pull or resume
+  reads membership from the `Shared` of the version it renders (`membersOf`, `memberAt`, §1a),
+  and the recorder's "before" is the previous version's `Shared`. A reader that took the
+  recorder's latest instead would pair a store ahead of the recorder with members behind it: a
+  page rendered between a store bump and that frame shows the old members while claiming the new
+  version, and the recorder then logs the arrival at that same version, which the client skips
+  (`ResumeSuite`). A reader ahead of the recorder starts its version empty, and the carry later
+  goes beneath what it filled, never over it.
 - **A case switch re-materialises.** The node is state-derived, so a frame moving the matched entity
   across a case boundary REPLACES it. Marking it changed is not enough: the card would render
   happily, from the wrong branch, for as long as the entity stayed a member.
 
-The membership is kept off the renderer on purpose. Three things key on renderer IDENTITY —
+The recorder's `Shared` is kept off the renderer on purpose (the renderer's `Decided` only lends
+readers the newest two, and its identity never moves). Three things key on renderer IDENTITY —
 `publisherFor` rotates the changelog on a renderer emission, `reloadRepaints` repaints every
 connection on one (and decides what counts as "one" with `eq`, `Server.sameRenderer`), and
 `RenderCache` compares renderers with `eq` — so a membership change that produced a new renderer
@@ -892,7 +915,8 @@ so a swap starts it empty along with the fresh log, and nothing needs invalidati
 
 What a reader pays for deriving: a member lookup evaluates that one candidate's clauses (the whole
 set only under a `limit`, where presence depends on neighbours), and a set evaluates its
-candidates once per snapshot, however many readers and viewers ask (`Decisions`). Every `Member` a candidate can be — one per clause — is built with the graph, so a
+candidates once per version, however many readers and viewers ask, and not at all at a version
+whose frame left it clean (`Shared`). Every `Member` a candidate can be — one per clause — is built with the graph, so a
 lookup allocates nothing and picks an instance; without that, `resumeMembers` cost 15% more
 allocation than reading a shared index did. The renderer's node plans lean on the same fact: an id
 keeps one plan per node it shows, matched by identity, so a clause switch picks a plan rather than
@@ -986,20 +1010,24 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
-Compile keeps one program per distinct CEL source and typed names (`Validated.transforms`). The
-renderer looks each slot's up once, when it plans the node (`Planned`), so a paint runs a program
-and looks nothing up.
+Compile builds one program per distinct CEL source, typed names and type of `value`, the first
+time the walk asks for it (`Evaluator.Scope`). The build compiles each slot into one closure
+(`Ready.Slot.run`, through `Evaluator.compile`, the one evaluator every reading runs on, ADR
+0035), with each CEL program looked up and each literal
+operand read up front, so a paint walks no step list and looks nothing up. The renderer plans each
+slot once per node (`Planned`): a value that never moves is `Planned.Constant`, folded with its JS
+spelling (a literal, a literal through the theme's swap, or a `once` read through the identity
+cache, which is every click transform), and anything else `Planned.Live`, which runs that closure.
 
-A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
-names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates and the
+A slot may also read the NODE's inputs — a literal, or a tally of candidates counted
+live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the inputs its CELs
+read (`BoundSlot`), each CEL keeping its own beside them, so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
-`Conditions.present` — the same interpreter a
-state condition's `Count` uses. Only what fires differs: a flipped condition swaps a surface,
-a moved count patches a slot. The slot's `valueKey` carries the values, so the whole evaluated
-expression goes out as one display signal per distinct (subject, expression, values), and a
+the same compiled reading a state condition's `Count` is (`Evaluator`). Only what fires differs: a flipped condition swaps a surface,
+a moved count patches a slot. The slot's `valueKey` carries the inputs, so the whole evaluated
+expression goes out as one display signal per distinct (subject, expression, inputs), and a
 tick that leaves the count alone sends nothing.
 
 ### The second kind of input: a fetch
@@ -1010,20 +1038,28 @@ past over a window. It reaches a render the same way state does, as a snapshot r
 walk (`fh.view.fetch.FetchSnapshot`), because a render is a synchronous string build and answering a
 fetch is `IO` over a socket and a JavaScript engine.
 
-**A provider fetches; what its answer BECOMES is the slot's `transform`.** That split is the whole
-of the second kind of input. A provider answers `Answer(version, json)` and has no opinion about
-presentation; a STAGE — the third arm of `transform`, beside a CEL string and a `Transform.Simple` —
-turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `Stage.Passthrough` is
-the absence of a transform: the provider's JSON, which is the contract a third party reads against.
+**A provider fetches; what its answer BECOMES is the slot's step.** That split is the whole of the
+second kind of input. A provider answers `Answer(version, json)` and has no opinion about
+presentation; a fetch slot's one step, a `Step.Chart` stage, turns that into what the card puts in
+its hole, SVG. With no step it is the provider's JSON (an ask whose `stage` is `None`),
+which is the contract a third party reads against.
 It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
 re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
-**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034): the slot
+**A fetch can also be a CEL input** of a state slot, as an input (ADR 0034), at any
+depth: an input's own input, a list item, a guard or an order term inside the slot. The slot
 keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
-pipeline one argument, not a box. A value's fetch is a `SlotAsk` with the passthrough stage among
-the node's `fetches`, so the page's pre-read and the render key carry it already; the patch step's
+pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
+surface, a `valueWhile`, a press on a set) reads one too, and is made in rounds (§1a,
+`Renderer.decide`): each decision's reads come off its compiled expression (`SlotAsk.decision`,
+at no viewer's variables, which the build refuses there), only a decision the walk reaches asks,
+and its answers live in the run, not in `Shared`, since the resolver caches them. As for a
+slot's, an answer that moves wakes nothing; the decision is made again when what it depends on
+changes: its entities, and those a fetch names with `updateOnEntityChange()` (`dependsOn`). A value's fetch
+is a `SlotAsk` with the `json` stage among the node's `fetches`, so the page's pre-read and
+the render key carry it already; the patch step's
 `readsForPull(touchedIds, …)` already pre-reads the fetches of the nodes whose signals it updates,
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.
@@ -1038,22 +1074,22 @@ member is placed whole.
 decide `valueWhile` over live state; if it does not hold, the value is `""` and nothing else
 runs; otherwise read the fetches and run the transform. The order reaches back into the
 pre-read: each fetching slot carries its `valueWhile` (`Fetching.Gate`), and the pre-read asks
-its fetches only where the snapshot's `Decisions` say it holds. So a slot whose `valueWhile` does
+its fetches only where the version's `Shared` says it holds. So a slot whose `valueWhile` does
 not hold asks for no history, and the pre-read, the render key (`Renderer.asked`) and the paint
-(`Renderer.withheld`) all go through one `gateHolds`, over the gate `BoundSlot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
+(`Renderer.withheld`) all go through one `gateHolds`, over the gate `Ready.Slot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
 ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both decode PURE, so
 a bad fetch or stage fails the build with nothing wired: each is typed as the wire is decoded
-(`Stage.Chart` carries a `ChartStyle`, `FetchTemplate` its window), and `Dashboard.validate`
+(`Step.Chart` carries a `ChartStyle`, `FetchTemplate` its window), and `Dashboard.validate`
 checks what spans fields (a window's period against its span, a chosen window's declared key). Only `FetchResolver` holds the
 running machinery.
 
-**The hole follows the stage, not the shape.** A stage that emits markup needs the raw
-`{{{chart}}}` — written `{{chart}}` the page shows `&lt;svg …` as text, with no error anywhere —
-and passthrough must NOT have one, because its value is an attribute payload and wants escaping.
-One rule over the pipeline rather than a property of fetch slots.
+**The hole follows the slot's type, not the shape.** A chart makes raw text, which only a
+`textRaw` slot takes, placed `{{{chart}}}` — written `{{chart}}` the page would show `&lt;svg …` as
+text — and `json` reaches a text slot only through `jsonText`, escaped, because its value is an
+attribute payload. One rule over every slot (ADR 0034) rather than a property of fetch slots.
 
 **The version is also the caching policy**, which is what keeps the pipeline out of it. It means
 something only per question — the same version is the same data, and it never goes back — and
@@ -1075,7 +1111,7 @@ different sizes cost one fetch and two drawings — which the keys say rather th
 arranging it privately. The answer cache is the provider's, and history's expires by the bucket
 rolling, because a series has a shelf life. A staged value has none: it is a function of an
 answer, and a version names one, so `FetchResolver` keys every stage's output — a drawing and a
-passthrough alike, for any provider — by `(question, stage, version)` and replaces in place, and
+`json` answer alike, for any provider — by `(question, stage, version)` and replaces in place, and
 eviction is that replacement.
 
 **The render cache still keys a chart node, and earns it.** A node's bytes are the splice of its
@@ -1091,12 +1127,11 @@ Three boxes move, and no others:
   say which. `isAtLeast` compares both halves, so
   two viewers on different windows have differently-SHAPED keys, are unordered, and get separate
   generations rather than one overwriting the other with a chart of the wrong span.
-- **`SlotShape`**, which is what a slot IS: `State` or `Fetch`. The wire keeps one `SlotSource`
-  (a discriminated sum would stamp a `"type"` tag onto every slot and churn every byte-identity
-  snapshot), and this is where the two are told apart. Every site that CLASSIFIES slots matches on
+- **`SlotShape`**, which is what a slot IS: `State` or `Fetch`, told apart by its source
+  (`Value.Fetch` or another). Every site that CLASSIFIES slots matches on
   it, so the combinations that would be wrong — a fetch that is `live`, `once`, or a signal — are
   not rejected by rules, they are unreachable.
-- **`Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
+- **`Ready.Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
   and separate for the same reason those two are: what makes a node a candidate and what makes its
   bytes stale are different questions.
 
@@ -1105,10 +1140,9 @@ entity lists are built from STATE slots, so a fetch slot has no entity to contri
 not a candidate on a state tick**. Without that, a sensor moving every second would re-fetch its own
 history every second.
 
-**The STAGE decides the hole**, not the shape. A stage that emits markup needs the raw
-`{{{slot}}}` — written `{{slot}}` the page shows `&lt;svg …` as text, with no error anywhere — and
-`passthrough` must NOT have one, because its value is an attribute payload and wants escaping.
-`Dashboard.validate` rejects either mistake.
+**The slot's type decides the hole**, not the shape: a chart's slot is `textRaw`, a `json`
+one is text through `jsonText`, and `Dashboard.validate` refuses a value that does not fit its
+slot's type and a slot placed in a hole its type does not name.
 
 **WHY resolving first is legal, which nothing else states.** A pre-walk barrier — gather what the
 render implies, fire it, await, then walk — is the wrong shape when dependencies are DYNAMIC: a
@@ -1276,23 +1310,27 @@ wholesale renders (page, repaint, fill, the document a JS-less browser gets) use
 instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
-wrapper also carries the node's live cell classes (`LayoutNode.classWhen`) and live custom
-properties (`LayoutNode.cssProperty`): ordinary signal slots, which Pkl writes under
-`cell.class:` / `cell.style:` names (`class:` and `style:--…` bindings), so the renderer
-places their bindings on the wrapper in both forms and the class or `style="--x:…"` itself only in
-the document form, like any signal value. Every class the renderer emits there, and every `class:`
+wrapper also carries the node's cell slots (`Cell`, ADR 0008): its classes, static or live
+(`LayoutNode.cellClassWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
+slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
+key's (`class:<name>`, `style:--…`): the renderer places the bindings on the wrapper in both forms,
+and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
-through them once, when `Templates` compiled them.
+through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
+goes through them where it resolves (`Renderer.classed`): a literal once, into a
+`Planned.Constant`, a reading on each
+resolve, so a signal frame carries the swapped value too. The page's connection banners
+(`Server.pageInto`) and a failed fetch's label (`Fetches.label`, swapped in `resolveSlotValue`) are
+the markup Scala writes itself, and take the same rewrite.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
 (ADR 0017). The `<transform>` segment is the bare word `state` when the slot reads the state plain —
-the shape that covers most slots — a short hash of the expression for anything computed, or the
-opted-in simple structure's key (`attr:brightness`, `percent:brightness:1.0:255.0` —
-`Transform.Simple.key`) for the fast tier
-(`Renderer.transformSegment` / `SlotSource.valueKey`); the slot NAME is deliberately not used, so
-cards sharing a reading
-share a signal whatever they call the hole. Dots are PATH separators — the bundle rewrites
+the shape that covers most slots — and a short hash of the value's key otherwise
+(`Renderer.transformSegment` over `BoundSlot.valueKey`: the source's key, each step's, and the
+named inputs'); the slot NAME is deliberately not used, so cards sharing a reading share a signal
+whatever they call the hole. A themed value's key carries its `ThemeClasses` step, so it never
+shares with text. Dots are PATH separators — the bundle rewrites
 `$_e.light.a.state` into bracket
 indexing, and `datastar-patch-signals` deep-merges — so a frame carries a nested structure and never
 a flat dotted key. A two-way `SignalBind.Bind` is the exception and stays node-scoped: an input
@@ -1462,7 +1500,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | HA disowning a session | `runtime/ServerApp.scala` · `revalidateOnce` (one sweep) and `revalidateSessions` (immediate, then every 5 min); `auth/AuthSessions.scala` · `stale`, `renew`, `remove` |
 | which rule a dashboard carries | `model/Access.scala` · `Access.permits`; `build/Site.scala` · `decode` folds the site default; `model/Dashboard.scala` · `Validated.access`; `runtime/Server.scala` · `LiveSite.permissionFor` |
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
-| store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
+| store + frames topic | `runtime/StateStore.scala` · `update`, `frames`, `Frame`, `StateChange` (`Moved`, `Removed`) |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
 | per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadSite` sets every slug's state on re-eval |
 | which slugs exist, where each came from, and which is `/` | `runtime/Server.scala` · `LiveSite` (`applySite`/`failSite`/`installPushed`/`defaultSlug`), the pure `planSite`, `Origin`, `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` evaluates and reports |
@@ -1474,7 +1512,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
 | the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; `wrapperInto` is shared with the walk) |
-| a signal's name, and a node's values | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
+| a signal's name, and a node's inputs | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
 | the wire bytes | `runtime/Datastar.scala` · `SseFrame` (encoded at construction), `SseFrame.frameStreamEncoder` (frames → entity body, `text/event-stream`); `runtime/Patches.scala` · `encode` (merge adjacent, then render) |
@@ -1491,18 +1529,23 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
-| the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `setsIn`, `innerSetId` |
-| what a snapshot decides, once | `runtime/Decisions.scala` · `Decisions` (members, state branches, `valueWhile`s), `Decided` (by snapshot identity); `runtime/Renderer.scala` · `gateHolds`, `withheld` |
+| the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `innerSetId` |
+| what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
-| evaluating a guard / activation condition, or one filling a slot | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf` (a slot reaches it through `Transform.runSimpleValue`); ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
+| evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |
 
 ## 8. Known open questions
 
 Live list — delete an entry when it is answered, and say where the answer landed.
+
+- **A decision nothing marks dirty is never revisited by the recorder.** A decision over a fetch
+  whose answer moves with no entity change (and no `updateOnEntityChange()`) is carried as made,
+  so a viewer's page can disagree with a fresh decision until a page load. Accepted until fetches
+  push dirty marks of their own (a fetch store that detects a change, or a `staleAfter`).
 
 - **Should the walk resolve fetches itself, asynchronously?** Possible, and not needed yet: the
   pre-walk set is decided per render (§6, checked by `FetchDriftSuite`) and answered while the head

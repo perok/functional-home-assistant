@@ -97,7 +97,7 @@ appliance, and the words differ per integration. A battery is never found as a b
 the card with `.percent(battery)` always shows, charging or not.
 
 `secondary` is the one input both tiers share, under HA's own name for the line
-below a card's main text. It is the BASE's — a literal, an `Expr` or a reading
+below a card's main text. It is the BASE's — a literal or a reading
 — and the HA cards inherit it rather than shadowing it, so a String is the text
 on every card and an attribute is asked for by name with `c.attr(name)`. One
 word meaning one thing beat keeping the HA cards' shorthand, under which a bare
@@ -108,8 +108,8 @@ subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only t
 HA layer sets it.
 
 `disabled` is a base input on every pressable card — the button, the tile and
-the slider — taking any boolean input (a reading, an `Expr` over the node's
-values, or a condition; ADR 0034). It is ORed with the tap's own refusal
+the slider — taking any boolean input (a reading, `c.expr` over the node's
+values included, or a condition; ADR 0034). It is ORed with the tap's own refusal
 (`tapDisabled`) inside the shared refusal helpers of `core/tap.pkl`, not in each
 card's template: the click guard, the `fh-disabled` look and the form-control
 `disabled` all read one `refused` expression, so a card that places them
@@ -324,7 +324,7 @@ and so cannot depend on either tool's cleverness.
   mechanism itself wraps with it (`PopupSurface`, `openPopupInline`), so putting
   it in `components/` would point a kernel module at the component tier.
 - Shared helpers had to become public for the families to reach them —
-  `labelSlot`/`valueSlot`/`secondarySlot` (`core/slot.pkl`), icon resolution
+  `labelSlot`/`valueSlot`/`secondary` (`core/slot.pkl`), icon resolution
   (`core/icon.pkl`), `noSignals` (`core/tap.pkl`). That is a gain: a third-party
   card can now look like a shipped one without copying its expressions.
 

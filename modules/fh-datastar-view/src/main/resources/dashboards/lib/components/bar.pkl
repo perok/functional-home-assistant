@@ -40,18 +40,21 @@ const local peakSinceZero: String =
   """
   cel.bind(zeros, past.transformList(i, p, p[1] <= 0.0, p[0]),
     cel.bind(since, size(zeros) == 0 ? 0.0 : math.greatest(zeros),
-      math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(state)])))
+      math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(value)])))
   """.trim()
 
-local function peakOf(left: hass.SensorEntity): slotMod.Slot = new {
+local function peakOf(left: hass.SensorEntity): slotMod.Reading = new {
   entityId = left.entity_id
-  transform = peakSinceZero
-  expressionValues { ["past"] = historyProv.of(left, historyProv.raw(24.h)) }
+  steps {
+    (simpleMod.cel(peakSinceZero)) {
+      inputs = new Mapping { ["past"] = historyProv.of(left, historyProv.raw(24.h)) }
+    }
+  }
 }
 
 /// Whether [[remaining]] takes these two.
 function canCount(left: hass.SensorEntity, total: hass.SensorEntity): Boolean =
   left.durationSeconds != null && total.durationSeconds != null
 
-local function stateOf(e: hass.Entity): slotMod.Slot =
-  new { entityId = e.entity_id; transform = simpleMod.state() }
+local function stateOf(e: hass.Entity): slotMod.Reading =
+  new { entityId = e.entity_id }

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.model.{
   Activation,
   Dashboard,
@@ -7,8 +9,9 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
-  Surface
+  Ready,
+  Surface,
+  ValueExpr
 }
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
@@ -25,8 +28,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def col(kids: LayoutNode*) =
     LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
 
-  private def isOn(e: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(e))
+  private def isOn(e: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
   /** A tab bar's member, chosen by the bar's `tab` (ADR 0033). */
   private def user(into: String, as: String, idx: Int): Surface =
@@ -42,14 +45,14 @@ class SurfaceGraphSuite extends munit.FunSuite {
       into: String,
       as: String,
       idx: Int,
-      when: Predicate
+      when: ValueExpr
   ): Surface =
     Surface(
       col(),
       bakeInto = Some(NodeId.derived(into)),
       bakeAs = Some(as),
       bakeIndex = Some(idx),
-      activation = Activation.State(when)
+      activation = Activation.State(Some(when))
     )
 
   /** `SurfaceGraph` is handed each indexed id's root, so the map is stated
@@ -61,10 +64,15 @@ class SurfaceGraphSuite extends munit.FunSuite {
       members: MemberGraph = new MemberGraph(Map.empty, Map.empty)
   ): SurfaceGraph =
     new SurfaceGraph(
-      surfaces,
+      surfaces.view.mapValues(compile.surface).toMap,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
       members
     )
+
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def surface(s: Surface): Ready.Surface = Conds.compiled(walk.surface(s))
+    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
@@ -163,21 +171,21 @@ class SurfaceGraphSuite extends munit.FunSuite {
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
         "warm" -> state("c", "t1", 1, isOn("light.b")),
-        "else" -> state("c", "t2", 2, Predicate.And(Nil))
+        "else" -> state("c", "t2", 2, Conds.and(Nil))
       )
     )
     val both = snapshot(st("light.a", "on"), st("light.b", "on"))
     val onlyB = snapshot(st("light.a", "off"), st("light.b", "on"))
     val neither = snapshot(st("light.a", "off"), st("light.b", "off"))
-    assertEquals(g.resolveActiveByState(gid, both), Some(0))
-    assertEquals(g.resolveActiveByState(gid, onlyB), Some(1))
-    assertEquals(g.resolveActiveByState(gid, neither), Some(2))
+    assertEquals(g.resolveActiveByState(gid, Shared.of(both)), Some(0))
+    assertEquals(g.resolveActiveByState(gid, Shared.of(onlyB)), Some(1))
+    assertEquals(g.resolveActiveByState(gid, Shared.of(neither)), Some(2))
   }
 
   test("nothing holding selects NO branch — the host bakes empty") {
     val g = graphOf(Map("hot" -> state("c", "t0", 0, isOn("light.a"))))
     assertEquals(
-      g.resolveActiveByState(gid, snapshot(st("light.a", "off"))),
+      g.resolveActiveByState(gid, Shared.of(snapshot(st("light.a", "off")))),
       None
     )
   }
@@ -186,7 +194,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
-        "else" -> state("c", "t1", 1, Predicate.And(Nil))
+        "else" -> state("c", "t1", 1, Conds.and(Nil))
       ),
       roots = Map("c" -> "")
     )
@@ -194,9 +202,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val off = snapshot(st("light.a", "off"))
     def flips(before: Map[String, EntityState], now: Map[String, EntityState]) =
       g.affectedStateGroups(
-        List(StateChange("light.a", before.get("light.a"), now("light.a"))),
-        before,
-        now
+        List(
+          StateChange.Moved("light.a", before.get("light.a"), now("light.a"))
+        ),
+        Shared.of(before),
+        Shared.of(now)
       )
     assertEquals(flips(on, off), List(gid))
     assertEquals(flips(on, on), Nil)
@@ -212,9 +222,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val now = snapshot(st("light.a", "on"), st("sensor.z", "2"))
     assertEquals(
       g.affectedStateGroups(
-        List(StateChange("sensor.z", before.get("sensor.z"), now("sensor.z"))),
-        before,
-        now
+        List(
+          StateChange.Moved("sensor.z", before.get("sensor.z"), now("sensor.z"))
+        ),
+        Shared.of(before),
+        Shared.of(now)
       ),
       Nil
     )
@@ -224,28 +236,40 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
-        "else" -> state("c", "t1", 1, Predicate.And(Nil))
+        "else" -> state("c", "t1", 1, Conds.and(Nil))
       ),
       roots = Map("c" -> "")
     )
     val on = snapshot(st("light.a", "on"))
-    assertEquals(g.shownSurfaces(Set.empty, on), Set("hot"))
+    assertEquals(g.shownSurfaces(Set.empty, Shared.of(on)), Set("hot"))
     // A group already flipping renders its member wholesale; patching its parts
     // too would double-emit.
-    assert(!g.visibleSurface("hot", Set.empty, on, cut = Set(gid)))
+    assert(!g.visibleSurface("hot", Set.empty, Shared.of(on), cut = Set(gid)))
   }
 
   test("a user surface is visible only to a client that has it open") {
     val g = graphOf(Map("t0" -> user("c", "t0", 0), "t1" -> user("c", "t1", 1)))
-    assert(g.visibleSurface("t0", Set("t0"), Map.empty))
-    assert(!g.visibleSurface("t0", Set("t1"), Map.empty))
+    assert(g.visibleSurface("t0", Set("t0"), Shared.of(Map.empty)))
+    assert(!g.visibleSurface("t0", Set("t1"), Shared.of(Map.empty)))
   }
 
   test("a STATE surface is visible on state alone — `open` says nothing") {
     // Its liveness belongs to the shared pass, so it never enters an open set.
     val g = graphOf(Map("hot" -> state("c", "t0", 0, isOn("light.a"))))
-    assert(g.visibleSurface("hot", Set.empty, snapshot(st("light.a", "on"))))
-    assert(!g.visibleSurface("hot", Set("hot"), snapshot(st("light.a", "off"))))
+    assert(
+      g.visibleSurface(
+        "hot",
+        Set.empty,
+        Shared.of(snapshot(st("light.a", "on")))
+      )
+    )
+    assert(
+      !g.visibleSurface(
+        "hot",
+        Set("hot"),
+        Shared.of(snapshot(st("light.a", "off")))
+      )
+    )
   }
 
   test("a state surface is TRANSPARENT: the user tab above it decides") {
@@ -259,8 +283,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
       roots = Map("c" -> "", "inner" -> "tab")
     )
     val on = snapshot(st("light.a", "on"))
-    assert(g.visibleSurface("branch", Set("tab"), on))
-    assert(!g.visibleSurface("branch", Set.empty, on))
+    assert(g.visibleSurface("branch", Set("tab"), Shared.of(on)))
+    assert(!g.visibleSurface("branch", Set.empty, Shared.of(on)))
   }
 
   test("a node inside a closed tab is not visible; on the main page it is") {
@@ -268,16 +292,19 @@ class SurfaceGraphSuite extends munit.FunSuite {
       Map("t0" -> user("c", "t0", 0), "t1" -> user("c", "t1", 1)),
       roots = Map("c" -> "", "s_t1__c_0" -> "t1")
     )
-    assert(g.visibleNode("c", Set.empty, Map.empty), "main page is visible")
-    assert(g.visibleNode("s_t1__c_0", Set("t1"), Map.empty))
-    assert(!g.visibleNode("s_t1__c_0", Set("t0"), Map.empty))
+    assert(
+      g.visibleNode("c", Set.empty, Shared.of(Map.empty)),
+      "main page is visible"
+    )
+    assert(g.visibleNode("s_t1__c_0", Set("t1"), Shared.of(Map.empty)))
+    assert(!g.visibleNode("s_t1__c_0", Set("t0"), Shared.of(Map.empty)))
   }
 
   test("an id the graph cannot place counts as VISIBLE") {
     // The safe direction: over-sending costs bytes, under-sending loses an
     // update.
     val g = graphOf(Map("t0" -> user("c", "t0", 0)), roots = Map("c" -> ""))
-    assert(g.visibleNode("who_knows", Set.empty, Map.empty))
+    assert(g.visibleNode("who_knows", Set.empty, Shared.of(Map.empty)))
   }
 
   test("selectedSurfaces and selectionsIn are inverses over chosen groups") {
@@ -296,7 +323,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     // would hide it from everybody.
     val g = graphOf(
       Map(
-        "hot" -> state("c", "t0", 0, Predicate.And(Nil)),
+        "hot" -> state("c", "t0", 0, Conds.and(Nil)),
         "tab" -> user("d", "t0", 0)
       )
     )
@@ -367,7 +394,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val outer: NodeId = "s_det__c"
     val members =
-      new MemberGraph(Map(outer -> setNode), Map(outer -> "det"))
+      new MemberGraph(Map(outer -> compile.set(setNode)), Map(outer -> "det"))
     val g = graphOf(
       Map("det" -> user("c", "t0", 0)),
       roots = Map("c" -> ""),
@@ -375,7 +402,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val setId = members.setContainer(outer).get
     val states = snapshot(st("light.a", "on"))
-    val member = members.membersOf(setId, states).head
+    val member = members.membersOf(setId, Shared.of(states)).head
     val innerId = members.innerSetId(
       member.id,
       0,
@@ -397,7 +424,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
         "light.a" -> LayoutNode.SetMember(
           List(
             LayoutNode.SetClause(
-              Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+              Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
               LayoutNode.Component("tile")
             )
           )
@@ -405,12 +432,13 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
     val outer: NodeId = "s_det__c"
-    val members = new MemberGraph(Map(outer -> setNode), Map(outer -> "det"))
+    val members =
+      new MemberGraph(Map(outer -> compile.set(setNode)), Map(outer -> "det"))
     val g = graphOf(Map("det" -> user("c", "t0", 0)), members = members)
     val setId = members.setContainer(outer).get
     val off = snapshot(st("light.a", "off"))
 
-    assertEquals(members.membersOf(setId, off), Vector.empty)
+    assertEquals(members.membersOf(setId, Shared.of(off)), Vector.empty)
     assertEquals(
       g.rootOf(members.memberIdOf(setId, "light.a")),
       Some("det")
@@ -459,7 +487,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(
       Map(
         "then" -> state("c", "branch", 0, isOn("light.a")),
-        "else" -> state("c", "branch", 1, Predicate.And(Nil))
+        "else" -> state("c", "branch", 1, Conds.and(Nil))
       )
     )
     val host = DomId.derived("c_branch")

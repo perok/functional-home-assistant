@@ -16,8 +16,8 @@ import "moreinfo.pkl"
 /// entity) and become the tile's `title`, `reading` and `glyph`.
 open class EntityCard extends tileMod.Tile {
   hidden entity: hass.Entity
-  hidden label: (String|slotMod.Expr)? = null
-  hidden value: (String|slotMod.Expr)? = null
+  hidden label: (String|slotMod.Reading)? = null
+  hidden value: (String|slotMod.Reading)? = null
   /// An MDI name overriding [[icons.iconFor]].
   hidden icon: String? = null
   /// The domain's service, else more-info, and more-info for a lock
@@ -31,8 +31,8 @@ open class EntityCard extends tileMod.Tile {
   // Each option is also a chainable method,
   // `c.entityCard(x).tapAction(c.tap.toggle(x)).label("Office")`, emitting the
   // same JSON as the amend form.
-  function label(l: String|slotMod.Expr): EntityCard = let (self = this) (self) { label = l }
-  function value(v: String|slotMod.Expr): EntityCard = let (self = this) (self) { value = v }
+  function label(l: String|slotMod.Reading): EntityCard = let (self = this) (self) { label = l }
+  function value(v: String|slotMod.Reading): EntityCard = let (self = this) (self) { value = v }
   function secondary(s: slotMod.Secondary): EntityCard = let (self = this) (self) { secondary = s }
   /// `mdi:thermometer`, or the `mdi-thermometer` class spelling.
   function icon(i: String): EntityCard = let (self = this) (self) { icon = i }

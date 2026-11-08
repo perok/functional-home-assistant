@@ -50,15 +50,21 @@ know.
    themes lay the wrapper itself out (`.fh-row>.fh-cell{flex:1 1 0;…}`, the
    grid rules below). This kills the col-vs-bare-card asymmetry: all row
    children share space uniformly, all grid children are grid cells.
-4. **Node-level `cell` wire field.** `Cell(classes: List[String])` is optional
-   on `LayoutNode.Component`, `LayoutNode.SetNode` (the container root), and
-   each clause node (the per-member wrapper); the renderer appends the
-   classes to the wrapper's class attribute. `Dashboard.validate` rejects any
-   class that is not a plain token (`[A-Za-z0-9_-]+`) — the values are
-   string-interpolated into markup. An object (not a bare list) so it can grow
-   HA-`grid_options`-style fields (rows, dense) without a wire break. Case
-   `cell`s are static wire data, so in-place morphs, membership inserts, and
-   whole-group repaints re-emit byte-identical wrappers.
+4. **Node-level `cell` wire field.** `Cell(classes, styles)` holds the node's
+   **cell slots**: ordinary slots the renderer places on the wrapper, keyed by
+   the class name or the custom property rather than placed by name in a
+   template. A class is `"1"` (always there) or a reading, bound by name
+   (`data-class:<name>`, ADR 0034); a style is a reading (`data-style:<prop>`).
+   The map a slot sits in is its placement, so nothing reads meaning out of a
+   slot's name. It is optional on `LayoutNode.Component`, `LayoutNode.SetNode`
+   (the container root, literal classes only: a set has no slots to bind a
+   reading with), and each clause node (the per-member wrapper).
+   `Dashboard.validate` rejects any class that is not a plain token
+   (`[A-Za-z0-9_-]+`) — the values are string-interpolated into markup. An
+   object (not a bare list) so it can grow HA-`grid_options`-style fields
+   (rows, dense) without a wire break. A literal class is static wire data, so
+   in-place morphs, membership inserts, and whole-group repaints re-emit
+   byte-identical wrappers.
 5. **The `fh-` layout contract: three container behaviours.** The class
    vocabulary is theme-agnostic, and each container speaks exactly one sizing
    language — the fix for the original bug, where `.fh-cell` tried to speak

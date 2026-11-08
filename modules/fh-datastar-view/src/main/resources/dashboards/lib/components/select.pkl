@@ -61,17 +61,13 @@ const local function targetName(t: Over): String =
 const local function offered(t: Over): List<String> =
   if (t is hass.Options) t.list.toList() else List()
 
-/// The property holding the entity's current value, as a condition reads it.
-const local function currentOf(o: hass.Options): String =
-  if (o.attr != null) "attr:" + o.attr!! else "state"
-
-/// That value itself.
-const local function currentRead(o: hass.Options): simpleMod.SimpleValue =
-  if (o.attr != null) simpleMod.attr(o.attr!!) else simpleMod.state()
+/// The part of the entity holding it: null is the state.
+const local function currentPart(o: hass.Options): simpleMod.Attr? =
+  if (o.attr != null) new simpleMod.Attr { name = o.attr!! } else null
 
 /// Whether `v` is the entity's current value.
 const local function entityChosen(o: hass.Options, v: String): predMod.Predicate =
-  new predMod.Cmp { property = currentOf(o); op = "eq"; value = v; entity = o.owner.entity_id }
+  new predMod.Cmp { part = currentPart(o); op = "eq"; value = v; entity = o.owner.entity_id }
 
 const local function entityCall(o: hass.Options, v: String): tapMod.Call =
   tapMod.call(o.service, o.owner).with(o.key, v)
@@ -131,10 +127,10 @@ abstract class Select extends nodes.Node {
         cellClasses = self.cellClasses
         stateClasses = self.stateClasses
         liveClasses = self.liveClasses
-        liveProperties = self.liveProperties
+        liveStyles = self.liveStyles
         id = self.id
         vars = self.vars
-        expressionValues = self.expressionValues
+        inputs = self.inputs
       }
 
   /// One option's node: choosing `pick` on a press, lit while `ch` is chosen.
@@ -148,7 +144,7 @@ abstract class Select extends nodes.Node {
         else surfaces.tabButton(t, ch.value, ch.label)
       else if (cyc)
         buttonMod.pill((entityCall(t, pick.value)) { icon = ch.icon; label = ch.label })
-          .classWhen("fh-chosen", entityChosen(t, ch.value))
+          .cellClassWhen("fh-chosen", entityChosen(t, ch.value))
       else
         new EntityOption {
           label = ch.label
@@ -219,25 +215,25 @@ class SelectDropdown extends Select {
   card = "selectDropdown"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = menuTemplate(#"<span \#(slotMod.signalBind("chosen"))>{{chosen}}</span>"#)
+    template = menuTemplate(#"<span \#(chosenSlot.bind)>\#(chosenSlot)</span>"#)
     css = menuCss
   }
   hidden target: hass.Options
   // A class-level property: a nested body cannot see `target`, which `Select`
   // declares. A value outside the options shows as itself.
-  hidden chosen: slotMod.Slot =
+  hidden chosen: slotMod.Reading =
     let (o = target) let (cs = choices)
-      new slotMod.Slot {
+      new slotMod.Reading {
         entityId = o.owner.entity_id
-        transform = new simpleMod.SimpleMatch {
-          cases { for (ch in cs) { [ch.value] = ch.label } }
-          otherwise = currentRead(o)
-          property = currentOf(o)
+        part = currentPart(o)
+        steps {
+          new simpleMod.Match {
+            cases { for (ch in cs) { [ch.value] = ch.label } }
+            otherwise = new slotMod.EntityRead { part = currentPart(o) }
+          }
         }
-        signal = slotMod.asText
-        bypassUnavailable = false
       }
-  slots { ["chosen"] = chosen }
+  slots { slotMod.signalled(chosenSlot, chosen, slotMod.asText) }
 }
 
 /// [[SelectDropdown]] over a node variable: its label is one member per option,
@@ -290,24 +286,26 @@ class VarSelectCycle extends Select {
 class ChoiceLabel extends nodes.Node {
   card = "selectChoice"
   cardDef = new nodes.CardDef {
-    template = #"{{#glyph}}<i class="{{glyph}}" title="{{label}}"></i>{{/glyph}}{{^glyph}}<span>{{label}}</span>{{/glyph}}"#
+    template = glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)" title="\#(labelSlot)"></i>"#, "<span>\(labelSlot)</span>")
   }
   hidden label: String
   hidden icon: String? = null
   slots {
-    ["label"] = label
-    when (icon != null) {
-      ["glyph"] = "mdi " + icons.mdiClass(icon!!)
-    }
+    labelSlot.of(label)
+    glyphSlot.of(icon.ifNonNull((i) -> "mdi " + icons.mdiClass(i)))
   }
 }
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local glyphSlot: slotMod.Slot = slotMod.cssClass("glyph")
+const local chosenSlot: slotMod.Slot = slotMod.slot("chosen")
 
 /// One option of a select over an entity: `fh-active` on its cell while the
 /// entity holds this value, decided by the server, so the first HTML is right.
 class EntityOption extends nodes.ActiveNode {
   card = "selectEntityOption"
   cardDef = new nodes.CardDef {
-    template = #"<a class="fh-select-opt" title="{{label}}" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>{{#glyph}}<i class="{{glyph}}"></i>{{/glyph}}{{^glyph}}{{label}}{{/glyph}}</a>"#
+    template = #"<a class="fh-select-opt" title="\#(labelSlot)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>"# + glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)"></i>"#, "\(labelSlot)") + "</a>"
     css = """
       .fh-select .fh-active>.fh-select-opt{font-weight:600}
       """
@@ -316,16 +314,10 @@ class EntityOption extends nodes.ActiveNode {
   hidden icon: String? = null
   hidden tapAction: tapMod.Call
   slots {
-    ["label"] = label
-    when (icon != null) {
-      ["glyph"] = "mdi " + icons.mdiClass(icon!!)
-    }
-    for (k, v in tapMod.tapRoute(tapAction)) {
-      [k] = v
-    }
-    for (k, v in tapMod.guardSlots(tapAction)) {
-      [k] = v
-    }
+    labelSlot.of(label)
+    glyphSlot.of(icon.ifNonNull((i) -> "mdi " + icons.mdiClass(i)))
+    ...tapMod.tapRoute(tapAction)
+    ...tapMod.guardSlots(tapAction)
   }
 }
 

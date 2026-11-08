@@ -2,93 +2,286 @@
 /// make a third-party card's label, value and second line mean what a shipped
 /// card's do.
 ///
-/// A slot is a bare String (a literal) or a [[Slot]]: a CEL transform over the
-/// card's entity, or a [[simpleMod.Simple]] in the same field (the fast tier,
-/// ADR 0028 — the form is the tier).
+/// A slot is a bare String (a literal) or a [[Reading]]: a read of the card's
+/// entity, or another's, and the steps run on it — CEL, or the fast tier's
+/// (ADR 0028: the form is the tier).
 module core.slot
 
 import "../hass.pkl"
 import "../hass/active.pkl" as activeTables
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
-import "stage.pkl" as stageMod
 import "node.pkl" as nodes
 
-/// The object form of a slot (`fh.view.model.SlotSource`).
-class Slot {
-  entityId: String? = null
-  /// CEL, a [[simpleMod.Simple]], or on a fetch slot a [[stageMod.Stage]] over
-  /// the provider's answer.
-  transform: (String|simpleMod.Simple|stageMod.Stage) =
-    if (fetch == null) simpleMod.state() else stageMod.passthrough
-  default: String? = null
-  bypassUnavailable: Boolean = true
+/// A value read from its [[source]], then each of its [[steps]] run on it
+/// (`fh.view.model.ValueExpr`): a [[Reading]], or a condition
+/// (`predicate.pkl`), which sets both and has no slot fields to ignore.
+open class Expr {
+  source: Value|String|Number|Boolean
+  steps: Listing<simpleMod.Step> = new {}
+}
+
+/// What a slot reads, with no binding yet (`docs/terminology.md`). The card it
+/// is handed to puts it in a [[Slot]], which says where it lands. Build one
+/// with [[simpleMod]]'s constructors, a [[Cel]] step, or [[expr]].
+open class Reading extends Expr {
+  /// The entity read when not the card's own (its subject).
+  hidden entityId: String? = null
+  /// Which part of it; null is the state.
+  hidden part: simpleMod.Part? = null
+  /// A text slot over an unavailable or unknown entity shows that word in
+  /// place of its reading, and no step runs. Only a text slot's own read of
+  /// the state or the whole entity may set it; the build refuses it anywhere
+  /// else, where a read reads as is.
+  hidden bypassUnavailable: Boolean = false
   /// When this value is read, and whether a change is a reason to re-render:
   ///
   ///   - `live` — read every render, and a change to the entity is a render.
   ///   - `onRender` — read every render, never a reason for one (a friendly
   ///     name, a unit). The only mode structure may use on an entity.
-  ///   - `once` — resolved once per (entity, transform), for a function of
-  ///     WHICH entity this is (a service from `domain`). A rename would not
-  ///     show until the dashboard rebuilds.
+  ///   - `once` — resolved once per (entity, steps), for a function of WHICH
+  ///     entity this is (a service from `domain`). A rename would not show
+  ///     until the dashboard rebuilds.
   ///
   /// A fetch slot is `onRender`: a provider's answer is never pushed.
-  reads: "live"|"onRender"|"once" = if (fetch == null) "live" else "onRender"
-  /// Carry the value as a Datastar signal rather than bytes, so a change costs a
-  /// frame entry instead of a re-render (ADR 0017). The template must place
-  /// [[signalBind]] for this slot; the backend rejects it otherwise.
-  signal: SignalBind? = null
-  /// `"bool"` for a slot the template reads as on/off, where the string
-  /// `"false"` would be truthy; the build refuses a reading that is not one.
-  /// Null is text; a `class:` binding is a bool by kind.
-  type: SlotType? = null
+  hidden reads: "live"|"onRender"|"once" = if (fetch == null) "live" else "onRender"
   /// Makes this a fetch slot, read from a provider rather than live state
   /// (`providers/history.pkl`'s `HistoryFetch`).
-  fetch: Fetch? = null
-  /// Named inputs this slot's CEL reads, beside its node's
-  /// ([[nodes.Node.expressionValues]]): the same kinds, a fetch included
-  /// (`p.history.of(e, w)`), so a slot can carry what it reads. A name in both
-  /// is a build error.
-  hidden expressionValues: Mapping<String, nodes.ExpressionValue> = new {}
-  values: Mapping<String, nodes.ExpressionValue>? =
-    if (expressionValues.isEmpty) null else expressionValues
-  /// When this slot has a value at all; otherwise it is `""`, its transform does
-  /// not run and its fetches are not read:
+  hidden fetch: Fetch? = null
+  /// What the value is read from: by default an entity, as the four fields
+  /// above say, or a fetch. A bare literal, a list, a set's ids or a
+  /// [[CelRead]] are set here.
+  source =
+    let (r = this)
+      if (r.fetch != null) new FetchRead { fetch = r.fetch!! }
+      else new EntityRead {
+        of = r.entityId
+        part = r.part
+        reads = if (r.reads == "live") null else r.reads
+        bypassUnavailable = if (r.bypassUnavailable) true else null
+      }
+  /// What an empty result shows instead, of the slot's type.
+  default: (String|Boolean)? = null
+  /// Entities whose change re-reads this though it reads none of them: its
+  /// fetch's [[Fetch.dependsOn]].
+  dependsOn: List<String>? =
+    let (d = fetch?.dependsOn ?? List()) if (d.isEmpty) null else d
+  /// When this slot has a value at all; otherwise it is `""`, its steps do not
+  /// run and its fetches are not read:
   ///
   ///   valueWhile = q.entity(left).gt(q.prop("state"), 0)
   ///
-  /// A constant, a condition (decided without CEL, over the slot's entity
-  /// when it names none), or a `bool` reading; none may read a fetch.
+  /// A constant, or a value expression of a bool (a condition, a reading, CEL),
+  /// over the card's subject when it names none; none may read a fetch.
   hidden valueWhile: nodes.BooleanInput = true
-  valueWhileSlot: Slot? =
+  valueWhileSlot: Reading? =
     if (valueWhile == true) null
-    else if (valueWhile == false) nodes.booleanSlot(predMod.neverHolds)
-    else nodes.booleanSlot(valueWhile as Slot|Expr|predMod.Predicate)
+    else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
+    else nodes.booleanReading(valueWhile as Expr)
 }
+
+/// A step's operand: a literal, or a part of an entity.
+typealias Operand = String|Boolean|Number|EntityRead
+
+/// What a value is read from (`fh.view.model.Value`); a literal is a bare
+/// String, Number or Boolean. `kind` names its Scala case.
+abstract class Value {
+  kind: String
+}
+
+/// A part of an entity.
+class EntityRead extends Value {
+  kind: "Entity" = "Entity"
+  /// Null is the entity this is about: the card's subject, or for a step's
+  /// operand its reading's.
+  of: String? = null
+  /// Null is the state.
+  part: simpleMod.Part? = null
+  /// Null is `live` ([[Reading.reads]]).
+  reads: ("onRender"|"once")? = null
+  /// Null reads as is; `true` is [[Reading.bypassUnavailable]].
+  bypassUnavailable: Boolean? = null
+}
+
+/// A provider's answer.
+class FetchRead extends Value {
+  kind: "Fetch" = "Fetch"
+  fetch: Fetch
+}
+
+/// Its items in order, each an `itemType`: what an and or an or decides over
+/// (`predicate.pkl`'s `PAnd`, `POr`). The type is declared so the
+/// build types an empty list too. A set's present ids are a `predMod.Tally`.
+class ListRead extends Value {
+  kind: "List" = "List"
+  itemType: "bool" = "bool"
+  items: Listing<Expr>
+}
+
+/// CEL computed from nothing before it, so it has no `value`: over its named
+/// `inputs`, `dashboard_slug` and `time_zone`.
+class CelRead extends Value {
+  kind: "Cel" = "Cel"
+  src: String
+  /// As [[simpleMod.Cel.inputs]].
+  hidden inputs: Mapping<String, nodes.Input>? = null
+  wireInputs: Map<String, Any>? = inputs?.toMap()?.mapValues((_, v) -> wireInput(v))
+}
+
+/// A named input as the wire holds it (`fh.view.model.ValueExpr`): a literal
+/// as itself, anything else as the source it reads. An entity is the whole
+/// entity (`kitchen.attr.brightness`), and a tally its count unless it is a
+/// [[predMod.PresentList]].
+const function wireInput(v: nodes.Input): Any =
+  if (v is hass.Entity)
+    Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
+  else if (v is predMod.PresentList) Map("source", v)
+  else if (v is predMod.Tally) Map("source", v, "steps", List(new simpleMod.CountStep {}))
+  else if (v is Expr) v
+  else if (v is Fetch)
+    Map("source", new FetchRead { fetch = v })
+      + (if (v.dependsOn.isEmpty) Map() else Map("dependsOn", v.dependsOn))
+  else v
+
+/// One named value a card's template places, filled per node. The template
+/// reaches it through this object, so its name is written once:
+///
+/// ```
+/// const local label = slotMod.slot("label")
+/// template = "<span \(label.bind)>\(label)</span>"
+/// slots { label.of(slotMod.labelSlot(null, text)) }
+/// ```
+///
+/// Interpolated, it is the plain hole: `\(label)` is `{{label}}`. A slot with
+/// no value is not set, which [[ifSet]] tests; one with only a name is what a
+/// template piece shared across cards places (`core/tap.pkl`'s).
+class Slot {
+  name: String(!contains("."))
+  /// A literal, a [[Reading]], or null: not set.
+  value: (String|Boolean|Reading)? = null
+  /// Carry the value as a Datastar signal rather than bytes, so a change costs a
+  /// frame entry instead of a re-render (ADR 0017). The template must place
+  /// [[bind]]; the backend rejects it otherwise. Only a [[Reading]] moves.
+  signal: SignalBind? = null
+  /// `"bool"` for a slot the template reads as on/off, where the string
+  /// `"false"` would be truthy; `"textRaw"` for one placed in a raw hole
+  /// (`{{{name}}}`, [[raw]]). Null is text, placed `{{name}}`. The build refuses
+  /// a value of the other type, a literal included, and a slot placed in a hole
+  /// its type does not name. A class binding needs `"bool"` ([[bool]]).
+  type: SlotType? = null
+  /// Its value is classes in a `class` attribute, which the theme's class rules
+  /// reach as a last step of it ([[cssClass]]).
+  hidden themed: Boolean = false
+
+  /// `{{{name}}}`, unescaped: markup the value already is (a chart).
+  fixed raw: String = "{{{" + name + "}}}"
+  /// The binding a signal slot places beside its hole, on the element whose
+  /// text it is: `<span \(value.bind)>\(value)</span>`. Empty when the value is
+  /// not a signal, which keeps the no-signals rendering reachable.
+  fixed bind: String = "{{{" + name + ".bind}}}"
+  /// The value as JavaScript, for a handler of the card's own: a literal reads
+  /// back as `'light/toggle'`, a signal as its `$…` read, so one template
+  /// serves both. A live slot that is not a signal is a build error.
+  fixed jsValue: String = "{{{" + name + ".jsValue}}}"
+  /// The signal's name, for an expression of the card's own (a signal-patch
+  /// filter). A read is [[jsValue]] and a write [[assign]]. Only inside
+  /// [[ifSignal]], which the build checks: elsewhere it prints nothing on a
+  /// node whose slot is not a signal.
+  fixed signalName: String = "{{" + name + ".signal}}"
+
+  /// `$<signal> = js`: a write to this slot's signal from the card's own
+  /// handler (a drag painting the fill). Only inside [[ifSignal]], as
+  /// [[signalName]].
+  function assign(js: String): String = "$" + signalName + " = " + js
+
+  /// `body` while this slot is a signal on the node. Its name is in both
+  /// render forms, so unlike [[ifTrue]] it never closes on the first patch. A
+  /// separator goes inside: `ifSignal(", " + assign(js))`, since a leftover
+  /// `a, ` is broken JavaScript.
+  function ifSignal(body: String): String = "{{#\(name).signal}}\(body){{/\(name).signal}}"
+
+  /// `body` while the node sets this slot. Never `{{#name}}` around a signal's
+  /// binding: the patch form withholds the value, so that section closes on the
+  /// first patch and takes the element with it (ADR 0017).
+  function ifSet(body: String): String = "{{#\(name).has}}\(body){{/\(name).has}}"
+  function ifUnset(body: String): String = "{{^\(name).has}}\(body){{/\(name).has}}"
+  /// `body` while the value is truthy: `""`, `false` and absence are not.
+  function ifTrue(body: String): String = "{{#\(name)}}\(body){{/\(name)}}"
+  function ifFalse(body: String): String = "{{^\(name)}}\(body){{/\(name)}}"
+  /// Both halves, where each is the other's alternative.
+  function ifSetElse(set: String, unset: String): String = ifSet(set) + ifUnset(unset)
+  function ifTrueElse(yes: String, no: String): String = ifTrue(yes) + ifFalse(no)
+
+  /// This slot holding `v`.
+  function of(v: (String|Boolean|Reading)?): Slot = let (self = this) (self) { value = v }
+  /// A flag on a [[bool]] slot: set while `b` holds, for a template that reads
+  /// it with [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
+  /// `false` (`attr:disabled`).
+  function setIf(b: Boolean): Slot = of(if (b) true else null)
+
+  function toString(): String = "{{" + name + "}}"
+}
+
+const function slot(n: String): Slot = new { name = n }
+
+/// A slot the template reads as on or off, where the string `"false"` would
+/// be truthy: a Boolean, or a reading the build checks yields one.
+const function bool(n: String): Slot = new { name = n; type = "bool" }
+
+/// A slot the template places in a raw hole, `{{{n}}}` ([[Slot.raw]]): markup
+/// or a script the value already is.
+const function textRaw(n: String): Slot = new { name = n; type = "textRaw" }
+
+/// A slot whose value is classes, placed in a `class` attribute: the theme's
+/// class rules reach its value as they reach the template (ADR 0020). A
+/// literal or a reading, filled with [[Slot.of]] like any other.
+const function cssClass(n: String): Slot = new { name = n; themed = true }
+
+/// The entity a card is about, a literal: the build names it on every other
+/// reading that names none (`Dashboard.SubjectSlot`).
+const subject: Slot = slot("entity_id")
 
 /// A read of a named provider. Each provider's component module declares its
 /// typed question as a subclass, which the backend decodes by `provider`.
 abstract class Fetch {
   provider: String
+  /// Entities whose change re-reads whatever reads this. The server cannot see
+  /// what an answer depends on, so none unless the provider's option says.
+  hidden dependsOn: List<String> = List()
 }
 
-typealias SlotType = "text"|"bool"
+typealias SlotType = "text"|"textRaw"|"bool"
 
-/// Where a signal slot's value lands in the DOM. One constrained String, since
-/// the wire form is one string and the kinds take a name; a typo is an eval
-/// error. Build one with the `as…` helpers below.
-typealias SignalBind =
-  String(matches(Regex(#"text|bind|handler|(style|attr|class):\S+"#)))
+/// Where a signal slot's value lands in the DOM (`fh.view.model.SignalBind`,
+/// whose case `kind` names). Build one with the `as…` helpers below.
+abstract class SignalBind {
+  kind: String
+}
+class BindText extends SignalBind { kind: "Text" = "Text" }
+class BindTwoWay extends SignalBind { kind: "Bind" = "Bind" }
+class BindHandler extends SignalBind { kind: "Handler" = "Handler" }
+class BindStyle extends SignalBind {
+  kind: "Style" = "Style"
+  property: String(!isEmpty)
+}
+class BindAttr extends SignalBind {
+  kind: "Attr" = "Attr"
+  name: String(!isEmpty)
+}
+class BindClass extends SignalBind {
+  kind: "Class" = "Class"
+  name: String(!isEmpty)
+}
 
 /// `data-text`.
-const asText: SignalBind = "text"
+const asText: SignalBind = new BindText {}
 
 /// `data-bind`, two-way, for a form control's state: setting the attribute does
 /// not move the property the browser reads once the element exists.
-const asBind: SignalBind = "bind"
+const asBind: SignalBind = new BindTwoWay {}
 
 /// `data-style:<property>`. The value carries its own unit (`39.37%`).
-const function asStyle(property: String): SignalBind = "style:" + property
+const function asStyle(prop: String): SignalBind = new BindStyle { property = prop }
 
 /// `data-attr:<name>`. A boolean value sets or removes a boolean attribute:
 /// `""` SETS one, only a real `false` removes it.
@@ -96,142 +289,119 @@ const function asStyle(property: String): SignalBind = "style:" + property
 /// Prefer a real `disabled` here over [[asClass]] for a control the ENTITY's
 /// state makes unusable — the browser then stops the click itself. Not for an
 /// action in flight (ADR 0019): a disabled button loses focus.
-const function asAttr(name: String): SignalBind = "attr:" + name
+const function asAttr(attrName: String): SignalBind = new BindAttr { name = attrName }
 
 /// `data-class:<name>`, present while the value is truthy — `"false"` is ON. A
 /// card that also paints the value inline needs `""`, or `true` lands in its
 /// class list.
-const function asClass(name: String): SignalBind = "class:" + name
+const function asClass(cls: String): SignalBind = new BindClass { name = cls }
 
-/// No binding: an event handler reads the value through [[signalRef]]. For a
-/// value that only a click consumes, so the markup stays constant (ADR 0017).
-const asHandler: SignalBind = "handler"
-
-/// The binding a signal slot's card places beside the `{{name}}` hole:
-///
-/// ```
-/// <span class="fh-reading" \(signalBind("value"))>{{value}}</span>
-/// ```
-///
-/// The backend fills it, and with nothing when the value is not a signal, which
-/// keeps the no-signals rendering reachable.
-const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
-
-/// The signal's name, for an expression of the card's own (the slider's commit
-/// URL). Signal-only.
-const function signalRef(name: String): String = "{{" + name + "__signal}}"
-
-/// The slot's value as a JS expression, for a handler of the card's own:
-///
-/// ```
-/// @post('sse/call/{{dashboardSlug}}/' + \(slotRead("service")) + '/entity/{{entity_id}}')
-/// ```
-///
-/// A literal reads back as `'light/toggle'`, a signal as its `$…` read, so one
-/// template serves both and the card never branches. A live slot that is not a
-/// signal is a build error.
-const function slotRead(name: String): String = "{{{" + name + "__read}}}"
+/// No binding: an event handler reads the value through [[Slot.jsValue]] or
+/// [[Slot.signalName]]. For a value that only a click consumes, so the markup
+/// stays constant (ADR 0017).
+const asHandler: SignalBind = new BindHandler {}
 
 /// Whether `e`'s state is one of `states`, as a boolean reading.
-const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
-  entityId = e.entity_id
-  transform = simpleMod.stateIn(states.toListing())
-  bypassUnavailable = false
-}
+const function stateIn(e: hass.Entity, states: List<String>): Reading =
+  (simpleMod.stateIn(states.toListing())) {
+    entityId = e.entity_id
+  }
 
 /// Whether `e` is on as HA's tile draws it, live, or null for a domain with no
 /// on look (a sensor). The tables are `hass/active.pkl`.
-const function activeOf(e: hass.Entity): Slot? =
+const function activeOf(e: hass.Entity): Reading? =
   if (activeTables.neutral.contains(e.domain)) null
-  else new Slot {
-    entityId = e.entity_id
-    transform =
-      if (activeTables.onIn.containsKey(e.domain))
-        simpleMod.stateIn(activeTables.onIn[e.domain].toListing())
-      else
-        let (offStates =
-          List("unavailable", "unknown")
-            + (if (e.domain == "alert") activeTables.alertOffIn else List("off"))
-            + (activeTables.offIn.getOrNull(e.domain) ?? List()))
-          simpleMod.matchOf(new Mapping { for (st in offStates) { [st] = false } }, true)
-    bypassUnavailable = false
-  }
+  else
+    (if (activeTables.onIn.containsKey(e.domain))
+      simpleMod.stateIn(activeTables.onIn[e.domain].toListing())
+    else
+      let (offStates =
+        List("unavailable", "unknown")
+          + (if (e.domain == "alert") activeTables.alertOffIn else List("off"))
+          + (activeTables.offIn.getOrNull(e.domain) ?? List()))
+        simpleMod.matchOf(new Mapping { for (st in offStates) { [st] = false } }, true)) {
+      entityId = e.entity_id
+    }
 
 /// A timestamp state as the clock time it names, `18:03`, in `time_zone`: the
 /// server's, which under the add-on is HA's own (Supervisor sets `TZ`). Any
 /// other state passes through, so `unknown` still reads.
 const CLOCK_TIME_EXPR: String = #"""
-  state.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T')
-    ? cel.bind(t, timestamp(state),
+  value.state.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T')
+    ? cel.bind(t, timestamp(value.state),
         cel.bind(h, t.getHours(time_zone), cel.bind(m, t.getMinutes(time_zone),
           (h < 10 ? '0' : '') + string(h) + ':' + (m < 10 ? '0' : '') + string(m))))
-    : state
+    : value.state
   """#
 
 /// What an entity card reads out when told nothing: the clock time of a scene
 /// or a button's last activation, else null (the state with its unit).
-const function readingOf(e: hass.Entity): Expr? =
-  if (activeTables.lastHappened.contains(e.domain)) new Expr { transform = CLOCK_TIME_EXPR }
+const function readingOf(e: hass.Entity): Reading? =
+  if (activeTables.lastHappened.contains(e.domain)) celReading(CLOCK_TIME_EXPR)
   else null
 
-/// The section for optional markup holding a slot:
-///
-/// ```
-/// \(ifSlot("icon"))<i class="{{icon}}" \(signalBind("icon"))></i>\(endIfSlot("icon"))
-/// ```
-///
-/// Never `{{#icon}}`: a signal's value is withheld in the patch form, so a
-/// section on the value deletes its own element on the first patch
-/// (`SignalSectionSuite`). `name__has` is filled for every declared slot.
-const function ifSlot(name: String): String = "{{#" + name + "__has}}"
 
-const function endIfSlot(name: String): String = "{{/" + name + "__has}}"
-
-const function ifNoSlot(name: String): String = "{{^" + name + "__has}}"
-
-const function endIfNoSlot(name: String): String = "{{/" + name + "__has}}"
-
-/// A live value for a display field that also takes a plain string:
-/// `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`.
-class Expr {
-  entityId: String? = null
-  transform: String
-}
-
-function expr(s: String): Expr = new { transform = s }
+/// A live value for a display field that also takes a plain string, CEL over
+/// the whole entity as `value`:
+/// `label = expr(#"value.attr[?'friendly_name'].orValue('') + ' ' + value.state"#)`.
+function expr(s: String): Reading = celReading(s)
 
 /// [[expr]] over another entity than the card's.
-function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
+function exprOf(eo: hass.Entity, s: String): Reading =
+  (celReading(s)) { entityId = eo.entity_id }
 
-// Expr and Simple resolve even while unavailable, so a label shows the name;
+/// A CEL over the card's whole entity.
+const function celReading(expression: String): Reading =
+  new Reading { part = new simpleMod.Whole {}; steps { simpleMod.cel(expression) } }
+
+/// `r` as a text hole shows it: a read of a state or a whole entity shows an
+/// unavailable entity's word in place of its reading, the one place the bypass
+/// may be.
+const function textReading(r: Reading): Reading =
+  let (src = r.source)
+    if (src is EntityRead && (src.part == null || src.part is simpleMod.Whole))
+      (r) { bypassUnavailable = true }
+    else r
+
 // null bakes the friendly name.
-const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Simple)?): Slot|String =
-  if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
-  else if (label is simpleMod.Simple) new Slot { transform = label; bypassUnavailable = false }
-  else if (label != null) label
+const function labelSlot(entity: hass.Entity?, label: (String|Reading)?): Reading|String =
+  if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
 // null: the state plus the entity's unit. A String names an attribute, with the
-// unit. An Expr or Simple is used as given, unit and all.
-const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
-  if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
-  else if (value is simpleMod.Simple) new Slot { transform = value }
-  else if (value == null) new Slot { transform = simpleMod.suffixUnit("unit_of_measurement") }
-  else new Slot { transform = simpleMod.attrUnit(value) }
+// unit. A Reading is used as given, unit and all, as [[textReading]] shows it.
+const function valueSlot(value: (String|Reading)?): Reading =
+  if (value is Reading) textReading(value)
+  else if (value == null) (simpleMod.suffixUnit("unit_of_measurement")) { bypassUnavailable = true }
+  else simpleMod.attrUnit(value)
 
 /// A card's second line. A String is the text itself, never an attribute name
 /// (that is [[attr]]).
-typealias Secondary = String|Expr|Slot
+typealias Secondary = String|Reading
 
-/// A live reading becomes a text signal, so a card placing it uses
-/// `textMod.liveRun` under [[ifSlot]].
-const function secondarySlot(s: Secondary): String|Slot =
-  if (s is Expr) new Slot { entityId = s.entityId; transform = s.transform; default = ""; signal = asText }
-  else if (s is Slot && s.fetch == null && s.reads == "live" && s.signal == null) (s) { signal = asText }
-  else s
+/// `at` holding a second line. A live reading becomes a text signal, so a card
+/// places it with `textMod.liveRun` under [[Slot.ifSet]].
+const function secondary(at: Slot, s: Secondary?): Slot =
+  if (s is Reading && s.fetch == null && s.reads == "live")
+    (at) { value = (textReading(s)) { default = s.default ?? "" }; signal = asText }
+  else at.of(s)
+
+/// `at` holding `v` as a signal bound as `kind`.
+const function signalled(at: Slot, v: Reading, kind: SignalBind): Slot =
+  (at) { value = v; signal = kind }
+
+/// `at` (a [[cssClass]] slot) holding an element's whole class: a reading moves
+/// as a signal on `class`, so a glyph can swap.
+const function liveClass(at: Slot, v: (String|Reading)?): Slot =
+  if (v is Reading) (at) { value = v; signal = asAttr("class") } else at.of(v)
+
+/// `at` holding text: a reading moves as a text signal (ADR 0017), so a
+/// ticking value costs a few bytes instead of the card.
+const function liveText(at: Slot, v: (String|Reading)?): Slot =
+  if (v is Reading) (at) { value = v; signal = asText } else at.of(v)
 
 /// One attribute of the card's entity, blank when absent:
 /// `c.entityCard(l).secondary(c.attr("device_class"))`.
-const function attr(attrName: String): Slot =
-  new Slot { transform = simpleMod.attr(attrName); default = "" }
+const function attr(attrName: String): Reading =
+  (simpleMod.attr(attrName)) { default = "" }

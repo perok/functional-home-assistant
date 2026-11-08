@@ -49,7 +49,7 @@ CHURN — every frame moves one, so the generation for the previous version is d
 moment it is replaced.
 
 Not every entity the node READS, though: only those whose movement can change its BYTES
-(`LayoutNode.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
+(`Ready.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
 the patch form entirely (ADR 0017), so its value moving cannot move these bytes, and keying
 on it would throw away a generation whose re-render is identical. The reverse index still
 wants the wider list — a signal has to make its node a candidate or no frame is ever computed
@@ -79,7 +79,7 @@ live path — an order of magnitude more than encoding the frame.
 **Fixed** (`Renderer.byteSlotValues` + a fourth branch in `RenderCache.apply`): not by predicting
 the inputs more finely but by **comparing the resolved byte-slot VALUES** before rendering — identical values mean identical bytes, so the entry's bytes are
 reused and re-stamped without mustache, wrapper or digest. It needs no static analysis, so CEL
-and `Transform.Simple` go through the same path, and on the shipped card there is at most one
+and the simple steps go through the same path, and on the shipped card there is at most one
 byte slot to resolve — the signal slots are evaluated on a signals tick regardless. ("The name,
 an `AttrOrId` off ADR 0028's fast tier" is what this said, and it was wrong twice over: nothing
 in the library ever called that shape, and `slot.labelSlot` bakes the name as a LITERAL off the

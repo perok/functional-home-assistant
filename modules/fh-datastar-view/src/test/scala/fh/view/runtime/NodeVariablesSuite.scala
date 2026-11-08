@@ -28,14 +28,19 @@ class NodeVariablesSuite extends munit.FunSuite {
   private val chosen: Choice[Window] = Choice.Chosen("window", Windows.presets)
 
   private def chartSlot(param: Choice[Window] = chosen) =
-    SlotSource(
-      fetch = Some(FetchTemplate("sensor.t", param)),
-      transform = Transform.Stage.Chart(ChartStyle(width = 600)),
-      reads = Reads.OnRender
+    TemplateSlot(
+      ValueExpr(
+        Value.Fetch(FetchTemplate("sensor.t", param)),
+        List(Step.Chart(ChartStyle(width = 600)))
+      ),
+      `type` = SlotType.TextRaw
     )
 
   private def chartNode(param: Choice[Window] = chosen) =
-    LayoutNode.Component("chart", slots = Map("chart" -> chartSlot(param)))
+    LayoutNode.Component(
+      "chart",
+      templateSlots = Map("chart" -> chartSlot(param))
+    )
 
   private def box(
       vars: Map[String, String],
@@ -112,7 +117,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d = dash(
       LayoutNode.Component(
         "chart",
-        slots = Map("chart" -> chartSlot()),
+        templateSlots = Map("chart" -> chartSlot()),
         vars = declared("window" -> "7d")
       )
     )
@@ -122,7 +127,9 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   test("a written-down window reads no variable at all") {
     // It has nowhere for a write to land, so nothing has to refuse one.
-    val t = chartSlot(Choice.Fixed(Windows.day)).fetch.get
+    val t = Option(chartSlot(Choice.Fixed(Windows.day)).expr.source).collect {
+      case Value.Fetch(f) => f
+    }.get
     assertEquals(t.references, Nil)
     assertEquals(
       t.resolve(Map("window" -> "7d")),
@@ -271,17 +278,19 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   private def readAt(window: String) = SlotRead(
     FetchRequest.History("sensor.t", Windows.presets(window)),
-    Transform.Stage.Chart(ChartStyle(width = 600))
+    Step.Chart(ChartStyle(width = 600))
   )
 
   /** The answers a viewer was given, and the values they were fetched for. */
   private def paint(r: Renderer, env: VarEnv, drawn: (String, String)*) =
     r.renderBodyTraced(
-      states,
-      Selections.none,
-      FetchSnapshot.of(
-        drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
-        env
+      Shared.of(states),
+      Viewing(
+        Selections.none,
+        FetchSnapshot.of(
+          drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
+          env
+        )
       )
     ).html
 
@@ -298,7 +307,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val chose7d =
       r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
     assertEquals(
-      r.fetchesForPage(Set.empty, Map.empty, chose7d),
+      r.fetchesForPage(Set.empty, Shared.of(Map.empty), chose7d),
       List(readAt("7d"))
     )
     assert(
@@ -312,8 +321,14 @@ class NodeVariablesSuite extends munit.FunSuite {
     val a = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "1h"))
     val b = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
 
-    assertEquals(r.fetchesForPage(Set.empty, Map.empty, a), List(readAt("1h")))
-    assertEquals(r.fetchesForPage(Set.empty, Map.empty, b), List(readAt("30d")))
+    assertEquals(
+      r.fetchesForPage(Set.empty, Shared.of(Map.empty), a),
+      List(readAt("1h"))
+    )
+    assertEquals(
+      r.fetchesForPage(Set.empty, Shared.of(Map.empty), b),
+      List(readAt("30d"))
+    )
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
     assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
 
@@ -329,7 +344,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     def keyFor(env: VarEnv, window: String) =
       r.renderInputs(
         chartId,
-        states,
+        Shared.of(states),
         FetchSnapshot.of(Map(readAt(window) -> Staged(100L, "<svg/>")), env)
       )
     assert(keyFor(a, "1h").isDefined)
@@ -344,7 +359,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val env =
       r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
     assertEquals(
-      r.fetchesForPage(Set.empty, Map.empty, env).toSet,
+      r.fetchesForPage(Set.empty, Shared.of(Map.empty), env).toSet,
       Set(readAt("30d"), readAt("1h"))
     )
   }
@@ -390,7 +405,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Map.empty, env),
+      r.fetchesForPage(Set.empty, Shared.of(Map.empty), env),
       List(readAt("24h"))
     )
   }

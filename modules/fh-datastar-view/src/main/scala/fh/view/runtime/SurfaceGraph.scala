@@ -1,6 +1,7 @@
 package fh.view.runtime
 
-import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
+import fh.view.model.{Dashboard, DomId, NodeId, Ready, SlotRead, Surface}
+import fh.view.model.Ready.Activation
 
 /** What one viewer has selected: the popup it has open, and the member of each
   * bake group a node variable selects (ADR 0033). A state group's branch is
@@ -26,10 +27,9 @@ object Selections {
   *   for [[rootOf]] of materialised members and nested sets.
   */
 private[runtime] final class SurfaceGraph(
-    surfaces: Map[String, Surface],
+    surfaces: Map[String, Ready.Surface],
     rootOfIndexed: Map[NodeId, String],
-    members: MemberGraph,
-    decided: Decided = Decided()
+    members: MemberGraph
 ) {
 
   /** A `val`: `hostId` asks for every node on every render. */
@@ -80,7 +80,7 @@ private[runtime] final class SurfaceGraph(
     */
   def memberAt(gid: NodeId, value: String): Option[Int] = {
     val members = bakeGroup(gid).map(surfaces.get)
-    def first(p: Surface => Boolean): Option[Int] =
+    def first(p: Ready.Surface => Boolean): Option[Int] =
       Some(members.indexWhere(_.exists(p))).filter(_ >= 0)
     first(_.selectedAt.contains(value)).orElse(first(_.isOtherwise))
   }
@@ -90,7 +90,7 @@ private[runtime] final class SurfaceGraph(
     bakeGroup(gid).flatMap(surfaces.get(_).flatMap(_.selectedAt))
 
   /** A popup open from the first paint; a bake group's member is chosen. */
-  private def defaultOpenPopup(s: Surface): Boolean = s.activation match {
+  private def defaultOpenPopup(s: Ready.Surface): Boolean = s.activation match {
     case Activation.User(d) => d
     case _                  => false
   }
@@ -166,26 +166,23 @@ private[runtime] final class SurfaceGraph(
       s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
     }
 
-  /** `sid` plus the nested tabs this viewer selected and the branches `states`
+  /** `sid` plus the nested tabs this viewer selected and the branches `shared`
     * picks, transitively.
     */
   def shownWithin(
       sid: String,
-      states: Map[String, EntityState],
+      shared: Shared,
       selections: Selections
   ): Set[String] = {
     val open = selectedSurfaces(selections)
-    surfaces.keySet.filter(shownUpTo(_, sid, open, states, Set.empty)) + sid
+    surfaces.keySet.filter(shownUpTo(_, sid, open, shared, Set.empty)) + sid
   }
 
   /** Every surface [[visibleSurface]] with `open`, which is added whole: a page
     * opens on what the viewer chose, shown or not.
     */
-  def shownSurfaces(
-      open: Set[String],
-      states: Map[String, EntityState]
-  ): Set[String] =
-    open ++ surfaces.keySet.filter(visibleSurface(_, open, states))
+  def shownSurfaces(open: Set[String], shared: Shared): Set[String] =
+    open ++ surfaces.keySet.filter(visibleSurface(_, open, shared))
 
   private def isStateSurface(sid: String): Boolean =
     surfaces
@@ -195,17 +192,14 @@ private[runtime] final class SurfaceGraph(
         case _                   => false
       })
 
-  private def stateSelected(
-      sid: String,
-      states: Map[String, EntityState]
-  ): Boolean =
+  private def stateSelected(sid: String, shared: Shared): Boolean =
     surfaces.get(sid).flatMap(_.group).exists { gid =>
-      resolveActiveByState(gid, states)
+      resolveActiveByState(gid, shared)
         .flatMap(bakeGroup(gid).lift)
         .contains(sid)
     }
 
-  /** Whether `sid` is on screen for a viewer with `open` open, as `states` has
+  /** Whether `sid` is on screen for a viewer with `open` open, as `shared` has
     * it: every surface up its chain is, a user surface opened and a state
     * branch selected, and a group inside a set member only while the member is
     * in that clause ([[groupShown]]). `open` may hold a tab panel inside a
@@ -215,9 +209,9 @@ private[runtime] final class SurfaceGraph(
   def visibleSurface(
       sid: String,
       open: Set[String],
-      states: Map[String, EntityState],
+      shared: Shared,
       cut: Set[NodeId] = Set.empty
-  ): Boolean = sid.isEmpty || shownUpTo(sid, "", open, states, cut)
+  ): Boolean = sid.isEmpty || shownUpTo(sid, "", open, shared, cut)
 
   /** Every surface from `sid` up to `stop`, exclusive, is shown. The visited
     * set because authored `bakeInto` may cycle.
@@ -226,7 +220,7 @@ private[runtime] final class SurfaceGraph(
       sid: String,
       stop: String,
       open: Set[String],
-      states: Map[String, EntityState],
+      shared: Shared,
       cut: Set[NodeId]
   ): Boolean = {
     def up(sid: String, seen: Set[String]): Boolean =
@@ -234,9 +228,9 @@ private[runtime] final class SurfaceGraph(
         val inGroup = surfaces
           .get(sid)
           .flatMap(_.group)
-          .forall(gid => !cut(gid) && groupShown(gid, states))
+          .forall(gid => !cut(gid) && groupShown(gid, shared))
         val here =
-          if (isStateSurface(sid)) stateSelected(sid, states) else open(sid)
+          if (isStateSurface(sid)) stateSelected(sid, shared) else open(sid)
         inGroup && here && up(surfaceParent.getOrElse(sid, ""), seen + sid)
       })
     up(sid, Set.empty)
@@ -248,30 +242,46 @@ private[runtime] final class SurfaceGraph(
   def visibleNode(
       id: NodeId,
       open: Set[String],
-      states: Map[String, EntityState]
+      shared: Shared
   ): Boolean =
-    rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
+    rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, shared))
 
-  // Subject-free (`validate`), so the subject is a stand-in nothing reads.
+  /** Each state surface's condition; an else has none. */
+  private val conditions: Map[String, Ready.Condition] =
+    surfaces.flatMap { (sid, s) =>
+      s.activation match
+        case Activation.State(Some(c)) => Some(sid -> c)
+        case _                         => None
+    }
+
+  /** What a state group's conditions read: its branch decision's fetches. */
+  private val branchReads: Map[NodeId, Set[SlotRead]] =
+    bakeGroups.view
+      .mapValues(_.flatMap(conditions.get).flatMap(_.reads).toSet)
+      .toMap
+
+  // Subject-free (`validate`). An else holds.
   private def holds(
-      condition: Predicate,
-      states: Map[String, EntityState]
+      sid: String,
+      states: Map[String, EntityState],
+      fetched: Shared.Fetched
   ): Boolean =
-    Conditions.matchesIn(condition, EntityState.none, states)
+    conditions
+      .get(sid)
+      .forall(c => Evaluator.holds(c.run(null, states, fetched)))
 
   /** First match in `bakeIndex` order; `None` bakes empty content. */
   private[runtime] def resolveActiveByState(
       gid: NodeId,
-      states: Map[String, EntityState]
+      shared: Shared
   ): Option[Int] =
-    decided.at(states).branch(gid) {
+    shared.branch(gid, branchReads.getOrElse(gid, Set.empty)) { f =>
       val idx = bakeGroup(gid).indexWhere(sid =>
         surfaces
           .get(sid)
           .exists(_.activation match {
-            case Activation.State(condition) =>
-              holds(condition, states)
-            case _ => false
+            case Activation.State(_) => holds(sid, shared.states, f)
+            case _                   => false
           })
       )
       Option.when(idx >= 0)(idx)
@@ -289,7 +299,7 @@ private[runtime] final class SurfaceGraph(
               .get(_)
               .toList
               .flatMap(_.activation match {
-                case Activation.State(c) => Predicate.referencedEntities(c)
+                case Activation.State(c) => c.toList.flatMap(_.entities)
                 case _                   => Nil
               })
           )
@@ -298,14 +308,25 @@ private[runtime] final class SurfaceGraph(
       }
       .groupMap(_._1)(_._2)
 
-  /** Whether `gid` is on the page as `states` has it: a group inside a member
+  /** The state groups some entity can mark dirty; any other is dirty at every
+    * version, so it is never carried.
+    */
+  val marked: Set[NodeId] = stateGroupsReading.values.flatten.toSet
+
+  /** The branch decisions `changes` dirty. */
+  def dirtied(changes: List[StateChange]): Set[NodeId] =
+    changes.iterator
+      .flatMap(c => stateGroupsReading.getOrElse(c.entityId, Nil))
+      .toSet
+
+  /** Whether `gid` is on the page as `shared` has it: a group inside a member
     * only while the member is present and in that clause.
     */
-  def groupShown(gid: NodeId, states: Map[String, EntityState]): Boolean =
+  def groupShown(gid: NodeId, shared: Shared): Boolean =
     clauseOf(gid).forall { k =>
       members
         .memberOwning(hostOf(gid))
-        .flatMap(members.memberAt(_, states))
+        .flatMap(members.memberAt(_, shared))
         .exists(_.clause == k)
     }
 
@@ -318,22 +339,20 @@ private[runtime] final class SurfaceGraph(
     */
   def affectedStateGroups(
       changes: List[StateChange],
-      before: Map[String, EntityState],
-      states: Map[String, EntityState],
+      prev: Shared,
+      next: Shared,
       visible: Set[String] = Set.empty
   ): List[NodeId] = {
     val moved = changes
       .flatMap(c => stateGroupsReading.getOrElse(c.entityId, Nil))
       .distinct
       .filter { gid =>
-        def selected(at: Map[String, EntityState]) =
-          resolveActiveByState(gid, at)
-        groupShown(gid, before) && groupShown(gid, states) &&
-        selected(before) != selected(states)
+        groupShown(gid, prev) && groupShown(gid, next) &&
+        resolveActiveByState(gid, prev) != resolveActiveByState(gid, next)
       }
     val cut = moved.toSet
     moved
-      .filter(rootOf(_).exists(visibleSurface(_, visible, states, cut)))
+      .filter(rootOf(_).exists(visibleSurface(_, visible, next, cut)))
       .sorted
   }
 

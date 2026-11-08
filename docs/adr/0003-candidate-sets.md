@@ -34,7 +34,9 @@ and order.** A set carries:
 - `orderBy` / `limit` — present only when they need live state.
 
 A member is a `cond` expression: clauses are tried in order and the first whose
-`when` holds decides. **Falling off the end means the member is not rendered** —
+`when` holds decides; a `when` is a condition (ADR 0004) whose unnamed reads read
+the member, and a clause with none always holds. **Falling off the end means the
+member is not rendered** —
 which is why there is no separate presence field, and why omitting the fallback
 is how "only while on" is written.
 
@@ -90,9 +92,11 @@ Three more things fell out of the same change:
 - **Presence** — per candidate, the first clause whose guard holds; none means
   absent. Absent means **absent from the DOM**, not present-and-hidden: a hidden
   wrapper ships the bytes anyway and still costs layout and morph work.
-- **Order** — `orderBy` is a lexicographic list of `SortKey.Prop` (a value) or
-  `SortKey.Holds` (a predicate's truth), compared only among the PRESENT
-  members. An ordering that folded entirely to registry facts leaves
+- **Order** — `orderBy` is a lexicographic list of `SortTerm`s, each a value read
+  per member (`by`, a `ValueExpr`): a property, or a condition's truth, true
+  first under `asc`. They are compared only among the PRESENT members, and a
+  condition that reads a registry fact sorts at build time by the same rule. An
+  ordering that folded entirely to registry facts leaves
   `candidates` pre-sorted and `orderBy` empty, so the runtime compares nothing.
   A value compares numerically when both sides are numbers and as a string
   otherwise (an HA timestamp is UTC ISO, so it sorts as one); NO value —
@@ -210,16 +214,17 @@ nested in another set's `render` is for when the OUTER membership is live too
 (HA light groups that are on).
 
 **A set can name its leader without rendering anything.**
-`q.from(scenes).orderBy(q.desc(q.stateProp)).first().eq(s)` is a condition — a
-`Predicate.First` over the set's candidates, guards and live ordering, the
-sibling of `count()`'s `Count` — so a FIXED row of pills can light the scene
+`q.from(scenes).orderBy(q.desc(q.stateProp)).first().eq(s)` is a condition — the
+set's `Present` ids, a `First` step over its live ordering and a comparison with
+`s`, the sibling of `count()`'s `Count` step — so a FIXED row of pills can light the scene
 activated last (`.active(latest.eq(s))`). Rendering the set with `limit(1)`
 would show the leader alone, and ordering the whole row by it would move a pill
 under the finger that pressed it. It folds to a constant when the ordering is
 registry-only and the first candidate's presence is settled.
 
 **A set can be what a call acts on** (#583): `c.tap.lights.off(lit)`, or
-`c.tap.call(service, set)`. The call carries the set's tally, the same value
+`c.tap.call(service, set)`. The call carries the set's tally (its `Present`
+source: candidates and guards), the same value
 `count()` gives a label, and the server sends the candidates present at the
 press. A label counting the set and the press therefore agree on the rule; only
 the moment differs. ADR 0023 has why the route names the set and not its

@@ -1,5 +1,7 @@
 package fh.view.model
 
+import fh.view.testkit.Conds
+
 import io.circe.Json
 
 /** [[Dashboard.watchedEntities]], what the live subscription asks HA for, and
@@ -17,16 +19,16 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     LayoutNode.Component(
       "tile",
       Map(
-        "entity_id" -> SlotSource(literal = Some(id)),
-        "state" -> SlotSource()
+        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
       )
     )
 
-  private val whileOn: Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+  private val whileOn: ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
-  private def onEntity(id: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), entity = Some(id))
+  private def onEntity(id: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), entity = Some(id))
 
   test("a clause guard naming another entity is watched, not referenced") {
     // "Show the banner while the hall sensor is on." The sensor is not a
@@ -71,7 +73,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
             List(
               LayoutNode.SetClause(
                 Some(
-                  Predicate.Count(
+                  Conds.count(
                     candidates = counted,
                     when = counted.map(_ -> whileOn).toMap,
                     op = Op.Gt,
@@ -104,7 +106,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
           bakeInto = Some(NodeId.derived("host")),
           bakeAs = Some("armed"),
           bakeIndex = Some(0),
-          activation = Activation.State(onEntity(alarm))
+          activation = Activation.State(Some(onEntity(alarm)))
         )
       )
     )
@@ -138,7 +140,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
       surfaces = Map(
         "s" -> Surface(
           content = tileNode("light.c"),
-          activation = Activation.State(onEntity("alarm_control_panel.p"))
+          activation = Activation.State(Some(onEntity("alarm_control_panel.p")))
         )
       )
     )
