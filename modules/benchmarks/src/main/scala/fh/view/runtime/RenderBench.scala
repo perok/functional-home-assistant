@@ -295,8 +295,15 @@ class RenderBench {
     "on" -> isOn
   )
   // Compiled once, as a renderer's plan or a member graph compiles them.
-  private lazy val isOnRun = Evaluator.plain(isOn)
-  private lazy val isOnInputs = Evaluator.inputs(isOnValue)
+  private lazy val isOnRun =
+    Conds.run(isOn)
+  private lazy val isOnInputs =
+    Evaluator
+      .named(isOnValue, Evaluator.Scope(""))
+      .fold(
+        m => throw AssertionError(m.message),
+        n => Evaluator.activation(n.toList)
+      )
   private var engineShapes: List[Cel.Program] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -591,8 +598,8 @@ class RenderBench {
   /** [[pageSignals]] with each card's fill colour reading two expression
     * values: the only page here whose CEL is typed against named values, so the
     * only one that prices the compile key and the per-render activation
-    * (`Evaluator.inputs`). Rebuilding that key per render cost 139 KB a page
-    * here (#615).
+    * (`Evaluator.activation`). Rebuilding that key per render cost 139 KB a
+    * page here (#615).
     */
   @Benchmark
   def pageValued(bh: Blackhole): Unit = bh.consume(valued.renderPageTraced(st))
@@ -720,8 +727,10 @@ class RenderBench {
     List(Step.Count, Step.Compare(Op.Gt, Value.Literal(Lit.Real(0.0))))
   )
 
-  private lazy val anyOnRun = Evaluator.plain(anyOn)
-  private lazy val anyOnFullRun = Evaluator.plain(anyOnFull)
+  private lazy val anyOnRun =
+    Conds.run(anyOn)
+  private lazy val anyOnFullRun =
+    Conds.run(anyOnFull)
 
   @Benchmark
   def countAny(bh: Blackhole): Unit =
@@ -763,7 +772,8 @@ class RenderBench {
     )
   )
 
-  private lazy val litNotDimRun = Evaluator.plain(litNotDim)
+  private lazy val litNotDimRun =
+    Conds.run(litNotDim)
 
   /** An and over an or and a not, per leaf: every kind of step a tree nests. */
   @Benchmark
@@ -778,7 +788,7 @@ class RenderBench {
   }
 
   private lazy val brightRun =
-    Evaluator.plain(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
+    Conds.run(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
 
   /** A guard over an attribute, on a state as a frame hands it over: a copy, so
     * nothing a read caches on the state is there yet.
@@ -796,7 +806,7 @@ class RenderBench {
 
   // Each pill lit while its own light leads, as `first().eq(e)` writes it.
   private lazy val leaders = Array.tabulate(Pills)(i =>
-    Evaluator.plain(
+    Conds.run(
       Conds.first(
         candidates = List.tabulate(Pills)(entityId),
         orderBy =

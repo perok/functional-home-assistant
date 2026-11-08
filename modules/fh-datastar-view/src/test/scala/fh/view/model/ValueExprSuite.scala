@@ -15,7 +15,7 @@ class ValueExprSuite extends munit.FunSuite {
     ValueExpr(state(of), List(Step.Compare(Op.Eq, on)))
 
   private def list(step: Step, items: ValueExpr*) =
-    ValueExpr(Value.List(items.toList), List(step))
+    ValueExpr(Value.List(ValueType.Bool, items.toList), List(step))
 
   private def typeOf(e: ValueExpr): Either[String, ValueType] =
     e.typed(Nil).left.map(_.message).map(_.out)
@@ -46,7 +46,12 @@ class ValueExprSuite extends munit.FunSuite {
       Left("has a not step, which takes a bool, after a text")
     )
     assertEquals(
-      typeOf(list(Step.AllOf, ValueExpr(state("a.a")))),
+      typeOf(
+        ValueExpr(
+          Value.List(ValueType.Text, List(ValueExpr(state("a.a")))),
+          List(Step.AllOf)
+        )
+      ),
       Left(
         "has a all-of step, which takes a list of bools, after a list of text"
       )
@@ -59,15 +64,21 @@ class ValueExprSuite extends munit.FunSuite {
     )
   }
 
-  test("a list's items are one type, at least one, and read without CEL") {
+  test("a list's items are its item type, none included, CEL among them") {
     assertEquals(
       typeOf(list(Step.AllOf, isOn("a.a"), ValueExpr(state("a.b")))),
-      Left("a list's items are one type, not bool and text")
+      Left("a list's items are bool, not text")
     )
-    assertEquals(typeOf(list(Step.AllOf)), Left("a list has no items"))
+    assertEquals(typeOf(list(Step.AllOf)), Right(ValueType.Bool))
+    assertEquals(typeOf(list(Step.AnyOf)), Right(ValueType.Bool))
+    assertEquals(typeOf(list(Step.Count)), Right(ValueType.Int))
     assertEquals(
       typeOf(list(Step.AnyOf, ValueExpr(Value.Cel("true")))),
-      Left("a list's items are read without CEL")
+      Right(ValueType.Bool)
+    )
+    assertEquals(
+      typeOf(list(Step.AnyOf, ValueExpr(Value.Cel("'on'")))),
+      Left("a list's items are bool, not text")
     )
   }
 
@@ -104,7 +115,7 @@ class ValueExprSuite extends munit.FunSuite {
 
   test("a list and the new steps decode from the wire") {
     val json =
-      """{"source": {"kind": "List", "items": [
+      """{"source": {"kind": "List", "itemType": "bool", "items": [
         |  {"source": {"kind": "Entity", "of": "light.a"},
         |   "steps": [{"kind": "Compare", "op": "eq", "to": "on"}]}]},
         | "steps": [{"kind": "AnyOf"}, {"kind": "Not"}]}""".stripMargin
@@ -117,7 +128,7 @@ class ValueExprSuite extends munit.FunSuite {
     )
   }
 
-  test("a set's guards and order terms must decide: a bool, without CEL") {
+  test("a set's guards are bools and its order terms type, CEL or not") {
     def present(guard: ValueExpr, steps: Step*) = ValueExpr(
       Value.Present(List("a.a"), Map("a.a" -> guard)),
       steps.toList
@@ -132,12 +143,24 @@ class ValueExprSuite extends munit.FunSuite {
     )
     assertEquals(
       typeOf(present(ValueExpr(Value.Cel("true")), Step.Count)),
-      Left("the guard on 'a.a': a condition is read without CEL")
+      Right(ValueType.Int)
+    )
+    assertEquals(
+      typeOf(present(ValueExpr(Value.Cel("'on'")), Step.Count)),
+      Left("the guard on 'a.a': a condition is a bool, not text")
     )
     val byCel = SortTerm(ValueExpr(Value.Cel("true")))
     assertEquals(
       typeOf(present(isOn("a.a"), Step.First(List(byCel)))),
-      Left("an order term is read without CEL")
+      Right(ValueType.Text)
+    )
+    assert(
+      typeOf(
+        present(
+          isOn("a.a"),
+          Step.First(List(SortTerm(ValueExpr(Value.Cel("x")))))
+        )
+      ).isLeft
     )
   }
 
@@ -147,7 +170,11 @@ class ValueExprSuite extends munit.FunSuite {
       typeOf(ValueExpr(ids, List(Step.First()))),
       Right(ValueType.Text)
     )
-    val literal = Value.List(List(ValueExpr(Value.Literal(Lit.Text("a.a")))))
+    val literal =
+      Value.List(
+        ValueType.Text,
+        List(ValueExpr(Value.Literal(Lit.Text("a.a"))))
+      )
     assertEquals(
       typeOf(ValueExpr(literal, List(Step.First()))),
       Right(ValueType.Text)
@@ -159,7 +186,12 @@ class ValueExprSuite extends munit.FunSuite {
       Right(ValueType.Text)
     )
     assertEquals(
-      typeOf(ValueExpr(Value.List(List(isOn("a.a"))), List(Step.First()))),
+      typeOf(
+        ValueExpr(
+          Value.List(ValueType.Bool, List(isOn("a.a"))),
+          List(Step.First())
+        )
+      ),
       Left("has a first step, which takes a list of ids, after a list of bool")
     )
     assertEquals(
@@ -185,11 +217,20 @@ class ValueExprSuite extends munit.FunSuite {
     def over(s: Step) = ValueExpr(lit, List(s))
     assert(!over(Step.Compare(Op.Gt, lit)).isLive)
     assert(over(Step.Compare(Op.Gt, temp)).isLive)
-    assert(!ValueExpr(Value.List(List(over(Step.Not))), Nil).isLive)
     assert(
-      ValueExpr(Value.List(List(ValueExpr(state("light.a")))), Nil).isLive
+      !ValueExpr(Value.List(ValueType.Bool, List(over(Step.Not))), Nil).isLive
     )
-    val ids = Value.List(List(ValueExpr(Value.Literal(Lit.Text("light.a")))))
+    assert(
+      ValueExpr(
+        Value.List(ValueType.Text, List(ValueExpr(state("light.a")))),
+        Nil
+      ).isLive
+    )
+    val ids =
+      Value.List(
+        ValueType.Text,
+        List(ValueExpr(Value.Literal(Lit.Text("light.a"))))
+      )
     assert(
       ValueExpr(
         ids,

@@ -592,4 +592,77 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
       scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
     assert(err.contains("""startsWith("--")"""), clue = err)
   }
+
+  // CEL is a value expression like any other (ADR 0035): a condition takes it.
+  private def kitchenIs(cel: String): String =
+    s"""c.exprOf(dump.entities.${kitchen.dumpKey}, "$cel")"""
+
+  test("c.iff decides by CEL, and the build refuses a text one") {
+    val body =
+      s"""    c.iff(${kitchenIs("value.state == 'on'")})
+         |      .then(c.title("lit")).`else`(c.title("dark"))""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains("lit"), clue = html)
+        assert(sent.contains("dark"), clue = sent)
+      }
+    }.map { _ =>
+      val errs = errorsOf(
+        s"""    c.iff(${kitchenIs("value.state")}).then(c.title("x"))"""
+      )
+      assert(errs.exists(_.contains("a condition is a bool, not")), errs)
+    }
+  }
+
+  private def ordered(by: String): String =
+    s"""    q.from(lights).orderBy($by)
+       |      .render((e) -> c.title("t-" + e.entity_id)).build()""".stripMargin
+
+  test("a set's where and orderBy take CEL, read per member") {
+    val where =
+      s"""    q.from(lights).where(c.expr("value.state == 'on'"))
+         |      .render((e) -> c.title("t-" + e.entity_id)).build()""".stripMargin
+    val onFirst = ordered("""q.asc(c.expr("value.state == 'on'"))""")
+    val onLast = ordered("""q.desc(c.expr("value.state == 'on'"))""")
+    def order(html: String) =
+      html.indexOf(s"t-${kitchen.entityId}") < html.indexOf(
+        s"t-${living.entityId}"
+      )
+    for {
+      _ <- withServer(where) { ts =>
+        for {
+          html <- ts.page()
+          sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+        } yield {
+          assert(html.contains(s"t-${kitchen.entityId}"), clue = html)
+          assert(!html.contains(s"t-${living.entityId}"), clue = html)
+          assert(sent.contains(s"t-${living.entityId}"), clue = sent)
+        }
+      }
+      first <- withServer(onFirst)(_.page())
+      last <- withServer(onLast)(_.page())
+    } yield {
+      assert(order(first), clue = first)
+      assert(!order(last), clue = last)
+    }
+  }
+
+  test("an expression value may itself be CEL") {
+    val body =
+      s"""    ((c.button("Stue", c.view.closePopup())) {
+         |      expressionValues { ["s"] = ${kitchenIs("value.state")} }
+         |    }).secondary(c.expr("string(s) + '!'"))""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains(">on!</span>"), clue = html)
+        assert(sent.contains("off!"), clue = sent)
+      }
+    }
+  }
 }

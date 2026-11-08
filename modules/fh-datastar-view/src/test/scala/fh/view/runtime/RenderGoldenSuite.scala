@@ -1,23 +1,15 @@
 package fh.view.runtime
 
-import fh.view.build.AddonBootstrap
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.model.{Dashboard, NodeId, SlotRead}
-import fh.view.testkit.{
-  FixtureEntity,
-  FixtureEntries,
-  HouseFixture,
-  PklFixture,
-  SmokeDashboard,
-  TextSnapshot
-}
-import io.circe.Json
+import fh.view.testkit.{FixtureEntries, PklFixture, TextSnapshot}
 
-/** What the fixture dashboards render, checked in: each one's body, every
-  * surface, and every node's patch, at the house as fixtured and with every
-  * on/off flipped. The wire snapshots say what Pkl built; these say what a
+/** What the test dashboards render, checked in: each one's body, every surface,
+  * and every node's patch, at the house as fixtured, with every on/off flipped,
+  * and unavailable. The wire snapshots say what Pkl built; these say what a
   * viewer is sent, so a change to how a slot's value is modelled can be shown
-  * to leave the bytes alone, or name the ones it moves.
+  * to leave the bytes alone, or name the ones it moves. A section the other
+  * houses render as the fixtured one does is named, not repeated.
   *
   * A display signal's name carries a hash of its transform's key, so each hash
   * is replaced by its order of first appearance: the goldens hold the sharing,
@@ -26,63 +18,15 @@ import io.circe.Json
   */
 class RenderGoldenSuite extends munit.FunSuite {
 
-  private val battery = FixtureEntity(
-    "sensor.remote_battery",
-    "7",
-    Map(
-      "friendly_name" -> Json.fromString("Remote Battery"),
-      "device_class" -> Json.fromString("battery"),
-      "unit_of_measurement" -> Json.fromString("%")
-    )
-  )
+  private val Fixtured = "as fixtured"
 
-  /** Every entity any of the dashboards below is built against. One that a
-    * dashboard does not name changes nothing it renders.
-    */
-  private val house: List[FixtureEntity] =
-    HouseFixture.all ++ List(
-      battery,
-      SmokeDashboard.switchLight,
-      SmokeDashboard.colourLamp,
-      SmokeDashboard.colourLamp2,
-      SmokeDashboard.groupDimmer,
-      SmokeDashboard.longNameLight
-    )
-
-  private def entry(slug: String, source: String) =
-    slug -> PklFixture.buildDashboard(slug, source)
-
-  private lazy val dashboards: List[(String, Dashboard)] = List(
-    entry("fixture-features", FixtureEntries.features),
-    entry("fixture-surfaces", FixtureEntries.surfaces),
-    entry("fixture-slots", FixtureEntries.slots),
-    "starter" -> PklFixture.buildSiteDashboard(
-      "home",
-      AddonBootstrap.starterSite,
-      HouseFixture.dumpWith(battery)
-    ),
-    "smoke-house" -> SmokeDashboard.dashboard,
-    "smoke-appliance" -> SmokeDashboard.appliance,
-    "smoke-percent-slider" -> SmokeDashboard.percentSlider,
-    "smoke-busy-icon" -> SmokeDashboard.busyIcon,
-    "smoke-long-label-rows" -> SmokeDashboard.longLabelRows,
-    "smoke-switch-cards" -> SmokeDashboard.switchCards,
-    "smoke-light-slider" -> SmokeDashboard.lightSlider,
-    "smoke-light-slider-by-mode" -> SmokeDashboard.lightSliderByMode,
-    "smoke-light-slider-dropdown" -> SmokeDashboard.lightSliderDropdown,
-    "smoke-light-slider-group" -> SmokeDashboard.lightSliderGroup,
-    "smoke-light-slider-rows" -> SmokeDashboard.lightSliderRows,
-    "smoke-pill-row-in-column" -> SmokeDashboard.pillRowInColumn,
-    "smoke-badge-looks" -> SmokeDashboard.badgeLooks,
-    "smoke-switch-slider" -> SmokeDashboard.switchSlider,
-    "smoke-long-title-cards" -> SmokeDashboard.longTitleCards
-  )
-
-  private val houses: List[(String, Map[String, EntityState])] = {
-    val base = house.map(e => e.entityId -> e.toEntityState).toMap
+  private def houses(
+      e: FixtureEntries.Entry
+  ): List[(String, Map[String, EntityState])] = {
+    val base = e.entities.map(x => x.entityId -> x.toEntityState).toMap
     val flip = Map("on" -> "off", "off" -> "on")
     List(
-      "as fixtured" -> base,
+      Fixtured -> base,
       "flipped" -> base.view
         .mapValues(s => s.copy(state = flip.getOrElse(s.state, s.state)))
         .toMap,
@@ -120,15 +64,23 @@ class RenderGoldenSuite extends munit.FunSuite {
     FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
   }
 
-  private def golden(d: Dashboard): String = {
-    val r = Renderer(d.validated().fold(e => fail(e.mkString("; ")), identity))
+  private def golden(e: FixtureEntries.Entry): String = {
+    val d = PklFixture.buildDashboard(e.slug, e.source, e.dump)
+    val r = Renderer(
+      d.validated().fold(errs => fail(errs.mkString("; ")), identity)
+    )
     val surfaceIds = d.surfaces.keys.toList.sorted
     val out = new StringBuilder
-    def section(title: String, body: String): Unit = {
-      val _ = out.append(s"<!-- ==== $title ==== -->\n").append(body)
-      if (!body.endsWith("\n")) { val _ = out.append('\n') }
-    }
-    for ((houseName, states) <- houses) {
+    val fixtured = scala.collection.mutable.Map.empty[String, String]
+    def section(house: String, part: String, body: String): Unit =
+      if (house != Fixtured && fixtured.get(part).contains(body)) {
+        val _ = out.append(s"<!-- ==== $house · $part: as fixtured ==== -->\n")
+      } else {
+        if (house == Fixtured) fixtured(part) = body
+        val _ = out.append(s"<!-- ==== $house · $part ==== -->\n").append(body)
+        if (!body.endsWith("\n")) { val _ = out.append('\n') }
+      }
+    for ((houseName, states) <- houses(e)) {
       val body =
         r.renderBodyTraced(states, Selections.none, answers(r, d, states, Nil))
       val nodes =
@@ -136,14 +88,14 @@ class RenderGoldenSuite extends munit.FunSuite {
           r.surfaceNodeIds
         )).toList.distinct.sorted
       val f = answers(r, d, states, nodes)
-      section(s"$houseName · body", body.html)
+      section(houseName, "body", body.html)
       surfaceIds.foreach { sid =>
         r.renderSurfaceTraced(sid, states, Selections.none, f)
-          .foreach(t => section(s"$houseName · surface $sid", t.html))
+          .foreach(t => section(houseName, s"surface $sid", t.html))
       }
       nodes.foreach { id =>
         r.renderNodeById(id, states, Selections.none, SlotForm.Patch, f)
-          .foreach(html => section(s"$houseName · patch $id", html))
+          .foreach(html => section(houseName, s"patch $id", html))
       }
     }
     RenderGoldenSuite
@@ -173,11 +125,11 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
-  test("every fixture dashboard renders as its golden") {
-    for ((name, d) <- dashboards)
+  test("every test dashboard renders as its golden") {
+    for (e <- FixtureEntries.all)
       TextSnapshot.check(
-        TextSnapshot.resources / "goldens" / s"$name.html",
-        golden(d)
+        TextSnapshot.resources / "goldens" / s"${e.slug}.html",
+        golden(e)
       )
   }
 }

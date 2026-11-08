@@ -77,8 +77,9 @@ transform — what keeps a value display readable when its transform would error
 on a non-numeric state. It is off by default, so a read reads as is, and only a
 text slot's own read of the state or the whole entity may set it; `validate`
 refuses it anywhere else (an operand, a condition, an attribute, a bool slot).
-The library sets it on the builders of a state display (`valueSlot`, an `Expr`
-readout or second line); actions, labels and a slider's position read as is.
+The card sets it, not the reading: a state display's builders (`valueSlot`, the slider's readout,
+the second line) set it on any reading of the state or the whole entity they are handed
+(`slotMod.textReading`); actions, labels and a slider's position read as is.
 
 **Failure modes are contained.** A genuinely broken transform on a real value
 renders the evaluation **error message on its card** — never a silent blank, never

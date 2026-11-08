@@ -66,10 +66,12 @@ same commit; ADRs that change the pipeline update it too.
 3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
-   the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
+   the starter and the test dashboards (`testkit/FixtureEntries`, one concern each: a new
+   shape joins the dashboard of its concern, or gets one), so
+   `sbt 'fh-datastar-view/testFull'` catches any drift.
    Regenerate them deliberately when the wire format is *meant* to change, with
    **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
-   What those dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
+   What the test dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
    (`src/test/resources/goldens/`, the same command) hold each body, surface and node patch, so a
    change that moves the wire wholesale can still show it sends the same bytes.
 
@@ -121,7 +123,7 @@ same commit; ADRs that change the pipeline update it too.
 
 | File | Role |
 |---|---|
-| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`); `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; the language's rules are ADR 0035 |
+| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`); `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.32.1) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
 | `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.pkl/cache`, and whichever workspace dir the run was given). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
@@ -376,8 +378,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   before gave (`value.state` on a `c.expr`), compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
-  the button/tile/slider, `cellClassWhen`: a Boolean, a reading, an `Expr` or a condition directly —
-  `.disabled(lit.none())` — the condition is the bool slot's source, decided without CEL; a `slotMod.bool` handle
+  the button/tile/slider, `cellClassWhen`: a Boolean, or any `slotMod.Expr` of a bool — a reading,
+  `c.expr`, or a condition directly, `.disabled(lit.none())` — which is the bool slot's source; a `slotMod.bool` handle
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
   tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
   reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the

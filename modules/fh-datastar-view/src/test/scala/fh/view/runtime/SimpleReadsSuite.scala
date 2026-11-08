@@ -65,10 +65,9 @@ class SimpleReadsSuite extends munit.FunSuite {
       .values
       .toList
 
-  /** An operand read off `e`, as the renderer reads one off its entity. */
   /** One step over `part` of `e`, as the evaluator runs it. */
   private def run(part: Part, step: Step, e: EntityState): Any =
-    Evaluator.plain(ValueExpr(Value.Entity(None, part), List(step)))(
+    Conds.run(ValueExpr(Value.Entity(None, part), List(step)))(
       e,
       Map(e.entityId -> e),
       Evaluator.noFetch
@@ -190,7 +189,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(
       reading(None)(
         labels.copy(otherwise = Value.Entity(Some("sensor.b")))
-      ).operandEntities,
+      ).partEntities,
       List("sensor.b")
     )
   }
@@ -265,7 +264,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       ValueExpr(
         bypassing(Part.State),
         List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
-      ).conditionError.contains(ValueExpr.MisplacedBypass)
+      ).bypassError(ownMay = false).contains(ValueExpr.MisplacedBypass)
     )
   }
 
@@ -320,7 +319,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       assert(step(shape, "\"x\"").isRight, clue = shape)
       assert(step(shape, """{"kind": "Entity", "of": "a.b"}""").isRight, shape)
       for other <- List(
-          """{"kind": "List", "items": []}""",
+          """{"kind": "List", "itemType": "bool", "items": []}""",
           """{"kind": "Present", "candidates": []}""",
           """{"kind": "Cel", "src": "1"}""",
           """{"kind": "Fetch", "fetch": {"provider": "history", "entity": "a.b", "window": {"kind": "Raw", "span": 3600}}}"""

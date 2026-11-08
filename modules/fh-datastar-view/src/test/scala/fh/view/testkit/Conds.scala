@@ -1,12 +1,32 @@
 package fh.view.testkit
 
-import fh.view.model.{Lit, Op, Part, SortTerm, Step, Value, ValueExpr}
+import fh.view.runtime.Evaluator
+import fh.view.model.{
+  Lit,
+  Op,
+  Part,
+  SortTerm,
+  Step,
+  Value,
+  ValueExpr,
+  ValueType
+}
 import io.circe.Json
 
 /** Conditions as `core/predicate.pkl` writes them, so a suite states one in the
   * author's terms: `cmp("state", Op.Eq, on)` rather than its reading.
   */
 object Conds {
+
+  /** A reading compiled alone, as the walk compiles one: a suite's own, so a
+    * reading that does not compile fails the suite rather than returning.
+    */
+  def run(e: ValueExpr): Evaluator.Run =
+    compiled(Evaluator.compile(e, Evaluator.Scope(""))).run
+
+  /** What compiled, as the walk would have it. */
+  def compiled[A](b: Evaluator.Built[A]): A =
+    b.fold(m => throw AssertionError(m.message), identity)
 
   private def lit(v: Json): Value.Operand =
     Value.Literal(v.as[Lit].fold(e => throw e, identity))
@@ -36,11 +56,11 @@ object Conds {
   /** The empty one is the build's settled `true`, as `alwaysHolds` is. */
   def and(items: List[ValueExpr]): ValueExpr =
     if (items.isEmpty) always
-    else ValueExpr(Value.List(items), List(Step.AllOf))
+    else ValueExpr(Value.List(ValueType.Bool, items), List(Step.AllOf))
 
   def or(items: List[ValueExpr]): ValueExpr =
     if (items.isEmpty) never
-    else ValueExpr(Value.List(items), List(Step.AnyOf))
+    else ValueExpr(Value.List(ValueType.Bool, items), List(Step.AnyOf))
 
   def not(item: ValueExpr): ValueExpr =
     item.copy(steps = item.steps :+ Step.Not)

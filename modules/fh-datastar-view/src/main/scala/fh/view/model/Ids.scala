@@ -36,7 +36,7 @@ object SetId {
   /** `set` is not read: it is evidence the caller has a reason to mint. */
   private[view] def of(
       id: NodeId,
-      @annotation.unused set: LayoutNode.SetNode
+      @annotation.unused set: LayoutNode.SetNode | Ready.SetNode
   ): SetId = id
 }
 

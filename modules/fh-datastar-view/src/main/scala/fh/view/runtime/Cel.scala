@@ -362,22 +362,28 @@ object Cel {
     * a word inside a string literal is not one. Empty when it does not parse,
     * which [[parse]] reports.
     */
-  def identifiers(src: String): Set[String] = {
-    val result = parser.parse(src.trim)
-    if (result.hasError) Set.empty
-    else {
-      val b = Set.newBuilder[String]
-      CelNavigableAst
-        .fromAst(result.getAst)
-        .getRoot
-        .allNodes()
-        .forEach { n =>
-          if (n.expr().exprKind().getKind == CelExpr.ExprKind.Kind.IDENT)
-            b += n.expr().ident().name()
+  def identifiers(src: String): Set[String] =
+    // Asked per CEL by typing, binding and the input checks alike.
+    names.getOrElseUpdate(
+      src, {
+        val result = parser.parse(src.trim)
+        if (result.hasError) Set.empty
+        else {
+          val b = Set.newBuilder[String]
+          CelNavigableAst
+            .fromAst(result.getAst)
+            .getRoot
+            .allNodes()
+            .forEach { n =>
+              if (n.expr().exprKind().getKind == CelExpr.ExprKind.Kind.IDENT)
+                b += n.expr().ident().name()
+            }
+          b.result()
         }
-      b.result()
-    }
-  }
+      }
+    )
+
+  private val names = Lru[String, Set[String]](1024)
 
   private final class Resolver(
       value: Object,

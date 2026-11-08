@@ -712,7 +712,7 @@ facts {
   }
 
   ["a condition refuses a slot's fields rather than ignoring them"] {
-    // A condition is a ValueExpr, not a Reading: `entityId` would name no read.
+    // A condition is a Expr, not a Reading: `entityId` would name no read.
     module.catch(() -> new pred.Cmp { op = "eq"; value = "on"; entityId = "light.x" })
       .contains("entityId")
     module.catch(() -> (pred.alwaysHolds) { default = "x" }).contains("default")

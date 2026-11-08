@@ -1,0 +1,697 @@
+{
+  "card" : {
+    "card" : "fhcol",
+    "kind" : "Component",
+    "regions" : {
+      "children" : [
+        {
+          "card" : "tabs",
+          "cell" : {
+            "classes" : {
+              "fh-cols-full" : true
+            },
+            "styles" : {
+              
+            }
+          },
+          "inlineSurfaces" : {
+            "t0" : {
+              "activation" : {
+                "at" : {
+                  "kind" : "Index"
+                },
+                "kind" : "Var",
+                "name" : "tab"
+              },
+              "bakeAs" : "panel",
+              "bakeIndex" : 0,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "switch",
+                      "cell" : {
+                        "classes" : {
+                          "fh-active" : {
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "on" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ]
+                          }
+                        },
+                        "styles" : {
+                          
+                        }
+                      },
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "checked" : {
+                          "default" : "",
+                          "signal" : {
+                            "kind" : "Bind"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "on" : "on"
+                              },
+                              "kind" : "Match",
+                              "otherwise" : ""
+                            }
+                          ]
+                        },
+                        "entity_id" : "light.kitchen",
+                        "icon" : {
+                          "source" : "mdi mdi-lightbulb",
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
+                        },
+                        "label" : "Kitchen",
+                        "onoff" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "service" : "light/toggle",
+                        "switched" : {
+                          "default" : "",
+                          "signal" : {
+                            "kind" : "Attr",
+                            "name" : "data-switched"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "on" : "on"
+                              },
+                              "kind" : "Match",
+                              "otherwise" : ""
+                            }
+                          ]
+                        },
+                        "tapDisabled" : {
+                          "signal" : {
+                            "kind" : "Handler"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "unavailable" : true
+                              },
+                              "kind" : "Match",
+                              "otherwise" : false
+                            }
+                          ],
+                          "type" : "bool"
+                        },
+                        "targetId" : "light.kitchen",
+                        "targetKind" : "entity"
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            },
+            "t1" : {
+              "activation" : {
+                "at" : {
+                  "kind" : "Index"
+                },
+                "kind" : "Var",
+                "name" : "tab"
+              },
+              "bakeAs" : "panel",
+              "bakeIndex" : 1,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "sectionTitle",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "label" : "Text"
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            }
+          },
+          "kind" : "Component",
+          "regions" : {
+            "children" : [
+              {
+                "card" : "tab",
+                "kind" : "Component",
+                "templateSlots" : {
+                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
+                  "busy" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "busyVisual" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "label" : "Light",
+                  "onclick" : {
+                    "source" : {
+                      "kind" : "Cel",
+                      "src" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
+                    }
+                  }
+                },
+                "vars" : [
+                ]
+              },
+              {
+                "card" : "tab",
+                "kind" : "Component",
+                "templateSlots" : {
+                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
+                  "busy" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "busyVisual" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "label" : "Text",
+                  "onclick" : {
+                    "source" : {
+                      "kind" : "Cel",
+                      "src" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
+                    }
+                  }
+                },
+                "vars" : [
+                ]
+              }
+            ]
+          },
+          "templateSlots" : {
+            
+          },
+          "vars" : [
+            {
+              "default" : "0",
+              "inUrl" : true,
+              "name" : "tab"
+            }
+          ]
+        },
+        {
+          "card" : "ifhost",
+          "cell" : {
+            "classes" : {
+              "fh-cols-full" : true
+            },
+            "styles" : {
+              
+            }
+          },
+          "inlineSurfaces" : {
+            "else" : {
+              "activation" : {
+                "kind" : "State"
+              },
+              "bakeAs" : "branch",
+              "bakeIndex" : 1,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "sectionTitle",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "label" : "Off"
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            },
+            "then" : {
+              "activation" : {
+                "condition" : {
+                  "source" : {
+                    "kind" : "Entity",
+                    "of" : "light.kitchen"
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Compare",
+                      "op" : "eq",
+                      "to" : "on"
+                    }
+                  ]
+                },
+                "kind" : "State"
+              },
+              "bakeAs" : "branch",
+              "bakeIndex" : 0,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "switch",
+                      "cell" : {
+                        "classes" : {
+                          "fh-active" : {
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "on" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ]
+                          }
+                        },
+                        "styles" : {
+                          
+                        }
+                      },
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "checked" : {
+                          "default" : "",
+                          "signal" : {
+                            "kind" : "Bind"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "on" : "on"
+                              },
+                              "kind" : "Match",
+                              "otherwise" : ""
+                            }
+                          ]
+                        },
+                        "entity_id" : "light.kitchen",
+                        "icon" : {
+                          "source" : "mdi mdi-lightbulb",
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
+                        },
+                        "label" : "Kitchen",
+                        "onoff" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "service" : "light/toggle",
+                        "switched" : {
+                          "default" : "",
+                          "signal" : {
+                            "kind" : "Attr",
+                            "name" : "data-switched"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "on" : "on"
+                              },
+                              "kind" : "Match",
+                              "otherwise" : ""
+                            }
+                          ]
+                        },
+                        "tapDisabled" : {
+                          "signal" : {
+                            "kind" : "Handler"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "unavailable" : true
+                              },
+                              "kind" : "Match",
+                              "otherwise" : false
+                            }
+                          ],
+                          "type" : "bool"
+                        },
+                        "targetId" : "light.kitchen",
+                        "targetKind" : "entity"
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            }
+          },
+          "kind" : "Component",
+          "templateSlots" : {
+            
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "card" : "chooser",
+          "cell" : {
+            "classes" : {
+              "fh-cols-full" : true
+            },
+            "styles" : {
+              
+            }
+          },
+          "kind" : "Component",
+          "regions" : {
+            "bar" : [
+              {
+                "card" : "selectButtons",
+                "kind" : "Component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "tab",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "active" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'simple'",
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "label" : "simple",
+                        "onclick" : {
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:view@@__view__pending = 'simple'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/simple?group=var_@@VAR:view@@__view')\""
+                          }
+                        }
+                      },
+                      "vars" : [
+                      ]
+                    },
+                    {
+                      "card" : "tab",
+                      "kind" : "Component",
+                      "templateSlots" : {
+                        "active" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'detail'",
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "label" : "detail",
+                        "onclick" : {
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"$_var_@@VAR:view@@__view__pending = 'detail'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/detail?group=var_@@VAR:view@@__view')\""
+                          }
+                        }
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  ]
+                },
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            ],
+            "children" : [
+              {
+                "card" : "ifhost",
+                "cell" : {
+                  "classes" : {
+                    "fh-cols-full" : true
+                  },
+                  "styles" : {
+                    
+                  }
+                },
+                "inlineSurfaces" : {
+                  "else" : {
+                    "activation" : {
+                      "at" : {
+                        "kind" : "Otherwise"
+                      },
+                      "kind" : "Var",
+                      "name" : "view"
+                    },
+                    "bakeAs" : "branch",
+                    "bakeIndex" : 1,
+                    "bakeInto" : "@@NODE_ID@@",
+                    "content" : {
+                      "card" : "fhrow",
+                      "kind" : "Component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "sectionTitle",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "label" : "Simple"
+                            },
+                            "vars" : [
+                            ]
+                          }
+                        ]
+                      },
+                      "templateSlots" : {
+                        
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  },
+                  "then" : {
+                    "activation" : {
+                      "at" : {
+                        "kind" : "Value",
+                        "value" : "detail"
+                      },
+                      "kind" : "Var",
+                      "name" : "view"
+                    },
+                    "bakeAs" : "branch",
+                    "bakeIndex" : 0,
+                    "bakeInto" : "@@NODE_ID@@",
+                    "content" : {
+                      "card" : "fhrow",
+                      "kind" : "Component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "sectionTitle",
+                            "kind" : "Component",
+                            "templateSlots" : {
+                              "label" : "Detail"
+                            },
+                            "vars" : [
+                            ]
+                          }
+                        ]
+                      },
+                      "templateSlots" : {
+                        
+                      },
+                      "vars" : [
+                      ]
+                    }
+                  }
+                },
+                "kind" : "Component",
+                "templateSlots" : {
+                  
+                },
+                "vars" : [
+                ]
+              }
+            ]
+          },
+          "templateSlots" : {
+            
+          },
+          "vars" : [
+            {
+              "default" : "simple",
+              "inUrl" : true,
+              "name" : "view"
+            }
+          ]
+        }
+      ]
+    },
+    "templateSlots" : {
+      
+    },
+    "vars" : [
+    ]
+  },
+  "cards" : {
+    "chooser" : {
+      "regions" : {
+        "bar" : {
+          "fill" : "eager"
+        },
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-col\">{{{bar}}}{{{children}}}</div>"
+    },
+    "fhcol" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+    },
+    "fhrow" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-row {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+    },
+    "ifhost" : {
+      "regions" : {
+        "branch" : {
+          "fill" : "baked"
+        }
+      },
+      "template" : "<div class=\"fh-ifhost\" id=\"{{hostId}}\">{{{branch}}}</div>"
+    },
+    "sectionTitle" : {
+      "template" : "<h2 class=\"fh-section fh-text\"><span class=\"fh-text-run\">{{label}}</span></h2>"
+    },
+    "selectButtons" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "template" : "<div class=\"fh-tabs fh-select\">{{{children}}}</div>"
+    },
+    "switch" : {
+      "template" : "<article class=\"fh-card fh-toggle fh-tile-card\" {{{switched.bind}}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>\n  <div class=\"fh-tile\">{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></span>\n  <label class=\"fh-switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked.bind}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}} {{#checked.signal}}data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && (${{checked.signal}} = {{{switched.jsValue}}})\"{{/checked.signal}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}} />\n    <span></span>\n  </label></div>\n</article>"
+    },
+    "tab" : {
+      "template" : "<a data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{{onclick}}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>",
+      "wrapAsCell" : false
+    },
+    "tabs" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        },
+        "panel" : {
+          "fill" : "baked"
+        }
+      },
+      "template" : "<div class=\"fh-col\"><div class=\"fh-tabs\">{{{children}}}</div><div id=\"{{hostId}}\" class=\"fh-tab-panel\">{{{panel}}}</div></div>"
+    }
+  },
+  "surfaces" : {
+    
+  }
+}

@@ -18,6 +18,7 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
+  ValueType,
   TemplateSlot,
   Theme,
   VarAt
@@ -241,7 +242,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("FetchRead", Value.Fetch(fetch))
     check("Tally", Value.Present(Nil, Map.empty))
     check("PresentList", Value.Present(Nil, Map.empty))
-    check("ListRead", Value.List(Nil))
+    check("ListRead", Value.List(ValueType.Bool, Nil))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     check("CelRead", Value.Cel("dashboard_slug"))

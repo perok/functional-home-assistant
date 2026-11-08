@@ -56,10 +56,11 @@ literal, since every candidate has a name at build time. The `string | c.expr(..
 (`label`, `value`, `secondary`, the slider position); `c.expr` is just a
 reading, not field-specific.
 
-## Conditions stay data, not an expression
+## The library writes conditions as data, not CEL
 
-Presence guards, count comparisons, order terms and surface conditions are **not**
-CEL, although a slot may be. A condition is a bool `ValueExpr` of the simple tier
+Presence guards, count comparisons, order terms and surface conditions take any bool
+`ValueExpr`, CEL included (ADR 0035), but the library writes them as data, never as
+CEL. Such a condition is a bool `ValueExpr` of the simple tier
 (ADR 0028): a read, `Compare`, `Not`, and `AllOf`/`AnyOf` over a `List` of
 conditions or `Count`/`First` over a list of ids. The one evaluator (ADR 0035)
 decides it, as it fills a slot:
@@ -78,8 +79,7 @@ plus the one that matters more: a condition is DATA the build can fold, dedupe
 and reason about, which is what lets a registry term disappear at build time. An
 expression string is opaque to all of that.
 
-Expressions stay for slot values, where the set is bounded (only rendered
-cards).
+CEL in a condition is the author's choice, at the cost above.
 
 ## Attribute conversion is memoized per state version
 

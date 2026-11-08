@@ -19,6 +19,7 @@ import fh.view.model.{
   FetchTemplate,
   SlotAsk,
   SlotRead,
+  Ready,
   Region,
   SlotShape,
   Step,
@@ -29,7 +30,13 @@ import fh.view.model.{
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{EntityState, RenderInputs, Renderer, Selections}
+import fh.view.runtime.{
+  EntityState,
+  Evaluator,
+  RenderInputs,
+  Renderer,
+  Selections
+}
 import io.circe.Json
 import io.github.iltotore.iron.*
 import fh.view.testkit.TestIds.given
@@ -42,6 +49,11 @@ import java.time.Instant
   * the render key.
   */
 class FetchRenderInputsSuite extends munit.CatsEffectSuite {
+
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def component(c: LayoutNode.Component): Ready.Component =
+      Conds.compiled(walk.component(c))
 
   /** A window written down resolves to itself in any environment, so the
     * assertions stay about the fetch slot, not variables. Named by preset.
@@ -93,14 +105,19 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // does not re-fetch its history every second. Both entity lists come from
     // state slots, and a fetch slot is not one, even at `reads`'s `live`
     // default.
-    assertEquals(chartNode().liveEntities, List("sensor.t")) // from `name`
     assertEquals(
-      LayoutNode
-        .Component(
-          card = "historyChart",
-          templateSlots = Map(
-            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
-            "chart" -> chartSource()
+      compile.component(chartNode()).liveEntities,
+      List("sensor.t") // from `name`
+    )
+    assertEquals(
+      compile
+        .component(
+          LayoutNode.Component(
+            card = "historyChart",
+            templateSlots = Map(
+              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+              "chart" -> chartSource()
+            )
           )
         )
         .liveEntities,
@@ -117,21 +134,25 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       SlotShape.Fetch(ask())
     )
     assertEquals(
-      LayoutNode
-        .Component(card = "c", templateSlots = Map("chart" -> src))
+      compile
+        .component(
+          LayoutNode.Component(card = "c", templateSlots = Map("chart" -> src))
+        )
         .liveEntitiesAsBytes,
       Nil
     )
   }
 
   test("a node's fetches are its fetch slots, deduplicated") {
-    assertEquals(chartNode().fetches, List(ask()))
-    val two = LayoutNode.Component(
-      card = "twoCharts",
-      templateSlots = Map(
-        "a" -> chartSource("1h"),
-        "b" -> chartSource("1h"),
-        "c" -> chartSource("30d")
+    assertEquals(compile.component(chartNode()).fetches, List(ask()))
+    val two = compile.component(
+      LayoutNode.Component(
+        card = "twoCharts",
+        templateSlots = Map(
+          "a" -> chartSource("1h"),
+          "b" -> chartSource("1h"),
+          "c" -> chartSource("30d")
+        )
       )
     )
     assertEquals(two.fetches.toSet, Set(ask("1h"), ask("30d")))

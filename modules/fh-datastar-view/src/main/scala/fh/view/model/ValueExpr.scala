@@ -52,11 +52,15 @@ final case class ValueExpr(
   def parts: List[ValueExpr.Inner] =
     Value.parts(source) ++ steps.flatMap(Step.parts)
 
-  /** Every entity a step's operand names: what wakes the slot besides its
-    * source.
+  /** Every entity what it holds names ([[parts]]), its CELs' own inputs
+    * included: what wakes it besides its source's own read.
     */
-  def operandEntities: List[String] =
-    steps.flatMap(Step.operands).flatMap(Value.Operand.entity)
+  def partEntities: List[String] = parts.flatMap {
+    case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v)
+    case ValueExpr.Inner.Item(e)      => e.entities
+    case ValueExpr.Inner.PerMember(e) => e.entities
+    case ValueExpr.Inner.Input(e)     => e.entities
+  }
 
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
@@ -69,23 +73,30 @@ final case class ValueExpr(
       case ValueExpr.Inner.PerMember(_) | ValueExpr.Inner.Input(_) => false
     }
 
-  /** Why `what`, a condition, cannot be decided: it compares an entity it does
-    * not name, where nothing names one for it.
+  /** Why `what`, a bool as `typed` answers it, cannot be decided: it compares
+    * an entity it does not name, where nothing names one for it.
     */
-  def unnamedComparison(what: String): Option[String] =
-    Option.when(isCondition && readsMissingSubject)(
+  def unnamedComparison(
+      what: String,
+      typed: Either[ValueExpr.Mistyped, ValueExpr.Typed]
+  ): Option[String] =
+    Option.when(readsMissingSubject && typed.exists(_.out == ValueType.Bool))(
       s"$what compares an entity it does not name — name it with q.entity(e)"
     )
 
-  /** Whether its own source asks for the bypass. */
-  def bypassesSource: Boolean = source match
+  private def bypassesSource: Boolean = source match
     case e: Value.Entity => e.bypassUnavailable
     case _               => false
 
-  /** Whether a read other than its own source asks for the bypass, which only a
-    * text slot's own read of a state or a whole entity may (`validate`).
+  /** Why it asks for the bypass where it may not: only a text slot's own read
+    * of a state or a whole entity takes it (`ownMay`), and no other read.
     */
-  def bypassesInside: Boolean = parts.exists {
+  def bypassError(ownMay: Boolean): Option[String] =
+    Option.when(bypassesInside || (bypassesSource && !ownMay))(
+      ValueExpr.MisplacedBypass
+    )
+
+  private def bypassesInside: Boolean = parts.exists {
     case ValueExpr.Inner.Operand(e: Value.Entity)  => e.bypassUnavailable
     case ValueExpr.Inner.Operand(_: Value.Literal) => false
     case ValueExpr.Inner.Item(e)                   => e.bypassesAnywhere
@@ -93,7 +104,7 @@ final case class ValueExpr(
     case ValueExpr.Inner.Input(e)                  => e.bypassesAnywhere
   }
 
-  def bypassesAnywhere: Boolean = bypassesSource || bypassesInside
+  private def bypassesAnywhere: Boolean = bypassesSource || bypassesInside
 
   /** Injective, for signal names and the once-cache. The source's own entity is
     * not in it: the signal path names that entity.
@@ -108,57 +119,53 @@ final case class ValueExpr(
       steps.map(s => "|" + Step.key(s)).mkString +
       default.fold("")(d => s"|default=${Lit.key(d)}")
 
-  /** Every CEL's named inputs, its source's and its steps'. */
-  def celInputs: Map[String, ValueExpr] =
-    (source match
-      case Value.Cel(_, in) => in
-      case _                => Map.empty
-    ) ++ steps.collect { case c: Step.Cel => c.inputs }.flatten
-
-  /** Every CEL source, in order. */
-  def celSources: List[String] =
-    (source match
-      case Value.Cel(src, _) => List(src)
-      case _                 => Nil
-    ) ++ steps.collect { case c: Step.Cel => c.src }
-
-  /** The type it is declared as when a named input: a literal, a count, the ids
-    * present, a condition, a fetch, or an entity it names. `None` for any other
-    * shape, which `validate` refuses.
+  /** Every CEL, its source's and its steps', in order, each with its own named
+    * inputs.
     */
-  def inputType: Option[ValueType] = (source, steps) match
-    case _ if isCondition =>
-      typed(Nil).toOption.map(_.out).filter(_ == ValueType.Bool)
-    case (_: Value.Present, List(Step.Count)) => Some(ValueType.Int)
-    case (_: Value.Cel | _: Value.List, _) | (Value.Entity(None, _, _, _), _) |
-        (_, _ :: _) =>
-      None
-    case _ => typed(Nil).toOption.map(_.out)
+  def cels: List[(String, Map[String, ValueExpr])] =
+    (source match
+      case Value.Cel(src, in) => List(src -> in)
+      case _                  => Nil
+    ) ++ steps.collect { case Step.Cel(src, in) => src -> in }
 
-  /** A condition: no CEL, and a step that decides (`AllOf`, `AnyOf`, `Not`,
-    * `Compare`, `First`). What a clause, a guard, a state surface and an order
-    * term are held to, and whose missing subject `validate` names.
+  /** It and every expression inside it ([[parts]]) at any depth, each with
+    * whether its CELs see the node's values: a guard and an order term, read
+    * per member, see none, and nor does anything inside them.
     */
-  lazy val isCondition: Boolean =
-    celSources.isEmpty && steps.exists {
-      case Step.AllOf | Step.AnyOf | Step.Not | _: Step.Compare |
-          _: Step.First =>
-        true
-      case _ => false
+  def scoped: List[(ValueExpr, Boolean)] = within(nodeScope = true)
+
+  private def within(nodeScope: Boolean): List[(ValueExpr, Boolean)] =
+    (this, nodeScope) :: parts.flatMap {
+      case ValueExpr.Inner.Item(e)      => e.within(nodeScope)
+      case ValueExpr.Inner.Input(e)     => e.within(nodeScope)
+      case ValueExpr.Inner.PerMember(e) => e.within(nodeScope = false)
+      case ValueExpr.Inner.Operand(_)   => Nil
     }
 
-  /** Why it cannot decide where only a condition may: a clause, a state
-    * surface, a guard, an order term.
+  /** It and every expression inside it, at any depth. */
+  def all: List[ValueExpr] = scoped.map(_._1)
+
+  /** The node's values its CELs read, at any depth: by name, where no input of
+    * that CEL's own has it.
     */
-  def conditionError: Option[String] =
+  def readsNamed(values: Map[String, ValueExpr]): Map[String, ValueExpr] =
+    if (values.isEmpty) values
+    else
+      val read = scoped
+        .collect { case (e, true) => e }
+        .flatMap(_.cels)
+        .flatMap((src, own) => Cel.identifiers(src) -- own.keySet)
+      values.filter((n, _) => read.contains(n))
+
+  /** Why it cannot decide where a bool is required, read with no named values:
+    * a clause, a guard, a state surface.
+    */
+  def boolError: Option[String] =
     typed(Nil) match
-      case Left(m)                     => Some(m.message)
-      case Right(t) if t.keys.nonEmpty =>
-        Some("a condition is read without CEL")
+      case Left(m)                             => Some(m.message)
       case Right(t) if t.out != ValueType.Bool =>
         Some(s"a condition is a bool, not ${t.out.name}")
-      case Right(_) if bypassesAnywhere => Some(ValueExpr.MisplacedBypass)
-      case Right(_)                     => None
+      case Right(_) => None
 
   /** Its type checked in order: each CEL compiled with `value` declared as the
     * type before it, beside the named inputs `env` types, and what the last
@@ -167,23 +174,40 @@ final case class ValueExpr(
   def typed(
       env: List[(String, ValueType)]
   ): Either[ValueExpr.Mistyped, ValueExpr.Typed] =
+    // Each CEL declares the names it reads: its own inputs, each typed with
+    // `env` in scope, and `env`'s others.
     def cel(
         src: String,
+        own: Map[String, ValueExpr],
         value: Option[ValueType],
         keys: List[Cel.Key]
     ) =
-      val k = Cel.Key(src, env, value)
-      Cel
-        .resultType(k)
-        .left
-        .map(ValueExpr.Mistyped(_, Some(src)))
-        .map(ValueExpr.Typed(keys :+ k, _))
+      own.toList
+        .sortBy(_._1)
+        .traverse((n, v) =>
+          v.typed(env)
+            .map(t => n -> t.out)
+            .left
+            .map(m =>
+              ValueExpr.Mistyped(s"the input '$n': ${m.message}", m.cel)
+            )
+        )
+        .flatMap { mine =>
+          val read = Cel.identifiers(src)
+          val names = (env.toMap ++ mine).filter((n, _) => read.contains(n))
+          val k = Cel.Key(src, names.toList.sortBy(_._1), value)
+          Cel
+            .resultType(k)
+            .left
+            .map(ValueExpr.Mistyped(_, Some(src)))
+            .map(ValueExpr.Typed(keys :+ k, _))
+        }
     def plain(t: ValueType) = Right(ValueExpr.Typed(Nil, t))
     val start = source match
-      case Value.Cel(src, _)                   => cel(src, None, Nil)
-      case Value.List(items)                   => ValueExpr.listOf(items, env)
-      case Value.Literal(l)                    => plain(ValueType.of(l))
-      case Value.Entity(_, Part.State, _, _)   => plain(ValueType.Text)
+      case Value.Cel(src, own)               => cel(src, own, None, Nil)
+      case Value.List(t, items)              => ValueExpr.listOf(t, items, env)
+      case Value.Literal(l)                  => plain(ValueType.of(l))
+      case Value.Entity(_, Part.State, _, _) => plain(ValueType.Text)
       case Value.Entity(_, _: Part.Attr, _, _) => plain(ValueType.Dyn)
       case Value.Entity(_, Part.Whole, _, _)   => plain(ValueType.Entity)
       case Value.Fetch(_)                      => plain(ValueType.Series)
@@ -191,20 +215,21 @@ final case class ValueExpr(
         when.toList
           .sortBy(_._1)
           .collectFirstSome((id, g) =>
-            g.conditionError.map(e => s"the guard on '$id': $e")
+            g.boolError.map(e => s"the guard on '$id': $e")
           ) match
           case Some(e) => Left(ValueExpr.Mistyped(e))
           case None    => plain(ValueType.List(ValueType.Text))
     val orderErrors = steps.collectFirstSome {
-      case Step.First(orderBy) => orderBy.collectFirstSome(_.readError)
-      case _                   => None
+      case Step.First(orderBy) =>
+        orderBy.collectFirstSome(_.by.typed(Nil).left.toOption.map(_.message))
+      case _ => None
     }
     val checked = orderErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
     steps.foldLeft(checked)((acc, step) =>
       acc.flatMap(t =>
         step match
-          case Step.Cel(src, _) => cel(src, Some(t.out), t.keys)
-          case s                =>
+          case Step.Cel(src, own) => cel(src, own, Some(t.out), t.keys)
+          case s                  =>
             ValueType
               .after(s, t.out)
               .left
@@ -216,7 +241,7 @@ final case class ValueExpr(
   /** Live: what it answers moves, so a once-read cannot hold it. */
   lazy val isLive: Boolean =
     (source match
-      case Value.Literal(_) | Value.List(_) | Value.Cel(_, _) => false
+      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) => false
       case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) =>
         true
     ) || parts.exists {
@@ -226,20 +251,15 @@ final case class ValueExpr(
       case ValueExpr.Inner.Input(e)     => e.isLive
     }
 
-  /** Every entity that can move it; a CEL's inputs are bound beside it. */
+  /** Every entity that can move it. */
   def entities: List[String] =
     (source match
       case Value.Entity(of, _, _, _) => of.toList
       case Value.Present(cs, _)      => cs
-      case Value.Literal(_) | Value.Fetch(_) | Value.List(_) |
+      case Value.Literal(_) | Value.Fetch(_) | Value.List(_, _) |
           Value.Cel(_, _) =>
         Nil
-    ) ++ parts.flatMap {
-      case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v)
-      case ValueExpr.Inner.Item(e)      => e.entities
-      case ValueExpr.Inner.PerMember(e) => e.entities
-      case ValueExpr.Inner.Input(_)     => Nil
-    }
+    ) ++ partEntities
 
 object ValueExpr:
 
@@ -259,7 +279,7 @@ object ValueExpr:
     /** A guard or an order term, read per member: that member. */
     case PerMember(e: ValueExpr)
 
-    /** A CEL's named input, bound beside it per slot. */
+    /** A CEL's own named input, read with no subject. */
     case Input(e: ValueExpr)
 
   /** [[ValueExpr.typed]]'s answer: the CEL it compiles, in order, and its type.
@@ -269,32 +289,45 @@ object ValueExpr:
   /** Why it does not type; `cel` is the CEL source at fault, if one is. */
   final case class Mistyped(message: String, cel: Option[String] = None)
 
-  /** Its items decide without the engine, as a condition does, so a CEL item is
-    * refused rather than compiled.
+  /** Each item typed in its expression's scope. Empty, it is still a list of
+    * `itemType`.
     */
   private def listOf(
+      itemType: ValueType,
       items: List[ValueExpr],
       env: List[(String, ValueType)]
   ): Either[Mistyped, Typed] =
-    items.traverse(_.typed(env)).flatMap { ts =>
-      ts.map(_.out).distinct match
-        case _ if ts.exists(_.keys.nonEmpty) =>
-          Left(Mistyped("a list's items are read without CEL"))
-        case List(t) => Right(Typed(Nil, ValueType.List(t)))
-        case Nil     => Left(Mistyped("a list has no items"))
-        case outs    =>
-          Left(
-            Mistyped(
-              "a list's items are one type, not " +
-                outs.map(_.name).mkString(" and ")
+    items
+      .traverse(_.typed(env))
+      .flatMap(
+        _.map(_.out).find(_ != itemType) match
+          case Some(t) =>
+            Left(
+              Mistyped(s"a list's items are ${itemType.name}, not ${t.name}")
             )
-          )
-    }
+          case None => Right(Typed(Nil, ValueType.List(itemType)))
+      )
 
-  def env(inputs: Map[String, ValueExpr]): List[(String, ValueType)] =
-    inputs.toList.sortBy(_._1).flatMap((n, v) => v.inputType.map(n -> _))
+  /** A node's values as names a CEL may read, each its own type; one that does
+    * not type is left out, and `validate` says why.
+    */
+  def env(values: Map[String, ValueExpr]): List[(String, ValueType)] =
+    values.toList
+      .sortBy(_._1)
+      .flatMap((n, v) => v.typed(Nil).toOption.map(t => n -> t.out))
 
   def literal(s: String): ValueExpr = ValueExpr(Value.Literal(Lit.Text(s)))
+
+  /** A CEL's own inputs in its key; none adds nothing, so a CEL without inputs
+    * keys as it always has.
+    */
+  def inputsKey(inputs: Map[String, ValueExpr]): String =
+    if (inputs.isEmpty) ""
+    else
+      inputs.toList
+        .sortBy(_._1)
+        .map((n, v) => s"$n=${v.inputKey.length}:${v.inputKey}")
+        .mkString("{", ";", "}")
 
   val fieldNames: Set[String] = Set("source", "steps", "default")
 
@@ -333,6 +366,17 @@ object ValueType:
 
   /** A fetch's answer: `[epochMillis, value]` pairs. */
   val Series: ValueType = List(List(Real))
+
+  /** A list source's item type, as Pkl names it. */
+  given Decoder[ValueType] = Decoder[String].emap {
+    case "text"   => Right(Text)
+    case "bool"   => Right(Bool)
+    case "int"    => Right(Int)
+    case "real"   => Right(Real)
+    case "dyn"    => Right(Dyn)
+    case "entity" => Right(Entity)
+    case other    => Left(s"unknown item type: $other")
+  }
 
   private val numberLike = Set[ValueType](Text, Int, Real, Dyn)
 
@@ -439,10 +483,11 @@ enum Value derives CanEqual:
       when: Map[String, ValueExpr] = Map.empty
   )
 
-  /** Its items in order, one type ([[ValueExpr.typed]]): what an and/or runs
-    * [[Step.AllOf]] or [[Step.AnyOf]] over.
+  /** Its items in order, each an `itemType` ([[ValueExpr.typed]]): what an
+    * and/or runs [[Step.AllOf]] or [[Step.AnyOf]] over. Declared, so an empty
+    * list is typed too.
     */
-  case List(items: scala.List[ValueExpr])
+  case List(itemType: ValueType, items: scala.List[ValueExpr])
 
   /** Computed from nothing before it: CEL over its named inputs and the
     * renderer's bindings, with no `value`.
@@ -472,15 +517,15 @@ object Value:
   }
 
   def about(subject: Option[String])(v: Value): Value = v match
-    case e: Entity   => named(subject)(e)
-    case List(items) => List(items.map(_.about(subject)))
+    case e: Entity      => named(subject)(e)
+    case List(t, items) => List(t, items.map(_.about(subject)))
     case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _)) => v
 
   /** [[ValueExpr.parts]] of a source. */
   def parts(v: Value): scala.List[ValueExpr.Inner] = v match
     case Present(_, when) =>
       when.values.toList.map(ValueExpr.Inner.PerMember(_))
-    case List(items)    => items.map(ValueExpr.Inner.Item(_))
+    case List(_, items) => items.map(ValueExpr.Inner.Item(_))
     case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
     case Literal(_) | Entity(_, _, _, _) | Fetch(_) => Nil
 
@@ -502,10 +547,11 @@ object Value:
           .sortBy(_._1)
           .map((id, g) => s"$id=${sized(g.inputKey)}")
           .mkString + ")"
-    case List(items) =>
+    // Not its item type: two lists that type with the same items are one value.
+    case List(_, items) =>
       items.map(i => sized(i.inputKey)).mkString("list(", "", ")")
-    // Its inputs are keyed beside it, as a step's are (`BoundSlot.valueKey`).
-    case Cel(src, _) => s"cel:${src.length}:$src"
+    case Cel(src, inputs) =>
+      s"cel:${src.length}:$src" + ValueExpr.inputsKey(inputs)
 
   private def sized(k: String) = s"${k.length}:$k"
 
@@ -538,8 +584,10 @@ object Value:
             c.getOrElse[Map[String, ValueExpr]]("when")(Map.empty)
           ).mapN(Present.apply)
         case "List" =>
-          Strict.only(c, Set("kind", "items")) *>
-            c.get[scala.List[ValueExpr]]("items").map(List(_))
+          Strict.only(c, Set("kind", "itemType", "items")) *> (
+            c.get[ValueType]("itemType"),
+            c.get[scala.List[ValueExpr]]("items")
+          ).mapN(List.apply)
         case "Cel" =>
           Strict.only(c, Set("kind", "src", "inputs")) *> (
             c.get[String]("src"),
@@ -741,7 +789,8 @@ object Step:
   def key(s: Step): String =
     def sized(t: String) = s"${t.length}:$t"
     s match
-      case Cel(src, _)     => s"cel:${sized(src)}"
+      case Cel(src, inputs) =>
+        s"cel:${sized(src)}" + ValueExpr.inputsKey(inputs)
       case Prefix(t)       => s"prefix(${Value.key(t)})"
       case Suffix(t)       => s"suffix(${Value.key(t)})"
       case WithUnit(u)     => s"unit(${Value.key(u)})"
@@ -780,18 +829,6 @@ case class SortTerm(
 
   /** What it names besides the member it is read for. */
   def entities: List[String] = by.entities
-
-  /** Read without the engine, as a condition is. */
-  def readError: Option[String] =
-    if (by.isCondition) by.conditionError
-    else
-      by.typed(Nil) match
-        case Left(m)                     => Some(m.message)
-        case Right(t) if t.keys.nonEmpty =>
-          Some("an order term is read without CEL")
-        case Right(_) if by.bypassesAnywhere =>
-          Some(ValueExpr.MisplacedBypass)
-        case Right(_) => None
 
 object SortTerm:
   enum Dir(val wire: String) derives CanEqual:

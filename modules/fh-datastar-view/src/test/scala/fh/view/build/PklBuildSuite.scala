@@ -1314,43 +1314,49 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(sets(2).candidates, Nil)
   }
 
-  test(
-    "fixture-features builds through the full pipeline into a valid Dashboard"
-  ) {
-    val built = PklFixture.eval("fixture-features", FixtureEntries.features)
+  /** A test dashboard through the build's own steps: hoisted, decoded and
+    * validated.
+    */
+  private def pipeline(e: FixtureEntries.Entry): Dashboard = {
+    val built = PklFixture.eval(e.slug, e.source, e.dump)
     val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
-      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+      clue = s"${e.slug}: unspliced NODE_ID token remained in the hoisted JSON"
     )
-    val d = hoisted.as[Dashboard].fold(e => fail(s"decode: $e"), identity)
+    val d = hoisted.as[Dashboard].fold(err => fail(s"decode: $err"), identity)
+    assertEquals(
+      d.validate(SourceEval.literalLocator(built.imports)),
+      Nil,
+      clue = e.slug
+    )
+    d
+  }
 
+  test("every test dashboard builds through the full pipeline and validates") {
+    FixtureEntries.all.foreach(pipeline)
+  }
+
+  test("the taps dashboard hoists its popups") {
+    val d = pipeline(FixtureEntries.taps)
     assert(
-      Set(
-        "fhcol",
-        "sectionTitle",
-        "tile",
-        "entityInfo",
-        "slider",
-        "button",
-        "popup"
-      )
+      Set("fhcol", "sectionTitle", "tile", "entityInfo", "button", "popup")
         .subsetOf(d.cards.keySet),
       clue = d.cards.keySet
     )
-    // The registered popup plus four hoisted inline surfaces
-    // (`<node-id>_self`): the `openPopupInline` button, the `|> c.informative`
-    // light, and two sensor cards, one nested in `detail`, that default to
-    // more-info because `sensor` has no service (issue #106).
+    // The registered popup plus hoisted inline surfaces (`<node-id>_self`):
+    // the `openPopupInline` button, the `|> c.informative` light, the
+    // `c.view.moreInfo` tap, and three from `c.lock.controls`: its tile's
+    // more-info (a lock acts through its buttons, ADR 0016) and its "Open"
+    // button's popup, on the page and again inside that more-info.
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
     assertEquals(
       d.surfaces.keys.count(_.endsWith("_self")),
-      4,
+      6,
       clue = d.surfaces.keySet
     )
     // The fixture light reports no colour modes, so its controls are a tappable
-    // card, not a slider. Picked by name: the sensors' popups hold an
-    // entityInfo too.
+    // card, not a slider. Picked by its two tiles: the inline popup holds none.
     val moreInfo = d.surfaces.values
       .find(s => cardNames(s.content).count(_ == "tile") == 2)
       .getOrElse(fail("no more-info surface was hoisted"))
@@ -1366,21 +1372,15 @@ class PklBuildSuite extends munit.FunSuite {
         "button"
       )
     )
-    assertEquals(sets(d.card).size, 1, clue = d.card)
-    assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
   }
 
-  test(
-    "fixture-surfaces builds tabs + If into hoisted surfaces that validate"
-  ) {
-    val built = PklFixture.eval("fixture-surfaces", FixtureEntries.surfaces)
-    val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
-    assert(
-      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
-      clue = "unspliced NODE_ID token remained in the hoisted JSON"
-    )
-    val d = hoisted.as[Dashboard].fold(e => fail(s"decode: $e"), identity)
+  test("the sets dashboard keeps its sets") {
+    val d = pipeline(FixtureEntries.sets)
+    assertEquals(sets(d.card).size, 2, clue = d.card)
+  }
 
+  test("the branches dashboard builds tabs + If into hoisted surfaces") {
+    val d = pipeline(FixtureEntries.branches)
     assert(
       d.cards.contains("tabs") && d.cards.contains("ifhost"),
       clue = d.cards.keySet
@@ -1395,7 +1395,6 @@ class PklBuildSuite extends munit.FunSuite {
         d.surfaces.keys.exists(_.endsWith("_else")),
       clue = d.surfaces.keySet
     )
-    assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
   }
 
   private def probeComponent(body: String): LayoutNode.Component = {
@@ -1874,7 +1873,7 @@ class PklBuildSuite extends munit.FunSuite {
     val value = node.bound("value")
     assertEquals(value.entityId, Some("sensor.power"))
     assertEquals(value.literal, None)
-    assertEquals(value.expr.celSources.headOption, Some("value.state"))
+    assertEquals(value.expr.cels.headOption.map(_._1), Some("value.state"))
     val plain = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
         |node = new c.EntityCard { entity = light; value = c.expr("value.state") }""".stripMargin
@@ -2149,7 +2148,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(rowOf(other).bound("state").entityId, Some("sensor.w"))
     assertEquals(
-      rowOf(other).bound("state").expr.celSources.headOption,
+      rowOf(other).bound("state").expr.cels.headOption.map(_._1),
       Some("""value.state + ' W'""")
     )
     assertEquals(
@@ -2357,9 +2356,6 @@ class PklBuildSuite extends munit.FunSuite {
       actual
     )
 
-  private def fixtureWire(slug: String, entry: String): String =
-    bareWire(PklFixture.eval(slug, entry).value)
-
   private def bareWire(dashboard: Json): String =
     dashboard.mapObject { o =>
       val bare = o.remove("theme").remove("css")
@@ -2433,13 +2429,13 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(row.templateSlots("valueRest").literal, Some(",100"))
     // The hue is `hs_color[0]`, guarded: a light that is off reports none.
     assertEquals(
-      row.bound("value").expr.celSources.headOption,
+      row.bound("value").expr.cels.headOption.map(_._1),
       Some(
         "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
       )
     )
     assertEquals(
-      row.bound("fill").expr.celSources.headOption,
+      row.bound("fill").expr.cels.headOption.map(_._1),
       Some(
         "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(100.0 - (v - 0.0) * 100.0 / (360.0 - 0.0)) + '%').orValue('100%')"
       )
@@ -2517,14 +2513,14 @@ class PklBuildSuite extends munit.FunSuite {
     // shape is a contract. The colour-temperature span is the light's own range
     // baked (4535.0), not a constant.
     assertEquals(
-      rowOf(kids(0)).bound("fillColor").expr.celSources.headOption,
+      rowOf(kids(0)).bound("fillColor").expr.cels.headOption.map(_._1),
       Some("""value.attr[?'rgb_color'].optMap(rgb,
         |  size(rgb) == 3
         |    ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
         |    : '').orValue('')""".stripMargin)
     )
     assertEquals(
-      rowOf(kids(1)).bound("fillColor").expr.celSources.headOption,
+      rowOf(kids(1)).bound("fillColor").expr.cels.headOption.map(_._1),
       Some(
         """value.attr[?'color_temp_kelvin'].optMap(k,
         |  cel.bind(t,
@@ -2610,24 +2606,12 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(node).templateSlots("max").literal, Some("6535"))
   }
 
-  test("fixture-features wire JSON matches the checked-in snapshot") {
-    checkSnapshot(
-      "fixture-features",
-      fixtureWire("fixture-features", FixtureEntries.features)
-    )
-  }
-
-  test("fixture-surfaces wire JSON matches the checked-in snapshot") {
-    checkSnapshot(
-      "fixture-surfaces",
-      fixtureWire("fixture-surfaces", FixtureEntries.surfaces)
-    )
-  }
-
-  test("fixture-slots wire JSON matches the checked-in snapshot") {
-    checkSnapshot(
-      "fixture-slots",
-      fixtureWire("fixture-slots", FixtureEntries.slots)
+  test("every test dashboard's wire JSON matches its checked-in snapshot") {
+    FixtureEntries.wired.foreach(e =>
+      checkSnapshot(
+        e.slug,
+        bareWire(PklFixture.eval(e.slug, e.source, e.dump).value)
+      )
     )
   }
 

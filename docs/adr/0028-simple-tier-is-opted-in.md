@@ -28,10 +28,10 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    `Step.Simple` cases (the fast tier), each an object whose `kind` names it. The form IS the tier
    selection; there is no recognition machinery at all.
 
-   **A condition is the tier's bool half.** What a `c.iff`, a candidate set's guard, an order term
-   or a boolean input takes is a bool `ValueExpr` of simple steps: a read and `Compare`, `Not`,
-   `AllOf`/`AnyOf` over a `List`, `Count`/`First` over a list of ids
-   (`ValueExpr.conditionError` holds a condition to that). So `q.entity(e).stateIs("on")` is
+   **A condition is the tier's bool half.** What a `c.iff`, a candidate set's guard or a boolean
+   input takes is a bool `ValueExpr`, and the library writes one of simple steps: a read and
+   `Compare`, `Not`, `AllOf`/`AnyOf` over a `List`, `Count`/`First` over a list of ids. CEL is
+   allowed there too (ADR 0035), but only an author writes it. So `q.entity(e).stateIs("on")` is
    decided with no CEL, by the one evaluator that fills every slot (ADR 0035); `core/predicate.pkl`'s classes (`Cmp`, `PAnd`, …) are how Pkl writes
    one.
 
@@ -168,7 +168,7 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    injectivity here is not a nicety.
 7. **Authoring is a namespace: `core/simple.pkl`** (the `c.tap` module-as-namespace pattern, typed
    facade re-export `c.simple`). `Reading.steps` takes the steps; `labelSlot`/`valueSlot`/
-   `secondary` accept a reading beside `String`/`Expr`. The components opt in: the slider's
+   `secondary` accept a reading beside `String` (`c.expr` is one). The components opt in: the slider's
    `value`/`percent`/`fill` slots and its default state readout, `control`'s two state matches, and
    `slot.pkl`'s own auto-unit value and guarded secondary read, the default reading, and every
    boolean input's condition. The slider's `percentExpr`/

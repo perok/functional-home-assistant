@@ -134,8 +134,10 @@ class StateFlipIndexSuite extends munit.FunSuite {
     assertEquals(flipped, g.stateBakeOwnerIds, clue = name)
   }
 
-  test("the flip index agrees with walking every group: shipped fixture") {
-    agree("fixture-surfaces", fixture("fixture-surfaces"))
+  test(
+    "the flip index agrees with walking every group: the branches dashboard"
+  ) {
+    agree("branches", fixture("branches"))
   }
 
   test("the flip index agrees with walking every group: Ifs in clauses") {

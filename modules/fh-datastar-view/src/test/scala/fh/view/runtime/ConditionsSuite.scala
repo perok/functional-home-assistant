@@ -2,7 +2,16 @@ package fh.view.runtime
 
 import fh.view.testkit.Conds
 
-import fh.view.model.{Lit, Op, Part, Step, Value, ValueExpr}
+import fh.view.model.{
+  Lit,
+  Op,
+  Part,
+  SortTerm,
+  Step,
+  Value,
+  ValueExpr,
+  ValueType
+}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
@@ -30,7 +39,11 @@ class ConditionsSuite extends munit.FunSuite {
       st: EntityState,
       states: Map[String, EntityState]
   ) =
-    Evaluator.plain(p)(st, states, Evaluator.noFetch)
+    Conds.run(p)(
+      st,
+      states,
+      Evaluator.noFetch
+    )
 
   private def holds(
       p: ValueExpr,
@@ -241,7 +254,10 @@ class ConditionsSuite extends munit.FunSuite {
       op <- Op.values.toList
       n <- -1 to size + 1
     } {
-      val full = Evaluator.presentOf(Value.Present(ids, guards), states).size
+      val full = Evaluator
+        .presentOf(Value.Present(ids, guards), Evaluator.Scope(""))
+        .fold(m => fail(m.message), _(states))
+        .size
       assertEquals(
         holds(
           Conds.count(ids, guards, op, Json.fromInt(n)),
@@ -259,12 +275,72 @@ class ConditionsSuite extends munit.FunSuite {
     val off = (isOn("light.missing"))
     val on = (isOn("light.a"))
     def of(step: Step, items: ValueExpr*) =
-      ValueExpr(Value.List(items.toList), List(step))
+      ValueExpr(Value.List(ValueType.Bool, items.toList), List(step))
     assert(!holds(of(Step.AllOf, off, on), s, snapshot(s)))
     assert(holds(of(Step.AnyOf, on, off), s, snapshot(s)))
     assert(holds(of(Step.AllOf), s, snapshot(s)))
     assert(!holds(of(Step.AnyOf), s, snapshot(s)))
     assertEquals(run(of(Step.Count, on, off), s, snapshot(s)), 2L)
+  }
+
+  test("CEL decides a guard, a list's item and an order term as steps do") {
+    def celOn(entity: Option[String]) =
+      ValueExpr(Value.Entity(entity), List(Step.Cel("value == 'on'")))
+    def count(guard: String => ValueExpr) = Conds.count(
+      candidates = List("light.a", "light.b"),
+      when = Map("light.a" -> guard("light.a"), "light.b" -> guard("light.b")),
+      op = Op.Eq,
+      value = Json.fromInt(1)
+    )
+    def anyOf(item: String => ValueExpr) =
+      ValueExpr(
+        Value.List(ValueType.Bool, List(item("light.a"))),
+        List(Step.AnyOf)
+      )
+    def lead(term: ValueExpr) = Conds.first(
+      candidates = List("light.a", "light.b"),
+      orderBy = List(SortTerm(term)),
+      entity = "light.b"
+    )
+    val celTerm = ValueExpr(Value.Entity(), List(Step.Cel("value == 'on'")))
+    for (
+      a <- List("on", "off");
+      b <- List("on", "off")
+    ) {
+      val states = snapshot(st("light.a", a), st("light.b", b))
+      val s = EntityState.none
+      def same(cel: ValueExpr, plain: ValueExpr) =
+        assertEquals(holds(cel, s, states), holds(plain, s, states), (a, b))
+      same(count(e => celOn(Some(e))), count(isOn))
+      same(anyOf(e => celOn(Some(e))), anyOf(isOn))
+      same(
+        lead(celTerm),
+        lead(Conds.cmp("state", Op.Eq, Json.fromString("on")))
+      )
+    }
+    assertEquals(
+      count(e => celOn(Some(e))).entities.toSet,
+      Set("light.a", "light.b")
+    )
+  }
+
+  test("a guard whose CEL fails leaves its member absent") {
+    val failing =
+      ValueExpr(Value.Entity(), List(Step.Cel("int(value) > 0")))
+    val states = snapshot(st("light.a", "on"))
+    val none = Conds.count(
+      candidates = List("light.a"),
+      when = Map("light.a" -> failing),
+      op = Op.Eq,
+      value = Json.fromInt(0)
+    )
+    assert(holds(none, EntityState.none, states))
+  }
+
+  test("one scope builds each CEL program once") {
+    val scope = Evaluator.Scope("")
+    val k = Cel.Key("value == 'on'", Nil, Some(ValueType.Text))
+    assert(Conds.compiled(scope.program(k)) eq Conds.compiled(scope.program(k)))
   }
 
   test("a read of an entity the snapshot lacks is no value, not a stand-in") {

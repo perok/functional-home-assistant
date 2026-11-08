@@ -1,7 +1,8 @@
 /// The conditions and candidate-set wire that `query.pkl` builds and the
 /// backend decodes. A condition is a bool `fh.view.model.ValueExpr` (its
-/// `source` and `steps`), decided without CEL: each class here keeps what
-/// its builder names hidden and writes that wire. Here rather than in
+/// `source` and `steps`) of simple steps: each class here keeps what its
+/// builder names hidden and writes that wire. Wherever one is taken, any bool
+/// value expression is too, a reading or CEL included (ADR 0035). Here rather than in
 /// `query.pkl` so the query language and the card library share the wire
 /// without depending on each other. There are no free constructors, so a term
 /// always carries a binding.
@@ -13,11 +14,11 @@ import "slot.pkl" as slotMod
 
 typealias PredicateOp = simpleMod.CompareOp
 
-/// A condition: a [[slotMod.ValueExpr]] of a bool, decided without CEL (ADR
-/// 0035). It is not a [[slotMod.Reading]], so a slot's fields (`entityId`,
+/// A condition: a [[slotMod.Expr]] of a bool, of simple steps (ADR
+/// 0028). It is not a [[slotMod.Reading]], so a slot's fields (`entityId`,
 /// `default`, …) are refused rather than ignored. The combinators are methods,
 /// since the operators `&&`/`||`/`!` do not cross the seam.
-abstract class Predicate extends slotMod.ValueExpr {
+abstract class Predicate extends slotMod.Expr {
   function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
   function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
   function not(): PNot = let (l = this) new PNot { item = l }
@@ -43,7 +44,7 @@ class Cmp extends Predicate {
 open class Tally extends slotMod.Value {
   kind: "Present" = "Present"
   candidates: Listing<String>
-  `when`: Mapping<String, Predicate> = new {}
+  `when`: Mapping<String, slotMod.Expr> = new {}
 }
 
 /// The ids of a [[Tally]]'s present candidates, uncounted: a named input CEL
@@ -56,7 +57,7 @@ class PresentList extends Tally
 /// it is unconditionally present.
 class Count extends Predicate {
   hidden candidates: Listing<String>
-  hidden `when`: Mapping<String, Predicate> = new {}
+  hidden `when`: Mapping<String, slotMod.Expr> = new {}
   hidden op: PredicateOp
   hidden value: Any
   source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when` }
@@ -80,7 +81,7 @@ class FirstStep extends simpleMod.Step {
 /// order, which breaks ties; `when` guards as for [[Count]].
 class First extends Predicate {
   hidden candidates: Listing<String>
-  hidden `when`: Mapping<String, Predicate> = new {}
+  hidden `when`: Mapping<String, slotMod.Expr> = new {}
   hidden orderBy: Listing<SortTerm> = new {}
   hidden entity: String
   source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when` }
@@ -94,20 +95,20 @@ class First extends Predicate {
 
 /// At least two items: [[alwaysHolds]] is the empty one.
 class PAnd extends Predicate {
-  hidden items: Listing<Predicate>
+  hidden items: Listing<slotMod.Expr>
   source = let (p = this) new slotMod.ListRead { items = p.items }
   steps { new simpleMod.AllOfStep {} }
 }
 
 /// At least two items: [[neverHolds]] is the empty one.
 class POr extends Predicate {
-  hidden items: Listing<Predicate>
+  hidden items: Listing<slotMod.Expr>
   source = let (p = this) new slotMod.ListRead { items = p.items }
   steps { new simpleMod.AnyOfStep {} }
 }
 
 class PNot extends Predicate {
-  hidden item: Predicate
+  hidden item: slotMod.Expr
   source = item.source
   steps = let (p = this) new Listing { ...p.item.steps; new simpleMod.NotStep {} }
 }
@@ -123,7 +124,7 @@ class PConst extends Predicate {
 /// "If `when` holds, render `node`." The node is complete, so a clause cannot
 /// be wrong about which member it belongs to. `when = null` is unconditional.
 class SetClause {
-  `when`: Predicate? = null
+  `when`: slotMod.Expr? = null
   node: nodes.LayoutNode
 }
 
@@ -151,7 +152,7 @@ class SetNode extends nodes.LayoutNode {
 /// ([[propertyKey]]), or whether a condition holds, true first under `asc`. A
 /// registry key never reaches it: it folds into the candidate order.
 class SortTerm {
-  by: slotMod.ValueExpr
+  by: slotMod.Expr
   dir: "asc"|"desc" = "asc"
 }
 

@@ -39,9 +39,11 @@ node-level declaration, and each slot is bound to the ones its CEL reads (`Bound
 below builds on that one path, and nothing gains a second evaluator.
 
 **Declaration.** `Node.expressionValues: Mapping<String, ExpressionValue>`, where
-`ExpressionValue = String|Int|Float|Boolean|pred.Tally|pred.Predicate|slot.Fetch|hass.Entity`, written as an amend or with
+`ExpressionValue = String|Int|Float|Boolean|pred.Tally|slot.Expr|slot.Fetch|hass.Entity`, written as an amend or with
 the `expressionValues(m)` builder. On the wire it is `Component.values`, each a `ValueExpr`
-(`slotMod.wireInput`: a literal bare, anything else as the source it reads), absent when empty. Two
+(`slotMod.wireInput`: a literal bare, an expression as itself, anything else as the source it
+reads), absent when empty. An expression may be any that types, a condition or a CEL reading
+(`c.exprOf(e, "value.state")`) included, but names its entity: a value has no subject. Two
 properties, because a `Mapping?` defaulting to null can be neither amended nor `new {}`'d — both
 infer `Dynamic` (measured) — and an always-present `{}` would sit on every node's wire.
 
@@ -50,16 +52,18 @@ Float → `double`, Boolean → `bool`, a tally → `int` (a `Present` source an
 present ids alone are a `list(string)`), a condition → `bool`, a fetch → its provider's answer
 (history's points, `list(list(double))` of `[epochMillis, value]`), an entity → the struct
 `fh.Entity` (`kitchen.attr.brightness`). Numbers decode by their SPELLING, as Pkl wrote them, since
-a `Float` 2.0 and an `Int` 2 have one value. The type is `ValueExpr.inputType`; another shape is
-refused, so no input is computed by CEL and inputs cannot form a cycle. The expression compiles
-against `value`, `dashboard_slug`, `time_zone` and the node's names (`Cel.Key`: source,
-typed names and `value`'s type), so a typo, an unknown name or `lights_on + ' on'` (no
+a `Float` 2.0 and an `Int` 2 have one value. Its type is the one it compiles to, so an input may
+be any expression that compiles, CEL included. A node's values do not see each other, and a CEL's
+own input sees only its node's, so inputs cannot form a cycle. Each CEL compiles against `value`,
+`dashboard_slug`, `time_zone` and the names it reads: its own inputs, and its node's values, its
+own winning (`Cel.Key`: source, typed names and `value`'s type). So a typo, an unknown name or `lights_on + ' on'` (no
 `int + string` overload) fails the BUILD. Refused too: a name that is not a CEL identifier, one
 hiding `value`/`dashboard_slug`/`time_zone`, a value
 no slot reads, a slot read `once` that reads a count or a condition (the once-cache keys by what a
 value IS, so it would show the first answer forever; a fetch too), and a condition comparing an entity it does
 not name — a value is shared by content across nodes, so it has no subject, as a state condition
-has none.
+has none; any unnamed read in a value is refused for the same reason. A fetch value is read as its
+answer, so one with steps is refused.
 
 **Node-local names, shared by content.** Nothing below the node sees its names. That is a node
 variable's job (ADR 0033), and a different fact: a viewer's choice, inherited, against a computed
@@ -69,23 +73,29 @@ count the same thing.
 
 **Bound on the node.** Binding is the build pass that connects a name to its definition and type
 (`docs/terminology.md`). `LayoutNode.Component.bound` runs it lazily, once per node: it pairs each
-slot, live cell classes and properties included, with the values its CEL names, by the identifiers
-the expression PARSES to, so a word inside a string literal is not a read. A slot binds at a
+slot, live cell classes and properties included, with the node's values its CELs read, by the
+identifiers each PARSES to, so a word inside a string literal is not a read; a name a CEL's own
+input has is that input's, and each CEL keeps its own. A slot binds at a
 `Placement`, its signal binding and the type it is read as: a template slot's comes off the wire,
 and a cell slot's from its key (`CellKey.placement`: a class is a bool bound by name, a property
 text). A literal cell class is not bound at all: the renderer writes it straight from the cell. It is derived from the decoded node rather than written back into it, so no slot can be seen
 before it is bound, or bound twice, and the decoder only decodes. The bound slot says alone what it
 reads: the compile key, the signal name and the watched entities all come off it, and no render
 path takes the node's values as an argument. The binding fixes each name's type, not its value,
-which `Evaluator.inputs` computes on every render, each input compiled once.
+which each CEL's activation computes on every render (`Evaluator.activation`), each input
+compiled once.
 
-### A slot's own values
+### A CEL's own values
 
-A slot may carry values of its own (`Slot.expressionValues`, `values` on the wire beside the
-node's), the same kinds. A function can then hand out a finished slot that brings its inputs —
-`c.bar.remainingOfPeak(left)`'s whole carries the countdown's history — with no node having to
-declare them, and two slots can use one name for different reads. Binding merges the node's and
-the slot's; a name in both is a build error, as is one the slot's own expression does not read.
+A CEL may carry values of its own (`values` on a `simpleMod.Cel` step or a `CelRead`, `inputs` on
+the wire), the same kinds as a node's. A function can then hand out a finished reading that brings
+its inputs — `c.bar.remainingOfPeak(left)`'s whole carries the countdown's history — with no node
+having to declare them, and two CELs can use one name for different reads. **Its own shadow the
+node's:** a name in both reads the CEL's own there, so a helper's input never clashes with a name
+the author picked. A node value every CEL shadows is read by none, which is refused, as is an own
+value its CEL does not read. An own value may hold a CEL with values of its own, and every rule
+here holds at any depth: what a slot binds, fetches and checks is every input it holds, its
+inputs' inputs included.
 
 ### A fetch is a value read on demand
 
@@ -127,11 +137,11 @@ refused, since a template reads one by truthiness. A CEL `list`, `map`, `timesta
 `WithUnit`, `Percent`, `Fill`, `Duration`) take the same, so a whole entity or a list is refused
 before them. A literal is checked like any value: a `setIf` flag's slot is `slotMod.bool`.
 
-**What fills one** is a `BooleanInput`: a `Boolean` the build knows, a reading (`c.isOn(l)`, the
-fast tier), an `Expr` over the node's values (`c.expr("on > 2")`), or a condition (`lit.any()`,
-`q.entity(l).stateIs("on")`). `active`, `disabled` and `cellClassWhen` all take one. A condition IS the
-bool slot's transform, the fast tier's bool half (ADR 0028), decided directly by the one evaluator (ADR 0035) with
-no CEL and no name; a comparison that names no entity reads the slot's, and the build refuses one
+**What fills one** is a `BooleanInput`, `Boolean|slot.Expr`: a `Boolean` the build knows, or an
+expression of a bool — a reading (`c.isOn(l)`, the fast tier, or `c.expr("on > 2")` over the
+node's values) or a condition (`lit.any()`, `q.entity(l).stateIs("on")`). `active`, `disabled` and
+`cellClassWhen` all take one. A condition IS the bool slot's transform, the fast tier's bool half
+(ADR 0028), decided directly by the one evaluator (ADR 0035) with no name; a comparison that names no entity reads the slot's, and the build refuses one
 on a slot that has none. An aggregate the build can settle IS a `Boolean` —
 `any()` over a room with no lights is `false` — and then there is no live slot at all, and a
 `true` `disabled` is the bare attribute.
@@ -147,10 +157,10 @@ countdown has no value while nothing runs. It is the slot-sized case of what the
 regions: a `c.iff` branch that does not show and a candidate that is not present are not asked
 either. It is lowered as the others are, onto a bool slot nested in
 the slot (`valueWhileSlot` on the wire, absent when `true`) whose transform is the condition, CEL
-or a constant (`false` is `neverHolds`, an empty `Or`); it reads the slot's entity when it names none.
+or a constant (`false` is `neverHolds`, a literal `false`); it reads the card's subject when it names none.
 
 It is decided first, and **once per state snapshot**, in that snapshot's decisions (the pipeline
-doc's §1a), keyed by content (the entity it is decided over, `BoundSlot.gate` being the one
+doc's §1a), keyed by content (the entity it is decided over, `Ready.Slot.gate` being the one
 rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
 their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
 render key, the paint and the signal path ask the same decisions, so none decides it again. A
@@ -171,7 +181,7 @@ and a slot behind it runs nothing.
 ### A live custom property on any node
 
 `.cellStyle(name, reading)` sets a custom property on the node's `.fh-cell` from any reading that
-produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), an `Expr` may read the
+produces text: a `Simple` one stays on the fast tier (`simpleMod.fill(…)`), a `c.expr` may read the
 node's values. It is `cellClassWhen`'s twin: both are cell slots (`cell.styles` beside `cell.classes`,
 ADR 0008), the value inline
 (`style="--x:…"`) in the document form and a `data-style:--x` binding after the wrapper's seed in

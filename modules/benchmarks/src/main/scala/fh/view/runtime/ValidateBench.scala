@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 class ValidateBench {
 
   @Param(
-    Array("fixture-features", "fixture-slots", "fixture-surfaces", "starter")
+    Array("taps", "readings", "branches", "starter")
   )
   var fixture: String = ""
 

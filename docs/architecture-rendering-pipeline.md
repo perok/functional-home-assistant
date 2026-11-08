@@ -193,7 +193,7 @@ layers only look it up.
 
 | Layer | Once per | Input | What it produces |
 |---|---|---|---|
-| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed |
+| **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
 | **Decisions** | state snapshot | the entity states | what they decide (`Decisions`): which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Kept by the snapshot's identity (`Decided`), so every viewer rendering one version shares them |
 
@@ -986,17 +986,18 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
-Compile keeps one program per distinct CEL source, typed names and type of `value`
-(`Validated.transforms`). The renderer plans each slot once per node (`Planned`): a value that never
-moves is `Planned.Constant`, folded with its JS spelling (a literal, a literal through the theme's
-swap, or a `once` read through the identity cache, which is every click transform), and anything else
-`Planned.Live`, its source and steps compiled into one closure (`Evaluator.compile`, the one
-evaluator every reading runs on, ADR 0035) with each CEL program looked up and each literal operand
-read up front, so a paint walks no step list and looks nothing up.
+Compile builds one program per distinct CEL source, typed names and type of `value`, the first
+time the walk asks for it (`Evaluator.Scope`). The build compiles each slot into one closure
+(`Ready.Slot.run`, through `Evaluator.compile`, the one evaluator every reading runs on, ADR
+0035), with each CEL program looked up and each literal
+operand read up front, so a paint walks no step list and looks nothing up. The renderer plans each
+slot once per node (`Planned`): a value that never moves is `Planned.Constant`, folded with its JS
+spelling (a literal, a literal through the theme's swap, or a `once` read through the identity
+cache, which is every click transform), and anything else `Planned.Live`, which runs that closure.
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
-names (`BoundSlot`), so no box downstream knows they exist: a tally's candidates and the
+live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CELs
+read (`BoundSlot`), each CEL keeping its own inputs beside them, so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
@@ -1023,10 +1024,13 @@ lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, a
 re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
-**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034): the slot
+**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034), at any
+depth: an input's own input, a list item, a guard or an order term inside the slot. The slot
 keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
-pipeline one argument, not a box. A value's fetch is a `SlotAsk` with the passthrough stage among
-the node's `fetches`, so the page's pre-read and the render key carry it already; the patch step's
+pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
+surface, a press on a set) has no answers to read: a fetch there reads as none. A value's fetch
+is a `SlotAsk` with the passthrough stage among the node's `fetches`, so the page's pre-read and
+the render key carry it already; the patch step's
 `readsForPull(touchedIds, …)` already pre-reads the fetches of the nodes whose signals it updates,
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.
@@ -1043,7 +1047,7 @@ runs; otherwise read the fetches and run the transform. The order reaches back i
 pre-read: each fetching slot carries its `valueWhile` (`Fetching.Gate`), and the pre-read asks
 its fetches only where the snapshot's `Decisions` say it holds. So a slot whose `valueWhile` does
 not hold asks for no history, and the pre-read, the render key (`Renderer.asked`) and the paint
-(`Renderer.withheld`) all go through one `gateHolds`, over the gate `BoundSlot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
+(`Renderer.withheld`) all go through one `gateHolds`, over the gate `Ready.Slot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
 ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
@@ -1098,7 +1102,7 @@ Three boxes move, and no others:
   (`Value.Fetch` or another). Every site that CLASSIFIES slots matches on
   it, so the combinations that would be wrong — a fetch that is `live`, `once`, or a signal — are
   not rejected by rules, they are unreachable.
-- **`Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
+- **`Ready.Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
   and separate for the same reason those two are: what makes a node a candidate and what makes its
   bytes stale are different questions.
 

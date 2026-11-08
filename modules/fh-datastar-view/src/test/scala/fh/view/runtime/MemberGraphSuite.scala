@@ -8,6 +8,7 @@ import fh.view.model.{
   MemberId,
   NodeId,
   Op,
+  Ready,
   SetId,
   Value,
   ValueExpr,
@@ -53,7 +54,12 @@ class MemberGraphSuite extends munit.FunSuite {
   private def graphOf(
       s: LayoutNode.SetNode,
       root: String = ""
-  ): MemberGraph = new MemberGraph(Map(gid -> s), Map(gid -> root))
+  ): MemberGraph = new MemberGraph(Map(gid -> compile.set(s)), Map(gid -> root))
+
+  private object compile:
+    private val walk = Ready.Compile(Evaluator.Scope(""))
+    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
+    def node(n: LayoutNode): Ready.Node = Conds.compiled(walk.node(n))
 
   extension (g: MemberGraph)
     // The main page's: a root of `""`.
@@ -417,7 +423,7 @@ class MemberGraphSuite extends munit.FunSuite {
     )
     // Descending into a nested set would wake the tile on every bulb inside it.
     assertEquals(
-      Member.entitiesOf(nested).sorted,
+      Member.entitiesOf(compile.node(nested)).sorted,
       List("light.a", "sensor.k")
     )
   }
