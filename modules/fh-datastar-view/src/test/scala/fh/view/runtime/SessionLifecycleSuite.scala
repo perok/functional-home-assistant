@@ -105,7 +105,7 @@ class SessionLifecycleSuite extends ServerHarness {
           .renderNodeById(
             "c_0",
             Shared.of(snapshot.entities),
-            fragments = FetchSnapshot.empty
+            Viewing(Selections.none, FetchSnapshot.empty)
           )
         assertEquals(
           held.flatMap(_.get("c_0")),

@@ -1,6 +1,9 @@
 package fh.view.runtime
 
-import fh.view.model.{FetchTemplate, NodeId, SetId}
+import fh.view.FHError
+import fh.view.fetch.FetchSnapshot
+import fh.view.history.Series
+import fh.view.model.{FetchTemplate, NodeId, SetId, SlotAsk, SlotRead, Step}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -16,27 +19,68 @@ import scala.jdk.CollectionConverters.*
   * since has dirtied, or made here on demand (a fill). A fill made after the
   * next version exists is offered on to it, unless that version's frame dirtied
   * it.
+  *
+  * A decision that reads a fetch is made only inside a run
+  * ([[Renderer.decide]]), from its answers; read [[asking]] one.
   */
 private[runtime] final class Shared private (
     val states: Map[String, EntityState],
-    val version: Long
+    val version: Long,
+    private val tables: Shared.Tables,
+    private val run: Shared.Run | Null
 ) {
-  private val sets = new Shared.Table[SetId, GroupMembers]
-  private val members = new Shared.Table[NodeId, Option[Member]]
-  private val branches = new Shared.Table[NodeId, Option[Int]]
-  private val gates = new Shared.Table[String, java.lang.Boolean]
 
-  def set(gid: SetId)(derive: => GroupMembers): GroupMembers =
-    sets.once(gid)(derive)
+  /** This version as `r`'s walk reads it: the same decisions, made with its
+    * answers.
+    */
+  def asking(r: Shared.Run): Shared = new Shared(states, version, tables, r)
 
-  def member(id: NodeId)(derive: => Option[Member]): Option[Member] =
-    members.once(id)(derive)
+  def set(gid: SetId, reads: Set[SlotRead], missing: => GroupMembers)(
+      derive: Shared.Fetched => GroupMembers
+  ): GroupMembers = decide(tables.sets, gid, reads, missing)(derive)
 
-  def branch(gid: NodeId)(derive: => Option[Int]): Option[Int] =
-    branches.once(gid)(derive)
+  def member(id: NodeId, reads: Set[SlotRead])(
+      derive: Shared.Fetched => Option[Member]
+  ): Option[Member] = decide(tables.members, id, reads, None)(derive)
 
-  def holds(key: String)(derive: => Boolean): Boolean =
-    gates.once(key)(java.lang.Boolean.valueOf(derive)).booleanValue
+  def branch(gid: NodeId, reads: Set[SlotRead])(
+      derive: Shared.Fetched => Option[Int]
+  ): Option[Int] = decide(tables.branches, gid, reads, None)(derive)
+
+  def holds(key: String, reads: Set[SlotRead])(
+      derive: Shared.Fetched => Boolean
+  ): Boolean =
+    decide(tables.gates, key, reads, java.lang.Boolean.FALSE)(f =>
+      java.lang.Boolean.valueOf(derive(f))
+    ).booleanValue
+
+  /** `reads`' answers, or `None` while this run lacks them: noted as needed, so
+    * the walk reads what waits on them as not shown.
+    */
+  def answered(reads: Set[SlotRead]): Option[Shared.Fetched] =
+    if (reads.isEmpty) Some(Evaluator.unanswered)
+    else
+      run match
+        case null =>
+          throw FHError.internal(
+            s"a decision reading ${reads.size} fetch(es) was reached outside a run"
+          )
+        case r: Shared.Run => r.answers(reads)
+
+  // Not cached when missing: what stands in is only the walk's, until the
+  // next round has the answers.
+  private def decide[K, V](
+      t: Shared.Table[K, V],
+      k: K,
+      reads: Set[SlotRead],
+      missing: => V
+  )(derive: Shared.Fetched => V): V =
+    t.get(k) match
+      case Some(v) => v
+      case None    =>
+        answered(reads) match
+          case Some(f) => t.once(k)(derive(f))
+          case None    => missing
 
   /** Linked first, so a fill landing while the carry is taken is offered on
     * rather than lost.
@@ -46,20 +90,53 @@ private[runtime] final class Shared private (
       dirty: Shared.Dirty,
       marked: Shared.Marked
   ): Unit = {
-    sets.carryInto(next.sets, dirty.sets, _ => true)
-    members.carryInto(next.members, dirty.members, _ => true)
-    branches.carryInto(next.branches, dirty.branches, marked.branch)
-    gates.carryInto(next.gates, dirty.gates, marked.gate)
+    val (from, to) = (tables, next.tables)
+    from.sets.carryInto(to.sets, dirty.sets, _ => true)
+    from.members.carryInto(to.members, dirty.members, _ => true)
+    from.branches.carryInto(to.branches, dirty.branches, marked.branch)
+    from.gates.carryInto(to.gates, dirty.gates, marked.gate)
   }
 }
 
 private[runtime] object Shared {
 
+  type Fetched = FetchTemplate => Object
+
   /** Shared with no one: a test's, or a reader's whose version is no longer
     * kept.
     */
   def of(states: Map[String, EntityState], version: Long = 0L): Shared =
-    new Shared(states, version)
+    new Shared(states, version, new Tables, null)
+
+  /** One walk's answers so far, and what it found it needs. A walk is
+    * synchronous, so one thread writes it. Once its walk needs nothing more,
+    * what the send goes on to read of it is the result, so a decision it lacks
+    * the answers for raises rather than standing in as not shown.
+    */
+  final class Run(have: FetchSnapshot) {
+    private var wanted = Set.empty[SlotRead]
+    private var done = false
+
+    def needs: Set[SlotRead] = wanted
+
+    private[runtime] def close(): Unit = done = true
+
+    private val fetched: Fetched = f =>
+      Series.celPoints(have.shared(SlotAsk(f, Step.Json)))
+
+    private[Shared] def answers(reads: Set[SlotRead]): Option[Fetched] =
+      val missing = reads.filterNot(have.has)
+      if (missing.isEmpty) Some(fetched)
+      else if (done)
+        throw FHError.internal(
+          s"a decision reading ${missing.size} fetch(es) its run did not " +
+            "reach was read after it"
+        )
+      else {
+        wanted ++= missing
+        None
+      }
+  }
 
   /** What a frame's changes dirtied. */
   final case class Dirty(
@@ -75,28 +152,34 @@ private[runtime] object Shared {
     */
   final case class Marked(branch: NodeId => Boolean, gate: String => Boolean)
 
+  private final class Tables {
+    val sets = new Table[SetId, GroupMembers]
+    val members = new Table[NodeId, Option[Member]]
+    val branches = new Table[NodeId, Option[Int]]
+    val gates = new Table[String, java.lang.Boolean]
+  }
+
   private final class Table[K, V] {
     @volatile private var carried: Map[K, V] = Map.empty
     private val fills = new ConcurrentHashMap[K, V]()
     @volatile private var next: Table[K, V] | Null = null
     @volatile private var dropped: K => Boolean = _ => true
 
+    def get(k: K): Option[V] = {
+      val filled = fills.get(k)
+      if (filled != null) Some(filled.nn) else carried.get(k)
+    }
+
     // Not `computeIfAbsent`: a derivation that asks for another key in the
     // same table (a group's member, under a `limit`) throws "Recursive update".
     def once(k: K)(derive: => V): V = {
-      val filled = fills.get(k)
-      if (filled != null) filled.nn
-      else
-        carried.get(k) match
-          case Some(v) => v
-          case None    =>
-            val v = derive
-            val held = fills.putIfAbsent(k, v)
-            if (held != null) held.nn
-            else {
-              offerOn(k, v)
-              v
-            }
+      val v = derive
+      val held = fills.putIfAbsent(k, v)
+      if (held != null) held.nn
+      else {
+        offerOn(k, v)
+        v
+      }
     }
 
     private def offer(k: K, v: V): Unit =
@@ -154,15 +237,10 @@ private[runtime] final class Decided(
     prev.carryInto(next, dirty, marked)
     next
   }
-
-  private val answered =
-    new AtomicReference[FetchTemplate => Object](Evaluator.unanswered)
-
-  /** The answers to the fetches decisions read, the newest the server prepared:
-    * they depend on no snapshot, since the build refuses one that reads a
-    * viewer's variable. Before any, a fetch read raises.
-    */
-  def fetched: FetchTemplate => Object = answered.get().nn
-
-  def answer(fetched: FetchTemplate => Object): Unit = answered.set(fetched)
 }
+
+/** One viewer's, for one send, beside the [[Shared]] it was read against: its
+  * selections, and the answers to the slot fetches the send reads (which carry
+  * the viewer's node variables).
+  */
+final case class Viewing(selections: Selections, fragments: FetchSnapshot)

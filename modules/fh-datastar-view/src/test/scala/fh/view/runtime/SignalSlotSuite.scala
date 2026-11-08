@@ -128,7 +128,7 @@ class SignalSlotSuite extends ServerHarness {
         .renderNodeById(
           leaf,
           Shared.of(at("21.4")),
-          fragments = FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
         .get
     assertEquals(patch.contains("21.4"), false, clue = patch)
@@ -157,7 +157,7 @@ class SignalSlotSuite extends ServerHarness {
       r.renderNodeById(
         leaf,
         Shared.of(at("21.4")),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       ).get
     assert(patch.contains(assigned), clue = patch)
     val plain =
@@ -187,7 +187,7 @@ class SignalSlotSuite extends ServerHarness {
     val free =
       freeR.renderBodyTraced(
         Shared.of(at("21.4")),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
     val freeId = free.own.keys.head
     assert(
@@ -197,14 +197,14 @@ class SignalSlotSuite extends ServerHarness {
     val signalled =
       renderer.renderBodyTraced(
         Shared.of(at("21.4")),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
     val signalledId = signalled.own.keys.head
     val signalledPatch = renderer
       .renderNodeById(
         signalledId,
         Shared.of(at("21.4")),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
       .get
     assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
@@ -618,8 +618,7 @@ class SignalSlotSuite extends ServerHarness {
     val holds = r.renderPageHolds(
       Sink.buffer(r.pageBytesHint),
       Shared.of(lit(40)),
-      Selections.none,
-      FetchSnapshot.empty
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     val out = resumeNow(
       r,
@@ -928,7 +927,7 @@ class SignalSlotSuite extends ServerHarness {
       .renderSurfaceTraced(
         "panel",
         Shared.of(states),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
       .map(_.html)
       .get

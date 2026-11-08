@@ -209,8 +209,7 @@ class FetchDriftSuite extends munit.FunSuite {
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
         states,
-        ui,
-        snapshot
+        Viewing(ui, snapshot)
       )
     }
   }
@@ -224,8 +223,10 @@ class FetchDriftSuite extends munit.FunSuite {
       val _ = r.renderSurfaceTraced(
         sid,
         states,
-        ui,
-        answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
+        Viewing(
+          ui,
+          answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
+        )
       )
     }
   }
@@ -240,13 +241,15 @@ class FetchDriftSuite extends munit.FunSuite {
             r.renderPageInto(
               Sink.buffer(r.pageBytesHint),
               states,
-              Selections.none,
-              answered(
-                r,
-                r.fetchesForPage(
-                  r.surfaces.selectedSurfaces(),
-                  states,
-                  defaults(r)
+              Viewing(
+                Selections.none,
+                answered(
+                  r,
+                  r.fetchesForPage(
+                    r.surfaces.selectedSurfaces(),
+                    states,
+                    defaults(r)
+                  )
                 )
               )
             ).keys
@@ -263,10 +266,12 @@ class FetchDriftSuite extends munit.FunSuite {
           val f = asked(List(id), Nil)
           val _ = (
             r.renderInputs(id, states, f),
-            r.renderNodeById(id, states, ui, fragments = f)
+            r.renderNodeById(id, states, Viewing(ui, f))
           )
         }
-        hosts.foreach(h => r.renderHost(h, states, ui, asked(Nil, List(h))))
+        hosts.foreach(h =>
+          r.renderHost(h, states, Viewing(ui, asked(Nil, List(h))))
+        )
       }
       // Precise, not everything: a plain node asks nothing, a chart asks.
       val (quiet, loud) = nodes.partition(id =>

@@ -112,6 +112,7 @@ class FetchBench {
         FragmentLog("bench").touched(node, rot),
         Map.empty,
         st,
+        reads => answer(reads.toList),
         answer,
         Map.empty,
         rot,
@@ -147,8 +148,7 @@ class FetchBench {
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
         st,
-        Selections.none,
-        f
+        Viewing(Selections.none, f)
       )
     )
   }

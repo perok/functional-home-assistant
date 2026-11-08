@@ -109,7 +109,7 @@ class ValueWhileSuite extends munit.FunSuite {
     val snapshot = StoreState(states("46"), 1L)
     var runs = 0
     def ask(at: StoreState) =
-      decided.at(at).holds("k") { runs += 1; true }
+      decided.at(at).holds("k", Set.empty) { _ => runs += 1; true }
     assert(ask(snapshot) && ask(snapshot))
     assertEquals(runs, 1)
     // Equal content, another map: decided afresh, never assumed.
@@ -213,18 +213,23 @@ class ValueWhileSuite extends munit.FunSuite {
     val d = dashboard(node(peak(Some(readsFetch))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    def of(decided: String) = {
-      r.answerDecisions(reads =>
+    def of(decided: String) =
+      r.decide(reads =>
         cats.effect.IO.pure(
           FetchSnapshot.of(reads.map(_ -> Staged(1L, decided)).toMap)
         )
+      )(run =>
+        r.signalsFor(
+          idOf(d, 0),
+          Shared.of(states("46")).asking(run),
+          answered
+        ).values
+          .toList
       ).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
-      r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered).values.toList
-    }
     assert(
       intercept[fh.view.FHError](
         r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered)
-      ).getMessage.contains("where none is answered")
+      ).getMessage.contains("outside a run")
     )
     assertEquals(of("""{"points":[[0,0.0],[60000,101.0]]}"""), List("101"))
     assertEquals(of("""{"points":[[0,0.0]]}"""), List(""))

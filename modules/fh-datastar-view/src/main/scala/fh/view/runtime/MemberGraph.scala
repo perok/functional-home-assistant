@@ -1,6 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, Ready, SetId}
+import fh.view.model.{
+  Fetching,
+  LayoutNode,
+  MemberId,
+  NodeId,
+  Ready,
+  SetId,
+  SlotRead
+}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -84,6 +92,8 @@ private[runtime] final case class GroupMembers(
 )
 
 private object GroupMembers {
+  val empty: GroupMembers = GroupMembers(Vector.empty, Nil)
+
   def of(members: Vector[Member]): GroupMembers =
     GroupMembers(
       members,
@@ -105,13 +115,18 @@ private object GroupMembers {
   */
 private[runtime] final class MemberGraph(
     setNodes: Map[NodeId, Ready.SetNode],
-    rootOfIndexed: Map[NodeId, String],
-    decided: Decided = Decided()
+    rootOfIndexed: Map[NodeId, String]
 ) {
 
   private case class MemberSource(s: Ready.SetNode) {
 
     private val position: Map[String, Int] = s.candidates.zipWithIndex.toMap
+
+    /** What its clauses and order read: the set's decision and each member's.
+      */
+    val reads: Set[SlotRead] =
+      s.members.values.flatMap(_.clauses).flatMap(_.when).flatMap(_.reads).toSet
+        ++ s.order.fold(Set.empty[SlotRead])(_.reads)
 
     /** entity -> the candidates it can decide, so a frame costs its changes,
       * not the candidate list.
@@ -146,14 +161,14 @@ private[runtime] final class MemberGraph(
       */
     def arrange(
         members: Vector[Member],
-        states: Map[String, EntityState]
+        states: Map[String, EntityState],
+        fetched: Shared.Fetched
     ): Vector[Member] = {
       val ordered = s.order match
         case None       => members
         case Some(keys) =>
           // Stable over candidate order: the tiebreak that stops ties
           // reshuffling on every tick.
-          val fetched = decided.fetched
           members
             .map(m => m -> keys.of(entityOf(m), states, fetched))
             .sortWith((a, b) => keys.compare(a._2, b._2) < 0)
@@ -205,10 +220,10 @@ private[runtime] final class MemberGraph(
       */
     def memberOf(
         entityId: String,
-        states: Map[String, EntityState]
+        states: Map[String, EntityState],
+        fetched: Shared.Fetched
     ): Option[Member] = {
       val subject = states.getOrElse(entityId, null)
-      val fetched = decided.fetched
       clauses
         .get(entityId)
         .flatMap(
@@ -219,9 +234,16 @@ private[runtime] final class MemberGraph(
         .flatMap(_._2)
     }
 
-    def materialise(states: Map[String, EntityState]): GroupMembers =
+    def materialise(
+        states: Map[String, EntityState],
+        fetched: Shared.Fetched
+    ): GroupMembers =
       GroupMembers.of(
-        src.arrange(src.candidates.flatMap(memberOf(_, states)), states)
+        src.arrange(
+          src.candidates.flatMap(memberOf(_, states, fetched)),
+          states,
+          fetched
+        )
       )
   }
 
@@ -453,13 +475,28 @@ private[runtime] final class MemberGraph(
     readingSets
       .getOrElse(entityId, Nil)
       .iterator
-      .filter(s =>
-        within(s.root) &&
-          s.owner.forall(o => memberAt(o, shared).exists(_.clause == s.clause))
-      )
+      .filter(s => within(s.root) && ownerPresent(s, shared))
       .flatMap(s => groupOf(s.gid, shared).members)
       .flatMap(_.byEntity.getOrElse(entityId, Nil))
       .toSet
+
+  // Off the owner's set, which every walk decides, not `memberAt`: a member's
+  // own decision is one the page may never have made, so it would ask again.
+  private def ownerPresent(s: Source, shared: Shared): Boolean =
+    s.owner.forall(o =>
+      memberSlot
+        .get(o)
+        .exists((outer, _) =>
+          groupOf(outer.gid, shared).members
+            .exists(m => m.id == o && m.clause == s.clause)
+        )
+    )
+
+  /** Whether a nested set's owner is present, in the clause holding it; a
+    * top-level set always is.
+    */
+  def ownerPresent(gid: SetId, shared: Shared): Boolean =
+    sources.get(gid).forall(ownerPresent(_, shared))
 
   /** member id -> its set and candidate. Exact, so an id is never parsed for
     * its parent: a prefix test cannot tell `c_1_light_a_b` (set `c_1`,
@@ -493,20 +530,23 @@ private[runtime] final class MemberGraph(
     groupOf(gid, shared).entities
 
   private def groupOf(gid: SetId, shared: Shared): GroupMembers =
-    shared.set(gid)(
-      sources
-        .get(gid)
-        .fold(GroupMembers(Vector.empty, Nil))(_.materialise(shared.states))
-    )
+    sources.get(gid) match
+      case None    => GroupMembers.empty
+      case Some(s) =>
+        shared.set(gid, s.src.reads, GroupMembers.empty)(
+          s.materialise(shared.states, _)
+        )
 
   /** Only a set with a `limit` needs its neighbours: order alone never decides
     * presence.
     */
   def memberAt(id: NodeId, shared: Shared): Option[Member] =
-    shared.member(id)(memberSlot.get(id).flatMap { case (s, entityId) =>
-      if (s.src.s.limit.isEmpty) s.memberOf(entityId, shared.states)
-      else groupOf(s.gid, shared).members.find(_.id == id)
-    })
+    memberSlot.get(id).flatMap { case (s, entityId) =>
+      shared.member(id, s.src.reads)(f =>
+        if (s.src.s.limit.isEmpty) s.memberOf(entityId, shared.states, f)
+        else groupOf(s.gid, shared).members.find(_.id == id)
+      )
+    }
 
   /** Each of `sets`' move from `prev` to `next`, which is what the recorder
     * logs. `was` is `prev`'s decision, made there if nobody had, so it is what
@@ -530,17 +570,18 @@ private[runtime] final class MemberGraph(
       .map { s =>
         val was = groupOf(s.gid, prev)
         var swapped = Option.empty[Vector[Member]]
-        val now = next.set(s.gid) {
+        // `was` stands in only while `next` does: one run answers both.
+        val now = next.set(s.gid, s.src.reads, GroupMembers.empty) { f =>
           if (s.src.stable) {
             val (group, sw) = touchedIn
               .getOrElse(s.at, Nil)
               .foldLeft((was, Vector.empty[Member])) {
                 case ((g, w), entityId) =>
-                  applyOne(s, g, w, entityId, next.states)
+                  applyOne(s, g, w, entityId, next.states, f)
               }
             swapped = Some(sw)
             group
-          } else s.materialise(next.states)
+          } else s.materialise(next.states, f)
         }
         s.gid -> MemberDelta(
           was.entities,
@@ -570,11 +611,12 @@ private[runtime] final class MemberGraph(
       group: GroupMembers,
       replaced: Vector[Member],
       entityId: String,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      fetched: Shared.Fetched
   ): (GroupMembers, Vector[Member]) = {
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
-    val arriving = s.memberOf(entityId, states)
+    val arriving = s.memberOf(entityId, states, fetched)
     // By clause, which fixes the node; not by node, since hoisting lifts a
     // slider's heads out of it and two slider clauses can leave equal nodes
     // over different surfaces.

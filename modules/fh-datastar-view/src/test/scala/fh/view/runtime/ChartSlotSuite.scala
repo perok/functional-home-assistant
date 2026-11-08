@@ -77,7 +77,10 @@ class ChartSlotSuite extends munit.FunSuite {
     val html =
       Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(states), Selections.none, fragments())
+        .renderBodyTraced(
+          Shared.of(states),
+          Viewing(Selections.none, fragments())
+        )
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
@@ -91,7 +94,7 @@ class ChartSlotSuite extends munit.FunSuite {
     def body(f: FetchSnapshot) =
       Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(states), Selections.none, f)
+        .renderBodyTraced(Shared.of(states), Viewing(Selections.none, f))
         .html
     val failed =
       body(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
@@ -112,8 +115,7 @@ class ChartSlotSuite extends munit.FunSuite {
         .create(d)
         .renderBodyTraced(
           Shared.of(states),
-          Selections.none,
-          FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
     )
     assertEquals(e.status, 500)
@@ -124,7 +126,10 @@ class ChartSlotSuite extends munit.FunSuite {
     val html =
       Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(states), Selections.none, fragments())
+        .renderBodyTraced(
+          Shared.of(states),
+          Viewing(Selections.none, fragments())
+        )
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)

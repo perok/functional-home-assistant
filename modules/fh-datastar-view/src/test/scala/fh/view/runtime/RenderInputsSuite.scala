@@ -239,9 +239,17 @@ class RenderInputsSuite extends munit.FunSuite {
         .contains(key)
     } assertEquals(
       renderer
-        .renderNodeById(id, Shared.of(a), fragments = FetchSnapshot.empty),
+        .renderNodeById(
+          id,
+          Shared.of(a),
+          Viewing(Selections.none, FetchSnapshot.empty)
+        ),
       renderer
-        .renderNodeById(id, Shared.of(b), fragments = FetchSnapshot.empty),
+        .renderNodeById(
+          id,
+          Shared.of(b),
+          Viewing(Selections.none, FetchSnapshot.empty)
+        ),
       clue =
         s"$id keyed identically at steps $i and $j but rendered differently"
     )
@@ -285,8 +293,16 @@ class RenderInputsSuite extends munit.FunSuite {
         .renderInputs(id, Shared.of(b), fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
-      ra.renderNodeById(id, Shared.of(a), fragments = FetchSnapshot.empty),
-      rb.renderNodeById(id, Shared.of(b), fragments = FetchSnapshot.empty),
+      ra.renderNodeById(
+        id,
+        Shared.of(a),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ),
+      rb.renderNodeById(
+        id,
+        Shared.of(b),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ),
       clue =
         s"$entity keyed identically at steps $i and $j but rendered differently"
     )
@@ -386,7 +402,7 @@ class RenderInputsSuite extends munit.FunSuite {
       tabs.renderNodeById(
         "c",
         Shared.of(line.head),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       ),
       None
     )
@@ -406,7 +422,7 @@ class RenderInputsSuite extends munit.FunSuite {
         .renderNodeById(
           "c_3",
           Shared.of(line.head),
-          fragments = FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         ),
       None
     )

@@ -66,8 +66,10 @@ class RenderGoldenSuite extends munit.FunSuite {
       val body =
         r.renderBodyTraced(
           shared,
-          Selections.none,
-          RenderGoldenSuite.answers(r, d, shared, Nil)
+          Viewing(
+            Selections.none,
+            RenderGoldenSuite.answers(r, d, shared, Nil)
+          )
         )
       val nodes =
         (body.own.keys ++ surfaceIds.flatMap(
@@ -76,12 +78,16 @@ class RenderGoldenSuite extends munit.FunSuite {
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
       surfaceIds.foreach { sid =>
-        r.renderSurfaceTraced(sid, shared, Selections.none, f)
+        r.renderSurfaceTraced(sid, shared, Viewing(Selections.none, f))
           .foreach(t => section(houseName, s"surface $sid", t.html))
       }
       nodes.foreach { id =>
-        r.renderNodeById(id, shared, Selections.none, SlotForm.Patch, f)
-          .foreach(html => section(houseName, s"patch $id", html))
+        r.renderNodeById(
+          id,
+          shared,
+          Viewing(Selections.none, f),
+          SlotForm.Patch
+        ).foreach(html => section(houseName, s"patch $id", html))
       }
     }
     RenderGoldenSuite

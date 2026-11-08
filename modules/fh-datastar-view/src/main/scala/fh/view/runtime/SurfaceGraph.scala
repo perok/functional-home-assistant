@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Dashboard, DomId, NodeId, Ready, Surface}
+import fh.view.model.{Dashboard, DomId, NodeId, Ready, SlotRead, Surface}
 import fh.view.model.Ready.Activation
 
 /** What one viewer has selected: the popup it has open, and the member of each
@@ -29,8 +29,7 @@ object Selections {
 private[runtime] final class SurfaceGraph(
     surfaces: Map[String, Ready.Surface],
     rootOfIndexed: Map[NodeId, String],
-    members: MemberGraph,
-    decided: Decided = Decided()
+    members: MemberGraph
 ) {
 
   /** A `val`: `hostId` asks for every node on every render. */
@@ -248,30 +247,40 @@ private[runtime] final class SurfaceGraph(
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, shared))
 
   /** Each state surface's condition; an else has none. */
-  private val conditions: Map[String, Evaluator.Run] =
+  private val conditions: Map[String, Ready.Condition] =
     surfaces.flatMap { (sid, s) =>
       s.activation match
-        case Activation.State(Some(c)) => Some(sid -> c.run)
+        case Activation.State(Some(c)) => Some(sid -> c)
         case _                         => None
     }
 
+  /** What a state group's conditions read: its branch decision's fetches. */
+  private val branchReads: Map[NodeId, Set[SlotRead]] =
+    bakeGroups.view
+      .mapValues(_.flatMap(conditions.get).flatMap(_.reads).toSet)
+      .toMap
+
   // Subject-free (`validate`). An else holds.
-  private def holds(sid: String, states: Map[String, EntityState]): Boolean =
+  private def holds(
+      sid: String,
+      states: Map[String, EntityState],
+      fetched: Shared.Fetched
+  ): Boolean =
     conditions
       .get(sid)
-      .forall(run => Evaluator.holds(run(null, states, decided.fetched)))
+      .forall(c => Evaluator.holds(c.run(null, states, fetched)))
 
   /** First match in `bakeIndex` order; `None` bakes empty content. */
   private[runtime] def resolveActiveByState(
       gid: NodeId,
       shared: Shared
   ): Option[Int] =
-    shared.branch(gid) {
+    shared.branch(gid, branchReads.getOrElse(gid, Set.empty)) { f =>
       val idx = bakeGroup(gid).indexWhere(sid =>
         surfaces
           .get(sid)
           .exists(_.activation match {
-            case Activation.State(_) => holds(sid, shared.states)
+            case Activation.State(_) => holds(sid, shared.states, f)
             case _                   => false
           })
       )

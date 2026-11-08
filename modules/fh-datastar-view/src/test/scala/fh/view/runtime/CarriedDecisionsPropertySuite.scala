@@ -74,15 +74,19 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
         f.r
           .renderBodyTraced(
             shared,
-            Selections.none,
-            RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
+            Viewing(
+              Selections.none,
+              RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
+            )
           )
           .html
       case Read.Everything =>
         val body = f.r.renderBodyTraced(
           shared,
-          Selections.none,
-          RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
+          Viewing(
+            Selections.none,
+            RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
+          )
         )
         val nodes = (body.own.keys ++ f.surfaceIds.flatMap(
           f.r.surfaceNodeIds
@@ -91,16 +95,15 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
         (body.html ::
           f.surfaceIds.flatMap(
             f.r
-              .renderSurfaceTraced(_, shared, Selections.none, answers)
+              .renderSurfaceTraced(_, shared, Viewing(Selections.none, answers))
               .map(_.html)
           ) ++
           nodes.flatMap(
             f.r.renderNodeById(
               _,
               shared,
-              Selections.none,
-              SlotForm.Patch,
-              answers
+              Viewing(Selections.none, answers),
+              SlotForm.Patch
             )
           )).mkString("\n")
 

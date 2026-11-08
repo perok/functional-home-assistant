@@ -100,45 +100,33 @@ the paths taken read. Four things are wrong with how that works today:
     while it makes a decision.
   - `Viewing`: one viewer's, for one send. It holds the viewer's selections and node variables,
     and the answers to the slot fetches that send reads.
-- **A decision is made in rounds.** A walk that reaches a decision that is dirty or not yet made,
-  and whose fetches the run has not answered, does not raise and does not wait: it returns what
-  it needs and how to go on.
+- **A decision is made in rounds, by walking again.** A walk runs synchronously against a run:
+  a decision it reaches that is not made, and whose fetches the run has not answered, notes them
+  as needed and reads as not shown, so nothing beneath it is reached, and is not kept. A walk
+  that ends with needs has them answered in one batch, and walks again; the decisions it made are
+  in `Shared`, so the next walk only reads them. A walk that ends with none is the result. Its
+  slot reads are the last batch and become the `Viewing`. Siblings land in one batch, so the
+  rounds are the nesting depth of fetch-reading decisions: none for most dashboards, which walk
+  once, as today.
 
   ```scala
-  enum Step[+A]:
-    case Done(a: A)
-    case Blocked(needs: Set[SlotRead], resume: Answers => Step[A])
-
-  def run[A](s: Step[A]): IO[A] = s match
-    case Step.Done(a)           => IO.pure(a)
-    case Step.Blocked(needs, k) => answer(needs).flatMap(as => run(k(as)))
+  def decide[A](walk: Shared.Run => A): IO[A]   // the loop; a walk reads `shared.asking(run)`
   ```
 
-  `flatMap` waits where one decision sits inside another. The batching is cats' `Parallel`, as
-  `Either` pairs with `Validated`: `Step`'s monad is sequential, and its parallel applicative
-  `Step.Par` has a `map2` that merges two `Blocked` into one with both sets of needs, so
-  `parTraverse` over siblings asks for all of theirs in one batch:
-
-  ```scala
-  case (Blocked(n1, k1), Blocked(n2, k2)) =>
-    Blocked(n1 ++ n2, as => map2(k1(as), k2(as))(f))
-  ```
-
-  That is Haxl's model ("There is no fork", ICFP 2014), and the reason `map2` is not derived from
-  `flatMap`. The continuation holds where the walk was, so nothing walks again.
-  When a viewer's walk is `Done`, its result is the slot reads on the final paths, which are the
-  last batch and become the `Viewing`. The number of rounds is the nesting depth of fetch-reading
-  decisions, fixed at build: none for most dashboards, which then walk as today.
-- **Decision code stays synchronous.** The build's index (each decision to its fetches, each
-  entity to the decisions it dirties) tells the walk whether a decision can be made; only then
-  does it call the graphs, which never see a missing answer. The render is a plain function over
-  `Shared` and `Viewing`: it walks exactly the paths the run completed.
-- **The recorder walks nothing.** From the changed entities it looks up the dirty decisions,
-  keeps those shown (the chain above each is static, outer before inner), and makes them through
-  the same runner, one batch per nesting level. A decision on a chain is read from the cache, or
-  made through the runner too when it is not there: not dirty, but never made.
-- **The plain path stays plain.** A subtree whose index shows no fetch-reading decision is walked
-  without `Step`, so the common case allocates nothing new.
+  One description of what is shown: the walk that decides is the walk the render and the patches
+  read, so neither can reach a decision the run did not make. Outside a run, a fetch-reading
+  decision not yet made is a wiring bug and raises.
+- **Considered: resuming instead of walking again** (Haxl, "There is no fork", ICFP 2014). A walk
+  returns `Done(a)` or `Blocked(needs, resume)`, its `flatMap` waiting where one decision sits
+  inside another and a `Parallel` whose `map2` merges siblings' needs into one batch, so nothing
+  walks twice. The difference is where a walk's position is kept: in the closures, against
+  rerunning with `Shared` already holding what was decided. It needs a second description of
+  what is shown, the build's chain of decisions (outer before inner) that a resuming walk follows
+  before the graphs run, and a decision that chain misses fails at render, the same class of bug
+  as "not resolved for this render". Reopen if a walk's cost shows beside its fetches.
+- **The recorder decides through the same loop.** Its plan reads the frame's "before" and "after"
+  in one run, so a dirty decision shown, or one shown but never made, is made there; one nobody
+  shows is not reached.
 - **A `Viewing` depends on a `Shared`, never the reverse.** No decision reads a viewer's variable
   (refused at build, #673) or a slot's value (a guard and an order term see no node values; a
   `valueWhile`'s node values count as its own fetches).
@@ -149,8 +137,8 @@ the paths taken read. Four things are wrong with how that works today:
 - **Not a `Dispatcher`.** It runs an `IO` from code outside one, by blocking or by firing a
   future, so inside the walk it would block a compute thread per fetch, answer them one at a time
   and put effects back in the synchronous core. Not the `fetch` library (Haxl for Scala): it
-  brings its own data sources and cache beside the history cache, for what `Step` does in a few
-  dozen lines.
+  brings its own data sources and cache beside the history cache, for what the loop does in a few
+  lines.
 - **Accepted for now: a fetch changes without an event.** A history bucket rolling over dirties
   nothing, so a decision that reads a fetch is made again only when its other inputs change, where
   today it is made again on every version. Later, not now: such values in a store of their own
@@ -177,9 +165,8 @@ the paths taken read. Four things are wrong with how that works today:
    one cache;
    the decision entry points take `Shared`. The cell stays until step 2, so decisions keep their
    answers in between.
-2. `Step` and `Viewing`: the pre-read walks return `Step`, with the plain path for subtrees with
-   no fetch-reading decision; one runner per kind of send; the recorder makes the dirty decisions
-   shown through it; render and patch entry points take `Shared` and `Viewing`;
+2. The loop and `Viewing`: the pre-read walks, a press, the debug route and the recorder's plan
+   run through `decide`; the graphs take a decision's answers from the run, never the cell; render and patch entry points take `Shared` and `Viewing`;
    `Patches.resume` splits; the cell and the answer-everything go.
 3. Tests: after random sequences of changes, the carried `Shared` equals deciding from scratch; a
    hidden dirty decision asks nothing; a hidden branch's fetch is never asked; a branch inside a

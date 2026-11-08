@@ -107,6 +107,7 @@ class PullReadsSuite extends munit.FunSuite {
         log,
         Map.empty,
         Shared.of(Map("light.a" -> EntityState("light.a", "on", Map.empty))),
+        noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
         Map.empty,
         0L,

@@ -77,6 +77,7 @@ class VarEnvBench {
           FragmentLog("bench").touched(FetchBench.PlainId, rot),
           Map.empty,
           st,
+          _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
           rot,

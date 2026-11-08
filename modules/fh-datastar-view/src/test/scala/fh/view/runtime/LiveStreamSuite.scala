@@ -214,7 +214,7 @@ class LiveStreamSuite extends ServerHarness {
         .renderNodeById(
           "s_det__c_0",
           Shared.of(Map("sensor.a" -> es("sensor.a", "cold"))),
-          fragments = FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
         .get
     )
@@ -335,8 +335,7 @@ class LiveStreamSuite extends ServerHarness {
           r.hostId("c_0"),
           Some("then"),
           Shared.of(armed),
-          Selections.none,
-          fragments = FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
         .get
 
@@ -345,12 +344,19 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, Shared.of(armed), fragments = FetchSnapshot.empty)
-        .map(Held.of)
+      r.renderNodeById(
+        leaf,
+        Shared.of(armed),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ).map(Held.of)
     )
     val root = NodeId.derived("s_then__c")
     assertEquals(
-      r.renderNodeById(root, Shared.of(armed), fragments = FetchSnapshot.empty),
+      r.renderNodeById(
+        root,
+        Shared.of(armed),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ),
       None
     )
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
@@ -377,7 +383,7 @@ class LiveStreamSuite extends ServerHarness {
           r.renderNodeById(
             host,
             Shared.of(states),
-            fragments = FetchSnapshot.empty
+            Viewing(Selections.none, FetchSnapshot.empty)
           ).get
         )
       )
@@ -427,8 +433,7 @@ class LiveStreamSuite extends ServerHarness {
       r.renderNodeById(
         id,
         Shared.of(before),
-        mine,
-        fragments = FetchSnapshot.empty
+        Viewing(mine, FetchSnapshot.empty)
       ).map(h => id -> Held.of(h))
     }.toMap
 

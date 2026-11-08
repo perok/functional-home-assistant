@@ -67,7 +67,7 @@ class SinkStreamingSuite extends munit.FunSuite {
     val own = renderer.renderPageInto(
       Sink.streaming(w),
       Shared.of(noStates),
-      fragments = FetchSnapshot.empty
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     w.flush()
     (rec, own)
@@ -119,14 +119,14 @@ class SinkStreamingSuite extends munit.FunSuite {
     val own = renderer.renderPageInto(
       Sink.streaming(direct),
       Shared.of(noStates),
-      fragments = FetchSnapshot.empty
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     val document = Sink.buffer(renderer.pageBytesHint)
     val _ =
       renderer.renderPageInto(
         document,
         Shared.of(noStates),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
 
     assert(own.nonEmpty, "the walk painted nothing")
@@ -137,7 +137,7 @@ class SinkStreamingSuite extends munit.FunSuite {
           renderer.renderNodeById(
             _,
             Shared.of(noStates),
-            fragments = FetchSnapshot.empty
+            Viewing(Selections.none, FetchSnapshot.empty)
           )
         )
         .map(_.length)
@@ -169,7 +169,7 @@ class SinkStreamingSuite extends munit.FunSuite {
       renderer.renderPageInto(
         buf,
         Shared.of(noStates),
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
 
     assertEquals(rec.text, buf.result)

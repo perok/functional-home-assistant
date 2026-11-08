@@ -424,7 +424,11 @@ class RenderBench {
       .own
       .keys
       .flatMap(
-        signalled.renderNodeById(_, stShared, fragments = FetchSnapshot.empty)
+        signalled.renderNodeById(
+          _,
+          stShared,
+          Viewing(Selections.none, FetchSnapshot.empty)
+        )
       )
       .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
@@ -992,7 +996,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       stShared,
-      fragments = FetchSnapshot.empty
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -1028,7 +1032,7 @@ class RenderBench {
       plain.renderPageInto(
         Sink.streaming(w),
         stShared,
-        fragments = FetchSnapshot.empty
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
     w.flush()
     bh.consume(own.size)
@@ -1055,7 +1059,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       stShared,
-      fragments = FetchSnapshot.empty
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -1087,7 +1091,7 @@ class RenderBench {
           val own = signalled.renderPageInto(
             Sink.streaming(w),
             stShared,
-            fragments = FetchSnapshot.empty
+            Viewing(Selections.none, FetchSnapshot.empty)
           )
           w.flush()
           own.size
@@ -1234,8 +1238,7 @@ class RenderBench {
     clauseSet.renderMemberTraced(
       clauseMember,
       Shared.of(states),
-      Selections.none,
-      FetchSnapshot.empty
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
@@ -1262,6 +1265,7 @@ class RenderBench {
           log,
           Map.empty,
           flipShared,
+          _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at
@@ -1616,6 +1620,7 @@ class RenderBench {
           held,
           Shared.of(moved),
           _ => IO.pure(FetchSnapshot.empty),
+          _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at,
           Set.empty,
@@ -1715,8 +1720,7 @@ class RenderBench {
         signalled.renderNodeById(
           id,
           Shared.of(moved),
-          Selections.none,
-          fragments = FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
       )
     )
@@ -1831,8 +1835,7 @@ class RenderBench {
         signalled.renderNodeById(
           id,
           Shared.of(moved),
-          Selections.none,
-          fragments = FetchSnapshot.empty
+          Viewing(Selections.none, FetchSnapshot.empty)
         )
       )
     }

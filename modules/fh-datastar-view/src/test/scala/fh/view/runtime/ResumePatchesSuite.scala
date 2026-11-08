@@ -73,6 +73,7 @@ class ResumePatchesSuite extends munit.FunSuite {
             log,
             Map.empty,
             Shared.of(states),
+            noDecisionFetches,
             _ => IO.pure(FetchSnapshot.empty),
             Map.empty,
             v

@@ -74,7 +74,10 @@ class FetchValueSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer
       .create(d)
-      .renderBodyTraced(Shared.of(states("47")), Selections.none, answered())
+      .renderBodyTraced(
+        Shared.of(states("47")),
+        Viewing(Selections.none, answered())
+      )
       .html
     assert(html.contains("101"), clue = html)
   }
@@ -250,7 +253,7 @@ class FetchValueSuite extends munit.FunSuite {
       assertEquals(d.validate(), Nil, clue = where)
       val html = Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(both), Selections.none, answered())
+        .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
         .html
       assert(html.contains(shown), clue = s"$where: $html")
     }
@@ -318,7 +321,7 @@ class FetchValueSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer
       .create(d)
-      .renderBodyTraced(Shared.of(both), Selections.none, answered())
+      .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
       .html
     assert(html.contains("k=3"), clue = html)
   }

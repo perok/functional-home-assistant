@@ -71,7 +71,7 @@ class SharedPassSuite extends ServerHarness {
             .renderNodeById(
               id,
               Shared.of(now.entities),
-              fragments = FetchSnapshot.empty
+              Viewing(Selections.none, FetchSnapshot.empty)
             )
             .map(Held.of)
         // The repaint claimed everything it painted, and the tick re-claimed
