@@ -171,7 +171,7 @@ object Ready:
           d.decisionFetches
             .map(_._2)
             .distinct
-            .map(SlotAsk(_, None).resolve(Map.empty))
+            .map(SlotAsk(_, Step.Json).resolve(Map.empty))
         )
       )
 

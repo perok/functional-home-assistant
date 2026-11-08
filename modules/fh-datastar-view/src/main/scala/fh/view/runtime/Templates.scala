@@ -182,6 +182,8 @@ object Templates {
     *   the `{{x}}`/`{{{x}}}` outside every section, which a node must set
     * @param raw
     *   the names placed unescaped, `{{{x}}}`
+    * @param escaped
+    *   the names placed escaped, `{{x}}`
     * @param regionHoles
     *   how often each declared region is placed as `{{{name}}}` outside every
     *   section
@@ -203,6 +205,7 @@ object Templates {
       names: Set[String],
       required: Set[String],
       raw: Set[String],
+      escaped: Set[String],
       regionHoles: Map[String, Int],
       misplacedRegions: Set[String],
       views: Set[(String, View)],
@@ -216,6 +219,7 @@ object Templates {
 
   private object Reads:
     val empty: Reads = Reads(
+      Set.empty,
       Set.empty,
       Set.empty,
       Set.empty,
@@ -304,7 +308,8 @@ object Templates {
         acc.copy(
           names = acc.names + tag,
           required = if required then acc.required + tag else acc.required,
-          raw = if raw then acc.raw + tag else acc.raw
+          raw = if raw then acc.raw + tag else acc.raw,
+          escaped = if value && !raw then acc.escaped + tag else acc.escaped
         )
       case Some(Right((slot, view))) =>
         acc.copy(

@@ -164,7 +164,8 @@ private[model] object Validate:
           src
         ) ++
           readErrors(nodeId, cardName, name, src) ++
-          fetchErrors(nodeId, cardName, name, src, scope) ++
+          fetchErrors(nodeId, name, src, scope) ++
+          holeErrors(nodeId, cardName, name, src) ++
           src.inputs
             .map(_.source)
             .collect { case Value.Fetch(f) =>
@@ -204,45 +205,58 @@ private[model] object Validate:
           .distinct
           .map(p => s"$nodeId: slot '$name' $p")).toList
 
-    /** Otherwise a bad fetch renders blank forever with nothing saying why. */
+    /** Otherwise a bad fetch renders blank forever with nothing saying why. A
+      * fetch slot's value is its stage's bytes, so a step after the stage would
+      * never run; `jsonText` is the one that need not.
+      */
     def fetchErrors(
         nodeId: String,
-        cardName: String,
         name: String,
         src: BoundSlot,
         scope: Map[String, String]
     ): List[String] =
       src.fetch.toList.flatMap { template =>
-        val parseErrors = askErrors(nodeId, name, template, scope)
-        val stageError = src.expr.steps match {
-          case Nil | List(_: Step.FetchStage) => None
-          case _                              =>
+        val stageError = src.expr.steps match
+          case Nil => None
+          case (_: Step.FetchStage) :: rest
+              if rest.forall(_ == Step.JsonText) =>
+            None
+          case _ =>
             Some(
-              s"$nodeId: slot '$name' reads a fetch, so its one step may be " +
-                "a stage such as a chart — for CEL over it, name the fetch as an input of a " +
-                "slot that reads state"
+              s"$nodeId: slot '$name' reads a fetch, so its steps are a " +
+                "stage (json, then jsonText; or a chart) — for CEL over it, " +
+                "name the fetch as an input of a slot that reads state"
             )
-        }
-        val rawHole =
-          cardReads.get(cardName).flatMap(_.toOption).flatMap { reads =>
-            val hasRaw = reads.raw(name)
-            val markup = src.stage.exists(Step.draws)
-            if (!markup && hasRaw)
-              Some(
-                s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
-                  "hole, but its value is DATA — write " +
-                  s"{{$name}}, or the page emits unescaped JSON"
-              )
-            else if (markup && !hasRaw)
-              Some(
-                s"$nodeId: card '$cardName' places slot '$name' in an " +
-                  "ESCAPED hole, but its transform draws markup — write " +
-                  s"{{{$name}}}, or the page shows the markup as text"
-              )
-            else None
-          }
-        parseErrors ++ stageError.toList ++
-          rawHole.toList
+        askErrors(nodeId, name, template, scope) ++ stageError.toList
+      }
+
+    /** Which holes a slot's type allows: escaping is removed only where a card
+      * declares it.
+      */
+    def holeErrors(
+        nodeId: String,
+        cardName: String,
+        name: String,
+        src: BoundSlot
+    ): List[String] =
+      cardReads.get(cardName).flatMap(_.toOption).toList.flatMap { reads =>
+        val wrong = src.`type` match
+          case SlotType.Text    => Option.when(reads.raw(name))(s"{{{$name}}}")
+          case SlotType.TextRaw =>
+            Option.when(reads.escaped(name))(s"{{$name}}")
+          case SlotType.Bool =>
+            Option
+              .when(reads.raw(name))(s"{{{$name}}}")
+              .orElse(Option.when(reads.escaped(name))(s"{{$name}}"))
+        wrong.map(hole =>
+          s"$nodeId: card '$cardName' places slot '$name' as $hole, but the " +
+            s"slot is ${src.`type`.wire}, which is placed as " +
+            (src.`type` match
+              case SlotType.Text    => s"{{$name}}"
+              case SlotType.TextRaw => s"{{{$name}}}"
+              case SlotType.Bool    => s"a section, {{#$name}}") +
+            " — declare the type the card means"
+        )
       }
 
     // A value is read with no subject, so an unnamed read reads nothing; one
@@ -369,17 +383,11 @@ private[model] object Validate:
       labelled(slots).flatMap { (_, name, src) =>
         src.valueWhile.toList.flatMap { w =>
           Option
-            .when(w.fetch.isDefined)(
-              s"$nodeId: slot '$name' has a valueWhile that is a fetch's " +
-                "answer, which is never a bool"
+            .when(src.reads == Reads.Once)(
+              s"$nodeId: slot '$name' is read '${Reads.Once.wire}' and has a " +
+                "valueWhile — it would keep its first answer forever"
             )
             .toList ++
-            Option
-              .when(src.reads == Reads.Once)(
-                s"$nodeId: slot '$name' is read '${Reads.Once.wire}' and has a " +
-                  "valueWhile — it would keep its first answer forever"
-              )
-              .toList ++
             w.expr.unnamedComparison(
               s"$nodeId: slot '$name''s valueWhile",
               w.typed
@@ -387,7 +395,6 @@ private[model] object Validate:
         }
       }
 
-    // A fetch slot's steps are `fetchErrors`' to check.
     def typeErrors(
         nodeId: String,
         slots: Map[SlotKey, BoundSlot]
@@ -397,38 +404,40 @@ private[model] object Validate:
       def bareAttr(src: BoundSlot) = (src.expr.source, src.expr.steps) match
         case (Value.Entity(_, _: Part.Attr, _, _), Nil) => true
         case _                                          => false
+      def hint(out: ValueType) = out match
+        case ValueType.Json             => "place it with a jsonText step"
+        case ValueType.TextRaw          => "declare the slot textRaw"
+        case o if o == ValueType.Series =>
+          "give it a stage: json then jsonText, or a chart"
+        case _ => "make it text, `str(…)` or `string(…)`"
       labelled(slots).flatMap { case (_, name, src) =>
-        if (src.fetch.isDefined) Nil
-        else
-          src.typed match
-            case Left(ValueExpr.Mistyped(err, Some(t))) =>
-              val at = locateTransform(t).fold("")(loc => s" (at $loc)")
-              List(s"$nodeId: slot '$name' has an invalid transform$at: $err")
-            case Left(ValueExpr.Mistyped(err, None)) =>
-              List(s"$nodeId: slot '$name' $err")
-            case Right(t) if src.constant.isDefined =>
-              Option
-                .unless(ValueType.fits(t.out, src.`type`))(
-                  s"$nodeId: slot '$name' holds a ${t.out.name} literal, " +
-                    "which a " + (
-                      if (src.isBool) "bool slot does not take"
-                      else "text slot does not take — a flag's slot is slotMod.bool"
-                    )
-                )
-                .toList
-            case Right(t)
-                if !ValueType
-                  .fits(t.out, src.`type`) || src.isBool && bareAttr(src) =>
-              List(
-                if (src.isBool)
-                  s"$nodeId: slot '$name' is a boolean slot, but its reading " +
-                    s"does not produce a bool (a ${t.out.name}) — compare it " +
-                    "(`on > 0`), or use a condition"
-                else
-                  s"$nodeId: slot '$name' yields a ${t.out.name}, which a " +
-                    "card cannot show — make it text, `str(…)` or `string(…)`"
+        src.typed match
+          case Left(ValueExpr.Mistyped(err, Some(t))) =>
+            val at = locateTransform(t).fold("")(loc => s" (at $loc)")
+            List(s"$nodeId: slot '$name' has an invalid transform$at: $err")
+          case Left(ValueExpr.Mistyped(err, None)) =>
+            List(s"$nodeId: slot '$name' $err")
+          // Every literal fits a text slot.
+          case Right(t) if src.constant.isDefined =>
+            Option
+              .unless(ValueType.fits(t.out, src.`type`))(
+                s"$nodeId: slot '$name' holds a ${t.out.name} literal, " +
+                  "which a bool slot does not take"
               )
-            case _ => Nil
+              .toList
+          case Right(t)
+              if !ValueType
+                .fits(t.out, src.`type`) || src.isBool && bareAttr(src) =>
+            List(
+              if (src.isBool)
+                s"$nodeId: slot '$name' is a boolean slot, but its reading " +
+                  s"does not produce a bool (a ${t.out.name}) — compare it " +
+                  "(`on > 0`), or use a condition"
+              else
+                s"$nodeId: slot '$name' yields a ${t.out.name}, which a " +
+                  s"${src.`type`.wire} slot does not take — ${hint(t.out)}"
+            )
+          case _ => Nil
       } ++ labelled(slots).collect {
         case (_, name, src)
             if src.signal.exists(_.isInstanceOf[SignalBind.Class]) &&
@@ -445,7 +454,7 @@ private[model] object Validate:
             if src.default.exists(_.isInstanceOf[Lit.Bool]) != src.isBool &&
               src.default.isDefined =>
           s"$nodeId: slot '$name' has a default of another type than the " +
-            s"slot's (${if (src.isBool) "bool" else "text"})"
+            s"slot's (${src.`type`.wire})"
       }
 
     def varErrors(

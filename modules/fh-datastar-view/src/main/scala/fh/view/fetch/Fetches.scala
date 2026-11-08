@@ -45,17 +45,15 @@ object Staged {
   val FailedVersion: Long = -1L
 
   /** A read that could not be answered, in its own hole: one chart's error,
-    * never the page's. Data (passthrough) is simply absent — its hole is
-    * escaped, so it cannot hold markup.
+    * never the page's. Data (`json`) is simply absent — its hole is escaped, so
+    * it cannot hold markup.
     */
-  def failed(stage: Option[Step.FetchStage]): Staged =
+  def failed(stage: Step.FetchStage): Staged =
     Staged(
       FailedVersion,
-      stage
-        .filter(Step.draws)
-        .fold("")(s =>
-          label("error", s"${Step.label(s).capitalize} unavailable")
-        )
+      if Step.draws(stage) then
+        label("error", s"${Step.label(stage).capitalize} unavailable")
+      else ""
     )
 
   /** The runtime's copy of `core/text.pkl`'s `label`: one structure, whose
@@ -102,7 +100,7 @@ final class FetchResolver private (
   def stage(
       identity: FetchIdentity,
       fetch: FetchRequest,
-      stage: Option[Step.FetchStage],
+      stage: Step.FetchStage,
       answered: Answer
   ): IO[Staged] =
     staged
@@ -111,10 +109,10 @@ final class FetchResolver private (
       )
       .map(Staged(answered.version, _))
 
-  private def run(stage: Option[Step.FetchStage], data: Json): IO[String] =
+  private def run(stage: Step.FetchStage, data: Json): IO[String] =
     stage match
-      case None                    => IO(data.noSpaces)
-      case Some(Step.Chart(style)) => ChartStage.draw(chart, style, data)
+      case Step.Json         => IO(data.noSpaces)
+      case Step.Chart(style) => ChartStage.draw(chart, style, data)
 
   private[fetch] def keys: IO[Set[StageKey]] = staged.keys
 }
@@ -133,7 +131,7 @@ object FetchResolver {
     */
   final case class StageKey(
       question: Question,
-      stage: Option[Step.FetchStage],
+      stage: Step.FetchStage,
       version: Long
   )
 

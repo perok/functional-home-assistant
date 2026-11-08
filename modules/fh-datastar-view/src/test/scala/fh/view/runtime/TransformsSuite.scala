@@ -10,7 +10,6 @@ import fh.view.model.{
   Lit,
   Part,
   Ready,
-  SlotType,
   Step,
   Value,
   ValueExpr,
@@ -227,11 +226,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
           LayoutNode.Component(
             card = "c",
             templateSlots = Map(
-              // A bool's slot is typed bool, or the type check refuses it.
               "onclick" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("light.kitchen")), List(m)),
-                `type` =
-                  if (Step.allBoolean(m)) SlotType.Bool else SlotType.Text
+                ValueExpr(Value.Entity(Some("light.kitchen")), List(m))
               )
             )
           )

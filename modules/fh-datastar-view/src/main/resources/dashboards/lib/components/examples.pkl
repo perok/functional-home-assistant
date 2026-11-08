@@ -3,6 +3,7 @@
 module components.examples
 
 import "../core/node.pkl" as nodes
+import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/text.pkl" as textMod
 import "../providers.pkl" as providersMod
@@ -11,7 +12,7 @@ import "history.pkl" as historyMod
 import "../hass.pkl"
 
 /// The history answer as data rather than a drawing: now, low and high over
-/// the window — the worked example of the passthrough stage.
+/// the window — the worked example of the `json` stage.
 ///
 /// A fetch slot is bytes, never a signal (ADR 0031), so the card lifts the
 /// JSON into a client-only signal itself, `data-signals:_hist_<id>` over an
@@ -47,8 +48,14 @@ class HistoryReadings extends nodes.Node {
     label.of(slotMod.labelSlot(entity, null))
     // Finished, so the template places it bare: " °C", or "" for no unit.
     postfix.of(entity.unit_of_measurement.ifNonNull((u) -> " " + u) ?? "")
-    // No `transform`: a fetch slot's default stage is passthrough.
-    readings.of(new slotMod.Reading { fetch = historyProv.of(entity, window) })
+    // A fetch's answer is a series, which fits no slot: json, then its text.
+    readings.of(new slotMod.Reading {
+      fetch = historyProv.of(entity, window)
+      steps {
+        new simpleMod.JsonStage {}
+        new simpleMod.JsonTextStep {}
+      }
+    })
   }
 
   function over(w: providersMod.HistoryWindow): HistoryReadings =

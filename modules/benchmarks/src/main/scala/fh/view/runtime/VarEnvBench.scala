@@ -3,6 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
+  Step,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -97,7 +98,8 @@ object VarEnvBench {
           ValueExpr(
             Value.Fetch(
               FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
-            )
+            ),
+            List(Step.Json, Step.JsonText)
           )
         )
       )

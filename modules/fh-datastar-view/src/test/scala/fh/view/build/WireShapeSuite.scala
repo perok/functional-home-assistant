@@ -262,6 +262,8 @@ class WireShapeSuite extends munit.FunSuite {
     check("NotStep", Step.Not)
     check("FirstStep", Step.First())
     check("ThemeClassesStage", Step.ThemeClasses)
+    check("JsonStage", Step.Json)
+    check("JsonTextStep", Step.JsonText)
   }
 
   test("each signal binding agrees with its case on both sides") {
@@ -311,7 +313,9 @@ class WireShapeSuite extends munit.FunSuite {
         "CompareStep",
         "NotStep",
         "FirstStep",
-        "ThemeClassesStage"
+        "ThemeClassesStage",
+        "JsonStage",
+        "JsonTextStep"
       ),
       caseNames[Part] -> Set("Attr", "Whole"),
       caseNames[SignalBind] -> Set(

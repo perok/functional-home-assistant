@@ -94,15 +94,19 @@ they take strings, taps and readings, and import no `hass` module. An HA compone
 subclass that holds an `entity` and assigns the base's inputs from it, declaring no card, template
 or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
 
-**Slot type** / **boolean slot** — what a card reads a slot's value AS (`Slot.type`): text by
-default, or `bool` for a slot its template reads as on/off (a `disabled` ORed into
-`data-attr:disabled`, where the string `"false"` would be truthy). A boolean slot is one whose type
-is `bool`. The CARD sets the type on the handle (`slotMod.bool(name)`), because a reading has no
-binding of its own; a `class:` binding (a live cell class) is a bool by kind. A value placed in a
-`class` attribute is text with the theme's class swap as its last step (`slotMod.cssClass(name)`,
-ADR 0020). Every source and step has a type, checked in order (`ValueType`), and the build refuses a
-value, a literal included, whose last step does not produce its slot's type: a bool in a text
-slot, text in a boolean one.
+**Slot type** / **boolean slot** / **raw slot** — what a card reads a slot's value AS
+(`Slot.type`), which names the hole it is placed in: `text` by default (`{{x}}`), `textRaw` for a
+slot placed unescaped (`{{{x}}}`: a click handler, a chart's SVG), or `bool` for a slot its
+template reads as on/off, as a section (a `disabled` ORed into `data-attr:disabled`, where the
+string `"false"` would be truthy). A boolean slot is one whose type is `bool`, a raw slot one whose
+type is `textRaw`. The CARD sets the type on the handle (`slotMod.bool(name)`,
+`slotMod.textRaw(name)`), because a reading has no binding of its own; a `class:` binding (a live
+cell class) is a bool by kind. A value placed in a `class` attribute is text with the theme's class
+swap as its last step (`slotMod.cssClass(name)`, ADR 0020). Every source and step has a type,
+checked in order (`ValueType`), and the build refuses a value, a literal included, whose last step
+does not produce something its slot takes — text in a boolean slot, a fetch's series in any — and
+a slot placed in a hole its type does not name. Text, a number, a bool and `dyn` become text at
+the slot and nowhere else (ADR 0034).
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
 all. While it does not hold the value is `""`, and the slot's steps and fetches are not run.

@@ -5,6 +5,7 @@ import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
 import api.homeassistant.ws.domain.HistoryPoint
 import fh.view.model.{
+  Step,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -53,7 +54,8 @@ class VarTapSuite extends ServerHarness {
               "sensor.a",
               Choice.Chosen("window", Windows.presets)
             )
-          )
+          ),
+          List(Step.Json, Step.JsonText)
         )
       )
     )
@@ -84,7 +86,8 @@ class VarTapSuite extends ServerHarness {
                     "sensor.b",
                     Choice.Chosen("w", Windows.presets)
                   )
-                )
+                ),
+                List(Step.Json, Step.JsonText)
               )
             )
           )
@@ -275,7 +278,8 @@ class VarTapSuite extends ServerHarness {
                       entity,
                       Choice.Chosen("window", Windows.presets)
                     )
-                  )
+                  ),
+                  List(Step.Json, Step.JsonText)
                 )
               )
             )

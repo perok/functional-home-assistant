@@ -6,7 +6,7 @@ for that: `typeErrors` skips every fetch slot, `fetchErrors` picks the hole (esc
 whether the step draws, and a `valueWhile` that is a bare fetch is refused by a rule of its own.
 Every other slot in a raw hole is not checked at all; a live `onclick` handler is one today.
 
-**State:** not started.
+**State:** steps 1–4 built, awaiting review.
 
 ## Design
 
@@ -37,7 +37,9 @@ Every other slot in a raw hole is not checked at all; a live `onclick` handler i
 
 The slots placed raw in the wire snapshots, each becoming `textRaw`: `onclick` on `button`,
 `pill`, `tab` and `tile` (often live CEL); `service` on `colourWheel` and `sliderHead`; `active`
-on `tab` (a literal Datastar expression); `chart` on `historyChart`. `historyReadings` writes
+on `tab` (a literal Datastar expression); `chart` on `historyChart`. `href` on `button` and
+`pill`, a navigating tap's URL, was raw too; it is placed escaped instead, and `taps` gains a
+navigate button so a fixture covers it. `historyReadings` writes
 `json` then `jsonText`. Most come from shared library modules, so most dashboards' wire
 snapshots move; the goldens must not.
 

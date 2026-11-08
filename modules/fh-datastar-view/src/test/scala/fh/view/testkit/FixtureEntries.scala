@@ -63,7 +63,7 @@ object FixtureEntries {
   )
 
   /** What a tap does: a call, on an entity and on a set, more-info, a popup and
-    * an inline popup, and a lock's own buttons.
+    * an inline popup, a navigation, and a lock's own buttons.
     */
   val taps: Entry = Entry(
     "taps",
@@ -92,6 +92,7 @@ object FixtureEntries {
         |      }
         |    }))
         |    c.lock.controls(dump.entities.lock_front_door)
+        |    c.button("Home", c.view.navigate("home"))
         |  }
         |}
         |""".stripMargin

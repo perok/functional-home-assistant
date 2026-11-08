@@ -5,6 +5,7 @@ import fh.view.runtime.RendererTestOps.*
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  SlotType,
   SortTerm,
   ValueType,
   Activation,
@@ -2033,7 +2034,8 @@ object RenderBench {
         // Every dashboard has action slots, and ADR 0016 made them build-time
         // literals; leaving the hole out would not match a shipped card.
         "action" -> TemplateSlot(
-          ValueExpr.literal(actionLiteral(i, distinct))
+          ValueExpr.literal(actionLiteral(i, distinct)),
+          `type` = SlotType.TextRaw
         )
       ),
       values = if (valued) FillColorValues else Map.empty

@@ -96,7 +96,10 @@
                           "source" : true,
                           "type" : "bool"
                         },
-                        "service" : "light/toggle",
+                        "service" : {
+                          "source" : "light/toggle",
+                          "type" : "textRaw"
+                        },
                         "switched" : {
                           "default" : "",
                           "signal" : {
@@ -191,7 +194,10 @@
                 "card" : "tab",
                 "kind" : "Component",
                 "templateSlots" : {
-                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
+                  "active" : {
+                    "source" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
+                    "type" : "textRaw"
+                  },
                   "busy" : {
                     "source" : true,
                     "type" : "bool"
@@ -205,7 +211,8 @@
                     "source" : {
                       "kind" : "Cel",
                       "src" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
-                    }
+                    },
+                    "type" : "textRaw"
                   }
                 },
                 "vars" : [
@@ -215,7 +222,10 @@
                 "card" : "tab",
                 "kind" : "Component",
                 "templateSlots" : {
-                  "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
+                  "active" : {
+                    "source" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
+                    "type" : "textRaw"
+                  },
                   "busy" : {
                     "source" : true,
                     "type" : "bool"
@@ -229,7 +239,8 @@
                     "source" : {
                       "kind" : "Cel",
                       "src" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
-                    }
+                    },
+                    "type" : "textRaw"
                   }
                 },
                 "vars" : [
@@ -379,7 +390,10 @@
                           "source" : true,
                           "type" : "bool"
                         },
-                        "service" : "light/toggle",
+                        "service" : {
+                          "source" : "light/toggle",
+                          "type" : "textRaw"
+                        },
                         "switched" : {
                           "default" : "",
                           "signal" : {
@@ -462,7 +476,10 @@
                       "card" : "tab",
                       "kind" : "Component",
                       "templateSlots" : {
-                        "active" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'simple'",
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'simple'",
+                          "type" : "textRaw"
+                        },
                         "busy" : {
                           "source" : true,
                           "type" : "bool"
@@ -476,7 +493,8 @@
                           "source" : {
                             "kind" : "Cel",
                             "src" : "\"$_var_@@VAR:view@@__view__pending = 'simple'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/simple?group=var_@@VAR:view@@__view')\""
-                          }
+                          },
+                          "type" : "textRaw"
                         }
                       },
                       "vars" : [
@@ -486,7 +504,10 @@
                       "card" : "tab",
                       "kind" : "Component",
                       "templateSlots" : {
-                        "active" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'detail'",
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:view@@__view__pending || $_var_@@VAR:view@@__view)) === 'detail'",
+                          "type" : "textRaw"
+                        },
                         "busy" : {
                           "source" : true,
                           "type" : "bool"
@@ -500,7 +521,8 @@
                           "source" : {
                             "kind" : "Cel",
                             "src" : "\"$_var_@@VAR:view@@__view__pending = 'detail'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:view@@/view/detail?group=var_@@VAR:view@@__view')\""
-                          }
+                          },
+                          "type" : "textRaw"
                         }
                       },
                       "vars" : [
