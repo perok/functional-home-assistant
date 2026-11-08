@@ -154,7 +154,7 @@ private[model] object Validate:
           case _                                              => false
         val bypassErrors =
           (src.expr.bypassError(ownBypass) ++
-            src.values.values.flatMap(_.bypassError(ownMay = false))).headOption
+            src.inputs.values.flatMap(_.bypassError(ownMay = false))).headOption
             .map(e => s"$nodeId: slot '$name': $e")
             .toList
         stepErrors ++ bypassErrors ++ signalErrors(
@@ -166,7 +166,7 @@ private[model] object Validate:
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, name, src, scope) ++
           holeErrors(nodeId, cardName, name, src) ++
-          src.inputs
+          src.allInputs
             .map(_.source)
             .collect { case Value.Fetch(f) =>
               askErrors(nodeId, name, f, scope)
@@ -275,7 +275,7 @@ private[model] object Validate:
         Option
           .when(v.readsMissingSubject)(
             s"$nodeId: $what reads an entity it does not name — an " +
-              "expression value has no subject"
+              "input has no subject"
           )
           .toList ++
         Option
@@ -291,38 +291,38 @@ private[model] object Validate:
     // Bound to every slot that reads one, so "read by no slot" is the
     // binding's absence.
     def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
-      val read = c.bound.values.flatMap(_.values.keySet).toSet
-      c.values.keys.toList.sorted.flatMap { name =>
-        if (!Dashboard.ExpressionValueName.matches(name))
+      val read = c.bound.values.flatMap(_.inputs.keySet).toSet
+      c.inputs.keys.toList.sorted.flatMap { name =>
+        if (!Dashboard.InputName.matches(name))
           List(
-            s"$nodeId: expression value '$name' is not a name an expression " +
+            s"$nodeId: input '$name' is not a name an expression " +
               "can read — letters, digits and '_', not starting with a digit"
           )
         else if (Cel.fixedNames.contains(name))
           List(
-            s"$nodeId: expression value '$name' would hide the '$name' every " +
+            s"$nodeId: input '$name' would hide the '$name' every " +
               "expression already reads — rename it"
           )
         else if (!read.contains(name))
           List(
-            s"$nodeId: expression value '$name' is read by no expression on " +
+            s"$nodeId: input '$name' is read by no expression on " +
               "this node — names are the node's own and are not inherited"
           )
         else
           // A value is shared by content across nodes, so it has no subject.
-          val v = c.values(name)
+          val v = c.inputs(name)
           v.unnamedComparison(
-            s"$nodeId: expression value '$name'",
+            s"$nodeId: input '$name'",
             v.typed(Nil)
-          ).fold(inputErrors(nodeId, s"expression value '$name'", v, Nil))(
+          ).fold(inputErrors(nodeId, s"input '$name'", v, Nil))(
             List(_)
           )
       } ++ (
         labelled(c.bound).map((_, n, s) =>
-          (s"slot '$n'", s.expr, ValueExpr.env(c.values))
-        ) ++ c.values.toList
+          (s"slot '$n'", s.expr, ValueExpr.env(c.inputs))
+        ) ++ c.inputs.toList
           .sortBy(_._1)
-          .map((n, v) => (s"expression value '$n'", v, Nil))
+          .map((n, v) => (s"input '$n'", v, Nil))
       ).flatMap { (where, expr, env) =>
         // Each CEL's own at any depth, read by that CEL; the node's are in
         // scope beside, but not inside a guard or an order term.
@@ -331,23 +331,23 @@ private[model] object Validate:
             val read = Cel.identifiers(cel)
             own.keys.toList.sorted.flatMap { name =>
               if (
-                !Dashboard.ExpressionValueName.matches(name) ||
+                !Dashboard.InputName.matches(name) ||
                 Cel.fixedNames.contains(name)
               )
                 List(
-                  s"$nodeId: $where has an expression value '$name' its " +
+                  s"$nodeId: $where has an input '$name' its " +
                     "expression cannot read — letters, digits and '_', and not " +
                     s"one of ${Cel.fixedNames.toList.sorted.mkString(", ")}"
                 )
               else if (!read.contains(name))
                 List(
-                  s"$nodeId: $where has an expression value '$name' its " +
+                  s"$nodeId: $where has an input '$name' its " +
                     "expression does not read"
                 )
               else
                 inputErrors(
                   nodeId,
-                  s"$where's expression value '$name'",
+                  s"$where's input '$name'",
                   own(name),
                   if (nodeScope) env else Nil
                 )
@@ -357,7 +357,7 @@ private[model] object Validate:
       } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
-            if src.reads == Reads.Once && src.inputs.exists(_.isLive) =>
+            if src.reads == Reads.Once && src.allInputs.exists(_.isLive) =>
           s"$nodeId: slot '$slot' reads a live count, condition or fetch but is " +
             s"read '${Reads.Once.wire}' — it would show the first count forever; " +
             s"read it '${Reads.Live.wire}'"

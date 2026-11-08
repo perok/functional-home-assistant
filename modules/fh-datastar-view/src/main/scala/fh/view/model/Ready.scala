@@ -241,7 +241,7 @@ object Ready:
     private def slot(b: BoundSlot): Built[Slot] =
       for
         typed <- b.typed
-        named <- Evaluator.named(b.values, scope)
+        named <- Evaluator.named(b.inputs, scope)
         c <- Evaluator.compiled(b.expr, typed, scope, named)
         valueWhile <- b.valueWhile.traverse(slot)
       yield Slot(b, c.run, valueWhile)

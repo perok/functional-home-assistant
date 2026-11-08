@@ -166,7 +166,7 @@ object FixtureEntries {
         |    c.button("Lights off", c.tap.call("light/turn_off", lit))
         |      .secondary(c.expr(#"string(lit) + ' on'"#))
         |      .disabled(lit.none())
-        |      .expressionValues(new Mapping { ["lit"] = lit.count() })
+        |      .inputs(new Mapping { ["lit"] = lit.count() })
         |    c.entityCard(temp)
         |      .value(c.expr(#"str(math.round(num(value.state) * 10.0) / 10.0) + ' ' + value.attr[?'unit_of_measurement'].orValue('')"#))
         |      .secondary(c.attr("device_class"))

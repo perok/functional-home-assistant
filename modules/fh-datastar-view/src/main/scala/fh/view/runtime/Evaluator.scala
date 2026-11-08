@@ -99,14 +99,14 @@ private[view] object Evaluator {
     named.toList.map((n, v) => n -> v.out).sortBy(_._1)
 
   /** Each value made a named input; `outer` is in scope of a CEL inside one, as
-    * a node's values are of a CEL's own.
+    * a node's inputs are of a CEL's own.
     */
   def named(
-      values: Map[String, ValueExpr],
+      inputs: Map[String, ValueExpr],
       scope: Scope,
       outer: Map[String, Named] = Map.empty
   ): Built[Map[String, Named]] =
-    values.toList
+    inputs.toList
       .traverse((n, e) => input(e, scope, outer).map(n -> _))
       .map(_.toMap)
 

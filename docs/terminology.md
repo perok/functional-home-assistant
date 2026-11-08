@@ -65,7 +65,7 @@ controls are derived from.
 
 **Reading** — a slot's value used as an INPUT (`slotMod.Reading`, the wire's `ValueExpr`): a source
 and its steps with no binding yet, which the card it is handed to binds where it belongs. It reads
-its entity (a read may name another), or the node's own expression values (`c.expr("on > 2")`), or
+its entity (a read may name another), or the node's own inputs (`c.expr("on > 2")`), or
 both. CEL in it reads `value`, what came before it: `value.state` and `value.attr` on a reading of
 the whole entity, as `c.expr` is. `c.isOn(l)` and `c.stateIn(l, states)` are
 readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
@@ -86,7 +86,7 @@ decides it as it fills a slot (ADR 0035); a build refuses one that is not a bool
 `disabled`, `cellClassWhen`) takes one directly. The same thing guards a clause, picks a state
 surface, and orders a set, true first under `asc`. An unnamed read in it reads the entity it is
 about: the card's subject, or in a guard or an order term the member. It can
-also be an expression value, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
+also be an input, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
 
 **Base component** vs **HA component** — `components/base/` cards know nothing of Home Assistant:
@@ -122,8 +122,8 @@ no template places it. A button's `active` is one (`fh-active`).
 and kept live (`LayoutNode.cellStyle`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
-**Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
-variable (`expressionValues` in Pkl, each a `ValueExpr` on the wire): a literal, a **tally** — a
+**Input** — a named value a node's or a slot's OWN expressions read as a typed CEL
+variable (`inputs` in Pkl, each a `ValueExpr` in `wireInputs` on the wire): a literal, a **tally** — a
 static candidate list and which of it is present, counted live (`.count()`, an `int`), the same
 thing a condition's `Count` step counts, or uncounted (`.present()`, the ids as a
 `list(string)`) — a **condition**, decided live, a **fetch**, its provider's answer read on demand,
@@ -138,7 +138,7 @@ named as a compiler names them:
 - **rewrite**: the slug is applied (`DashboardBuild.decode`).
 - **lower**: sugar becomes the core form. Pkl does it before emitting: a live cell class or
   property is written as a slot.
-- **bind**: each name a slot's CEL reads is connected to its definition, an expression value, and
+- **bind**: each name a slot's CEL reads is connected to its definition, an input, and
   so to its type (`Component.bound`, a `BoundSlot`). Not a card's **binding** of a slot, which is
   where a value lands (`x.bind` in Pkl, `{{{x.bind}}}` in the template).
 - **check**: the rules across fields and nodes (`validate`).
@@ -494,7 +494,7 @@ moving rather than by a timer. A **statistics bucket** is one pre-aggregated int
 table.
 
 **Fetch** — a read of a **provider** with its parameters: `history` of one entity over one window.
-A fetch slot shows one; an expression value reads one in CEL (`p.history.of(e, w)`).
+A fetch slot shows one; an input reads one in CEL (`p.history.of(e, w)`).
 Not a **query**, which is `query.pkl`'s `q.`: it picks CANDIDATES at build time, with presence and
 order decided live, and reaches no network. Two words because the two get discussed side by side.
 

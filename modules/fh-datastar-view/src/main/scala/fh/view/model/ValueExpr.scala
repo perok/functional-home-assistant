@@ -133,7 +133,7 @@ final case class ValueExpr(
     ) ++ steps.collect { case Step.Cel(src, in) => src -> in }
 
   /** It and every expression inside it ([[parts]]) at any depth, each with
-    * whether its CELs see the node's values: a guard and an order term, read
+    * whether its CELs see the node's inputs: a guard and an order term, read
     * per member, see none, and nor does anything inside them.
     */
   def scoped: List[(ValueExpr, Boolean)] = within(nodeScope = true)
@@ -153,20 +153,20 @@ final case class ValueExpr(
   def fetches: List[FetchTemplate] =
     all.map(_.source).collect { case Value.Fetch(f) => f }
 
-  /** The node's values its CELs read, at any depth: by name, where no input of
+  /** The node's inputs its CELs read, at any depth: by name, where no input of
     * that CEL's own has it.
     */
-  def readsNamed(values: Map[String, ValueExpr]): Map[String, ValueExpr] =
-    if (values.isEmpty) values
+  def readsNamed(inputs: Map[String, ValueExpr]): Map[String, ValueExpr] =
+    if (inputs.isEmpty) inputs
     else
       val read = scoped
         .collect { case (e, true) => e }
         .flatMap(_.cels)
         .flatMap((src, own) => Cel.identifiers(src) -- own.keySet)
-      values.filter((n, _) => read.contains(n))
+      inputs.filter((n, _) => read.contains(n))
 
-  /** Why it cannot decide where a bool is required, read with no named values:
-    * a clause, a guard, a state surface.
+  /** Why it cannot decide where a bool is required, read with no inputs: a
+    * clause, a guard, a state surface.
     */
   def boolError: Option[String] =
     typed(Nil) match
@@ -316,11 +316,11 @@ object ValueExpr:
           case None => Right(Typed(Nil, ValueType.List(itemType)))
       )
 
-  /** A node's values as names a CEL may read, each its own type; one that does
+  /** A node's inputs as names a CEL may read, each its own type; one that does
     * not type is left out, and `validate` says why.
     */
-  def env(values: Map[String, ValueExpr]): List[(String, ValueType)] =
-    values.toList
+  def env(inputs: Map[String, ValueExpr]): List[(String, ValueType)] =
+    inputs.toList
       .sortBy(_._1)
       .flatMap((n, v) => v.typed(Nil).toOption.map(t => n -> t.out))
 
@@ -606,9 +606,9 @@ object Value:
             c.get[scala.List[ValueExpr]]("items")
           ).mapN(List.apply)
         case "Cel" =>
-          Strict.only(c, Set("kind", "src", "inputs")) *> (
+          Strict.only(c, Set("kind", "src", "wireInputs")) *> (
             c.get[String]("src"),
-            c.getOrElse[Map[String, ValueExpr]]("inputs")(Map.empty)
+            c.getOrElse[Map[String, ValueExpr]]("wireInputs")(Map.empty)
           ).mapN(Cel.apply)
         case other =>
           Left(
@@ -877,9 +877,15 @@ object SortTerm:
   */
 private[model] object Strict:
 
+  /** Pkl's `wireInputs` is `inputs` here: the Pkl `inputs` is the author's. */
+  val wireName: String => String =
+    case "inputs" => "wireInputs"
+    case other    => other
+
   val configuration: Configuration =
     Configuration.default.withDefaults
       .withDiscriminator("kind")
+      .withTransformMemberNames(wireName)
       .withStrictDecoding
 
   def only(c: ACursor, allowed: Set[String]): Decoder.Result[Unit] =

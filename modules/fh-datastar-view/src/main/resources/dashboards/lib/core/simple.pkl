@@ -20,16 +20,16 @@ abstract class Step {
 }
 
 /// CEL over `value`, the value before it (a whole entity reads as
-/// `value.state`, `value.attr[?'x']`), its named `values`, `dashboard_slug`
+/// `value.state`, `value.attr[?'x']`), its named `inputs`, `dashboard_slug`
 /// and `time_zone`.
 class Cel extends Step {
   kind: "Cel" = "Cel"
   src: String
   /// Named inputs of this expression alone, beside its node's
-  /// ([[nodes.Node.expressionValues]]): the same kinds, a fetch included
+  /// ([[nodes.Node.inputs]]): the same kinds, a fetch included
   /// (`p.history.of(e, w)`). A name in both reads this one.
-  hidden values: Mapping<String, nodes.ExpressionValue>? = null
-  inputs: Map<String, Any>? = values?.toMap()?.mapValues((_, v) -> slotMod.wireInput(v))
+  hidden inputs: Mapping<String, nodes.Input>? = null
+  wireInputs: Map<String, Any>? = inputs?.toMap()?.mapValues((_, v) -> slotMod.wireInput(v))
 }
 
 /// The theme's class rules over the value, for one placed in a `class`

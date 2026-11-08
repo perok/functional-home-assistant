@@ -109,7 +109,7 @@ None of this was designed separately; all of it fell out.
 
 ## Decision 3 — a fetch is also a CEL input
 
-A fetch can be read by name in a STATE slot's CEL, as an expression value (ADR 0034): the slot
+A fetch can be read by name in a STATE slot's CEL, as an input (ADR 0034): the slot
 keeps its entity, its wake and its signal, and its expression gets the answer beside `value`. A
 fetch slot is the case with no entity, its answer staged into the hole; a value fetch is the case
 with one, its answer read as data. One fetch, one provider and one cache serve both. A value fetch

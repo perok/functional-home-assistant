@@ -47,7 +47,7 @@ local function peakOf(left: hass.SensorEntity): slotMod.Reading = new {
   entityId = left.entity_id
   steps {
     (simpleMod.cel(peakSinceZero)) {
-      values = new Mapping { ["past"] = historyProv.of(left, historyProv.raw(24.h)) }
+      inputs = new Mapping { ["past"] = historyProv.of(left, historyProv.raw(24.h)) }
     }
   }
 }

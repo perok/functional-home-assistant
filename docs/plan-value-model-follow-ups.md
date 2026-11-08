@@ -5,16 +5,7 @@ plans (`plan-slot-values.md`, `plan-one-compile.md`) are built and deleted; thei
 in ADRs 0028, 0034 and 0035. Nothing here is agreed yet: each item needs a design round before it
 is built, and the order below is a proposal.
 
-**State:** the small items are in progress on `value-model-small`.
-
-## Small
-
-- **One name for named inputs** (agreed 2026-11-08): Pkl `values`/`expressionValues`, the wire's
-  `inputs`/`values`, Scala's `values` and the docs' "expression values" are one thing, and every
-  reader's name becomes `inputs`: the author writes `inputs { … }` or `.inputs(…)`, the Pkl type is
-  `Input`, and Scala and the docs say inputs. The wire field is `wireInputs`, because a Pkl class
-  cannot hold the author's field and the converted wire field under one name; only the decoder
-  and the snapshots see it.
+**State:** the small items are built (`value-model-small`); the design rounds are not started.
 
 ## Design rounds
 

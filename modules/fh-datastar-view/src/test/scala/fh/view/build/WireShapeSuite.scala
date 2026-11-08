@@ -166,11 +166,13 @@ class WireShapeSuite extends munit.FunSuite {
     // `regions` is emitted and decoded, while the authored `children` is
     // `hidden`. If only one side moved, every container's children would decode
     // to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
-    // `DashboardBuild.hoistInlineSurfaces` lifts and removes.
+    // `DashboardBuild.hoistInlineSurfaces` lifts and removes. Scala's `inputs`
+    // is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one.
     check(
       "Node",
       LayoutNode.Component("card"),
-      pklOnly = Set("inlineSurfaces")
+      scalaOnly = Set("inputs"),
+      pklOnly = Set("inlineSurfaces", "wireInputs")
     )
   }
 
@@ -246,8 +248,19 @@ class WireShapeSuite extends munit.FunSuite {
     check("ListRead", Value.List(ValueType.Bool, Nil))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
-    check("CelRead", Value.Cel("dashboard_slug"))
-    check("Cel", Step.Cel("value"))
+    // Scala's `inputs` is Pkl's `wireInputs`: Pkl's `inputs` is the hidden one.
+    check(
+      "CelRead",
+      Value.Cel("dashboard_slug"),
+      scalaOnly = Set("inputs"),
+      pklOnly = Set("wireInputs")
+    )
+    check(
+      "Cel",
+      Step.Cel("value"),
+      scalaOnly = Set("inputs"),
+      pklOnly = Set("wireInputs")
+    )
     check("Prefix", Step.Prefix(lit))
     check("Suffix", Step.Suffix(lit))
     check("WithUnit", Step.WithUnit(lit))

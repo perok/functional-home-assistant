@@ -1019,15 +1019,15 @@ slot once per node (`Planned`): a value that never moves is `Planned.Constant`, 
 spelling (a literal, a literal through the theme's swap, or a `once` read through the identity
 cache, which is every click transform), and anything else `Planned.Live`, which runs that closure.
 
-A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
-live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CELs
-read (`BoundSlot`), each CEL keeping its own inputs beside them, so no box downstream knows they exist: a tally's candidates and the
+A slot may also read the NODE's inputs — a literal, or a tally of candidates counted
+live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the inputs its CELs
+read (`BoundSlot`), each CEL keeping its own beside them, so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
 through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
 `fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
 the same compiled reading a state condition's `Count` is (`Evaluator`). Only what fires differs: a flipped condition swaps a surface,
-a moved count patches a slot. The slot's `valueKey` carries the values, so the whole evaluated
-expression goes out as one display signal per distinct (subject, expression, values), and a
+a moved count patches a slot. The slot's `valueKey` carries the inputs, so the whole evaluated
+expression goes out as one display signal per distinct (subject, expression, inputs), and a
 tick that leaves the count alone sends nothing.
 
 ### The second kind of input: a fetch
@@ -1048,7 +1048,7 @@ lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, a
 re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
 and `WindowChooserSmokeSuite` holds the re-run.
 
-**A fetch can also be a CEL input** of a state slot, as an expression value (ADR 0034), at any
+**A fetch can also be a CEL input** of a state slot, as an input (ADR 0034), at any
 depth: an input's own input, a list item, a guard or an order term inside the slot. The slot
 keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
 pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
@@ -1512,7 +1512,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
 | the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; `wrapperInto` is shared with the walk) |
-| a signal's name, and a node's values | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
+| a signal's name, and a node's inputs | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
 | the wire bytes | `runtime/Datastar.scala` · `SseFrame` (encoded at construction), `SseFrame.frameStreamEncoder` (frames → entity body, `text/event-stream`); `runtime/Patches.scala` · `encode` (merge adjacent, then render) |

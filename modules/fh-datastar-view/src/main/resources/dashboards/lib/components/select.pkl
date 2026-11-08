@@ -130,7 +130,7 @@ abstract class Select extends nodes.Node {
         liveStyles = self.liveStyles
         id = self.id
         vars = self.vars
-        expressionValues = self.expressionValues
+        inputs = self.inputs
       }
 
   /// One option's node: choosing `pick` on a press, lit while `ch` is chosen.

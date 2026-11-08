@@ -391,14 +391,14 @@ class TransformsSuite extends munit.CatsEffectSuite {
   /** A slot's value as the compiled tree runs it. */
   private def slotRun(
       e: ValueExpr,
-      nodeValues: Map[String, ValueExpr] = Map.empty
+      nodeInputs: Map[String, ValueExpr] = Map.empty
   ): String =
     Dashboard(
       Map("c" -> CardDef("<b>{{v}}</b>")),
       LayoutNode.Component(
         "c",
         templateSlots = Map("v" -> TemplateSlot(e)),
-        values = nodeValues
+        inputs = nodeInputs
       )
     ).validated()
       .fold(errs => fail(errs.mkString("\n")), _.ready.card) match

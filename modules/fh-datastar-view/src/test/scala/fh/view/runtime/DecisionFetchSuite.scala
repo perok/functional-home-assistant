@@ -242,7 +242,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     val tally =
       """{"kind":"Present","candidates":["sensor.a","sensor.b"],
         |"when":{"sensor.b":{"source":{"kind":"Cel","src":"size(past) > 0",
-        |"inputs":{"past":{"source":{"kind":"Fetch","fetch":{
+        |"wireInputs":{"past":{"source":{"kind":"Fetch","fetch":{
         |"provider":"history","entity":"sensor.left","window":{
         |"kind":"Statistics","period":"5minute","span":86400,
         |"fallback":true}}}}}}}}}""".stripMargin
