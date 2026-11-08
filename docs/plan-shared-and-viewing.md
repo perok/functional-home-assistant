@@ -42,10 +42,18 @@ the paths taken read. Three things are wrong with how that works today:
     case Step.Blocked(needs, k) => answer(needs).flatMap(as => run(k(as)))
   ```
 
-  `flatMap` waits where one decision sits inside another. `map2` merges two `Blocked` into one
-  with both sets of needs, so walking siblings (`traverse`) asks for all of theirs in one parallel
-  batch. That is Haxl's model ("There is no fork", ICFP 2014), and the reason `map2` is not
-  derived from `flatMap`. The continuation holds where the walk was, so nothing walks again.
+  `flatMap` waits where one decision sits inside another. The batching is cats' `Parallel`, as
+  `Either` pairs with `Validated`: `Step`'s monad is sequential, and its parallel applicative
+  `Step.Par` has a `map2` that merges two `Blocked` into one with both sets of needs, so
+  `parTraverse` over siblings asks for all of theirs in one batch:
+
+  ```scala
+  case (Blocked(n1, k1), Blocked(n2, k2)) =>
+    Blocked(n1 ++ n2, as => map2(k1(as), k2(as))(f))
+  ```
+
+  That is Haxl's model ("There is no fork", ICFP 2014), and the reason `map2` is not derived from
+  `flatMap`. The continuation holds where the walk was, so nothing walks again.
   When the walk is `Done`, its result is the slot reads on the final paths, which are the last
   batch and become the `Viewing`. The number of rounds is the nesting depth of fetch-reading
   decisions, fixed at build: none for most dashboards, which then walk as today.
