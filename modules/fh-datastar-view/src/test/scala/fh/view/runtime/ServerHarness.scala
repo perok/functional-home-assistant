@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.FetchSnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
@@ -14,7 +16,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
   Value,
   ValueExpr,
@@ -269,7 +270,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     */
   def onSet(
       candidates: List[String],
-      clauses: List[(Option[Predicate], String, Map[String, TemplateSlot])]
+      clauses: List[(Option[ValueExpr], String, Map[String, TemplateSlot])]
   ): LayoutNode.SetNode =
     LayoutNode.SetNode(
       candidates = candidates,
@@ -277,7 +278,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         id -> LayoutNode.SetMember(clauses.map { case (extra, card, slots) =>
           LayoutNode.SetClause(
             when = Some(
-              extra.fold[Predicate](isOn)(e => Predicate.And(List(isOn, e)))
+              extra.fold[ValueExpr](isOn)(e => Conds.and(List(isOn, e)))
             ),
             node = LayoutNode.Component(
               card,
@@ -288,7 +289,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       }.toMap
     )
 
-  val isOn: Predicate = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+  val isOn: ValueExpr = Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   def dynDash = Dashboard(
     cards = Map("dot" -> CardDef("<span>{{state}}</span>")),
@@ -313,10 +314,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   // An empty conjunction is vacuously true and reads no entity, so an `else`
   // needs no subject.
-  val always: Predicate = Predicate.And(Nil)
+  val always: ValueExpr = Conds.and(Nil)
 
-  def entityIs(id: String, state: String): Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
+  def entityIs(id: String, state: String): ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   val armedCond = entityIs("alarm.h", "armed")
 
@@ -346,14 +347,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
       content: LayoutNode,
       host: String,
       index: Int,
-      condition: Predicate
+      condition: ValueExpr
   ): Surface =
     Surface(
       content,
       bakeInto = Some(host),
       bakeAs = Some("branch"),
       bakeIndex = Some(index),
-      activation = Activation.State(condition)
+      activation = Activation.State(Some(condition))
     )
 
   /** `ifhost` at "c_0". `then` is active while alarm.h == armed, and the

@@ -1,5 +1,7 @@
 package fh.view.fetch
 
+import fh.view.testkit.Conds
+
 import fh.view.fetch.{FetchRequest, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
@@ -12,7 +14,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   SignalBind,
   Choice,
   FetchTemplate,
@@ -384,7 +385,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         activation = activation
       )
     val lightOn =
-      Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val r = Renderer.create(
       Dashboard(
         cards =
@@ -411,12 +412,12 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         surfaces = Map(
           "t0" -> baked("tabs", 0, "1h", Activation.Var("tab")),
           "t1" -> baked("tabs", 1, "7d", Activation.Var("tab")),
-          "on" -> baked("branch", 0, "24h", Activation.State(lightOn)),
+          "on" -> baked("branch", 0, "24h", Activation.State(Some(lightOn))),
           "off" -> baked(
             "branch",
             1,
             "30d",
-            Activation.State(Predicate.And(Nil))
+            Activation.State()
           )
         )
       )

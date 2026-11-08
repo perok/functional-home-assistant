@@ -51,3 +51,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0032 — A chart is bytes, and the JavaScript that makes them runs here](0032-a-chart-is-bytes.md)
 - [0033 — A node variable: declared by a node, read by name, chosen per viewer](0033-node-variables.md)
 - [0034 — Expression values and conditions: named inputs, and the slots that read them](0034-expression-values.md)
+- [0035 — The value language: one evaluator, typed reads, one absent value](0035-the-value-language.md)

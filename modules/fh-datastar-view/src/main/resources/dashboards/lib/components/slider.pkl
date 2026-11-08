@@ -161,7 +161,6 @@ class EntitySlider extends sliderBase.Slider {
     (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, str(math.round(v))).orValue('0')")
     else simpleMod.attr(valueAttr)) {
       default = "0"
-      bypassUnavailable = false
     }
   // Not rounded: beer.min.js recomputes the same percentage unrounded after
   // every morph, and a rounded value twitched into place.
@@ -170,7 +169,6 @@ class EntitySlider extends sliderBase.Slider {
     else if (hue) slotMod.celReading("\(valueExpr).optMap(v, str(100.0 - (v - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) + '%').orValue('100%')")
     else simpleMod.fill(valueAttr, rangeMin, rangeMax)) {
       default = "100%"
-      bypassUnavailable = false
     }
   fillColor = if (fillColourMoves) slotMod.celReading(fillColorExpr) else null
   // A toggle-only light reports no colour, and `currentcolor` on a full fill
@@ -183,12 +181,11 @@ class EntitySlider extends sliderBase.Slider {
   kelvinTrack = on is hass.ColourTemp && reportsKelvin
   reading =
     if (shownReadout == "none") null
-    else if (shownReadout is slotMod.Expr) slotMod.exprReading(shownReadout)
+    else if (shownReadout is slotMod.Expr) (slotMod.exprReading(shownReadout)) { bypassUnavailable = true }
     else if (shownReadout == "percent")
       (if (element != null) slotMod.celReading(percentExpr)
       else simpleMod.percent(valueAttr, rangeMin, rangeMax)) {
         default = "0 %"
-        bypassUnavailable = false
       }
     else simpleMod.state()
   readingFollowsDrag = shownReadout == "percent"

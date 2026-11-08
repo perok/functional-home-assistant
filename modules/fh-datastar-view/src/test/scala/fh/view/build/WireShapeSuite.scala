@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Conds
+
 import fh.view.model.{
   Access,
   Activation,
@@ -8,7 +10,6 @@ import fh.view.model.{
   LayoutNode,
   Choice,
   FetchTemplate,
-  Predicate,
   Lit,
   Op,
   Part,
@@ -182,17 +183,15 @@ class WireShapeSuite extends munit.FunSuite {
     check("SetClause", LayoutNode.SetClause(node = LayoutNode.SetNode()))
   }
 
-  test("the predicate AST agrees on both sides") {
-    check("Cmp", Predicate.Cmp("state", fh.view.model.Op.Eq, Json.Null))
-    check("Count", Predicate.Count(op = fh.view.model.Op.Gt, value = Json.Null))
-  }
-
-  test("the leader predicate agrees on both sides") {
-    check("First", Predicate.First(entity = "scene.a"))
+  test("every condition class writes a reading") {
+    // What each class names is hidden; it writes `source` and `steps`, and a
+    // condition has no default.
+    for (cls <- List("Cmp", "Count", "First", "PAnd", "POr", "PNot", "PConst"))
+      check(cls, Conds.always, scalaOnly = Set("default"))
   }
 
   test("ordering and layout-cell shapes agree on both sides") {
-    check("SortTerm", LayoutNode.SortTerm(LayoutNode.SortKey.Prop("x")))
+    check("SortTerm", LayoutNode.SortTerm(Conds.prop("state")))
     check("Cell", Cell())
   }
 
@@ -239,11 +238,9 @@ class WireShapeSuite extends munit.FunSuite {
     val lit = Value.Literal(Lit.Whole(0))
     check("EntityRead", Value.Entity())
     check("FetchRead", Value.Fetch(fetch))
-    check(
-      "ConditionRead",
-      Value.Condition(Predicate.Cmp("state", Op.Eq, Json.Null))
-    )
-    check("PresentRead", Value.Present(Predicate.Tally(Nil, Map.empty)))
+    check("Tally", Value.Present(Nil, Map.empty))
+    check("PresentList", Value.Present(Nil, Map.empty))
+    check("ListRead", Value.List(Nil))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     check("CelRead", Value.Cel("dashboard_slug"))
@@ -257,6 +254,11 @@ class WireShapeSuite extends munit.FunSuite {
     check("Match", Step.Match(Map.empty, lit))
     check("ChartStage", Step.Chart())
     check("CountStep", Step.Count)
+    check("AllOfStep", Step.AllOf)
+    check("AnyOfStep", Step.AnyOf)
+    check("CompareStep", Step.Compare(Op.Eq, lit))
+    check("NotStep", Step.Not)
+    check("FirstStep", Step.First())
     check("ThemeClassesStage", Step.ThemeClasses)
   }
 
@@ -276,15 +278,6 @@ class WireShapeSuite extends munit.FunSuite {
     // fallback (`SiteAccessSuite`); its literals are pinned by decoding below.
     val families: List[(Set[String], Set[String])] = List(
       caseNames[LayoutNode] -> Set("Node", "SetNode"),
-      caseNames[Predicate] -> Set(
-        "Cmp",
-        "Count",
-        "First",
-        "PAnd",
-        "POr",
-        "PNot"
-      ),
-      caseNames[LayoutNode.SortKey] -> Set("SortProp", "SortHolds"),
       caseNames[Activation] ->
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
@@ -292,8 +285,8 @@ class WireShapeSuite extends munit.FunSuite {
         Set(
           "EntityRead",
           "FetchRead",
-          "PresentRead",
-          "ConditionRead",
+          "Tally",
+          "ListRead",
           "CelRead"
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
@@ -309,6 +302,11 @@ class WireShapeSuite extends munit.FunSuite {
         "Match",
         "ChartStage",
         "CountStep",
+        "AllOfStep",
+        "AnyOfStep",
+        "CompareStep",
+        "NotStep",
+        "FirstStep",
         "ThemeClassesStage"
       ),
       caseNames[Part] -> Set("Attr", "Whole"),

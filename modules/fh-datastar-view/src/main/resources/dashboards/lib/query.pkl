@@ -322,13 +322,15 @@ const local function sortNow(
           let (b = orderValue(prepared, items, s, y))
             if (s.dir == "desc") a > b else a < b))
 
-// A comparison sorts on its truth; `desc` puts true first, matching the
-// runtime's `holds` ordering.
+// As the runtime orders: a comparison on its truth, true first under `asc`; a
+// Boolean value as its text, false first. Pkl has no `<` on Booleans.
 const local function orderValue(
   prepared: Ready?, items: List<hass.Entity>, s: OrderSpec, e: hass.Entity
-): String|Int|Float|Boolean =
-  if (prepared != null) decide(prepared, items, e) as Boolean
-  else e.getProperty((s.by as PropName).name) as (String|Int|Float|Boolean)
+): String|Int|Float =
+  if (prepared != null) (if (decide(prepared, items, e) as Boolean) 0 else 1)
+  else
+    let (v = e.getProperty((s.by as PropName).name))
+      if (v is Boolean) (if (v) 1 else 0) else v as (String|Int|Float)
 
 const local function liveTerm(
   items: List<hass.Entity>, s: OrderSpec
@@ -337,14 +339,8 @@ const local function liveTerm(
     by =
       if (s.by is Pending)
         let (pd = s.by as Pending)
-          new pred.SortHolds {
-            predicate = new pred.Cmp {
-              property = resolveProp(items, pd.key)
-              op = pd.op
-              value = pd.value
-            }
-          }
-      else new pred.SortProp { property = resolveProp(items, s.by as PropName) }
+          new pred.Cmp { property = resolveProp(items, pd.key); op = pd.op; value = pd.value }
+      else pred.propertyKey(resolveProp(items, s.by as PropName))
     dir = s.dir
   }
 

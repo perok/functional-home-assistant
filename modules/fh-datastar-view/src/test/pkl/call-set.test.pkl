@@ -36,8 +36,10 @@ facts {
   }
   ["a guard naming another entity rides in the tally"] {
     let (g = (setOf(c.button("Av", c.tap.call("light/turn_off", litByDay)))["when"] as Mapping)["light.lampe"] as Mapping)
-      g["kind"] == "And" && (g["items"] as Listing).toList().any((p) ->
-        (p as Mapping)["kind"] == "Not" && ((p as Mapping)["item"] as Mapping)["entity"] == "sun.sun")
+      ((g["steps"] as Listing).toList().single as Mapping)["kind"] == "AllOf"
+      && ((g["source"] as Mapping)["items"] as Listing).toList().any((p) ->
+        ((p as Mapping)["steps"] as Listing).toList().map((s) -> (s as Mapping)["kind"]) == List("Compare", "Not")
+        && ((p as Mapping)["source"] as Mapping)["of"] == "sun.sun")
   }
   ["equal sets share an id, different ones do not"] {
     let (idOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).slotsByName["targetId"].value)

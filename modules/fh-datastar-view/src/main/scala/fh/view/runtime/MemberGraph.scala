@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, Predicate, SetId}
+import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, SetId, ValueExpr}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
@@ -189,7 +189,7 @@ private[runtime] final class MemberGraph(
             .toList
             .flatMap(_.clauses)
             .flatMap(_.when.toList)
-            .flatMap(Predicate.referencedEntities)
+            .flatMap(_.entities)
           (cid :: named).distinct.map(_ -> cid)
         }
         .groupMap(_._1)(_._2)
@@ -203,6 +203,8 @@ private[runtime] final class MemberGraph(
 
     def stable: Boolean = s.orderBy.isEmpty && s.limit.isEmpty
 
+    private val keys = Evaluator.Keys(s.orderBy)
+
     /** Over present members only: a hidden member's key moving emits nothing. A
       * cut member is absent, like one whose clauses did not match.
       */
@@ -215,9 +217,10 @@ private[runtime] final class MemberGraph(
         else
           // Stable over candidate order: the tiebreak that stops ties
           // reshuffling on every tick.
-          members.sortWith((a, b) =>
-            MemberGraph.precedes(s.orderBy, entityOf(a), entityOf(b), states)
-          )
+          members
+            .map(m => m -> keys.of(entityOf(m), states))
+            .sortWith((a, b) => keys.compare(a._2, b._2) < 0)
+            .map(_._1)
       s.limit.fold(ordered)(ordered.take)
     }
 
@@ -246,10 +249,10 @@ private[runtime] final class MemberGraph(
       * shape.
       */
     private val clauses
-        : Map[String, List[(Option[Predicate], Option[Member])]] =
+        : Map[String, List[(Option[Evaluator.Run], Option[Member])]] =
       src.s.members.map { case (e, m) =>
         e -> m.clauses.zipWithIndex.map { case (c, i) =>
-          c.when -> (c.node match {
+          c.when.map(Evaluator.plain) -> (c.node match {
             case comp: LayoutNode.Component => Some(member(this, e, comp, i))
             case _                          => None
           })
@@ -267,12 +270,15 @@ private[runtime] final class MemberGraph(
         entityId: String,
         states: Map[String, EntityState]
     ): Option[Member] = {
-      val subject =
-        states.getOrElse(entityId, EntityState(entityId, "", Map.empty))
+      val subject = states.getOrElse(entityId, null)
       clauses
         .get(entityId)
         .flatMap(
-          _.find(_._1.forall(Conditions.matchesIn(_, subject, states)))
+          _.find(
+            _._1.forall(g =>
+              Evaluator.holds(g(subject, states, Evaluator.noFetch))
+            )
+          )
         )
         .flatMap(_._2)
     }
@@ -621,52 +627,4 @@ private[runtime] final class MemberGraph(
       .collect { case (s, _) if within(s.root) => s.gid }
       .distinct
       .sortBy(id => id: String)
-}
-
-private[runtime] object MemberGraph {
-
-  /** `false` for equal, so the caller's stable sort keeps them in place. */
-  def precedes(
-      terms: List[LayoutNode.SortTerm],
-      a: String,
-      b: String,
-      states: Map[String, EntityState]
-  ): Boolean =
-    terms.iterator
-      .map(t => compareOn(t, a, b, states))
-      .find(_ != 0)
-      .exists(_ < 0)
-
-  private[runtime] def compareOn(
-      term: LayoutNode.SortTerm,
-      a: String,
-      b: String,
-      states: Map[String, EntityState]
-  ): Int = {
-    def directed(raw: Int) = if (term.descending) -raw else raw
-    term.by match {
-      case LayoutNode.SortKey.Holds(p) =>
-        def holds(id: String) =
-          states.get(id).exists(st => Conditions.matchesIn(p, st, states))
-        directed(java.lang.Boolean.compare(holds(b), holds(a)))
-      case LayoutNode.SortKey.Prop(property) =>
-        def read(id: String) =
-          states.get(id).fold("")(Conditions.propertyOf(property, _))
-        val (l, r) = (read(a), read(b))
-        // Last in either direction: `unknown` is no value, not the largest
-        // string, which under `desc` crowned a scene never activated.
-        if (hasNoValue(l) || hasNoValue(r))
-          java.lang.Boolean.compare(hasNoValue(l), hasNoValue(r))
-        else
-          // Numeric when both are numbers, so 2 < 10.
-          directed((l.toDoubleOption, r.toDoubleOption) match {
-            case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
-            case _                  => l.compareTo(r)
-          })
-    }
-  }
-
-  /** HA's two no-value states, and an attribute the entity does not report. */
-  private def hasNoValue(v: String): Boolean =
-    v.isEmpty || v == "unknown" || v == "unavailable"
 }

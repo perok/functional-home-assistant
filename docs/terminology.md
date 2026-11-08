@@ -70,12 +70,19 @@ both. CEL in it reads `value`, what came before it: `value.state` and `value.att
 the whole entity, as `c.expr` is. `c.isOn(l)` and `c.stateIn(l, states)` are
 readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
 component a reading that names its entity, since a base card has no subject to fall back on.
+What a reading means — typed reads, `null` as the one absent value, every step strict, how a
+comparison picks its meaning, where a value leaves it — is ADR 0035, the value language; one
+evaluator runs every reading, slot and condition alike.
 
-**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate`: `q.from(xs).where(…).any()`,
+**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate` in Pkl: `q.from(xs).where(…).any()`,
 `q.entity(e).stateIs("on")`). `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
-which is not a condition: it is a viewer's selection, so it is not shared and never flips. Not a reading: it may name many entities and carries no steps.
-It is the fast tier's bool half (ADR 0028), so it can be a slot's source, decided with no CEL,
-which is how every boolean input (`active`, `disabled`, `cellClassWhen`) takes one directly. It can
+which is not a condition: it is a viewer's selection, so it is not shared and never flips. On the
+wire it is a bool `ValueExpr` of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`,
+`AllOf`/`AnyOf` over a `List`, `Count` over a set's **present** ids, `First` over a list of ids — decided by the
+one evaluator with no CEL (ADR 0035). So a slot can read one, which is how every boolean input (`active`,
+`disabled`, `cellClassWhen`) takes one directly. The same thing guards a clause, picks a state
+surface, and orders a set, true first under `asc`. An unnamed read in it reads the entity it is
+about: the card's subject, or in a guard or an order term the member. It can
 also be an expression value, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
 
@@ -111,7 +118,7 @@ card's CSS through inheritance. Only `--…` names. ADR 0034.
 **Expression value** — a named input a node's or a slot's OWN expressions read as a typed CEL
 variable (`expressionValues` in Pkl, each a `ValueExpr` on the wire): a literal, a **tally** — a
 static candidate list and which of it is present, counted live (`.count()`, an `int`), the same
-thing a state condition's `Count` compares, or uncounted (`.present()`, the ids as a
+thing a condition's `Count` step counts, or uncounted (`.present()`, the ids as a
 `list(string)`) — a **condition**, decided live, a **fetch**, its provider's answer read on demand,
 or an **entity**, read whole (`kitchen.attr.brightness`).
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
@@ -132,7 +139,7 @@ named as a compiler names them:
   classes applied (`Templates.card`), which check reads its names off and the renderer runs.
 
 Bind and compile fix CEL's **environment**, the names and their types. The values are its
-**activation**, computed on every render (`Conditions.resolve`).
+**activation**, computed on every render (`Evaluator.inputs`).
 
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ;
 ADR 0033 lists its scoping rules in one place. The word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
@@ -227,7 +234,12 @@ or the server refused. ADR 0025.
 possible entities known at build time from the dump. ADR 0003.
 
 **Clause** — inside a candidate set, one `when` branch carrying a complete node. A matched entity
-gets the first clause whose condition holds.
+gets the first clause whose condition holds; a clause with none always holds.
+
+**Present** — a set's candidate ids whose guard holds now, a candidate with no guard always
+(`Value.Present`, `pred.Tally` in Pkl). It is what a `List` of the candidates' reads filtered by
+their guards would mean, kept as one source so a candidate is its id on the wire. A tally counts
+it, `.present()` hands the ids to CEL, `first()` picks its leader, and a set call acts on it.
 
 **Member** — one materialised entity inside a candidate set, or one row inside a grouped slider.
 Members are addressable nodes in their own right, and so is every node below a member, under an id

@@ -130,7 +130,7 @@ facts {
     local tap = (cyc[0] as buttonMod.Pill).tapAction as tapMod.Call
     tap.service == "light/turn_on"
     tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
-    (((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].source as slotMod.ConditionRead).predicate as predMod.Cmp).property == "attr:effect"
+    (((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].source as slotMod.EntityRead).part as simpleMod.Attr).name == "effect"
     (cyc[1] as buttonMod.Pill).active == false
   }
 

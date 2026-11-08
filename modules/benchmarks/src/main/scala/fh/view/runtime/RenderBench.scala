@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
+import fh.view.testkit.Conds
 
 import fh.view.model.{
   ValueType,
@@ -11,7 +12,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Op,
-  Predicate,
   Region,
   SignalBind,
   SignalId,
@@ -274,6 +274,7 @@ class RenderBench {
   private var narrow: Renderer = null
   private var flat: Renderer = null
   private var set: Renderer = null
+  private var setOrdered: Renderer = null
   private var setPlain: Renderer = null
   private var setTiles: Renderer = null
   private var manySets: Renderer = null
@@ -289,10 +290,13 @@ class RenderBench {
   // A boolean input's condition, as CEL reading it through a named value.
   private var conditionViaCel: Transform.Compiled = null
   private lazy val isOn =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(entityId(0)))
   private lazy val isOnValue = Map(
-    "on" -> ValueExpr(Value.Condition(isOn))
+    "on" -> isOn
   )
+  // Compiled once, as a renderer's plan or a member graph compiles them.
+  private lazy val isOnRun = Evaluator.plain(isOn)
+  private lazy val isOnInputs = Evaluator.inputs(isOnValue)
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
@@ -362,6 +366,8 @@ class RenderBench {
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
+    setOrdered =
+      Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setTiles = Renderer.create(Dashboard(cards, tileSetTree(Leaves)))
@@ -585,7 +591,7 @@ class RenderBench {
   /** [[pageSignals]] with each card's fill colour reading two expression
     * values: the only page here whose CEL is typed against named values, so the
     * only one that prices the compile key and the per-render activation
-    * (`Conditions.resolve`). Rebuilding that key per render cost 139 KB a page
+    * (`Evaluator.inputs`). Rebuilding that key per render cost 139 KB a page
     * here (#615).
     */
   @Benchmark
@@ -690,10 +696,41 @@ class RenderBench {
   def condition(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
-      bh.consume(Conditions.matchesIn(isOn, st(entityId(i)), st))
+      bh.consume(
+        Evaluator.holds(isOnRun(st(entityId(i)), st, Evaluator.noFetch))
+      )
       i += 1
     }
   }
+
+  // `q.from(lights).where(on).any()` over every leaf: against a whole number
+  // the count stops at the first present light; against `0.0` (no build emits
+  // one) it reads them all, the cost the early stop saves.
+  private lazy val anyOn = Conds.count(
+    candidates = List.tabulate(Leaves)(entityId),
+    when = List
+      .tabulate(Leaves)(entityId)
+      .map(id =>
+        id -> Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(id))
+      )
+      .toMap,
+    op = Op.Gt,
+    value = Json.fromInt(0)
+  )
+  private lazy val anyOnFull = anyOn.copy(steps =
+    List(Step.Count, Step.Compare(Op.Gt, Value.Literal(Lit.Real(0.0))))
+  )
+
+  private lazy val anyOnRun = Evaluator.plain(anyOn)
+  private lazy val anyOnFullRun = Evaluator.plain(anyOnFull)
+
+  @Benchmark
+  def countAny(bh: Blackhole): Unit =
+    bh.consume(Evaluator.holds(anyOnRun(null, st, Evaluator.noFetch)))
+
+  @Benchmark
+  def countAnyFull(bh: Blackhole): Unit =
+    bh.consume(Evaluator.holds(anyOnFullRun(null, st, Evaluator.noFetch)))
 
   @Benchmark
   def conditionCel(bh: Blackhole): Unit = {
@@ -704,9 +741,78 @@ class RenderBench {
           conditionViaCel,
           null,
           "dashboard",
-          Conditions.resolve(isOnValue, st, _ => sys.error("no fetch"))
+          isOnInputs(st, _ => sys.error("no fetch"))
         )
       )
+      i += 1
+    }
+  }
+
+  private lazy val leafStates = Array.tabulate(Leaves)(i => st(entityId(i)))
+
+  private lazy val litNotDim = Conds.and(
+    List(
+      Conds.cmp("state", Op.Eq, Json.fromString("on")),
+      Conds.not(
+        Conds.or(
+          List(
+            Conds.cmp("attr:brightness", Op.Lt, Json.fromInt(50)),
+            Conds.cmp("state", Op.Eq, Json.fromString("off"), Some(entityId(0)))
+          )
+        )
+      )
+    )
+  )
+
+  private lazy val litNotDimRun = Evaluator.plain(litNotDim)
+
+  /** An and over an or and a not, per leaf: every kind of step a tree nests. */
+  @Benchmark
+  def conditionTree(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(
+        Evaluator.holds(litNotDimRun(leafStates(i), st, Evaluator.noFetch))
+      )
+      i += 1
+    }
+  }
+
+  private lazy val brightRun =
+    Evaluator.plain(Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(100)))
+
+  /** A guard over an attribute, on a state as a frame hands it over: a copy, so
+    * nothing a read caches on the state is there yet.
+    */
+  @Benchmark
+  def conditionAttr(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      bh.consume(
+        Evaluator.holds(brightRun(leafStates(i).copy(), st, Evaluator.noFetch))
+      )
+      i += 1
+    }
+  }
+
+  // Each pill lit while its own light leads, as `first().eq(e)` writes it.
+  private lazy val leaders = Array.tabulate(Pills)(i =>
+    Evaluator.plain(
+      Conds.first(
+        candidates = List.tabulate(Pills)(entityId),
+        orderBy =
+          List(LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")),
+        entity = entityId(i)
+      )
+    )
+  )
+
+  /** A row of [[Pills]] pills over one candidate list: a leader per pill. */
+  @Benchmark
+  def leaderRow(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Pills) {
+      bh.consume(Evaluator.holds(leaders(i)(null, st, Evaluator.noFetch)))
       i += 1
     }
   }
@@ -1169,6 +1275,15 @@ class RenderBench {
   def publishSet(bh: Blackhole): Unit = {
     pubRot += 1
     bh.consume(publishPass(set, pubFrames(pubRot % 2)))
+  }
+
+  /** [[publishSet]] ordered by [[LitBrightest]]: the touched set re-sorts, each
+    * comparison reading both members' keys.
+    */
+  @Benchmark
+  def publishSetOrdered(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(setOrdered, pubFrames(pubRot % 2)))
   }
 
   /** '''The question a pre-filter would answer''': what a frame costs when the
@@ -1725,6 +1840,15 @@ object RenderBench {
   /** [[publishManySets]]'s sets: ten candidates each, so a tick spans two. */
   final val ManySets = 20
 
+  /** [[RenderBench.leaderRow]]'s pills, and the candidates they lead. */
+  final val Pills = 10
+
+  /** Lit first, then brightest: a condition key and a value key. */
+  lazy val LitBrightest: List[LayoutNode.SortTerm] = List(
+    LayoutNode.SortTerm(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+    LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
+  )
+
   /** The shipped `entityCard`'s one BYTE slot. Every other slot on it is either
     * a literal or travels as a signal, which is precisely why one slot is what
     * re-admits the entity to the cache key (ADR 0012).
@@ -1970,20 +2094,18 @@ object RenderBench {
         "then" -> branchSurface(
           tree(FlipLeaves, 4, signals),
           0,
-          Predicate.Cmp(
-            "state",
-            Op.Eq,
-            Json.fromString("armed"),
-            entity = Some(FlipEntity)
+          Some(
+            Conds.cmp(
+              "state",
+              Op.Eq,
+              Json.fromString("armed"),
+              entity = Some(FlipEntity)
+            )
           )
         ),
-        // An empty conjunction is vacuously true and reads no entity, which is
-        // what an `else` branch is.
-        "else" -> branchSurface(
-          tree(FlipLeaves, 4, signals),
-          1,
-          Predicate.And(Nil)
-        )
+        // No condition always holds and reads no entity, which is what an
+        // `else` branch is.
+        "else" -> branchSurface(tree(FlipLeaves, 4, signals), 1, None)
       )
     )
 
@@ -1995,7 +2117,7 @@ object RenderBench {
   private def branchSurface(
       content: LayoutNode,
       index: Int,
-      condition: Predicate
+      condition: Option[ValueExpr]
   ): Surface =
     Surface(
       content,
@@ -2014,12 +2136,17 @@ object RenderBench {
     * its own render), `false` the signal-less case where the two forms are
     * byte-identical and the fingerprint is sliced from the document bytes.
     */
-  def setTree(leaves: Int, signals: Boolean = true): LayoutNode =
+  def setTree(
+      leaves: Int,
+      signals: Boolean = true,
+      orderBy: List[LayoutNode.SortTerm] = Nil
+  ): LayoutNode =
     LayoutNode.Component(
       "col",
       regions = LayoutNode.kids(
         LayoutNode.SetNode(
           candidates = List.tabulate(leaves)(entityId),
+          orderBy = orderBy,
           members = List
             .tabulate(leaves)(i =>
               entityId(i) -> LayoutNode.SetMember(
@@ -2076,7 +2203,7 @@ object RenderBench {
                 List(
                   LayoutNode.SetClause(
                     when = Some(
-                      Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+                      Conds.cmp("state", Op.Eq, Json.fromString("on"))
                     ),
                     node = tile(i)
                   ),
@@ -2155,7 +2282,12 @@ object RenderBench {
       )
     )
     val members = Renderer.create(bare).members
-    def branch(host: NodeId, at: Int, content: LayoutNode, when: Predicate) =
+    def branch(
+        host: NodeId,
+        at: Int,
+        content: LayoutNode,
+        when: Option[ValueExpr]
+    ) =
       Surface(
         content,
         bakeInto = Some(host),
@@ -2175,16 +2307,16 @@ object RenderBench {
               case MemberKey.Surface(s) =>
                 sys.error(s"not an entity member: $s")
             }
-            val open = Predicate.Cmp(
+            val open = Conds.cmp(
               "state",
               Op.Eq,
               Json.fromString("on"),
               entity = Some(windowId(i))
             )
             List(
-              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), open),
+              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), Some(open)),
               s"${host}_k0_else" ->
-                branch(host, 1, LayoutNode.Component("col"), Predicate.And(Nil))
+                branch(host, 1, LayoutNode.Component("col"), None)
             )
         }
         .flatten

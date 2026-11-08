@@ -34,7 +34,7 @@ const function iconFor(e: hass.Entity?): String? =
 /// `mdiName`, an author's override, wins over both, as in HA.
 const function glyphOf(e: hass.Entity, mdiName: String?): (String|slotMod.Reading)? =
   if (mdiName == null && stateIconFor(e) != null)
-    (stateIconFor(e)!!) { bypassUnavailable = false }
+    stateIconFor(e)!!
   else if (mdiName != null) "mdi " + mdiClass(mdiName)
   else if (iconFor(e) != null) "mdi " + iconFor(e)!!
   else null

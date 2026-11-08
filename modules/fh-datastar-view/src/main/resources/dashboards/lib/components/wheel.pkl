@@ -76,21 +76,18 @@ class ColourWheel extends nodes.Node {
       part = new simpleMod.Whole {}
       steps { simpleMod.cel(hsRead("str(double(hs[0])) + 'deg'", "0deg")) }
       default = "0deg"
-      bypassUnavailable = false
     }, slotMod.asHandler)
     slotMod.signalled(sat, new slotMod.Reading {
       entityId = light.entity_id
       part = new simpleMod.Whole {}
       steps { simpleMod.cel(hsRead("str(double(hs[1]) / 100.0)", "0")) }
       default = "0"
-      bypassUnavailable = false
     }, slotMod.asHandler)
     slotMod.signalled(paint, new slotMod.Reading {
       entityId = light.entity_id
       part = new simpleMod.Whole {}
       steps { simpleMod.cel(hsRead("'hsl(' + str(math.round(double(hs[0]))) + ',' + str(math.round(double(hs[1]))) + '%,50%)'", "#fff")) }
       default = "#fff"
-      bypassUnavailable = false
     }, slotMod.asHandler)
     ...tapMod.tapRoute(setColour)
     // The guard's mechanism, without which a refused release sets no error and

@@ -19,8 +19,9 @@ object Transform {
 
   /** The engine-free tier (ADR 0028), selected by form alone: a source read and
     * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
-    * and nothing infers one from the other. A [[Predicate]] source is its bool
-    * half, so a condition fills a slot as directly as it decides a `c.iff`.
+    * and nothing infers one from the other. A condition is its bool half, so it
+    * fills a slot as directly as it decides a `c.iff`: one compiler runs both
+    * (`Evaluator`).
     *
     * A step belongs here when it is a static lookup and TOTAL over every value
     * a live entity can produce — the load-bearing half, since
@@ -32,7 +33,7 @@ object Transform {
     */
   def read(part: Part, entity: EntityState): Any = part match
     case Part.State      => entity.state
-    case Part.Attr(name) => entity.javaAttributes.get(name)
+    case Part.Attr(name) => entity.attribute(name)
     case Part.Whole      => entity.celValue
 
   /** Text as CEL renders a bare result: `str(x)`. */
@@ -59,7 +60,7 @@ object Transform {
       case Step.Count =>
         value match
           case xs: List[?] => xs.size.toLong
-          case _           => 0L
+          case _           => null
       case Step.Prefix(_)   => text(a) + text(value)
       case Step.Suffix(_)   => text(value) + text(a)
       case Step.WithUnit(_) =>
@@ -70,39 +71,102 @@ object Transform {
       // Operands without an `Option`: this runs per resolve of every slider
       // track, and two `Some`s and their boxes each time showed in RenderBench.
       case Step.Percent(_, _) =>
-        num(value) match
+        number(value) match
           case Some(v) if isNum(a) && isNum(b) =>
             val min = dbl(a)
             val max = dbl(b)
             Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
-          case _ => "0 %"
+          case _ => null
       case Step.Fill(_, _) =>
-        num(value) match
+        number(value) match
           case Some(v) if isNum(a) && isNum(b) =>
             val min = dbl(a)
             val max = dbl(b)
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
-          case _ => "100%"
+          case _ => null
       case Step.Duration(scale) =>
-        num(value) match
+        number(value) match
           case Some(v) =>
             val t = roundAway(v * scale).toLong
             if (t <= 0) "0s"
             else if (t >= 3600) s"${t / 3600}h ${t % 3600 / 60}m"
             else if (t >= 60) s"${t / 60}m"
             else s"${t}s"
-          case None => ""
+          case None => null
       case Step.Match(cases, _) =>
-        cases.get(text(value)) match
+        (if (value == null) None else cases.get(text(value))) match
           case Some(Lit.Bool(flag)) => flag
           case Some(lit)            => text(lit.raw)
           case None                 =>
             a match
               case flag: Boolean => flag
               case other         => text(other)
+      case Step.AllOf           => kleene(value, decides = false)
+      case Step.AnyOf           => kleene(value, decides = true)
+      case Step.Compare(op, to) => compare(value, a, op, to)
+      case Step.Not             =>
+        value match
+          case b: Boolean => !b
+          case _          => null
 
-  /** As CEL's `double()` accepts; anything else is the absent form. */
-  private def num(v: Any): Option[Double] = v match
+  /** Kleene's and (`decides = false`) or or (`true`) over a list's bools: the
+    * value that decides it, else `null` if an item had none.
+    */
+  private def kleene(value: Any, decides: Boolean): Any = value match
+    case xs: List[?] =>
+      if (xs.exists { case b: Boolean => b == decides; case _ => false })
+        decides
+      else if (xs.forall { case _: Boolean => true; case _ => false })
+        !decides
+      else null
+    case _ => null
+
+  /** The operand's type picks the comparison, as CEL's checker picks an
+    * overload: a number literal on the number line, `eq` included, a text side
+    * parsed and not holding when it is no number (HA's `numeric_state`); a text
+    * literal as text; a bool literal as equality; between two reads, two
+    * numbers on the number line, anything else as text, ordering numeric when
+    * both parse.
+    */
+  private def compare(value: Any, operand: Any, op: Op, to: Value): Boolean =
+    to match
+      // `ne` is not `eq`, as in CEL, where values of two types are unequal.
+      case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
+        if (op == Op.Ne) !number(value).exists(_ == dbl(operand))
+        else number(value).exists(onLine(_, dbl(operand), op))
+      case Value.Literal(Lit.Bool(_)) =>
+        op match
+          case Op.Eq => text(value) == text(operand)
+          case Op.Ne => text(value) != text(operand)
+          case _     => false
+      case Value.Literal(Lit.Text(_)) =>
+        textCompare(text(value), text(operand), op)
+      case _ =>
+        (value, operand) match
+          case (l: java.lang.Number, r: java.lang.Number) =>
+            onLine(l.doubleValue, r.doubleValue, op)
+          case _ => textCompare(text(value), text(operand), op)
+
+  // Equality as text; ordering numeric when both parse, else false.
+  private def textCompare(lhs: String, rhs: String, op: Op): Boolean =
+    op match
+      case Op.Eq => lhs == rhs
+      case Op.Ne => lhs != rhs
+      case _     =>
+        (lhs.toDoubleOption, rhs.toDoubleOption) match
+          case (Some(l), Some(r)) => onLine(l, r, op)
+          case _                  => false
+
+  private def onLine(l: Double, r: Double, op: Op): Boolean = op match
+    case Op.Eq  => l == r
+    case Op.Ne  => l != r
+    case Op.Lt  => l < r
+    case Op.Lte => l <= r
+    case Op.Gt  => l > r
+    case Op.Gte => l >= r
+
+  /** As CEL's `double()` accepts; anything else is no number. */
+  def number(v: Any): Option[Double] = v match
     case n: java.lang.Number => Some(n.doubleValue)
     case s: String           => s.toDoubleOption
     case _                   => None

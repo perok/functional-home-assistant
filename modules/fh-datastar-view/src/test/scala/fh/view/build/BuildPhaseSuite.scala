@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Conds
+
 import fh.view.model.{
   Part,
   Activation,
@@ -9,7 +11,6 @@ import fh.view.model.{
   LayoutNode,
   Lit,
   Op,
-  Predicate,
   Region,
   SignalBind,
   SlotType,
@@ -256,7 +257,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       do assertEquals(errs(src, step), Nil, clue = (step, src))
       for src <- List(
           Value.Entity(e, Part.Whole),
-          Value.Present(Predicate.Tally(Nil, Map.empty)),
+          Value.Present(Nil, Map.empty),
           Value.Literal(Lit.Bool(true))
         )
       do
@@ -818,15 +819,14 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     // No quantifier: the condition names the entities it reads.
     val cond =
-      """{ "kind": "Cmp", "property": "state", "op": "eq", "value": "on",
-         |  "entity": "light.a" }""".stripMargin
+      """{ "source": { "kind": "Entity", "of": "light.a" },
+         |  "steps": [{ "kind": "Compare", "op": "eq", "to": "on" }] }""".stripMargin
     assertEquals(
       surface(
         s"""{ "kind": "State", "condition": $cond }"""
       ).toOption.get.activation,
       Activation.State(
-        Predicate
-          .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
+        Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
       )
     )
   }
@@ -843,8 +843,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         activation = activation
       )
     val state = Activation.State(
-      Predicate
-        .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
+      Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
     )
     val mixed = Dashboard(
       // The bake target must declare the region its surfaces name.
@@ -925,7 +924,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate rejects a state condition that names no entity") {
-    def dash(condition: Predicate) = Dashboard(
+    def dash(condition: ValueExpr) = Dashboard(
       // The bake target must declare the region its surfaces name.
       cards = Map(
         "ok" -> CardDef(
@@ -940,14 +939,14 @@ class BuildPhaseSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(condition)
+          activation = Activation.State(Some(condition))
         )
       )
     )
-    val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+    val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
     // A surface supplies no subject, so this would mean "some entity in the
     // house is on". Rejected anywhere in the tree.
-    for (c <- List(on, Predicate.Not(on), Predicate.And(List(on))))
+    for (c <- List(on, Conds.not(on), Conds.and(List(on))))
       assert(
         dash(c).validate().exists(_.contains("unnamed entity")),
         clue = dash(c).validate()
@@ -955,15 +954,64 @@ class BuildPhaseSuite extends munit.FunSuite {
 
     // A candidate's guards are bound by their candidate; the empty conjunction
     // is an `else`.
-    val named = on.copy(entity = Some("light.a"))
-    val count = Predicate.Count(
+    val named =
+      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+    val count = Conds.count(
       candidates = List("light.a"),
       when = Map("light.a" -> on),
       op = Op.Gt,
       value = Json.fromInt(0)
     )
-    for (c <- List(named, count, Predicate.And(Nil), Predicate.Or(List(count))))
+    for (c <- List(named, count, Conds.and(Nil), Conds.or(List(count))))
       assertEquals(dash(c).validate(), Nil, clue = c)
+  }
+
+  test("validate refuses a clause or a state surface that does not decide") {
+    // A wire Pkl never writes, so only a hand-built one reaches this.
+    val text = ValueExpr(Value.Entity(Some("light.a")))
+    val viaCel = ValueExpr(Value.Cel("true"))
+    val ok = Map(
+      "ok" -> CardDef(
+        "<i>{{{branch}}}</i>",
+        regions = Map("branch" -> Region(Region.Baked))
+      )
+    )
+    val set = Dashboard(
+      cards = ok,
+      card = LayoutNode.SetNode(
+        candidates = List("light.a"),
+        members = Map(
+          "light.a" -> LayoutNode.SetMember(
+            List(LayoutNode.SetClause(Some(text), LayoutNode.Component("ok")))
+          )
+        )
+      )
+    )
+    assert(
+      set
+        .validate()
+        .exists(_.contains("a clause of 'light.a' does not decide")),
+      clue = set.validate()
+    )
+    val surface = Dashboard(
+      cards = ok,
+      card = LayoutNode.Component("ok"),
+      surfaces = Map(
+        "a" -> Surface(
+          LayoutNode.Component("ok"),
+          bakeInto = Some("c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(Some(viaCel))
+        )
+      )
+    )
+    assert(
+      surface
+        .validate()
+        .exists(_.contains("a condition is read without CEL")),
+      clue = surface.validate()
+    )
   }
 
   /** A missing region fails as `danglingBakes` describes for a missing node: an

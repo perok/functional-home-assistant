@@ -261,8 +261,9 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
   around any amend parent that isn't a `new` expression).
-- Candidate sets: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`/`Count`; the
-  `PredicateOp` union type makes a misspelled op a build error), built by
+- Candidate sets: typed condition classes (`Cmp`/`PAnd`/`POr`/`PNot`/`Count`/
+  `First`, each writing a bool reading, ADR 0004; the `PredicateOp` union type
+  makes a misspelled op a build error), built by
   `lib/query.pkl` rather than by hand — there are no free constructors, so every
   term carries a binding (decision 8, ADR 0003).
 - Slider two-tier config: author override → build-time literal. One typed
