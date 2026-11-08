@@ -15,8 +15,7 @@ import fh.view.model.{
   ValueExpr,
   TemplateSlot,
   Theme,
-  ThemeClasses,
-  Transform
+  ThemeClasses
 }
 import fh.view.history.ChartStyle
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
@@ -27,7 +26,7 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 class ChartSlotSuite extends munit.FunSuite {
 
   private val chartFetch = FetchTemplate("sensor.t", Choice.Fixed(Windows.day))
-  private val stage = Transform.Stage.Chart(ChartStyle(width = 600))
+  private val stage = Some(Step.Chart(ChartStyle(width = 600)))
   // Every parameter is written down, so the ask resolves to this whatever the
   // environment — which is what keeps this suite about the chart slot.
   private val read = SlotRead(

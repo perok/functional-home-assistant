@@ -280,7 +280,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("a condition comparing an entity it does not name fails the build") {
     val errs = errorsOf(
-      anyOn("""new pred.Cmp { property = "state"; op = "eq"; value = "on" }""")
+      anyOn("""new pred.Cmp { op = "eq"; value = "on" }""")
     )
     assert(errs.exists(_.contains("does not name")), errs)
   }

@@ -4,7 +4,7 @@
 - **Date:** 2026-08-29 (decision and Phase-0 gate pinned first, in the
   since-deleted `docs/plan-simple-transforms.md` — its decisions live here and
   in ADR 0028; this ADR lands after the swap, per the repo routine)
-- **Scope:** `model/Transform.scala`, `runtime/Cel.scala`, `runtime/Renderer.scala` (`Planned`),
+- **Scope:** `runtime/Cel.scala`, `runtime/Renderer.scala` (`Planned`),
   `runtime/StateStore.scala` (null-attr rule), the Pkl library's transform strings,
   `modules/benchmarks` (engine cells)
 - **Owns:** the choice of transform ENGINE and its value semantics. ADR 0001
@@ -29,7 +29,7 @@ had settled; what they found is under Consequences.
 ## The decision
 
 **cel-java 0.14.0 is the transform engine** — compile once at build/validate
-(`Transform.parse`), eval-many per live value (`Transform.run`: planner
+(`Cel.parse`), eval-many per live value (`Cel.run`: planner
 runtime, one activation per eval, `str`/`num` as the only registered helpers).
 Dashjoin is gone from the build, benchmarks included.
 
@@ -71,7 +71,7 @@ Dashjoin is gone from the build, benchmarks included.
   wording (1), and one half-away step on an exactly-representable `.5`
   unreachable on integer attributes. `percent` and `attrLines` agree
   byte-for-byte across the whole sweep, and so does `fillColor`. With the
-  reference gone, `TransformSuite` and the wire snapshots are what pin the CEL
+  reference gone, `StepsSuite` and the wire snapshots are what pin the CEL
   output from here.
 - **Wire bytes moved once, deliberately.** Transform strings, display-signal
   path segments (`transformSegment` hashes everything but `state`), the wire

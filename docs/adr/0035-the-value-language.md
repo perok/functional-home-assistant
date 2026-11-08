@@ -18,7 +18,7 @@ Text, whole, real, bool, list, entity, series, markup, and `null`, the one absen
 
 **Reads are typed.** A state is text; an attribute is the JSON's own value (`Long`, `Double`,
 `String`, `Boolean`, a list, a map), never its printed text, so `attr(x)` reads `21` on a card and
-in a condition alike (`Transform.read`). A typed read of one attribute converts only that one
+in a condition alike (`Steps.read`). A typed read of one attribute converts only that one
 until something has built the entity's whole attribute map (`EntityState.attribute`).
 
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
@@ -153,7 +153,7 @@ in a text slot gains a `string(…)`, and the library builders, `writing-dashboa
 snapshots move.
 
 **An `Option` type.** Absence stays implicit for now. Adding a type would look like this: `ValueType.Opt(t)`; CEL's
-checker already types `value.attr[?'u']` as `optional_type(T)`, which `Transform.resultType` would
+checker already types `value.attr[?'u']` as `optional_type(T)`, which `Cel.resultType` would
 map to `Opt(T)`; a strict step over `Opt(T)` types as `Opt` of its result, so the lift is checked
 rather than assumed; `default` (or an `OrElse` step) takes `Opt(T)` to `T`; and `ValueType.fits`
 could refuse an `Opt` slot with no default — the one thing it buys: `validate` saying "this can be

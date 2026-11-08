@@ -12,7 +12,6 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Transform,
   ValueType
 }
 import io.circe.Json
@@ -56,8 +55,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
       assertEquals(
-        Transform.text(Transform.read(Part.State, entity)),
-        Transform.run(cel, entity, "dashboard"),
+        Steps.text(Steps.read(Part.State, entity)),
+        Cel.run(cel, entity, "dashboard"),
         clue = state
       )
     }
@@ -79,7 +78,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
     val entity = EntityState("light.k", "on", attrs)
     val plain = EntityState.toJavaObject(attrs)
-    def read(program: Transform.Compiled, attr: Object): Either[String, Any] =
+    def read(program: Cel.Program, attr: Object): Either[String, Any] =
       scala.util
         .Try(program.eval(new dev.cel.runtime.CelVariableResolver {
           def find(name: String): java.util.Optional[Object] =
@@ -103,8 +102,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "value.transformList(k, v, k).sort().join(',')",
       "value['nope']"
     ).foreach { src =>
-      val p = Transform
-        .parse(Transform.CelKey(src, Nil, Some(ValueType.Dyn)))
+      val p = Cel
+        .parse(Cel.Key(src, Nil, Some(ValueType.Dyn)))
         .fold(e => fail(e), identity)
       assertEquals(
         read(p, entity.javaAttributes),
@@ -154,11 +153,12 @@ class TransformsSuite extends munit.CatsEffectSuite {
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
-        Transform.format(
-          Step.Suffix(Value.Literal(Lit.Text(" W"))),
-          state.state,
-          { case Value.Literal(l) => l.raw; case _ => "" }
-        ),
+        Evaluator.plain(
+          ValueExpr(
+            Value.Entity(),
+            List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
+          )
+        )(state, Map(state.entityId -> state), Evaluator.noFetch),
         "on W"
       )
     }
@@ -273,9 +273,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
       "+ \"/\" + value.entity_id + \"', {filterSignals:{exclude:'.*'}})\""
 
-  private def programOf(d: Dashboard, src: String): Transform.Compiled =
+  private def programOf(d: Dashboard, src: String): Cel.Program =
     d.validated()
-      .fold(e => fail(e.mkString("\n")), _.transforms(Transform.CelKey(src)))
+      .fold(e => fail(e.mkString("\n")), _.transforms(Cel.Key(src)))
 
   private def dashboard(slug: String) =
     Dashboard(
@@ -334,7 +334,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
   test("a tap's URL carries the dashboard it was rendered for") {
     assertEquals(
-      Transform.run(programOf(dashboard("kitchen"), tapUrl), state, "kitchen"),
+      Cel.run(programOf(dashboard("kitchen"), tapUrl), state, "kitchen"),
       "@post('sse/action/kitchen/light/toggle/light.kitchen', " +
         "{filterSignals:{exclude:'.*'}})"
     )
@@ -349,8 +349,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
       .map { validated =>
         assertEquals(validated.dashboard.slug, "renamed")
         assertEquals(
-          Transform.run(
-            validated.transforms(Transform.CelKey(tapUrl)),
+          Cel.run(
+            validated.transforms(Cel.Key(tapUrl)),
             state,
             validated.dashboard.slug
           ),
@@ -381,7 +381,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       )
     )
     assertEquals(
-      Transform.run(programOf(plain, "value.state"), state, "x"),
+      Cel.run(programOf(plain, "value.state"), state, "x"),
       "on"
     )
   }

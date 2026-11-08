@@ -2,9 +2,9 @@
 
 Branch `slot-values`, stacked on `slot-views` (#657); PR #658. Discussed in chat on 2026-11-01.
 
-**State:** part A (S1–S8) built on #658. Part B (B1–B4) built on `slot-conditions` (#666).
-Part C (one evaluator) agreed 2026-11-04 for the same branch; C0 next. Deleting this plan is the
-maintainer's call.
+**State:** part A (S1–S8) built on #658. Part B (B1–B4) and Part C (C0–C4) built on
+`slot-conditions` (#666); its follow-ups are `cel-once` (#669) and `pkl-reading` (#670). Deleting
+this plan is the maintainer's call.
 
 ## Why
 
@@ -472,10 +472,17 @@ names, and are corrected where they did.
 - The tap call design round: a declared call id in place of the URL a template spells out.
 - **Strict `Dyn`** is an open question in ADR 0035, beside the `Option` type.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
-- **A Pkl `Predicate` as a `slotMod.Reading`.** Both write `{source, steps}`, so
-  `nodes.booleanReading`, `slotMod.wireInput` and the `Predicate|Reading` unions convert one to
-  the other. Needs a spike: `Reading`'s rendered `default` and `valueWhileSlot` would ride on
-  every condition.
+- **From the 2026-11-05 review**, to do after this stack:
+  - A CEL's named inputs live once, on the slot: the wire puts them on each CEL step and source,
+    and bind merges them per slot, so every CEL in a slot gets all of them. One concept, four
+    names (Pkl `values`, wire `inputs`, Scala `values`, "expression values").
+  - Type-check and compile as one step, so `validate` hands the renderer compiled runs: today the
+    renderer pairs each CEL with its program by position (`ValueExpr.typed`'s key order).
+  - Pkl's `Expr` folded into `Reading`, as `Predicate` was into `ValueExpr`: about 15
+    `is Expr` conversions, and a card's `label`/`value` take an `Expr` but not a reading.
+  - One definition of a condition (`isCondition` by shape, `conditionError` by type). A state
+    surface's unnamed-entity check still reads `readsMissingSubject` alone, since it runs after
+    `conditionError`; with one definition it is `unnamedComparison` like the slot checks.
 
 ## Checks
 

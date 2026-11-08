@@ -120,11 +120,11 @@ facts {
   // the two sides have to agree on.
   ["a term carries the property name the runtime reads"] {
     local st = q.entity(kitchen).stateIs("on")
-    st.property == "state"
+    st.part == null
     st.op == "eq"
     st.entity == "light.kitchen"
 
-    q.entity(kitchen).lt(q.prop("brightness"), 20).property == "attr:brightness"
+    q.entity(kitchen).lt(q.prop("brightness"), 20).part?.name == "brightness"
     q.entity(kitchen).lt(q.prop("brightness"), 20).op == "lt"
   }
 
@@ -150,9 +150,9 @@ facts {
     local a = q.entity(kitchen).stateIs("on")
     local b = q.entity(kitchen).lt(q.prop("brightness"), 20)
     a.and(b).items.toList().length == 2
-    a.and(b).items.toList()[0].property == "state"
+    a.and(b).items.toList()[0].part == null
     a.or(b) is pred.POr
-    a.not().item.property == "state"
+    a.not().item.part == null
     a.not() is pred.PNot
   }
 
@@ -885,7 +885,7 @@ facts {
     local on = b.values["lights_on"] as Map
     local tally = on["source"] as pred.Tally
     tally.candidates.toList() == List("light.kitchen")
-    tally.`when`["light.kitchen"].property == "state"
+    tally.`when`["light.kitchen"].part == null
     on["steps"] == List(new simpleMod.CountStep {})
   }
 

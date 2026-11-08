@@ -14,7 +14,7 @@ class FetchValueSuite extends munit.FunSuite {
   private val history = FetchTemplate("sensor.left", Choice.Fixed(Windows.day))
   private val read = SlotRead(
     FetchRequest.History("sensor.left", Windows.day),
-    Transform.Stage.Passthrough
+    None
   )
   // A wash that started at 101 after an idle 0.
   private val answer = """{"points":[[0,0.0],[60000,101.0],[120000,90.0]]}"""
@@ -27,7 +27,7 @@ class FetchValueSuite extends munit.FunSuite {
       values: Map[String, ValueExpr] = Map(
         "past" -> ValueExpr(Value.Fetch(history))
       ),
-      reads: String = Reads.Live
+      reads: Reads = Reads.Live
   ) = TemplateSlot(
     ValueExpr(
       Value.Entity(Some("sensor.left"), reads = reads, part = Part.Whole),
@@ -96,7 +96,7 @@ class FetchValueSuite extends munit.FunSuite {
     val fetches = d.card match
       case c: LayoutNode.Component => c.fetches
       case other                   => fail(s"not a component: $other")
-    assertEquals(fetches, List(SlotAsk(history, Transform.Stage.Passthrough)))
+    assertEquals(fetches, List(SlotAsk(history, None)))
     assertEquals(d.allFetches, List(read))
   }
 

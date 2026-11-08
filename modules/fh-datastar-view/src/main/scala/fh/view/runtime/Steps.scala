@@ -1,36 +1,26 @@
-package fh.view.model
+package fh.view.runtime
 
-import fh.view.history.ChartStyle
-import fh.view.runtime.{Cel, EntityState}
+import fh.view.model.{Lit, Op, Part, Step, Value}
 
-/** Slot transforms in [CEL](https://cel.dev), over `value` (the value before
-  * the step), the named inputs, `dashboard_slug` and `time_zone`. A whole
-  * entity is the struct `fh.Entity {state, attr, entity_id, domain}`; its
-  * `attr` is an adapted JVM map, so a raw `attr['x']` on an absent key is an
-  * error: reads are guarded with `attr[?'x']`. `str(x)` renders numbers exactly
-  * as the engine renders a bare numeric result.
+/** What each simple step makes of the value before it, its operands already
+  * read: the arithmetic [[Evaluator]] composes, which decides what is read and
+  * when.
   *
-  * Compiled once at validation. A failing evaluation renders its error message
-  * in that one card; `null` renders `""`.
+  * The engine-free tier (ADR 0028), selected by form alone: a source read and
+  * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
+  * and nothing infers one from the other. A condition is its bool half, so it
+  * fills a slot as directly as it decides a `c.iff`: one compiler runs both.
+  *
+  * A step belongs here when it is a static lookup and TOTAL over every value a
+  * live entity can produce — the load-bearing half, since `double('unknown')`
+  * would put an error on a wall panel. Speed is the other: ~0.9 kB per CEL
+  * evaluation against ~45 B for a direct read (`RenderBench.cel` vs `direct`).
+  * Where a step has a CEL spelling (documented on its case), StepsSuite holds
+  * the evaluator byte-equal to it over a hostile sweep and pins the few
+  * divergences where CEL would error.
   */
-object Transform {
+object Steps {
 
-  type Compiled = Cel.Program
-
-  /** The engine-free tier (ADR 0028), selected by form alone: a source read and
-    * its [[Step.Simple]] steps are fast-path work, a [[Step.Cel]] engine work,
-    * and nothing infers one from the other. A condition is its bool half, so it
-    * fills a slot as directly as it decides a `c.iff`: one compiler runs both
-    * (`Evaluator`).
-    *
-    * A step belongs here when it is a static lookup and TOTAL over every value
-    * a live entity can produce — the load-bearing half, since
-    * `double('unknown')` would put an error on a wall panel. Speed is the
-    * other: ~0.9 kB per CEL evaluation against ~45 B for a direct read
-    * (`RenderBench.cel` vs `direct`). Where a step has a CEL spelling
-    * (documented on its case), TransformSuite holds [[format]] byte-equal to it
-    * over a hostile sweep and pins the few divergences where CEL would error.
-    */
   def read(part: Part, entity: EntityState): Any = part match
     case Part.State      => entity.state
     case Part.Attr(name) => entity.attribute(name)
@@ -42,18 +32,8 @@ object Transform {
     case null      => ""
     case other     => Cel.stringify(other)
 
-  /** One simple step over `value`, an operand read by `operand`. */
-  def format(step: Step.Simple, value: Any, operand: Value => Any): Any =
-    val ops = Step.operands(step)
-    formatWith(
-      step,
-      value,
-      ops.lift(0).fold(null: Any)(operand),
-      ops.lift(1).fold(null: Any)(operand)
-    )
-
-  /** [[format]] over its operands already read, in [[Step.operands]] order:
-    * what a composed pipeline calls, so a render builds no reader.
+  /** One simple step over `value`, its operands already read, in
+    * [[Step.operands]] order, so a render builds no reader.
     */
   def formatWith(step: Step.Simple, value: Any, a: Any, b: Any): Any =
     step match
@@ -101,25 +81,39 @@ object Transform {
             a match
               case flag: Boolean => flag
               case other         => text(other)
-      case Step.AllOf           => kleene(value, decides = false)
-      case Step.AnyOf           => kleene(value, decides = true)
+      case Step.AllOf | Step.AnyOf =>
+        value match
+          // A list CEL built, the one a list source's own run did not fuse.
+          case xs: List[?] =>
+            var rest = xs
+            kleene(step == Step.AnyOf)(rest.nonEmpty) {
+              val h = rest.head
+              rest = rest.tail
+              h
+            }
+          case _ => null
       case Step.Compare(op, to) => compare(value, a, op, to)
       case Step.Not             =>
         value match
           case b: Boolean => !b
           case _          => null
 
-  /** Kleene's and (`decides = false`) or or (`true`) over a list's bools: the
-    * value that decides it, else `null` if an item had none.
+  /** Kleene's and (`decides = false`) or or (`true`), the one spelling of the
+    * rule (ADR 0035): `next` is read while `more` holds, stopping at the item
+    * that decides, else `null` if an item had none. Inline, so a caller's item
+    * reads expand in place and allocate nothing.
     */
-  private def kleene(value: Any, decides: Boolean): Any = value match
-    case xs: List[?] =>
-      if (xs.exists { case b: Boolean => b == decides; case _ => false })
-        decides
-      else if (xs.forall { case _: Boolean => true; case _ => false })
-        !decides
-      else null
-    case _ => null
+  private[view] inline def kleene(decides: Boolean)(inline more: Boolean)(
+      inline next: Any
+  ): Any =
+    var unknown = false
+    var decided = false
+    while (!decided && more) {
+      next match
+        case b: java.lang.Boolean => decided = b.booleanValue == decides
+        case _                    => unknown = true
+    }
+    if (decided) decides else if (unknown) null else !decides
 
   /** The operand's type picks the comparison, as CEL's checker picks an
     * overload: a number literal on the number line, `eq` included, a text side
@@ -128,7 +122,12 @@ object Transform {
     * numbers on the number line, anything else as text, ordering numeric when
     * both parse.
     */
-  private def compare(value: Any, operand: Any, op: Op, to: Value): Boolean =
+  private def compare(
+      value: Any,
+      operand: Any,
+      op: Op,
+      to: Value.Operand
+  ): Boolean =
     to match
       // `ne` is not `eq`, as in CEL, where values of two types are unequal.
       case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
@@ -141,7 +140,7 @@ object Transform {
           case _     => false
       case Value.Literal(Lit.Text(_)) =>
         textCompare(text(value), text(operand), op)
-      case _ =>
+      case _: Value.Entity =>
         (value, operand) match
           case (l: java.lang.Number, r: java.lang.Number) =>
             onLine(l.doubleValue, r.doubleValue, op)
@@ -171,7 +170,7 @@ object Transform {
     case s: String           => s.toDoubleOption
     case _                   => None
 
-  /** [[num]] defined, and its value. */
+  /** [[number]] defined, without its `Option`. */
   private def isNum(v: Any): Boolean = v match
     case _: java.lang.Number => true
     case s: String           => s.toDoubleOption.isDefined
@@ -185,54 +184,4 @@ object Transform {
   // As CEL's `math.round`.
   private def roundAway(d: Double): Double =
     BigDecimal(d).setScale(0, BigDecimal.RoundingMode.HALF_UP).toDouble
-
-  /** A CEL source and the typed names it compiles against: the named inputs it
-    * reads, empty for nearly every slot, and the type its `value` is declared
-    * as, `None` for a CEL source, which has none.
-    */
-  case class CelKey(
-      src: String,
-      env: List[(String, ValueType)] = Nil,
-      value: Option[ValueType] = Some(ValueType.Entity)
-  )
-
-  def parse(src: String): Either[String, Compiled] = parse(CelKey(src))
-
-  def parse(key: CelKey): Either[String, Compiled] =
-    Cel.parse(key.src, key.env, key.value)
-
-  /** What it produces, or why it does not compile. */
-  def resultType(key: CelKey): Either[String, ValueType] =
-    Cel.resultType(key.src, key.env, key.value)
-
-  /** Over a whole entity, as a node variable's start is. Never throws into the
-    * render: a failure returns its message.
-    */
-  def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
-    SlotValue.text(runValue(expr, entity.celValue, dashboardSlug))
-
-  def runValue(
-      expr: Compiled,
-      value: Any,
-      dashboardSlug: String,
-      values: Map[String, Object] = Map.empty
-  ): SlotValue =
-    Cel.runValue(expr, value, dashboardSlug, values)
-
-  /** How a fetch's answer becomes the hole's content: its [[Step.Chart]], or
-    * the answer as JSON when it has none.
-    */
-  enum Stage derives CanEqual {
-    case Passthrough
-    case Chart(params: ChartStyle = ChartStyle())
-  }
-
-  object Stage {
-
-    def key(s: Stage): String = s match {
-      case Stage.Passthrough  => "passthrough"
-      case Stage.Chart(style) => s"chart:$style"
-    }
-  }
-
 }

@@ -1,6 +1,6 @@
 /// The conditions and candidate-set wire that `query.pkl` builds and the
-/// backend decodes. A condition is a bool reading, `fh.view.model.ValueExpr`
-/// (its `source` and `steps`), decided without CEL: each class here keeps what
+/// backend decodes. A condition is a bool `fh.view.model.ValueExpr` (its
+/// `source` and `steps`), decided without CEL: each class here keeps what
 /// its builder names hidden and writes that wire. Here rather than in
 /// `query.pkl` so the query language and the card library share the wire
 /// without depending on each other. There are no free constructors, so a term
@@ -13,27 +13,27 @@ import "slot.pkl" as slotMod
 
 typealias PredicateOp = simpleMod.CompareOp
 
-/// A condition. The combinators are methods, since the operators
-/// `&&`/`||`/`!` do not cross the seam.
-abstract class Predicate {
-  source: Any
-  steps: Listing<simpleMod.Step> = new {}
+/// A condition: a [[slotMod.ValueExpr]] of a bool, decided without CEL (ADR
+/// 0035). It is not a [[slotMod.Reading]], so a slot's fields (`entityId`,
+/// `default`, …) are refused rather than ignored. The combinators are methods,
+/// since the operators `&&`/`||`/`!` do not cross the seam.
+abstract class Predicate extends slotMod.ValueExpr {
   function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
   function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
   function not(): PNot = let (l = this) new PNot { item = l }
 }
 
-/// `property <op> value`, where `property` is `"state"` or `"attr:<name>"`.
-/// `value` rides as JSON, so a threshold stays a number.
+/// `part <op> value`: the state, or the attribute `part` names. `value` rides
+/// as JSON, so a threshold stays a number.
 class Cmp extends Predicate {
-  hidden property: String
+  hidden part: simpleMod.Attr? = null
   hidden op: PredicateOp
   hidden value: Any
   /// Absent means the entity this is about: a card's subject, or the member a
   /// guard is decided for. Present names another, which reaches the reverse
   /// index through the reading's entities, or the node is never woken by it.
   hidden entity: String? = null
-  source = let (c = this) (propertyRead(c.property)) { of = c.entity }
+  source = let (c = this) new slotMod.EntityRead { of = c.entity; part = c.part }
   steps = let (c = this) new Listing { new simpleMod.CompareStep { op = c.op; to = c.value } }
 }
 
@@ -151,22 +151,13 @@ class SetNode extends nodes.LayoutNode {
 /// ([[propertyKey]]), or whether a condition holds, true first under `asc`. A
 /// registry key never reaches it: it folds into the candidate order.
 class SortTerm {
-  by: Predicate|slotMod.Reading
+  by: slotMod.ValueExpr
   dir: "asc"|"desc" = "asc"
 }
 
-/// The member's `state` or `attr:<name>`.
-const function propertyKey(property: String): slotMod.Reading =
-  new slotMod.Reading { source = propertyRead(property) }
-
-/// `state` or `attr:<name>` of the entity this is about.
-const function propertyRead(property: String): slotMod.EntityRead =
-  new slotMod.EntityRead {
-    part =
-      if (property == "state") null
-      else if (property.startsWith("attr:")) new simpleMod.Attr { name = property.drop(5) }
-      else throw("a live read is of 'state' or 'attr:<name>', not '\(property)'")
-  }
+/// The member's state, or the attribute `attr` names.
+const function propertyKey(attr: simpleMod.Attr?): slotMod.Reading =
+  new slotMod.Reading { source = new slotMod.EntityRead { part = attr } }
 
 /// Vacuously true, and reads nothing: [[iff]] of a condition the build settled
 /// as true.

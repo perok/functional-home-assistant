@@ -6,6 +6,7 @@ import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
 import fh.view.model.{
+  SortTerm,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -59,7 +60,7 @@ class SetNodeSuite extends ServerHarness {
   private def setOf(
       candidates: List[String],
       guard: String => Option[ValueExpr],
-      orderBy: List[LayoutNode.SortTerm] = Nil,
+      orderBy: List[SortTerm] = Nil,
       limit: Option[Int] = None
   ): Dashboard =
     Dashboard(
@@ -158,7 +159,7 @@ class SetNodeSuite extends ServerHarness {
 
   private def sorted(
       candidates: List[String],
-      by: LayoutNode.SortTerm,
+      by: SortTerm,
       limit: Option[Int] = None
   ) = setOf(candidates, _ => Some(whileOn), List(by), limit)
 
@@ -166,7 +167,7 @@ class SetNodeSuite extends ServerHarness {
     // 2 must sort below 10, the trap a string compare falls into.
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
+      SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)
     )
     val states =
       Map("light.a" -> bri("light.a", 2), "light.b" -> bri("light.b", 10))
@@ -183,7 +184,7 @@ class SetNodeSuite extends ServerHarness {
     // a value moving without overtaking a neighbour costs zero patches.
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
+      SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)
     )
     val states = Map(
       "light.a" -> bri("light.a", 90),
@@ -201,7 +202,7 @@ class SetNodeSuite extends ServerHarness {
   test("a reorder is Gone/Placed, and only for the member that moved") {
     val dash = sorted(
       List("light.a", "light.b", "light.c", "light.d"),
-      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc")
+      SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc)
     )
     val states = Map(
       "light.a" -> bri("light.a", 40),
@@ -226,7 +227,7 @@ class SetNodeSuite extends ServerHarness {
   test("`limit` cuts the losers out of the DOM, not into a hidden state") {
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(Conds.prop("attr:brightness"), "desc"),
+      SortTerm(Conds.prop("attr:brightness"), SortTerm.Dir.Desc),
       limit = Some(2)
     )
     val states = Map(

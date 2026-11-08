@@ -1,12 +1,12 @@
-package fh.view.model
+package fh.view.runtime
 
-import fh.view.runtime.EntityState
+import fh.view.model.*
 import io.circe.Json
 
-class TransformSuite extends munit.FunSuite {
+class StepsSuite extends munit.FunSuite {
 
-  private def compile(src: String): Transform.Compiled =
-    Transform.parse(src).fold(e => fail(e), identity)
+  private def compile(src: String): Cel.Program =
+    Cel.parse(src).fold(e => fail(e), identity)
 
   private def run(
       src: String,
@@ -14,7 +14,7 @@ class TransformSuite extends munit.FunSuite {
       attributes: Map[String, Json] = Map.empty,
       entity: String = "sensor.x"
   ): String =
-    Transform.run(
+    Cel.run(
       compile(src),
       EntityState(entity, state, attributes),
       "dashboard"
@@ -172,7 +172,7 @@ class TransformSuite extends munit.FunSuite {
 
   test("the dashboard slug binds independently of the entity") {
     assertEquals(
-      Transform.run(
+      Cel.run(
         compile("dashboard_slug"),
         EntityState("", "", Map.empty),
         "kitchen"
@@ -200,8 +200,8 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("parse rejects malformed CEL and empty input") {
-    assert(Transform.parse("'on' ? : 'x'").isLeft)
-    assert(Transform.parse("   ").isLeft)
+    assert(Cel.parse("'on' ? : 'x'").isLeft)
+    assert(Cel.parse("   ").isLeft)
   }
 
   test("slider fill: --_end percent from the position attr, null-guarded") {
@@ -314,30 +314,21 @@ class TransformSuite extends munit.FunSuite {
     ValueExpr(Value.Entity(None, part), steps.toList)
   private def state(steps: Step*) = on(Part.State, steps*)
   private def attr(name: String, steps: Step*) = on(Part.Attr(name), steps*)
-  private def text(s: String) = Value.Literal(Lit.Text(s))
-  private def real(d: Double) = Value.Literal(Lit.Real(d))
+  private def text(s: String): Value.Operand = Value.Literal(Lit.Text(s))
+  private def real(d: Double): Value.Operand = Value.Literal(Lit.Real(d))
   private def unit(name: String) =
     Step.WithUnit(Value.Entity(None, Part.Attr(name)))
   private def matchOf(cases: Map[String, String], otherwise: String) =
     Step.Match(cases.map((k, v) => k -> Lit.Text(v)), text(otherwise))
 
-  /** The renderer's fast path: the source read, then each format step, with
-    * operands read off the same entity.
-    */
+  /** What the renderer's evaluator makes of `shape` over `e`. */
   private def runShape(shape: ValueExpr, e: EntityState): String =
-    val operand: Value => Any = {
-      case Value.Entity(_, part, _, _) => Transform.read(part, e)
-      case Value.Literal(l)            => l.raw
-      case _                           => ""
-    }
-    val start: Any = operand(shape.source)
-    val out = Transform.text(shape.steps.foldLeft(start) {
-      case (v, f: Step.Simple) => Transform.format(f, v, operand)
-      case (v, _)              => v
-    })
+    val out = Steps.text(
+      Evaluator.plain(shape)(e, Map(e.entityId -> e), Evaluator.noFetch)
+    )
     // As a slot shows it: nothing to show takes the reading's default.
     if (out.nonEmpty) out
-    else shape.default.fold("")(l => Transform.text(l.raw))
+    else shape.default.fold("")(l => Steps.text(l.raw))
 
   private def agree(
       shape: ValueExpr,
@@ -348,7 +339,7 @@ class TransformSuite extends munit.FunSuite {
     probes.foreach { e =>
       assertEquals(
         runShape(shape, e),
-        Transform.run(compiled, e, "dashboard"),
+        Cel.run(compiled, e, "dashboard"),
         clue = s"[$cel] state=${e.state} attrs=${e.attributes}"
       )
     }
@@ -464,7 +455,7 @@ class TransformSuite extends munit.FunSuite {
     val e = es("on", "unit_of_measurement" -> Json.fromInt(5))
     assertEquals(runShape(state(unit("unit_of_measurement")), e), "on")
     assert(
-      Transform
+      Cel
         .run(
           compile(
             "value.state + ('unit_of_measurement' in value.attr ? ' ' + " +
@@ -482,7 +473,7 @@ class TransformSuite extends munit.FunSuite {
     val e = es("", "unit_of_measurement" -> Json.fromString("W"))
     assertEquals(runShape(state(unit("unit_of_measurement")), e), "")
     assertEquals(
-      Transform.run(
+      Cel.run(
         compile(
           "value.state + value.attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"
         ),
@@ -594,7 +585,7 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(runShape(minutes, es("unavailable")), "")
     assertEquals(runShape(minutes, es("")), "")
     assert(
-      Transform
+      Cel
         .run(compile(durationExpr), es("unknown"), "dashboard")
         .startsWith("cel error:")
     )
@@ -616,7 +607,7 @@ class TransformSuite extends munit.FunSuite {
       ""
     )
     assert(
-      Transform
+      Cel
         .run(compile(percentExpr), empty, "dashboard")
         .startsWith("cel error:")
     )

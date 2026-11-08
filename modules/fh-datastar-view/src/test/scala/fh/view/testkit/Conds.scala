@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{LayoutNode, Lit, Op, Part, Step, Value, ValueExpr}
+import fh.view.model.{Lit, Op, Part, SortTerm, Step, Value, ValueExpr}
 import io.circe.Json
 
 /** Conditions as `core/predicate.pkl` writes them, so a suite states one in the
@@ -8,7 +8,7 @@ import io.circe.Json
   */
 object Conds {
 
-  private def lit(v: Json): Value =
+  private def lit(v: Json): Value.Operand =
     Value.Literal(v.as[Lit].fold(e => throw e, identity))
 
   /** `property` is `state` or `attr:<name>`; no `entity` is the one this is
@@ -62,7 +62,7 @@ object Conds {
   def first(
       candidates: List[String] = Nil,
       when: Map[String, ValueExpr] = Map.empty,
-      orderBy: List[LayoutNode.SortTerm] = Nil,
+      orderBy: List[SortTerm] = Nil,
       entity: String
   ): ValueExpr =
     ValueExpr(

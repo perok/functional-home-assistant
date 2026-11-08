@@ -52,7 +52,7 @@ present ids alone are a `list(string)`), a condition → `bool`, a fetch → its
 `fh.Entity` (`kitchen.attr.brightness`). Numbers decode by their SPELLING, as Pkl wrote them, since
 a `Float` 2.0 and an `Int` 2 have one value. The type is `ValueExpr.inputType`; another shape is
 refused, so no input is computed by CEL and inputs cannot form a cycle. The expression compiles
-against `value`, `dashboard_slug`, `time_zone` and the node's names (`Transform.CelKey`: source,
+against `value`, `dashboard_slug`, `time_zone` and the node's names (`Cel.Key`: source,
 typed names and `value`'s type), so a typo, an unknown name or `lights_on + ' on'` (no
 `int + string` overload) fails the BUILD. Refused too: a name that is not a CEL identifier, one
 hiding `value`/`dashboard_slug`/`time_zone`, a value

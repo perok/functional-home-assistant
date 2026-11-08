@@ -5,7 +5,7 @@ import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.history.{ChartStyle, History, Series, SeriesSource, Windows}
-import fh.view.model.Transform
+import fh.view.model.Step
 import io.circe.Json
 import io.circe.syntax.*
 
@@ -24,7 +24,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
     Series(Vector(Series.Point(java.time.Instant.EPOCH, 1.0))).asJson
 
   private def chart(style: ChartStyle = ChartStyle()) =
-    Transform.Stage.Chart(style)
+    Some(Step.Chart(style))
 
   // The resolver is handed its answers, so its provider is never asked.
   private val unused: SeriesSource = new SeriesSource {
@@ -65,7 +65,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   private def stage(
       r: FetchResolver,
       request: FetchRequest,
-      st: Transform.Stage,
+      st: Option[Step.FetchStage],
       version: Long,
       answer: Json = data
   ): IO[String] =
@@ -115,17 +115,17 @@ class StageCacheSuite extends munit.CatsEffectSuite {
     // One entry per (question, stage), even for a cheap stage.
     fixture().flatMap { case (r, _) =>
       for {
-        raw <- stage(r, q, Transform.Stage.Passthrough, 100L)
+        raw <- stage(r, q, None, 100L)
         _ <- stage(r, q, chart(), 100L)
-        _ <- stage(r, q, Transform.Stage.Passthrough, 200L)
+        _ <- stage(r, q, None, 200L)
         ks <- r.keys
       } yield {
         assertEquals(raw, data.noSpaces)
         assertEquals(
           ks.map(k => (k.stage, k.version)),
-          Set[(Transform.Stage, Long)](
+          Set[(Option[Step.FetchStage], Long)](
             (chart(), 100L),
-            (Transform.Stage.Passthrough, 200L)
+            (None, 200L)
           )
         )
       }

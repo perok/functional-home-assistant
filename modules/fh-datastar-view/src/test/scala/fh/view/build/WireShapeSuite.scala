@@ -3,6 +3,7 @@ package fh.view.build
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  SortTerm,
   Access,
   Activation,
   Cell,
@@ -191,7 +192,7 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("ordering and layout-cell shapes agree on both sides") {
-    check("SortTerm", LayoutNode.SortTerm(Conds.prop("state")))
+    check("SortTerm", SortTerm(Conds.prop("state")))
     check("Cell", Cell())
   }
 
@@ -235,7 +236,7 @@ class WireShapeSuite extends munit.FunSuite {
 
   test("the value model agrees on both sides") {
     val fetch = FetchTemplate("sensor.t", Choice.Fixed(Window.Raw(1L)))
-    val lit = Value.Literal(Lit.Whole(0))
+    val lit: Value.Operand = Value.Literal(Lit.Whole(0))
     check("EntityRead", Value.Entity())
     check("FetchRead", Value.Fetch(fetch))
     check("Tally", Value.Present(Nil, Map.empty))
@@ -291,7 +292,9 @@ class WireShapeSuite extends munit.FunSuite {
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple
-      ] ++ caseNames[Step.Stage]) -> Set(
+      ] ++ caseNames[Step.Stage] - "FetchStage" ++ caseNames[
+        Step.FetchStage
+      ]) -> Set(
         "Cel",
         "Prefix",
         "Suffix",
