@@ -1030,7 +1030,7 @@ keeps its entity, its wake and its signal, and its CEL reads the answer by name.
 pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
 surface, a `valueWhile`, a press on a set) reads one too: the build lists every fetch a decision
 reads (`Ready.Dashboard.decisionReads`), and `Server` answers them (`Renderer.answerDecisions`)
-wherever it reads a snapshot for a renderer, before anything decides on it. The answers depend on
+in `currentFor`, its one read of the store, before anything decides on it. The answers depend on
 no snapshot, since the build refuses a decision's fetch that reads a viewer's variable, so the
 renderer's `Decided` keeps the newest, and one asked before any raises. As for a slot's, an answer
 that moves wakes nothing; the decision is made again when its entities change. A value's fetch
