@@ -130,7 +130,10 @@ opts in, since it costs a re-decision on every change of that entity.
 Resuming a blocked walk (Haxl-style continuations) was weighed against walking again: it walks
 once, but needs a second description of what is shown, the chain of decisions the build would
 have to list, and a decision that chain misses fails at render. Reopen if a walk's cost shows
-beside its fetches. A recorder lagging behind could fold every queued frame in one pass (dirty from
+beside its fetches. Not a cats-effect `Dispatcher` either: inside the synchronous walk it would
+block a compute thread per fetch and answer them one at a time; nor the `fetch` library (Haxl for
+Scala), which brings data sources and a cache of its own beside the history cache, for what the
+loop does in a few lines. A recorder lagging behind could fold every queued frame in one pass (dirty from
 all their changes, "before" the previous version, "after" the last state); left out until lag
 shows.
 

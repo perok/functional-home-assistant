@@ -210,7 +210,8 @@ Three rules keep the layers apart, and building on them is how new work stays ch
 - **Work happens only where a dirty mark meets something shown.** A dirty decision is made again
   only when a walk reaches it: a viewer's, a press, the debug route, or the recorder's for what
   some session has open. One nobody shows stays dirty and costs nothing. A plain tick dirties no
-  decision and ends as a `touched` entry.
+  decision and ends as a `touched` entry; a removal (`StateChange.Removed`) is a change like any
+  other, so a decision that read the entity goes dirty.
 - **A version decides each thing once**, and the pre-read, the walk, the render key and the
   paint agree because they ask the same `Shared`. A decision derived twice could come out
   differently between the pre-read and the walk, which is a fetch the walk needs and was not
