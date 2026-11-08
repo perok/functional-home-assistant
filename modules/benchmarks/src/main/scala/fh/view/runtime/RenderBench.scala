@@ -703,7 +703,7 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       bh.consume(
-        Evaluator.holds(isOnRun(st(entityId(i)), st, Evaluator.noFetch))
+        Evaluator.holds(isOnRun(st(entityId(i)), st, Evaluator.unanswered))
       )
       i += 1
     }
@@ -734,11 +734,11 @@ class RenderBench {
 
   @Benchmark
   def countAny(bh: Blackhole): Unit =
-    bh.consume(Evaluator.holds(anyOnRun(null, st, Evaluator.noFetch)))
+    bh.consume(Evaluator.holds(anyOnRun(null, st, Evaluator.unanswered)))
 
   @Benchmark
   def countAnyFull(bh: Blackhole): Unit =
-    bh.consume(Evaluator.holds(anyOnFullRun(null, st, Evaluator.noFetch)))
+    bh.consume(Evaluator.holds(anyOnFullRun(null, st, Evaluator.unanswered)))
 
   @Benchmark
   def conditionCel(bh: Blackhole): Unit = {
@@ -781,7 +781,7 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       bh.consume(
-        Evaluator.holds(litNotDimRun(leafStates(i), st, Evaluator.noFetch))
+        Evaluator.holds(litNotDimRun(leafStates(i), st, Evaluator.unanswered))
       )
       i += 1
     }
@@ -798,7 +798,9 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       bh.consume(
-        Evaluator.holds(brightRun(leafStates(i).copy(), st, Evaluator.noFetch))
+        Evaluator.holds(
+          brightRun(leafStates(i).copy(), st, Evaluator.unanswered)
+        )
       )
       i += 1
     }
@@ -821,7 +823,7 @@ class RenderBench {
   def leaderRow(bh: Blackhole): Unit = {
     var i = 0
     while (i < Pills) {
-      bh.consume(Evaluator.holds(leaders(i)(null, st, Evaluator.noFetch)))
+      bh.consume(Evaluator.holds(leaders(i)(null, st, Evaluator.unanswered)))
       i += 1
     }
   }

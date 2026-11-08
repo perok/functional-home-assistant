@@ -32,6 +32,9 @@ final class FetchSnapshot private (
 
   def value(node: NodeId, ask: SlotAsk): String = staged(node, ask).value
 
+  /** For an ask no viewer's variable shapes: a decision's. */
+  def shared(ask: SlotAsk): String = staged(ask.resolve(Map.empty)).value
+
   def staged(node: NodeId, ask: SlotAsk): Staged = staged(read(node, ask))
 
   private def staged(read: SlotRead): Staged =

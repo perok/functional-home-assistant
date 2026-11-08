@@ -145,6 +145,10 @@ final case class ValueExpr(
   /** It and every expression inside it, at any depth. */
   def all: List[ValueExpr] = scoped.map(_._1)
 
+  /** Every fetch it reads, at any depth. */
+  def fetches: List[FetchTemplate] =
+    all.map(_.source).collect { case Value.Fetch(f) => f }
+
   /** The node's values its CELs read, at any depth: by name, where no input of
     * that CEL's own has it.
     */

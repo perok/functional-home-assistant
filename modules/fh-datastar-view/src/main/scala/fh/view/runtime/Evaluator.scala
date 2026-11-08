@@ -3,6 +3,7 @@ package fh.view.runtime
 import scala.jdk.CollectionConverters.*
 
 import cats.syntax.all.*
+import fh.view.FHError
 import fh.view.model.{
   FetchTemplate,
   Lit,
@@ -186,18 +187,23 @@ private[view] object Evaluator {
   ): Built[List[Run]] =
     items.traverse(compile(_, scope, named).map(_.run))
 
-  /** For a decision outside a render, where no fetch is answered: a set's
-    * clause, guard and order, a state surface, a press on a set.
+  /** Where no fetch was answered: a run that reads one is a wiring bug, so loud
+    * rather than an empty series.
     */
-  val noFetch: FetchTemplate => Object = _ => ""
+  val unanswered: FetchTemplate => Object = f =>
+    throw FHError.internal(
+      s"a value read the fetch '${f.key}' where none is answered"
+    )
 
   /** A set's candidates present in a snapshot: what a call over it acts on. */
   def presentOf(
       p: Value.Present,
       scope: Scope
-  ): Built[Map[String, EntityState] => List[String]] =
+  ): Built[
+    (Map[String, EntityState], FetchTemplate => Object) => List[String]
+  ] =
     present(p, scope).map(is =>
-      states => p.candidates.filter(is(_, states, noFetch))
+      (states, fetched) => p.candidates.filter(is(_, states, fetched))
     )
 
   /** An ordering, its keys read once per candidate rather than per comparison

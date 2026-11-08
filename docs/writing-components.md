@@ -249,7 +249,10 @@ peak.of(new slotMod.Reading {
 It takes what `active` and `disabled` take: `true`/`false`, a condition
 (`q.entity(e).gt(…)`, `.stateIs(…)`, `q.from(…).any()`), or a reading that is a
 `bool` (`slotMod.expr("int(value.state) > 0")`). A condition is the fast choice, and
-one that names no entity reads the slot's. A reading cannot use a fetch.
+one that names no entity reads the slot's. A reading here can read history as
+above, and so can one in a set's `where` or `orderBy` or in a `c.iff`, but not
+through `p.history.chosen`: these are decided once for every viewer, so the
+build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
 
 ---

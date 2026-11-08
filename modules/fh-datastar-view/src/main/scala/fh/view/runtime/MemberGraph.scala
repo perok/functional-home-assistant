@@ -215,8 +215,9 @@ private[runtime] final class MemberGraph(
         case Some(keys) =>
           // Stable over candidate order: the tiebreak that stops ties
           // reshuffling on every tick.
+          val fetched = decided.fetched
           members
-            .map(m => m -> keys.of(entityOf(m), states, Evaluator.noFetch))
+            .map(m => m -> keys.of(entityOf(m), states, fetched))
             .sortWith((a, b) => keys.compare(a._2, b._2) < 0)
             .map(_._1)
       s.limit.fold(ordered)(ordered.take)
@@ -269,13 +270,12 @@ private[runtime] final class MemberGraph(
         states: Map[String, EntityState]
     ): Option[Member] = {
       val subject = states.getOrElse(entityId, null)
+      val fetched = decided.fetched
       clauses
         .get(entityId)
         .flatMap(
           _.find(
-            _._1.forall(g =>
-              Evaluator.holds(g(subject, states, Evaluator.noFetch))
-            )
+            _._1.forall(g => Evaluator.holds(g(subject, states, fetched)))
           )
         )
         .flatMap(_._2)

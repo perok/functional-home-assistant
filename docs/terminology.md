@@ -360,7 +360,8 @@ The second of three layers (build, index, decisions; the pipeline doc's §1a). N
 **Decisions** — what one state snapshot decides: which members a set holds and in which clause,
 which branch a state group shows, whether each `valueWhile` holds. Kept for that snapshot, so the
 pre-read, the walk and the paint ask rather than decide again, and every viewer of that version
-shares them. A viewer's own selection is not a decision, it is looked up.
+shares them. A decision may read a fetch, which the server answers before any is made. A viewer's
+own selection is not a decision, it is looked up.
 
 **Fragment** — one node's own HTML, as opposed to the composed HTML a parent embeds. What gets sent.
 
