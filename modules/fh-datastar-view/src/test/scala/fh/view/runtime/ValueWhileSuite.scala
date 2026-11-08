@@ -192,17 +192,35 @@ class ValueWhileSuite extends munit.FunSuite {
     assertEquals(gated.values.toList, List(""))
   }
 
-  test("the build refuses one that reads a fetch, is not a bool, or is once") {
-    def errs(of: TemplateSlot) = dashboard(node(of)).validate().mkString("\n")
+  test("one that reads a fetch decides by the answer the server prepared") {
     val readsFetch = ValueExpr(
       Value.Cel(
-        "size(past) > 0",
+        "size(past) > 1",
         Map("past" -> ValueExpr(Value.Fetch(history)))
       )
     )
+    val d = dashboard(node(peak(Some(readsFetch))))
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
+    def of(decided: String) = {
+      r.answerDecisions(reads =>
+        cats.effect.IO.pure(
+          FetchSnapshot.of(reads.map(_ -> Staged(1L, decided)).toMap)
+        )
+      ).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
+      r.signalsFor(idOf(d, 0), states("46"), answered).values.toList
+    }
     assert(
-      errs(peak(Some(readsFetch))).contains("valueWhile that reads a fetch")
+      intercept[fh.view.FHError](
+        r.signalsFor(idOf(d, 0), states("46"), answered)
+      ).getMessage.contains("where none is answered")
     )
+    assertEquals(of("""{"points":[[0,0.0],[60000,101.0]]}"""), List("101"))
+    assertEquals(of("""{"points":[[0,0.0]]}"""), List(""))
+  }
+
+  test("the build refuses one that is not a bool, or is once") {
+    def errs(of: TemplateSlot) = dashboard(node(of)).validate().mkString("\n")
     assert(
       errs(
         peak(

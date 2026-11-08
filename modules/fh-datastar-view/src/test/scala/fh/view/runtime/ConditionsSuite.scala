@@ -42,7 +42,7 @@ class ConditionsSuite extends munit.FunSuite {
     Conds.run(p)(
       st,
       states,
-      Evaluator.noFetch
+      Evaluator.unanswered
     )
 
   private def holds(
@@ -256,7 +256,7 @@ class ConditionsSuite extends munit.FunSuite {
     } {
       val full = Evaluator
         .presentOf(Value.Present(ids, guards), Evaluator.Scope(""))
-        .fold(m => fail(m.message), _(states))
+        .fold(m => fail(m.message), _(states, Evaluator.unanswered))
         .size
       assertEquals(
         holds(

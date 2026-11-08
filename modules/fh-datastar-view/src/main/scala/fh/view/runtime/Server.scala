@@ -273,7 +273,7 @@ class Server(
             .map(TapCall(s"$domain/$service", _, data.map(_._1)))
             .flatMap(permission.reachOf(user, _)) match {
             case Some(reach) =>
-              targetAtPress(reach).flatMap {
+              targetAtPress(slug, reach).flatMap {
                 case Some(target) =>
                   callService(
                     domain,
@@ -299,16 +299,34 @@ class Server(
     * subset of the candidates fixed at build, so a press reaches nothing the
     * dashboard does not name.
     */
-  private def targetAtPress(reach: Ready.Reach): IO[Option[ServiceTarget]] =
+  private def targetAtPress(
+      slug: String,
+      reach: Ready.Reach
+  ): IO[Option[ServiceTarget]] =
     reach match {
       case t: ServiceTarget => IO.pure(Some(t))
       case s: Ready.SetCall =>
-        stateStore.snapshot.map(states =>
-          NonEmptyList
-            .fromList(s.present(states))
-            .map(ServiceTarget.Entities(_))
-        )
+        rendererFor(slug).flatMap {
+          case None =>
+            IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
+          case Some(renderer) =>
+            currentFor(renderer).map(store =>
+              NonEmptyList
+                .fromList(renderer.pressed(s, store.entities))
+                .map(ServiceTarget.Entities(_))
+            )
+        }
     }
+
+  /** The store now, `renderer`'s decisions answered first: every snapshot a
+    * renderer decides on is read through here (pipeline doc §1a).
+    */
+  private def currentFor(renderer: Renderer): IO[StoreState] =
+    answering(renderer) *> stateStore.current
+
+  /** Where the store is read beside the renderer: before the body decides. */
+  private def answering(renderer: Renderer): IO[Unit] =
+    renderer.answerDecisions(answer(_, Map.empty))
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
     * routes without it sees the same response.
@@ -447,7 +465,7 @@ class Server(
       held: Membership,
       changes: List[StateChange]
   ): IO[(Membership, Long)] =
-    (stateStore.current, sessions.openSets(slug), sessions.floor(slug))
+    (currentFor(renderer), sessions.openSets(slug), sessions.floor(slug))
       .flatMapN { (store, opens, floor) =>
         val before = Patches.beforeSnapshot(store.entities, changes)
         // Before the gate and for every group: the membership tracks the
@@ -703,7 +721,7 @@ class Server(
       if (version <= s.position) IO.pure(Session.Step(s, Nil, Nil))
       else
         (
-          OptionT(live.renderer.get.map(_.rendererOf)),
+          OptionT(live.renderer.get.map(_.rendererOf)).semiflatTap(answering),
           OptionT.liftF(live.log.get),
           OptionT.liftF(stateStore.current)
         ).flatMapN { (renderer, log, store) =>
@@ -772,7 +790,7 @@ class Server(
   ): IO[Session.Step[Unit]] =
     (
       OptionT.liftF(live.doorbell.get),
-      OptionT(live.renderer.get.map(_.rendererOf)),
+      OptionT(live.renderer.get.map(_.rendererOf)).semiflatTap(answering),
       OptionT.liftF(live.log.get),
       OptionT.liftF(stateStore.current)
     ).flatMapN { (covered, renderer, log, store) =>
@@ -917,7 +935,7 @@ class Server(
     val popup = prev.surfaces.selectionsIn(s.open).popup
     val ui = r.surfaces.selections(popup, env)
     val open = r.surfaces.selectedSurfaces(ui)
-    session.reveal(open) *> (stateStore.current, live.log.get).flatMapN {
+    session.reveal(open) *> (currentFor(r), live.log.get).flatMapN {
       (store, log) =>
         pageAnswers(r, open, store.entities, env).map { fragments =>
           val head =
@@ -993,7 +1011,7 @@ class Server(
     val open = (s.open -- evict) ++ newSurface.toSet
     for {
       _ <- session.reveal(open)
-      store <- stateStore.current
+      store <- currentFor(renderer)
       states = store.entities
       // Only the arriving surface's fetches, so an unopened popup costs
       // nothing.
@@ -1078,7 +1096,7 @@ class Server(
     val groups = renderer.vars.panelsSelectedBy(key)
     val proposed = s.vars + (key -> value)
     for {
-      store <- stateStore.current
+      store <- currentFor(renderer)
       shown = renderer.surfaces.visibleNode(_, s.open, store.entities)
       _ <- IO.raiseWhen(
         (readers.isEmpty && groups.isEmpty) || !shown(key.declarer)
@@ -1391,7 +1409,7 @@ class Server(
       renderer: Renderer,
       id: String
   ): IO[Response[IO]] =
-    stateStore.snapshot.flatMap { states =>
+    currentFor(renderer).map(_.entities).flatMap { states =>
       val entities = renderer.entitiesForNode(NodeId.derived(id), states)
       val arr = Json.arr(entities.map { e =>
         states.get(e) match {
@@ -1585,7 +1603,7 @@ class Server(
       _ <- reapAfter(conn, session, Tenure.Fresh, windows.adoption)
       store <- tracer
         .span("dashboard.page.store", Attribute("fh.slug", slug))
-        .surround(stateStore.current)
+        .surround(currentFor(renderer))
       // Captured now: the walk runs when the body is pulled, after this `for`
       // returns, and would otherwise open its own trace (#75).
       parentSpan <- tracer.currentSpanContext

@@ -329,7 +329,7 @@ class StepsSuite extends munit.FunSuite {
       Conds.run(shape)(
         e,
         Map(e.entityId -> e),
-        Evaluator.noFetch
+        Evaluator.unanswered
       )
     )
     // As a slot shows it: nothing to show takes the reading's default.

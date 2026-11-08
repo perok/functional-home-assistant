@@ -1,7 +1,7 @@
 package fh.view.runtime
 
+import cats.effect.IO
 import com.github.mustachejava.Mustache
-import fh.view.FHError
 import fh.view.build.LibPackage
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.history.Series
@@ -329,6 +329,25 @@ class Renderer(validated: Dashboard.Validated) {
           }
       }
 
+  /** Answers the fetches this dashboard's decisions read, for every decision
+    * made from now on; one that reads none answers nothing.
+    */
+  def answerDecisions(answer: List[SlotRead] => IO[FetchSnapshot]): IO[Unit] =
+    dashboard.decisionReads match
+      case Nil   => IO.unit
+      case reads =>
+        answer(reads).map(s =>
+          decided.answer(f => Series.celPoints(s.shared(SlotAsk(f, None))))
+        )
+
+  /** What a press on a set reaches: its candidates present now, decided as a
+    * set's clauses are.
+    */
+  def pressed(
+      call: Ready.SetCall,
+      states: Map[String, EntityState]
+  ): List[String] = call.present(states, decided.fetched)
+
   /** A target has its own rendering ([[ownRenderingOf]]), so its descendants
     * are not asked, except a member's: a member is placed whole.
     */
@@ -380,7 +399,7 @@ class Renderer(validated: Dashboard.Validated) {
         g.entity,
         gateRuns.computeIfAbsent(g.key, _ => live(g.valueWhile)),
         states,
-        noFetch
+        decided.fetched
       ) match
         case b: Boolean => b
         case _          => false
@@ -1639,7 +1658,13 @@ class Renderer(validated: Dashboard.Validated) {
       val once = identityCache.computeIfAbsent(
         (source.entityId.getOrElse(""), source.valueKey),
         _ =>
-          resolveStateSlotValue(source.entityId, live(source), states, noFetch)
+          // A fetch is live, so a `once` value reads none.
+          resolveStateSlotValue(
+            source.entityId,
+            live(source),
+            states,
+            Evaluator.unanswered
+          )
       )
       Planned.Constant(once, Datastar.jsValue(once))
     case None => live(source)
@@ -1863,14 +1888,6 @@ class Renderer(validated: Dashboard.Validated) {
   ): Object =
     Series.celPoints(
       fragments.value(node, SlotAsk(f, None))
-    )
-
-  /** For sites `validate` keeps from reading a fetch (a `once` slot, a
-    * `valueWhile`), so one that does is loud rather than an empty series.
-    */
-  private val noFetch: FetchTemplate => Object = f =>
-    throw FHError.internal(
-      s"a slot read the fetch '${f.key}' where none is answered"
     )
 
   private def resolveStateSlotValue(

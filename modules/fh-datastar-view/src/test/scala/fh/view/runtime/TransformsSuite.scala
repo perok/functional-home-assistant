@@ -161,7 +161,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
             Value.Entity(),
             List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
           )
-        )(state, Map(state.entityId -> state), Evaluator.noFetch),
+        )(state, Map(state.entityId -> state), Evaluator.unanswered),
         "on W"
       )
     }
@@ -407,7 +407,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     ).validated()
       .fold(errs => fail(errs.mkString("\n")), _.ready.card) match
       case c: Ready.Component =>
-        Steps.text(c.slots("v").run(null, Map.empty, Evaluator.noFetch))
+        Steps.text(c.slots("v").run(null, Map.empty, Evaluator.unanswered))
       case other => fail(s"not a component: $other")
 
   private def whole(n: Long) = ValueExpr(Value.Literal(Lit.Whole(n)))

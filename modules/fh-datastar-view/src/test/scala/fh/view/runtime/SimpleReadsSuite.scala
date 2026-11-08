@@ -70,7 +70,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     Conds.run(ValueExpr(Value.Entity(None, part), List(step)))(
       e,
       Map(e.entityId -> e),
-      Evaluator.noFetch
+      Evaluator.unanswered
     )
 
   private def whole(n: Long): Value.Operand = Value.Literal(Lit.Whole(n))

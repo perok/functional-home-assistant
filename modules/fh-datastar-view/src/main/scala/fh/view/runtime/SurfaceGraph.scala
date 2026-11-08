@@ -265,7 +265,7 @@ private[runtime] final class SurfaceGraph(
   private def holds(sid: String, states: Map[String, EntityState]): Boolean =
     conditions
       .get(sid)
-      .forall(run => Evaluator.holds(run(null, states, Evaluator.noFetch)))
+      .forall(run => Evaluator.holds(run(null, states, decided.fetched)))
 
   /** First match in `bakeIndex` order; `None` bakes empty content. */
   private[runtime] def resolveActiveByState(

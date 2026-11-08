@@ -195,7 +195,7 @@ layers only look it up.
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | state snapshot | the entity states | what they decide (`Decisions`): which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Kept by the snapshot's identity (`Decided`), so every viewer rendering one version shares them |
+| **Decisions** | state snapshot | the entity states | what they decide (`Decisions`): which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Kept by the snapshot's identity (`Decided`), so every viewer rendering one version shares them, beside the answers to the fetches decisions read (§6, a fetch) |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
@@ -1028,7 +1028,12 @@ and `WindowChooserSmokeSuite` holds the re-run.
 depth: an input's own input, a list item, a guard or an order term inside the slot. The slot
 keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
 pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
-surface, a press on a set) has no answers to read: a fetch there reads as none. A value's fetch
+surface, a `valueWhile`, a press on a set) reads one too: the build lists every fetch a decision
+reads (`Ready.Dashboard.decisionReads`), and `Server` answers them (`Renderer.answerDecisions`)
+wherever it reads a snapshot for a renderer, before anything decides on it. The answers depend on
+no snapshot, since the build refuses a decision's fetch that reads a viewer's variable, so the
+renderer's `Decided` keeps the newest, and one asked before any raises. As for a slot's, an answer
+that moves wakes nothing; the decision is made again when its entities change. A value's fetch
 is a `SlotAsk` with the passthrough stage among the node's `fetches`, so the page's pre-read and
 the render key carry it already; the patch step's
 `readsForPull(touchedIds, …)` already pre-reads the fetches of the nodes whose signals it updates,

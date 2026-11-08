@@ -166,9 +166,11 @@ their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only whe
 render key, the paint and the signal path ask the same decisions, so none decides it again. A
 `valueWhile` over no entity is asked ungated, because asking too much is safe and asking too
 little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
-with one sends is not the one a card without one shares (ADR 0017). The build refuses one that
-reads a fetch (it decides whether fetches are read), one that does not produce a bool, and one on
-a `once` slot, whose memo would keep its first answer.
+with one sends is not the one a card without one shares (ADR 0017). It may read a fetch, as every
+decision may: the server answers the fetches decisions read before any is made, so it never waits
+on the fetches it gates. A decision is made once for every viewer, so the build refuses a fetch in
+one that reads a viewer's variable (a chooser's window). It also refuses one that does not produce
+a bool, and one on a `once` slot, whose memo would keep its first answer.
 
 `""` is the empty value, as a CEL `null` already is: a `null` in a signals frame deletes the signal
 (ADR 0017). What it means is the card's to say; the progress bar hides itself on it.

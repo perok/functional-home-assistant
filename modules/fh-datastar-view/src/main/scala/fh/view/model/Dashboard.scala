@@ -1088,6 +1088,37 @@ case class Dashboard(
       fetchesIn(s.content, scopeOf(s))
     )).distinct
 
+  /** Every fetch a decision reads, beside where it is read: a set's clauses and
+    * order, a `valueWhile`, a state surface, a set a press acts on.
+    */
+  lazy val decisionFetches: List[(String, FetchTemplate)] = {
+    def walk(n: LayoutNode): List[(String, FetchTemplate)] = n match
+      case c: LayoutNode.Component =>
+        c.bound.toList.sortBy((k, _) => SlotKey.label(k)).flatMap { (k, s) =>
+          s.valueWhile.toList
+            .flatMap(_.fetches)
+            .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _.fetch)
+        } ++ c.allChildren.flatMap(walk)
+      case s: LayoutNode.SetNode =>
+        s.orderBy.flatMap(_.by.fetches).map("a set's order" -> _) ++
+          s.members.values.toList.flatMap(_.clauses).flatMap { cl =>
+            cl.when.toList.flatMap(_.fetches).map("a set's clause" -> _) ++
+              walk(cl.node)
+          }
+
+    (walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
+      (s.activation match
+        case Activation.State(Some(c)) =>
+          c.fetches.map(s"surface '$sid''s condition" -> _)
+        case _ => Nil
+      ) ++ walk(s.content)
+    } ++ calls.values.toList
+      .collect { case p: Value.Present => p }
+      .flatMap(
+        ValueExpr(_).fetches.map("a set a press acts on" -> _)
+      )).distinct
+  }
+
   /** Node variables in scope at every node, by name (issue #209). A popup is
     * its own scope root, since one content may be opened from many places. An
     * owned surface (a tab panel, an `If` branch) has exactly one host, so it

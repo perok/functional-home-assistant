@@ -127,7 +127,12 @@ object Ready:
     */
   type Reach = ServiceTarget | SetCall
 
-  final class SetCall(val present: Map[String, EntityState] => List[String])
+  final class SetCall(
+      val present: (
+          Map[String, EntityState],
+          FetchTemplate => Object
+      ) => List[String]
+  )
 
   /** The compile walk, from `validate`'s typing of each slot; a `Left` is an
     * expression `validate` passed but that does not compile.
@@ -161,7 +166,12 @@ object Ready:
           calls.toMap,
           initials.toMap,
           d.varScopes,
-          d.warnings
+          d.warnings,
+          // `validate` refused a variable here, so each resolves bare.
+          d.decisionFetches
+            .map(_._2)
+            .distinct
+            .map(SlotAsk(_, None).resolve(Map.empty))
         )
       )
 
@@ -251,5 +261,7 @@ object Ready:
       // Where a session opens a node variable, by its transform.
       initials: Map[Cel.Key, Cel.Program],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
-      warnings: List[String]
+      warnings: List[String],
+      // What every decision reads, answered before any is made.
+      decisionReads: List[SlotRead]
   )

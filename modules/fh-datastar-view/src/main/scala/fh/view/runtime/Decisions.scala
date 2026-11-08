@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{NodeId, SetId}
+import fh.view.model.{FetchTemplate, NodeId, SetId}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -65,4 +65,15 @@ private[runtime] final class Decided {
       made
     }
   }
+
+  private val answered =
+    new AtomicReference[FetchTemplate => Object](Evaluator.unanswered)
+
+  /** The answers to the fetches decisions read, the newest the server prepared:
+    * they depend on no snapshot, since the build refuses one that reads a
+    * viewer's variable. Before any, a fetch read raises.
+    */
+  def fetched: FetchTemplate => Object = answered.get().nn
+
+  def answer(fetched: FetchTemplate => Object): Unit = answered.set(fetched)
 }

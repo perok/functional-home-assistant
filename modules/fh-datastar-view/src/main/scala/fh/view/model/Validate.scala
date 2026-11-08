@@ -369,9 +369,9 @@ private[model] object Validate:
       labelled(slots).flatMap { (_, name, src) =>
         src.valueWhile.toList.flatMap { w =>
           Option
-            .when(w.fetch.isDefined || w.fetches.nonEmpty)(
-              s"$nodeId: slot '$name' has a valueWhile that reads a fetch — " +
-                "it is decided before any fetch is read"
+            .when(w.fetch.isDefined)(
+              s"$nodeId: slot '$name' has a valueWhile that is a fetch's " +
+                "answer, which is never a bool"
             )
             .toList ++
             Option
@@ -1082,8 +1082,17 @@ private[model] object Validate:
             s"two different sets share the call id '$id'"
         }
 
+    val decisionFetchErrors: List[String] =
+      decisionFetches.flatMap((where, f) =>
+        f.references.map(v =>
+          s"$where reads the fetch '${f.key}': a decision is made for every " +
+            s"viewer at once, so its fetch cannot read the variable '$v'"
+        )
+      )
+
     authoredIdErrors ++
       callSetErrors ++
+      decisionFetchErrors ++
       structureLiveSlotErrors ++
       regionHoleErrors ++
       viewErrors ++
