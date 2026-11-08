@@ -29,10 +29,9 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   private def chartSlot(param: Choice[Window] = chosen) =
     TemplateSlot(
-      SlotSource(
-        fetch = Some(FetchTemplate("sensor.t", param)),
-        transform = Transform.Stage.Chart(ChartStyle(width = 600)),
-        reads = Reads.OnRender
+      ValueExpr(
+        Value.Fetch(FetchTemplate("sensor.t", param)),
+        List(Step.Chart(ChartStyle(width = 600)))
       )
     )
 
@@ -127,7 +126,9 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   test("a written-down window reads no variable at all") {
     // It has nowhere for a write to land, so nothing has to refuse one.
-    val t = chartSlot(Choice.Fixed(Windows.day)).fetch.get
+    val t = Option(chartSlot(Choice.Fixed(Windows.day)).expr.source).collect {
+      case Value.Fetch(f) => f
+    }.get
     assertEquals(t.references, Nil)
     assertEquals(
       t.resolve(Map("window" -> "7d")),

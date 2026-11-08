@@ -24,9 +24,8 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |
        |theme { classes { $themeRules } }
        |
-       |local kitchenOn = new slotMod.Reading {
+       |local kitchenOn = (simpleMod.stateIn(new Listing { "on" })) {
        |  entityId = dump.entities.${kitchen.dumpKey}.entity_id
-       |  transform = simpleMod.stateIn(new Listing { "on" })
        |  bypassUnavailable = false
        |}
        |
@@ -109,6 +108,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-dashboard/core/node.pkl" as nodes
        |import "@fh-dashboard/core/slot.pkl" as slotMod
+       |import "@fh-dashboard/core/simple.pkl" as simpleMod
        |import "@fh-home/dump.pkl" as dump
        |
        |theme { classes {
@@ -139,7 +139,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |    new Probe {
        |      word = new slotMod.Reading {
        |        entityId = dump.entities.${kitchen.dumpKey}.entity_id
-       |        transform = "state == 'on' ? 'fh-lit' : 'fh-dark'"
+       |        steps { simpleMod.cel("value == 'on' ? 'fh-lit' : 'fh-dark'") }
        |      }
        |    }
        |  }

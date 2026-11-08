@@ -20,7 +20,7 @@
   data-text="$_e.sensor.outside_temp.t#1">12.4 °C</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_2"
-  data-signals="{_e: {light: {kitchen: {t#1: 'on', t#2: true, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: true, t#3: false, t#4: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_2__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=c_2', {filterSignals:{exclude:'.*'}})"
@@ -36,10 +36,10 @@
   data-class:fh-busy-spin="$_c_2__busy_slow"
   data-attr:aria-busy="$_c_2__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">on</span></span></span></div>
 </article></div>
 <div class="fh-cell fh-active" id="c_3"
-  data-signals="{_e: {light: {kitchen: {t#1: 'on', t#2: true}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: true, t#4: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/fixture-features/open/c_3_self')"
@@ -55,12 +55,12 @@
   data-class:fh-busy-spin="$_c_3__busy_slow"
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">on</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_4">
 <article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-head-cell fh-active" id="c_4_head_0"
-  data-signals="{_e: {light: {kitchen: {state: 'on', t#2: true, t#3: false, t#4: '180', t#5: '29.5275590551%'}}}}"
+  data-signals="{_e: {light: {kitchen: {state: 'on', t#2: true, t#3: false, t#5: '180', t#6: '29.5275590551%'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2"><div class="fh-slider-body">
   <div class="fh-slider-head ">
     <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
@@ -79,29 +79,29 @@
   </div>
   <div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_c_4_head_0__error$/}"
-  data-on-signal-patch="$_c_4_head_0__error && ($_c_4_head_0__slide = $_e.light.kitchen.t#4, $_e.light.kitchen.t#5 = (100 - (($_e.light.kitchen.t#4 - 1) * 100 / (255 - 1))) + '%')"
+  data-on-signal-patch="$_c_4_head_0__error && ($_c_4_head_0__slide = $_e.light.kitchen.t#5, $_e.light.kitchen.t#6 = (100 - (($_e.light.kitchen.t#5 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_c_4_head_0__busy_change || $_e.light.kitchen.t#3"
   data-class:fh-loading="$_c_4_head_0__busy_change"
   data-class:fh-error="$_c_4_head_0__error">
 <input type="range" min="1" max="255" value="180"
-      data-attr:value="$_e.light.kitchen.t#4"
+      data-attr:value="$_e.light.kitchen.t#5"
       data-signals__ifmissing="{ _c_4_head_0__slide: '180' }"
       data-bind="_c_4_head_0__slide"
-      data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#4$/}"
-  data-on-signal-patch="$_c_4_head_0__slide = $_e.light.kitchen.t#4"
-      data-effect="$_sse > 0 && ($_c_4_head_0__slide = $_e.light.kitchen.t#4, $_e.light.kitchen.t#5 = (100 - (($_e.light.kitchen.t#4 - 1) * 100 / (255 - 1))) + '%')"
+      data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#5$/}"
+  data-on-signal-patch="$_c_4_head_0__slide = $_e.light.kitchen.t#5"
+      data-effect="$_sse > 0 && ($_c_4_head_0__slide = $_e.light.kitchen.t#5, $_e.light.kitchen.t#6 = (100 - (($_e.light.kitchen.t#5 - 1) * 100 / (255 - 1))) + '%')"
       data-indicator="_c_4_head_0__busy_change"
   data-attr:disabled="$_c_4_head_0__busy_change || $_e.light.kitchen.t#3"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4_head_0__error = ''))"
   data-fh-node="c_4_head_0"
-      data-on:input="$_e.light.kitchen.t#5 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
+      data-on:input="$_e.light.kitchen.t#6 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
       data-on:change="$_e.light.kitchen.t#3 ? '' : $_c_4_head_0__busy_change ? '' : @post('sse/call/fixture-features/light/turn_on/entity/light.kitchen?node=c_4_head_0', {payload: {data: {'brightness': Number($_c_4_head_0__slide) } } })" />    <span style="--fh-fill: 29.5275590551%;background:currentcolor"
-  data-style:--fh-fill="$_e.light.kitchen.t#5" ></span>
+  data-style:--fh-fill="$_e.light.kitchen.t#6" ></span>
   </div>
 </div></div><div class="fh-slider-members"></div></article></div>
 <div class="fh-cell fh-group" id="c_5">
 <div class="fh-cell fh-active" id="c_5_light_kitchen"
-  data-signals="{_e: {light: {kitchen: {t#1: 'on', t#2: true, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: true, t#3: false, t#4: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_5_light_kitchen__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'light/toggle' + '/entity/light.kitchen?node=c_5_light_kitchen', {filterSignals:{exclude:'.*'}})"
@@ -117,7 +117,7 @@
   data-class:fh-busy-spin="$_c_5_light_kitchen__busy_slow"
   data-attr:aria-busy="$_c_5_light_kitchen__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">on</span></span></span></div>
 </article></div></div>
 <div class="fh-cell" id="c_6"><button class="fh-press fh-size-large "
   data-on:click="$_c_6__busy ? '' : @post('sse/surface/fixture-features/open/detail')"
@@ -208,7 +208,7 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_3_self__c_0"><div class="fh-col ">
 <div class="fh-cell fh-active" id="s_c_3_self__c_0_0"
-  data-signals="{_e: {light: {kitchen: {t#1: 'on', t#2: true, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: true, t#3: false, t#4: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_3_self__c_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_3_self__c_0_0', {filterSignals:{exclude:'.*'}})"
@@ -224,11 +224,11 @@
   data-class:fh-busy-spin="$_s_c_3_self__c_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_3_self__c_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">on</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_3_self__c_0_1"><div class="fh-col ">
 <div class="fh-cell fh-active" id="s_c_3_self__c_0_1_0"
-  data-signals="{_e: {light: {kitchen: {t#1: 'on', t#2: true, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: true, t#3: false, t#4: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_3_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_3_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
@@ -244,7 +244,7 @@
   data-class:fh-busy-spin="$_s_c_3_self__c_0_1_0__busy_slow"
   data-attr:aria-busy="$_s_c_3_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">on</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">on</span></span></span></div>
 </article></div></div></div>
 <div class="fh-cell" id="s_c_3_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
@@ -535,7 +535,7 @@
   data-text="$_e.sensor.outside_temp.t#1">12.4 °C</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_2"
-  data-signals="{_e: {light: {kitchen: {t#1: 'off', t#2: false, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: false, t#3: false, t#4: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_2__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=c_2', {filterSignals:{exclude:'.*'}})"
@@ -551,10 +551,10 @@
   data-class:fh-busy-spin="$_c_2__busy_slow"
   data-attr:aria-busy="$_c_2__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">off</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_3"
-  data-signals="{_e: {light: {kitchen: {t#1: 'off', t#2: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: false, t#4: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/fixture-features/open/c_3_self')"
@@ -570,12 +570,12 @@
   data-class:fh-busy-spin="$_c_3__busy_slow"
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">off</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="c_4">
 <article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-head-cell" id="c_4_head_0"
-  data-signals="{_e: {light: {kitchen: {state: 'off', t#2: false, t#3: false, t#4: '180', t#5: '29.5275590551%'}}}}"
+  data-signals="{_e: {light: {kitchen: {state: 'off', t#2: false, t#3: false, t#5: '180', t#6: '29.5275590551%'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2"><div class="fh-slider-body">
   <div class="fh-slider-head ">
     <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
@@ -594,29 +594,29 @@
   </div>
   <div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_c_4_head_0__error$/}"
-  data-on-signal-patch="$_c_4_head_0__error && ($_c_4_head_0__slide = $_e.light.kitchen.t#4, $_e.light.kitchen.t#5 = (100 - (($_e.light.kitchen.t#4 - 1) * 100 / (255 - 1))) + '%')"
+  data-on-signal-patch="$_c_4_head_0__error && ($_c_4_head_0__slide = $_e.light.kitchen.t#5, $_e.light.kitchen.t#6 = (100 - (($_e.light.kitchen.t#5 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_c_4_head_0__busy_change || $_e.light.kitchen.t#3"
   data-class:fh-loading="$_c_4_head_0__busy_change"
   data-class:fh-error="$_c_4_head_0__error">
 <input type="range" min="1" max="255" value="180"
-      data-attr:value="$_e.light.kitchen.t#4"
+      data-attr:value="$_e.light.kitchen.t#5"
       data-signals__ifmissing="{ _c_4_head_0__slide: '180' }"
       data-bind="_c_4_head_0__slide"
-      data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#4$/}"
-  data-on-signal-patch="$_c_4_head_0__slide = $_e.light.kitchen.t#4"
-      data-effect="$_sse > 0 && ($_c_4_head_0__slide = $_e.light.kitchen.t#4, $_e.light.kitchen.t#5 = (100 - (($_e.light.kitchen.t#4 - 1) * 100 / (255 - 1))) + '%')"
+      data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#5$/}"
+  data-on-signal-patch="$_c_4_head_0__slide = $_e.light.kitchen.t#5"
+      data-effect="$_sse > 0 && ($_c_4_head_0__slide = $_e.light.kitchen.t#5, $_e.light.kitchen.t#6 = (100 - (($_e.light.kitchen.t#5 - 1) * 100 / (255 - 1))) + '%')"
       data-indicator="_c_4_head_0__busy_change"
   data-attr:disabled="$_c_4_head_0__busy_change || $_e.light.kitchen.t#3"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4_head_0__error = ''))"
   data-fh-node="c_4_head_0"
-      data-on:input="$_e.light.kitchen.t#5 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
+      data-on:input="$_e.light.kitchen.t#6 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
       data-on:change="$_e.light.kitchen.t#3 ? '' : $_c_4_head_0__busy_change ? '' : @post('sse/call/fixture-features/light/turn_on/entity/light.kitchen?node=c_4_head_0', {payload: {data: {'brightness': Number($_c_4_head_0__slide) } } })" />    <span style="--fh-fill: 29.5275590551%;background:currentcolor"
-  data-style:--fh-fill="$_e.light.kitchen.t#5" ></span>
+  data-style:--fh-fill="$_e.light.kitchen.t#6" ></span>
   </div>
 </div></div><div class="fh-slider-members"></div></article></div>
 <div class="fh-cell fh-group" id="c_5">
 <div class="fh-cell fh-active" id="c_5_light_living_room"
-  data-signals="{_e: {light: {living_room: {t#1: 'on', t#2: true, t#3: false}}}}"
+  data-signals="{_e: {light: {living_room: {t#2: true, t#3: false, t#7: 'on'}}}}"
   data-class:fh-active="$_e.light.living_room.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_c_5_light_living_room__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/fixture-features/' + 'light/toggle' + '/entity/light.living_room?node=c_5_light_living_room', {filterSignals:{exclude:'.*'}})"
@@ -632,7 +632,7 @@
   data-class:fh-busy-spin="$_c_5_light_living_room__busy_slow"
   data-attr:aria-busy="$_c_5_light_living_room__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Living Room</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.living_room.t#1">on</span></span></span></div>
+  data-text="$_e.light.living_room.t#7">on</span></span></span></div>
 </article></div></div>
 <div class="fh-cell" id="c_6"><button class="fh-press fh-size-large "
   data-on:click="$_c_6__busy ? '' : @post('sse/surface/fixture-features/open/detail')"
@@ -723,7 +723,7 @@
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell" id="s_c_3_self__c_0"><div class="fh-col ">
 <div class="fh-cell" id="s_c_3_self__c_0_0"
-  data-signals="{_e: {light: {kitchen: {t#1: 'off', t#2: false, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: false, t#3: false, t#4: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_3_self__c_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_3_self__c_0_0', {filterSignals:{exclude:'.*'}})"
@@ -739,11 +739,11 @@
   data-class:fh-busy-spin="$_s_c_3_self__c_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_3_self__c_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">off</span></span></span></div>
 </article></div>
 <div class="fh-cell" id="s_c_3_self__c_0_1"><div class="fh-col ">
 <div class="fh-cell" id="s_c_3_self__c_0_1_0"
-  data-signals="{_e: {light: {kitchen: {t#1: 'off', t#2: false, t#3: false}}}}"
+  data-signals="{_e: {light: {kitchen: {t#2: false, t#3: false, t#4: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#2">
 <article class="fh-card fh-entity fh-tile-card">
   <div class="fh-tile fh-tappable "  data-on:click="$_s_c_3_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/fixture-features/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_3_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
@@ -759,7 +759,7 @@
   data-class:fh-busy-spin="$_s_c_3_self__c_0_1_0__busy_slow"
   data-attr:aria-busy="$_s_c_3_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#1">off</span></span></span></div>
+  data-text="$_e.light.kitchen.t#4">off</span></span></span></div>
 </article></div></div></div>
 <div class="fh-cell" id="s_c_3_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>

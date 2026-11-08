@@ -1,16 +1,21 @@
 package fh.view.build
 
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Cell,
   Dashboard,
   LayoutNode,
+  Lit,
   Op,
   Predicate,
   Region,
   SignalBind,
-  SlotSource,
+  SlotType,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface,
   VarAt
@@ -100,7 +105,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         LayoutNode.Component("card", templateSlots = slots, regions = filled)
     ).validate()
 
-  private val text = TemplateSlot(SlotSource(literal = Some("x")))
+  private val text = TemplateSlot(ValueExpr.literal("x"))
 
   test("validate: a slot no template name reads is reported") {
     val errs =
@@ -150,7 +155,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val unguarded = "places {{x.signal}} outside {{#x.signal}}"
     // The rule reads the template alone: a signal slot is held to it too.
     val signal = TemplateSlot(
-      SlotSource(entityId = Some("light.a")),
+      ValueExpr(Value.Entity(Some("light.a"))),
       signal = Some(SignalBind.Handler)
     )
     def placed(tpl: String) =
@@ -216,7 +221,14 @@ class BuildPhaseSuite extends munit.FunSuite {
     def cel(src: String) =
       oneCard(
         "{{v}}",
-        Map("v" -> TemplateSlot(SlotSource(Some("sensor.t"), transform = src)))
+        Map(
+          "v" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel(src))
+            )
+          )
+        )
       )
     assert(
       cel("[1, 2]").exists(_.contains("yields a list")),
@@ -226,8 +238,52 @@ class BuildPhaseSuite extends munit.FunSuite {
       cel("{'a': 1}").exists(_.contains("yields a map")),
       clue = cel("{'a': 1}")
     )
-    assertEquals(cel("attr['x']"), Nil)
-    assertEquals(cel("num(state) * 2.0"), Nil)
+    assertEquals(cel("value.attr['x']"), Nil)
+    assertEquals(cel("num(value.state) * 2.0"), Nil)
+  }
+
+  test("validate: a text step takes text, a number or dyn, nothing else") {
+    val x = Value.Literal(Lit.Text("x"))
+    val e = Some("sensor.t")
+    def errs(source: Value, step: Step) =
+      oneCard("{{v}}", Map("v" -> TemplateSlot(ValueExpr(source, List(step)))))
+    for step <- List(Step.Prefix(x), Step.Suffix(x), Step.WithUnit(x)) do
+      for src <- List(
+          Value.Entity(e, Part.State),
+          Value.Entity(e, Part.Attr("x")),
+          Value.Literal(Lit.Whole(2))
+        )
+      do assertEquals(errs(src, step), Nil, clue = (step, src))
+      for src <- List(
+          Value.Entity(e, Part.Whole),
+          Value.Present(Predicate.Tally(Nil, Map.empty)),
+          Value.Literal(Lit.Bool(true))
+        )
+      do
+        assert(
+          errs(src, step).exists(_.contains("takes a number or text")),
+          clue = (step, src, errs(src, step))
+        )
+  }
+
+  test("validate: a literal is checked against its slot's type") {
+    def errs(l: Lit, t: SlotType) =
+      oneCard(
+        "{{v}}",
+        Map("v" -> TemplateSlot(ValueExpr(Value.Literal(l)), `type` = t))
+      )
+    for (l, t) <- List(
+        Lit.Bool(true) -> SlotType.Bool,
+        Lit.Text("x") -> SlotType.Text,
+        Lit.Whole(2) -> SlotType.Text
+      )
+    do assertEquals(errs(l, t), Nil, clue = (l, t))
+    for (l, t) <- List(
+        Lit.Bool(true) -> SlotType.Text,
+        Lit.Text("x") -> SlotType.Bool,
+        Lit.Whole(1) -> SlotType.Bool
+      )
+    do assert(errs(l, t).exists(_.contains("literal, which a")), clue = (l, t))
   }
 
   test("validate names a surface's node by the id it renders with") {
@@ -269,7 +325,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate takes a set's literal cell classes and refuses any reading") {
     // A set has no slots to bind a reading with, so the wire alone could ask.
-    val reading = SlotSource(entityId = Some("light.a"))
+    val reading = ValueExpr(Value.Entity(Some("light.a")))
     val cell = Cell(
       classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
       styles = ListMap("--x" -> reading)
@@ -285,7 +341,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate refuses a literal cell style, which nothing would write") {
     // A literal class is written as it is; a literal style is no cell slot.
-    val cell = Cell(styles = ListMap("--x" -> SlotSource(literal = Some("1"))))
+    val cell = Cell(styles = ListMap("--x" -> ValueExpr.literal("1")))
     val errs = Dashboard(
       cards = Map("card" -> CardDef("<i></i>")),
       card = LayoutNode.Component("card", cell = Some(cell))
@@ -1021,8 +1077,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("ok" -> CardDef("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
-        templateSlots =
-          Map("label" -> TemplateSlot(SlotSource(literal = Some("x"))))
+        templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal("x")))
       ),
       surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
     )
@@ -1042,7 +1097,10 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card",
         templateSlots = Map(
           "state" -> TemplateSlot(
-            SlotSource(Some("e.x"), transform = "'unclosed")
+            ValueExpr(
+              Value.Entity(Some("e.x"), Part.Whole),
+              List(Step.Cel("'unclosed"))
+            )
           )
         )
       )

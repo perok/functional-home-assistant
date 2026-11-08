@@ -8,7 +8,7 @@
           "card" : "tabs",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -51,19 +51,33 @@
                                         "templateSlots" : {
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : {
-                                            "literal" : "mdi mdi-thermometer",
-                                            "type" : "cssClass"
+                                            "source" : "mdi mdi-thermometer",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           },
                                           "label" : "Outside Temperature",
                                           "value" : {
-                                            "bypassUnavailable" : true,
-                                            "reads" : "live",
-                                            "signal" : "text",
-                                            "transform" : {
-                                              "attribute" : "unit_of_measurement",
-                                              "kind" : "Op",
-                                              "op" : "SuffixUnit"
-                                            }
+                                            "signal" : {
+                                              "kind" : "Text"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "kind" : "WithUnit",
+                                                "unit" : {
+                                                  "kind" : "Entity",
+                                                  "part" : {
+                                                    "kind" : "Attr",
+                                                    "name" : "unit_of_measurement"
+                                                  }
+                                                }
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -73,7 +87,7 @@
                                         "card" : "chooser",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-cols-full" : "1"
+                                            "fh-cols-full" : true
                                           },
                                           "styles" : {
                                             
@@ -92,13 +106,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "1h",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -109,13 +130,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "24h",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -126,13 +154,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "7d",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -143,13 +178,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "30d",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -170,48 +212,51 @@
                                               "kind" : "Component",
                                               "templateSlots" : {
                                                 "chart" : {
-                                                  "bypassUnavailable" : true,
-                                                  "fetch" : {
-                                                    "entity" : "sensor.outside_temp",
-                                                    "provider" : "history",
-                                                    "window" : {
-                                                      "by" : {
-                                                        "var" : "window"
-                                                      },
-                                                      "kind" : "Chosen",
-                                                      "options" : {
-                                                        "1h" : {
-                                                          "kind" : "Raw",
-                                                          "span" : 3600
+                                                  "source" : {
+                                                    "fetch" : {
+                                                      "entity" : "sensor.outside_temp",
+                                                      "provider" : "history",
+                                                      "window" : {
+                                                        "by" : {
+                                                          "var" : "window"
                                                         },
-                                                        "24h" : {
-                                                          "fallback" : true,
-                                                          "kind" : "Statistics",
-                                                          "period" : "5minute",
-                                                          "span" : 86400
-                                                        },
-                                                        "30d" : {
-                                                          "fallback" : true,
-                                                          "kind" : "Statistics",
-                                                          "period" : "hour",
-                                                          "span" : 2592000
-                                                        },
-                                                        "7d" : {
-                                                          "fallback" : true,
-                                                          "kind" : "Statistics",
-                                                          "period" : "hour",
-                                                          "span" : 604800
+                                                        "kind" : "Chosen",
+                                                        "options" : {
+                                                          "1h" : {
+                                                            "kind" : "Raw",
+                                                            "span" : 3600
+                                                          },
+                                                          "24h" : {
+                                                            "fallback" : true,
+                                                            "kind" : "Statistics",
+                                                            "period" : "5minute",
+                                                            "span" : 86400
+                                                          },
+                                                          "30d" : {
+                                                            "fallback" : true,
+                                                            "kind" : "Statistics",
+                                                            "period" : "hour",
+                                                            "span" : 2592000
+                                                          },
+                                                          "7d" : {
+                                                            "fallback" : true,
+                                                            "kind" : "Statistics",
+                                                            "period" : "hour",
+                                                            "span" : 604800
+                                                          }
                                                         }
                                                       }
-                                                    }
-                                                  },
-                                                  "reads" : "onRender",
-                                                  "transform" : {
-                                                    "params" : {
-                                                      "unit" : "°C"
                                                     },
-                                                    "stage" : "Chart"
-                                                  }
+                                                    "kind" : "Fetch"
+                                                  },
+                                                  "steps" : [
+                                                    {
+                                                      "kind" : "Chart",
+                                                      "style" : {
+                                                        "unit" : "°C"
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               },
                                               "vars" : [
@@ -235,10 +280,19 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "attributes" : {
-                                            "bypassUnavailable" : true,
                                             "default" : "",
-                                            "reads" : "live",
-                                            "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                            "source" : {
+                                              "kind" : "Entity",
+                                              "part" : {
+                                                "kind" : "Whole"
+                                              }
+                                            },
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                              }
+                                            ]
                                           },
                                           "entity_id" : "sensor.outside_temp"
                                         },
@@ -252,8 +306,12 @@
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
                                           "size" : {
-                                            "literal" : "fh-size-large",
-                                            "type" : "cssClass"
+                                            "source" : "fh-size-large",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -279,29 +337,53 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "sensor.outside_temp",
                         "icon" : {
-                          "literal" : "mdi mdi-thermometer",
-                          "type" : "cssClass"
+                          "source" : "mdi mdi-thermometer",
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Outside Temperature",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-                        },
-                        "tappable" : "1",
-                        "value" : {
-                          "bypassUnavailable" : true,
-                          "reads" : "live",
-                          "signal" : "text",
-                          "transform" : {
-                            "attribute" : "unit_of_measurement",
-                            "kind" : "Op",
-                            "op" : "SuffixUnit"
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                           }
+                        },
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "value" : {
+                          "signal" : {
+                            "kind" : "Text"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "kind" : "WithUnit",
+                              "unit" : {
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "unit_of_measurement"
+                                }
+                              }
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -337,18 +419,21 @@
                       "cell" : {
                         "classes" : {
                           "fh-active" : {
-                            "bypassUnavailable" : false,
-                            "entityId" : "light.kitchen",
-                            "reads" : "live",
-                            "transform" : {
-                              "cases" : {
-                                "off" : false,
-                                "unavailable" : false,
-                                "unknown" : false
-                              },
-                              "kind" : "Match",
-                              "otherwise" : true
-                            }
+                            "source" : {
+                              "bypassUnavailable" : false,
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "off" : false,
+                                  "unavailable" : false,
+                                  "unknown" : false
+                                },
+                                "kind" : "Match",
+                                "otherwise" : true
+                              }
+                            ]
                           }
                         },
                         "styles" : {
@@ -357,41 +442,73 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "light.kitchen",
                         "icon" : {
-                          "literal" : "mdi mdi-lightbulb",
-                          "type" : "cssClass"
+                          "source" : "mdi mdi-lightbulb",
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Kitchen",
-                        "onoff" : "1",
+                        "onoff" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "service" : "light/toggle",
                         "tapDisabled" : {
-                          "bypassUnavailable" : false,
-                          "entityId" : "light.kitchen",
-                          "reads" : "live",
-                          "signal" : "handler",
-                          "transform" : {
-                            "cases" : {
-                              "unavailable" : true
-                            },
-                            "kind" : "Match",
-                            "otherwise" : false
-                          }
+                          "signal" : {
+                            "kind" : "Handler"
+                          },
+                          "source" : {
+                            "bypassUnavailable" : false,
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "unavailable" : true
+                              },
+                              "kind" : "Match",
+                              "otherwise" : false
+                            }
+                          ],
+                          "type" : "bool"
                         },
-                        "tappable" : "1",
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "targetId" : "light.kitchen",
                         "targetKind" : "entity",
                         "value" : {
-                          "bypassUnavailable" : true,
-                          "reads" : "live",
-                          "signal" : "text",
-                          "transform" : {
-                            "attribute" : "unit_of_measurement",
-                            "kind" : "Op",
-                            "op" : "SuffixUnit"
-                          }
+                          "signal" : {
+                            "kind" : "Text"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "kind" : "WithUnit",
+                              "unit" : {
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "unit_of_measurement"
+                                }
+                              }
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -415,13 +532,20 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '0'",
-                  "busy" : "1",
-                  "busyVisual" : "1",
+                  "busy" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "busyVisual" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
                   "label" : "Temp",
                   "onclick" : {
-                    "bypassUnavailable" : false,
-                    "reads" : "once",
-                    "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
+                    "source" : {
+                      "kind" : "Cel",
+                      "src" : "\"$_var_@@VAR:tab@@__tab__pending = '0'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/0?group=var_@@VAR:tab@@__tab')\""
+                    }
                   }
                 },
                 "vars" : [
@@ -432,13 +556,20 @@
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : "String(($_var_@@VAR:tab@@__tab__pending || $_var_@@VAR:tab@@__tab)) === '1'",
-                  "busy" : "1",
-                  "busyVisual" : "1",
+                  "busy" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
+                  "busyVisual" : {
+                    "source" : true,
+                    "type" : "bool"
+                  },
                   "label" : "Light",
                   "onclick" : {
-                    "bypassUnavailable" : false,
-                    "reads" : "once",
-                    "transform" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
+                    "source" : {
+                      "kind" : "Cel",
+                      "src" : "\"$_var_@@VAR:tab@@__tab__pending = '1'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:tab@@/tab/1?group=var_@@VAR:tab@@__tab')\""
+                    }
                   }
                 },
                 "vars" : [
@@ -461,7 +592,7 @@
           "card" : "ifhost",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : "1"
+              "fh-cols-full" : true
             },
             "styles" : {
               
@@ -505,19 +636,33 @@
                                         "templateSlots" : {
                                           "entity_id" : "sensor.outside_temp",
                                           "icon" : {
-                                            "literal" : "mdi mdi-thermometer",
-                                            "type" : "cssClass"
+                                            "source" : "mdi mdi-thermometer",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           },
                                           "label" : "Outside Temperature",
                                           "value" : {
-                                            "bypassUnavailable" : true,
-                                            "reads" : "live",
-                                            "signal" : "text",
-                                            "transform" : {
-                                              "attribute" : "unit_of_measurement",
-                                              "kind" : "Op",
-                                              "op" : "SuffixUnit"
-                                            }
+                                            "signal" : {
+                                              "kind" : "Text"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "kind" : "WithUnit",
+                                                "unit" : {
+                                                  "kind" : "Entity",
+                                                  "part" : {
+                                                    "kind" : "Attr",
+                                                    "name" : "unit_of_measurement"
+                                                  }
+                                                }
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -527,7 +672,7 @@
                                         "card" : "chooser",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-cols-full" : "1"
+                                            "fh-cols-full" : true
                                           },
                                           "styles" : {
                                             
@@ -546,13 +691,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "1h",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -563,13 +715,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "24h",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -580,13 +739,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "7d",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -597,13 +763,20 @@
                                                     "kind" : "Component",
                                                     "templateSlots" : {
                                                       "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
-                                                      "busy" : "1",
-                                                      "busyVisual" : "1",
+                                                      "busy" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
+                                                      "busyVisual" : {
+                                                        "source" : true,
+                                                        "type" : "bool"
+                                                      },
                                                       "label" : "30d",
                                                       "onclick" : {
-                                                        "bypassUnavailable" : false,
-                                                        "reads" : "once",
-                                                        "transform" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                                        "source" : {
+                                                          "kind" : "Cel",
+                                                          "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
+                                                        }
                                                       }
                                                     },
                                                     "vars" : [
@@ -624,48 +797,51 @@
                                               "kind" : "Component",
                                               "templateSlots" : {
                                                 "chart" : {
-                                                  "bypassUnavailable" : true,
-                                                  "fetch" : {
-                                                    "entity" : "sensor.outside_temp",
-                                                    "provider" : "history",
-                                                    "window" : {
-                                                      "by" : {
-                                                        "var" : "window"
-                                                      },
-                                                      "kind" : "Chosen",
-                                                      "options" : {
-                                                        "1h" : {
-                                                          "kind" : "Raw",
-                                                          "span" : 3600
+                                                  "source" : {
+                                                    "fetch" : {
+                                                      "entity" : "sensor.outside_temp",
+                                                      "provider" : "history",
+                                                      "window" : {
+                                                        "by" : {
+                                                          "var" : "window"
                                                         },
-                                                        "24h" : {
-                                                          "fallback" : true,
-                                                          "kind" : "Statistics",
-                                                          "period" : "5minute",
-                                                          "span" : 86400
-                                                        },
-                                                        "30d" : {
-                                                          "fallback" : true,
-                                                          "kind" : "Statistics",
-                                                          "period" : "hour",
-                                                          "span" : 2592000
-                                                        },
-                                                        "7d" : {
-                                                          "fallback" : true,
-                                                          "kind" : "Statistics",
-                                                          "period" : "hour",
-                                                          "span" : 604800
+                                                        "kind" : "Chosen",
+                                                        "options" : {
+                                                          "1h" : {
+                                                            "kind" : "Raw",
+                                                            "span" : 3600
+                                                          },
+                                                          "24h" : {
+                                                            "fallback" : true,
+                                                            "kind" : "Statistics",
+                                                            "period" : "5minute",
+                                                            "span" : 86400
+                                                          },
+                                                          "30d" : {
+                                                            "fallback" : true,
+                                                            "kind" : "Statistics",
+                                                            "period" : "hour",
+                                                            "span" : 2592000
+                                                          },
+                                                          "7d" : {
+                                                            "fallback" : true,
+                                                            "kind" : "Statistics",
+                                                            "period" : "hour",
+                                                            "span" : 604800
+                                                          }
                                                         }
                                                       }
-                                                    }
-                                                  },
-                                                  "reads" : "onRender",
-                                                  "transform" : {
-                                                    "params" : {
-                                                      "unit" : "°C"
                                                     },
-                                                    "stage" : "Chart"
-                                                  }
+                                                    "kind" : "Fetch"
+                                                  },
+                                                  "steps" : [
+                                                    {
+                                                      "kind" : "Chart",
+                                                      "style" : {
+                                                        "unit" : "°C"
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               },
                                               "vars" : [
@@ -689,10 +865,19 @@
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "attributes" : {
-                                            "bypassUnavailable" : true,
                                             "default" : "",
-                                            "reads" : "live",
-                                            "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                            "source" : {
+                                              "kind" : "Entity",
+                                              "part" : {
+                                                "kind" : "Whole"
+                                              }
+                                            },
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                              }
+                                            ]
                                           },
                                           "entity_id" : "sensor.outside_temp"
                                         },
@@ -706,8 +891,12 @@
                                           "label" : "Close",
                                           "onclick" : "$ui_popups && history.back()",
                                           "size" : {
-                                            "literal" : "fh-size-large",
-                                            "type" : "cssClass"
+                                            "source" : "fh-size-large",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
                                           }
                                         },
                                         "vars" : [
@@ -733,29 +922,53 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "sensor.outside_temp",
                         "icon" : {
-                          "literal" : "mdi mdi-thermometer",
-                          "type" : "cssClass"
+                          "source" : "mdi mdi-thermometer",
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Outside Temperature",
                         "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-                        },
-                        "tappable" : "1",
-                        "value" : {
-                          "bypassUnavailable" : true,
-                          "reads" : "live",
-                          "signal" : "text",
-                          "transform" : {
-                            "attribute" : "unit_of_measurement",
-                            "kind" : "Op",
-                            "op" : "SuffixUnit"
+                          "source" : {
+                            "kind" : "Cel",
+                            "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                           }
+                        },
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "value" : {
+                          "signal" : {
+                            "kind" : "Text"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "kind" : "WithUnit",
+                              "unit" : {
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "unit_of_measurement"
+                                }
+                              }
+                            }
+                          ]
                         }
                       },
                       "vars" : [
@@ -794,18 +1007,21 @@
                       "cell" : {
                         "classes" : {
                           "fh-active" : {
-                            "bypassUnavailable" : false,
-                            "entityId" : "light.kitchen",
-                            "reads" : "live",
-                            "transform" : {
-                              "cases" : {
-                                "off" : false,
-                                "unavailable" : false,
-                                "unknown" : false
-                              },
-                              "kind" : "Match",
-                              "otherwise" : true
-                            }
+                            "source" : {
+                              "bypassUnavailable" : false,
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "off" : false,
+                                  "unavailable" : false,
+                                  "unknown" : false
+                                },
+                                "kind" : "Match",
+                                "otherwise" : true
+                              }
+                            ]
                           }
                         },
                         "styles" : {
@@ -814,41 +1030,73 @@
                       },
                       "kind" : "Component",
                       "templateSlots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
+                        "busy" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
+                        "busyVisual" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "entity_id" : "light.kitchen",
                         "icon" : {
-                          "literal" : "mdi mdi-lightbulb",
-                          "type" : "cssClass"
+                          "source" : "mdi mdi-lightbulb",
+                          "steps" : [
+                            {
+                              "kind" : "ThemeClasses"
+                            }
+                          ]
                         },
                         "label" : "Kitchen",
-                        "onoff" : "1",
+                        "onoff" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "service" : "light/toggle",
                         "tapDisabled" : {
-                          "bypassUnavailable" : false,
-                          "entityId" : "light.kitchen",
-                          "reads" : "live",
-                          "signal" : "handler",
-                          "transform" : {
-                            "cases" : {
-                              "unavailable" : true
-                            },
-                            "kind" : "Match",
-                            "otherwise" : false
-                          }
+                          "signal" : {
+                            "kind" : "Handler"
+                          },
+                          "source" : {
+                            "bypassUnavailable" : false,
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "cases" : {
+                                "unavailable" : true
+                              },
+                              "kind" : "Match",
+                              "otherwise" : false
+                            }
+                          ],
+                          "type" : "bool"
                         },
-                        "tappable" : "1",
+                        "tappable" : {
+                          "source" : true,
+                          "type" : "bool"
+                        },
                         "targetId" : "light.kitchen",
                         "targetKind" : "entity",
                         "value" : {
-                          "bypassUnavailable" : true,
-                          "reads" : "live",
-                          "signal" : "text",
-                          "transform" : {
-                            "attribute" : "unit_of_measurement",
-                            "kind" : "Op",
-                            "op" : "SuffixUnit"
-                          }
+                          "signal" : {
+                            "kind" : "Text"
+                          },
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "kind" : "WithUnit",
+                              "unit" : {
+                                "kind" : "Entity",
+                                "part" : {
+                                  "kind" : "Attr",
+                                  "name" : "unit_of_measurement"
+                                }
+                              }
+                            }
+                          ]
                         }
                       },
                       "vars" : [

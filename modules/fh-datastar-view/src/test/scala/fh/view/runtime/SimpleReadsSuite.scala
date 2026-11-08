@@ -5,7 +5,7 @@ import fh.view.model.*
 import io.circe.Json
 import io.circe.parser.decode
 
-/** The fast tier beyond the slot's own entity: a condition fills a slot as
+/** The fast tier beyond the card's own entity: a condition fills a slot as
   * directly as it decides a `c.iff`, and any read may name another entity.
   */
 class SimpleReadsSuite extends munit.FunSuite {
@@ -13,11 +13,23 @@ class SimpleReadsSuite extends munit.FunSuite {
   private val card =
     CardDef("""<b {{{v.bind}}}>{{v}}</b>""")
 
-  private def slot(t: Transform.Simple, bool: Boolean = false) = TemplateSlot(
-    SlotSource(transform = t, bypassUnavailable = false),
-    signal = Some(SignalBind.Text),
+  private def slot(expr: ValueExpr, bool: Boolean = false) = TemplateSlot(
+    expr,
+    signal = Some(if (bool) SignalBind.Attr("hidden") else SignalBind.Text),
     `type` = if (bool) SlotType.Bool else SlotType.Text
   )
+
+  private def condition(p: Predicate) = ValueExpr(Value.Condition(p))
+
+  private def reading(
+      of: Option[String],
+      part: Part = Part.State,
+      reads: String = Reads.Live
+  )(steps: Step*) =
+    ValueExpr(
+      Value.Entity(of, part, reads, bypassUnavailable = false),
+      steps.toList
+    )
 
   private def dashboard(v: TemplateSlot, subject: Boolean = true) = Dashboard(
     cards = Map("c" -> card),
@@ -25,7 +37,7 @@ class SimpleReadsSuite extends munit.FunSuite {
       card = "c",
       templateSlots = Map("v" -> v) ++
         Option.when(subject)(
-          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.a")))
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a"))
         )
     )
   )
@@ -51,44 +63,55 @@ class SimpleReadsSuite extends munit.FunSuite {
       .values
       .toList
 
-  test("a condition is a slot's transform, woken by the entity it names") {
-    val d = dashboard(slot(doorOpen, bool = true))
+  /** An operand read off `e`, as the renderer reads one off its entity. */
+  private def over(e: EntityState): Value => Any = {
+    case Value.Entity(_, part, _, _) => Transform.read(part, e)
+    case Value.Literal(l)            => l.raw
+    case _                           => ""
+  }
+
+  private def whole(n: Long) = Value.Literal(Lit.Whole(n))
+
+  test("a condition is a slot's source, woken by the entity it names") {
+    val d = dashboard(slot(condition(doorOpen), bool = true))
     assertEquals(d.validate(), Nil)
     assert(Renderer.create(d).componentsFor("binary_sensor.door").nonEmpty)
     assertEquals(value(d, states("on")), List[SlotValue](true))
     assertEquals(value(d, states("off")), List[SlotValue](false))
   }
 
-  test("a condition naming no entity reads the slot's") {
+  test("a condition naming no entity reads the card's subject") {
     val d = dashboard(
-      slot(Predicate.Cmp("state", Op.Gt, Json.fromInt(0)), bool = true)
+      slot(condition(Predicate.Cmp("state", Op.Gt, Json.fromInt(0))), true)
     )
     assertEquals(d.validate(), Nil)
     assertEquals(value(d, states("on")), List[SlotValue](true))
   }
 
   test("a value read may name another entity, which wakes the slot") {
-    val d = dashboard(slot(Transform.Simple.Attr("battery", Some("sensor.b"))))
+    val d = dashboard(slot(reading(Some("sensor.b"), Part.Attr("battery"))()))
     assertEquals(d.validate(), Nil)
     assert(Renderer.create(d).componentsFor("sensor.b").nonEmpty)
     assertEquals(value(d, states("on")), List[SlotValue]("80"))
-    // One the store does not hold is the shape's absent form.
+    // One the store does not hold is the step's absent form.
     assertEquals(
-      Transform.runSimple(
-        Transform.Simple.Percent("brightness", 0, 255, Some("light.gone")),
-        EntityState.none,
-        Map.empty
+      Transform.format(
+        Step.Percent(whole(0), whole(255)),
+        Transform.read(Part.Attr("brightness"), EntityState.none),
+        over(EntityState.none)
       ),
       "0 %"
     )
   }
 
   test("an attribute with its unit, total over a number and an absence") {
-    def read(attrs: (String, Json)*) = Transform.runSimple(
-      Transform.Simple.AttrUnit("temperature"),
-      EntityState("sensor.t", "on", attrs.toMap),
-      Map.empty
-    )
+    def read(attrs: (String, Json)*) =
+      val e = EntityState("sensor.t", "on", attrs.toMap)
+      Transform.format(
+        Step.WithUnit(Value.Entity(None, Part.Attr("unit_of_measurement"))),
+        Transform.read(Part.Attr("temperature"), e),
+        over(e)
+      )
     val unit = "unit_of_measurement" -> Json.fromString("°C")
     assertEquals(
       read("temperature" -> Json.fromDoubleOrNull(21.5), unit),
@@ -99,91 +122,109 @@ class SimpleReadsSuite extends munit.FunSuite {
     assertEquals(read(unit), "")
   }
 
-  test("a match reads any property, and its otherwise may be a read") {
-    val labels = Transform.Simple.Match(
-      Map("rainbow" -> "Rainbow"),
-      otherwise = Transform.Simple.Attr("effect"),
-      property = "attr:effect"
+  test("a match reads any part, and its otherwise may be a read") {
+    val labels = Step.Match(
+      Map("rainbow" -> Lit.Text("Rainbow")),
+      otherwise = Value.Entity(None, Part.Attr("effect"))
     )
-    def read(effect: String) = Transform.runSimple(
-      labels,
-      EntityState("light.l", "on", Map("effect" -> Json.fromString(effect))),
-      Map.empty
-    )
+    def read(effect: String) =
+      val e =
+        EntityState("light.l", "on", Map("effect" -> Json.fromString(effect)))
+      Transform.format(labels, Transform.read(Part.Attr("effect"), e), over(e))
     assertEquals(read("rainbow"), "Rainbow")
     assertEquals(read("candle"), "candle")
+    val byEffect = reading(None, Part.Attr("effect"))(labels)
+    assertNotEquals(byEffect.key, reading(None)(labels).key)
     assertNotEquals(
-      Transform.Simple.key(labels),
-      Transform.Simple.key(labels.copy(property = "state"))
-    )
-    assertNotEquals(
-      Transform.Simple.key(labels),
-      Transform.Simple.key(labels.copy(otherwise = "candle"))
+      byEffect.key,
+      reading(None, Part.Attr("effect"))(
+        labels.copy(otherwise = Value.Literal(Lit.Text("candle")))
+      ).key
     )
     assertEquals(
-      Transform.Simple.referencedEntities(
-        labels.copy(otherwise = Transform.Simple.State(Some("sensor.b")))
-      ),
+      reading(None)(
+        labels.copy(otherwise = Value.Entity(Some("sensor.b")))
+      ).operandEntities,
       List("sensor.b")
     )
   }
 
-  test("a named entity, or a condition, keys apart from the slot's own read") {
-    val keys = List[Transform.Simple](
-      Transform.Simple.State(),
-      Transform.Simple.State(Some("sensor.b")),
-      doorOpen,
-      doorOpen.copy(entity = None)
-    ).map(Transform.Simple.key)
-    assertEquals(keys.distinct.size, keys.size, clue = keys)
+  test(
+    "a named entity, or a condition, names a signal apart from the subject's"
+  ) {
+    def named(e: ValueExpr) =
+      val b = BoundSlot.bindAt(
+        Map.empty,
+        Placement(None, SlotType.Text),
+        Some("sensor.a")
+      )(e)
+      (b.entityId, b.valueKey)
+    val names = List(
+      reading(None)(),
+      reading(Some("sensor.b"))(),
+      condition(doorOpen),
+      condition(doorOpen.copy(entity = None))
+    ).map(named)
+    assertEquals(names.distinct.size, names.size, clue = names)
   }
 
   test(
-    "the build refuses a once slot naming another entity, and a free condition with no entity"
+    "the build refuses a once slot with an operand on another entity, and a free condition with no entity"
   ) {
-    val s = slot(Transform.Simple.State(Some("sensor.b")))
-    val once = dashboard(s.copy(source = s.source.copy(reads = Reads.Once)))
-      .validate()
-      .mkString("\n")
+    val once = dashboard(
+      slot(
+        reading(None, reads = Reads.Once)(
+          Step.WithUnit(Value.Entity(Some("sensor.b"), Part.Attr("unit")))
+        )
+      )
+    ).validate().mkString("\n")
     assert(
       once.contains("reads another entity but is read 'once'"),
       clue = once
     )
     val free = dashboard(
-      slot(Predicate.Cmp("state", Op.Eq, Json.fromString("on")), bool = true),
+      slot(
+        condition(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+        true
+      ),
       subject = false
     ).validate().mkString("\n")
     assert(free.contains("compares an entity it does not name"), clue = free)
+    val unnamed = dashboard(slot(reading(None)()), subject = false)
+      .validate()
+      .mkString("\n")
+    assert(
+      unnamed.contains(
+        "slot 'v' reads the card's entity, and the card has none"
+      ),
+      clue = unnamed
+    )
   }
 
-  test("the wire carries a condition and a named read as a transform") {
+  test("the wire carries a condition and a named read as a source") {
     assertEquals(
-      decode[SlotSource](
-        """{"transform": {"kind": "Cmp", "property": "state", "op": "eq", "value": "on", "entity": "binary_sensor.door"}}"""
-      ).map(_.transform),
-      Right(doorOpen)
+      decode[ValueExpr](
+        """{"source": {"kind": "Condition", "predicate": {"kind": "Cmp", "property": "state", "op": "eq", "value": "on", "entity": "binary_sensor.door"}}}"""
+      ).map(_.source),
+      Right(Value.Condition(doorOpen))
     )
     assertEquals(
-      decode[SlotSource](
-        """{"transform": {"kind": "Op", "op": "Attr", "attribute": "battery", "entity": "sensor.b"}}"""
-      ).map(_.transform),
-      Right(Transform.Simple.Attr("battery", Some("sensor.b")))
+      decode[ValueExpr](
+        """{"source": {"kind": "Entity", "of": "sensor.b", "part": {"kind": "Attr", "name": "battery"}}}"""
+      ).map(_.source),
+      Right(Value.Entity(Some("sensor.b"), Part.Attr("battery")))
     )
-    def matchWith(otherwise: String) = decode[SlotSource](
-      s"""{"transform": {"kind": "Match", "cases": {}, "otherwise": $otherwise}}"""
-    ).map(_.transform)
+    def matchWith(otherwise: String) = decode[ValueExpr](
+      s"""{"source": {"kind": "Entity"}, "steps": [{"kind": "Match", "cases": {}, "otherwise": $otherwise}]}"""
+    ).map(_.steps)
     assertEquals(
-      matchWith("""{"kind": "Op", "op": "State"}"""),
-      Right(Transform.Simple.Match(Map.empty, Transform.Simple.State()))
+      matchWith("""{"kind": "Entity"}"""),
+      Right(List(Step.Match(Map.empty, Value.Entity())))
     )
+    assert(matchWith("""{"kind": "Entity", "off": "x"}""").isLeft)
     assert(
-      matchWith(
-        """{"kind": "Cmp", "property": "state", "op": "eq", "value": "on"}"""
-      ).isLeft
-    )
-    assert(
-      decode[SlotSource](
-        """{"transform": {"kind": "Match", "cases": {}}}"""
+      decode[ValueExpr](
+        """{"source": {"kind": "Entity"}, "steps": [{"kind": "Match", "cases": {}}]}"""
       ).isLeft
     )
   }

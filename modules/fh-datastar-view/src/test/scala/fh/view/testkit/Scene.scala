@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{Dashboard, LayoutNode, TemplateSlot}
+import fh.view.model.{Dashboard, LayoutNode, TemplateSlot, Value}
 import fh.view.testkit.DashboardBuilders.col
 
 /** A [[Dashboard]] plus the entities a [[FakeHomeAssistant]] is seeded from, so
@@ -71,7 +71,9 @@ object Scene {
         slots: Map[String, TemplateSlot],
         subject: Option[String]
     ): List[String] =
-      slots.values.toList.flatMap(_.entityId) ++ subject.toList
+      slots.values.toList.map(_.expr.source).collect {
+        case Value.Entity(Some(id), _, _, _) => id
+      } ++ subject.toList
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>

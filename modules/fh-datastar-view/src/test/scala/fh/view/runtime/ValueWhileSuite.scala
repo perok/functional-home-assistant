@@ -20,18 +20,23 @@ class ValueWhileSuite extends munit.FunSuite {
     Map(read -> Staged(7L, """{"points":[[0,0.0],[60000,101.0]]}"""))
   )
 
-  private def above0(entity: Option[String]) = SlotSource(
-    transform = Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity),
-    bypassUnavailable = false
+  // A comparison that names no entity reads the card's subject.
+  private def above0(entity: Option[String]) = ValueExpr(
+    Value.Condition(Predicate.Cmp("state", Op.Gt, Json.fromInt(0), entity))
   )
 
   // The peak of the history: what the bar's whole reads.
-  private def peak(valueWhile: Option[SlotSource]) = TemplateSlot(
-    SlotSource(
-      transform = "math.greatest(past.transformList(i, p, p[1]))",
-      values = Map("past" -> ExprValue.Fetched(history)),
-      valueWhileSlot = valueWhile
+  private def peak(valueWhile: Option[ValueExpr]) = TemplateSlot(
+    ValueExpr(
+      Value.Entity(Some("sensor.left"), Part.Whole),
+      List(
+        Step.Cel(
+          "math.greatest(past.transformList(i, p, p[1]))",
+          Map("past" -> ValueExpr(Value.Fetch(history)))
+        )
+      )
     ),
+    valueWhile = valueWhile,
     signal = Some(SignalBind.Text)
   )
 
@@ -42,7 +47,7 @@ class ValueWhileSuite extends munit.FunSuite {
   private def node(of: TemplateSlot) = LayoutNode.Component(
     card = "bar",
     templateSlots = Map(
-      "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.left"))),
+      "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
       "of" -> of
     )
   )
@@ -111,12 +116,8 @@ class ValueWhileSuite extends munit.FunSuite {
       "chart",
       Map(
         "chart" -> TemplateSlot(
-          SlotSource(
-            fetch = Some(
-              FetchTemplate(e, Choice.Fixed(Windows.day))
-            ),
-            transform = Transform.Stage.Passthrough,
-            reads = Reads.OnRender
+          ValueExpr(
+            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day)))
           )
         )
       )
@@ -154,7 +155,14 @@ class ValueWhileSuite extends munit.FunSuite {
 
   test("CEL decides it as well, when an author writes CEL") {
     val cel =
-      SlotSource(transform = "double(state) > 0.0", bypassUnavailable = false)
+      ValueExpr(
+        Value.Entity(
+          Some("sensor.left"),
+          bypassUnavailable = false,
+          part = Part.Whole
+        ),
+        List(Step.Cel("double(value.state) > 0.0"))
+      )
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
@@ -185,9 +193,11 @@ class ValueWhileSuite extends munit.FunSuite {
 
   test("the build refuses one that reads a fetch, is not a bool, or is once") {
     def errs(of: TemplateSlot) = dashboard(node(of)).validate().mkString("\n")
-    val readsFetch = SlotSource(
-      transform = "size(past) > 0",
-      values = Map("past" -> ExprValue.Fetched(history))
+    val readsFetch = ValueExpr(
+      Value.Cel(
+        "size(past) > 0",
+        Map("past" -> ValueExpr(Value.Fetch(history)))
+      )
     )
     assert(
       errs(peak(Some(readsFetch))).contains("valueWhile that reads a fetch")
@@ -195,7 +205,12 @@ class ValueWhileSuite extends munit.FunSuite {
     assert(
       errs(
         peak(
-          Some(SlotSource(transform = "state"))
+          Some(
+            ValueExpr(
+              Value.Entity(Some("sensor.left"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
+          )
         )
       )
         .contains("'of.valueWhile' is a boolean slot")
@@ -203,18 +218,21 @@ class ValueWhileSuite extends munit.FunSuite {
     assert(
       errs(
         TemplateSlot(
-          SlotSource(reads = Reads.Once, valueWhileSlot = Some(above0(None)))
+          ValueExpr(
+            Value.Entity(Some("sensor.left"), reads = Reads.Once)
+          ),
+          valueWhile = Some(above0(None))
         )
       ).contains("has a valueWhile — it would keep its first answer")
     )
   }
 
-  test("the wire nests it as a slot") {
+  test("the wire nests it as a value beside the slot's") {
     assertEquals(
-      decode[SlotSource](
-        """{"transform": "state", "valueWhileSlot": {"transform": "on", "type": "bool"}}"""
-      ).map(_.valueWhileSlot.map(_.transform)),
-      Right(Some("on"))
+      decode[TemplateSlot](
+        """{"source": {"kind": "Entity"}, "valueWhile": {"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "on"}]}}"""
+      ).map(_.valueWhile.map(_.steps)),
+      Right(Some(List(Step.Cel("on"))))
     )
   }
 }

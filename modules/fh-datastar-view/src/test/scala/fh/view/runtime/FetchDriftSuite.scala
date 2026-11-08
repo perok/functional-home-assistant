@@ -11,14 +11,14 @@ import fh.view.model.{
   Op,
   Predicate,
   FetchTemplate,
-  Reads,
   Choice,
   Region,
   SlotRead,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
-  Surface,
-  Transform
+  Surface
 }
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.HouseFixture
@@ -73,12 +73,9 @@ class FetchDriftSuite extends munit.FunSuite {
       "chart",
       Map(
         "chart" -> TemplateSlot(
-          SlotSource(
-            fetch = Some(
-              FetchTemplate(e, Choice.Fixed(Windows.day))
-            ),
-            transform = Transform.Stage.Chart(),
-            reads = Reads.OnRender
+          ValueExpr(
+            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
+            List(Step.Chart())
           )
         )
       )
@@ -101,8 +98,8 @@ class FetchDriftSuite extends munit.FunSuite {
     val plain = LayoutNode.Component(
       "dot",
       Map(
-        "entity_id" -> TemplateSlot(SlotSource(literal = Some("light.a"))),
-        "state" -> TemplateSlot(SlotSource())
+        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
       )
     )
     val d = Dashboard(

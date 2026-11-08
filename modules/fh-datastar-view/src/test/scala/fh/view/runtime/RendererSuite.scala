@@ -4,6 +4,7 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
+  Part,
   Activation,
   CardDef,
   Cell,
@@ -15,7 +16,9 @@ import fh.view.model.{
   Reads,
   Region,
   SetId,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface,
   Theme
@@ -83,8 +86,11 @@ class RendererSuite extends munit.FunSuite {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
-        templateSlots =
-          Map("state" -> TemplateSlot(SlotSource(Some(s"sensor.$name"))))
+        templateSlots = Map(
+          "state" -> TemplateSlot(
+            ValueExpr(Value.Entity(Some(s"sensor.$name")))
+          )
+        )
       )
     Dashboard(
       cards,
@@ -144,10 +150,7 @@ class RendererSuite extends munit.FunSuite {
               },
               node = LayoutNode.Component(
                 card,
-                slots.updated(
-                  "entity_id",
-                  TemplateSlot(SlotSource(literal = Some(id)))
-                ),
+                slots.updated("entity_id", TemplateSlot(ValueExpr.literal(id))),
                 cell = cl
               )
             )
@@ -158,11 +161,15 @@ class RendererSuite extends munit.FunSuite {
   private val card = LayoutNode.Component(
     card = "card",
     templateSlots = Map(
-      "state" -> TemplateSlot(SlotSource(Some("sensor.t"))),
+      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some("sensor.t")))),
       "unit" -> TemplateSlot(
-        SlotSource(
-          Some("sensor.t"),
-          "'unit_of_measurement' in attr ? attr['unit_of_measurement'] : ''"
+        ValueExpr(
+          Value.Entity(Some("sensor.t"), Part.Whole),
+          List(
+            Step.Cel(
+              "'unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : ''"
+            )
+          )
         )
       )
     )
@@ -204,9 +211,9 @@ class RendererSuite extends munit.FunSuite {
       card = "card",
       templateSlots = Map(
         "state" -> TemplateSlot(
-          SlotSource(
-            Some("sensor.t"),
-            transform = "str(math.round(num(state) * 10.0) / 10.0)"
+          ValueExpr(
+            Value.Entity(Some("sensor.t"), Part.Whole),
+            List(Step.Cel("str(math.round(num(value.state) * 10.0) / 10.0)"))
           )
         )
       )
@@ -238,10 +245,13 @@ class RendererSuite extends munit.FunSuite {
       card = "card",
       templateSlots = Map(
         "state" -> TemplateSlot(
-          SlotSource(
-            Some("sensor.t"),
-            transform = "state + '!'",
-            bypassUnavailable = false
+          ValueExpr(
+            Value.Entity(
+              Some("sensor.t"),
+              bypassUnavailable = false,
+              part = Part.Whole
+            ),
+            List(Step.Cel("value.state + '!'"))
           )
         )
       )
@@ -263,12 +273,17 @@ class RendererSuite extends munit.FunSuite {
   test("a fallback map action resolves from the entity id with no state") {
     val expr =
       """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
-        """domain in m ? m[domain] : 'homeassistant/toggle')"""
+        """value.domain in m ? m[value.domain] : 'homeassistant/toggle')"""
     def actionNode(entity: String): LayoutNode =
       LayoutNode.Component(
         card = "act",
         templateSlots = Map(
-          "action" -> TemplateSlot(SlotSource(Some(entity), transform = expr))
+          "action" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some(entity), Part.Whole),
+              List(Step.Cel(expr))
+            )
+          )
         )
       )
     assert(
@@ -301,7 +316,10 @@ class RendererSuite extends munit.FunSuite {
         card = "act",
         templateSlots = Map(
           "action" -> TemplateSlot(
-            SlotSource(Some("sensor.t"), transform = "state", reads = reads)
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), reads = reads, part = Part.Whole),
+              List(Step.Cel("value.state"))
+            )
           )
         )
       )
@@ -444,8 +462,11 @@ class RendererSuite extends munit.FunSuite {
       bareCards,
       LayoutNode.Component(
         "naked",
-        templateSlots =
-          Map("state" -> TemplateSlot(SlotSource(Some("sensor.t"))))
+        templateSlots = Map(
+          "state" -> TemplateSlot(
+            ValueExpr(Value.Entity(Some("sensor.t")))
+          )
+        )
       )
     )
     assert(
@@ -623,10 +644,14 @@ class RendererSuite extends munit.FunSuite {
       "gauge",
       templateSlots = Map(
         "bri" -> TemplateSlot(
-          SlotSource(
-            Some("light.x"),
-            transform = "'brightness' in attr ? attr['brightness'] : null",
-            default = Some("0")
+          ValueExpr(
+            Value.Entity(Some("light.x"), Part.Whole),
+            List(
+              Step.Cel(
+                "'brightness' in value.attr ? value.attr['brightness'] : null"
+              )
+            ),
+            default = Some(fh.view.model.Lit.Text("0"))
           )
         )
       )
@@ -666,8 +691,13 @@ class RendererSuite extends munit.FunSuite {
                 Map(
                   "entity_id" -> lit("light.a"),
                   "label" -> TemplateSlot(
-                    SlotSource(transform =
-                      "'friendly_name' in attr ? attr['friendly_name'] : entity_id"
+                    ValueExpr(
+                      Value.Entity(Some("light.a"), Part.Whole),
+                      List(
+                        Step.Cel(
+                          "'friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id"
+                        )
+                      )
                     )
                   )
                 )
@@ -683,7 +713,9 @@ class RendererSuite extends munit.FunSuite {
                 "card",
                 Map(
                   "entity_id" -> lit("sensor.b"),
-                  "state" -> TemplateSlot(SlotSource())
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.b")))
+                  )
                 )
               )
             )
@@ -697,7 +729,9 @@ class RendererSuite extends munit.FunSuite {
                 "card",
                 Map(
                   "entity_id" -> lit("sensor.c"),
-                  "state" -> TemplateSlot(SlotSource())
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.c")))
+                  )
                 )
               )
             )
@@ -750,7 +784,14 @@ class RendererSuite extends munit.FunSuite {
     val r = renderer(
       onSet(
         List("light.a", "light.b"),
-        List((None, "card", Map("state" -> TemplateSlot(SlotSource())), None))
+        List(
+          (
+            None,
+            "card",
+            Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None)))),
+            None
+          )
+        )
       )
     )
     def ch(id: String) = StateChange(id, None, st(id, "on"))
@@ -771,7 +812,7 @@ class RendererSuite extends munit.FunSuite {
     val node = LayoutNode.Component(
       card = "btn",
       templateSlots =
-        Map("label" -> TemplateSlot(SlotSource(transform = "\"Hi\"")))
+        Map("label" -> TemplateSlot(ValueExpr(Value.Cel("\"Hi\""))))
     )
     val html = renderer(node)
       .renderNodeById("c", Map.empty, fragments = FetchSnapshot.empty)
@@ -890,8 +931,11 @@ class RendererSuite extends munit.FunSuite {
         "detail" -> Surface(
           LayoutNode.Component(
             "card",
-            templateSlots =
-              Map("state" -> TemplateSlot(SlotSource(Some("sensor.t"))))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.t")))
+              )
+            )
           )
         )
       )
@@ -1242,10 +1286,13 @@ class RendererSuite extends munit.FunSuite {
         "box",
         templateSlots = Map(
           "name" -> TemplateSlot(
-            SlotSource(
-              Some("sensor.a"),
-              "'friendly_name' in attr ? attr['friendly_name'] : entity_id",
-              reads = mode
+            ValueExpr(
+              Value.Entity(Some("sensor.a"), reads = mode, part = Part.Whole),
+              List(
+                Step.Cel(
+                  "'friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id"
+                )
+              )
             )
           )
         ),
@@ -1341,8 +1388,11 @@ class RendererSuite extends munit.FunSuite {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
-        templateSlots =
-          Map("state" -> TemplateSlot(SlotSource(Some(s"sensor.$name"))))
+        templateSlots = Map(
+          "state" -> TemplateSlot(
+            ValueExpr(Value.Entity(Some(s"sensor.$name")))
+          )
+        )
       )
     val d = Dashboard(
       cards,
@@ -1354,7 +1404,10 @@ class RendererSuite extends munit.FunSuite {
               "tabsBar",
               templateSlots = Map(
                 "title" -> TemplateSlot(
-                  SlotSource(Some("sensor.title"), "state")
+                  ValueExpr(
+                    Value.Entity(Some("sensor.title"), Part.Whole),
+                    List(Step.Cel("value.state"))
+                  )
                 )
               )
             )
@@ -1417,7 +1470,14 @@ class RendererSuite extends munit.FunSuite {
   // `light.z` is a candidate no test turns on: the id-slugging case.
   private val onGroup = onSet(
     List("light.a", "light.b", "light.c", "light-b.x", "light.z"),
-    List((None, "card", Map("state" -> TemplateSlot(SlotSource())), None))
+    List(
+      (
+        None,
+        "card",
+        Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None)))),
+        None
+      )
+    )
   )
 
   test("memberIdOf slugs the entity id under the group id") {
@@ -1504,8 +1564,11 @@ class RendererSuite extends munit.FunSuite {
   private def ifDashboard(withElse: Boolean = true): Dashboard = {
     def branch(name: String) = LayoutNode.Component(
       "card",
-      templateSlots =
-        Map("state" -> TemplateSlot(SlotSource(Some(s"sensor.$name"))))
+      templateSlots = Map(
+        "state" -> TemplateSlot(
+          ValueExpr(Value.Entity(Some(s"sensor.$name")))
+        )
+      )
     )
     val members = Map(
       "c_then" -> Surface(
@@ -1649,8 +1712,11 @@ class RendererSuite extends munit.FunSuite {
         regions = LayoutNode.kids(
           LayoutNode.Component(
             "card",
-            templateSlots =
-              Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
+            templateSlots = Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
+            )
           )
         )
       )
@@ -1715,8 +1781,11 @@ class RendererSuite extends munit.FunSuite {
             "head" -> List(
               LayoutNode.Component(
                 "head",
-                templateSlots =
-                  Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
+                templateSlots = Map(
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.a")))
+                  )
+                )
               )
             ),
             "children" -> List(LayoutNode.Component("member"))
@@ -1757,7 +1826,11 @@ class RendererSuite extends munit.FunSuite {
         "b0" -> Surface(
           LayoutNode.Component(
             "card",
-            Map("state" -> TemplateSlot(SlotSource(Some("s.a"))))
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("s.a")))
+              )
+            )
           ),
           bakeInto = Some("s_t0__c"),
           bakeAs = Some("branch"),
@@ -1774,7 +1847,11 @@ class RendererSuite extends munit.FunSuite {
         "u0" -> Surface(
           LayoutNode.Component(
             "card",
-            Map("state" -> TemplateSlot(SlotSource(Some("s.b"))))
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("s.b")))
+              )
+            )
           ),
           bakeInto = Some("s_sx__c"),
           bakeAs = Some("panel"),
@@ -1804,7 +1881,7 @@ class RendererSuite extends munit.FunSuite {
           (
             Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
             "card",
-            Map("state" -> TemplateSlot(SlotSource())),
+            Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None)))),
             None
           )
         ),
@@ -1877,8 +1954,11 @@ class RendererSuite extends munit.FunSuite {
             "bar" -> List(
               LayoutNode.Component(
                 "bar",
-                templateSlots =
-                  Map("state" -> TemplateSlot(SlotSource(Some("sensor.t"))))
+                templateSlots = Map(
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.t")))
+                  )
+                )
               )
             ),
             "children" -> List(

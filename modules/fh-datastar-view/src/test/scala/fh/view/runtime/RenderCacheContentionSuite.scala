@@ -10,7 +10,8 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Region,
-  SlotSource,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface
 }
@@ -58,7 +59,9 @@ class RenderCacheContentionSuite extends ServerHarness {
               LayoutNode.Component(
                 "card",
                 templateSlots = Map(
-                  "state" -> TemplateSlot(SlotSource(Some("sensor.shared")))
+                  "state" -> TemplateSlot(
+                    ValueExpr(Value.Entity(Some("sensor.shared")))
+                  )
                 )
               )
             )
@@ -71,8 +74,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t0" -> Surface(
         LayoutNode.Component(
           "card",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.a"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a")))
+            )
+          )
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -82,8 +88,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t1" -> Surface(
         LayoutNode.Component(
           "card",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.b"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.b")))
+            )
+          )
         ),
         bakeInto = Some("c_0"),
         bakeAs = Some("panel"),
@@ -106,8 +115,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
-          templateSlots =
-            Map("state" -> TemplateSlot(SlotSource(Some("sensor.shared"))))
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.shared")))
+            )
+          )
         )
       )
     )

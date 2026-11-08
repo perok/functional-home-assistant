@@ -4,6 +4,7 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
+  Part,
   Activation,
   BoundSlot,
   CardDef,
@@ -12,7 +13,6 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
-  Reads,
   SignalBind,
   Choice,
   FetchTemplate,
@@ -20,7 +20,9 @@ import fh.view.model.{
   SlotRead,
   Region,
   SlotShape,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface,
   Transform
@@ -60,25 +62,29 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   private def drawn(width: Int = 600) =
     Transform.Stage.Chart(ChartStyle(width = width.refineUnsafe))
 
+  private def drawnStep(width: Int = 600) =
+    Step.Chart(ChartStyle(width = width.refineUnsafe))
+
   private def read(window: String = "24h", width: Int = 600) =
     SlotRead(resolved(window), drawn(width))
 
   private def chartSource(window: String = "24h", width: Int = 600) =
     TemplateSlot(
-      SlotSource(
-        fetch = Some(chart(window)),
-        transform = drawn(width),
-        reads = Reads.OnRender
-      )
+      ValueExpr(Value.Fetch(chart(window)), List(drawnStep(width)))
     )
 
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
       card = "historyChart",
       templateSlots = Map(
-        "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
+        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
         "chart" -> chartSource(window),
-        "name" -> TemplateSlot(SlotSource(transform = "state"))
+        "name" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(Some("sensor.t"), Part.Whole),
+            List(Step.Cel("value.state"))
+          )
+        )
       )
     )
 
@@ -93,7 +99,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         .Component(
           card = "historyChart",
           templateSlots = Map(
-            "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
+            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
             "chart" -> chartSource()
           )
         )
@@ -105,12 +111,9 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   test("a fetch slot is not a signal slot, whatever it says") {
     // A `SlotShape.Fetch` has no signal to read, so the signal path cannot
     // reach it; no rule is needed.
-    val src = TemplateSlot(
-      chartSource().source.copy(reads = Reads.Live),
-      signal = Some(SignalBind.Text)
-    )
+    val src = TemplateSlot(chartSource().expr, signal = Some(SignalBind.Text))
     assertEquals(
-      BoundSlot.bind(Map.empty)(src).shape,
+      BoundSlot.bind(Map.empty, None)(src).shape,
       SlotShape.Fetch(ask())
     )
     assertEquals(
@@ -339,10 +342,9 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
                   card = "chart",
                   templateSlots = Map(
                     "chart" -> TemplateSlot(
-                      SlotSource(
-                        fetch = Some(chart()),
-                        transform = drawn(),
-                        reads = Reads.OnRender
+                      ValueExpr(
+                        Value.Fetch(chart()),
+                        List(drawnStep())
                       )
                     )
                   )
@@ -475,29 +477,19 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
-  test("a fetch slot whose wire says 'live' is rejected as untruthful") {
-    // Inert, since a `SlotShape.Fetch` never reads it: this keeps the wire from
-    // lying. The Pkl default derives `onRender` from the fetch.
-    val errs = dashboard(
-      TemplateSlot(chartSource().source.copy(reads = Reads.Live))
-    ).validate()
-    assert(errs.exists(_.contains("never pushed")), clue = errs)
-  }
-
   test("statistics at a period no shorter than the span is a build error") {
     // HA answers `hour` over one hour with nothing (measured), so the chart
     // would be blank forever.
     val errs = dashboard(
       TemplateSlot(
-        SlotSource(
-          fetch = Some(
+        ValueExpr(
+          Value.Fetch(
             FetchTemplate(
               "sensor.t",
               Choice.Fixed(Window.Statistics(3600L, StatisticsPeriod.Hour))
             )
           ),
-          transform = drawn(),
-          reads = Reads.OnRender
+          List(drawnStep())
         )
       )
     ).validate()

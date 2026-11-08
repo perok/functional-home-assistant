@@ -2,13 +2,16 @@ package fh.view.runtime
 
 import cats.effect.IO
 import fh.view.model.{
+  Part,
   CardDef,
   Dashboard,
   LayoutNode,
   Op,
   Predicate,
   Region,
-  SlotSource,
+  Step,
+  Value,
+  ValueExpr,
   TemplateSlot,
   Surface
 }
@@ -50,9 +53,13 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          Map("state" -> TemplateSlot(SlotSource()))
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
-        (None, "dim", Map("state" -> TemplateSlot(SlotSource())))
+        (
+          None,
+          "dim",
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
+        )
       )
     )
   )
@@ -72,8 +79,10 @@ class SetMembershipSuite extends ServerHarness {
           None,
           "dot",
           Map(
-            "state" -> TemplateSlot(SlotSource()),
-            "extra" -> TemplateSlot(SlotSource(Some("sensor.outside")))
+            "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
+            "extra" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.outside")))
+            )
           )
         )
       )
@@ -95,12 +104,12 @@ class SetMembershipSuite extends ServerHarness {
         (
           Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          Map("state" -> TemplateSlot(SlotSource()))
+          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
         ),
         (
           None,
           "plain",
-          Map("label" -> TemplateSlot(SlotSource(literal = Some("off-duty"))))
+          Map("label" -> TemplateSlot(ValueExpr.literal("off-duty")))
         )
       )
     )
@@ -273,9 +282,16 @@ class SetMembershipSuite extends ServerHarness {
               None,
               "dot",
               Map(
-                "state" -> TemplateSlot(SlotSource()),
+                "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
                 "level" -> TemplateSlot(
-                  SlotSource(transform = "'level' in attr ? attr['level'] : ''")
+                  ValueExpr(
+                    Value.Entity(None, Part.Whole),
+                    List(
+                      Step.Cel(
+                        "'level' in value.attr ? value.attr['level'] : ''"
+                      )
+                    )
+                  )
                 )
               )
             )
@@ -327,21 +343,27 @@ class SetMembershipSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.SetNode(
           candidates = List("area.stue"),
-          members = Map(
-            "area.stue" -> LayoutNode.SetMember(
-              List(
-                LayoutNode.SetClause(
-                  None,
-                  LayoutNode.Component(
-                    "col",
-                    regions = LayoutNode.kids(
-                      onSet(
-                        List("light.a", "light.b"),
-                        List(
-                          (
-                            None,
-                            "dot",
-                            Map("state" -> TemplateSlot(SlotSource()))
+          members =
+            Map(
+              "area.stue" -> LayoutNode.SetMember(
+                List(
+                  LayoutNode.SetClause(
+                    None,
+                    LayoutNode.Component(
+                      "col",
+                      regions = LayoutNode.kids(
+                        onSet(
+                          List("light.a", "light.b"),
+                          List(
+                            (
+                              None,
+                              "dot",
+                              Map(
+                                "state" -> TemplateSlot(
+                                  ValueExpr(Value.Entity(None))
+                                )
+                              )
+                            )
                           )
                         )
                       )
@@ -350,7 +372,6 @@ class SetMembershipSuite extends ServerHarness {
                 )
               )
             )
-          )
         )
       ),
       "other" -> Surface(LayoutNode.Component("col"))

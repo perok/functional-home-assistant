@@ -16,7 +16,7 @@ import "../../core/slot.pkl" as slotMod
 const local valueSlot: slotMod.Slot = slotMod.slot("value")
 const local ofSlot: slotMod.Slot = slotMod.slot("of")
 const local scaleSlot: slotMod.Slot = slotMod.slot("scale")
-const local downSlot: slotMod.Slot = slotMod.slot("down")
+const local downSlot: slotMod.Slot = slotMod.bool("down")
 
 const local fillSig: String = "_{{id}}__fill"
 const local fillExpr: String =

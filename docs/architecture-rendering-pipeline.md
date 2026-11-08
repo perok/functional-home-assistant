@@ -986,9 +986,13 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
-Compile keeps one program per distinct CEL source and typed names (`Validated.transforms`). The
-renderer looks each slot's up once, when it plans the node (`Planned`), so a paint runs a program
-and looks nothing up.
+Compile keeps one program per distinct CEL source, typed names and type of `value`
+(`Validated.transforms`). The renderer plans each slot once per node (`Planned`): a value that never
+moves is `Planned.Constant`, folded with its JS spelling (a literal, a literal through the theme's
+swap, or a `once` read through the identity cache, which is every click transform), and anything else
+`Planned.Live`, its source and steps composed into one function (`Renderer.compose`) with each CEL
+program looked up and each literal operand boxed up front, so a paint walks no step list and looks
+nothing up.
 
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the values its CEL
@@ -1010,11 +1014,11 @@ past over a window. It reaches a render the same way state does, as a snapshot r
 walk (`fh.view.fetch.FetchSnapshot`), because a render is a synchronous string build and answering a
 fetch is `IO` over a socket and a JavaScript engine.
 
-**A provider fetches; what its answer BECOMES is the slot's `transform`.** That split is the whole
-of the second kind of input. A provider answers `Answer(version, json)` and has no opinion about
-presentation; a STAGE — the third arm of `transform`, beside a CEL string and a `Transform.Simple` —
-turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `Stage.Passthrough` is
-the absence of a transform: the provider's JSON, which is the contract a third party reads against.
+**A provider fetches; what its answer BECOMES is the slot's step.** That split is the whole of the
+second kind of input. A provider answers `Answer(version, json)` and has no opinion about
+presentation; a fetch slot's one step, a `Step.Chart` stage, turns that into what the card puts in
+its hole, SVG. With no step it is the provider's JSON (`Transform.Stage.Passthrough` on the ask),
+which is the contract a third party reads against.
 It is BYTES, never a signal, like every fetch slot: a component that wants the data client-side
 lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
 re-applies that attribute when a re-fetch morphs it — `c.examples.historyReadings` is the worked example,
@@ -1091,9 +1095,8 @@ Three boxes move, and no others:
   say which. `isAtLeast` compares both halves, so
   two viewers on different windows have differently-SHAPED keys, are unordered, and get separate
   generations rather than one overwriting the other with a chart of the wrong span.
-- **`SlotShape`**, which is what a slot IS: `State` or `Fetch`. The wire keeps one `SlotSource`
-  (a discriminated sum would stamp a `"type"` tag onto every slot and churn every byte-identity
-  snapshot), and this is where the two are told apart. Every site that CLASSIFIES slots matches on
+- **`SlotShape`**, which is what a slot IS: `State` or `Fetch`, told apart by its source
+  (`Value.Fetch` or another). Every site that CLASSIFIES slots matches on
   it, so the combinations that would be wrong — a fetch that is `live`, `once`, or a signal — are
   not rejected by rules, they are unreachable.
 - **`Component.fetches`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
@@ -1282,8 +1285,9 @@ slots keyed by a `CellKey` instead of a name, so no template sees them, and thei
 key's (`class:<name>`, `style:--…`): the renderer places the bindings on the wrapper in both forms,
 and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
-through them once, when `Templates` compiled them. A `cssClass` slot's value goes through them where
-it resolves (`Renderer.classed`): a literal once, into `NodePlan.constants`, a reading on each
+through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
+goes through them where it resolves (`Renderer.classed`): a literal once, into a
+`Planned.Constant`, a reading on each
 resolve, so a signal frame carries the swapped value too. The page's connection banners
 (`Server.pageInto`) and a failed fetch's label (`Fetches.label`, swapped in `resolveSlotValue`) are
 the markup Scala writes itself, and take the same rewrite.
@@ -1291,13 +1295,11 @@ the markup Scala writes itself, and take the same rewrite.
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
 (ADR 0017). The `<transform>` segment is the bare word `state` when the slot reads the state plain —
-the shape that covers most slots — a short hash of the expression for anything computed, or the
-opted-in simple structure's key (`attr:brightness`, `percent:brightness:1.0:255.0` —
-`Transform.Simple.key`) for the fast tier
-(`Renderer.transformSegment` / `SlotSource.valueKey`); the slot NAME is deliberately not used, so
-cards sharing a reading
-share a signal whatever they call the hole. A `cssClass` slot's key carries its type
-(`BoundSlot.valueKey`), since its value is the theme's swap and must not share with text. Dots are PATH separators — the bundle rewrites
+the shape that covers most slots — and a short hash of the value's key otherwise
+(`Renderer.transformSegment` over `BoundSlot.valueKey`: the source's key, each step's, and the
+named inputs'); the slot NAME is deliberately not used, so cards sharing a reading share a signal
+whatever they call the hole. A themed value's key carries its `ThemeClasses` step, so it never
+shares with text. Dots are PATH separators — the bundle rewrites
 `$_e.light.a.state` into bracket
 indexing, and `datastar-patch-signals` deep-merges — so a frame carries a nested structure and never
 a flat dotted key. A two-way `SignalBind.Bind` is the exception and stays node-scoped: an input

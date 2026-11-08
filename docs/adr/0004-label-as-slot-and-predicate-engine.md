@@ -17,17 +17,17 @@ path.
 
 ## The slot model
 
-`SlotSource` is `{ entityId, transform = "state", default,
-bypassUnavailable = true, literal, reactive = true }`. A slot is one of:
+A slot's value is a `ValueExpr`, `{source, steps, default}`, whose entity
+source carries `of`, `part`, `reads` and `bypassUnavailable`. A slot is one of:
 
 - **A literal** (authored as a bare JSON string): a hardcoded value used
   verbatim — no entity, no expression, no compilation. Hardcoded labels, `min`/
   `max`, constant action URLs.
-- **An inheriting transform** (`entityId: None`): binds to the component's
+- **An inheriting reading** (`of: None`): binds to the component's
   subject — the magical `entity_id` slot (ADR 0001). A card binds its entity
   once; every slot reads it. A set's clause node carries that slot as a literal,
   because the build knows the candidate.
-- **An own-entity transform** (`entityId: Some(other)`): the multi-entity card
+- **An own-entity reading** (`of: Some(other)`): the multi-entity card
   (`c.exprOf(other, …)` makes a `value`/`secondary` read another entity); the
   card joins both entities' live-dependency sets.
 
@@ -53,8 +53,8 @@ candidate set, because every candidate is known (ADR 0003).
 — a plain **string** becomes a literal slot; `c.expr('<cel>')` a live
 expression bound to the entity; absent, the entity's friendly_name is baked as a
 literal, since every candidate has a name at build time. The `string | c.expr(...)` convention spans every display field
-(`label`, `value`, `secondary`, the slider position); `c.expr` is just a partial
-`SlotSource`, not field-specific.
+(`label`, `value`, `secondary`, the slider position); `c.expr` is just a
+reading, not field-specific.
 
 ## Predicates stay an AST, not an expression
 

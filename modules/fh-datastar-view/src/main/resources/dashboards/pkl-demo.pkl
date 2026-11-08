@@ -59,7 +59,7 @@ card = (c.grid) {
         // mandatory-paren amend `(c.entityCard(x)) { ... }`). Pure sugar — the
         // emitted node is byte-identical (the wire snapshot guards this).
         c.entityCard(dump.entities.sensor_ams_1a4e_u1)
-          .value(c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#))
+          .value(c.expr(#"str(math.round(num(value.state) * 10.0) / 10.0) + ' V'"#))
           .tapAction(c.tap.call("homeassistant/toggle", dump.entities.sensor_ams_1a4e_u1))
 
         // Domain-checked: only entities with a `domainAxes` row compile.
@@ -87,7 +87,7 @@ card = (c.grid) {
       .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
       .`else`((e) -> c.entityCard(e)
         .tapAction(c.tap.toggle(e))
-        .label(c.expr(#"attr[?'friendly_name'].orValue('') + ' (' + state + ')'"#)))
+        .label(c.expr(#"value.attr[?'friendly_name'].orValue('') + ' (' + value.state + ')'"#)))
       .build()
       .fullWidth()
 
@@ -102,7 +102,7 @@ card = (c.grid) {
       .where(q.eq(q.optional(q.prop("device_class")), "battery"))
       .where(q.lt(q.stateProp, 20))
       .render((e) -> c.entityCard(e)
-        .label(c.expr(#"attr[?'friendly_name'].orValue('') + ' — ' + state + '%'"#))
+        .label(c.expr(#"value.attr[?'friendly_name'].orValue('') + ' — ' + value.state + '%'"#))
         .secondary(c.attr("device_class")))
       .build()
       .fullWidth()

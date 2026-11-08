@@ -39,6 +39,10 @@ open class Tally {
   `when`: Mapping<String, Predicate> = new {}
 }
 
+/// The ids of a [[Tally]]'s present candidates, uncounted: a named input CEL
+/// reads as a `list(string)`.
+class PresentList extends Tally
+
 /// How many of a static candidate list are present, against a number: `any`
 /// is `> 0`, `none` is `== 0`, `all` is `== length`. `when` guards per
 /// candidate, since residuals diverge across one set; a candidate absent from

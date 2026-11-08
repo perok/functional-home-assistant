@@ -149,7 +149,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/components_default.pkl` | The seeded workspace `components.pkl` ([[AddonBootstrap.starterComponents]]): amends the facade and sets the user's `defaults` (`lib/components/defaults.pkl`). Every workspace file imports it as `c`. **Adding a default — read ADR 0015's "Your components" first**: a card carries the whole object and the facade and recipes hand it over, so a facade-only default would miss the library's own sections |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
-| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string, or `{literal, type}` when typed) |
+| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`Reading.valueWhileSlot`, which the wire nests on the template slot as `valueWhile`) |
 
 A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
 renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
@@ -240,8 +240,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   region; every slot must be named, unless the server reads it itself (`Dashboard.readByRenderer`). Call-style factories / classes return layout nodes referencing a card
   by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
   **colon** syntax (`data-on:click`,
-  `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
-  when a light is off).
+  `data-bind`, `data-signals`). A reading's `default` (`ValueExpr.default`) fills an empty result
+  (e.g. brightness when a light is off).
 - **Signal slots (ADR 0017)**: a slot with a `signal` carries its value as a Datastar signal
   instead of as bytes in the element, so a change to it costs one
   `datastar-patch-signals` frame for the batch rather than a re-rendered card each. The card places
@@ -255,9 +255,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (value inline + a node-level `data-signals` seed on the `.fh-cell` wrapper; what a page load,
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
-  The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
-  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`,
-  `class:<name>`, `bind` (`data-bind`, two-way on a form control), or `handler` (NO binding at
+  The slot's `signal` names the BINDING KIND (`SignalBind`, an object on the wire): `Text`
+  (`data-text`), `Style(property)` (`data-style:<prop>`, custom properties included), `Attr(name)`,
+  `Class(name)`, `Bind` (`data-bind`, two-way on a form control), or `Handler` (NO binding at
   all — nothing paints the value; an event handler reads it by name, which is how a lock tile's
   tap knows which service to post without the URL being in its bytes). Every painted kind reads
   the signal bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides
@@ -370,13 +370,14 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `Variable.declarer` (a build token); `c.history.chooser` and `c.controlChooser` are two, read by
   `.fromChooser()` on a chart or a light slider),
   **expression values** (a node's or a slot's `expressionValues`: literals, a live `q.from(…).where(…).count()`,
-  a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on
-  demand, waking nothing — ADR 0034), read BY NAME as typed variables in that node's own
-  CEL — `string(lights_on) + ' on'` — compiled at build so a typo or a type error fails it;
+  the ids present (`….present()`, a `list(string)`), a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on
+  demand, waking nothing — ADR 0034), or an entity (read whole, `kitchen.attr.brightness`), read BY NAME
+  as typed variables in that node's own CEL — `string(lights_on) + ' on'` — beside `value`, what the step
+  before gave (`value.state` on a `c.expr`), compiled at build so a typo or a type error fails it;
   bound to the slots that read them (`Component.bound`), so a counted light wakes the node through the
   ordinary reverse index; see `docs/terminology.md`), **boolean inputs** (`active`, `disabled` on
   the button/tile/slider, `cellClassWhen`: a Boolean, a reading, an `Expr` or a condition directly —
-  `.disabled(lit.none())` — the condition is the bool slot's transform, decided without CEL; `Slot.type = "bool"`
+  `.disabled(lit.none())` — the condition is the bool slot's source, decided without CEL; a `slotMod.bool` handle
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
   tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
   reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
