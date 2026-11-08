@@ -64,15 +64,34 @@ the paths taken read. Four things are wrong with how that works today:
     "before", so `Patches.beforeSnapshot` goes, and the recorder no longer reads the store. It
     derives every version, watched or not, so the chain does not break; with nobody watching it
     makes nothing. The last two are kept, as `Decided` keeps them today.
+  - The store hands the recorder one stream that starts with the current state: subscribed
+    (`subscribeAwait`) before that state is read, then the frames newer than it. A start read
+    apart from the subscription would miss the frame published between them, and the fold would
+    skip a version without its dirty marks.
+  - A removal is a change like any other, so a decision that read the entity goes dirty:
+
+    ```scala
+    enum StateChange:
+      case Moved(entityId: String, previous: Option[EntityState], current: EntityState)
+      case Removed(entityId: String, previous: EntityState)
+    ```
+
+    Its nodes are touched and render without it until the registry watcher's rebuild lands.
   - A reader reuses only a decision made at its own version or an older one that no change since
     has dirtied, never one made at a newer version, whose inputs may have moved after its own. A
     reader ahead of the recorder starts its version empty: correct, and only unshared, as a
     straggler is today; the recorder later adds what the previous version carries beneath it,
     without overwriting.
+  - A version holds two parts: the decisions carried from the previous one, immutable, and the
+    fills, decisions readers made on demand, in a `ConcurrentHashMap` as `Decisions` keeps them
+    today. A lookup reads the fills, then the carried part; the next version is the carried part
+    plus the fills, minus the frame's dirty ones, so only the few fills are copied. Fills do not
+    go through the fold: a decision is pure, so two readers making it at once both make it right,
+    and a page must not wait on the recorder.
   - A decision a reader makes at version v after v+1 exists is passed on to v+1, unless v+1's
     frame dirtied it, so a viewer's work reaches newer versions without a copy.
-  - The recorder's held `Membership` is the previous version's set decisions, so `Decided` and
-    `Membership` become one cache.
+  - The set decisions become one cache: the recorder's `Membership` shrinks to its entity-to-member
+    index (`binding`) over them.
   - Fetch answers are not kept in `Shared`: the resolver caches them, and a run holds them only
     while it makes a decision.
   - `Viewing`: one viewer's, for one send. It holds the viewer's selections and node variables,
@@ -148,7 +167,8 @@ the paths taken read. Four things are wrong with how that works today:
 ## Steps
 
 1. Dirty marks and `Shared`: the index (decisions to fetches, entities to the decisions they
-   dirty); the store's `Frame` and the recorder's fold; the "depends on entity" part and its
+   dirty); the store's `Frame`, its one stream from the current state, `StateChange.Removed`, and
+   the recorder's fold; the "depends on entity" part and its
    fetch API option; `Shared` derived from the version before it; `Decided` and `Membership` as
    one cache;
    the decision entry points take `Shared`. The cell stays until step 2, so decisions keep their
@@ -166,5 +186,9 @@ the paths taken read. Four things are wrong with how that works today:
    decision is derived from the snapshot, never read from the recorder" becomes "the recorder and
    the readers share one versioned cache"; the lasting goals join its rules) and §6; ADR 0034's
    decision paragraph; the terminology for `Shared`, `Viewing`, dirty and a plain tick; the
-   fetch option in `writing-components.md`. Bench:
+   fetch option in `writing-components.md`; a §8 open question: a decision nothing can mark dirty
+   is never revisited by the recorder, so a viewer's page can disagree with a fresh decision until
+   a page load, until fetches push dirty marks; a follow-up note in the ADR: a lagging recorder
+   could fold every queued frame in one pass (fs2 `.chunks`: dirty from all their changes, "before"
+   the previous `Shared`, "after" the last state), left out until lag shows. Bench:
    `page`, `tickRender`, a pull and a recorder frame, allocation first with escape analysis off.
