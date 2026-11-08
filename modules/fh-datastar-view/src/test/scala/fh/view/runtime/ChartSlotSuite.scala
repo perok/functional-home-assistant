@@ -77,7 +77,7 @@ class ChartSlotSuite extends munit.FunSuite {
     val html =
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, fragments())
+        .renderBodyTraced(Shared.of(states), Selections.none, fragments())
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
@@ -89,7 +89,10 @@ class ChartSlotSuite extends munit.FunSuite {
     val classes = ThemeClasses(Map("fh-label" -> List("fh-label", "chip")))
     val d = dashboardWith("{{{chart}}}").copy(theme = Theme(classes = classes))
     def body(f: FetchSnapshot) =
-      Renderer.create(d).renderBodyTraced(states, Selections.none, f).html
+      Renderer
+        .create(d)
+        .renderBodyTraced(Shared.of(states), Selections.none, f)
+        .html
     val failed =
       body(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
     assert(
@@ -107,7 +110,11 @@ class ChartSlotSuite extends munit.FunSuite {
     val e = intercept[fh.view.FHError](
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, FetchSnapshot.empty)
+        .renderBodyTraced(
+          Shared.of(states),
+          Selections.none,
+          FetchSnapshot.empty
+        )
     )
     assertEquals(e.status, 500)
     assert(e.getMessage.contains("not resolved for this render"))
@@ -117,7 +124,7 @@ class ChartSlotSuite extends munit.FunSuite {
     val html =
       Renderer
         .create(d)
-        .renderBodyTraced(states, Selections.none, fragments())
+        .renderBodyTraced(Shared.of(states), Selections.none, fragments())
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
@@ -127,8 +134,8 @@ class ChartSlotSuite extends munit.FunSuite {
     val r = Renderer.create(dashboardWith("{{{chart}}}"))
     val id = rootId(dashboardWith("{{{chart}}}"))
     assertNotEquals(
-      r.renderInputs(id, states, fragments()),
-      r.renderInputs(id, states, fragments(version = 200L))
+      r.renderInputs(id, Shared.of(states), fragments()),
+      r.renderInputs(id, Shared.of(states), fragments(version = 200L))
     )
   }
 
@@ -139,8 +146,8 @@ class ChartSlotSuite extends munit.FunSuite {
     val r = Renderer.create(d)
     val id = rootId(d)
     assertNotEquals(
-      r.byteSlotValues(id, states, fragments()),
-      r.byteSlotValues(id, states, fragments("<svg>other</svg>"))
+      r.byteSlotValues(id, Shared.of(states), fragments()),
+      r.byteSlotValues(id, Shared.of(states), fragments("<svg>other</svg>"))
     )
   }
 }

@@ -40,7 +40,7 @@ class FetchDriftSuite extends munit.FunSuite {
       name: String,
       renderer: Renderer,
       dashboard: Dashboard,
-      houses: List[Map[String, EntityState]]
+      houses: List[Shared]
   )
 
   private def built(d: Dashboard): Renderer =
@@ -63,7 +63,7 @@ class FetchDriftSuite extends munit.FunSuite {
     val flip = Map("on" -> "off", "off" -> "on")
     val flipped =
       base.view.mapValues(s => s.copy(state = flip.getOrElse(s.state, s.state)))
-    Case(name, built(d), d, List(base, flipped.toMap))
+    Case(name, built(d), d, List(Shared.of(base), Shared.of(flipped.toMap)))
   }
 
   /** A distinct sensor in every place a chart can hide, so no read is answered
@@ -164,7 +164,12 @@ class FetchDriftSuite extends munit.FunSuite {
     def light(s: String) = Map(
       "light.a" -> EntityState("light.a", s, Map.empty)
     )
-    Case("shapes", built(d), d, List(light("on"), light("off")))
+    Case(
+      "shapes",
+      built(d),
+      d,
+      List(Shared.of(light("on")), Shared.of(light("off")))
+    )
   }
 
   private lazy val cases =

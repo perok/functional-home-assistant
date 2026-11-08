@@ -83,32 +83,37 @@ class ValueWhileSuite extends munit.FunSuite {
     val d = dashboard(node(peak(Some(above0(None)))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
+    assertEquals(
+      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      Nil
+    )
     // Unanswered, and still renders: the transform never ran.
     assertEquals(
-      r.signalsFor(idOf(d, 0), states("0"), FetchSnapshot.empty).values.toList,
+      r.signalsFor(idOf(d, 0), Shared.of(states("0")), FetchSnapshot.empty)
+        .values
+        .toList,
       List("")
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, states("46"), Map.empty),
+      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
       List(read)
     )
     assertEquals(
-      r.signalsFor(idOf(d, 0), states("46"), answered).values.toList,
+      r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered).values.toList,
       List("101")
     )
   }
 
   test("one snapshot decides each thing once, for every reader of it") {
     val decided = Decided()
-    val snapshot = states("46")
+    val snapshot = StoreState(states("46"), 1L)
     var runs = 0
-    def ask(at: Map[String, EntityState]) =
+    def ask(at: StoreState) =
       decided.at(at).holds("k") { runs += 1; true }
     assert(ask(snapshot) && ask(snapshot))
     assertEquals(runs, 1)
     // Equal content, another map: decided afresh, never assumed.
-    assert(ask(states("46")))
+    assert(ask(StoreState(states("46"), 1L)))
     assertEquals(runs, 2)
   }
 
@@ -145,9 +150,11 @@ class ValueWhileSuite extends munit.FunSuite {
     def asked(a: String, b: String) =
       r.fetchesForPage(
         Set.empty,
-        Map(
-          "light.a" -> EntityState("light.a", a, Map.empty),
-          "light.b" -> EntityState("light.b", b, Map.empty)
+        Shared.of(
+          Map(
+            "light.a" -> EntityState("light.a", a, Map.empty),
+            "light.b" -> EntityState("light.b", b, Map.empty)
+          )
         ),
         Map.empty
       ).map { case SlotRead(FetchRequest.History(e, _), _) => e }
@@ -168,9 +175,12 @@ class ValueWhileSuite extends munit.FunSuite {
     val d = dashboard(node(peak(Some(cel))))
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
-    assertEquals(r.fetchesForPage(Set.empty, states("0"), Map.empty), Nil)
     assertEquals(
-      r.fetchesForPage(Set.empty, states("46"), Map.empty),
+      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      Nil
+    )
+    assertEquals(
+      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
       List(read)
     )
   }
@@ -186,8 +196,8 @@ class ValueWhileSuite extends munit.FunSuite {
       node(peak(Some(above0(None))))
     )
     val r = Renderer.create(d)
-    val plain = r.signalsFor(idOf(d, 0), states("0"), answered)
-    val gated = r.signalsFor(idOf(d, 1), states("0"), answered)
+    val plain = r.signalsFor(idOf(d, 0), Shared.of(states("0")), answered)
+    val gated = r.signalsFor(idOf(d, 1), Shared.of(states("0")), answered)
     assert(plain.keySet.intersect(gated.keySet).isEmpty, clue = (plain, gated))
     assertEquals(plain.values.toList, List("101"))
     assertEquals(gated.values.toList, List(""))
@@ -209,11 +219,11 @@ class ValueWhileSuite extends munit.FunSuite {
           FetchSnapshot.of(reads.map(_ -> Staged(1L, decided)).toMap)
         )
       ).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
-      r.signalsFor(idOf(d, 0), states("46"), answered).values.toList
+      r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered).values.toList
     }
     assert(
       intercept[fh.view.FHError](
-        r.signalsFor(idOf(d, 0), states("46"), answered)
+        r.signalsFor(idOf(d, 0), Shared.of(states("46")), answered)
       ).getMessage.contains("where none is answered")
     )
     assertEquals(of("""{"points":[[0,0.0],[60000,101.0]]}"""), List("101"))

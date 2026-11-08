@@ -73,7 +73,11 @@ class DecisionFetchSuite extends munit.FunSuite {
   )
 
   private def body(r: Renderer) =
-    r.renderBodyTraced(states(), Selections.none, FetchSnapshot.empty).html
+    r.renderBodyTraced(
+      Shared.of(states()),
+      Selections.none,
+      FetchSnapshot.empty
+    ).html
 
   test("a set's clause reads a fetch, answered before it decides") {
     val d = dashboard(set(Some(hasPast)))
@@ -89,6 +93,37 @@ class DecisionFetchSuite extends munit.FunSuite {
     assert(body(r).contains("member-b"), clue = body(r))
     answer(r, empty)
     assert(!body(r).contains("member-b"), clue = body(r))
+  }
+
+  test(
+    "a decision over a fetch is made again only when what it depends on moves"
+  ) {
+    // The recorder's chain: decided over `some`, then `sensor.left` moves
+    // after the answer has gone `empty`.
+    def afterMove(when: ValueExpr): String = {
+      val r = Renderer.create(dashboard(set(Some(when))))
+      answer(r, some)
+      val before = r.shared(StoreState(states(), 1L))
+      assert(
+        r.renderBodyTraced(before, Selections.none, FetchSnapshot.empty)
+          .html
+          .contains("member-b")
+      )
+      answer(r, empty)
+      val left = EntityState("sensor.left", "3", Map.empty)
+      val moved = StoreState(states() + ("sensor.left" -> left), 2L)
+      val after = r.advance(
+        before,
+        Frame(List(StateChange.Moved("sensor.left", None, left)), moved)
+      )
+      r.renderBodyTraced(after, Selections.none, FetchSnapshot.empty).html
+    }
+    assert(
+      !afterMove(hasPast.copy(dependsOn = List("sensor.left")))
+        .contains("member-b")
+    )
+    // Accepted: nothing the decision reads moved, so it is carried.
+    assert(afterMove(hasPast).contains("member-b"))
   }
 
   test("a set's order reads a fetch") {
@@ -146,14 +181,20 @@ class DecisionFetchSuite extends munit.FunSuite {
     )
     assert(
       intercept[FHError](
-        g.resolveActiveByState(NodeId.derived("c"), states())
+        g.resolveActiveByState(NodeId.derived("c"), Shared.of(states()))
       ).getMessage
         .contains("where none is answered")
     )
     answered(some)
-    assertEquals(g.resolveActiveByState(NodeId.derived("c"), states()), Some(0))
+    assertEquals(
+      g.resolveActiveByState(NodeId.derived("c"), Shared.of(states())),
+      Some(0)
+    )
     answered(empty)
-    assertEquals(g.resolveActiveByState(NodeId.derived("c"), states()), None)
+    assertEquals(
+      g.resolveActiveByState(NodeId.derived("c"), Shared.of(states())),
+      None
+    )
   }
 
   test("a press on a set decides its members by a fetch") {
@@ -195,9 +236,12 @@ class DecisionFetchSuite extends munit.FunSuite {
       .get
     val r = Renderer.create(d)
     answer(r, some)
-    assertEquals(r.pressed(call, states()), List("sensor.a", "sensor.b"))
+    assertEquals(
+      r.pressed(call, Shared.of(states())),
+      List("sensor.a", "sensor.b")
+    )
     answer(r, empty)
-    assertEquals(r.pressed(call, states()), List("sensor.a"))
+    assertEquals(r.pressed(call, Shared.of(states())), List("sensor.a"))
   }
 
   test("a decision's fetch cannot read a viewer's variable") {

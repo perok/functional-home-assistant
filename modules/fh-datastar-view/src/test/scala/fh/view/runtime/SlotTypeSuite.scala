@@ -153,7 +153,7 @@ class SlotTypeSuite extends munit.FunSuite {
     val html = Renderer
       .create(d)
       .renderBodyTraced(
-        Map.empty,
+        Shared.of(Map.empty),
         Selections.none,
         FetchSnapshot.of(Map(read -> Staged(1L, """{"points":[]}""")))
       )

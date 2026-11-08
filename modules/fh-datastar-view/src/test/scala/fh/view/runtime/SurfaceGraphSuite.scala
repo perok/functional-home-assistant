@@ -177,15 +177,15 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val both = snapshot(st("light.a", "on"), st("light.b", "on"))
     val onlyB = snapshot(st("light.a", "off"), st("light.b", "on"))
     val neither = snapshot(st("light.a", "off"), st("light.b", "off"))
-    assertEquals(g.resolveActiveByState(gid, both), Some(0))
-    assertEquals(g.resolveActiveByState(gid, onlyB), Some(1))
-    assertEquals(g.resolveActiveByState(gid, neither), Some(2))
+    assertEquals(g.resolveActiveByState(gid, Shared.of(both)), Some(0))
+    assertEquals(g.resolveActiveByState(gid, Shared.of(onlyB)), Some(1))
+    assertEquals(g.resolveActiveByState(gid, Shared.of(neither)), Some(2))
   }
 
   test("nothing holding selects NO branch — the host bakes empty") {
     val g = graphOf(Map("hot" -> state("c", "t0", 0, isOn("light.a"))))
     assertEquals(
-      g.resolveActiveByState(gid, snapshot(st("light.a", "off"))),
+      g.resolveActiveByState(gid, Shared.of(snapshot(st("light.a", "off")))),
       None
     )
   }
@@ -202,9 +202,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val off = snapshot(st("light.a", "off"))
     def flips(before: Map[String, EntityState], now: Map[String, EntityState]) =
       g.affectedStateGroups(
-        List(StateChange("light.a", before.get("light.a"), now("light.a"))),
-        before,
-        now
+        List(
+          StateChange.Moved("light.a", before.get("light.a"), now("light.a"))
+        ),
+        Shared.of(before),
+        Shared.of(now)
       )
     assertEquals(flips(on, off), List(gid))
     assertEquals(flips(on, on), Nil)
@@ -220,9 +222,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val now = snapshot(st("light.a", "on"), st("sensor.z", "2"))
     assertEquals(
       g.affectedStateGroups(
-        List(StateChange("sensor.z", before.get("sensor.z"), now("sensor.z"))),
-        before,
-        now
+        List(
+          StateChange.Moved("sensor.z", before.get("sensor.z"), now("sensor.z"))
+        ),
+        Shared.of(before),
+        Shared.of(now)
       ),
       Nil
     )
@@ -237,23 +241,35 @@ class SurfaceGraphSuite extends munit.FunSuite {
       roots = Map("c" -> "")
     )
     val on = snapshot(st("light.a", "on"))
-    assertEquals(g.shownSurfaces(Set.empty, on), Set("hot"))
+    assertEquals(g.shownSurfaces(Set.empty, Shared.of(on)), Set("hot"))
     // A group already flipping renders its member wholesale; patching its parts
     // too would double-emit.
-    assert(!g.visibleSurface("hot", Set.empty, on, cut = Set(gid)))
+    assert(!g.visibleSurface("hot", Set.empty, Shared.of(on), cut = Set(gid)))
   }
 
   test("a user surface is visible only to a client that has it open") {
     val g = graphOf(Map("t0" -> user("c", "t0", 0), "t1" -> user("c", "t1", 1)))
-    assert(g.visibleSurface("t0", Set("t0"), Map.empty))
-    assert(!g.visibleSurface("t0", Set("t1"), Map.empty))
+    assert(g.visibleSurface("t0", Set("t0"), Shared.of(Map.empty)))
+    assert(!g.visibleSurface("t0", Set("t1"), Shared.of(Map.empty)))
   }
 
   test("a STATE surface is visible on state alone — `open` says nothing") {
     // Its liveness belongs to the shared pass, so it never enters an open set.
     val g = graphOf(Map("hot" -> state("c", "t0", 0, isOn("light.a"))))
-    assert(g.visibleSurface("hot", Set.empty, snapshot(st("light.a", "on"))))
-    assert(!g.visibleSurface("hot", Set("hot"), snapshot(st("light.a", "off"))))
+    assert(
+      g.visibleSurface(
+        "hot",
+        Set.empty,
+        Shared.of(snapshot(st("light.a", "on")))
+      )
+    )
+    assert(
+      !g.visibleSurface(
+        "hot",
+        Set("hot"),
+        Shared.of(snapshot(st("light.a", "off")))
+      )
+    )
   }
 
   test("a state surface is TRANSPARENT: the user tab above it decides") {
@@ -267,8 +283,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
       roots = Map("c" -> "", "inner" -> "tab")
     )
     val on = snapshot(st("light.a", "on"))
-    assert(g.visibleSurface("branch", Set("tab"), on))
-    assert(!g.visibleSurface("branch", Set.empty, on))
+    assert(g.visibleSurface("branch", Set("tab"), Shared.of(on)))
+    assert(!g.visibleSurface("branch", Set.empty, Shared.of(on)))
   }
 
   test("a node inside a closed tab is not visible; on the main page it is") {
@@ -276,16 +292,19 @@ class SurfaceGraphSuite extends munit.FunSuite {
       Map("t0" -> user("c", "t0", 0), "t1" -> user("c", "t1", 1)),
       roots = Map("c" -> "", "s_t1__c_0" -> "t1")
     )
-    assert(g.visibleNode("c", Set.empty, Map.empty), "main page is visible")
-    assert(g.visibleNode("s_t1__c_0", Set("t1"), Map.empty))
-    assert(!g.visibleNode("s_t1__c_0", Set("t0"), Map.empty))
+    assert(
+      g.visibleNode("c", Set.empty, Shared.of(Map.empty)),
+      "main page is visible"
+    )
+    assert(g.visibleNode("s_t1__c_0", Set("t1"), Shared.of(Map.empty)))
+    assert(!g.visibleNode("s_t1__c_0", Set("t0"), Shared.of(Map.empty)))
   }
 
   test("an id the graph cannot place counts as VISIBLE") {
     // The safe direction: over-sending costs bytes, under-sending loses an
     // update.
     val g = graphOf(Map("t0" -> user("c", "t0", 0)), roots = Map("c" -> ""))
-    assert(g.visibleNode("who_knows", Set.empty, Map.empty))
+    assert(g.visibleNode("who_knows", Set.empty, Shared.of(Map.empty)))
   }
 
   test("selectedSurfaces and selectionsIn are inverses over chosen groups") {
@@ -383,7 +402,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val setId = members.setContainer(outer).get
     val states = snapshot(st("light.a", "on"))
-    val member = members.membersOf(setId, states).head
+    val member = members.membersOf(setId, Shared.of(states)).head
     val innerId = members.innerSetId(
       member.id,
       0,
@@ -419,7 +438,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val setId = members.setContainer(outer).get
     val off = snapshot(st("light.a", "off"))
 
-    assertEquals(members.membersOf(setId, off), Vector.empty)
+    assertEquals(members.membersOf(setId, Shared.of(off)), Vector.empty)
     assertEquals(
       g.rootOf(members.memberIdOf(setId, "light.a")),
       Some("det")

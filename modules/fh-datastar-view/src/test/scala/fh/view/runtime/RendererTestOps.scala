@@ -3,6 +3,11 @@ package fh.view.runtime
 import fh.view.model.NodeId
 import fh.view.fetch.FetchSnapshot
 
+/** A standalone [[Shared]] for a suite outside the package, which cannot name
+  * the type.
+  */
+def sharedOf(states: Map[String, EntityState]) = Shared.of(states)
+
 /** The render entry points returning a `String`, outside [[Renderer]] since no
   * production caller uses them. They wrap the production walk but buffer where
   * a page open streams; `SinkStreamingSuite` pins the two sinks to the same
@@ -25,8 +30,11 @@ private[runtime] object RendererTestOps {
         states: Map[String, EntityState],
         selections: Selections = Selections.none
     ): String =
-      r.renderBodyTraced(states, selections, fragments = FetchSnapshot.empty)
-        .html
+      r.renderBodyTraced(
+        Shared.of(states),
+        selections,
+        fragments = FetchSnapshot.empty
+      ).html
 
     def renderPage(
         states: Map[String, EntityState],
@@ -41,7 +49,7 @@ private[runtime] object RendererTestOps {
       val out = Sink.buffer(r.pageBytesHint)
       val own = r.renderPageInto(
         out,
-        states,
+        Shared.of(states),
         selections,
         fragments = FetchSnapshot.empty
       )

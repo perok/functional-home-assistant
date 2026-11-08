@@ -62,6 +62,10 @@ open class Reading extends Expr {
       }
   /// What an empty result shows instead, of the slot's type.
   default: (String|Boolean)? = null
+  /// Entities whose change re-reads this though it reads none of them: its
+  /// fetch's [[Fetch.dependsOn]].
+  dependsOn: List<String>? =
+    let (d = fetch?.dependsOn ?? List()) if (d.isEmpty) null else d
   /// When this slot has a value at all; otherwise it is `""`, its steps do not
   /// run and its fetches are not read:
   ///
@@ -134,7 +138,9 @@ const function wireInput(v: nodes.ExpressionValue): Any =
   else if (v is predMod.PresentList) Map("source", v)
   else if (v is predMod.Tally) Map("source", v, "steps", List(new simpleMod.CountStep {}))
   else if (v is Expr) v
-  else if (v is Fetch) Map("source", new FetchRead { fetch = v })
+  else if (v is Fetch)
+    Map("source", new FetchRead { fetch = v })
+      + (if (v.dependsOn.isEmpty) Map() else Map("dependsOn", v.dependsOn))
   else v
 
 /// One named value a card's template places, filled per node. The template
@@ -239,6 +245,9 @@ const subject: Slot = slot("entity_id")
 /// typed question as a subclass, which the backend decodes by `provider`.
 abstract class Fetch {
   provider: String
+  /// Entities whose change re-reads whatever reads this. The server cannot see
+  /// what an answer depends on, so none unless the provider's option says.
+  hidden dependsOn: List<String> = List()
 }
 
 typealias SlotType = "text"|"textRaw"|"bool"

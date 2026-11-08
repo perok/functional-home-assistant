@@ -144,7 +144,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           _,
           log,
           holds,
-          states,
+          Shared.of(states),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           v,

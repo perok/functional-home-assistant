@@ -35,10 +35,12 @@ class DigestPropertySuite extends HedgehogSuite {
   private val genSignal: Gen[Boolean] =
     Gen.boolean
 
-  private def at(v: String): Map[String, EntityState] =
-    Map(
-      "alpha" -> EntityState("alpha", v, Map.empty),
-      "beta" -> EntityState("beta", v, Map.empty)
+  private def at(v: String): Shared =
+    Shared.of(
+      Map(
+        "alpha" -> EntityState("alpha", v, Map.empty),
+        "beta" -> EntityState("beta", v, Map.empty)
+      )
     )
 
   private def valueSlot(signal: Boolean): TemplateSlot =

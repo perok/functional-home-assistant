@@ -281,6 +281,8 @@ class RenderBench {
   private var manySets: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
+  private var stShared: Shared = null
+  private var flipShared: Shared = null
   private var stLights: Map[String, EntityState] = null
   private var celProbes: List[Cel.Program] = null
   private var celComplex: Cel.Program = null
@@ -351,7 +353,7 @@ class RenderBench {
   private var ifStates: Map[String, EntityState] = null
   private var setIfsFrames: Vector[Frame] = null
   // What the recorder holds between frames, per fixture ([[publishPass]]).
-  private val heldBy = scala.collection.mutable.Map.empty[Renderer, Membership]
+  private val heldBy = scala.collection.mutable.Map.empty[Renderer, Shared]
   // [[memberClauseFlip]]: one member, and two ticks of its subject that switch
   // its clause and two that do not.
   private var clauseSet: Renderer = null
@@ -363,6 +365,7 @@ class RenderBench {
   @Setup(Level.Trial)
   def setup(): Unit = {
     st = states(Leaves)
+    stShared = Shared.of(st)
     stLights = st.view
       .mapValues(e => e.copy(attributes = LightAttributes ++ e.attributes))
       .toMap
@@ -420,7 +423,9 @@ class RenderBench {
       .renderPageTraced(st)
       .own
       .keys
-      .flatMap(signalled.renderNodeById(_, st, fragments = FetchSnapshot.empty))
+      .flatMap(
+        signalled.renderNodeById(_, stShared, fragments = FetchSnapshot.empty)
+      )
       .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
@@ -451,14 +456,16 @@ class RenderBench {
     // Disarmed, so the `else` branch is the one the fill supplies.
     flipStates =
       st + (FlipEntity -> EntityState(FlipEntity, "disarmed", Map.empty))
+    flipShared = Shared.of(flipStates)
     flipCache = RenderCache.create.unsafeRunSync()
     store = StateStore.inMemory(flipStates).unsafeRunSync()
     pubFrames = Vector(publishFrame(st, 0), publishFrame(st, 1))
     flipFrames =
       Vector(publishFrame(flipStates, 0), publishFrame(flipStates, 1))
     idleFrames = Vector(idleFrame(st, 0), idleFrame(st, 1))
-    pubIngests =
-      flipFrames.map(_.changes.map(c => Ingest.Replace(c.current): Ingest))
+    pubIngests = flipFrames.map(f =>
+      f.changes.map(c => Ingest.Replace(f.states(c.entityId)): Ingest)
+    )
     dedupBatch = dedupIngests
     ifStates = st ++ List.tabulate(Leaves) { i =>
       windowId(i) -> EntityState(
@@ -472,7 +479,11 @@ class RenderBench {
     setIfsFrames = Vector(publishFrame(ifStates, 0), publishFrame(ifStates, 1))
     if (
       setIfs.surfaces
-        .affectedStateGroups(List(windowFlip(1)._1), ifStates, windowFlip(1)._2)
+        .affectedStateGroups(
+          List(windowFlip(1)._1),
+          Shared.of(ifStates),
+          Shared.of(windowFlip(1)._2)
+        )
         .sizeIs != 1
     )
       sys.error("publishSetIfsFlip flips no member's If")
@@ -482,8 +493,9 @@ class RenderBench {
       id -> Held(Some(p.digest), p.signals)
     }
     // After `checkPublishShape`, whose frame left `set`'s membership held.
-    tickMemberIds =
-      tickEntities.flatMap(heldBy(set).binding(_, _.isEmpty).toList.sorted)
+    tickMemberIds = tickEntities.flatMap(
+      set.members.binding(_, _.isEmpty, heldBy(set)).toList.sorted
+    )
     checkTickShapes()
     clauseSet = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
     def lit(state: String, brightness: Int) =
@@ -499,13 +511,13 @@ class RenderBench {
     clauseSteady = Vector(lit("on", 10), lit("on", 20))
     clauseMember = clauseSet.members.memberIdOf(
       clauseSet.members.memberIds
-        .flatMap(clauseSet.members.memberAt(_, st))
+        .flatMap(clauseSet.members.memberAt(_, stShared))
         .head
         .gid,
       entityId(0)
     )
     def clauseAt(s: Map[String, EntityState]) =
-      clauseSet.members.memberAt(clauseMember, s).map(_.clause)
+      clauseSet.members.memberAt(clauseMember, Shared.of(s)).map(_.clause)
     if (clauseFlips.map(clauseAt).distinct.sizeIs != 2)
       sys.error("memberClauseFlip switches no clause")
     if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
@@ -979,7 +991,7 @@ class RenderBench {
     )
     val own = signalled.renderPageInto(
       Sink.streaming(w),
-      st,
+      stShared,
       fragments = FetchSnapshot.empty
     )
     w.flush()
@@ -1015,7 +1027,7 @@ class RenderBench {
     val own =
       plain.renderPageInto(
         Sink.streaming(w),
-        st,
+        stShared,
         fragments = FetchSnapshot.empty
       )
     w.flush()
@@ -1042,7 +1054,7 @@ class RenderBench {
     val w = new java.io.OutputStreamWriter(sink, UTF_8)
     val own = signalled.renderPageInto(
       Sink.streaming(w),
-      st,
+      stShared,
       fragments = FetchSnapshot.empty
     )
     w.flush()
@@ -1074,7 +1086,7 @@ class RenderBench {
           )
           val own = signalled.renderPageInto(
             Sink.streaming(w),
-            st,
+            stShared,
             fragments = FetchSnapshot.empty
           )
           w.flush()
@@ -1221,7 +1233,7 @@ class RenderBench {
   private def memberRender(states: Map[String, EntityState]) =
     clauseSet.renderMemberTraced(
       clauseMember,
-      states,
+      Shared.of(states),
       Selections.none,
       FetchSnapshot.empty
     )
@@ -1249,7 +1261,7 @@ class RenderBench {
           flipCache,
           log,
           Map.empty,
-          flipStates,
+          flipShared,
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at
@@ -1279,9 +1291,8 @@ class RenderBench {
     bh.consume(publishPass(signalled, pubFrames(pubRot % 2)))
   }
 
-  /** The same frame against a dashboard that is one candidate set, so
-    * `MemberGraph.syncMembers` rebuilds a touched container's whole member list
-    * — O(candidates), which the tree fixture never pays.
+  /** The same frame against a dashboard that is one candidate set, so the frame
+    * touches a container's member list, which the tree fixture never does.
     */
   @Benchmark
   def publishSet(bh: Blackhole): Unit = {
@@ -1309,8 +1320,8 @@ class RenderBench {
     bh.consume(publishPass(signalled, idleFrames(pubRot % 2)))
   }
 
-  /** The same idle frame against the candidate-set dashboard, where
-    * `syncMembers` walks every set whether or not this frame touched one.
+  /** The same idle frame against the candidate-set dashboard, where no set is
+    * touched.
     */
   @Benchmark
   def publishIdleSet(bh: Blackhole): Unit = {
@@ -1345,7 +1356,7 @@ class RenderBench {
       publishPass(
         flipped,
         Frame(
-          StateChange(FlipEntity, Some(was), now) :: frame.changes,
+          StateChange.Moved(FlipEntity, Some(was), now) :: frame.changes,
           frame.states.updated(FlipEntity, now)
         )
       )
@@ -1375,7 +1386,7 @@ class RenderBench {
     val was = ifStates(windowId(i))
     val now = was.copy(state = "on")
     (
-      StateChange(windowId(i), Some(was), now),
+      StateChange.Moved(windowId(i), Some(was), now),
       ifStates.updated(windowId(i), now)
     )
   }
@@ -1437,8 +1448,8 @@ class RenderBench {
     bh.consume(store.update(Nil).unsafeRunSync())
 
   /** [[TickEntities]] entities whose content really moved, carrying the values
-    * they moved FROM — `beforeSnapshot` rewinds through `previous`, so a change
-    * that lied about it would hand the membership diff an instant that never
+    * they moved FROM — [[rewound]] rewinds through `previous`, so a change that
+    * lied about it would hand the membership diff an instant that never
     * existed.
     *
     * Setup-only: see [[pubFrames]].
@@ -1454,41 +1465,59 @@ class RenderBench {
         attributes = prev.attributes
           .updated("brightness", Json.fromInt(1 + (rot * 13) % 254))
       )
-      StateChange(id, Some(prev), next)
+      StateChange.Moved(id, Some(prev), next)
     }
     Frame(
       moved,
-      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+      applied(base, moved)
     )
   }
 
+  private def applied(
+      base: Map[String, EntityState],
+      changes: List[StateChange]
+  ): Map[String, EntityState] =
+    changes.foldLeft(base) { (m, c) =>
+      c match {
+        case StateChange.Moved(id, _, current) => m.updated(id, current)
+        case StateChange.Removed(id, _)        => m - id
+      }
+    }
+
+  private def rewound(
+      states: Map[String, EntityState],
+      changes: List[StateChange]
+  ): Map[String, EntityState] =
+    changes.foldLeft(states) { (m, c) =>
+      c match {
+        case StateChange.Moved(id, previous, _) =>
+          previous.fold(m - id)(m.updated(id, _))
+        case StateChange.Removed(id, previous) => m.updated(id, previous)
+      }
+    }
+
   /** `Server.recordFrame` with the `Ref`s and the nobody-is-watching gate taken
-    * off: the four pure steps a frame costs, in their production order.
+    * off: the pure steps a frame costs, in their production order.
     *
     * A fresh log per call, because `record` is a fold over one and a log that
     * grew across iterations would price its own history rather than the frame.
-    * The membership is carried over, as the recorder carries it: a fresh one
-    * would price every set's first materialisation.
+    * The previous version's [[Shared]] is carried over, as the recorder carries
+    * it: a fresh one would price every set's first materialisation.
     */
   private def publishPass(renderer: Renderer, frame: Frame): FragmentLog = {
     val Frame(changes, states) = frame
-    val before = Patches.beforeSnapshot(states, changes)
-    val synced = renderer.members.syncMembers(
-      heldBy.getOrElse(renderer, Membership.empty),
-      changes,
-      before,
-      states
-    )
-    heldBy(renderer) = synced.membership
-    val req = Patches.plan(
+    val prev = heldBy.getOrElse(
       renderer,
-      states,
-      before,
-      synced,
-      pubRot.toLong,
-      changes,
-      Set.empty
+      renderer.shared(
+        StoreState(rewound(states, changes), pubRot.toLong - 1L)
+      )
     )
+    val next = renderer.advance(
+      prev,
+      fh.view.runtime.Frame(changes, StoreState(states, pubRot.toLong))
+    )
+    heldBy(renderer) = next
+    val req = Patches.plan(renderer, prev, next, changes, Set.empty)
     Patches.record(renderer, FragmentLog("bench"), req)
   }
 
@@ -1514,11 +1543,11 @@ class RenderBench {
         Map("brightness" -> Json.fromInt(1 + (rot * 13) % 254)),
         lastUpdated = Some(BaseInstant.plusSeconds(rot.toLong + 1))
       )
-      StateChange(id, Some(next.copy(state = "idle")), next)
+      StateChange.Moved(id, Some(next.copy(state = "idle")), next)
     }
     Frame(
       moved,
-      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+      applied(base, moved)
     )
   }
 
@@ -1585,7 +1614,7 @@ class RenderBench {
           liveCache,
           log,
           held,
-          moved,
+          Shared.of(moved),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at,
@@ -1685,7 +1714,7 @@ class RenderBench {
       bh.consume(
         signalled.renderNodeById(
           id,
-          moved,
+          Shared.of(moved),
           Selections.none,
           fragments = FetchSnapshot.empty
         )
@@ -1801,7 +1830,7 @@ class RenderBench {
       bh.consume(
         signalled.renderNodeById(
           id,
-          moved,
+          Shared.of(moved),
           Selections.none,
           fragments = FetchSnapshot.empty
         )
@@ -2311,7 +2340,7 @@ object RenderBench {
       )
     val surfaces = members.memberIdsBelow.toList.flatMap { host =>
       members
-        .nodeAt(host, states)
+        .nodeAt(host, Shared.of(states))
         .toList
         .collect {
           case (m, n) if n.card == "ifhost" =>

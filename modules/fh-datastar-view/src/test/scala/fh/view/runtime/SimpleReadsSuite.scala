@@ -61,7 +61,11 @@ class SimpleReadsSuite extends munit.FunSuite {
   private def value(d: Dashboard, st: Map[String, EntityState]) =
     Renderer
       .create(d)
-      .signalsFor(LayoutNode.rootId("", d.card), st, FetchSnapshot.empty)
+      .signalsFor(
+        LayoutNode.rootId("", d.card),
+        Shared.of(st),
+        FetchSnapshot.empty
+      )
       .values
       .toList
 

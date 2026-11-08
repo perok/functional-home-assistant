@@ -214,7 +214,9 @@ private[view] object Evaluator {
   final class Keys private (
       runs: Array[Run],
       bool: Array[Boolean],
-      descending: Array[Boolean]
+      descending: Array[Boolean],
+      // Beyond the member's own: what dirties the whole ordering.
+      val entities: List[String]
   ) {
 
     /** A candidate the store lacks reads as nothing: false, or no value. */
@@ -268,7 +270,8 @@ private[view] object Evaluator {
           Keys(
             cs.map(_.run).toArray,
             cs.map(_.out == ValueType.Bool).toArray,
-            terms.map(_.descending).toArray
+            terms.map(_.descending).toArray,
+            terms.flatMap(_.entities).distinct
           )
         )
 

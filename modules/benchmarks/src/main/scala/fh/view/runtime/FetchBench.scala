@@ -56,14 +56,14 @@ class FetchBench {
 
   private var renderer: Renderer = null
   private var resolver: FetchResolver = null
-  private var st: Map[String, EntityState] = null
+  private var st: Shared = null
   private var cache: RenderCache = null
   private val asOf = Instant.parse("2026-09-24T12:00:00Z")
   private var rot = 0L
 
   @Setup(Level.Trial)
   def setup(): Unit = {
-    st = RenderBench.states(RenderBench.Leaves)
+    st = Shared.of(RenderBench.states(RenderBench.Leaves))
     renderer = Renderer.create(dashboard)
     resolver = (for {
       history <- History.create(

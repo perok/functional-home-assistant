@@ -89,7 +89,9 @@ class SignalNamesFixedSuite extends munit.FunSuite {
     val perWorld = worlds.map { states =>
       ids
         .map(id =>
-          id -> renderer.signalsFor(id, states, FetchSnapshot.empty).keySet
+          id -> renderer
+            .signalsFor(id, Shared.of(states), FetchSnapshot.empty)
+            .keySet
         )
         .toMap
     }
@@ -113,7 +115,7 @@ class SignalNamesFixedSuite extends munit.FunSuite {
       val html = renderer.renderBody(states)
       ids.foreach { id =>
         val expected = Datastar.signalsAttr(
-          renderer.signalsFor(id, states, FetchSnapshot.empty)
+          renderer.signalsFor(id, Shared.of(states), FetchSnapshot.empty)
         )
         if (expected.nonEmpty) {
           assert(

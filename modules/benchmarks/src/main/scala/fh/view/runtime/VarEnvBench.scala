@@ -42,14 +42,14 @@ class VarEnvBench {
   import VarEnvBench.*
 
   private var renderer: Renderer = null
-  private var st: Map[String, EntityState] = null
+  private var st: Shared = null
   private var cache: RenderCache = null
   private var rot = 0L
   private val window = VarKey(NodeId.derived("root"), "window")
 
   @Setup(Level.Trial)
   def setup(): Unit = {
-    st = RenderBench.states(RenderBench.Leaves)
+    st = Shared.of(RenderBench.states(RenderBench.Leaves))
     renderer = Renderer.create(dashboard)
     cache = RenderCache.create.unsafeRunSync()
     println(s"\nnodes in scope: ${renderer.vars.env(Map.empty).size}")

@@ -90,8 +90,12 @@ the paths taken read. Four things are wrong with how that works today:
     and a page must not wait on the recorder.
   - A decision a reader makes at version v after v+1 exists is passed on to v+1, unless v+1's
     frame dirtied it, so a viewer's work reaches newer versions without a copy.
-  - The set decisions become one cache: the recorder's `Membership` shrinks to its entity-to-member
-    index (`binding`) over them.
+  - `Membership` goes, and the fold holds nothing but the previous `Shared`. Which member nodes a
+    change reaches (`binding`) is a static entity-to-sets index, read off the compiled tree, then
+    each shown set's decision in `Shared` (its present members) and the nodes inside each that
+    read the entity (`Member.byEntity`): the recorder and every render read one decision, so they
+    cannot disagree. A set the index names but `Shared` lacks is made, as a decision on a chain
+    is; a nested set is consulted only while its owner member is present.
   - Fetch answers are not kept in `Shared`: the resolver caches them, and a run holds them only
     while it makes a decision.
   - `Viewing`: one viewer's, for one send. It holds the viewer's selections and node variables,

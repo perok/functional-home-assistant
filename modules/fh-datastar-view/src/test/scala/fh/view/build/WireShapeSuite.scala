@@ -187,9 +187,10 @@ class WireShapeSuite extends munit.FunSuite {
 
   test("every condition class writes a reading") {
     // What each class names is hidden; it writes `source` and `steps`, and a
-    // condition has no default.
+    // condition has no default. Nor a `dependsOn`: a fetch it reads is an
+    // input, which carries its own.
     for (cls <- List("Cmp", "Count", "First", "PAnd", "POr", "PNot", "PConst"))
-      check(cls, Conds.always, scalaOnly = Set("default"))
+      check(cls, Conds.always, scalaOnly = Set("default", "dependsOn"))
   }
 
   test("ordering and layout-cell shapes agree on both sides") {

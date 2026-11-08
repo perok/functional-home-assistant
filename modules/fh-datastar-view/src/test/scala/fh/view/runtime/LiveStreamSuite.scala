@@ -213,7 +213,7 @@ class LiveStreamSuite extends ServerHarness {
         .create(dash)
         .renderNodeById(
           "s_det__c_0",
-          Map("sensor.a" -> es("sensor.a", "cold")),
+          Shared.of(Map("sensor.a" -> es("sensor.a", "cold"))),
           fragments = FetchSnapshot.empty
         )
         .get
@@ -334,7 +334,7 @@ class LiveStreamSuite extends ServerHarness {
           r,
           r.hostId("c_0"),
           Some("then"),
-          armed,
+          Shared.of(armed),
           Selections.none,
           fragments = FetchSnapshot.empty
         )
@@ -345,12 +345,12 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed, fragments = FetchSnapshot.empty)
+      r.renderNodeById(leaf, Shared.of(armed), fragments = FetchSnapshot.empty)
         .map(Held.of)
     )
     val root = NodeId.derived("s_then__c")
     assertEquals(
-      r.renderNodeById(root, armed, fragments = FetchSnapshot.empty),
+      r.renderNodeById(root, Shared.of(armed), fragments = FetchSnapshot.empty),
       None
     )
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
@@ -374,7 +374,11 @@ class LiveStreamSuite extends ServerHarness {
     val holds: Map[NodeId, Held] =
       Map(
         host -> Held.of(
-          r.renderNodeById(host, states, fragments = FetchSnapshot.empty).get
+          r.renderNodeById(
+            host,
+            Shared.of(states),
+            fragments = FetchSnapshot.empty
+          ).get
         )
       )
     val owed = resumeNow(
@@ -420,8 +424,12 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderNodeById(id, before, mine, fragments = FetchSnapshot.empty)
-        .map(h => id -> Held.of(h))
+      r.renderNodeById(
+        id,
+        Shared.of(before),
+        mine,
+        fragments = FetchSnapshot.empty
+      ).map(h => id -> Held.of(h))
     }.toMap
 
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))

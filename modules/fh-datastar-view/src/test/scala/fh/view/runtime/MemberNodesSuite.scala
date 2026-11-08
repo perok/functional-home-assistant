@@ -89,7 +89,8 @@ class MemberNodesSuite extends ServerHarness {
     val painted =
       """id="([^"]+)"""".r.findAllMatchIn(html).map(_.group(1)).toList
     val leaves = painted.filter(id =>
-      r.renderNodeById(id, allOn, fragments = FetchSnapshot.empty).isDefined
+      r.renderNodeById(id, Shared.of(allOn), fragments = FetchSnapshot.empty)
+        .isDefined
     )
     // Two leaves per member, each renderable on its own.
     assertEquals(leaves.size, 2 * lights.size, clue = painted)

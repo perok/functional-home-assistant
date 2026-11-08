@@ -153,7 +153,7 @@ class SetMembershipSuite extends ServerHarness {
 
   test("a case switch to a card binding NOTHING is still recorded") {
     // The arriving card contributes no entity edge, so the member's id is the
-    // handle: `syncMembers` reports what it replaced and `record` touches that.
+    // handle: `deltas` reports what it replaced and `record` touches that.
     viewing(literalCaseDash, Map("light.a" -> mode("light.a", "bright"))) { v =>
       step(v, mode("light.a", "dim")).map { patches =>
         assertEquals(patches.size, 1, clue = patches)

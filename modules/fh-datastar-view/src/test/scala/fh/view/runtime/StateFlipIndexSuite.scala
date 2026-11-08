@@ -77,8 +77,8 @@ class StateFlipIndexSuite extends munit.FunSuite {
   private def reference(
       d: Dashboard,
       g: SurfaceGraph,
-      before: Map[String, EntityState],
-      now: Map[String, EntityState],
+      before: Shared,
+      now: Shared,
       visible: Set[String]
   ): List[NodeId] = {
     def at(root: String) =
@@ -118,12 +118,18 @@ class StateFlipIndexSuite extends munit.FunSuite {
         val now = moved.foldLeft(states) { (acc, id) =>
           acc.updated(id, acc(id).copy(state = alphabet(rnd.nextInt(4))))
         }
-        val changes = moved.map(id => StateChange(id, states.get(id), now(id)))
+        val changes =
+          moved.map(id => StateChange.Moved(id, states.get(id), now(id)))
         val found = List(Set.empty[String], userSurfaces).flatMap { visible =>
-          val flips = g.affectedStateGroups(changes, states, now, visible)
+          val flips = g.affectedStateGroups(
+            changes,
+            Shared.of(states),
+            Shared.of(now),
+            visible
+          )
           assertEquals(
             flips,
-            reference(d, g, states, now, visible),
+            reference(d, g, Shared.of(states), Shared.of(now), visible),
             clue = s"$name, frame $frame, moved $moved, visible $visible"
           )
           flips

@@ -102,6 +102,15 @@ facts {
     simpleMod.cel("state").values == null
   }
 
+  ["updateOnEntityChange makes the sensor what a history's reader depends on"] {
+    local left = minutes("rem", "time_to_end")
+    local day = p.history.of(left, p.history.raw(24.h))
+    (slotMod.wireInput(day) as Map).getOrNull("dependsOn") == null
+    (slotMod.wireInput(day.updateOnEntityChange()) as Map)["dependsOn"] == List("sensor.rem")
+    new slotMod.Reading { fetch = day }.dependsOn == null
+    new slotMod.Reading { fetch = day.updateOnEntityChange() }.dependsOn == List("sensor.rem")
+  }
+
   ["the workspace's names add to the shipped ones, and an ignored name takes a sensor out"] {
     local left = minutes("rem", "time_to_end")
     local prog = words("prog", "programme")

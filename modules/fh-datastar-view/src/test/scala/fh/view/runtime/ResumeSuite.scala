@@ -200,13 +200,18 @@ class ResumeSuite extends ServerHarness {
           supervisor
         )
         for {
+          before <- store.frames.take(1).compile.lastOrError
           _ <- store.update(hot)
+          after <- store.frames.take(1).compile.lastOrError
           _ <- server.recordFrame(
             "dashboard",
             renderer,
             live.log,
-            Membership.empty,
-            List(StateChange("sensor.a", cold.get("sensor.a"), hot))
+            renderer.shared(before.state),
+            Frame(
+              List(StateChange.Moved("sensor.a", cold.get("sensor.a"), hot)),
+              after.state
+            )
           )
           logId <- live.log.get.map(_.id)
           version <- store.version
@@ -285,12 +290,16 @@ class ResumeSuite extends ServerHarness {
           supervisor
         )
         for {
+          before <- store.frames.take(1).compile.lastOrError
           _ <- server.recordFrame(
             "dashboard",
             renderer,
             live.log,
-            Membership.empty,
-            List(StateChange("light.a", None, off("light.a")))
+            renderer.shared(StoreState(Map.empty, before.state.version - 1)),
+            Frame(
+              List(StateChange.Moved("light.a", None, off("light.a"))),
+              before.state
+            )
           )
           _ <- store.update(es("light.a", "on"))
           resp <- server.routes.orNotFound.run(

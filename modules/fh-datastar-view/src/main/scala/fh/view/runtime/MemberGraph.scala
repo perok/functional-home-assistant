@@ -4,7 +4,7 @@ import fh.view.model.{Fetching, LayoutNode, MemberId, NodeId, Ready, SetId}
 
 /** A candidate set member materialised as an ordinary node. Its node is
   * state-derived (which clause matched), so it is replaced when the entity
-  * crosses a clause boundary ([[MemberGraph.syncMembers]]).
+  * crosses a clause boundary ([[MemberGraph.deltas]]).
   */
 private[runtime] object Member {
 
@@ -94,74 +94,9 @@ private object GroupMembers {
     )
 }
 
-/** Every set's members as of the last frame the recorder applied, plus the
-  * entity index over them. The recorder folds it over the state stream
-  * (`Server.publisherFor`), which makes it the "before" of the next frame's
-  * deltas. Readers never see it: they derive membership from the snapshot they
-  * render ([[MemberGraph.membersOf]]), so a page read between a store bump and
-  * that frame cannot pair new states with old members.
-  */
-private[runtime] final case class Membership(
-    byGroup: Map[SetId, GroupMembers],
-    byEntity: Map[String, Vector[Member]]
-) {
-
-  /** The nodes inside members under a root `within` holds that bind `entityId`:
-    * each re-renders because something it binds moved, as a static node does.
-    */
-  def binding(entityId: String, within: String => Boolean): Set[NodeId] =
-    byEntity
-      .getOrElse(entityId, Vector.empty)
-      .iterator
-      .filter(m => within(m.root))
-      .flatMap(_.byEntity.getOrElse(entityId, Nil))
-      .toSet
-
-  /** Skips on `eq`: [[MemberGraph.syncMembers]] hands back the same value when
-    * nothing moved.
-    */
-  def install(gid: SetId, was: GroupMembers, now: GroupMembers): Membership =
-    if ((now eq was) && byGroup.contains(gid)) this
-    else {
-      val leaving = byGroup.get(gid).toVector.flatMap(_.members)
-      Membership(
-        byGroup.updated(gid, now),
-        now.members.foldLeft(leaving.foldLeft(byEntity)(drop)) { (idx, m) =>
-          Member
-            .entitiesOf(m.node)
-            .foldLeft(idx)((acc, e) =>
-              acc.updated(e, acc.getOrElse(e, Vector.empty) :+ m)
-            )
-        }
-      )
-    }
-
-  private def drop(
-      idx: Map[String, Vector[Member]],
-      m: Member
-  ): Map[String, Vector[Member]] =
-    Member.entitiesOf(m.node).foldLeft(idx) { (acc, e) =>
-      acc.get(e).map(_.filterNot(_.id == m.id)) match {
-        case Some(rest) if rest.nonEmpty => acc.updated(e, rest)
-        case _                           => acc - e
-      }
-    }
-}
-
-private[runtime] object Membership {
-  val empty: Membership = Membership(Map.empty, Map.empty)
-}
-
-/** One frame applied: the membership after it, and each set's move. */
-private[runtime] final case class Synced(
-    membership: Membership,
-    deltas: Map[SetId, MemberDelta]
-)
-
 /** Who is in every candidate set, and in what order: the graph decides presence
   * and order, the renderer paints (ADR 0003). Presence is a function of a
-  * snapshot, kept in that snapshot's [[Decisions]]; the recorder's running
-  * [[Membership]] is a value it passes in.
+  * version, kept in its [[Shared]], which the recorder and every render read.
   *
   * @param setNodes
   *   the statically indexed sets; nested ones are discovered from these.
@@ -195,6 +130,9 @@ private[runtime] final class MemberGraph(
         .groupMap(_._1)(_._2)
 
     val candidates: Vector[String] = s.candidates.toVector
+
+    /** What dirties the ordering as a whole, beyond each member's own. */
+    val orderEntities: List[String] = s.order.toList.flatMap(_.entities)
 
     def setId(at: NodeId): SetId = SetId.of(at, s)
 
@@ -414,10 +352,10 @@ private[runtime] final class MemberGraph(
   /** A member or a node below one, as its member's current clause has it. */
   def nodeAt(
       id: NodeId,
-      states: Map[String, EntityState]
+      shared: Shared
   ): Option[(Member, Ready.Component)] =
     memberOwning(id)
-      .flatMap(memberAt(_, states))
+      .flatMap(memberAt(_, shared))
       .flatMap(m => m.nodes.get(id).map(m -> _))
 
   /** Every id below a member, every clause's. */
@@ -442,6 +380,86 @@ private[runtime] final class MemberGraph(
         s.src.movedBy.toList.flatMap { case (e, cids) => cids.map(e -> (s, _)) }
       )
       .groupMap(_._1)(_._2)
+
+  /** entity -> the sets whose decision it dirties: a candidate, a name a guard
+    * reads, a name an order term reads.
+    */
+  private val dirtiesSets: Map[String, List[Source]] =
+    sourcesWithOwner
+      .flatMap(s => (s.src.movedBy.keys ++ s.src.orderEntities).map(_ -> s))
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.distinct)
+      .toMap
+
+  /** entity -> the member decisions it dirties: its own candidates', and under
+    * a `limit` every member's, since one arrival can cut another.
+    */
+  private val dirtiesMembers: Map[String, Set[NodeId]] = {
+    def all(s: Source): List[NodeId] =
+      s.src.candidates.toList.map(e => memberId(s.gid, MemberKey.Entity(e)))
+    sourcesWithOwner
+      .flatMap { s =>
+        val limited = s.src.s.limit.isDefined
+        s.src.movedBy.toList.flatMap { (e, cids) =>
+          (if (limited) all(s)
+           else cids.map(c => memberId(s.gid, MemberKey.Entity(c))))
+            .map(e -> _)
+        } ++ (if (limited) s.src.orderEntities.flatMap(e => all(s).map(e -> _))
+              else Nil)
+      }
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.toSet)
+      .toMap
+  }
+
+  /** The set and member decisions `changes` dirty. */
+  def dirtied(changes: List[StateChange]): (Set[SetId], Set[NodeId]) =
+    (
+      changes.iterator
+        .flatMap(c => dirtiesSets.getOrElse(c.entityId, Nil))
+        .map(_.gid)
+        .toSet,
+      changes.iterator
+        .flatMap(c => dirtiesMembers.getOrElse(c.entityId, Set.empty))
+        .toSet
+    )
+
+  /** entity -> the sets whose members' nodes can read it, in any clause: where
+    * [[binding]] looks, before presence narrows it.
+    */
+  private val readingSets: Map[String, List[Source]] =
+    sourcesWithOwner
+      .flatMap(s =>
+        s.src.candidates
+          .flatMap(s.clauseMembers)
+          .flatMap(m => Member.entitiesOf(m.node))
+          .distinct
+          .map(_ -> s)
+      )
+      .groupMap(_._1)(_._2)
+
+  /** The nodes inside present members under a root `within` holds that bind
+    * `entityId`: each re-renders because something it binds moved, as a static
+    * node does. A nested set counts only while its owner is present, in the
+    * clause holding it.
+    */
+  def binding(
+      entityId: String,
+      within: String => Boolean,
+      shared: Shared
+  ): Set[NodeId] =
+    readingSets
+      .getOrElse(entityId, Nil)
+      .iterator
+      .filter(s =>
+        within(s.root) &&
+          s.owner.forall(o => memberAt(o, shared).exists(_.clause == s.clause))
+      )
+      .flatMap(s => groupOf(s.gid, shared).members)
+      .flatMap(_.byEntity.getOrElse(entityId, Nil))
+      .toSet
 
   /** member id -> its set and candidate. Exact, so an id is never parsed for
     * its parent: a prefix test cannot tell `c_1_light_a_b` (set `c_1`,
@@ -468,90 +486,80 @@ private[runtime] final class MemberGraph(
     */
   def setContainer(id: NodeId): Option[SetId] = sources.get(id).map(_.gid)
 
-  def membersOf(
-      gid: SetId,
-      states: Map[String, EntityState]
-  ): Vector[Member] = groupOf(gid, states).members
+  def membersOf(gid: SetId, shared: Shared): Vector[Member] =
+    groupOf(gid, shared).members
 
-  def memberEntities(
-      gid: SetId,
-      states: Map[String, EntityState]
-  ): List[String] = groupOf(gid, states).entities
+  def memberEntities(gid: SetId, shared: Shared): List[String] =
+    groupOf(gid, shared).entities
 
-  private def groupOf(
-      gid: SetId,
-      states: Map[String, EntityState]
-  ): GroupMembers =
-    decided
-      .at(states)
-      .set(gid)(
-        sources
-          .get(gid)
-          .fold(GroupMembers(Vector.empty, Nil))(_.materialise(states))
-      )
+  private def groupOf(gid: SetId, shared: Shared): GroupMembers =
+    shared.set(gid)(
+      sources
+        .get(gid)
+        .fold(GroupMembers(Vector.empty, Nil))(_.materialise(shared.states))
+    )
 
   /** Only a set with a `limit` needs its neighbours: order alone never decides
     * presence.
     */
-  def memberAt(
-      id: NodeId,
-      states: Map[String, EntityState]
-  ): Option[Member] =
-    decided
-      .at(states)
-      .member(id)(memberSlot.get(id).flatMap { case (s, entityId) =>
-        if (s.src.s.limit.isEmpty) s.memberOf(entityId, states)
-        else groupOf(s.gid, states).members.find(_.id == id)
-      })
+  def memberAt(id: NodeId, shared: Shared): Option[Member] =
+    shared.member(id)(memberSlot.get(id).flatMap { case (s, entityId) =>
+      if (s.src.s.limit.isEmpty) s.memberOf(entityId, shared.states)
+      else groupOf(s.gid, shared).members.find(_.id == id)
+    })
 
-  /** Apply one frame to every set, visible or not: the recorder holds the
-    * result as the next frame's "before". Only changed entities are looked at,
-    * and a frame that only ticks members hands each set's value straight back
-    * (277 µs a frame on a 2 000-entity house, against a 3.4 ms rescan).
+  /** Each of `sets`' move from `prev` to `next`, which is what the recorder
+    * logs. `was` is `prev`'s decision, made there if nobody had, so it is what
+    * its viewers were sent. A stable set looks only at the changed entities, so
+    * a frame that ticks one member costs that member (277 µs a frame on a 2
+    * 000-entity house, against a 3.4 ms rescan); with a live ordering or a
+    * limit one entity moves its neighbours, so it is rebuilt.
     */
-  def syncMembers(
-      held: Membership,
+  def deltas(
+      sets: List[SetId],
       changes: List[StateChange],
-      before: Map[String, EntityState],
-      states: Map[String, EntityState]
-  ): Synced = {
+      prev: Shared,
+      next: Shared
+  ): Map[SetId, MemberDelta] = {
     val touchedIn = changes
       .flatMap(c => movedBy.getOrElse(c.entityId, Nil))
       .distinct
       .groupMap(_._1.at)(_._2)
-    sourcesWithOwner.foldLeft(Synced(held, Map.empty)) { (acc, s) =>
-      val src = s.src
-      val gid = s.gid
-      // A set the recorder has not held yet starts from the frame's "before".
-      val was =
-        acc.membership.byGroup.getOrElse(gid, s.materialise(before))
-      val touched = touchedIn.getOrElse(s.at, Nil)
-      val (now, replaced) =
-        // With a live ordering or a limit, one entity moves its neighbours, so
-        // rebuild — O(candidates), only for a touched set.
-        if (touched.isEmpty) (was, Vector.empty[Member])
-        else if (!src.stable) {
-          val rebuilt = s.materialise(states)
-          // As `applyOne` reports: a clause binding no live entity has no index
-          // edge, so nothing else would name it.
-          val swapped = rebuilt.members.filter(m =>
-            was.members.exists(w => w.key == m.key && w.clause != m.clause)
-          )
-          // The old value when unchanged, so `install` skips on `eq`.
-          if (rebuilt.members == was.members) (was, swapped)
-          else (rebuilt, swapped)
-        } else
-          touched.foldLeft((was, Vector.empty[Member])) {
-            case ((group, swapped), entityId) =>
-              applyOne(s, group, swapped, entityId, states)
-          }
-      Synced(
-        acc.membership.install(gid, was, now),
-        acc.deltas
-          .updated(gid, MemberDelta(was.entities, now.entities, replaced))
-      )
-    }
+    sets
+      .flatMap(sources.get)
+      .map { s =>
+        val was = groupOf(s.gid, prev)
+        var swapped = Option.empty[Vector[Member]]
+        val now = next.set(s.gid) {
+          if (s.src.stable) {
+            val (group, sw) = touchedIn
+              .getOrElse(s.at, Nil)
+              .foldLeft((was, Vector.empty[Member])) {
+                case ((g, w), entityId) =>
+                  applyOne(s, g, w, entityId, next.states)
+              }
+            swapped = Some(sw)
+            group
+          } else s.materialise(next.states)
+        }
+        s.gid -> MemberDelta(
+          was.entities,
+          now.entities,
+          swapped.getOrElse(clauseMoved(was, now))
+        )
+      }
+      .toMap
   }
+
+  /** As `applyOne` reports: a clause binding no live entity has no index edge,
+    * so nothing else would name it.
+    */
+  private def clauseMoved(
+      was: GroupMembers,
+      now: GroupMembers
+  ): Vector[Member] =
+    val clauseOf = was.members.iterator.map(m => m.key -> m.clause).toMap
+    now.members.filter(m => clauseOf.get(m.key).exists(_ != m.clause))
 
   /** A clause switch is reported by id, not left to the reverse index: a new
     * clause binding no live entity has no edges, and its bytes would move
@@ -621,8 +629,8 @@ private[runtime] final class MemberGraph(
       within: String => Boolean
   ): List[SetId] =
     changes
-      .flatMap(c => movedBy.getOrElse(c.entityId, Nil))
-      .collect { case (s, _) if within(s.root) => s.gid }
+      .flatMap(c => dirtiesSets.getOrElse(c.entityId, Nil))
+      .collect { case s if within(s.root) => s.gid }
       .distinct
       .sortBy(id => id: String)
 }
