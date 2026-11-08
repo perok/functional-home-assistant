@@ -502,10 +502,10 @@ lazy val `fh-datastar-view` = project
       // filesystem paths/IO for the build phase
       "com.lihaoyi" %% "os-lib" % "0.11.10",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
-      "org.pkl-lang" % "pkl-core" % "0.32.2",
+      "org.pkl-lang" % "pkl-core" % "0.33.0",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
-      "org.pkl-lang" % "pkl-parser" % "0.32.2",
+      "org.pkl-lang" % "pkl-parser" % "0.33.0",
       // mustache templating for runtime value injection (pure Java)
       "com.github.spullara.mustache.java" % "compiler" % "0.9.14",
       // CEL for per-slot value transforms (compile-once/eval-many planner
@@ -534,7 +534,7 @@ lazy val `fh-datastar-view` = project
       "org.graalvm.polyglot" % "js" % graalVmVersion,
       // The language server behind /edit, in the other hidden configuration:
       // staged beside the app jar and run as a subprocess (ADR 0010).
-      "org.pkl-lang" % "pkl-lsp" % "0.8.0" % PklLsp,
+      "org.pkl-lang" % "pkl-lsp" % "0.9.0" % PklLsp,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.
