@@ -96,6 +96,14 @@ private[runtime] object Patches {
         sid,
         renderer.surfaces.visibleSurface(sid, visible, next, flipped)
       )
+    // First: `deltas` makes `next`'s set decisions incrementally, where a
+    // `binding` reading them first would rebuild each from scratch.
+    val membership = renderer.members.deltas(
+      renderer.members.affectedSetsWithin(changes, shown),
+      changes,
+      prev,
+      next
+    )
     // Members included, so a case slot naming a second entity ticks: that
     // entity need not be a candidate.
     val staticIds = changes
@@ -109,21 +117,13 @@ private[runtime] object Patches {
       )
       .distinct
       .filterNot(flipped)
-    // A member arriving or leaving is placed whole, so a nested set moves only
-    // under an owner present on both sides; otherwise its decision is unasked.
-    val sets = renderer.members
-      .affectedSetsWithin(changes, shown)
-      .filter(gid =>
-        renderer.members.ownerPresent(gid, prev) &&
-          renderer.members.ownerPresent(gid, next)
-      )
     DiffRequest(
       staticIds,
-      sets,
+      membership.keys.toList.sortBy(id => id: String),
       flips,
       prev,
       next,
-      renderer.members.deltas(sets, changes, prev, next)
+      membership
     )
   }
 

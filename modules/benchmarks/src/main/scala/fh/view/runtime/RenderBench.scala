@@ -341,8 +341,9 @@ class RenderBench {
   private var pubRot = 0
   // Built in setup, not per invocation: an alloc profile said building the
   // frame was 37% of what `publish` reported, i.e. the harness pricing itself.
-  // Two is enough to alternate, and alternating is a real change on every
-  // entity every call.
+  // Alternating is a real change on every entity every call. Four maps, not
+  // two: a renderer keeps the two newest versions by their map's identity, and
+  // a frame whose map it still held would read decisions instead of making them.
   private var pubFrames: Vector[Frame] = null
   private var flipFrames: Vector[Frame] = null
   private var idleFrames: Vector[Frame] = null
@@ -463,10 +464,9 @@ class RenderBench {
     flipShared = Shared.of(flipStates)
     flipCache = RenderCache.create.unsafeRunSync()
     store = StateStore.inMemory(flipStates).unsafeRunSync()
-    pubFrames = Vector(publishFrame(st, 0), publishFrame(st, 1))
-    flipFrames =
-      Vector(publishFrame(flipStates, 0), publishFrame(flipStates, 1))
-    idleFrames = Vector(idleFrame(st, 0), idleFrame(st, 1))
+    pubFrames = Vector.tabulate(4)(i => publishFrame(st, i % 2))
+    flipFrames = Vector.tabulate(4)(i => publishFrame(flipStates, i % 2))
+    idleFrames = Vector.tabulate(4)(i => idleFrame(st, i % 2))
     pubIngests = flipFrames.map(f =>
       f.changes.map(c => Ingest.Replace(f.states(c.entityId)): Ingest)
     )
@@ -480,7 +480,7 @@ class RenderBench {
       )
     }
     setIfs = Renderer.create(ifSetDash(Leaves, ifStates))
-    setIfsFrames = Vector(publishFrame(ifStates, 0), publishFrame(ifStates, 1))
+    setIfsFrames = Vector.tabulate(4)(i => publishFrame(ifStates, i % 2))
     if (
       setIfs.surfaces
         .affectedStateGroups(
@@ -1292,7 +1292,7 @@ class RenderBench {
   @Benchmark
   def publish(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(signalled, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(signalled, pubFrames(pubRot % 4)))
   }
 
   /** The same frame against a dashboard that is one candidate set, so the frame
@@ -1301,7 +1301,7 @@ class RenderBench {
   @Benchmark
   def publishSet(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(set, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(set, pubFrames(pubRot % 4)))
   }
 
   /** [[publishSet]] ordered by [[LitBrightest]]: the touched set re-sorts, each
@@ -1310,7 +1310,7 @@ class RenderBench {
   @Benchmark
   def publishSetOrdered(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(setOrdered, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(setOrdered, pubFrames(pubRot % 4)))
   }
 
   /** '''The question a pre-filter would answer''': what a frame costs when the
@@ -1321,7 +1321,7 @@ class RenderBench {
   @Benchmark
   def publishIdle(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(signalled, idleFrames(pubRot % 2)))
+    bh.consume(publishPass(signalled, idleFrames(pubRot % 4)))
   }
 
   /** The same idle frame against the candidate-set dashboard, where no set is
@@ -1330,7 +1330,7 @@ class RenderBench {
   @Benchmark
   def publishIdleSet(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(set, idleFrames(pubRot % 2)))
+    bh.consume(publishPass(set, idleFrames(pubRot % 4)))
   }
 
   /** [[publishSet]]'s frame against the same leaves split into [[ManySets]]
@@ -1340,7 +1340,7 @@ class RenderBench {
   @Benchmark
   def publishManySets(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(manySets, pubFrames(pubRot % 2)))
+    bh.consume(publishPass(manySets, pubFrames(pubRot % 4)))
   }
 
   /** The same frame plus the entity that CHOOSES a branch, so the pass also
@@ -1353,7 +1353,7 @@ class RenderBench {
   @Benchmark
   def publishFlip(bh: Blackhole): Unit = {
     pubRot += 1
-    val frame = flipFrames(pubRot % 2)
+    val frame = flipFrames(pubRot % 4)
     val was = frame.states(FlipEntity)
     val now = was.copy(state = if (pubRot % 2 == 0) "armed" else "disarmed")
     bh.consume(
@@ -1374,7 +1374,7 @@ class RenderBench {
   @Benchmark
   def publishSetIfs(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(publishPass(setIfs, setIfsFrames(pubRot % 2)))
+    bh.consume(publishPass(setIfs, setIfsFrames(pubRot % 4)))
   }
 
   /** One member's window opening: one member's flip, whatever the set's size.
@@ -1407,7 +1407,7 @@ class RenderBench {
     val at = BaseInstant.plusSeconds(pubRot.toLong)
     bh.consume(
       store
-        .update(pubIngests(pubRot % 2).map {
+        .update(pubIngests(pubRot % 4).map {
           case Ingest.Replace(s) =>
             Ingest.Replace(s.copy(lastUpdated = Some(at)))
           case other => other
@@ -1714,15 +1714,11 @@ class RenderBench {
     */
   @Benchmark
   def tickRender(bh: Blackhole): Unit = {
-    val moved = signalTick(wireRot)
+    // One version for every node, as a pull reads it.
+    val shared = Shared.of(signalTick(wireRot))
+    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
     tickNodeIds.foreach(id =>
-      bh.consume(
-        signalled.renderNodeById(
-          id,
-          Shared.of(moved),
-          Viewing(Selections.none, FetchSnapshot.empty)
-        )
-      )
+      bh.consume(signalled.renderNodeById(id, shared, viewing))
     )
   }
 

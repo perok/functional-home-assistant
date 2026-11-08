@@ -89,7 +89,17 @@ private[runtime] case class MemberDelta(
 private[runtime] final case class GroupMembers(
     members: Vector[Member],
     entities: List[String]
-)
+) {
+
+  /** entity -> the members binding it, built once per decision. Scanning the
+    * members per change instead cost a set's frame 134 µs against 17
+    * (`RenderBench.publishSet`).
+    */
+  lazy val binding: Map[String, Vector[Member]] =
+    members
+      .flatMap(m => m.byEntity.keysIterator.map(_ -> m))
+      .groupMap(_._1)(_._2)
+}
 
 private object GroupMembers {
   val empty: GroupMembers = GroupMembers(Vector.empty, Nil)
@@ -476,7 +486,9 @@ private[runtime] final class MemberGraph(
       .getOrElse(entityId, Nil)
       .iterator
       .filter(s => within(s.root) && ownerPresent(s, shared))
-      .flatMap(s => groupOf(s.gid, shared).members)
+      .flatMap(s =>
+        groupOf(s.gid, shared).binding.getOrElse(entityId, Vector.empty)
+      )
       .flatMap(_.byEntity.getOrElse(entityId, Nil))
       .toSet
 
@@ -491,12 +503,6 @@ private[runtime] final class MemberGraph(
             .exists(m => m.id == o && m.clause == s.clause)
         )
     )
-
-  /** Whether a nested set's owner is present, in the clause holding it; a
-    * top-level set always is.
-    */
-  def ownerPresent(gid: SetId, shared: Shared): Boolean =
-    sources.get(gid).forall(ownerPresent(_, shared))
 
   /** member id -> its set and candidate. Exact, so an id is never parsed for
     * its parent: a prefix test cannot tell `c_1_light_a_b` (set `c_1`,
@@ -553,7 +559,13 @@ private[runtime] final class MemberGraph(
     * its viewers were sent. A stable set looks only at the changed entities, so
     * a frame that ticks one member costs that member (277 µs a frame on a 2
     * 000-entity house, against a 3.4 ms rescan); with a live ordering or a
-    * limit one entity moves its neighbours, so it is rebuilt.
+    * limit one entity moves its neighbours, so it is rebuilt. That holds only
+    * where this makes `next`'s decision, so it runs before anything else reads
+    * `next`'s sets, outer before inner (`sets` sorted by id).
+    *
+    * A member arriving or leaving is placed whole, so a nested set moves only
+    * under an owner present on both sides; one that is not is left out, and its
+    * decision unasked.
     */
   def deltas(
       sets: List[SetId],
@@ -567,29 +579,39 @@ private[runtime] final class MemberGraph(
       .groupMap(_._1.at)(_._2)
     sets
       .flatMap(sources.get)
-      .map { s =>
-        val was = groupOf(s.gid, prev)
-        var swapped = Option.empty[Vector[Member]]
-        // `was` stands in only while `next` does: one run answers both.
-        val now = next.set(s.gid, s.src.reads, GroupMembers.empty) { f =>
-          if (s.src.stable) {
-            val (group, sw) = touchedIn
-              .getOrElse(s.at, Nil)
-              .foldLeft((was, Vector.empty[Member])) {
-                case ((g, w), entityId) =>
-                  applyOne(s, g, w, entityId, next.states, f)
-              }
-            swapped = Some(sw)
-            group
-          } else s.materialise(next.states, f)
-        }
-        s.gid -> MemberDelta(
-          was.entities,
-          now.entities,
-          swapped.getOrElse(clauseMoved(was, now))
-        )
+      // One pass, so an outer set's delta makes its `next` decision before
+      // its inner sets' owner check reads it.
+      .flatMap { s =>
+        if (!(ownerPresent(s, prev) && ownerPresent(s, next))) None
+        else Some(delta(s, touchedIn.getOrElse(s.at, Nil), prev, next))
       }
       .toMap
+  }
+
+  private def delta(
+      s: Source,
+      touched: List[String],
+      prev: Shared,
+      next: Shared
+  ): (SetId, MemberDelta) = {
+    val was = groupOf(s.gid, prev)
+    var swapped = Option.empty[Vector[Member]]
+    // `was` stands in only while `next` does: one run answers both.
+    val now = next.set(s.gid, s.src.reads, GroupMembers.empty) { f =>
+      if (s.src.stable) {
+        val (group, sw) = touched
+          .foldLeft((was, Vector.empty[Member])) { case ((g, w), entityId) =>
+            applyOne(s, g, w, entityId, next.states, f)
+          }
+        swapped = Some(sw)
+        group
+      } else s.materialise(next.states, f)
+    }
+    s.gid -> MemberDelta(
+      was.entities,
+      now.entities,
+      swapped.getOrElse(clauseMoved(was, now))
+    )
   }
 
   /** As `applyOne` reports: a clause binding no live entity has no index edge,
