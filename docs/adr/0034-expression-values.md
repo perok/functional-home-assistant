@@ -123,13 +123,23 @@ fetch in one that reads a viewer's variable (a chooser's window); without one, t
 on no snapshot, and the renderer keeps the newest. As in a slot, a moved answer wakes nothing: the
 decision is made again when its entities change.
 
-### Boolean slots, and what fills one
+### A slot's type, and what fills one
 
-A slot carries a **type** (`Slot.type`: `"text"` by default, or `"bool"`), set by the card where it
+A slot carries a **type** (`Slot.type`), which names its hole: `"text"` by default, placed
+`{{x}}`; `"textRaw"`, placed `{{{x}}}`; or `"bool"`, placed as a section. The card sets it where it
 binds the slot, beside `signal` — the card says how its template reads the value, because a reading
-has no binding of its own (`docs/terminology.md`). A `class:` binding is a bool by kind. One field
-rather than a per-card list of boolean slots, so another type is one more case: `"number"`, once a
+has no binding of its own (`docs/terminology.md`). The build checks every place a template puts a
+slot against its type, so escaping is removed only where a card writes `textRaw` down: a live
+`onclick` handler, a service spliced into one, a chart's SVG. A `class:` binding is a bool by
+kind. One field rather than a per-card list, so another type is one more case: `"number"`, once a
 signal can carry a JSON number (a slot value is `String | Boolean` today).
+
+Text, a number, a bool and `dyn` become text where a value meets its slot, and only there: they
+fit `text` and `textRaw`, a bool printing `true` or `false`, which a client library can read.
+Between steps nothing converts; each step takes the types it names, so a bool fed to `Prefix` is
+refused. Raw text (a chart's) fits only `textRaw`. JSON, a series, a list and a whole entity fit
+no slot, and reach one only through a step that makes text (`jsonText`, ADR 0031; `str(…)`). What
+this gives up: a bool reading in a text slot was a build error, and now prints.
 
 The build refuses a reading on a boolean slot that does not produce a bool, because the template
 reads it by truthiness and the string `"false"` is ON. Every source and step has a type (`ValueType`),
@@ -138,12 +148,11 @@ condition, or an all-Boolean `match` (what `c.isOn`/`c.stateIn` build), is a boo
 passes (an attribute, a CEL `dyn`), except an attribute read bare, which is text or a number far
 more often.
 
-A text slot must produce something a template can print: text, a number, or `dyn`; a bool is
-refused, since a template reads one by truthiness. A CEL `list`, `map`, `timestamp`, `duration` or
-`bytes` is refused with a pointer to `str(…)`, since it would otherwise render as Java's
+A CEL `list`, `map`, `timestamp`, `duration` or `bytes` in a text slot is refused with a pointer
+to `str(…)`, since it would otherwise render as Java's
 `toString` (#637); an `optional` is `dyn`. The simple tier's text steps (`Prefix`, `Suffix`,
-`WithUnit`, `Percent`, `Fill`, `Duration`) take the same, so a whole entity or a list is refused
-before them. A literal is checked like any value: a `setIf` flag's slot is `slotMod.bool`.
+`WithUnit`, `Percent`, `Fill`, `Duration`) take text, a number or `dyn`, so a whole entity, a
+list or a bool is refused before them. A literal is checked like any value: a `setIf` flag's slot is `slotMod.bool`.
 
 **What fills one** is a `BooleanInput`, `Boolean|slot.Expr`: a `Boolean` the build knows, or an
 expression of a bool — a reading (`c.isOn(l)`, the fast tier, or `c.expr("on > 2")` over the

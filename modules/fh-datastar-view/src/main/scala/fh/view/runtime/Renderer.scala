@@ -22,6 +22,7 @@ import fh.view.model.{
   SlotKey,
   SlotRead,
   SlotShape,
+  Step,
   Lit,
   SetId,
   SignalBind,
@@ -337,7 +338,7 @@ class Renderer(validated: Dashboard.Validated) {
       case Nil   => IO.unit
       case reads =>
         answer(reads).map(s =>
-          decided.answer(f => Series.celPoints(s.shared(SlotAsk(f, None))))
+          decided.answer(f => Series.celPoints(s.shared(SlotAsk(f, Step.Json))))
         )
 
   /** What a press on a set reaches: its candidates present now, decided as a
@@ -1887,7 +1888,7 @@ class Renderer(validated: Dashboard.Validated) {
       f: FetchTemplate
   ): Object =
     Series.celPoints(
-      fragments.value(node, SlotAsk(f, None))
+      fragments.value(node, SlotAsk(f, Step.Json))
     )
 
   private def resolveStateSlotValue(

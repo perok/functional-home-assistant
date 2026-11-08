@@ -2353,7 +2353,7 @@ object Server {
           chart.map(_.render),
           onFailure = (k, e) =>
             log.warn(e)(
-              s"${k.stage.fold("passthrough")(Step.key)} of ${k.question._2} failed; " +
+              s"${Step.key(k.stage)} of ${k.question._2} failed; " +
                 "it shows its error until a retry"
             )
         )

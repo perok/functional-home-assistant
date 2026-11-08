@@ -190,7 +190,7 @@ The data would ride an attribute, or a `_`-prefixed signal — excluded by the p
 default `filterSignals.exclude = /(^|\.)_/`, so it is never serialised into an action POST or an
 SSE reconnect, which is the ADR 0011 cost that made this look blocked. Size is not the objection:
 ~300 points as JSON is a few KB against ~19 KB of SVG, and the payload already exists — it is what
-`passthrough` answers with.
+the `json` stage answers with.
 
 What it would cost: a ~350 KB `echarts/core` custom build and a fifth vite entry (served hashed
 and `immutable` from the jar, so offline still holds); a `disconnectedCallback` → `dispose` plus a

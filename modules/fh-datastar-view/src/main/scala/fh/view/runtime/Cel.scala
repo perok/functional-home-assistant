@@ -348,13 +348,15 @@ object Cel {
       )
 
   private def celType(t: ValueType): CelType = t match
-    case ValueType.Text | ValueType.Markup => SimpleType.STRING
-    case ValueType.Int                     => SimpleType.INT
-    case ValueType.Real                    => SimpleType.DOUBLE
-    case ValueType.Bool                    => SimpleType.BOOL
-    case ValueType.Dyn                     => SimpleType.DYN
-    case ValueType.Entity                  => entityType
-    case ValueType.List(of)                => ListType.create(celType(of))
+    // A fetch input is read as its series, never through a json step.
+    case ValueType.Text | ValueType.TextRaw | ValueType.Json =>
+      SimpleType.STRING
+    case ValueType.Int      => SimpleType.INT
+    case ValueType.Real     => SimpleType.DOUBLE
+    case ValueType.Bool     => SimpleType.BOOL
+    case ValueType.Dyn      => SimpleType.DYN
+    case ValueType.Entity   => entityType
+    case ValueType.List(of) => ListType.create(celType(of))
 
   private val parser = CelParserFactory.standardCelParserBuilder().build()
 

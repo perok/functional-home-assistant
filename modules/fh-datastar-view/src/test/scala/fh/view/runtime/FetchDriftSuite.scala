@@ -5,6 +5,7 @@ import fh.view.testkit.Conds
 import fh.view.history.Windows
 import fh.view.build.DashboardBuild
 import fh.view.model.{
+  SlotType,
   Activation,
   CardDef,
   Dashboard,
@@ -77,7 +78,8 @@ class FetchDriftSuite extends munit.FunSuite {
           ValueExpr(
             Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
             List(Step.Chart())
-          )
+          ),
+          `type` = SlotType.TextRaw
         )
       )
     )

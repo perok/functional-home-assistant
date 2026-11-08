@@ -14,7 +14,13 @@ checker picks an overload.
 
 ## Values
 
-Text, whole, real, bool, list, entity, series, markup, and `null`, the one absent value.
+Text, raw text, whole, real, bool, list, entity, series, JSON, and `null`, the one absent value.
+
+**Conversion is a step, except at the slot.** Where a value meets its slot, text, a number, a
+bool and `dyn` become text (ADR 0034); nowhere else does anything convert, so each step names the
+types it takes. A fetch's series becomes JSON through `json` and text through `jsonText`, or raw
+text (SVG) through `chart` (ADR 0031). Each conversion is a step of one fixed type rather than one
+step with a mode, so a type never depends on an option: JSON for a raw hole will be `jsonRaw`.
 
 **Reads are typed.** A state is text; an attribute is the JSON's own value (`Long`, `Double`,
 `String`, `Boolean`, a list, a map), never its printed text, so `attr(x)` reads `21` on a card and

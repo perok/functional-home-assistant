@@ -5,7 +5,7 @@ import cats.effect.std.CountDownLatch
 import cats.effect.unsafe.implicits.global
 import cats.syntax.parallel.*
 import cats.syntax.traverse.*
-import fh.view.model.{CardDef, Dashboard, LayoutNode, NodeId, SlotRead}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, NodeId, SlotRead, Step}
 import fh.view.fetch.FetchRequest
 import fh.view.history.Windows
 import fh.view.testkit.TestIds.given
@@ -314,7 +314,7 @@ class RenderCacheSuite extends munit.FunSuite {
   private def readOf(window: String): SlotRead =
     SlotRead(
       FetchRequest.History("sensor.t", Windows.presets(window)),
-      None
+      Step.Json
     )
 
   private val day =

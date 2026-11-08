@@ -141,7 +141,10 @@
                               "source" : true,
                               "type" : "bool"
                             },
-                            "service" : "light/turn_on",
+                            "service" : {
+                              "source" : "light/turn_on",
+                              "type" : "textRaw"
+                            },
                             "state" : {
                               "signal" : {
                                 "kind" : "Text"
@@ -259,7 +262,10 @@
                         "source" : true,
                         "type" : "bool"
                       },
-                      "service" : "light/toggle",
+                      "service" : {
+                        "source" : "light/toggle",
+                        "type" : "textRaw"
+                      },
                       "tapDisabled" : {
                         "signal" : {
                           "kind" : "Handler"
@@ -417,7 +423,10 @@
                               "source" : true,
                               "type" : "bool"
                             },
-                            "service" : "light/turn_on",
+                            "service" : {
+                              "source" : "light/turn_on",
+                              "type" : "textRaw"
+                            },
                             "state" : {
                               "signal" : {
                                 "kind" : "Text"
@@ -535,7 +544,10 @@
                         "source" : true,
                         "type" : "bool"
                       },
-                      "service" : "light/toggle",
+                      "service" : {
+                        "source" : "light/toggle",
+                        "type" : "textRaw"
+                      },
                       "tapDisabled" : {
                         "signal" : {
                           "kind" : "Handler"

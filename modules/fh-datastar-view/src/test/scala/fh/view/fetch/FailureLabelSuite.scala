@@ -32,9 +32,9 @@ class FailureLabelSuite extends munit.FunSuite {
 
   test("a failed chart shows the error label; failed data shows nothing") {
     assertEquals(
-      Staged.failed(Some(Step.Chart())).value,
+      Staged.failed(Step.Chart()).value,
       library("""t.label("error", "Chart unavailable")""")
     )
-    assertEquals(Staged.failed(None).value, "")
+    assertEquals(Staged.failed(Step.Json).value, "")
   }
 }

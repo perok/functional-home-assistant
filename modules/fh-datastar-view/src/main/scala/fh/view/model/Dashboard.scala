@@ -115,9 +115,6 @@ final case class BoundSlot(
     case e: Value.Entity => e.bypassUnavailable
     case _               => false
 
-  def stage: Option[Step.FetchStage] =
-    expr.steps.collectFirst { case s: Step.FetchStage => s }
-
   def isBool: Boolean = `type` == SlotType.Bool
 
   /** Its type checked in order, and the key of each CEL it compiles: one source
@@ -137,16 +134,29 @@ final case class BoundSlot(
     ) ++ values.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
+  /** `validate` refuses a fetch slot without a stage: its series fits no slot.
+    */
   def shape: SlotShape =
-    fetch.fold(SlotShape.State(this))(q => SlotShape.Fetch(SlotAsk(q, stage)))
+    fetch.fold(SlotShape.State(this))(q =>
+      SlotShape.Fetch(
+        SlotAsk(
+          q,
+          expr.steps
+            .collectFirst { case s: Step.FetchStage => s }
+            .getOrElse(Step.Json)
+        )
+      )
+    )
 
   /** What a render must answer before it reads this slot: its own fetch, or the
-    * fetches among the inputs it reads, as their raw answers.
+    * fetches among the inputs it reads, as their answers.
     */
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
-      inputs.map(_.source).collect { case Value.Fetch(f) => SlotAsk(f, None) }
+      inputs.map(_.source).collect { case Value.Fetch(f) =>
+        SlotAsk(f, Step.Json)
+      }
 
   /** Every named input it reads, at any depth: the node's values, each CEL's
     * own, and theirs.
@@ -308,9 +318,9 @@ enum SlotShape derives CanEqual:
   case Fetch(ask: SlotAsk)
 
 /** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render.
-  * Its answer fills the hole as `stage` makes it, or as JSON with none.
+  * Its answer is read as `stage` makes it.
   */
-case class SlotAsk(fetch: FetchTemplate, stage: Option[Step.FetchStage])
+case class SlotAsk(fetch: FetchTemplate, stage: Step.FetchStage)
     derives CanEqual:
 
   /** `validate` proved the declared values resolve, and the write refuses a
@@ -339,7 +349,7 @@ object Fetching:
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
 /** Fetch and stage: two sizes of one chart share a fetch, not bytes. */
-case class SlotRead(fetch: FetchRequest, stage: Option[Step.FetchStage])
+case class SlotRead(fetch: FetchRequest, stage: Step.FetchStage)
     derives CanEqual
 
 /** When a slot is read, and whether that is a reason to re-render:
@@ -368,19 +378,20 @@ object Reads:
       )
   )
 
-/** What a card reads a slot's value as. A `Bool` slot decides a class or an
+/** What a card reads a slot's value as, which names the hole it is placed in:
+  * `{{x}}`, `{{{x}}}`, or a section. A `Bool` slot decides a class or an
   * attribute by truthiness, where the string `"false"` is ON, so the build
   * refuses a reading on one that does not produce a bool.
   */
-enum SlotType derives CanEqual:
-  case Text, Bool
+enum SlotType(val wire: String) derives CanEqual:
+  case Text extends SlotType("text")
+  case TextRaw extends SlotType("textRaw")
+  case Bool extends SlotType("bool")
 
 object SlotType:
-  given Decoder[SlotType] = Decoder[String].emap {
-    case "text" => Right(Text)
-    case "bool" => Right(Bool)
-    case other  => Left(s"unknown slot type: $other")
-  }
+  given Decoder[SlotType] = Decoder[String].emap(s =>
+    values.find(_.wire == s).toRight(s"unknown slot type: $s")
+  )
 
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the
   * attribute, not the card, so the plain form (no binding, no seed) stays one

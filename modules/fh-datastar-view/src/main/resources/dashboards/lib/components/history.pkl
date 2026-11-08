@@ -15,7 +15,7 @@ import "base/chart.pkl" as chartMod
 import "select.pkl" as selectMod
 import "../hass.pkl"
 
-const local chart: slotMod.Slot = slotMod.slot("chart")
+const local chart: slotMod.Slot = slotMod.textRaw("chart")
 
 /// One entity's readings over one window. The SVG goes in a RAW hole
 /// (`chart.raw`); the backend rejects an escaped one at build time.

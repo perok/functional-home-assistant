@@ -5,6 +5,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
+  SlotType,
   Activation,
   CardDef,
   Dashboard,
@@ -169,7 +170,8 @@ object FetchBench {
           ValueExpr(
             Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
             List(Step.Chart())
-          )
+          ),
+          `type` = SlotType.TextRaw
         )
       ),
       id = id

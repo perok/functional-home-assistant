@@ -29,13 +29,13 @@ const function jsonLiteral(v: CallValue): String =
 
 // The slots a tap fills ([[tapSlots]]), for the template pieces below and the
 // cards that place them.
-const service: slotMod.Slot = slotMod.slot("service")
+const service: slotMod.Slot = slotMod.textRaw("service")
 const targetKind: slotMod.Slot = slotMod.slot("targetKind")
 const targetId: slotMod.Slot = slotMod.slot("targetId")
 const targetSet: slotMod.Slot = slotMod.slot("targetSet")
 const dataKey: slotMod.Slot = slotMod.slot("dataKey")
 const dataValue: slotMod.Slot = slotMod.slot("dataValue")
-const onclick: slotMod.Slot = slotMod.slot("onclick")
+const onclick: slotMod.Slot = slotMod.textRaw("onclick")
 /// The tap's own refusal ([[refusedStates]]) and the card's (`nodes.disabledSlot`).
 const tapDisabled: slotMod.Slot = slotMod.bool("tapDisabled")
 const disabled: slotMod.Slot = slotMod.bool("disabled")
