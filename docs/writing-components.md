@@ -255,6 +255,13 @@ through `p.history.chosen`: these are decided once for every viewer, so the
 build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
 
+Such a decision is kept until an entity it reads changes, and the history's own
+sensor is not one of them: a `where` over `size(past) > 0` alone keeps its first
+answer. Add `.updateOnEntityChange()` to the history,
+`p.history.of(sensor, p.history.raw(24.h)).updateOnEntityChange()`, and it is
+decided again whenever `sensor` changes. A decision inside a hidden tab or
+branch reads no history until it is shown.
+
 ---
 
 ## Making a card clickable

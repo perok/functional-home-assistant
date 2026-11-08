@@ -18,7 +18,7 @@ the paths taken read. Four things are wrong with how that works today:
   re-makes every decision on its path after any change; the recorder folds over every set each
   frame, and on its first frame decides them all, shown or not.
 
-**State:** not started. Stacked on #674.
+**State:** steps 1–3 built, step 4's docs written; the bench is left. Stacked on #674.
 
 ## Goals
 

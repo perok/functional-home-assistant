@@ -116,12 +116,23 @@ build time and raises if one ever reaches it. Its entity is written down at buil
 fetch slot's is, so no viewer's value can move it (ADR 0023).
 
 A decision reads one too: a set's clause and order, a state surface's condition, a `valueWhile`,
-the set a press acts on. Those are made outside a render, once per snapshot for every viewer, so
-the build lists every fetch they read and the server answers the list before anything decides,
-wherever it reads a snapshot for a renderer. Because the decision is shared, the build refuses a
-fetch in one that reads a viewer's variable (a chooser's window); without one, the answers depend
-on no snapshot, and the renderer keeps the newest. As in a slot, a moved answer wakes nothing: the
-decision is made again when its entities change.
+the set a press acts on. Those are made outside a render, once per state version for every viewer,
+and kept into the next version until a change dirties them (pipeline doc §1a). Only a decision a
+walk reaches asks for its fetches: one it lacks the answers for reads as not shown, and the walk
+runs again once a batch has answered them (`Renderer.decide`), so a hidden branch's fetch is never
+asked, and a decision inside another costs a round. Because the decision is shared, the build
+refuses a fetch in one that reads a viewer's variable (a chooser's window). As in a slot, a moved
+answer wakes nothing: the decision is made again when its entities change, or an entity its fetch
+names with `updateOnEntityChange()` (a value's `dependsOn`, an edge like an entity read). Without
+it, a decision over a fetch alone is carried as made; an author who wants the history to count
+opts in, since it costs a re-decision on every change of that entity.
+
+Resuming a blocked walk (Haxl-style continuations) was weighed against walking again: it walks
+once, but needs a second description of what is shown, the chain of decisions the build would
+have to list, and a decision that chain misses fails at render. Reopen if a walk's cost shows
+beside its fetches. A recorder lagging behind could fold every queued frame in one pass (dirty from
+all their changes, "before" the previous version, "after" the last state); left out until lag
+shows.
 
 ### A slot's type, and what fills one
 
@@ -184,8 +195,8 @@ render key, the paint and the signal path ask the same decisions, so none decide
 `valueWhile` over no entity is asked ungated, because asking too much is safe and asking too
 little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). It may read a fetch, as every
-decision may: the server answers the fetches decisions read before any is made, so it never waits
-on the fetches it gates. A decision is made once for every viewer, so the build refuses a fetch in
+decision may: it is decided in an earlier round than the fetches it gates, so it never waits on
+them. A decision is made once for every viewer, so the build refuses a fetch in
 one that reads a viewer's variable (a chooser's window). It also refuses one that does not produce
 a bool, and one on a `once` slot, whose memo would keep its first answer.
 
