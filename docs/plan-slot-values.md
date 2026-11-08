@@ -472,13 +472,6 @@ names, and are corrected where they did.
 - The tap call design round: a declared call id in place of the URL a template spells out.
 - **Strict `Dyn`** is an open question in ADR 0035, beside the `Option` type.
 - **Goldens as short, specific dashboards**, in place of whole fixture and smoke pages.
-- **`validate` compiles each CEL source twice.** `ValueExpr.typed` compiles it for its type
-  (`Transform.resultType`, through a new compiler whenever `env` or `value` is set,
-  `Cel.compilerWith`), and `Dashboard.compileTransforms` compiles each distinct `CelKey` again;
-  the fixtures repeat a source about twice (fixture-slots: 25 sources, 11 distinct). Remember each
-  result by `CelKey` and let typing return the program, so `Validated` keeps what typing
-  compiled. `validate` takes 0.56 ms on the starter and 3.4–6.3 ms on the fixtures: worth it once
-  it shows on the Pi.
 - **A Pkl `Predicate` as a `slotMod.Reading`.** Both write `{source, steps}`, so
   `nodes.booleanReading`, `slotMod.wireInput` and the `Predicate|Reading` unions convert one to
   the other. Needs a spike: `Reading`'s rendered `default` and `valueWhileSlot` would ride on
