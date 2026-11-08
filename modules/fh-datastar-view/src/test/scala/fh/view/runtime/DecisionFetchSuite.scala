@@ -145,8 +145,9 @@ class DecisionFetchSuite extends munit.FunSuite {
       )
     )
     assert(
-      intercept[FHError](g.resolveActiveByState(NodeId.derived("c"), states()))
-        .getMessage
+      intercept[FHError](
+        g.resolveActiveByState(NodeId.derived("c"), states())
+      ).getMessage
         .contains("where none is answered")
     )
     answered(some)
@@ -181,9 +182,17 @@ class DecisionFetchSuite extends munit.FunSuite {
       d.decisionFetches.map((where, f) => where -> f.entity),
       List("a set a press acts on" -> "sensor.left")
     )
-    val call = d.validated().toOption.get.ready.calls.values.collectFirst {
-      case s: Ready.SetCall => s
-    }.get
+    val call = d
+      .validated()
+      .toOption
+      .get
+      .ready
+      .calls
+      .values
+      .collectFirst { case s: Ready.SetCall =>
+        s
+      }
+      .get
     val r = Renderer.create(d)
     answer(r, some)
     assertEquals(r.pressed(call, states()), List("sensor.a", "sensor.b"))
