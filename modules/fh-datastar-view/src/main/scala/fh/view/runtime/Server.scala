@@ -32,6 +32,7 @@ import fh.view.model.{
   SignalId,
   SlotRead,
   TapCall,
+  ThemeClasses,
   Transform
 }
 import fs2.Stream
@@ -1654,6 +1655,7 @@ class Server(
                 )
               },
               renderer.themeColorTags,
+              renderer.themeClasses,
               renderer.stylesheets.map(assets.rewrite),
               renderer.deferredStylesheets.map(assets.rewrite),
               renderer.scripts.map(assets.rewrite),
@@ -1746,6 +1748,7 @@ class Server(
       slug: String,
       bodyInto: Sink => Unit,
       themeColorTags: String,
+      themeClasses: ThemeClasses,
       stylesheets: List[String],
       deferredStylesheets: List[String],
       scripts: List[String],
@@ -1849,7 +1852,8 @@ class Server(
           .sortBy(_.committedSignal)
           .map(_.pendingClear)
           .mkString(s"""\n  <div $hidden data-effect="""", "; ", "\"></div>")
-    val connBanner =
+    // The banners' `fh-offline*` classes are the theme's to rename, as a card's.
+    val connBanner = themeClasses.rewriteTemplate(
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
@@ -1865,6 +1869,7 @@ class Server(
          |  </div>
          |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
+    )
     val _ = out.append(s"""<!doctype html>
        |<html lang="en">
        |<head>

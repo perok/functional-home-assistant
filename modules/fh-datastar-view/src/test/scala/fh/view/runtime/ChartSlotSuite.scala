@@ -11,6 +11,9 @@ import fh.view.model.{
   Choice,
   SlotRead,
   SlotSource,
+  TemplateSlot,
+  Theme,
+  ThemeClasses,
   Transform
 }
 import fh.view.history.ChartStyle
@@ -40,14 +43,16 @@ class ChartSlotSuite extends munit.FunSuite {
       ),
       card = LayoutNode.Component(
         card = "chart",
-        slots = Map(
-          "entity_id" -> SlotSource(literal = Some("sensor.t")),
-          "chart" -> SlotSource(
-            fetch = Some(chartFetch),
-            transform = stage,
-            reads = Reads.OnRender
+        templateSlots = Map(
+          "entity_id" -> TemplateSlot(SlotSource(literal = Some("sensor.t"))),
+          "chart" -> TemplateSlot(
+            SlotSource(
+              fetch = Some(chartFetch),
+              transform = stage,
+              reads = Reads.OnRender
+            )
           ),
-          "name" -> SlotSource(transform = "state")
+          "name" -> TemplateSlot(SlotSource(transform = "state"))
         )
       )
     )
@@ -69,6 +74,23 @@ class ChartSlotSuite extends munit.FunSuite {
         .html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
+  }
+
+  test(
+    "a failed chart's label takes the theme's class rules; a drawing does not"
+  ) {
+    val classes = ThemeClasses(Map("fh-label" -> List("fh-label", "chip")))
+    val d = dashboardWith("{{{chart}}}").copy(theme = Theme(classes = classes))
+    def body(f: FetchSnapshot) =
+      Renderer.create(d).renderBodyTraced(states, Selections.none, f).html
+    val failed =
+      body(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
+    assert(
+      failed.contains("""<span class="fh-label chip fh-label-error"""),
+      failed
+    )
+    val drawn = body(fragments("""<svg class="fh-label"/>"""))
+    assert(drawn.contains("""<svg class="fh-label"/>"""), drawn)
   }
 
   test("rendering a chart nobody resolved is an error, not an empty slot") {

@@ -23,19 +23,19 @@ local function declared(body: String): Set<String> =
   body.split(";").map((d) -> d.trim()).filter((d) -> d.startsWith("--fh-cell-"))
     .map((d) -> d.takeWhile((ch) -> ch != ":")).toSet()
 
-local function classes(n: nodes.LayoutNode): List<String> = n.cell?.classes?.toList() ?? List()
+local function classes(n: nodes.LayoutNode): List<String> = n.cell?.classes?.keys?.toList() ?? List()
 
 facts {
   ["a row is start-packed and one line until told otherwise"] {
-    !c.row.slots.containsKey("class")
-    c.row.justify("center").slots["class"] == "fh-justify-center"
-    c.row.wrap().slots["class"] == "fh-wrap"
-    c.row.cssClass("mine").justify("end").wrap().slots["class"] == "mine fh-justify-end fh-wrap"
+    !c.row.slotsByName.containsKey("class")
+    c.row.justify("center").slotsByName["class"].value == "fh-justify-center"
+    c.row.wrap().slotsByName["class"].value == "fh-wrap"
+    c.row.cssClass("mine").justify("end").wrap().slotsByName["class"].value == "mine fh-justify-end fh-wrap"
   }
 
   ["a column justifies along its own direction"] {
-    !c.column.slots.containsKey("class")
-    c.column.justify("center").slots["class"] == "fh-justify-center"
+    !c.column.slotsByName.containsKey("class")
+    c.column.justify("center").slotsByName["class"].value == "fh-justify-center"
   }
 
   ["each class the builders emit has a rule"] {
@@ -59,8 +59,8 @@ facts {
   }
 
   ["a column fills the screen when told"] {
-    c.column.fillScreen().slots["class"] == "fh-fill-screen"
-    c.column.justify("end").fillScreen().slots["class"] == "fh-justify-end fh-fill-screen"
+    c.column.fillScreen().slotsByName["class"].value == "fh-fill-screen"
+    c.column.justify("end").fillScreen().slotsByName["class"].value == "fh-justify-end fh-fill-screen"
   }
 
   // A container passes its cells' layout down by inheritance, so one that sets

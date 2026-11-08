@@ -44,7 +44,7 @@ class SmokeFixtureSuite extends munit.FunSuite {
     List(2, 60).foreach { rows =>
       val d = SmokeDashboard.layoutFill(rows)
       d.validated().left.foreach(e => fail(s"${d.slug}: ${e.mkString("; ")}"))
-      val cells = walk(d.card).flatMap(_.cell.toList.flatMap(_.classes))
+      val cells = walk(d.card).flatMap(_.cell.toList.flatMap(_.classes.keys))
       assertEquals(
         cells.filter(_.startsWith("fh-stick-")).sorted,
         List("fh-stick-bottom", "fh-stick-top"),

@@ -9,6 +9,10 @@ import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
 
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+const local valueSlot: slotMod.Slot = slotMod.slot("value")
+const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
+
 /// The tile. `title`, `reading`, `secondary` and `glyph` each take a literal or
 /// a reading; the card decides how each is carried.
 open class Tile extends nodes.ActiveNode {
@@ -26,10 +30,8 @@ open class Tile extends nodes.ActiveNode {
     // `<header>`, which is a 4rem app-bar grid.
     template = """
       <article class="fh-card fh-entity fh-tile-card">
-        <div class="fh-tile{{#tappable}} fh-tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
-        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>\(badgeMod.seat("", "{{icon}}", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun("label"))</span>
-        <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
-        <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))</span></div>{{{features}}}
+        <div class="fh-tile \(tapMod.tappable.ifSet("fh-tappable")) \(tapMod.refusedNow("fh-disabled"))"\(tapMod.tappable.ifSet("\n  data-on:click=\"\(tapMod.guardClick)\(tapMod.click)\""))\(tapMod.guard)>\(badgeMod.seat("", "\(badgeMod.icon)", badgeMod.tapSpin))<span class="fh-lines"><span class="\(textMod.BOX)">\(textMod.liveRun(labelSlot))</span>
+        <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun(valueSlot))</span>\(secondarySlot.ifSet("\n  " + #"<span class="fh-sub \#(textMod.BOX)">\#(textMod.liveRun(secondarySlot))</span>"#))</span></div>{{{features}}}
       </article>
       """
     // The row and its on look are `core/css.pkl`'s, shared with the switch. The
@@ -45,15 +47,15 @@ open class Tile extends nodes.ActiveNode {
       .fh-tile .fh-reading{font-size:.875em}
       """
   }
-  hidden title: String|slotMod.Slot = ""
+  hidden title: String|slotMod.Reading = ""
   /// A reading is carried as a signal (ADR 0017): a temperature ticking costs a
   /// few bytes instead of the tile.
-  hidden reading: String|slotMod.Slot = ""
+  hidden reading: String|slotMod.Reading = ""
   hidden secondary: slotMod.Secondary? = null
   /// The `<i>`'s WHOLE class (`mdi mdi-lock`), a literal or a reading. Whole,
   /// so the template has one `{{icon}}` and needs no flag saying which; a
   /// reading is a signal on `class`.
-  hidden glyph: (String|slotMod.Slot)? = null
+  hidden glyph: (String|slotMod.Reading)? = null
   /// Null opts the card out of clicks entirely.
   hidden tapAction: tapMod.TapAction? = null
   inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
@@ -67,30 +69,16 @@ open class Tile extends nodes.ActiveNode {
   /// tap's own refusal, as `Button.disabled`.
   hidden disabled: nodes.BooleanInput? = null
   slots {
-    when (subject != null) {
-      ["entity_id"] = subject!!
-    }
-    ["label"] = if (title is slotMod.Slot) (title as slotMod.Slot) { signal = slotMod.asText } else title
-    ["value"] = if (reading is slotMod.Slot) (reading as slotMod.Slot) { signal = slotMod.asText } else reading
-    when (glyph != null) {
-      ["icon"] =
-        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
-        else glyph!!
-    }
-    when (secondary != null) {
-      ["secondary"] = slotMod.secondarySlot(secondary!!)
-    }
+    slotMod.subject.of(subject)
+    slotMod.liveText(labelSlot, title)
+    slotMod.liveText(valueSlot, reading)
+    badgeMod.iconOf(glyph)
+    slotMod.secondary(secondarySlot, secondary)
     // A class and a click guard, not `disabled`: an `<article>` cannot be
     // disabled.
-    for (k, v in tapMod.tapSlots(tapAction)) {
-      [k] = v
-    }
-    for (k, v in badgeMod.slots(active)) {
-      [k] = v
-    }
-    when (nodes.disabledSlot(disabled) != null) {
-      ["disabled"] = nodes.disabledSlot(disabled)!!
-    }
+    ...tapMod.tapSlots(tapAction)
+    ...badgeMod.slots(active)
+    nodes.disabledSlot(disabled)
   }
   function disabled(d: nodes.BooleanInput): Tile = let (self = this) (self) { disabled = d }
   /// `c.entityCard(l).features(List(latch))`.

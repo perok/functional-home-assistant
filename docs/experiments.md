@@ -3,7 +3,15 @@
 Measurements and spikes whose answer was "don't build it", kept so they are not rerun from
 scratch. Each entry has the question, how it was measured, the numbers and the verdict, and what
 would make it worth asking again. An experiment that led to a change belongs in that change's PR
-or ADR, not here.
+or ADR, not here. The section below is the exception: how to measure, learned the hard way.
+
+## Before measuring
+
+- An `alloc.rate.norm` change in code the diff never runs is usually the JIT, not an allocation:
+  rerun both sides with `-jvmArgsAppend -XX:-DoEscapeAnalysis`. Equal numbers there mean nothing
+  new is allocated (#657: `publishIdle` +640 B and `pageSetPlain` +14 KB were this).
+- Pass JFR as `-jvmArgsAppend -XX:StartFlightRecording=settings=…,filename=…`, not
+  `-prof jfr:a;b`: sbt reads the `;` as a command separator and drops the benchmark filter.
 
 Recorded elsewhere:
 

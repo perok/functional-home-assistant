@@ -181,8 +181,8 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    separator inside a key forge a different map. A collision is two transforms sharing one
    signal, so injectivity here is not a nicety.
 7. **Authoring is a namespace: `core/simple.pkl`** (the `c.tap` module-as-namespace pattern, typed
-   facade re-export `c.simple`). `Slot.transform` takes the structures; `labelSlot`/`valueSlot`/
-   `secondarySlot` accept a Simple beside `String`/`Expr`. The components opt in: the slider's
+   facade re-export `c.simple`). `Reading.transform` takes the structures; `labelSlot`/`valueSlot`/
+   `secondary` accept a Simple beside `String`/`Expr`. The components opt in: the slider's
    `value`/`percent`/`fill` slots and its default state readout, `control`'s two state matches, and
    `slot.pkl`'s own auto-unit value and guarded secondary read, the default transform, and every
    boolean input's condition. The slider's `percentExpr`/

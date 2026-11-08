@@ -221,12 +221,12 @@ function expr(s: String): slotMod.Expr = slotMod.expr(s)
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
 /// One live attribute of the card's entity:
 /// `c.entityCard(l).secondary(c.attr("device_class"))`.
-function attr(attrName: String): slotMod.Slot = slotMod.attr(attrName)
+function attr(attrName: String): slotMod.Reading = slotMod.attr(attrName)
 /// Whether `e`'s state is one of `states`, live:
 /// `c.button(…).disabled(c.stateIn(l, List("open")))`.
-function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
+function stateIn(e: hass.Entity, states: List<String>): slotMod.Reading = slotMod.stateIn(e, states)
 /// Whether `e` is `on`, live: `c.entityButton(l).active(c.isOn(l))`.
-function isOn(e: hass.Entity): slotMod.Slot = slotMod.stateIn(e, List("on"))
+function isOn(e: hass.Entity): slotMod.Reading = slotMod.stateIn(e, List("on"))
 /// What `c.view.moreInfo(e)`'s popup holds.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 

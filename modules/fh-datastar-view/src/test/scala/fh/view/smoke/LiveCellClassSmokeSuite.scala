@@ -27,7 +27,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |import "@fh-dashboard/core/simple.pkl" as simpleMod
          |import "@fh-home/dump.pkl" as dump
          |
-         |local kitchenOn = new slotMod.Slot {
+         |local kitchenOn = new slotMod.Reading {
          |  entityId = dump.entities.${kitchen.dumpKey}.entity_id
          |  transform = simpleMod.stateIn(new Listing { "on" })
          |  bypassUnavailable = false
@@ -39,7 +39,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |    // class's own signal stands still.
          |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
          |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
-         |    }).classWhen("warm", kitchenOn)
+         |    }).cellClassWhen("warm", kitchenOn)
          |    (c.button("Lock", c.tap.toggle(dump.entities.${lock.dumpKey}))) {
          |      disabled = kitchenOn
          |    }
@@ -64,7 +64,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
          |  children {
          |    ((c.button("", c.tap.call("light/toggle", dump.entities.${kitchen.dumpKey}))) {
          |      label = c.exprOf(dump.entities.${kitchen.dumpKey}, "attr[?'friendly_name'].orValue('')")
-         |    }).cssProperty("--fh-level", new slotMod.Slot {
+         |    }).cellStyle("--fh-level", new slotMod.Reading {
          |      entityId = dump.entities.${kitchen.dumpKey}.entity_id
          |      transform = simpleMod.attr("brightness")
          |    })
@@ -86,7 +86,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
     )
 
   test(
-    "a live cssProperty follows its reading, and survives a morph of its node"
+    "a live cellStyle follows its reading, and survives a morph of its node"
   ) {
     withPage(propertyScene) { (page, ts) =>
       def dimmed(name: String, b: Int) =

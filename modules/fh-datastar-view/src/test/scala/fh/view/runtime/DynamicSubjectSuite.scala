@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{CardDef, Dashboard, Region, SlotSource}
+import fh.view.model.{CardDef, Dashboard, Region, SlotSource, TemplateSlot}
 import fh.view.testkit.DashboardBuilders.{col, component, st}
 
 /** A card whose subject is a transform, resolved per paint: the one shape
@@ -29,8 +29,10 @@ class DynamicSubjectSuite extends munit.FunSuite {
     col(
       component(
         "card",
-        Dashboard.SubjectSlot -> SlotSource(Some("sensor.pointer")),
-        "state" -> SlotSource(None)
+        Dashboard.SubjectSlot -> TemplateSlot(
+          SlotSource(Some("sensor.pointer"))
+        ),
+        "state" -> TemplateSlot(SlotSource(None))
       )
     )
   )

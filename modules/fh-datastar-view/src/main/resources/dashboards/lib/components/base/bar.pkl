@@ -13,15 +13,18 @@ import "../../core/slot.pkl" as slotMod
 // last width standing. The object form, because in `data-computed:<key>` a
 // `__` starts the modifiers: the key form named the signal `_<id>` and the
 // width read one nobody set, and an id can hold a `__` of its own.
-const local valueRef: String = "$" + slotMod.signalRef("value")
-const local ofRef: String = "$" + slotMod.signalRef("of")
+const local valueSlot: slotMod.Slot = slotMod.slot("value")
+const local ofSlot: slotMod.Slot = slotMod.slot("of")
+const local scaleSlot: slotMod.Slot = slotMod.slot("scale")
+const local downSlot: slotMod.Slot = slotMod.slot("down")
+
 const local fillSig: String = "_{{id}}__fill"
 const local fillExpr: String =
-  "Math.min(100, Math.max(0, {{#down}}100 - {{/down}}{{#hasOf}}100 * \(valueRef)\(slotMod.ifSlot("scale")) * {{scale}}\(slotMod.endIfSlot("scale")) / \(ofRef){{/hasOf}}{{^hasOf}}+\(valueRef){{/hasOf}})) || 0"
+  "Math.min(100, Math.max(0, \(downSlot.ifSet("100 - "))\(ofSlot.ifSetElse("100 * \(valueSlot.jsValue)\(scaleSlot.ifSet(" * \(scaleSlot)")) / \(ofSlot.jsValue)", "+\(valueSlot.jsValue)")))) || 0"
 // Hidden while a reading has no value (`""`, a `valueWhile` that does not hold)
 // or is not a number (`unknown`). `isNaN('')` is false, hence both.
 const local readable: String =
-  "\(valueRef) !== '' && !isNaN(\(valueRef)){{#hasOf}} && \(ofRef) !== '' && !isNaN(\(ofRef)){{/hasOf}}"
+  "\(valueSlot.jsValue) !== '' && !isNaN(\(valueSlot.jsValue))\(ofSlot.ifSet(" && \(ofSlot.jsValue) !== '' && !isNaN(\(ofSlot.jsValue))"))"
 
 /// The fill is `value` as a percentage, or `value × scale ÷ of` with [[of]],
 /// reversed when [[down]]. Its readings are signals: a reading that moves costs
@@ -42,29 +45,26 @@ class ProgressBar extends nodes.Node {
       background:var(--fh-accent);transition:inline-size .3s linear}
       """
   }
-  hidden value: slotMod.Slot
+  hidden value: slotMod.Reading
   /// The whole the value is a part of; without one, the value is a percentage.
-  hidden of: slotMod.Slot? = null
+  hidden of: slotMod.Reading? = null
   /// One unit of `value` in units of `of`, when the two differ: `60` for
   /// minutes left out of a total in seconds.
   hidden scale: Number = 1
   /// Fills as the value falls: time left fills toward done.
   hidden down: Boolean = false
   slots {
-    ["value"] = (value) { signal = slotMod.asHandler }
+    slotMod.signalled(valueSlot, value, slotMod.asHandler)
     when (of != null) {
-      ["of"] = (of!!) { signal = slotMod.asHandler }
-      ["hasOf"] = "1"
-      when (scale != 1) { ["scale"] = scale.toString() }
+      slotMod.signalled(ofSlot, of!!, slotMod.asHandler)
+      when (scale != 1) { scaleSlot.of(scale.toString()) }
     }
-    when (down) {
-      ["down"] = "1"
-    }
+    downSlot.setIf(down)
   }
 }
 
 /// A bar filled to a percentage reading.
-function percent(v: slotMod.Slot): ProgressBar = new { value = v }
+function percent(v: slotMod.Reading): ProgressBar = new { value = v }
 
 /// A bar filled to `v` out of `whole`.
-function partOf(v: slotMod.Slot, whole: slotMod.Slot): ProgressBar = new { value = v; of = whole }
+function partOf(v: slotMod.Reading, whole: slotMod.Reading): ProgressBar = new { value = v; of = whole }
