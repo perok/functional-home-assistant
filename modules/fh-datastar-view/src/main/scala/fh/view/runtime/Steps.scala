@@ -51,17 +51,17 @@ object Steps {
       // Operands without an `Option`: this runs per resolve of every slider
       // track, and two `Some`s and their boxes each time showed in RenderBench.
       case Step.Percent(_, _) =>
-        val min = dbl(a)
-        val max = dbl(b)
         number(value) match
-          case Some(v) if !min.isNaN && !max.isNaN =>
+          case Some(v) if isNum(a) && isNum(b) =>
+            val min = dbl(a)
+            val max = dbl(b)
             Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
           case _ => null
       case Step.Fill(_, _) =>
-        val min = dbl(a)
-        val max = dbl(b)
         number(value) match
-          case Some(v) if !min.isNaN && !max.isNaN =>
+          case Some(v) if isNum(a) && isNum(b) =>
+            val min = dbl(a)
+            val max = dbl(b)
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
           case _ => null
       case Step.Duration(scale) =>
@@ -170,14 +170,16 @@ object Steps {
     case s: String           => s.toDoubleOption
     case _                   => None
 
-  /** [[number]] without its `Option` for a number; `NaN` for anything else. */
+  /** [[number]] defined, without its `Option`. */
+  private def isNum(v: Any): Boolean = v match
+    case _: java.lang.Number => true
+    case s: String           => s.toDoubleOption.isDefined
+    case _                   => false
+
   private def dbl(v: Any): Double = v match
     case n: java.lang.Number => n.doubleValue
-    case s: String           =>
-      s.toDoubleOption match
-        case Some(d) => d
-        case None    => Double.NaN
-    case _ => Double.NaN
+    case s: String           => s.toDouble
+    case _                   => Double.NaN
 
   // As CEL's `math.round`.
   private def roundAway(d: Double): Double =
