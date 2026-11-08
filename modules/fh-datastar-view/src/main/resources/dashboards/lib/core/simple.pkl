@@ -38,6 +38,18 @@ class ThemeClassesStage extends Step {
   kind: "ThemeClasses" = "ThemeClasses"
 }
 
+/// A fetch's answer as its provider sent it: JSON, which no slot takes until
+/// [[JsonTextStep]] makes it text. JSON for a raw hole (a `<script>`) will be a
+/// step of its own, `jsonRaw`, when a card first needs it.
+class JsonStage extends Step {
+  kind: "Json" = "Json"
+}
+
+/// JSON as text, for a text hole.
+class JsonTextStep extends Step {
+  kind: "JsonText" = "JsonText"
+}
+
 /// The size of a list: a set's present ids, as `predicate.pkl`'s `Count`
 /// counts them.
 class CountStep extends Simple {

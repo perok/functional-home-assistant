@@ -70,19 +70,20 @@ So: `FetchResolver.answer` returns `Answer(version, json)`, `FetchRequest.Histor
 ### Why a step, and not a new field
 
 A step already answers *how does this value become what the card puts in the hole*. What differs
-between the shapes is the SOURCE: an entity, or a provider's answer. A fetch slot's one step is a
-`Step.Chart`, a `Stage` the renderer runs, and with none the answer passes through as JSON;
+between the shapes is the SOURCE: an entity, or a provider's answer. A fetch slot's first step is
+a stage the renderer runs: `Step.Json`, the answer as its provider sent it, or `Step.Chart`.
 `SlotShape` keeps each on the shape that can use it. A chart is not a simple step: that tier's
 rule is "a static lookup and TOTAL", evaluated without the engine, and a chart renderer is
-neither. Its type says so too: a chart takes a series and gives markup, which only a raw hole
-takes (`ValueType.Markup`).
+neither. The types say where each goes (ADR 0035): a chart takes a series and gives raw text,
+which only a `textRaw` slot takes, and `json` gives JSON, which no slot takes until `jsonText`
+makes it text.
 
 ### What the split bought
 
 None of this was designed separately; all of it fell out.
 
-- **Passthrough is the third-party contract, and it is an absence rather than a feature.** No
-  transform means the provider's JSON — `{"points": [[epochMillis, value], …]}` — which is what
+- **The `json` stage is the third-party contract.** It is the provider's JSON —
+  `{"points": [[epochMillis, value], …]}` — which is what
   someone using their own chart library reads against, so the shape is the chart libraries':
   `[x, y]` pairs, ECharts' own data form, where a null value would be a break in the line. How a
   card gets the payload to its script is the card's business, not the contract's; one that lifts
@@ -101,8 +102,10 @@ None of this was designed separately; all of it fell out.
   policy — a bucket, a push, never — and the runtime knows a version only as "same data, never
   goes back".
 - **The raw-hole rule generalises.** It was "a fetch slot's value is markup, so its hole must be
-  `{{{x}}}`". It is now **the last stage decides the hole**: a drawing needs the raw one, and
-  passthrough must NOT have one, because its value is an attribute payload and wants escaping.
+  `{{{x}}}`". It is now every slot's: a slot declares its type, the type names its hole (ADR
+  0034), and what the stages make must fit the type. A drawing is raw text, so its slot is
+  `textRaw`; JSON reaches a text slot through `jsonText`, escaped, because it is an attribute
+  payload.
 
 ## Decision 3 — a fetch is also a CEL input
 
@@ -110,7 +113,7 @@ A fetch can be read by name in a STATE slot's CEL, as an expression value (ADR 0
 keeps its entity, its wake and its signal, and its expression gets the answer beside `value`. A
 fetch slot is the case with no entity, its answer staged into the hole; a value fetch is the case
 with one, its answer read as data. One fetch, one provider and one cache serve both. A value fetch
-is a `SlotAsk` with the passthrough stage, counted among the node's fetches, so the pre-read and
+is a `SlotAsk` with the `json` stage, counted among the node's fetches, so the pre-read and
 the render key need nothing new.
 
 History answers every reading, and the chart stage thins to about 300 before it draws. Thinning
@@ -165,7 +168,7 @@ any span, and statistics at `5minute` up to `year`.
   to pay for, and one `match` says in code what exists where a name→instance map says only what
   somebody remembered.
 - **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Fetch` holds only
-  a `provider` String and `core/stage.pkl` knows only `passthrough`; the provider's question
+  a `provider` String and `core/simple.pkl` knows only `json` and `jsonText`; the provider's question
   (`HistoryFetch`) and its windows are typed in the provider's module (`providers/history.pkl`, a
   tier of its own: ADR 0015), and the chart stage beside the cards
   that draw with it (`components/base/chart.pkl`). An unknown provider is a decode failure naming the known ones.
@@ -213,7 +216,7 @@ any span, and statistics at `5minute` up to `year`.
   nobody can see costs nothing, since a pull renders only what its session can see. It fires AFTER the
   answer has moved — for history, at the boundary by the clock `answer` reads — for the same reason
   the state doorbell rings after the log is written. A static provider's stream is empty. The wake
-  is the DATA's, not the drawing's: a passthrough read of the same question wakes too, and no stage
+  is the DATA's, not the drawing's: a `json` read of the same question wakes too, and no stage
   is involved.
 
   What the recorder does with it, and the one piece of real work:

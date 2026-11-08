@@ -13,7 +13,7 @@ import io.circe.parser.decode
 class SimpleReadsSuite extends munit.FunSuite {
 
   private val card =
-    CardDef("""<b {{{v.bind}}}>{{v}}</b>""")
+    CardDef("""<b {{{v.bind}}}>{{#v}}set{{/v}}</b>""")
 
   private def slot(expr: ValueExpr, bool: Boolean = false) = TemplateSlot(
     expr,

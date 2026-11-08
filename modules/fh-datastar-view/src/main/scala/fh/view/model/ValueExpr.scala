@@ -356,14 +356,17 @@ object ValueExpr:
 enum ValueType derives CanEqual:
   case Text, Bool, Int, Real, Dyn, Entity
 
-  /** A chart's SVG, which only a raw hole takes. */
-  case Markup
+  /** Text placed unescaped, a chart's SVG: only a `textRaw` slot takes it. */
+  case TextRaw
+
+  /** A fetch's answer as its provider sent it, which no slot takes as is. */
+  case Json
   case List(of: ValueType)
 
   def name: String = this match
     case List(of) => s"list of ${of.name}"
     case Entity   => "whole entity"
-    case Markup   => "markup"
+    case TextRaw  => "raw text"
     case other    => other.toString.toLowerCase
 
 object ValueType:
@@ -411,17 +414,22 @@ object ValueType:
       case _: Step.Compare   => takes(numberLike(in), "a number or text", Bool)
       case Step.Not          => takes(in == Bool, "a bool", Bool)
       case _: Step.First     => takes(in == List(Text), "a list of ids", Text)
-      case _: Step.Chart     => takes(in == Series, "a fetch's series", Markup)
+      case Step.Json         => takes(in == Series, "a fetch's series", Json)
+      case Step.JsonText     => takes(in == Json, "json", Text)
+      case _: Step.Chart     => takes(in == Series, "a fetch's series", TextRaw)
       case Step.ThemeClasses => takes(in == Text, "text", Text)
       case _: Step.Cel       => Right(Dyn)
 
-  /** What a slot of `slotType` may produce: a text slot shows a number as its
-    * text, and `dyn` passes either, since an attribute or CEL's `dyn` may be
+  /** What becomes text where it meets its slot, and only there: between steps
+    * nothing converts. `dyn` passes, since an attribute or CEL's `dyn` may be
     * anything.
     */
+  private val shown = Set[ValueType](Text, Int, Real, Bool, Dyn)
+
   def fits(out: ValueType, slotType: SlotType): Boolean = slotType match
-    case SlotType.Text => numberLike(out) || out == Markup
-    case SlotType.Bool => out == Bool || out == Dyn
+    case SlotType.Text    => shown(out)
+    case SlotType.TextRaw => shown(out) || out == TextRaw
+    case SlotType.Bool    => out == Bool || out == Dyn
 
 /** A literal as Pkl wrote it. A number is typed by its spelling: a Pkl `Float`
   * `2.0` and an `Int` `2` are one value, and CEL's compiler types them apart.
@@ -713,18 +721,29 @@ object Step:
     */
   case object ThemeClasses extends Stage
 
-  /** What a fetch's answer becomes in its hole; with none it is the answer as
-    * JSON, the contract a third party reads against (ADR 0031). A closed set,
-    * so a new one is a case here and in `FetchResolver.run`.
+  /** What a fetch's answer becomes, a fetch slot's first step. A closed set, so
+    * a new one is a case here and in `FetchResolver.run`.
     */
   sealed trait FetchStage extends Stage
+
+  /** The answer as its provider sent it, the contract a third party reads
+    * against (ADR 0031). JSON for a raw hole (a `<script>`) will be a step of
+    * its own, `jsonRaw`, landing with its first reader, so no step's type
+    * depends on its options.
+    */
+  case object Json extends FetchStage
+
+  /** [[Json]] placed as text. A no-op at render: the stage's bytes are the
+    * text.
+    */
+  case object JsonText extends Stage
 
   /** A fetch's answer drawn as SVG (ADR 0032). */
   final case class Chart(style: ChartStyle = ChartStyle()) extends FetchStage
 
   /** Whether it makes markup, which only a raw hole takes, rather than data. */
   def draws(s: FetchStage): Boolean =
-    ValueType.after(s, ValueType.Series).contains(ValueType.Markup)
+    ValueType.after(s, ValueType.Series).contains(ValueType.TextRaw)
 
   def about(subject: Option[String])(s: Step): Step =
     val v: Value.Operand => Value.Operand = {
@@ -740,7 +759,7 @@ object Step:
       case Match(cs, o)   => Match(cs, v(o))
       case Compare(op, t) => Compare(op, v(t))
       case s @ (_: Cel | _: First | _: Duration | Count | AllOf | AnyOf | Not |
-          ThemeClasses | _: Chart) =>
+          ThemeClasses | Json | JsonText | _: Chart) =>
         s
 
   /** Its outcomes are all Booleans. */
@@ -767,6 +786,8 @@ object Step:
     case Not          => "not"
     case _: First     => "first"
     case ThemeClasses => "theme classes"
+    case Json         => "json"
+    case JsonText     => "jsonText"
     case _: Chart     => "chart"
 
   /** [[ValueExpr.parts]] of a step. */
@@ -782,8 +803,8 @@ object Step:
       case Compare(_, t)  => List(Operand(t))
       case Cel(_, inputs) => inputs.values.toList.map(Input(_))
       case First(orderBy) => orderBy.map(o => PerMember(o.by))
-      case _: Duration | Count | AllOf | AnyOf | Not | ThemeClasses |
-          _: Chart =>
+      case _: Duration | Count | AllOf | AnyOf | Not | ThemeClasses | Json |
+          JsonText | _: Chart =>
         Nil
 
   def operands(s: Step): List[Value.Operand] =
@@ -814,6 +835,8 @@ object Step:
       case Not            => "not"
       case First(orderBy) => orderBy.map(_.key).mkString("first(", ";", ")")
       case ThemeClasses   => "themeClasses"
+      case Json           => "json"
+      case JsonText       => "jsonText"
       case Chart(style)   => s"chart:$style"
 
   given Decoder[Step] =

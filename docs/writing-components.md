@@ -369,8 +369,15 @@ you place inside `class="…"`, and put a whole class name in it
 - `\(name)` (`{{name}}`) escapes the value. Use this for anything a person
   typed or anything that came from Home Assistant.
 - `name.raw` (`{{{name}}}`) does not escape. Use it only for values that are
-  meant to be markup or code — a URL you built, a click expression. A region
-  is always placed this way.
+  meant to be markup or code, such as a click expression, and
+  declare that slot with `slotMod.textRaw("name")` instead of
+  `slotMod.slot(…)`: the build refuses a plain slot in a raw hole, and a raw
+  one in an escaped hole. A region is always placed this way.
+
+A number or a yes/no value shows as text in either hole (`true` or `false`).
+A history answer does not: give its reading the steps
+`new simpleMod.JsonStage {}` then `new simpleMod.JsonTextStep {}` to place it
+as JSON text, as `historyReadings` does.
 
 When in doubt, use two braces.
 

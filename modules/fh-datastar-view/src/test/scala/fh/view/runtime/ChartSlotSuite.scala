@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.history.Windows
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.{
+  SlotType,
   Part,
   CardDef,
   Dashboard,
@@ -26,7 +27,7 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 class ChartSlotSuite extends munit.FunSuite {
 
   private val chartFetch = FetchTemplate("sensor.t", Choice.Fixed(Windows.day))
-  private val stage = Some(Step.Chart(ChartStyle(width = 600)))
+  private val stage = Step.Chart(ChartStyle(width = 600))
   // Every parameter is written down, so the ask resolves to this whatever the
   // environment — which is what keeps this suite about the chart slot.
   private val read = SlotRead(
@@ -50,7 +51,8 @@ class ChartSlotSuite extends munit.FunSuite {
             ValueExpr(
               Value.Fetch(chartFetch),
               List(Step.Chart(ChartStyle(width = 600)))
-            )
+            ),
+            `type` = SlotType.TextRaw
           ),
           "name" -> TemplateSlot(
             ValueExpr(

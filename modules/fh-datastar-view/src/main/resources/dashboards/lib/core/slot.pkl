@@ -158,8 +158,10 @@ class Slot {
   /// [[bind]]; the backend rejects it otherwise. Only a [[Reading]] moves.
   signal: SignalBind? = null
   /// `"bool"` for a slot the template reads as on/off, where the string
-  /// `"false"` would be truthy. Null is text. The build refuses a value of the
-  /// other type, a literal included. A class binding needs `"bool"` ([[bool]]).
+  /// `"false"` would be truthy; `"textRaw"` for one placed in a raw hole
+  /// (`{{{name}}}`, [[raw]]). Null is text, placed `{{name}}`. The build refuses
+  /// a value of the other type, a literal included, and a slot placed in a hole
+  /// its type does not name. A class binding needs `"bool"` ([[bool]]).
   type: SlotType? = null
   /// Its value is classes in a `class` attribute, which the theme's class rules
   /// reach as a last step of it ([[cssClass]]).
@@ -220,6 +222,10 @@ const function slot(n: String): Slot = new { name = n }
 /// be truthy: a Boolean, or a reading the build checks yields one.
 const function bool(n: String): Slot = new { name = n; type = "bool" }
 
+/// A slot the template places in a raw hole, `{{{n}}}` ([[Slot.raw]]): markup
+/// or a script the value already is.
+const function textRaw(n: String): Slot = new { name = n; type = "textRaw" }
+
 /// A slot whose value is classes, placed in a `class` attribute: the theme's
 /// class rules reach its value as they reach the template (ADR 0020). A
 /// literal or a reading, filled with [[Slot.of]] like any other.
@@ -235,7 +241,7 @@ abstract class Fetch {
   provider: String
 }
 
-typealias SlotType = "text"|"bool"
+typealias SlotType = "text"|"textRaw"|"bool"
 
 /// Where a signal slot's value lands in the DOM (`fh.view.model.SignalBind`,
 /// whose case `kind` names). Build one with the `as…` helpers below.

@@ -6,6 +6,7 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot}
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
+  SlotType,
   Part,
   Activation,
   BoundSlot,
@@ -72,7 +73,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     * two drawings.
     */
   private def drawn(width: Int = 600) =
-    Some(drawnStep(width))
+    drawnStep(width)
 
   private def drawnStep(width: Int = 600) =
     Step.Chart(ChartStyle(width = width.refineUnsafe))
@@ -82,7 +83,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def chartSource(window: String = "24h", width: Int = 600) =
     TemplateSlot(
-      ValueExpr(Value.Fetch(chart(window)), List(drawnStep(width)))
+      ValueExpr(Value.Fetch(chart(window)), List(drawnStep(width))),
+      `type` = SlotType.TextRaw
     )
 
   private def chartNode(window: String = "24h") =
@@ -267,7 +269,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
   test("passthrough puts the provider's DATA in the hole, undrawn") {
     // The third-party contract: the JSON a client library reads, nothing drawn,
     // so cheaper than a chart.
-    val raw = SlotRead(resolved(), None)
+    val raw = SlotRead(resolved(), Step.Json)
     for {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
@@ -281,7 +283,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       d <- draws.get
     } yield {
       assertEquals(d, 0)
-      val rawAsk = SlotAsk(chart(), None)
+      val rawAsk = SlotAsk(chart(), Step.Json)
       assert(
         f.value("n", rawAsk).contains("\"points\""),
         clue = f.value("n", rawAsk)
@@ -366,7 +368,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
                       ValueExpr(
                         Value.Fetch(chart()),
                         List(drawnStep())
-                      )
+                      ),
+                      `type` = SlotType.TextRaw
                     )
                   )
                 )
@@ -477,7 +480,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     assert(err.contains("history"), clue = err)
   }
 
-  test("an ESCAPED hole for a fetch slot is a build error") {
+  test("an ESCAPED hole for a chart slot is a build error") {
     // Otherwise `{{chart}}` renders `&lt;svg …` as text.
     def errsFor(hole: String) =
       Dashboard(
@@ -491,7 +494,9 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       ).validate()
 
     assert(
-      errsFor("{{chart}}").exists(_.contains("ESCAPED hole")),
+      errsFor("{{chart}}").exists(
+        _.contains("places slot 'chart' as {{chart}}")
+      ),
       clue = errsFor("{{chart}}")
     )
     assertEquals(errsFor("{{{chart}}}"), Nil)
@@ -511,7 +516,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
             )
           ),
           List(drawnStep())
-        )
+        ),
+        `type` = SlotType.TextRaw
       )
     ).validate()
     assert(errs.exists(_.contains("shorter than the span")), clue = errs)

@@ -34,7 +34,7 @@ class TabButton extends nodes.Node {
 }
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
-const local activeSlot: slotMod.Slot = slotMod.slot("active")
+const local activeSlot: slotMod.Slot = slotMod.textRaw("active")
 
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
 /// over a node variable — a [[Tabs]], `c.select(v)`.

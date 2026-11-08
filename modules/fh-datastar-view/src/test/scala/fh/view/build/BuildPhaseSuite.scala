@@ -270,17 +270,18 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("validate: a literal is checked against its slot's type") {
     def errs(l: Lit, t: SlotType) =
       oneCard(
-        "{{v}}",
+        if t == SlotType.Bool then "{{#v}}on{{/v}}" else "{{v}}",
         Map("v" -> TemplateSlot(ValueExpr(Value.Literal(l)), `type` = t))
       )
+    // A bool literal becomes text at a text slot, as a bool reading does.
     for (l, t) <- List(
         Lit.Bool(true) -> SlotType.Bool,
+        Lit.Bool(true) -> SlotType.Text,
         Lit.Text("x") -> SlotType.Text,
         Lit.Whole(2) -> SlotType.Text
       )
     do assertEquals(errs(l, t), Nil, clue = (l, t))
     for (l, t) <- List(
-        Lit.Bool(true) -> SlotType.Text,
         Lit.Text("x") -> SlotType.Bool,
         Lit.Whole(1) -> SlotType.Bool
       )

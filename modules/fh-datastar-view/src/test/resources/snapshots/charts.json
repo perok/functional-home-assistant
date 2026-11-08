@@ -29,7 +29,8 @@
                     "unit" : "°C"
                   }
                 }
-              ]
+              ],
+              "type" : "textRaw"
             }
           },
           "vars" : [
@@ -57,7 +58,10 @@
                       "card" : "tab",
                       "kind" : "Component",
                       "templateSlots" : {
-                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '1h'",
+                          "type" : "textRaw"
+                        },
                         "busy" : {
                           "source" : true,
                           "type" : "bool"
@@ -71,7 +75,8 @@
                           "source" : {
                             "kind" : "Cel",
                             "src" : "\"$_var_@@VAR:window@@__window__pending = '1h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/1h?group=var_@@VAR:window@@__window')\""
-                          }
+                          },
+                          "type" : "textRaw"
                         }
                       },
                       "vars" : [
@@ -81,7 +86,10 @@
                       "card" : "tab",
                       "kind" : "Component",
                       "templateSlots" : {
-                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '24h'",
+                          "type" : "textRaw"
+                        },
                         "busy" : {
                           "source" : true,
                           "type" : "bool"
@@ -95,7 +103,8 @@
                           "source" : {
                             "kind" : "Cel",
                             "src" : "\"$_var_@@VAR:window@@__window__pending = '24h'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/24h?group=var_@@VAR:window@@__window')\""
-                          }
+                          },
+                          "type" : "textRaw"
                         }
                       },
                       "vars" : [
@@ -105,7 +114,10 @@
                       "card" : "tab",
                       "kind" : "Component",
                       "templateSlots" : {
-                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '7d'",
+                          "type" : "textRaw"
+                        },
                         "busy" : {
                           "source" : true,
                           "type" : "bool"
@@ -119,7 +131,8 @@
                           "source" : {
                             "kind" : "Cel",
                             "src" : "\"$_var_@@VAR:window@@__window__pending = '7d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/7d?group=var_@@VAR:window@@__window')\""
-                          }
+                          },
+                          "type" : "textRaw"
                         }
                       },
                       "vars" : [
@@ -129,7 +142,10 @@
                       "card" : "tab",
                       "kind" : "Component",
                       "templateSlots" : {
-                        "active" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
+                        "active" : {
+                          "source" : "String(($_var_@@VAR:window@@__window__pending || $_var_@@VAR:window@@__window)) === '30d'",
+                          "type" : "textRaw"
+                        },
                         "busy" : {
                           "source" : true,
                           "type" : "bool"
@@ -143,7 +159,8 @@
                           "source" : {
                             "kind" : "Cel",
                             "src" : "\"$_var_@@VAR:window@@__window__pending = '30d'; @post('sse/var/\" + dashboard_slug + \"/@@VAR:window@@/window/30d?group=var_@@VAR:window@@__window')\""
-                          }
+                          },
+                          "type" : "textRaw"
                         }
                       },
                       "vars" : [
@@ -208,7 +225,8 @@
                           "unit" : "°C"
                         }
                       }
-                    ]
+                    ],
+                    "type" : "textRaw"
                   }
                 },
                 "vars" : [
@@ -247,7 +265,15 @@
                   }
                 },
                 "kind" : "Fetch"
-              }
+              },
+              "steps" : [
+                {
+                  "kind" : "Json"
+                },
+                {
+                  "kind" : "JsonText"
+                }
+              ]
             }
           },
           "vars" : [

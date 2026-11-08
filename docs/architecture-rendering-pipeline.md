@@ -1034,7 +1034,7 @@ in `currentFor`, its one read of the store, before anything decides on it. The a
 no snapshot, since the build refuses a decision's fetch that reads a viewer's variable, so the
 renderer's `Decided` keeps the newest, and one asked before any raises. As for a slot's, an answer
 that moves wakes nothing; the decision is made again when its entities change. A value's fetch
-is a `SlotAsk` with the passthrough stage among the node's `fetches`, so the page's pre-read and
+is a `SlotAsk` with the `json` stage among the node's `fetches`, so the page's pre-read and
 the render key carry it already; the patch step's
 `readsForPull(touchedIds, …)` already pre-reads the fetches of the nodes whose signals it updates,
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
@@ -1062,10 +1062,10 @@ a bad fetch or stage fails the build with nothing wired: each is typed as the wi
 checks what spans fields (a window's period against its span, a chosen window's declared key). Only `FetchResolver` holds the
 running machinery.
 
-**The hole follows the stage, not the shape.** A stage that emits markup needs the raw
-`{{{chart}}}` — written `{{chart}}` the page shows `&lt;svg …` as text, with no error anywhere —
-and passthrough must NOT have one, because its value is an attribute payload and wants escaping.
-One rule over the pipeline rather than a property of fetch slots.
+**The hole follows the slot's type, not the shape.** A chart makes raw text, which only a
+`textRaw` slot takes, placed `{{{chart}}}` — written `{{chart}}` the page would show `&lt;svg …` as
+text — and `json` reaches a text slot only through `jsonText`, escaped, because its value is an
+attribute payload. One rule over every slot (ADR 0034) rather than a property of fetch slots.
 
 **The version is also the caching policy**, which is what keeps the pipeline out of it. It means
 something only per question — the same version is the same data, and it never goes back — and
@@ -1087,7 +1087,7 @@ different sizes cost one fetch and two drawings — which the keys say rather th
 arranging it privately. The answer cache is the provider's, and history's expires by the bucket
 rolling, because a series has a shelf life. A staged value has none: it is a function of an
 answer, and a version names one, so `FetchResolver` keys every stage's output — a drawing and a
-passthrough alike, for any provider — by `(question, stage, version)` and replaces in place, and
+`json` answer alike, for any provider — by `(question, stage, version)` and replaces in place, and
 eviction is that replacement.
 
 **The render cache still keys a chart node, and earns it.** A node's bytes are the splice of its
@@ -1116,10 +1116,9 @@ entity lists are built from STATE slots, so a fetch slot has no entity to contri
 not a candidate on a state tick**. Without that, a sensor moving every second would re-fetch its own
 history every second.
 
-**The STAGE decides the hole**, not the shape. A stage that emits markup needs the raw
-`{{{slot}}}` — written `{{slot}}` the page shows `&lt;svg …` as text, with no error anywhere — and
-`passthrough` must NOT have one, because its value is an attribute payload and wants escaping.
-`Dashboard.validate` rejects either mistake.
+**The slot's type decides the hole**, not the shape: a chart's slot is `textRaw`, a `json`
+one is text through `jsonText`, and `Dashboard.validate` refuses a value that does not fit its
+slot's type and a slot placed in a hole its type does not name.
 
 **WHY resolving first is legal, which nothing else states.** A pre-walk barrier — gather what the
 render implies, fire it, await, then walk — is the wrong shape when dependencies are DYNAMIC: a

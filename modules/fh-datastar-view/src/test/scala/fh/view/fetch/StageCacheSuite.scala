@@ -24,7 +24,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
     Series(Vector(Series.Point(java.time.Instant.EPOCH, 1.0))).asJson
 
   private def chart(style: ChartStyle = ChartStyle()) =
-    Some(Step.Chart(style))
+    Step.Chart(style)
 
   // The resolver is handed its answers, so its provider is never asked.
   private val unused: SeriesSource = new SeriesSource {
@@ -65,7 +65,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   private def stage(
       r: FetchResolver,
       request: FetchRequest,
-      st: Option[Step.FetchStage],
+      st: Step.FetchStage,
       version: Long,
       answer: Json = data
   ): IO[String] =
@@ -115,17 +115,17 @@ class StageCacheSuite extends munit.CatsEffectSuite {
     // One entry per (question, stage), even for a cheap stage.
     fixture().flatMap { case (r, _) =>
       for {
-        raw <- stage(r, q, None, 100L)
+        raw <- stage(r, q, Step.Json, 100L)
         _ <- stage(r, q, chart(), 100L)
-        _ <- stage(r, q, None, 200L)
+        _ <- stage(r, q, Step.Json, 200L)
         ks <- r.keys
       } yield {
         assertEquals(raw, data.noSpaces)
         assertEquals(
           ks.map(k => (k.stage, k.version)),
-          Set[(Option[Step.FetchStage], Long)](
+          Set[(Step.FetchStage, Long)](
             (chart(), 100L),
-            (None, 200L)
+            (Step.Json, 200L)
           )
         )
       }

@@ -32,7 +32,8 @@ class NodeVariablesSuite extends munit.FunSuite {
       ValueExpr(
         Value.Fetch(FetchTemplate("sensor.t", param)),
         List(Step.Chart(ChartStyle(width = 600)))
-      )
+      ),
+      `type` = SlotType.TextRaw
     )
 
   private def chartNode(param: Choice[Window] = chosen) =
@@ -277,7 +278,7 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   private def readAt(window: String) = SlotRead(
     FetchRequest.History("sensor.t", Windows.presets(window)),
-    Some(Step.Chart(ChartStyle(width = 600)))
+    Step.Chart(ChartStyle(width = 600))
   )
 
   /** The answers a viewer was given, and the values they were fetched for. */

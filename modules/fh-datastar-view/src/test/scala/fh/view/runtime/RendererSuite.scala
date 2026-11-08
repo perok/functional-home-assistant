@@ -345,7 +345,8 @@ class RendererSuite extends munit.FunSuite {
             ValueExpr(
               Value.Entity(Some(entity), Part.Whole, Reads.Once),
               List(Step.Cel(expr))
-            )
+            ),
+            `type` = SlotType.TextRaw
           )
         )
       )
@@ -382,7 +383,8 @@ class RendererSuite extends munit.FunSuite {
             ValueExpr(
               Value.Entity(Some("sensor.t"), reads = reads, part = Part.Whole),
               List(Step.Cel("value.state"))
-            )
+            ),
+            `type` = SlotType.TextRaw
           )
         )
       )

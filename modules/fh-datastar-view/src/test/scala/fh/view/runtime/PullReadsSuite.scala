@@ -4,6 +4,7 @@ import fh.view.history.Windows
 import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
+  SlotType,
   Activation,
   CardDef,
   Dashboard,
@@ -45,7 +46,8 @@ class PullReadsSuite extends munit.FunSuite {
           ValueExpr(
             Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
             List(Step.Chart())
-          )
+          ),
+          `type` = SlotType.TextRaw
         )
       ),
       id = id

@@ -14,7 +14,7 @@ class FetchValueSuite extends munit.FunSuite {
   private val history = FetchTemplate("sensor.left", Choice.Fixed(Windows.day))
   private val read = SlotRead(
     FetchRequest.History("sensor.left", Windows.day),
-    None
+    Step.Json
   )
   // A wash that started at 101 after an idle 0.
   private val answer = """{"points":[[0,0.0],[60000,101.0],[120000,90.0]]}"""
@@ -96,7 +96,7 @@ class FetchValueSuite extends munit.FunSuite {
     val fetches = d.validated().map(_.ready.card) match
       case Right(c: Ready.Component) => c.fetches
       case other                     => fail(s"not a component: $other")
-    assertEquals(fetches, List(SlotAsk(history, None)))
+    assertEquals(fetches, List(SlotAsk(history, Step.Json)))
     assertEquals(d.allFetches, List(read))
   }
 
@@ -262,7 +262,7 @@ class FetchValueSuite extends munit.FunSuite {
       val asks = d.validated().map(_.ready.card) match
         case Right(c: Ready.Component) => c.fetches
         case other => fail(s"$where: not a component: $other")
-      assertEquals(asks, List(SlotAsk(history, None)), clue = where)
+      assertEquals(asks, List(SlotAsk(history, Step.Json)), clue = where)
       assertEquals(d.allFetches, List(read), clue = where)
     }
   }

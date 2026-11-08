@@ -83,7 +83,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     assert(unanswered.getMessage.contains("where none is answered"))
     assertEquals(
       d.validated().toOption.get.ready.decisionReads,
-      List(SlotAsk(history, None).resolve(Map.empty))
+      List(SlotAsk(history, Step.Json).resolve(Map.empty))
     )
     answer(r, some)
     assert(body(r).contains("member-b"), clue = body(r))
@@ -136,12 +136,12 @@ class DecisionFetchSuite extends munit.FunSuite {
       new MemberGraph(Map.empty, Map.empty),
       decided
     )
-    val read = SlotAsk(history, None).resolve(Map.empty)
+    val read = SlotAsk(history, Step.Json).resolve(Map.empty)
     def answered(json: String) = decided.answer(f =>
       fh.view.history.Series.celPoints(
         FetchSnapshot
           .of(Map(read -> Staged(1L, json)))
-          .shared(SlotAsk(f, None))
+          .shared(SlotAsk(f, Step.Json))
       )
     )
     assert(
