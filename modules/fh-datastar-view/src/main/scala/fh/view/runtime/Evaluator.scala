@@ -231,20 +231,37 @@ private[view] object Evaluator {
         states: Map[String, EntityState],
         fetched: FetchTemplate => Object
     ): Array[Any] =
+      val out = buffer()
+      into(out, id, states, fetched)
+      out
+
+    def buffer(): Array[Any] = new Array[Any](2 * runs.length)
+
+    def into(
+        out: Array[Any],
+        id: String,
+        states: Map[String, EntityState],
+        fetched: FetchTemplate => Object
+    ): Unit =
       val st = states.getOrElse(id, null)
       val n = runs.length
-      val out = new Array[Any](2 * n)
       var i = 0
       while (i < n) {
         val v = runs(i)(st, states, fetched)
         if (bool(i)) out(i) = v
-        else if (!noValue(v)) {
-          out(i) = v
-          Steps.number(v).foreach(d => out(n + i) = d)
-        }
+        else if (noValue(v)) { out(i) = null; out(n + i) = null }
+        else { out(i) = v; out(n + i) = boxedNumber(v) }
         i += 1
       }
-      out
+
+    private def boxedNumber(v: Any): java.lang.Double | Null = v match
+      case d: java.lang.Double => d
+      case x: java.lang.Number => java.lang.Double.valueOf(x.doubleValue)
+      case s: String           =>
+        s.toDoubleOption match
+          case Some(d) => java.lang.Double.valueOf(d)
+          case None    => null
+      case _ => null
 
     /** Negative when `a` sorts first; `0` keeps a stable sort's order. */
     def compare(a: Array[Any], b: Array[Any]): Int =
@@ -502,15 +519,21 @@ private[view] object Evaluator {
       fetched: FetchTemplate => Object
   ): Any =
     var best: String | Null = null
-    var bestKeys: Array[Any] = Array.empty
-    ids.foreach {
-      case id: String =>
-        val k = keys.of(id, states, fetched)
-        if (best == null || keys.compare(k, bestKeys) < 0) {
-          best = id
-          bestKeys = k
-        }
-      case _ => ()
+    var bestKeys = keys.buffer()
+    var k = keys.buffer()
+    var rest = ids
+    while (rest.nonEmpty) {
+      rest.head match
+        case id: String =>
+          keys.into(k, id, states, fetched)
+          if (best == null || keys.compare(k, bestKeys) < 0) {
+            best = id
+            val t = bestKeys
+            bestKeys = k
+            k = t
+          }
+        case _ => ()
+      rest = rest.tail
     }
     best
 }

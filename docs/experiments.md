@@ -248,3 +248,28 @@ again. Time is the same within error, at 35–37 µs.
 is not found: by count, both versions build one `Option` per text operand.
 
 **Worth asking again if** a profile shows `Steps.dbl` or `isNum` in a slider tick's top frames.
+
+## Sort keys with unboxed numbers
+
+2026-11-08, value-model-small. **Not worth doing.**
+
+**Question.** `Evaluator.Keys` holds each candidate's parsed number as a boxed `Double` in its
+`Array[Any]`. Would a primitive layout pay: an `Array[Double]` beside the values for a leader's
+two reused buffers, and for a sort one flat buffer for every candidate, ordered by an insertion
+sort over indices? A SIMD compare was ruled out first: the keys come from map lookups and
+compiled readings, mix booleans, numbers, text and no value, branch per comparison, and a set
+holds 10–20 candidates.
+
+**How.** Estimated from `RenderBench` with escape analysis off (`-prof gc -jvmArgsAppend
+-XX:-DoEscapeAnalysis`), after the keys stopped allocating a closure and a second box per
+candidate and a leader started reusing two buffers: `leaderRow` (10 pills over 10 candidates)
+3,120 B/op, `publishSetOrdered` 575,903 B/op.
+
+**Numbers.** One 16 B box per number: about 1.6 KB of `leaderRow`'s 3,120 B, and under 1% of
+`publishSetOrdered`, whose bytes are membership and rendering, not keys.
+
+**Verdict.** A second array per key, or a hand-written sort, for at most 1.6 KB per row of
+leaders per tick.
+
+**Worth asking again if** a profile shows `Keys.into` or `Keys.compare` in a tick's top frames,
+or sets grow to hundreds of candidates.
