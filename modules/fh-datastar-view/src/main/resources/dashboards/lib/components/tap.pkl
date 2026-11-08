@@ -46,7 +46,7 @@ function activate(x: hass.Activatable): core.Call =
 ///     local lit = q.from(hass.lights(dump.areas.stue.all)).where(q.eq(q.stateProp, "on"))
 ///     c.button("Stue av", c.tap.call("light/turn_off", lit))
 ///       .secondary(c.expr(#"string(lit) + ' on'"#))
-///       .expressionValues(new Mapping { ["lit"] = lit.count() })
+///       .inputs(new Mapping { ["lit"] = lit.count() })
 function call(service: String, target: core.Target|q.EntitySet): core.Call =
   core.call(service, lowered(target))
 

@@ -40,7 +40,7 @@ class CallSetSuite extends FunctionalSuite {
   private def dashboard: Dashboard = build(
     """c.button("Av", c.tap.call("light/turn_off", lit))
       |    .secondary(c.expr(#"string(lit) + ' on'"#))
-      |    .expressionValues(new Mapping { ["lit"] = lit.count() })""".stripMargin
+      |    .inputs(new Mapping { ["lit"] = lit.count() })""".stripMargin
   )
 
   private def withHouse[A](states: FixtureEntity*)(

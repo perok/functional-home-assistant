@@ -7,12 +7,12 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** A node's expression values, from a real Pkl entry: a live count read by name
-  * in a slot's CEL, carried as one display signal. The contract is partly
-  * negative — a tick that leaves the count alone must send nothing — so the
-  * flip test is the control that shows the harness would have seen it.
+/** A node's inputs, from a real Pkl entry: a live count read by name in a
+  * slot's CEL, carried as one display signal. The contract is partly negative —
+  * a tick that leaves the count alone must send nothing — so the flip test is
+  * the control that shows the harness would have seen it.
   */
-class ExpressionValuesSuite extends munit.CatsEffectSuite {
+class InputsSuite extends munit.CatsEffectSuite {
 
   private val kitchen = HouseFixture.kitchenLight
   private val living = HouseFixture.livingRoomLight
@@ -26,7 +26,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
       over: String = "lights"
   ): String =
     s"""    ((c.button("$label", c.view.closePopup())) {
-       |      expressionValues {
+       |      inputs {
        |        ["lights_on"] = q.from($over).where(q.eq(q.stateProp, "on")).count()
        |        ["lights_total"] = $over.length
        |      }
@@ -105,7 +105,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("present() reaches CEL as the ids present, and follows a light") {
     val body =
       s"""    ((c.button("Stue", c.view.closePopup())) {
-         |      expressionValues {
+         |      inputs {
          |        ["lit"] = q.from(lights).where(q.eq(q.stateProp, "on")).present()
          |      }
          |    }).secondary(c.expr(#"lit.join(', ')"#))""".stripMargin
@@ -213,7 +213,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def valueErrors(value: String, expr: String): List[String] =
     errorsOf(
       s"""    ((c.button("Stue", c.view.closePopup())) {
-         |      expressionValues { ["v"] = $value }
+         |      inputs { ["v"] = $value }
          |    }).secondary(c.expr(#"$expr"#))""".stripMargin
     )
 
@@ -230,7 +230,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("a slot read once cannot read a live count") {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+        |      inputs { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
         |    }).secondary(new slotMod.Reading { entityId = lights.first.entity_id; steps { simpleMod.cel("string(n)") }; reads = "once" })""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would show the first count forever")), errs)
@@ -241,7 +241,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   private def anyOn(value: String): String =
     s"""    ((c.button("Stue", c.view.closePopup())) {
-       |      expressionValues { ["any_on"] = $value }
+       |      inputs { ["any_on"] = $value }
        |    }).secondary(c.expr("any_on ? 'Some on' : 'All off'"))""".stripMargin
 
   test(
@@ -313,7 +313,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   test("a value that would hide a name every expression has fails the build") {
     val body =
       """    ((c.button("Stue", c.view.closePopup())) {
-        |      expressionValues { ["value"] = "x" }
+        |      inputs { ["value"] = "x" }
         |    }).secondary(c.expr("value.state"))""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would hide the 'value'")), errs)
@@ -324,7 +324,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def yesNo(input: String): List[String] =
     errorsOf(
       s"""    ((c.button("Stue", c.view.closePopup())) {
-         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+         |      inputs { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
          |      $input
          |    }).secondary(c.expr("string(n)"))""".stripMargin
     )
@@ -369,7 +369,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |      .secondary(c.expr("string(n) + ' on'"))
        |      .active(q.from($over).where(q.eq(q.stateProp, "on")).any())
        |      .disabled(q.from($over).where(q.eq(q.stateProp, "on")).none())
-       |      .expressionValues(new Mapping { ["n"] = q.from($over).where(q.eq(q.stateProp, "on")).count() })""".stripMargin
+       |      .inputs(new Mapping { ["n"] = q.from($over).where(q.eq(q.stateProp, "on")).count() })""".stripMargin
 
   private def classSignals(html: String): List[String] =
     """data-class:fh-active="\$([^"]+)"""".r
@@ -433,7 +433,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     val body =
       s"""    c.button("Stue", c.view.closePopup())
          |      .secondary(c.expr("string(n) + ' on'"))
-         |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+         |      .inputs(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
          |      .cellClassWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
          |      .cellClassWhen("fh-many", c.expr("n > 1"))""".stripMargin
     withServer(body) { ts =>
@@ -514,7 +514,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     s"""    ((c.entitySlider(dump.entities.${kitchen.dumpKey})
        |      .secondary(c.expr($secondary))
        |      .readout(c.expr($readout)))) {
-       |      expressionValues {
+       |      inputs {
        |        ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
        |        ["lights_total"] = lights.length
        |      }
@@ -544,7 +544,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   private def propertyButton(property: String): String =
     s"""    c.button("Stue", c.view.closePopup())
        |      .secondary(c.expr("string(n) + ' on'"))
-       |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+       |      .inputs(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
        |      $property""".stripMargin
 
   test("a cellStyle is inline in the document and moves by one frame") {
@@ -650,10 +650,10 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("an expression value may itself be CEL") {
+  test("an input may itself be CEL") {
     val body =
       s"""    ((c.button("Stue", c.view.closePopup())) {
-         |      expressionValues { ["s"] = ${kitchenIs("value.state")} }
+         |      inputs { ["s"] = ${kitchenIs("value.state")} }
          |    }).secondary(c.expr("string(s) + '!'"))""".stripMargin
     withServer(body) { ts =>
       for {

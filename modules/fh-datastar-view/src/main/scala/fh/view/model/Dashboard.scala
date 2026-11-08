@@ -14,7 +14,9 @@ import scala.collection.immutable.ListMap
 // The wire names each case exactly as here (`WireShapeSuite` checks Pkl's
 // literals), `SetNode` included: `LayoutNode.Set` would shadow `scala.Set`.
 given Configuration =
-  Configuration.default.withDefaults.withDiscriminator("kind")
+  Configuration.default.withDefaults
+    .withDiscriminator("kind")
+    .withTransformMemberNames(Strict.wireName)
 
 /** A template slot: what it shows, and how the card places it (Pkl's `Slot`).
   * The wire is flat, the [[ValueExpr]]'s fields beside these, or a bare
@@ -64,17 +66,17 @@ object Placement:
   /** A `valueWhile`: decided before the slot it gates, never bound. */
   val Bool: Placement = Placement(None, SlotType.Bool)
 
-/** A slot with its subject named and the node's expression values its CELs
-  * read, each CEL's own inputs being in it: the build's bind pass, run lazily
-  * on the node ([[LayoutNode.Component.bound]]). It fixes each name's
-  * definition and type, not its value, which is resolved per render.
+/** A slot with its subject named and the node's inputs its CELs read, each
+  * CEL's own inputs being in it: the build's bind pass, run lazily on the node
+  * ([[LayoutNode.Component.bound]]). It fixes each name's definition and type,
+  * not its value, which is resolved per render.
   *
   * @param subject
   *   the node's: what a condition that names no entity compares.
   */
 final case class BoundSlot(
     expr: ValueExpr,
-    values: Map[String, ValueExpr],
+    inputs: Map[String, ValueExpr],
     valueWhile: Option[BoundSlot] = None,
     signal: Option[SignalBind] = None,
     `type`: SlotType = SlotType.Text,
@@ -106,10 +108,10 @@ final case class BoundSlot(
     * constant, held like a `once` read.
     */
   def reads: Reads = expr.source match
-    case e: Value.Entity                          => e.reads
-    case _: Value.Fetch                           => Reads.OnRender
-    case _: Value.Cel if !inputs.exists(_.isLive) => Reads.Once
-    case _                                        => Reads.Live
+    case e: Value.Entity                             => e.reads
+    case _: Value.Fetch                              => Reads.OnRender
+    case _: Value.Cel if !allInputs.exists(_.isLive) => Reads.Once
+    case _                                           => Reads.Live
 
   def bypassUnavailable: Boolean = expr.source match
     case e: Value.Entity => e.bypassUnavailable
@@ -121,17 +123,17 @@ final case class BoundSlot(
     * compiles differently against other typed names or `value`.
     */
   lazy val typed: Either[ValueExpr.Mistyped, ValueExpr.Typed] =
-    expr.typed(ValueExpr.env(values))
+    expr.typed(ValueExpr.env(inputs))
 
   /** Every entity that can move this slot besides its own: those its source and
-    * its steps name, those of the live values it reads, and its
+    * its steps name, those of the live inputs it reads, and its
     * [[valueWhile]]'s.
     */
   def valueEntities: List[String] =
     (expr.source match
       case _: Value.Entity => expr.partEntities
       case _               => expr.entities
-    ) ++ values.values.toList.flatMap(_.entities) ++
+    ) ++ inputs.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
   /** `validate` refuses a fetch slot without a stage: its series fits no slot.
@@ -154,26 +156,26 @@ final case class BoundSlot(
   def fetches: List[SlotAsk] = shape match
     case SlotShape.Fetch(ask) => List(ask)
     case SlotShape.State(_)   =>
-      inputs.map(_.source).collect { case Value.Fetch(f) =>
+      allInputs.map(_.source).collect { case Value.Fetch(f) =>
         SlotAsk(f, Step.Json)
       }
 
-  /** Every named input it reads, at any depth: the node's values, each CEL's
+  /** Every named input it reads, at any depth: the node's inputs, each CEL's
     * own, and theirs.
     */
-  def inputs: List[ValueExpr] =
-    values.values.toList ++
-      (expr :: values.values.toList)
+  def allInputs: List[ValueExpr] =
+    inputs.values.toList ++
+      (expr :: inputs.values.toList)
         .flatMap(_.all)
         .flatMap(_.cels)
         .flatMap(_._2.values)
 
   /** What the renderer keys a value by (signal names, the once-cache): two
-    * nodes saying the same thing over the same values share a signal. A themed
+    * nodes saying the same thing over the same inputs share a signal. A themed
     * value's key has its [[Step.ThemeClasses]], so it never shares with text.
     */
   lazy val valueKey: String =
-    expr.key + values.toList
+    expr.key + inputs.toList
       .sortBy(_._1)
       .map((n, v) => s"|$n=${v.inputKey}")
       .mkString + valueWhile.fold("")(w =>
@@ -204,24 +206,24 @@ object BoundSlot:
   private def entitiesOf(slots: List[BoundSlot]): List[String] =
     slots.flatMap(s => s.entityId.toList ++ s.valueEntities).distinct
 
-  def bind(values: Map[String, ValueExpr], subject: Option[String])(
+  def bind(inputs: Map[String, ValueExpr], subject: Option[String])(
       s: TemplateSlot
   ): BoundSlot =
-    bindAt(values, s.placement, subject)(s.expr, s.valueWhile)
+    bindAt(inputs, s.placement, subject)(s.expr, s.valueWhile)
 
   /** By the identifiers the expression PARSES to, so a name inside a string
     * literal is not a read.
     */
   def bindAt(
-      values: Map[String, ValueExpr],
+      inputs: Map[String, ValueExpr],
       at: Placement,
       subject: Option[String]
   )(e: ValueExpr, valueWhile: Option[ValueExpr] = None): BoundSlot =
     val expr = e.about(subject)
     BoundSlot(
       expr,
-      expr.readsNamed(values),
-      valueWhile.map(bindAt(values, Placement.Bool, subject)(_)),
+      expr.readsNamed(inputs),
+      valueWhile.map(bindAt(inputs, Placement.Bool, subject)(_)),
       at.signal,
       at.`type`,
       subject
@@ -631,22 +633,22 @@ object LayoutNode:
       // nearest wins. No allowed-values list: the write refuses what a reader
       // cannot parse.
       vars: List[Dashboard.Declaration] = Nil,
-      // Expression values, this node's alone: never resolved up the
+      // Inputs, this node's alone: never resolved up the
       // ancestors, and bound to the slots that read them ([[bound]]).
-      values: Map[String, ValueExpr] = Map.empty
+      inputs: Map[String, ValueExpr] = Map.empty
   ) extends LayoutNode:
 
-    /** [[templateSlots]] and the [[cell]]'s live ones, each with the expression
-      * values its CEL names; a cell slot is placed by its key.
+    /** [[templateSlots]] and the [[cell]]'s live ones, each with the inputs its
+      * CEL names; a cell slot is placed by its key.
       */
     lazy val bound: Map[SlotKey, BoundSlot] =
       templateSlots.map((n, s) =>
-        (n: SlotKey) -> BoundSlot.bind(values, subjectEntity)(s)
+        (n: SlotKey) -> BoundSlot.bind(inputs, subjectEntity)(s)
       ) ++
         cell.toList
           .flatMap(_.live)
           .map((k, s) =>
-            k -> BoundSlot.bindAt(values, k.placement, subjectEntity)(s)
+            k -> BoundSlot.bindAt(inputs, k.placement, subjectEntity)(s)
           )
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -1299,7 +1301,7 @@ object Dashboard:
   val SubjectSlot: String = "entity_id"
 
   /** A CEL identifier. A reserved word fails the expression's compile. */
-  val ExpressionValueName: scala.util.matching.Regex =
+  val InputName: scala.util.matching.Regex =
     "[A-Za-z_][A-Za-z0-9_]*".r
 
   /** A CSS custom property name; a plain property would fight the theme. */

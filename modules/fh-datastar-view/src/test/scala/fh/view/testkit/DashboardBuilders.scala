@@ -32,6 +32,9 @@ object DashboardBuilders {
   def st(entityId: String, state: String, attrs: (String, Json)*): EntityState =
     EntityState(entityId, state, attrs.toMap)
 
+  /** A subject where there is none; nothing reads it. */
+  val noSubject: EntityState = EntityState("", "", Map.empty)
+
   /** A node's `vars`: each name at its default, in the URL, opened nowhere
     * else.
     */

@@ -86,9 +86,9 @@ facts {
     local whole = bar.slotsByName["of"].value as slotMod.Reading
     whole.entityId == "sensor.rem"
     (whole.steps.toList().last as simpleMod.Cel).src.contains("past.transformList")
-    (whole.steps.toList().last as simpleMod.Cel).values.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
+    (whole.steps.toList().last as simpleMod.Cel).inputs.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
     // A countdown on no device gets the same bar.
-    ((barOf(c.progress(left)).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).values.toMap()
+    ((barOf(c.progress(left)).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).inputs.toMap()
       == Map("past", p.history.of(left, p.history.raw(24.h)))
   }
 
@@ -99,7 +99,7 @@ facts {
     week.window == p.history.raw(7.d)
     week.provider == "history"
     // Without inputs a slot's wire is what it always was.
-    simpleMod.cel("state").values == null
+    simpleMod.cel("state").inputs == null
   }
 
   ["updateOnEntityChange makes the sensor what a history's reader depends on"] {
@@ -163,7 +163,7 @@ facts {
     // Charging or not: a charge fills out of where its countdown started.
     local charging = c.progress(onDevice(minutes("ch", "charging_time_left"), List(battery)))
     charging.percent == null
-    ((barOf(charging).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).values.toMap().containsKey("past")
+    ((barOf(charging).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).inputs.toMap().containsKey("past")
   }
 
   ["the card shows what was found, and each builder overrides one part"] {

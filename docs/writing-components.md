@@ -204,7 +204,7 @@ peak.of(new slotMod.Reading {
   steps {
     new simpleMod.Cel {
       src = "str(math.greatest(past.transformList(i, p, true, p[1])))"
-      values = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
+      inputs = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
     }
   }
 })
@@ -240,7 +240,7 @@ peak.of(new slotMod.Reading {
   steps {
     new simpleMod.Cel {
       src = "…"
-      values = new Mapping { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
+      inputs = new Mapping { ["past"] = p.history.of(entity, p.history.raw(24.h)) }
     }
   }
 })

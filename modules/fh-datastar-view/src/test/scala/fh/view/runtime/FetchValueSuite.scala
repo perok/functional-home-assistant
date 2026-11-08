@@ -5,9 +5,9 @@ import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
 import io.circe.parser.decode
 
-/** A fetch as an expression value: a state slot's CEL reads a provider's answer
-  * by name, fetched before it runs, on the render path and on the signal path
-  * alike (#541 E3b).
+/** A fetch as an input: a state slot's CEL reads a provider's answer by name,
+  * fetched before it runs, on the render path and on the signal path alike
+  * (#541 E3b).
   */
 class FetchValueSuite extends munit.FunSuite {
 
@@ -24,21 +24,21 @@ class FetchValueSuite extends munit.FunSuite {
       "math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(value.state)])))"
 
   private def of(
-      values: Map[String, ValueExpr] = Map(
+      inputs: Map[String, ValueExpr] = Map(
         "past" -> ValueExpr(Value.Fetch(history))
       ),
       reads: Reads = Reads.Live
   ) = TemplateSlot(
     ValueExpr(
       Value.Entity(Some("sensor.left"), reads = reads, part = Part.Whole),
-      List(Step.Cel(peak, values))
+      List(Step.Cel(peak, inputs))
     ),
     signal = Some(SignalBind.Handler)
   )
 
   private def dashboard(
       ofSlot: TemplateSlot = of(),
-      nodeValues: Map[String, ValueExpr] = Map.empty
+      nodeInputs: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
     cards = Map(
       "bar" -> CardDef(
@@ -57,7 +57,7 @@ class FetchValueSuite extends munit.FunSuite {
         ),
         "of" -> ofSlot
       ),
-      values = nodeValues
+      inputs = nodeInputs
     )
   )
 
@@ -105,8 +105,8 @@ class FetchValueSuite extends munit.FunSuite {
 
   test("a node's fetch value reaches the slot that reads it") {
     val d = dashboard(
-      ofSlot = of(values = Map.empty),
-      nodeValues = Map("past" -> ValueExpr(Value.Fetch(history)))
+      ofSlot = of(inputs = Map.empty),
+      nodeInputs = Map("past" -> ValueExpr(Value.Fetch(history)))
     )
     assertEquals(d.validate(), Nil)
     assert(
@@ -119,21 +119,21 @@ class FetchValueSuite extends munit.FunSuite {
     )
   }
 
-  test("a slot's values are checked as a node's are") {
+  test("a slot's inputs are checked as a node's are") {
     def errs(d: Dashboard) = d.validate().mkString("\n")
     assert(
       errs(
-        dashboard(nodeValues =
+        dashboard(nodeInputs =
           Map("past" -> ValueExpr(Value.Literal(Lit.Whole(1))))
         )
       )
         // The slot's own wins, so the node's is read by nothing.
-        .contains("expression value 'past' is read by no expression")
+        .contains("input 'past' is read by no expression")
     )
     assert(
       errs(
         dashboard(ofSlot =
-          of(values =
+          of(inputs =
             Map(
               "past" -> ValueExpr(Value.Fetch(history)),
               "unread" -> ValueExpr(Value.Literal(Lit.Whole(1)))
@@ -151,7 +151,7 @@ class FetchValueSuite extends munit.FunSuite {
     assert(
       errs(
         dashboard(ofSlot =
-          of(values = Map("past" -> ValueExpr(Value.Fetch(undeclared))))
+          of(inputs = Map("past" -> ValueExpr(Value.Fetch(undeclared))))
         )
       ).contains("reads the variable 'window', which no ancestor declares")
     )
@@ -160,7 +160,7 @@ class FetchValueSuite extends munit.FunSuite {
   // A node whose `value` slot is the one place its fetch is held.
   private def holding(
       value: ValueExpr,
-      nodeValues: Map[String, ValueExpr] = Map.empty
+      nodeInputs: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
     cards = Map("bar" -> CardDef("<div>{{value}}</div>")),
     card = LayoutNode.Component(
@@ -169,7 +169,7 @@ class FetchValueSuite extends munit.FunSuite {
         "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
         "value" -> TemplateSlot(value)
       ),
-      values = nodeValues
+      inputs = nodeInputs
     )
   )
 
@@ -316,7 +316,7 @@ class FetchValueSuite extends munit.FunSuite {
           )
         )
       ),
-      nodeValues = Map("k" -> ValueExpr(Value.Literal(Lit.Whole(2))))
+      nodeInputs = Map("k" -> ValueExpr(Value.Literal(Lit.Whole(2))))
     )
     assertEquals(d.validate(), Nil)
     val html = Renderer
@@ -328,7 +328,7 @@ class FetchValueSuite extends munit.FunSuite {
 
   test("the wire spells a fetch value as a fetch source") {
     val slot = decode[TemplateSlot](
-      """{"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "size(past)", "inputs": {"past": {
+      """{"source": {"kind": "Entity"}, "steps": [{"kind": "Cel", "src": "size(past)", "wireInputs": {"past": {
         |  "source": {"kind": "Fetch", "fetch": {
         |  "provider": "history", "entity": "sensor.left", "window": {
         |  "kind": "Statistics", "span": 86400, "period": "5minute",

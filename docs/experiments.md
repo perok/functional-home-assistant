@@ -228,3 +228,48 @@ more.
 
 **Worth asking again if** `Evaluator`'s frames pass about 10% of a `tickRender` profile. A class
 per reading, through `java.lang.classfile` (no dependency), would be the one to try first.
+
+## `Percent` and `Fill` parsing a text operand once
+
+2026-11-08, value-model-small at e92be6b0. **Not worth doing.**
+
+**Question.** `Steps` checks a slider's min and max with `isNum`, then reads them with `dbl`, so a
+text operand is parsed twice. Is one parse (`dbl` answering `NaN` for no number) cheaper?
+
+**How.** `RenderBench.tickRender`, `-f 1 -wi 5 -i 5 -prof gc -jvmArgsAppend
+-XX:-DoEscapeAnalysis`. Three builds: base ee8f7997, the change, and the change with the old
+`Steps.scala` put back. The base was run again with `-f 2`.
+
+**Numbers.** The base allocates 100,576 B/op (both runs, ±0). The change allocates 101,536 B/op,
+whether the operands are parsed before or after the value. The old `Steps.scala` gives 100,576
+again. Time is the same within error, at 35–37 µs.
+
+**Verdict.** It allocates 960 B more per tick and saves no time, so the old code stays. The cause
+is not found: by count, both versions build one `Option` per text operand.
+
+**Worth asking again if** a profile shows `Steps.dbl` or `isNum` in a slider tick's top frames.
+
+## Sort keys with unboxed numbers
+
+2026-11-08, value-model-small. **Not worth doing.**
+
+**Question.** `Evaluator.Keys` holds each candidate's parsed number as a boxed `Double` in its
+`Array[Any]`. Would a primitive layout pay: an `Array[Double]` beside the values for a leader's
+two reused buffers, and for a sort one flat buffer for every candidate, ordered by an insertion
+sort over indices? A SIMD compare was ruled out first: the keys come from map lookups and
+compiled readings, mix booleans, numbers, text and no value, branch per comparison, and a set
+holds 10–20 candidates.
+
+**How.** Estimated from `RenderBench` with escape analysis off (`-prof gc -jvmArgsAppend
+-XX:-DoEscapeAnalysis`), after the keys stopped allocating a closure and a second box per
+candidate and a leader started reusing two buffers: `leaderRow` (10 pills over 10 candidates)
+3,120 B/op, `publishSetOrdered` 575,903 B/op.
+
+**Numbers.** One 16 B box per number: about 1.6 KB of `leaderRow`'s 3,120 B, and under 1% of
+`publishSetOrdered`, whose bytes are membership and rendering, not keys.
+
+**Verdict.** A second array per key, or a hand-written sort, for at most 1.6 KB per row of
+leaders per tick.
+
+**Worth asking again if** a profile shows `Keys.into` or `Keys.compare` in a tick's top frames,
+or sets grow to hundreds of candidates.

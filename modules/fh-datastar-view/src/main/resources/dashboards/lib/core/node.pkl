@@ -14,7 +14,7 @@ import "tap.pkl" as tapMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|slotMod.Expr|slotMod.Fetch|hass.Entity
+typealias Input = String|Int|Float|Boolean|predMod.Tally|slotMod.Expr|slotMod.Fetch|hass.Entity
 
 /// What fills a boolean slot: a `Boolean` the build knows, or a value
 /// expression of a bool: a reading (`c.isOn(l)`, `c.expr("on > 2")`) or a
@@ -205,42 +205,42 @@ abstract class Node extends LayoutNode {
   ///     children { c.select(view).options(List("plain", "detail")) }
   ///   }
   vars: Listing<varMod.Declaration>(isDistinctBy((d) -> d.name)) = new {}
-  /// Named values this node's own CEL reads: a literal, a live count
+  /// Named inputs this node's own CEL reads: a literal, a live count
   /// (`q.from(xs).where(…).count()`, an `int`), the ids present (`….present()`,
   /// a `list(string)`) or a live condition (`….any()`, a `bool`).
   ///
   ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
-  ///     expressionValues {
+  ///     inputs {
   ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
   ///       ["lights_total"] = lights.length
   ///     }
   ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
-  hidden expressionValues: Mapping<String, ExpressionValue> = new {}
-  values: Map<String, Any>? =
-    if (expressionValues.isEmpty) null
-    else expressionValues.toMap().mapValues((_, v) -> slotMod.wireInput(v))
+  hidden inputs: Mapping<String, Input> = new {}
+  wireInputs: Map<String, Any>? =
+    if (inputs.isEmpty) null
+    else inputs.toMap().mapValues((_, v) -> slotMod.wireInput(v))
   // Lifted into the top-level `surfaces` by the build's hoist, keyed
   // `<node-id>_<localKey>`, with the node's id spliced into every [[NODE_ID]].
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
 
-  /// [[expressionValues]] as a chain step:
+  /// [[inputs]] as a chain step:
   ///
   ///   c.button(f.floor_name, c.tap.lights.off(f))
   ///     .secondary(c.expr(#"string(lights_on) + ' on'"#))
-  ///     .expressionValues(new Mapping {
+  ///     .inputs(new Mapping {
   ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
   ///     })
-  function expressionValues(vs: Mapping<String, ExpressionValue>): Node =
-    let (self = this) (self) { expressionValues = vs }
+  function inputs(vs: Mapping<String, Input>): Node =
+    let (self = this) (self) { inputs = vs }
 }
 
 /// The entries of `vs` some CEL reading in `slots` names. Values are
 /// node-local (ADR 0034), so a structural card hands each of its parts the ones
 /// that part's slots read; the build's own parse then checks every part.
-const function valuesNamedIn(
-  vs: Mapping<String, ExpressionValue>,
+const function inputsNamedIn(
+  vs: Mapping<String, Input>,
   slots: Listing<slotMod.Slot>
-): Map<String, ExpressionValue> =
+): Map<String, Input> =
   let (cels = slots.toList().map((s) -> s.value)
       .filter((v) -> v is slotMod.Reading)
       .flatMap((v) -> (v as slotMod.Reading).steps.toList())
@@ -333,7 +333,7 @@ const local function wireReading(r: slotMod.Reading, subject: String?, themed: B
   let (first = r.steps.toList().firstOrNull)
   let (celSource = subject == null && first is simpleMod.Cel && own is slotMod.EntityRead && own.of == null)
   let (source =
-    if (celSource) let (c = first as simpleMod.Cel) new slotMod.CelRead { src = c.src; values = c.values }
+    if (celSource) let (c = first as simpleMod.Cel) new slotMod.CelRead { src = c.src; inputs = c.inputs }
     else own)
   let (vw = r.valueWhileSlot)
   let (steps = (if (celSource) r.steps.toList().drop(1) else r.steps.toList())

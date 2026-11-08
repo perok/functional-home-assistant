@@ -1,9 +1,9 @@
 /// The `history` provider, as `p.history`: one sensor's recorded past over a
 /// window. A chart draws it (`c.history.chart`); a component's CEL reads it as
-/// an expression value, `list(list(double))` of `[epochMillis, value]`, oldest
+/// an input, `list(list(double))` of `[epochMillis, value]`, oldest
 /// first:
 ///
-///     expressionValues { ["past"] = p.history.of(left, p.history.raw(7.d)) }
+///     inputs { ["past"] = p.history.of(left, p.history.raw(7.d)) }
 ///
 /// The answer is every reading of a raw window and every bucket of a statistics
 /// one; a chart thins what it draws. The author picks the window; the server

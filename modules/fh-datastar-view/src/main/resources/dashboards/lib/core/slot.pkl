@@ -119,20 +119,20 @@ class ListRead extends Value {
 }
 
 /// CEL computed from nothing before it, so it has no `value`: over its named
-/// `values`, `dashboard_slug` and `time_zone`.
+/// `inputs`, `dashboard_slug` and `time_zone`.
 class CelRead extends Value {
   kind: "Cel" = "Cel"
   src: String
-  /// As [[simpleMod.Cel.values]].
-  hidden values: Mapping<String, nodes.ExpressionValue>? = null
-  inputs: Map<String, Any>? = values?.toMap()?.mapValues((_, v) -> wireInput(v))
+  /// As [[simpleMod.Cel.inputs]].
+  hidden inputs: Mapping<String, nodes.Input>? = null
+  wireInputs: Map<String, Any>? = inputs?.toMap()?.mapValues((_, v) -> wireInput(v))
 }
 
 /// A named input as the wire holds it (`fh.view.model.ValueExpr`): a literal
 /// as itself, anything else as the source it reads. An entity is the whole
 /// entity (`kitchen.attr.brightness`), and a tally its count unless it is a
 /// [[predMod.PresentList]].
-const function wireInput(v: nodes.ExpressionValue): Any =
+const function wireInput(v: nodes.Input): Any =
   if (v is hass.Entity)
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
   else if (v is predMod.PresentList) Map("source", v)

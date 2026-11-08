@@ -99,14 +99,14 @@ private[view] object Evaluator {
     named.toList.map((n, v) => n -> v.out).sortBy(_._1)
 
   /** Each value made a named input; `outer` is in scope of a CEL inside one, as
-    * a node's values are of a CEL's own.
+    * a node's inputs are of a CEL's own.
     */
   def named(
-      values: Map[String, ValueExpr],
+      inputs: Map[String, ValueExpr],
       scope: Scope,
       outer: Map[String, Named] = Map.empty
   ): Built[Map[String, Named]] =
-    values.toList
+    inputs.toList
       .traverse((n, e) => input(e, scope, outer).map(n -> _))
       .map(_.toMap)
 
@@ -222,42 +222,73 @@ private[view] object Evaluator {
       val reads: Set[SlotRead]
   ) {
 
-    /** A candidate the store lacks reads as nothing: false, or no value. */
+    /** A candidate the store lacks reads as nothing: false, or no value. Term
+      * `i`'s value is at `i`, `null` when it is no value, and its number, when
+      * it parses, at `runs.length + i`.
+      */
     def of(
         id: String,
         states: Map[String, EntityState],
         fetched: FetchTemplate => Object
     ): Array[Any] =
+      val out = buffer()
+      into(out, id, states, fetched)
+      out
+
+    def buffer(): Array[Any] = new Array[Any](2 * runs.length)
+
+    def into(
+        out: Array[Any],
+        id: String,
+        states: Map[String, EntityState],
+        fetched: FetchTemplate => Object
+    ): Unit =
       val st = states.getOrElse(id, null)
-      val out = new Array[Any](runs.length)
+      val n = runs.length
       var i = 0
-      while (i < runs.length) {
-        out(i) = runs(i)(st, states, fetched)
+      while (i < n) {
+        val v = runs(i)(st, states, fetched)
+        if (bool(i)) out(i) = v
+        else if (noValue(v)) { out(i) = null; out(n + i) = null }
+        else { out(i) = v; out(n + i) = boxedNumber(v) }
         i += 1
       }
-      out
+
+    private def boxedNumber(v: Any): java.lang.Double | Null = v match
+      case d: java.lang.Double => d
+      case x: java.lang.Number => java.lang.Double.valueOf(x.doubleValue)
+      case s: String           =>
+        s.toDoubleOption match
+          case Some(d) => java.lang.Double.valueOf(d)
+          case None    => null
+      case _ => null
 
     /** Negative when `a` sorts first; `0` keeps a stable sort's order. */
     def compare(a: Array[Any], b: Array[Any]): Int =
       var i = 0
       var c = 0
       while (c == 0 && i < runs.length) {
-        c = term(i, a(i), b(i))
+        c = term(i, a, b)
         i += 1
       }
       c
 
-    private def term(i: Int, l: Any, r: Any): Int =
+    private def term(i: Int, a: Array[Any], b: Array[Any]): Int =
       def directed(raw: Int) = if (descending(i)) -raw else raw
+      val l = a(i)
+      val r = b(i)
       if (bool(i)) directed(java.lang.Boolean.compare(holds(r), holds(l)))
       // Last in either direction: `unknown` is no value, not the largest
       // string, which under `desc` crowned a scene never activated.
-      else if (noValue(l) || noValue(r))
-        java.lang.Boolean.compare(noValue(l), noValue(r))
+      else if (l == null || r == null)
+        java.lang.Boolean.compare(l == null, r == null)
       else
-        directed((Steps.number(l), Steps.number(r)) match
-          case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
-          case _                  => Steps.text(l).compareTo(Steps.text(r)))
+        directed(a(runs.length + i) match
+          case x: Double =>
+            b(runs.length + i) match
+              case y: Double => java.lang.Double.compare(x, y)
+              case _         => Steps.text(l).compareTo(Steps.text(r))
+          case _ => Steps.text(l).compareTo(Steps.text(r)))
 
     private def noValue(v: Any): Boolean = v match
       case null      => true
@@ -488,15 +519,21 @@ private[view] object Evaluator {
       fetched: FetchTemplate => Object
   ): Any =
     var best: String | Null = null
-    var bestKeys: Array[Any] = Array.empty
-    ids.foreach {
-      case id: String =>
-        val k = keys.of(id, states, fetched)
-        if (best == null || keys.compare(k, bestKeys) < 0) {
-          best = id
-          bestKeys = k
-        }
-      case _ => ()
+    var bestKeys = keys.buffer()
+    var k = keys.buffer()
+    var rest = ids
+    while (rest.nonEmpty) {
+      rest.head match
+        case id: String =>
+          keys.into(k, id, states, fetched)
+          if (best == null || keys.compare(k, bestKeys) < 0) {
+            best = id
+            val t = bestKeys
+            bestKeys = k
+            k = t
+          }
+        case _ => ()
+      rest = rest.tail
     }
     best
 }

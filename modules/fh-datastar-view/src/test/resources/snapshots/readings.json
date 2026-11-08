@@ -259,7 +259,9 @@
             "targetKind" : "set",
             "targetSet" : "{\n  \"kind\": \"Present\",\n  \"candidates\": [\n    \"light.kitchen\",\n    \"light.living_room\"\n  ],\n  \"when\": {\n    \"light.kitchen\": {\n      \"source\": {\n        \"kind\": \"Entity\"\n      },\n      \"steps\": [\n        {\n          \"kind\": \"Compare\",\n          \"op\": \"eq\",\n          \"to\": \"on\"\n        }\n      ]\n    },\n    \"light.living_room\": {\n      \"source\": {\n        \"kind\": \"Entity\"\n      },\n      \"steps\": [\n        {\n          \"kind\": \"Compare\",\n          \"op\": \"eq\",\n          \"to\": \"on\"\n        }\n      ]\n    }\n  }\n}"
           },
-          "values" : {
+          "vars" : [
+          ],
+          "wireInputs" : {
             "lit" : {
               "source" : {
                 "candidates" : [
@@ -300,9 +302,7 @@
                 }
               ]
             }
-          },
-          "vars" : [
-          ]
+          }
         },
         {
           "card" : "tile",

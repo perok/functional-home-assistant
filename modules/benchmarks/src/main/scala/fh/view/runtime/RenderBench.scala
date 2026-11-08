@@ -1947,12 +1947,12 @@ object RenderBench {
   final val TransformAttrLines = CelShapes.TransformAttrLines
   final val TransformComplex = CelShapes.TransformComplex
 
-  /** [[TransformFillColor]] with its kelvin range read from expression values,
-    * so its program is typed against named values ([[RenderBench.pageValued]]).
+  /** [[TransformFillColor]] with its kelvin range read from inputs, so its
+    * program is typed against named values ([[RenderBench.pageValued]]).
     */
   final val TransformFillColorValued =
     TransformFillColor.replace("2000.0", "lo").replace("4500.0", "span")
-  final val FillColorValues: Map[String, ValueExpr] =
+  final val FillColorInputs: Map[String, ValueExpr] =
     Map(
       "lo" -> ValueExpr(real(2000.0)),
       "span" -> ValueExpr(real(4500.0))
@@ -1997,7 +1997,7 @@ object RenderBench {
     *   difference between the two is exactly what one byte-reading slot costs
     *   the cache key, which is what [[RenderBench.resumeSignalsPure]] prices.
     * @param valued
-    *   the fill colour reads expression values ([[TransformFillColorValued]]).
+    *   the fill colour reads inputs ([[TransformFillColorValued]]).
     */
   def leaf(
       signals: Boolean,
@@ -2066,7 +2066,7 @@ object RenderBench {
           `type` = SlotType.TextRaw
         )
       ),
-      values = if (valued) FillColorValues else Map.empty
+      inputs = if (valued) FillColorInputs else Map.empty
     )
   }
 

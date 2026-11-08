@@ -5,22 +5,13 @@ plans (`plan-slot-values.md`, `plan-one-compile.md`) are built and deleted; thei
 in ADRs 0028, 0034 and 0035. Nothing here is agreed yet: each item needs a design round before it
 is built, and the order below is a proposal.
 
-**State:** not started.
-
-## Small
-
-- **`EntityState.none` is test-only** (`StateStore.scala`): its callers are `ConditionsSuite` and
-  `SimpleReadsSuite`, so it moves to the testkit.
-- **One name for named inputs:** Pkl `values`, the wire's `inputs`, Scala's `values` and the docs'
-  "expression values" are one thing. A rename, and the wire moves with it. With it, the Pkl type
-  narrows toward `slotMod.Expr`: if `count()` and `p.history.of` answered an `Expr`, an input would
-  be an `Expr` or a literal or entity shorthand, and `wireInput` would lose its tally and fetch
-  cases.
-- **A number parsed once where it is read twice:** `Evaluator.Keys` parses both sides of every
-  comparison of a sort, where once per candidate does; `Percent` and `Fill` parse a text operand
-  twice (`isNum`, then `dbl`).
+**State:** the small items are built (`value-model-small`); the design rounds are not started.
 
 ## Design rounds
+
+- **An input is an `Expr`:** if `count()` and `p.history.of` answered a `slotMod.Expr`, an input
+  would be an `Expr` or a literal or entity shorthand, and `wireInput` would lose its tally and
+  fetch cases. With no conversion left, the wire field could take the author's name.
 
 - **Typing answers a typed expression, and the compile reads it:** `ValueExpr.typed` keeps only the
   root's type and a flat list of CEL keys, so `Evaluator.build` takes the CEL programs as an

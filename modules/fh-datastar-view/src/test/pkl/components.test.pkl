@@ -869,34 +869,34 @@ facts {
     byAttr.entityId == null
   }
 
-  ["expression values ride the wire as `values`, and only when there are some"] {
-    c.button("x", c.view.closePopup()).values == null
+  ["inputs ride the wire as `wireInputs`, and only when there are some"] {
+    c.button("x", c.view.closePopup()).wireInputs == null
     local lights = List(kitchen)
     local b = (c.button("x", c.view.closePopup())) {
-      expressionValues {
+      inputs {
         ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
         ["lights_total"] = lights.length
         ["floor"] = "Stue"
       }
     }
-    b.values["lights_total"] == 1
-    b.values["floor"] == "Stue"
+    b.wireInputs["lights_total"] == 1
+    b.wireInputs["floor"] == "Stue"
     // A count goes out as its tally, counted: what the runtime counts, live.
-    local on = b.values["lights_on"] as Map
+    local on = b.wireInputs["lights_on"] as Map
     local tally = on["source"] as pred.Tally
     tally.candidates.toList() == List("light.kitchen")
     tally.`when`["light.kitchen"].part == null
     on["steps"] == List(new simpleMod.CountStep {})
   }
 
-  ["the expressionValues builder is the amend, as a chain step"] {
+  ["the inputs builder is the amend, as a chain step"] {
     local lights = List(kitchen)
     local amended = (c.button("x", c.view.closePopup()).secondary(c.expr("string(n)"))) {
-      expressionValues { ["n"] = q.from(lights).count() }
+      inputs { ["n"] = q.from(lights).count() }
     }
     local chained = c.button("x", c.view.closePopup())
       .secondary(c.expr("string(n)"))
-      .expressionValues(new Mapping { ["n"] = q.from(lights).count() })
+      .inputs(new Mapping { ["n"] = q.from(lights).count() })
     new JsonRenderer {}.renderValue(chained) == new JsonRenderer {}.renderValue(amended)
   }
 
@@ -1308,7 +1308,7 @@ facts {
     // paint after a reload too.
     local washer = c.progress(remainingMin).status(applianceState)
     !(washer.slotsByName["value"].value as slotMod.Reading).steps.toList().any((s) -> s is simpleMod.Cel)
-    ((barOf(washer).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).values.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
+    ((barOf(washer).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).inputs.toMap() == Map("past", p.history.of(remainingMin, p.history.raw(24.h)))
     // The status renders as the integration's own words, never interpreted:
     // nothing here knows which of them means "running".
     (washer.slotsByName["secondary"].value as slotMod.Reading).entityId == "sensor.appliancestate"

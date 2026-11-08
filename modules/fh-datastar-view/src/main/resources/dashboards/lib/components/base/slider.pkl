@@ -376,24 +376,24 @@ open class Slider extends nodes.Node {
   slots {
     groupSlot.setIf(!members.isEmpty)
   }
-  // An author's values go on the slider, but its readings are on the head and
+  // An author's inputs go on the slider, but its readings are on the head and
   // the text, so each takes the ones it reads. One nothing here reads stays on
   // the slider, where the build names it.
-  hidden headValues: Map<String, nodes.ExpressionValue> = nodes.valuesNamedIn(expressionValues, headSlots)
-  hidden textValues: Map<String, nodes.ExpressionValue> = nodes.valuesNamedIn(expressionValues, textSlots)
-  values =
-    let (ownRead = nodes.valuesNamedIn(expressionValues, slots))
-    let (own = expressionValues.toMap().filter((name, _) ->
-        ownRead.containsKey(name) || !(headValues.containsKey(name) || textValues.containsKey(name))))
+  hidden headInputs: Map<String, nodes.Input> = nodes.inputsNamedIn(inputs, headSlots)
+  hidden textInputs: Map<String, nodes.Input> = nodes.inputsNamedIn(inputs, textSlots)
+  wireInputs =
+    let (ownRead = nodes.inputsNamedIn(inputs, slots))
+    let (own = inputs.toMap().filter((name, _) ->
+        ownRead.containsKey(name) || !(headInputs.containsKey(name) || textInputs.containsKey(name))))
       if (own.isEmpty) null else own.mapValues((_, v) -> slotMod.wireInput(v))
   /// This slider's own row; a slider with [[controls]] shows one of theirs.
   hidden headNode: SliderHead =
     let (headActive = active) (new SliderHead {}) {
       active = headActive
       slots { ...headSlots }
-      expressionValues = headValues.toMapping()
+      inputs = headInputs.toMapping()
       children = new Mapping {
-        ["text"] = new Listing { (new SliderText {}) { slots { ...textSlots }; expressionValues = textValues.toMapping() } }
+        ["text"] = new Listing { (new SliderText {}) { slots { ...textSlots }; inputs = textInputs.toMapping() } }
         ["actions"] = pillsOf(shownButtons)
       }
     }
