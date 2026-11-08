@@ -14,16 +14,19 @@ Every other slot in a raw hole is not checked at all; a live `onclick` handler i
   `textRaw` is placed `{{{x}}}`, `bool` is a section. Pkl declares it; `validate` checks every place
   the template puts the slot against it, for every slot, not only a fetch's. Removing escaping is
   always written down: a slot is `textRaw` only where a card says so.
-- **Implicit toString is the whole of the implicit.** Text, a number, a bool and `dyn` become text
-  without a step, and fit `text` and `textRaw` (a bool prints `true` or `false`, which a client
-  library can read). `TextRaw` (today's `Markup`) fits `textRaw` only. `Json`, a series, a list and
-  a whole entity fit no slot.
+- **Implicit toString, only where a value meets its slot.** There, text, a number, a bool and
+  `dyn` become text without a step, and fit `text` and `textRaw` (a bool prints `true` or `false`,
+  which a client library can read). `TextRaw` (today's `Markup`) fits `textRaw` only. `Json`, a
+  series, a list and a whole entity fit no slot. Between steps nothing converts: each step takes
+  the types it names (a `prefix` takes a number or text, a `not` a bool), as today.
 - **Every conversion is a step with a fixed type.** `json`: a fetch's series to `Json` (its
   provider's answer, as the passthrough stage sends it today). `jsonText`: `Json` to text, its
-  format options to come. `jsonRaw`: `Json` to `TextRaw`. `chart`: a series to `TextRaw`. Two JSON
-  steps rather than one with a mode, so no step's type depends on its options.
-- **A fetch slot's steps:** one stage (`json` or `chart`), then, after `json`, `jsonText` or
-  `jsonRaw`. A CEL input asks the `json` stage, so `SlotAsk.stage` is no longer optional.
+  format options to come. `chart`: a series to `TextRaw`. JSON for a raw hole (a `<script>`) will
+  be a step of its own, `jsonRaw`, `Json` to `TextRaw`, rather than a mode on `jsonText`, so no
+  step's type depends on its options; it lands with its first reader, and a comment beside the
+  `json` stage says so.
+- **A fetch slot's steps:** one stage (`json` or `chart`), then `jsonText` after `json`. A CEL
+  input asks the `json` stage, so `SlotAsk.stage` is no longer optional.
 - **What goes:** the fetch-slot skip in `typeErrors`, the hole branch of `fetchErrors` (the slot
   type's hole check covers it), the `valueWhile` fetch rule (a series fits no `bool` slot), `Markup`
   and the passthrough with no stage.
@@ -45,6 +48,7 @@ snapshots move; the goldens must not.
 2. Pkl: `core/slot.pkl`'s `SlotType`, the raw slots above, `historyReadings`, the chart stage;
    wire snapshots regenerated and read, goldens unchanged.
 3. Tests: each slot type against each hole, each value type against each slot type, a bool shown
-   as text, a series refused in every slot, `jsonText` and `jsonRaw` placed.
+   as text but refused by a step that takes text, a series refused in every slot, `jsonText`
+   placed.
 4. Docs: ADR 0034 ("Boolean slots, and what fills one"), ADR 0035's types, ADR 0031's stages,
    `writing-components.md`, the terminology. Bench: `validated` timing, one round.
