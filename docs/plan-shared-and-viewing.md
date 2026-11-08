@@ -46,22 +46,31 @@ the paths taken read. Four things are wrong with how that works today:
   - A dirty decision is made again only when a reader reaches it: a viewer's walk (the page, an
     arriving surface, a pull), a press, the node debug route, or the recorder for what some
     session has open. One nobody shows stays dirty and costs nothing; when it is shown again, the
-    recorder treats it as a set it does not hold, which it already decides on the frame's
-    "before".
+    recorder treats it as one it does not hold, and decides it on the previous version.
+  - A decision nothing can mark dirty is dirty at every version: made once per version a reader
+    reaches, as every decision is today, at the cost of evaluating it and a lookup in the
+    resolver's cache.
   - A plain tick, a change that moves only what a node shows (a light from 40% to 50%), dirties
     no decision, or one whose value comes out the same, and ends as a `touched` entry.
 - **Two values, by who shares them.** Working names: `Shared` and `Viewing` (`View` is taken, see
   the terminology).
   - `Shared`: one per dashboard and state version, for every viewer: the entity states and the
-    decisions made from them (today's `Decisions`). It is derived from the version before it:
-    that one's decisions minus those the change marked dirty, sharing structure, since a copy per
-    frame is O(decisions), the 3.4 ms rescan the recorder already removed. The recorder derives
-    each version, watched or not, so the chain does not break; with nobody watching it makes
-    nothing. The last two are kept, as `Decided` keeps them today.
+    decisions made from them (today's `Decisions`).
+  - The store publishes each version as one `Frame(changes, state)`, the pair its update already
+    makes, for every version bump. The recorder folds that stream with the previous `Shared` as
+    its accumulator: the next is the previous one's decisions minus those the frame dirtied, on
+    the frame's own states, sharing structure, since a copy per frame is O(decisions), the
+    3.4 ms rescan the recorder already removed. The previous one's states are the frame's
+    "before", so `Patches.beforeSnapshot` goes, and the recorder no longer reads the store. It
+    derives every version, watched or not, so the chain does not break; with nobody watching it
+    makes nothing. The last two are kept, as `Decided` keeps them today.
   - A reader reuses only a decision made at its own version or an older one that no change since
     has dirtied, never one made at a newer version, whose inputs may have moved after its own. A
-    reader ahead of the recorder (between the store's write and the recorder's pass) starts from
-    an empty `Shared`: correct, and only unshared, as a straggler is today.
+    reader ahead of the recorder starts its version empty: correct, and only unshared, as a
+    straggler is today; the recorder later adds what the previous version carries beneath it,
+    without overwriting.
+  - A decision a reader makes at version v after v+1 exists is passed on to v+1, unless v+1's
+    frame dirtied it, so a viewer's work reaches newer versions without a copy.
   - The recorder's held `Membership` is the previous version's set decisions, so `Decided` and
     `Membership` become one cache.
   - Fetch answers are not kept in `Shared`: the resolver caches them, and a run holds them only
@@ -120,26 +129,28 @@ the paths taken read. Four things are wrong with how that works today:
   brings its own data sources and cache beside the history cache, for what `Step` does in a few
   dozen lines.
 - **Accepted for now: a fetch changes without an event.** A history bucket rolling over dirties
-  nothing, so a decision that reads a fetch is made again only when its entities change, where
-  today it is made again on every version. Later: such values in a store of their own that
-  pushes dirty marks.
-- **Open: a decision that reads only a fetch never goes dirty.** `ValueExpr.entities` counts no
-  fetch (`Value.Fetch` gives `Nil`), so a branch whose condition reads only a sensor's history is
-  never made again until a reload. Dirtying it on every change of `FetchTemplate.entity` may cost
-  too much for a dense sensor. One candidate: the Pkl side sets a flag on the wire saying the
-  fetch follows its entity. To settle before step 1 lands.
+  nothing, so a decision that reads a fetch is made again only when its other inputs change, where
+  today it is made again on every version. Later, not now: such values in a store of their own
+  that pushes dirty marks, or a `staleAfter`.
+- **A fetch's entity is an input only when the author says so.** The machinery knows nothing of
+  what is inside a fetch. A value expression can carry a general part, "depends on entity X",
+  counted in `entities` like an entity read, so a decision and a slot get the edge alike. The
+  author-facing fetch API sets it through an option, off by default; the build says nothing when
+  it is off, since that is the author's choice.
 - **What goes:** answering every decision fetch in `currentFor`; the build's flat
   `decisionReads`, for the index; the cell (`Decided.answer`, `Decided.fetched`);
   `Evaluator.unanswered` at the decision sites (a `once` slot keeps it, since a fetch is never
   `once`); "not resolved for this render" as a reachable error; the `answer(_, env)` functions
   `Server` hands to `Patches`; a `Decisions` per snapshot that starts empty; `Membership` as a
   second copy of the set decisions; `syncMembers`' fold over every set, and its first frame
-  deciding them all.
+  deciding them all; `Patches.beforeSnapshot`; the recorder's read of the store.
 
 ## Steps
 
 1. Dirty marks and `Shared`: the index (decisions to fetches, entities to the decisions they
-   dirty); `Shared` derived from the version before it; `Decided` and `Membership` as one cache;
+   dirty); the store's `Frame` and the recorder's fold; the "depends on entity" part and its
+   fetch API option; `Shared` derived from the version before it; `Decided` and `Membership` as
+   one cache;
    the decision entry points take `Shared`. The cell stays until step 2, so decisions keep their
    answers in between.
 2. `Step` and `Viewing`: the pre-read walks return `Step`, with the plain path for subtrees with
@@ -154,5 +165,6 @@ the paths taken read. Four things are wrong with how that works today:
 4. Docs, framed as dirty marking: pipeline doc §1a (each layer gets its value; its rule "a
    decision is derived from the snapshot, never read from the recorder" becomes "the recorder and
    the readers share one versioned cache"; the lasting goals join its rules) and §6; ADR 0034's
-   decision paragraph; the terminology for `Shared`, `Viewing`, dirty and a plain tick. Bench:
+   decision paragraph; the terminology for `Shared`, `Viewing`, dirty and a plain tick; the
+   fetch option in `writing-components.md`. Bench:
    `page`, `tickRender`, a pull and a recorder frame, allocation first with escape analysis off.
