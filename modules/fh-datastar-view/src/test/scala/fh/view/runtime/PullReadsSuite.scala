@@ -94,7 +94,7 @@ class PullReadsSuite extends munit.FunSuite {
   private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
-        .fetchesForPage(Set("withChart"), Map.empty, Map.empty)
+        .fetchesForPage(Set("withChart"), Shared.of(Map.empty), Map.empty)
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -106,7 +106,8 @@ class PullReadsSuite extends munit.FunSuite {
         cache,
         log,
         Map.empty,
-        Map("light.a" -> EntityState("light.a", "on", Map.empty)),
+        Shared.of(Map("light.a" -> EntityState("light.a", "on", Map.empty))),
+        noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
         Map.empty,
         0L,

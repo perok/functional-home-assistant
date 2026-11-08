@@ -28,7 +28,9 @@ class StateStoreSuite extends munit.FunSuite {
       _ <- store.update(st("a", "1"))
       _ <- store.update(st("b", "on"))
       out <- collected.joinWithNever
-    } yield out.flatten).timeout(10.seconds).unsafeRunSync()
+    } yield out.flatten.collect { case m: StateChange.Moved => m })
+      .timeout(10.seconds)
+      .unsafeRunSync()
 
     assertEquals(changes.map(_.entityId), List("b"))
     assertEquals(changes.head.previous, None)
@@ -78,7 +80,9 @@ class StateStoreSuite extends munit.FunSuite {
       _ <- store.update(attrs("b", "off", "brightness", "0")) // changed
       _ <- store.update(st("c", "42")) // appeared during the outage
       out <- collected.joinWithNever
-    } yield out.flatten).timeout(10.seconds).unsafeRunSync()
+    } yield out.flatten.collect { case m: StateChange.Moved => m })
+      .timeout(10.seconds)
+      .unsafeRunSync()
 
     assertEquals(changes.map(_.entityId), List("b", "c"))
     // The pre-outage value, so a candidate set can tell it crossed a boundary.
@@ -116,15 +120,19 @@ class StateStoreSuite extends munit.FunSuite {
     assertEquals(version, 1L)
   }
 
-  test("a removal moves the version even though it publishes no change") {
-    val version = (for {
+  test("a removal is a change: it moves the version and is published") {
+    val (published, version) = (for {
       s <- StateStore.inMemory(Map("a" -> st("a", "1")))
+      collected <- s.changes.take(1).compile.toList.start
+      _ <- s.changeSubscribers.filter(_ >= 1).head.compile.drain
       _ <- s.update(List(Ingest.Remove("a")))
+      out <- collected.joinWithNever
       v <- s.version
-    } yield v).timeout(10.seconds).unsafeRunSync()
+    } yield (out.flatten, v)).timeout(10.seconds).unsafeRunSync()
 
-    // An `r` frame may have no registry event behind it, so the clock records
-    // it though nothing is re-rendered.
+    // An `r` frame may have no registry event behind it, so whatever read the
+    // entity moves before a rebuild does.
+    assertEquals(published, List(StateChange.Removed("a", st("a", "1"))))
     assertEquals(version, 1L)
   }
 
@@ -204,7 +212,14 @@ class StateStoreSuite extends munit.FunSuite {
       _ <- s.update(st("a", "2"))
       out <- collected.joinWithNever
       snap <- s.snapshot
-    } yield (out.flatten.head.current.contentVersion, snap("a").contentVersion))
+    } yield (
+      out.flatten
+        .collect { case m: StateChange.Moved => m }
+        .head
+        .current
+        .contentVersion,
+      snap("a").contentVersion
+    ))
       .timeout(10.seconds)
       .unsafeRunSync()
 

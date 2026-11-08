@@ -37,6 +37,12 @@ final class FetchSnapshot private (
 
   def staged(node: NodeId, ask: SlotAsk): Staged = staged(read(node, ask))
 
+  def has(read: SlotRead): Boolean = answers.contains(read)
+
+  /** A decision run's rounds so far: its answers grow, its vars are none. */
+  def ++(more: FetchSnapshot): FetchSnapshot =
+    new FetchSnapshot(answers ++ more.answers, vars)
+
   private def staged(read: SlotRead): Staged =
     answers.getOrElse(
       read,

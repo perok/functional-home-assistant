@@ -337,6 +337,13 @@ case class SlotAsk(fetch: FetchTemplate, stage: Step.FetchStage)
       stage
     )
 
+object SlotAsk:
+  /** What a decision reads of `fetches`: raw, at no viewer's variables, which
+    * `validate` refuses there.
+    */
+  def decision(fetches: List[FetchTemplate]): Set[SlotRead] =
+    fetches.map(SlotAsk(_, Step.Json).resolve(Map.empty)).toSet
+
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
 
@@ -345,6 +352,9 @@ object Fetching:
     * pre-read and the paint share ([[Ready.Slot.gate]]).
     */
   final case class Gate(valueWhile: Ready.Slot, entity: Option[String]):
+    lazy val reads: Set[SlotRead] =
+      SlotAsk.decision(valueWhile.bound.fetches.map(_.fetch))
+
     /** By content, so two slots gated alike share one decision. */
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 

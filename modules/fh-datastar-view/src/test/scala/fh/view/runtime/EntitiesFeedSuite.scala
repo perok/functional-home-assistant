@@ -208,7 +208,9 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
         }
         .flatMap(_.embedNever)
     } yield assertEquals(
-      published.flatten.map(c => (c.entityId, c.current.state)),
+      published.flatten.collect { case m: StateChange.Moved =>
+        (m.entityId, m.current.state)
+      },
       List(("sensor.ams", "99"))
     )
   }

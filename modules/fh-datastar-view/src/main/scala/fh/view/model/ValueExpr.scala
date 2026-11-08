@@ -13,11 +13,15 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   *
   * @param default
   *   what an empty result shows instead, typed as the slot is.
+  * @param dependsOn
+  *   entities whose change moves it though nothing in it reads them: what an
+  *   author says a fetch follows, since the runtime cannot see into one.
   */
 final case class ValueExpr(
     source: Value,
     steps: List[Step] = Nil,
-    default: Option[Lit] = None
+    default: Option[Lit] = None,
+    dependsOn: List[String] = Nil
 ) derives CanEqual:
 
   /** A literal with nothing run on it but the theme's swap, which the renderer
@@ -43,7 +47,7 @@ final case class ValueExpr(
       case Value.Entity(of, _, _, _) => of
       case _                         => subject
     if (subject.isEmpty && own.isEmpty) this
-    else ValueExpr(src, steps.map(Step.about(own)), default)
+    else copy(source = src, steps = steps.map(Step.about(own)))
 
   /** What it holds besides its source's own read, its source's first. Every
     * walk below goes through it, so a new value or step kind is a compile error
@@ -53,14 +57,14 @@ final case class ValueExpr(
     Value.parts(source) ++ steps.flatMap(Step.parts)
 
   /** Every entity what it holds names ([[parts]]), its CELs' own inputs
-    * included: what wakes it besides its source's own read.
+    * included, and [[dependsOn]]: what wakes it besides its source's own read.
     */
   def partEntities: List[String] = parts.flatMap {
     case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v)
     case ValueExpr.Inner.Item(e)      => e.entities
     case ValueExpr.Inner.PerMember(e) => e.entities
     case ValueExpr.Inner.Input(e)     => e.entities
-  }
+  } ++ dependsOn
 
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
@@ -333,9 +337,9 @@ object ValueExpr:
         .map((n, v) => s"$n=${v.inputKey.length}:${v.inputKey}")
         .mkString("{", ";", "}")
 
-  val fieldNames: Set[String] = Set("source", "steps", "default")
+  val fieldNames: Set[String] = Set("source", "steps", "default", "dependsOn")
 
-  /** A bare primitive, or `{source, steps, default}`. */
+  /** A bare primitive, or `{source, steps, default, dependsOn}`. */
   given Decoder[ValueExpr] = Decoder.instance(c =>
     if (!c.value.isObject) c.as[Lit].map(l => ValueExpr(Value.Literal(l)))
     else Strict.only(c, fieldNames) *> fields(c)
@@ -346,7 +350,8 @@ object ValueExpr:
     (
       c.get[Value]("source"),
       c.getOrElse[List[Step]]("steps")(Nil),
-      c.getOrElse[Option[Lit]]("default")(None)
+      c.getOrElse[Option[Lit]]("default")(None),
+      c.getOrElse[List[String]]("dependsOn")(Nil)
     ).mapN(ValueExpr.apply)
 
 /** What a source or step produces, checked in order through a [[ValueExpr]]'s

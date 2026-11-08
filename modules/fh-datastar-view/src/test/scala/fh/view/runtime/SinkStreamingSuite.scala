@@ -66,8 +66,8 @@ class SinkStreamingSuite extends munit.FunSuite {
     )
     val own = renderer.renderPageInto(
       Sink.streaming(w),
-      noStates,
-      fragments = FetchSnapshot.empty
+      Shared.of(noStates),
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     w.flush()
     (rec, own)
@@ -118,15 +118,15 @@ class SinkStreamingSuite extends munit.FunSuite {
     // A BufferedWriter would coalesce the runs being measured.
     val own = renderer.renderPageInto(
       Sink.streaming(direct),
-      noStates,
-      fragments = FetchSnapshot.empty
+      Shared.of(noStates),
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     val document = Sink.buffer(renderer.pageBytesHint)
     val _ =
       renderer.renderPageInto(
         document,
-        noStates,
-        fragments = FetchSnapshot.empty
+        Shared.of(noStates),
+        Viewing(Selections.none, FetchSnapshot.empty)
       )
 
     assert(own.nonEmpty, "the walk painted nothing")
@@ -134,7 +134,11 @@ class SinkStreamingSuite extends munit.FunSuite {
     val largestNode =
       own.keys.toList
         .flatMap(
-          renderer.renderNodeById(_, noStates, fragments = FetchSnapshot.empty)
+          renderer.renderNodeById(
+            _,
+            Shared.of(noStates),
+            Viewing(Selections.none, FetchSnapshot.empty)
+          )
         )
         .map(_.length)
         .max
@@ -162,7 +166,11 @@ class SinkStreamingSuite extends munit.FunSuite {
 
     val buf = Sink.buffer(renderer.pageBytesHint)
     val bufferOwn =
-      renderer.renderPageInto(buf, noStates, fragments = FetchSnapshot.empty)
+      renderer.renderPageInto(
+        buf,
+        Shared.of(noStates),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      )
 
     assertEquals(rec.text, buf.result)
     assertEquals(streamOwn, bufferOwn)

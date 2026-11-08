@@ -75,7 +75,7 @@ class MemberGraphSuite extends munit.FunSuite {
   test("an unguarded clause is present whatever the state says") {
     val g = graphOf(set(List("light.a", "light.b")))
     assertEquals(
-      g.memberEntities(gid, snapshot(st("light.a", "off"))),
+      g.memberEntities(gid, Shared.of(snapshot(st("light.a", "off")))),
       List("light.a", "light.b")
     )
   }
@@ -90,7 +90,7 @@ class MemberGraphSuite extends munit.FunSuite {
     assertEquals(
       g.memberEntities(
         gid,
-        snapshot(st("light.a", "on"), st("light.b", "off"))
+        Shared.of(snapshot(st("light.a", "on"), st("light.b", "off")))
       ),
       List("light.a")
     )
@@ -105,8 +105,8 @@ class MemberGraphSuite extends munit.FunSuite {
     )
     val shown = snapshot(st("light.a", "off"), st("binary_sensor.hall", "on"))
     val hidden = snapshot(st("light.a", "on"), st("binary_sensor.hall", "off"))
-    assertEquals(g.memberEntities(gid, shown), List("light.a"))
-    assertEquals(g.memberEntities(gid, hidden), Nil)
+    assertEquals(g.memberEntities(gid, Shared.of(shown)), List("light.a"))
+    assertEquals(g.memberEntities(gid, Shared.of(hidden)), Nil)
   }
 
   test("a candidate HA has never heard of still gets its clauses evaluated") {
@@ -116,7 +116,7 @@ class MemberGraphSuite extends munit.FunSuite {
       set(List("light.ghost"), e => List(clause(e, Some(isOn("sensor.hall")))))
     )
     assertEquals(
-      g.memberEntities(gid, snapshot(st("sensor.hall", "on"))),
+      g.memberEntities(gid, Shared.of(snapshot(st("sensor.hall", "on")))),
       List("light.ghost")
     )
   }
@@ -130,7 +130,7 @@ class MemberGraphSuite extends munit.FunSuite {
       )
     )
     def cardOf(s: Map[String, EntityState]) =
-      g.membersOf(gid, s).map(_.node.card).toList
+      g.membersOf(gid, Shared.of(s)).map(_.node.card).toList
     assertEquals(cardOf(snapshot(st("light.a", "on"))), List("slider"))
     assertEquals(cardOf(snapshot(st("light.a", "off"))), List("pill"))
   }
@@ -138,7 +138,10 @@ class MemberGraphSuite extends munit.FunSuite {
   test("with no orderBy the AUTHORED candidate order is the order") {
     val g = graphOf(set(List("light.z", "light.a")))
     assertEquals(
-      g.memberEntities(gid, snapshot(st("light.z", "on"), st("light.a", "on"))),
+      g.memberEntities(
+        gid,
+        Shared.of(snapshot(st("light.z", "on"), st("light.a", "on")))
+      ),
       List("light.z", "light.a")
     )
   }
@@ -151,7 +154,10 @@ class MemberGraphSuite extends munit.FunSuite {
       st("light.a", "on", "brightness" -> Json.fromInt(10)),
       st("light.b", "on", "brightness" -> Json.fromInt(2))
     )
-    assertEquals(g.memberEntities(gid, states), List("light.b", "light.a"))
+    assertEquals(
+      g.memberEntities(gid, Shared.of(states)),
+      List("light.b", "light.a")
+    )
   }
 
   test("desc reverses it") {
@@ -166,7 +172,10 @@ class MemberGraphSuite extends munit.FunSuite {
       st("light.a", "on", "brightness" -> Json.fromInt(10)),
       st("light.b", "on", "brightness" -> Json.fromInt(2))
     )
-    assertEquals(g.memberEntities(gid, states), List("light.a", "light.b"))
+    assertEquals(
+      g.memberEntities(gid, Shared.of(states)),
+      List("light.a", "light.b")
+    )
   }
 
   test("a Holds key puts the TRUE ones first under asc") {
@@ -179,7 +188,10 @@ class MemberGraphSuite extends munit.FunSuite {
       )
     )
     val states = snapshot(st("light.a", "on"), st("light.b", "on"))
-    assertEquals(g.memberEntities(gid, states), List("light.a", "light.b"))
+    assertEquals(
+      g.memberEntities(gid, Shared.of(states)),
+      List("light.a", "light.b")
+    )
   }
 
   test("equal sort keys keep the authored order — the tiebreak is mandatory") {
@@ -190,7 +202,7 @@ class MemberGraphSuite extends munit.FunSuite {
     val states =
       snapshot(st("light.z", "on"), st("light.a", "on"), st("light.m", "on"))
     assertEquals(
-      g.memberEntities(gid, states),
+      g.memberEntities(gid, Shared.of(states)),
       List("light.z", "light.a", "light.m")
     )
   }
@@ -209,14 +221,17 @@ class MemberGraphSuite extends munit.FunSuite {
       st("light.b", "off", "brightness" -> Json.fromInt(1)),
       st("light.c", "on", "brightness" -> Json.fromInt(20))
     )
-    assertEquals(g.memberEntities(gid, states), List("light.c", "light.a"))
+    assertEquals(
+      g.memberEntities(gid, Shared.of(states)),
+      List("light.c", "light.a")
+    )
   }
 
   private def change(
       before: Map[String, EntityState],
       after: Map[String, EntityState],
       e: String
-  ) = StateChange(e, before.get(e), after(e))
+  ) = StateChange.Moved(e, before.get(e), after(e))
 
   test("an arrival lands where a full materialisation would have put it") {
     val g = graphOf(
@@ -230,12 +245,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val after =
       snapshot(st("light.a", "on"), st("light.b", "on"), st("light.c", "on"))
     val delta =
-      g.syncMembers(
-        Membership.empty,
+      g.deltas(
+        List(gid),
         List(change(before, after, "light.b")),
-        before,
-        after
-      ).deltas(gid)
+        Shared.of(before),
+        Shared.of(after)
+      )(gid)
     assertEquals(delta.was, List("light.a", "light.c"))
     assertEquals(delta.now, List("light.a", "light.b", "light.c"))
     assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
@@ -253,12 +268,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val before = snapshot(st("light.a", "on"))
     val after = snapshot(st("light.a", "off"))
     val delta =
-      g.syncMembers(
-        Membership.empty,
+      g.deltas(
+        List(gid),
         List(change(before, after, "light.a")),
-        before,
-        after
-      ).deltas(gid)
+        Shared.of(before),
+        Shared.of(after)
+      )(gid)
     assertEquals(delta.was, List("light.a"))
     assertEquals(delta.now, List("light.a"))
     assertEquals(delta.replaced.map(_.id), Vector(g.memberIdOf(gid, "light.a")))
@@ -274,14 +289,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val after = snapshot(st("light.a", "off"))
     List(None, Some(5)).foreach { limit =>
       val g = graphOf(set(List("light.a"), equalClauses, limit = limit))
-      val delta = g
-        .syncMembers(
-          Membership.empty,
-          List(change(before, after, "light.a")),
-          before,
-          after
-        )
-        .deltas(gid)
+      val delta = g.deltas(
+        List(gid),
+        List(change(before, after, "light.a")),
+        Shared.of(before),
+        Shared.of(after)
+      )(gid)
       assertEquals(
         delta.replaced.map(_.id),
         Vector(g.memberIdOf(gid, "light.a")),
@@ -295,12 +308,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val before = snapshot(st("light.a", "on", "brightness" -> Json.fromInt(1)))
     val after = snapshot(st("light.a", "on", "brightness" -> Json.fromInt(2)))
     val delta =
-      g.syncMembers(
-        Membership.empty,
+      g.deltas(
+        List(gid),
         List(change(before, after, "light.a")),
-        before,
-        after
-      ).deltas(gid)
+        Shared.of(before),
+        Shared.of(after)
+      )(gid)
     assertEquals(delta.was, delta.now)
     assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
   }
@@ -314,18 +327,20 @@ class MemberGraphSuite extends munit.FunSuite {
     )
     val s = snapshot(st("light.a", "on"), st("binary_sensor.hall", "on"))
     def touched(e: String) =
-      g.affectedSets(List(StateChange(e, None, s(e))))
+      g.affectedSets(List(StateChange.Moved(e, None, s(e))))
     assertEquals(touched("binary_sensor.hall"), List(gid))
     assertEquals(touched("light.a"), List(gid))
     assertEquals(
-      g.affectedSets(List(StateChange("sensor.z", None, st("sensor.z", "1")))),
+      g.affectedSets(
+        List(StateChange.Moved("sensor.z", None, st("sensor.z", "1")))
+      ),
       Nil
     )
   }
 
   test("affectedSets is scoped to the layout tree the set lives in") {
     val g = graphOf(set(List("light.a")), root = "detail")
-    val ch = List(StateChange("light.a", None, st("light.a", "on")))
+    val ch = List(StateChange.Moved("light.a", None, st("light.a", "on")))
     assertEquals(g.affectedSets(ch), Nil)
     assertEquals(g.affectedSetsWithin(ch, _ == "detail"), List(gid))
   }
@@ -397,7 +412,7 @@ class MemberGraphSuite extends munit.FunSuite {
     )
 
     val states = snapshot(st("light.a", "on"), st("light.b", "on"))
-    val innerMember = g.membersOf(innerId, states).head
+    val innerMember = g.membersOf(innerId, Shared.of(states)).head
     assertEquals(innerMember.root, "detail")
   }
 

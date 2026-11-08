@@ -36,7 +36,8 @@ import fh.view.runtime.{
   Evaluator,
   RenderInputs,
   Renderer,
-  Selections
+  Selections,
+  sharedOf
 }
 import io.circe.Json
 import io.github.iltotore.iron.*
@@ -381,11 +382,21 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     )
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForSurface("popup", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface(
+        "popup",
+        sharedOf(Map.empty),
+        Selections.none,
+        Map.empty
+      ),
       List(read())
     )
     assertEquals(
-      r.fetchesForSurface("nope", Map.empty, Selections.none, Map.empty),
+      r.fetchesForSurface(
+        "nope",
+        sharedOf(Map.empty),
+        Selections.none,
+        Map.empty
+      ),
       Nil
     )
   }
@@ -448,7 +459,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     def light(s: String) =
       Map("light.a" -> EntityState("light.a", s, Map.empty))
     def windows(selected: String, states: Map[String, EntityState]) =
-      r.fetchesForPage(Set(selected), states, Map.empty)
+      r.fetchesForPage(Set(selected), sharedOf(states), Map.empty)
         .map(r =>
           Windows.presets
             .collectFirst {

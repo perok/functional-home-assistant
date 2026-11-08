@@ -125,7 +125,11 @@ class SignalSlotSuite extends ServerHarness {
   test("the patch form carries neither the value nor the seed") {
     val patch =
       renderer
-        .renderNodeById(leaf, at("21.4"), fragments = FetchSnapshot.empty)
+        .renderNodeById(
+          leaf,
+          Shared.of(at("21.4")),
+          Viewing(Selections.none, FetchSnapshot.empty)
+        )
         .get
     assertEquals(patch.contains("21.4"), false, clue = patch)
     assertEquals(patch.contains("data-signals"), false, clue = patch)
@@ -150,7 +154,11 @@ class SignalSlotSuite extends ServerHarness {
     assert(page.contains(assigned), clue = page)
     // The patch form withholds the value, not the name: the section stays open.
     val patch =
-      r.renderNodeById(leaf, at("21.4"), fragments = FetchSnapshot.empty).get
+      r.renderNodeById(
+        leaf,
+        Shared.of(at("21.4")),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      ).get
     assert(patch.contains(assigned), clue = patch)
     val plain =
       guarded(TemplateSlot(ValueExpr(Value.Entity(Some("sensor.a")))))
@@ -177,17 +185,27 @@ class SignalSlotSuite extends ServerHarness {
     // check for it.
     val freeR = Renderer.create(plain)
     val free =
-      freeR.renderBodyTraced(at("21.4"), fragments = FetchSnapshot.empty)
+      freeR.renderBodyTraced(
+        Shared.of(at("21.4")),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      )
     val freeId = free.own.keys.head
     assert(
       free.own(freeId).digest == Digest.of(free.html),
       clue = "a signal-free node rendered twice"
     )
     val signalled =
-      renderer.renderBodyTraced(at("21.4"), fragments = FetchSnapshot.empty)
+      renderer.renderBodyTraced(
+        Shared.of(at("21.4")),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      )
     val signalledId = signalled.own.keys.head
     val signalledPatch = renderer
-      .renderNodeById(signalledId, at("21.4"), fragments = FetchSnapshot.empty)
+      .renderNodeById(
+        signalledId,
+        Shared.of(at("21.4")),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      )
       .get
     assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
     assert(signalled.own(signalledId).digest != Digest.of(signalled.html))
@@ -334,7 +352,7 @@ class SignalSlotSuite extends ServerHarness {
     val html = r.renderPage(states)
     assert(html.contains("data-text=\"$_e.light.a.state\""), clue = html)
     assertEquals(
-      r.signalsFor("c_light_a", states, FetchSnapshot.empty),
+      r.signalsFor("c_light_a", Shared.of(states), FetchSnapshot.empty),
       Map(sig("light.a") -> "on")
     )
   }
@@ -599,9 +617,8 @@ class SignalSlotSuite extends ServerHarness {
     val r = Renderer.create(boxed)
     val holds = r.renderPageHolds(
       Sink.buffer(r.pageBytesHint),
-      lit(40),
-      Selections.none,
-      FetchSnapshot.empty
+      Shared.of(lit(40)),
+      Viewing(Selections.none, FetchSnapshot.empty)
     )
     val out = resumeNow(
       r,
@@ -907,7 +924,11 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     val fill = r
-      .renderSurfaceTraced("panel", states, fragments = FetchSnapshot.empty)
+      .renderSurfaceTraced(
+        "panel",
+        Shared.of(states),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      )
       .map(_.html)
       .get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
@@ -1068,9 +1089,9 @@ class SignalSlotSuite extends ServerHarness {
     val on =
       Map("light.a" -> st("light.a", "on"), "light.b" -> st("light.b", "on"))
     val gone = on.updated("light.a", st("light.a", "off"))
-    // The log must know the members, or the group is not established and a
-    // departure refills the host wholesale.
-    val known = r.members.syncMembers(Membership.empty, Nil, on, on).membership
+    val prev = Shared.of(on)
+    val next = Shared.of(gone, 1L)
+    val sets = List(SetId.of(NodeId.derived("c"), LayoutNode.SetNode()))
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
       id -> Held(Some(p.digest), p.signals)
     }
@@ -1078,31 +1099,28 @@ class SignalSlotSuite extends ServerHarness {
       .foldLeft(FragmentLog("test"))((l, id) =>
         l.touched(NodeId.derived(id), 0L)
       )
-    val delta = r.members
-      .syncMembers(
-        known,
-        List(
-          StateChange(
-            "light.a",
-            Some(st("light.a", "on")),
-            st("light.a", "off")
-          )
-        ),
-        on,
-        gone
-      )
-      .deltas
+    val delta = r.members.deltas(
+      sets,
+      List(
+        StateChange.Moved(
+          "light.a",
+          Some(st("light.a", "on")),
+          st("light.a", "off")
+        )
+      ),
+      prev,
+      next
+    )
     val log = Patches.record(
       r,
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        sets = List(SetId.of(NodeId.derived("c"), LayoutNode.SetNode())),
+        sets = sets,
         flips = Nil,
-        states = gone,
-        before = on,
-        membership = delta,
-        at = 1L
+        prev = prev,
+        next = next,
+        membership = delta
       )
     )
     val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)

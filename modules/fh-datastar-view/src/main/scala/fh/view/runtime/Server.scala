@@ -310,20 +310,31 @@ class Server(
           case None =>
             IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
           case Some(renderer) =>
-            currentFor(renderer).map(store =>
-              NonEmptyList
-                .fromList(renderer.pressed(s, store.entities))
-                .map(ServiceTarget.Entities(_))
-            )
+            stateStore.current
+              .flatMap(decided(renderer, _)(renderer.pressed(s, _)))
+              .map((present, _) =>
+                NonEmptyList.fromList(present).map(ServiceTarget.Entities(_))
+              )
         }
     }
 
-  /** The store now, `renderer`'s decisions answered first. The only read of the
-    * store here, so no path decides on a snapshot without its answers (pipeline
-    * doc §1a).
+  /** `store`'s version with what `walk` reaches decided: its result, and the
+    * version the rest of the send reads, which raises on a fetch-reading
+    * decision the walk did not reach.
     */
-  private def currentFor(renderer: Renderer): IO[StoreState] =
-    renderer.answerDecisions(answer(_, Map.empty)) *> stateStore.current
+  private def decided[A](renderer: Renderer, store: StoreState)(
+      walk: Shared => A
+  ): IO[(A, Shared)] = {
+    val shared = renderer.shared(store)
+    renderer.decide(decisionAnswers) { run =>
+      val at = shared.asking(run)
+      walk(at) -> at
+    }
+  }
+
+  // A decision reads no viewer's variable (refused at build).
+  private def decisionAnswers(reads: Set[SlotRead]): IO[FetchSnapshot] =
+    answer(reads.toList, Map.empty)
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
     * routes without it sees the same response.
@@ -385,18 +396,24 @@ class Server(
         // never had (ADR 0011). Not on the first arm: `discrete` emits the
         // current renderer at once, and rotating there refuses the cursor of a
         // page served in that window.
-        // The membership starts empty per arm, as the log does: it belongs to
-        // this renderer's graph.
+        // The fold restarts per arm, as the log does: a `Shared` is this
+        // renderer's decisions. The first frame is the seed, recorded nowhere.
         Stream.exec(
           IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
         ) ++
-          stateStore.changes
-            .evalMapAccumulate(Membership.empty)(
-              recordFrame(slug, renderer, live.log, _, _)
-            )
+          stateStore.frames
+            .evalMapAccumulate(Option.empty[Shared]) {
+              case (None, seed) =>
+                IO(Some(renderer.shared(seed.state)) -> None)
+              case (Some(prev), frame) =>
+                recordFrame(slug, renderer, live.log, prev, frame)
+                  .map((next, version) => Some(next) -> Some(version))
+            }
             // Ring AFTER the write, or a woken session reads a log that does
             // not yet hold the version it was told about, and skips past it.
-            .evalMap { case (_, version) => live.doorbell.set(version) }
+            .evalMap { case (_, version) =>
+              version.traverse_(live.doorbell.set)
+            }
     }.drain
 
   /** The one place a recorder starts or stops: one per registered slug,
@@ -459,51 +476,42 @@ class Server(
       slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
-      held: Membership,
-      changes: List[StateChange]
-  ): IO[(Membership, Long)] =
-    (currentFor(renderer), sessions.openSets(slug), sessions.floor(slug))
-      .flatMapN { (store, opens, floor) =>
-        val before = Patches.beforeSnapshot(store.entities, changes)
-        // Before the gate and for every group: the membership tracks the
-        // state stream, not who is watching, and is the next frame's "before".
-        IO(renderer.members.syncMembers(held, changes, before, store.entities))
-          .flatMap { synced =>
-            val recorded =
-              if (opens.isEmpty)
-                log.update(_.skipped(store.version)).as(store.version)
-              else {
-                // Only surfaces some client can see: a tab inside a hidden `If`
-                // is selected but on no screen. Filtered per session before the
-                // union, because a chain is one client's.
+      prev: Shared,
+      frame: Frame
+  ): IO[(Shared, Long)] =
+    (sessions.openSets(slug), sessions.floor(slug)).flatMapN { (opens, floor) =>
+      val version = frame.state.version
+      // Before the gate: the carry tracks the stream, not who is watching,
+      // and is the next frame's "before".
+      IO(renderer.advance(prev, frame)).flatMap { next =>
+        val recorded =
+          if (opens.isEmpty) log.update(_.skipped(version))
+          else
+            // One run for "before" and "after": a decision shown in either is
+            // made there, dirty or never made; one nobody shows is not reached.
+            renderer
+              .decide(decisionAnswers) { run =>
+                val (was, now) = (prev.asking(run), next.asking(run))
+                // Only surfaces some client can see: a tab inside a hidden
+                // `If` is selected but on no screen. Filtered per session
+                // before the union, because a chain is one client's.
                 val visible = opens
                   .flatMap(o =>
-                    o.filter(
-                      renderer.surfaces.visibleSurface(_, o, store.entities)
-                    )
+                    o.filter(renderer.surfaces.visibleSurface(_, o, now))
                   )
                   .toSet
-                val req = Patches.plan(
-                  renderer,
-                  store.entities,
-                  before,
-                  synced,
-                  store.version,
-                  changes,
-                  visible
-                )
-                // Written and pruned in one update, so a concurrent write cannot
-                // be lost between them.
-                log
-                  .update(l =>
-                    floor
-                      .foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
-                  )
-                  .as(store.version)
+                Patches.plan(renderer, was, now, frame.changes, visible)
               }
-            recorded.map(synced.membership -> _)
-          }
+              // Written and pruned in one update, so a concurrent write
+              // cannot be lost between them.
+              .flatMap(req =>
+                log.update(l =>
+                  floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
+                )
+              )
+        recorded.as(next -> version)
       }
+    }
 
   /** Drop a session a later document in the same tab superseded, unless a
     * stream still holds it. Deregistered by reference, so a `conn` a later
@@ -720,7 +728,7 @@ class Server(
         (for
           renderer <- OptionT(live.renderer.get.map(_.rendererOf))
           log <- OptionT.liftF(live.log.get)
-          store <- OptionT.liftF(currentFor(renderer))
+          store <- OptionT.liftF(stateStore.current)
         yield (renderer, log, store))
           .flatMap { (renderer, log, store) =>
             val env = renderer.vars.env(s.values)
@@ -730,7 +738,8 @@ class Server(
                 live.cache,
                 log,
                 s.holds,
-                store.entities,
+                renderer.shared(store),
+                decisionAnswers,
                 answer(_, env),
                 env,
                 s.position + 1,
@@ -791,7 +800,7 @@ class Server(
       covered <- OptionT.liftF(live.doorbell.get)
       renderer <- OptionT(live.renderer.get.map(_.rendererOf))
       log <- OptionT.liftF(live.log.get)
-      store <- OptionT.liftF(currentFor(renderer))
+      store <- OptionT.liftF(stateStore.current)
     yield (covered, renderer, log, store))
       .flatMap { (covered, renderer, log, store) =>
         val cursor = Server.cursorOf(req)
@@ -799,6 +808,7 @@ class Server(
           OptionT.pure[IO](Session.Step(s, List(Server.reloadPatch), ()))
         else {
           val env = renderer.vars.env(s.values)
+          val shared = renderer.shared(store)
           val head =
             if (cursor.exists(_.styleHash != renderer.styleHash))
               Server.headPatches(renderer, slug)
@@ -820,7 +830,8 @@ class Server(
                 live.cache,
                 log,
                 s.holds,
-                store.entities,
+                shared,
+                decisionAnswers,
                 answer(_, env),
                 env,
                 Server.resumeFrom(req, c),
@@ -831,8 +842,8 @@ class Server(
           // Traced, so the repaint claims what it painted; clearing `holds`
           // instead would re-send the open surfaces on the next pull.
           val painted =
-            pageAnswers(renderer, s.open, store.entities, env).map(
-              Patches.repaint(renderer, store.entities, selections, _)
+            pageAnswers(renderer, s.open, store, env).map((fragments, at) =>
+              Patches.repaint(renderer, at, Viewing(selections, fragments))
             )
           val orphan = Server.orphanedPopup(renderer, Server.popupOf(req))
           OptionT.liftF(resumedIO.flatMap { resumed =>
@@ -943,9 +954,9 @@ class Server(
     val popup = prev.surfaces.selectionsIn(s.open).popup
     val ui = r.surfaces.selections(popup, env)
     val open = r.surfaces.selectedSurfaces(ui)
-    session.reveal(open) *> (currentFor(r), live.log.get).flatMapN {
+    session.reveal(open) *> (stateStore.current, live.log.get).flatMapN {
       (store, log) =>
-        pageAnswers(r, open, store.entities, env).map { fragments =>
+        pageAnswers(r, open, store, env).map { (fragments, shared) =>
           val head =
             if (prev.styleHash != r.styleHash)
               Server.headPatches(r, session.slug)
@@ -953,7 +964,7 @@ class Server(
           // Claimed as in [[openingPatches]]. `told` too, or the keepalive
           // announces a lower version than the swap did.
           val (painted, held) =
-            Patches.repaint(r, store.entities, ui, fragments)
+            Patches.repaint(r, shared, Viewing(ui, fragments))
           Session.Step(
             s.copy(
               open = open,
@@ -1019,20 +1030,19 @@ class Server(
     val open = (s.open -- evict) ++ newSurface.toSet
     for {
       _ <- session.reveal(open)
-      store <- currentFor(renderer)
-      states = store.entities
+      store <- stateStore.current
       // Only the arriving surface's fetches, so an unopened popup costs
       // nothing.
       env = renderer.vars.env(s.values)
-      fragments <- resolveFetches(renderer, newSurface, states, selections, env)
+      answered <- resolveFetches(renderer, newSurface, store, selections, env)
+      (fragments, shared) = answered
     } yield {
       val (holds, filled) = Patches.hostFill(
         renderer,
         host,
         newSurface,
-        states,
-        selections,
-        fragments
+        shared,
+        Viewing(selections, fragments)
       ) match {
         case Some((patch, html)) =>
           Patches.applied(renderer.ancestry, s.holds, patch) ->
@@ -1063,27 +1073,29 @@ class Server(
     }
   }
 
+  /** The arriving surface's answers, and the version its render reads. */
   private def resolveFetches(
       renderer: Renderer,
       arriving: Option[String],
-      states: Map[String, EntityState],
+      store: StoreState,
       selections: Selections,
       env: VarEnv
-  ): IO[FetchSnapshot] =
-    answer(
+  ): IO[(FetchSnapshot, Shared)] =
+    decided(renderer, store)(shared =>
       arriving.toList.flatMap(
-        renderer.fetchesForSurface(_, states, selections, env)
-      ),
-      env
-    )
+        renderer.fetchesForSurface(_, shared, selections, env)
+      )
+    ).flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
+  /** The page's answers, and the version its render reads. */
   private def pageAnswers(
       renderer: Renderer,
       open: Set[String],
-      states: Map[String, EntityState],
+      store: StoreState,
       env: VarEnv
-  ): IO[FetchSnapshot] =
-    answer(renderer.fetchesForPage(open, states, env), env)
+  ): IO[(FetchSnapshot, Shared)] =
+    decided(renderer, store)(renderer.fetchesForPage(open, _, env))
+      .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
     * (issue #209): the fetches that read it, and the tab panels it selects,
@@ -1104,10 +1116,20 @@ class Server(
     val groups = renderer.vars.panelsSelectedBy(key)
     val proposed = s.vars + (key -> value)
     for {
-      store <- currentFor(renderer)
-      shown = renderer.surfaces.visibleNode(_, s.open, store.entities)
+      store <- stateStore.current
+      reached <- decided(renderer, store) { at =>
+        val shown = renderer.surfaces.visibleNode(_, s.open, at)
+        (
+          shown(key.declarer),
+          groups.filter(gid =>
+            shown(gid) && renderer.surfaces.groupShown(gid, at)
+          ),
+          readers.filter(shown)
+        )
+      }
+      ((declarerShown, shownGroups, targets), _) = reached
       _ <- IO.raiseWhen(
-        (readers.isEmpty && groups.isEmpty) || !shown(key.declarer)
+        (readers.isEmpty && groups.isEmpty) || !declarerShown
       )(
         FHError.notFound(
           s"no node this viewer is shown reads the variable '${key.name}' declared on '${key.declarer}'"
@@ -1121,10 +1143,7 @@ class Server(
       env = renderer.vars.env(s.initialValues ++ proposed)
       after = renderer.surfaces.selections(selections.popup, env)
       // `refusals` made the value a member's of every group it selects.
-      swapped <- groups
-        .filter(gid =>
-          shown(gid) && renderer.surfaces.groupShown(gid, store.entities)
-        )
+      swapped <- shownGroups
         .flatMap { gid =>
           renderer.surfaces
             .memberAt(gid, value)
@@ -1139,11 +1158,11 @@ class Server(
               done.next
             ).map(more => more.copy(frames = done.frames ++ more.frames))
         }
-      targets = readers.filter(shown)
-      snapshot <- answer(
-        renderer.readsForPull(targets, Nil, store.entities, after, env),
-        env
+      pulled <- decided(renderer, store)(
+        renderer.readsForPull(targets, Nil, _, after, env)
       )
+      (reads, shared) = pulled
+      snapshot <- answer(reads, env)
       live <- liveFor(session.slug)
       patches <- live.toList.flatTraverse(l =>
         targets.traverseFilter(
@@ -1151,9 +1170,8 @@ class Server(
             renderer,
             l.cache,
             swapped.next.holds,
-            store.entities,
-            after,
-            snapshot,
+            shared,
+            Viewing(after, snapshot),
             _
           )
         )
@@ -1417,26 +1435,31 @@ class Server(
       renderer: Renderer,
       id: String
   ): IO[Response[IO]] =
-    currentFor(renderer).map(_.entities).flatMap { states =>
-      val entities = renderer.entitiesForNode(NodeId.derived(id), states)
-      val arr = Json.arr(entities.map { e =>
-        states.get(e) match {
-          case Some(st) =>
-            Json.obj(
-              "entity_id" -> Json.fromString(e),
-              "state" -> Json.fromString(st.state),
-              "attributes" -> Json.fromFields(st.attributes.toList)
-            )
-          case None =>
-            Json.obj(
-              "entity_id" -> Json.fromString(e),
-              "state" -> Json.Null,
-              "attributes" -> Json.obj()
-            )
-        }
-      }*)
-      Ok(arr)
-    }
+    stateStore.current
+      .flatMap(store =>
+        decided(renderer, store)(
+          renderer.entitiesForNode(NodeId.derived(id), _)
+        ).map((entities, _) => store.entities -> entities)
+      )
+      .flatMap { (states, entities) =>
+        val arr = Json.arr(entities.map { e =>
+          states.get(e) match {
+            case Some(st) =>
+              Json.obj(
+                "entity_id" -> Json.fromString(e),
+                "state" -> Json.fromString(st.state),
+                "attributes" -> Json.fromFields(st.attributes.toList)
+              )
+            case None =>
+              Json.obj(
+                "entity_id" -> Json.fromString(e),
+                "state" -> Json.Null,
+                "attributes" -> Json.obj()
+              )
+          }
+        }*)
+        Ok(arr)
+      }
 
   /** Validated by the same [[DashboardBuild.decode]] as the eval path, and a
     * failure goes back as a 400 — the pushing developer has no server logs. The
@@ -1546,7 +1569,7 @@ class Server(
         case Server.RendererState.Failed(message) =>
           errorPage(slug, message, req)
         case Server.RendererState.Ready(renderer) =>
-          currentFor(renderer).flatMap(pageOn(slug, renderer, log, conn, req))
+          stateStore.current.flatMap(pageOn(slug, renderer, log, conn, req))
     }
 
   private def pageOn(
@@ -1620,7 +1643,13 @@ class Server(
       _ <- reapAfter(conn, session, Tenure.Fresh, windows.adoption)
       store <- tracer
         .span("dashboard.page.store", Attribute("fh.slug", slug))
-        .surround(currentFor(renderer))
+        .surround(stateStore.current)
+      // Decided before the head: the walk reaches decisions at once, where a
+      // slot's answers it waits for below.
+      decidedPage <- decided(renderer, store)(
+        renderer.fetchesForPage(open, _, env)
+      )
+      (reads, shared) = decidedPage
       // Captured now: the walk runs when the body is pulled, after this `for`
       // returns, and would otherwise open its own trace (#75).
       parentSpan <- tracer.currentSpanContext
@@ -1652,7 +1681,7 @@ class Server(
       // walk on a blocking thread. Cancelled with the body, or a walk parked
       // on it never wakes.
       pending = new java.util.concurrent.CompletableFuture[FetchSnapshot]()
-      fetch <- pageAnswers(renderer, open, store.entities, env).attempt
+      fetch <- answer(reads, env).attempt
         .flatMap { r =>
           IO {
             val _ = r.fold(pending.completeExceptionally, pending.complete)
@@ -1683,9 +1712,8 @@ class Server(
                 if (!pending.isDone) w.flush()
                 own = renderer.renderPageHolds(
                   sink,
-                  store.entities,
-                  selections,
-                  Server.awaitAnswers(pending)
+                  shared,
+                  Viewing(selections, Server.awaitAnswers(pending))
                 )
               },
               renderer.themeColorTags,

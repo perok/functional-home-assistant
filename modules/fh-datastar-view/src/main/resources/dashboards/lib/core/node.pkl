@@ -341,6 +341,7 @@ const local function wireReading(r: slotMod.Reading, subject: String?, themed: B
     Map("source", source)
       + (if (steps.isEmpty) Map() else Map("steps", steps))
       + (if (r.default != null) Map("default", r.default) else Map())
+      + (if (r.dependsOn != null) Map("dependsOn", r.dependsOn) else Map())
       + (if (vw != null) Map("valueWhile", wireReading(vw, subject, false)) else Map())
 
 const local themeStage: simpleMod.ThemeClassesStage = new {}

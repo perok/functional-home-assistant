@@ -45,25 +45,6 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
-  /** Every read anything below asks, answered alike: what a chart draws is the
-    * stage's business, not the slot's.
-    */
-  private def answers(
-      r: Renderer,
-      d: Dashboard,
-      states: Map[String, EntityState],
-      nodes: List[NodeId]
-  ): FetchSnapshot = {
-    val env = r.vars.env(Map.empty)
-    val reads: List[SlotRead] =
-      r.fetchesForPage(r.surfaces.selectedSurfaces(), states, env) ++
-        d.surfaces.keys.toList.flatMap(
-          r.fetchesForSurface(_, states, Selections.none, env)
-        ) ++
-        r.readsForPull(nodes, Nil, states, Selections.none, env)
-    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
-  }
-
   private def golden(e: FixtureEntries.Entry): String = {
     val d = PklFixture.buildDashboard(e.slug, e.source, e.dump)
     val r = Renderer(
@@ -81,21 +62,32 @@ class RenderGoldenSuite extends munit.FunSuite {
         if (!body.endsWith("\n")) { val _ = out.append('\n') }
       }
     for ((houseName, states) <- houses(e)) {
+      val shared = Shared.of(states)
       val body =
-        r.renderBodyTraced(states, Selections.none, answers(r, d, states, Nil))
+        r.renderBodyTraced(
+          shared,
+          Viewing(
+            Selections.none,
+            RenderGoldenSuite.answers(r, d, shared, Nil)
+          )
+        )
       val nodes =
         (body.own.keys ++ surfaceIds.flatMap(
           r.surfaceNodeIds
         )).toList.distinct.sorted
-      val f = answers(r, d, states, nodes)
+      val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
       surfaceIds.foreach { sid =>
-        r.renderSurfaceTraced(sid, states, Selections.none, f)
+        r.renderSurfaceTraced(sid, shared, Viewing(Selections.none, f))
           .foreach(t => section(houseName, s"surface $sid", t.html))
       }
       nodes.foreach { id =>
-        r.renderNodeById(id, states, Selections.none, SlotForm.Patch, f)
-          .foreach(html => section(houseName, s"patch $id", html))
+        r.renderNodeById(
+          id,
+          shared,
+          Viewing(Selections.none, f),
+          SlotForm.Patch
+        ).foreach(html => section(houseName, s"patch $id", html))
       }
     }
     RenderGoldenSuite
@@ -137,6 +129,25 @@ class RenderGoldenSuite extends munit.FunSuite {
 object RenderGoldenSuite {
 
   import scala.util.matching.Regex.quoteReplacement
+
+  /** Every read anything below asks, answered alike: what a chart draws is the
+    * stage's business, not the slot's.
+    */
+  def answers(
+      r: Renderer,
+      d: Dashboard,
+      shared: Shared,
+      nodes: List[NodeId]
+  ): FetchSnapshot = {
+    val env = r.vars.env(Map.empty)
+    val reads: List[SlotRead] =
+      r.fetchesForPage(r.surfaces.selectedSurfaces(), shared, env) ++
+        d.surfaces.keys.toList.flatMap(
+          r.fetchesForSurface(_, shared, Selections.none, env)
+        ) ++
+        r.readsForPull(nodes, Nil, shared, Selections.none, env)
+    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
+  }
 
   /** What HA keeps on an entity whose integration it lost. */
   val RegistryAttributes: Set[String] = Set(

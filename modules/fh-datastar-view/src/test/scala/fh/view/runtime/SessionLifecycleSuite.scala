@@ -104,8 +104,8 @@ class SessionLifecycleSuite extends ServerHarness {
           .create(mixedTabsDash)
           .renderNodeById(
             "c_0",
-            snapshot.entities,
-            fragments = FetchSnapshot.empty
+            Shared.of(snapshot.entities),
+            Viewing(Selections.none, FetchSnapshot.empty)
           )
         assertEquals(
           held.flatMap(_.get("c_0")),

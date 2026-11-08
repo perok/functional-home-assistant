@@ -153,9 +153,11 @@ class SlotTypeSuite extends munit.FunSuite {
     val html = Renderer
       .create(d)
       .renderBodyTraced(
-        Map.empty,
-        Selections.none,
-        FetchSnapshot.of(Map(read -> Staged(1L, """{"points":[]}""")))
+        Shared.of(Map.empty),
+        Viewing(
+          Selections.none,
+          FetchSnapshot.of(Map(read -> Staged(1L, """{"points":[]}""")))
+        )
       )
       .html
     assert(html.contains("&quot;points&quot;"), clue = html)

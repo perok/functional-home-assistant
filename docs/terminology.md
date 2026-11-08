@@ -361,11 +361,25 @@ parents, each node's fetching slots, which nodes an entity wakes, every member a
 The second of three layers (build, index, decisions; the pipeline doc's §1a). Not the build's
 **bind** pass, which runs before any renderer exists.
 
-**Decisions** — what one state snapshot decides: which members a set holds and in which clause,
-which branch a state group shows, whether each `valueWhile` holds. Kept for that snapshot, so the
-pre-read, the walk and the paint ask rather than decide again, and every viewer of that version
-shares them. A decision may read a fetch, which the server answers before any is made. A viewer's
-own selection is not a decision, it is looked up.
+**Decisions** — what one state version decides: which members a set holds and in which clause,
+which branch a state group shows, whether each `valueWhile` holds. Held in that version's
+**`Shared`**, so the pre-read, the walk and the paint ask rather than decide again, and every
+viewer of that version shares them. A decision may read a fetch; it is then made in **rounds**: a
+walk that lacks its answers reads it as not shown and walks again once they are answered. A
+viewer's own selection is not a decision, it is in its `Viewing`.
+
+**`Shared`** — one dashboard's state version for every viewer: the entity states and the
+decisions made from them, carried from the version before or made on demand.
+
+**`Viewing`** — one viewer's part of one send, beside the `Shared` it was read against: its
+selections, and its slot fetches' answers (at its node variables).
+
+**Dirty** — a decision a change touches, found in the index from the changed entity. A dirty
+decision is not carried to the next version; it is made again only when a reader reaches it shown.
+Work happens only where a dirty mark meets something shown.
+
+**Plain tick** — a change that moves only what a node shows (a light from 40% to 50%): it dirties
+no decision, or one that comes out the same, and is recorded as `touched`.
 
 **Fragment** — one node's own HTML, as opposed to the composed HTML a parent embeds. What gets sent.
 

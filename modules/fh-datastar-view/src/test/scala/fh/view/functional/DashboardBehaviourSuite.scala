@@ -1,5 +1,6 @@
 package fh.view.functional
 
+import fh.view.runtime.{StateChange, changes}
 import fh.view.testkit.{
   DashboardBuilders,
   FixtureDashboard,
@@ -72,7 +73,9 @@ class DashboardBehaviourSuite extends FunctionalSuite {
         _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
         _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
         change <- firstChange.joinWithNever
-      } yield change.head.current.state
+      } yield change.collect { case m: StateChange.Moved =>
+        m.current.state
+      }.head
     }.assertEquals("13.1")
   }
 

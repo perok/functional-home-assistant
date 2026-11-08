@@ -74,7 +74,10 @@ class FetchValueSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer
       .create(d)
-      .renderBodyTraced(states("47"), Selections.none, answered())
+      .renderBodyTraced(
+        Shared.of(states("47")),
+        Viewing(Selections.none, answered())
+      )
       .html
     assert(html.contains("101"), clue = html)
   }
@@ -85,7 +88,7 @@ class FetchValueSuite extends munit.FunSuite {
     val d = dashboard()
     val r = Renderer.create(d)
     def ofNow(left: String, f: FetchSnapshot) =
-      r.signalsFor(rootId(d), states(left), f).values.toSet
+      r.signalsFor(rootId(d), Shared.of(states(left)), f).values.toSet
     assert(ofNow("46", answered()).contains("101"))
     // A failed read is `""`, so the current reading stands in.
     assert(ofNow("46", answered("")).contains("46"))
@@ -109,7 +112,7 @@ class FetchValueSuite extends munit.FunSuite {
     assert(
       Renderer
         .create(d)
-        .signalsFor(rootId(d), states("46"), answered())
+        .signalsFor(rootId(d), Shared.of(states("46")), answered())
         .values
         .toSet
         .contains("101")
@@ -250,7 +253,7 @@ class FetchValueSuite extends munit.FunSuite {
       assertEquals(d.validate(), Nil, clue = where)
       val html = Renderer
         .create(d)
-        .renderBodyTraced(both, Selections.none, answered())
+        .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
         .html
       assert(html.contains(shown), clue = s"$where: $html")
     }
@@ -318,7 +321,7 @@ class FetchValueSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer
       .create(d)
-      .renderBodyTraced(both, Selections.none, answered())
+      .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
       .html
     assert(html.contains("k=3"), clue = html)
   }

@@ -71,8 +71,14 @@ object Ready:
 
   final case class SetClause(when: Option[Condition], node: Node)
 
-  /** A guard or a state surface's condition, and the entities it reads. */
-  final case class Condition(run: Evaluator.Run, entities: List[String])
+  /** A guard or a state surface's condition, and the entities and fetches it
+    * reads.
+    */
+  final case class Condition(
+      run: Evaluator.Run,
+      entities: List[String],
+      reads: Set[SlotRead]
+  )
 
   /** A slot's run, and its bind pass's facts, each read once: a paint reads
     * them per slot, and several are `def`s on [[BoundSlot]] (`shape`
@@ -131,7 +137,8 @@ object Ready:
       val present: (
           Map[String, EntityState],
           FetchTemplate => Object
-      ) => List[String]
+      ) => List[String],
+      val reads: Set[SlotRead]
   )
 
   /** The compile walk, from `validate`'s typing of each slot; a `Left` is an
@@ -166,12 +173,7 @@ object Ready:
           calls.toMap,
           initials.toMap,
           d.varScopes,
-          d.warnings,
-          // `validate` refused a variable here, so each resolves bare.
-          d.decisionFetches
-            .map(_._2)
-            .distinct
-            .map(SlotAsk(_, Step.Json).resolve(Map.empty))
+          d.warnings
         )
       )
 
@@ -231,7 +233,10 @@ object Ready:
 
     private def reach(r: CallReach): Built[Reach] = r match
       case t: ServiceTarget => Right(t)
-      case p: Value.Present => Evaluator.presentOf(p, scope).map(SetCall(_))
+      case p: Value.Present =>
+        Evaluator
+          .presentOf(p, scope)
+          .map(SetCall(_, SlotAsk.decision(ValueExpr(p).fetches)))
 
     private def slot(b: BoundSlot): Built[Slot] =
       for
@@ -242,7 +247,9 @@ object Ready:
       yield Slot(b, c.run, valueWhile)
 
     private def condition(e: ValueExpr): Built[Condition] =
-      Evaluator.compile(e, scope).map(c => Condition(c.run, e.entities))
+      Evaluator
+        .compile(e, scope)
+        .map(c => Condition(c.run, e.entities, SlotAsk.decision(e.fetches)))
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(
@@ -261,7 +268,5 @@ object Ready:
       // Where a session opens a node variable, by its transform.
       initials: Map[Cel.Key, Cel.Program],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
-      warnings: List[String],
-      // What every decision reads, answered before any is made.
-      decisionReads: List[SlotRead]
+      warnings: List[String]
   )
