@@ -70,11 +70,3 @@ is built, and the order below is a proposal.
   rules out (`First`, `AllOf` or `AnyOf` over a non-list).
 - **The tap call design:** a declared call id in place of the URL a template spells out. A
   `number` slot type (slot-views point 4) waits on it.
-- **One machinery for "a value picks what fills a region":** a state `c.iff` is a bake group
-  chosen by `Activation.State` (`SurfaceGraph`, the flip); a set member picks its first holding
-  clause and the set its present members (`MemberGraph`, a Scala-written `fh-group` wrapper).
-  Both are "the first branch that holds renders", and tabs and `c.iff` over a variable are the
-  same with a per-viewer value. With every decision a value expression, a region filled by a value
-  (the branch a bool or a variable picks, or one node per id of a list) could serve all of them,
-  and `SetNode` would become a card. ADR 0007's "a member container is a per-entity
-  comprehension, not a gate" is the argument to answer. Goes with the regions round.
