@@ -1,4 +1,4 @@
-# Plan: regions, as slots are
+# Plan: a region is a slot whose value is nodes
 
 A region today is a string that three places must spell alike: the card declares it
 (`regions = new Mapping { ["features"] = new nodes.Region {} }`), the template places it
@@ -16,170 +16,219 @@ What fills a region is also written three different ways, and only two of them i
 
 The popup host is a fourth: `theme.chrome` writes it, and Scala writes it again as a literal
 `<div id="popups"></div>` when the last popup closes (`Server.scala:1056`, `Server.orphanedPopup`).
+The runtime has two paths for "something picks what fills a host": `SurfaceGraph` bakes a choice
+into a host, and `MemberGraph` places a set's members.
 
-**State:** plan only. Nothing is agreed.
+**State:** direction agreed in chat (2026-11-09); not built.
 
-## Is a region a slot whose value is nodes?
+## The idea
 
-For the handle, yes: one named object declared once, placed through itself and filled through
-itself. A typo is then a Pkl error at the line, and the settings live on the handle. The slot spikes
-carry over unchanged: interpolation through `toString`, a `Listing` of handles lowered to the wire
-map, and a duplicate name reported on its node.
+A region is a slot whose value is nodes. The differences from a value slot are the type's own
+rules, as a value slot's sink already depends on its `type` and `signal`:
 
-For what fills it, no, and the difference is the reason regions exist:
-
-| | Slot | Region |
+| | `ValueSlot` (today's `Slot`) | `NodesSlot` |
 |---|---|---|
-| Filled by | a value: a literal, a reading or a fetch, then steps | nodes: fixed, a choice among branches, or one per present candidate |
-| What reaches the page | the value, as bytes or a signal | the nodes, each with an id and a patch of its own |
-| When it moves | the node is re-rendered, or a signal frame is sent | the HOST is patched: `Inner` for a choice, `Before`/`Append`/`Remove` per member |
-| What a live value does | becomes the output | only picks WHICH nodes; it never becomes bytes |
+| Declared | `slotMod.slot("label")` | `slotMod.nodes("features")` |
+| Placed | `\(label)`, `label.raw`, `label.bind`, sections | `\(features)` (a raw hole), or `\(panel.host)`; once, outside every section |
+| Filled | `label.of(literal \| reading)` in the node's `slots {}` | `features.of(nodes \| choice \| set)` in the same `slots {}` |
+| Live form | `signal`: a change is a frame; the template must place `bind` | `hosted`: a change is a host patch; the template must place `host` |
+| Steps | yes | none: nothing meaningful exists to run on nodes |
+| Identity | none | each node has its own id (`LayoutNode.Step(slot, index)`) and its own patch |
+| Card | leaf, if no slot is nodes | a card with a nodes slot is structure (ADR 0012): its other live slots are signals |
 
-So the leaf/structure rule (ADR 0012) stays exactly as it is. A region's content never comes back
-through its card's patch, because the card never renders it as a value.
+The leaf/structure rule stays as it is: a nodes slot's content never comes back through its card's
+patch.
 
 ## Design
 
-### 1. A region handle
+### 1. Two slot classes
+
+`core/slot.pkl` gets an abstract `Slot` holding the name. `ValueSlot` is today's `Slot` with all its
+members (`bind`, `raw`, `jsValue`, `ifSet`, …); `NodesSlot` has only what nodes need, so
+`panel.bind` is a Pkl error at the line, not a build check. `Listing<slotMod.Slot>` takes both.
+`slotMod.slot(…)`, `bool(…)`, `textRaw(…)` keep their names and return a `ValueSlot`.
+
+`CardDef.regions` and `nodes.Region` go: a card's nodes slots are its handles, as its value slots
+are. `children { … }` stays the sugar for the default nodes slot, `children`.
+
+### 2. Placement and hosts
 
 ```pkl
-const local features = nodes.region("features")      // fixed nodes
-const local panel = nodes.region("panel").hosted()     // its content moves: it needs a host
+const local features = slotMod.nodes("features")                          // never moves
+const local panel = slotMod.nodes("panel").hosted("div", "fh-tab-panel")  // its content moves
+const local members = slotMod.nodes("members").hostedByCell()
 
-cardDef = new nodes.CardDef {
-  regions { features; panel }
-  template = """
-    <article>…\(features)\(panel.host("div", "fh-tab-panel"))</article>
-    """
-}
+template = "<div class=\"fh-col\">\(features)\(panel.host)</div>"
 ```
 
 - `\(features)` prints `{{{features}}}`.
-- `panel.host("div", "fh-tab-panel")` prints
-  `<div id="{{hostId}}" class="fh-tab-panel">{{{panel}}}</div>`. The handle writes the host
-  element, so the id cannot be forgotten and the hole is the element's only content.
-- The `regions` Listing lowers to today's wire map, so step R1 changes no wire field.
-- `children { … }` stays the sugar for the default region, as it is today.
+- `\(panel.host)` prints `<div id="{{panel.hostId}}" class="fh-tab-panel">{{{panel}}}</div>`. The
+  handle writes the element, so the id cannot be forgotten and the hole is its only content. The id
+  is injected per slot, as `{{label.bind}}` is, and still derived in Scala (`Surface.hostId`,
+  `<node>_<slot>`), so the per-node `hostId` variable goes.
+- `hostedByCell()` makes the node's own `.fh-cell` the host. Its `host` prints only
+  `{{{members}}}`, and the build refuses a template that is anything but that, a string comparison
+  that needs no HTML parser. The cell carries the node's id, seed and bindings (ADR 0008) and is
+  never re-rendered on a structure card, so an `Inner`/`Before`/`Append` into it leaves those
+  intact. It is what a set does today without a name: `Renderer.hostId` falls back to the node's
+  own id "which only a candidate set uses".
+- The host's shape reaches the wire with the slot: `Host = Element(tag, classes) | Cell`. That is
+  what lets Scala render a host it did not write (§7).
 
-### 2. Three fills, given through the handle on the node
+The build refuses a live fill (§3) in a slot that is not hosted, and a hosted slot placed without
+`host`.
+
+### 3. Fills, all through `of`
+
+As a value slot's `of` takes a literal or a reading, the argument's type says whether the fill is
+fixed or live:
 
 ```pkl
-fills {
-  features.of(xs)                                   // fixed nodes
-  panel.choose(tabVar, branches)                    // a node variable's value picks a branch
-  branch.choose(cond, thenNodes, elseNodes)         // a condition picks: first branch that holds
-  members.each(q.from(lights).where(…).orderBy(…))  // one node per present candidate, in order
+slots {
+  features.of(new Listing { a; b })                               // fixed nodes
+  panel.of(nodes.iff(tab.valueIs("0"), a).elif(tab.valueIs("1"), b))  // the first clause that holds
+  branch.of(nodes.iff(c.isOn(l), x).`else`(y))
+  members.of(q.from(lights).where(…).orderBy(…).render(c.light))  // one node per present candidate
 }
 ```
 
-- The card says only whether a region is `hosted`. **What** fills it is the node's choice, through
-  the handle. Today the card says `fill = "baked"` and the node builds the surfaces itself, which
-  is the same fact written twice.
-- `choose` and `each` need a hosted region, because their content changes after the first paint.
-  The build refuses either on a region that is not hosted.
-- `choose` writes `inlineSurfaces` with `bakeInto`, `bakeAs = region.name` and `bakeIndex`. No card
-  spells any of those again.
-- `fills` is hidden and lowers to the wire's `regions`, as `slots` lowers to `templateSlots`.
+- **A choice** is flat clauses: one host and one decision, the first guard that holds wins, an
+  `else` is a clause with no guard, and none holding is empty. `c.iff(p).then(…).`else`(…)` stays
+  the author's card and gains `.elif`; else-if no longer nests a host per level. Tabs, `c.select`
+  and the slider's controls build the same chain over their variable through a shortcut.
+- **A guard is an expression.** A state guard is a `slotMod.Expr`; a variable guard is
+  `v.valueIs(x)`, which after step V is an expression too (§4).
+- **A set** is the slot's whole fill: members are placed relative to each other, so a fixed
+  sibling in the same host would need anchors.
+- `choose`/`each` and the separate `fills` block do not exist; `inlineSurfaces`, `bakeInto`,
+  `bakeAs`, `bakeIndex` and `Region.fill` go once nothing builds them by hand (step R3).
 
-### 3. A candidate set is a card
+### 4. A variable read is a ValueExpr source (step V)
 
-`build()` returns a `group` node: a card in `core/` with one hosted region `members`, filled by
-`each`. Its host is its own cell, as it is today: the card adds `fh-group` to its cell classes, and
-the cell's id is the node id, which is the `SetId` (`Ids.scala`). So the bytes do not change, and
-the markup moves from `Renderer.groupOpen` into Pkl.
+Today a variable is read two ways, neither of them an expression: `Choice` (`Fixed | Chosen(by,
+options)`) picks a fetch window, and `ValueIs` / `Activation.Var(name, VarAt)` picks a bake member.
+Shared refuses either (`SlotAsk.decision` reads "at no viewer's variables"); the viewer's values
+are resolved per send (`Viewing`).
 
-On the wire, a set becomes a `Component` whose region holds an `Each` fill (candidates, orderBy,
-limit, members). `Component.regions` becomes `Map[String, RegionFill]`, with
-`RegionFill = Nodes | Each`, and `LayoutNode.SetNode` goes. Scala keeps what only it can do:
-- `MemberGraph` decides presence, clause and order from the `Each`;
-- `Patches` addresses the host and the members.
+V adds a variable read as a ValueExpr source, resolved up the ancestors as a variable is today.
+`valueIs`, a tab's index, a select's value and an `Otherwise` lower to expressions (`tab == "1"`;
+`Otherwise` is no guard), and `Activation.Var` and `VarAt` go. Where a guard is decided follows
+from what it reads, as a fetch read is routed today: one that reads a variable per viewer, any
+other once per version in `Shared`.
 
-The `SetNode` case in `Renderer.tracedInto` becomes a third branch of the region loop that every
-card already runs.
+`validate` refuses, at first, a variable read outside a guard (it would make a card's bytes differ
+per viewer) and a guard that reads both a variable and entity state. Lifting either is a later
+change to `validate` and to where the decision runs, not to the model.
 
-`q.from(…).render(…).build()` is unchanged for a dashboard author. So is a set's place among fixed
-siblings: it is a node in its parent's region, as an `If` is.
+### 5. Sets: with or without a wrapper
 
-### 4. The popup host is the chrome's
+- `.of(set)` in any hosted slot places the members straight into that host, with no wrapper. It
+  matters where the parent is a semantic element: a wrapper `<div>` is invalid in a `<ul>` or a
+  `<tbody>`.
+- `.build()` is sugar for a `group` card in `core/`: one slot `members.hostedByCell()`, filled
+  with `.of(set)`, `fh-group` among its cell classes. Its bytes are today's, so `.build()` keeps
+  working for a set among fixed siblings, and the cell builders (`.build().fullWidth()`) still
+  apply.
+- A wrapper of the author's own is any card with a hosted slot: `myCard { slots { rows.of(set) } }`,
+  or `children = set` on a layout card whose default slot is hosted.
 
-A close sends the chrome's own host back empty, not a Scala literal. Either it is rendered from
-`theme.chrome`, or it is an `Inner` patch with no content if the pinned bundle accepts one (to be
-spiked). After this, Scala writes no region or host markup at all.
+### 6. The wire
 
-### What stays in Scala, and why
+Pkl splits `slots` by class at lowering, as it lowers them to `templateSlots` today:
+- `templateSlots: Map[String, TemplateSlot]`, unchanged (cell slots keep using `TemplateSlot`);
+- the nodes slots: `Map[String, NodesSlot(fill: Fill, host: Option[Host])]`, with
+  `Fill = Nodes(list) | Choice(clauses) | Set(candidates, members, orderBy, limit)`, each clause a
+  guard (`Option[ValueExpr]`) and its nodes.
 
-- **The `.fh-cell` wrapper** (ADR 0008). It is every node's layout item, its patch target, and the
-  carrier of its signal seed and URL variables. Moving it into each card would make every card
-  responsible for those attributes. If it moves at all, it moves as one theme-level template, in its
-  own round.
-- **The page shell, the error page and the default `<main id="dashboard">` chrome.** These are
-  page-level, not regions.
-- **The failed-fetch label** (`Fetches.scala:65`). It is a slot value, not a region.
+No union type: the two kinds share only the name, and no consumer handles both (values go to the
+evaluator, nodes to the walk). `LayoutNode.SetNode` goes, and a set is a `Component`.
 
-## Later, design only: one runtime machinery for "a value picks what fills a region"
+### 7. One runtime path
 
-After steps R1–R4, the author has one concept and Scala holds no markup. The runtime still has two
-paths: `SurfaceGraph` bakes a choice into a host, and `MemberGraph` places members. They may be one
-path:
-- **An `If` is a set of one member whose clauses are its branches.** The first clause that holds
-  renders, and none means empty.
-- **Tabs and an `If` over a variable are the same choice, made per viewer.**
+A host is filled by one mechanism, a **pick**: keys, the clauses each key may show, an order and a
+limit. A choice is one key; a set is one key per candidate.
+- **Deciding:** each key's first holding clause, by the evaluator slots use (`Ready.Condition`),
+  in `Shared` or per viewer by what its guard reads (§4). Two guards with the same expression
+  share one decision.
+- **Fetch laziness:** a clause's fetches are read only once its guard holds, the rule a reading's
+  `valueWhile` already has (`Fetching.Gate`); the pick reuses it.
+- **Patching:** one planner for arrive, leave, switch and move: `Before`/`Append`/`Remove` per
+  key, an `Inner` on the key's element for a switch. A key's element is `<host>_<key>`; nodes
+  inside get ids per clause.
+- **Popups** are one pick on the chrome's host over a variable on the root, `popups`: one clause
+  per popup on the dashboard, guard `popups == "<id>"`, empty otherwise. `ui_popups` already holds
+  at most one surface id per viewer (`SurfaceGraph.selectionsIn`), and a tab's selection already
+  commits as its variable (ADR 0025), so `Selections.popup`, `openPopup` and the popup case in
+  `committedSelection` go. The one gathering left is the build collecting every popup in the tree
+  into that pick. The back button (`popstate` closes a popup) moves to the variable's URL mirror.
+- `SurfaceGraph`'s bake groups, `MemberGraph`'s special nesting (`WalkAt.InMember`, `innerSetId`,
+  `groupAt`) and the inline-surface hoist go into the one path.
 
-What would have to be answered:
-- **Per-viewer choices.** A tab's selection lives in `Viewing`, and a set's decisions live in
-  `Shared` (§1a). One mechanism must keep that split.
-- **Ids.** A surface's nodes are `s_<id>__…`. A member's nodes are `<gid>_<entity>`, and its
-  clauses share ids.
-- **Patches.** A flip is an `Inner` on the host. A member arrives or leaves by its own patch.
-- **ADR 0007's argument**, that "a member container is a per-entity comprehension, not a gate". With
-  fills, both are "a value picks nodes for a hosted region", and the only difference is one key
-  against many.
+### 8. Markup Scala stops writing
 
-Nothing here is built until R1–R4 are in and this round is agreed.
+The rule: Scala renders markup Pkl wrote and fills only values it owns.
+- **The popup host.** A close renders the chrome's host from its `Host` (§2) with nothing in it,
+  not a literal, so a theme's attributes on it survive.
+- **The failed-fetch label.** The build compiles `core/text.pkl`'s label like any card template,
+  and the runtime renders it with the tone and text. `Fetches.label` and `FailureLabelSuite` go.
+- **The offline banners** (`Server.scala:1925–1930`) are a theme template. The signals they read
+  (`_sse`, `haDown`) are Pkl constants, so a theme cannot misspell one; the text becomes the
+  theme's to translate.
 
-## Who moves
-
-| Step | What changes |
-|---|---|
-| R1 (handles) | Every card that declares a region: `layout.pkl:34` (Grid, Row, Column), `core/surface.pkl:87` (Popup), `components/base/surface.pkl` (Tabs, If), `components/select.pkl` (the shared option and panel regions, two hosts, the chooser), `components/base/slider.pkl` (head, controls, rows), `components/base/tile.pkl` (features). In the goldens, only the If's host moves: it is the one template that writes `class` before `id`. |
-| R2 (sets) | Every wire snapshot with a set. Goldens must not move. |
-| R3 (fills) | Tabs, If, select and the slider's controls, which build `inlineSurfaces` by hand today. |
-| Docs | ADR 0003 (a set is a card), ADR 0007 (`choose`), ADR 0012 and ADR 0002 (hosts). Pipeline doc §4a and §4b. Terminology: region, host, bake and member, plus a new term, **fill**. `writing-components.md`, and the module `CLAUDE.md` line on `.fh-group`. |
+What stays in Scala, as the contract: the `.fh-cell` wrapper (ADR 0008), the page shell, the root
+`<div data-signals…>` with its seeds, toast, reload and back-button handlers, the error page, and
+the default `<main id="dashboard">` chrome.
 
 ## Steps
 
-1. **R1, handles.**
-   - Pkl: `nodes.region`, `hosted()`, `host(tag, classes)`, `CardDef.regions` as a Listing, and
-     `fills` with `of`.
-   - Lowered to today's wire: wire snapshots byte-identical, and the goldens move only at the If's
-     host (attribute order).
-   - A duplicate region name is reported on the node.
-   - Pkl facts: a typo is an error, a hosted region placed without `host` is an error, and a
-     region left unplaced is an error.
-2. **R2, a set is a card.**
-   - `RegionFill = Nodes | Each`, and the `group` card.
-   - `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and `groupOpen` goes.
-   - Goldens byte-identical.
-   - Bench, allocation first, `-XX:-DoEscapeAnalysis` on both sides: `publishSetOrdered`,
-     `leaderRow` and `tickRender`, plus `validated` timing.
-3. **R3, `choose`.**
-   - Tabs, If, select and slider controls on `choose`; `Region.fill` goes.
-   - The build refuses a `choose` or an `each` in a region that is not hosted.
-   - Wire unchanged, since `choose` writes today's surfaces.
-4. **R4, the popup host.** Spike `Inner` with no content against the pinned bundle; otherwise render
-   the chrome's host empty. A test that no Scala source writes a host or region element.
-5. **Docs** go in each step's commit. When R1–R4 are in, the "one runtime machinery" round is
-   discussed. This plan is deleted when the maintainer says so.
+Stacked branches, each its own PR on the one before.
+
+1. **V, a variable as a source.**
+   - ValueExpr gains the variable read; `valueIs`, tab index, select value and `Otherwise` lower to
+     guards; `Activation.Var` and `VarAt` go.
+   - A guard reading a variable is decided per viewer; `validate` refuses the two cases in §4.
+   - Wire snapshots change at every variable guard; goldens do not.
+   - Bench a tab flip and a select change: allocation first, `-XX:-DoEscapeAnalysis` both sides.
+2. **R1, slot classes and hosts.**
+   - `ValueSlot`/`NodesSlot`, `hosted(tag, classes)`, `hostedByCell()`, `host`, the per-slot
+     `hostId`. `CardDef.regions` and `nodes.Region` go; the 86 `slotMod.Slot` type references in
+     17 library files become `ValueSlot` where they use a value member (one bulk edit).
+   - The nodes-slot wire map with `Fill.Nodes` and `Host`. Every card that declares a region moves:
+     `layout.pkl` (Grid, Row, Column), `core/surface.pkl` (Popup), `components/base/surface.pkl`
+     (Tabs, If), `components/select.pkl`, `components/base/slider.pkl`, `components/base/tile.pkl`.
+   - Goldens byte-identical except the If's host, the one template writing `class` before `id`.
+   - Pkl facts: a typo is an error, a hosted slot placed without `host` is an error, an unplaced
+     nodes slot is an error, `hostedByCell` with any other template is an error.
+3. **R2, a set is a fill.**
+   - `Fill.Set`, `.of(set)`, the `group` card; `SetNode` goes from Pkl, the wire, `Ready`,
+     `Validate` and `Renderer`, and `groupOpen` goes.
+   - Goldens byte-identical. Bench `publishSetOrdered`, `leaderRow`, `tickRender`, and `validated`
+     timing.
+4. **R3, choices.**
+   - `Fill.Choice`, `nodes.iff`/`elif`/`else`, `c.iff(…).elif`; Tabs, If, select and the slider's
+     controls on it. `inlineSurfaces` stays only for popups; `Region.fill` and the bake fields go.
+   - The runtime still bakes: the wire's choice lowers to today's bake groups inside the build.
+5. **R4, one runtime path.**
+   - The pick, its planner and its ids (§7), popups included; `SurfaceGraph`'s bake groups and
+     `MemberGraph`'s nesting cases go.
+   - Ids move. The view tests are the check; the goldens are compared once with ids normalised, to
+     show nothing else moved, and then regenerated.
+   - Bench everything R2 and V measured, plus a popup open and close.
+6. **R5, markup.** The popup host from its `Host`, the fetch label from Pkl, the banners from the
+   theme. A test that no Scala source writes a host or region element.
+
+Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
+variable), 0007 (choices), 0008 (the cell as a host), 0012 (structure), 0034/0035 (the variable
+source); the pipeline doc §1a and §3–§4b; terminology (region, host, bake, member, clause, plus
+**nodes slot**, **fill** and **pick**); `writing-components.md` and `writing-dashboards.md`
+(`elif`, `.of(set)`); the module `CLAUDE.md` line on `.fh-group`. This plan is deleted when the
+maintainer says so.
 
 ## Open questions
 
-1. **The host element.** Written by the handle (`panel.host("div", "fh-tab-panel")`), or written by
-   the author with `\(panel.hostId)` inside it and checked by `validate`? The recommendation is the
-   handle: a rule the build cannot check is the drift this plan removes. The cost is a fixed
-   attribute order.
-2. **A set on the wire.** A `Component` with an `Each` fill, with `SetNode` deleted (recommended),
-   or `SetNode` kept as a kind that gains a `card`?
-3. **Where the fill kind lives.** On the node, through the handle, with the card saying only
-   `hosted` (recommended), or kept on the card as `fill = "baked"`?
-4. **Names.** `of` / `choose` / `each`, `hosted` / `host`, `fills`, and `group` for the set's card.
-5. **The runtime machinery.** After R1–R4 as above, or designed into R2/R3 now?
+1. **Names.** The nodes-slot wire map (`regions` kept, or `nodeSlots`), `hostedByCell`, `group`,
+   `pick`, `Fill`'s cases.
+2. **The If on its cell.** An If could host its branch in its own cell and drop the `fh-ifhost`
+   div. It changes bytes and the If's CSS; not planned.
+3. **The popup variable** (spike in R4): opening through the variable's write instead of
+   `/sse/surface/open`, and the back button through the URL mirror.
