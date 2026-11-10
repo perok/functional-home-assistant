@@ -30,6 +30,11 @@ hidden textOverflow: textMod.Overflow = textMod.defaultOverflow
 /// mode of its own still wins.
 css = cssMod.baseCss + "\n" + textMod.rootCss(textOverflow)
 
+/// The line the server shows where a read could not be answered: a template with
+/// `{{tone}}` and `{{text}}` holes. Assigned here, with [[css]], so it is the
+/// library's label and not a copy of it.
+failedLabel = textMod.label("{{tone}}", "{{text}}")
+
 /// BeerCSS Material 3 (`theme-beer.pkl`). Swap with
 /// `theme = import("theme-mine.pkl").theme`, or amend:
 /// `theme { md3Light { ["primary"] = "#..." } }`.

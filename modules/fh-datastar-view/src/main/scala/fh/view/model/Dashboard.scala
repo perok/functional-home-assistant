@@ -822,6 +822,8 @@ object LayoutNode:
   *   - `chrome`: the frame, with the `#dashboard` swap target around
   *     `{{{body}}}` (checked by `validate`) and any popup host. Empty falls
   *     back to a bare `<main id="dashboard">`.
+  *   - `offlineBanners`: the connection banners' markup, placed in the page
+  *     shell; empty shows none.
   *   - `classes`: what the theme adds to, or puts in place of, an `fh-` class
   *     in card and cell markup ([[ThemeClasses]]).
   */
@@ -834,6 +836,7 @@ case class Theme(
     inlineScripts: List[String] = Nil,
     styles: String = "",
     chrome: String = "",
+    offlineBanners: String = "",
     classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
@@ -917,6 +920,8 @@ object Surface:
   *     before validation.
   *   - `css`: the base every dashboard gets, here rather than on [[Theme]] so a
   *     theme cannot drop it, only override it (ADR 0020).
+  *   - `failedLabel`: a template with `{{tone}}` and `{{text}}` holes, the line
+  *     shown where a read could not be answered. Empty shows nothing.
   *   - `title`: `None` falls back to the slug.
   *   - `access`: `None` until `Site.decode` folds in the site default.
   */
@@ -928,6 +933,7 @@ case class Dashboard(
     slug: String = "dashboard",
     title: Option[String] = None,
     css: String = "",
+    failedLabel: String = "",
     access: Option[Access] = None
 ):
 
@@ -1071,7 +1077,8 @@ case class Dashboard(
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
-  ): List[String] = Validate.errors(this, locateTransform, compiledCards)
+  ): List[String] =
+    Validate.errors(this, locateTransform, compiledCards, compiledFailedLabel)
 
   // Each template once, theme classes applied, so what validation reads is
   // what renders.
@@ -1082,6 +1089,13 @@ case class Dashboard(
         theme.classes.rewriteTemplate(cd.template),
         cd.regions.keySet
       )
+    )
+
+  private def compiledFailedLabel: Either[String, Templates.Card] =
+    Templates.card(
+      "failedLabel",
+      theme.classes.rewriteTemplate(failedLabel),
+      Set.empty
     )
 
   /** Problems that still build but are silent in the browser, both about the
@@ -1255,7 +1269,8 @@ case class Dashboard(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
     val compiled = compiledCards
-    Validate.errors(this, locateTransform, compiled) match
+    val label = compiledFailedLabel
+    Validate.errors(this, locateTransform, compiled, label) match
       case Nil =>
         Ready
           .Compile(Evaluator.Scope(slug))
@@ -1266,7 +1281,11 @@ case class Dashboard(
             Dashboard.Validated(
               this,
               ready,
-              Templates(compiled.collect { case (n, Right(c)) => n -> c })
+              Templates(
+                compiled.collect { case (n, Right(c)) => n -> c },
+                label
+                  .fold(_ => Templates.compile("failedLabel", ""), _.mustache)
+              )
             )
           )
       case errs => Left(errs)
@@ -1339,6 +1358,9 @@ object Dashboard:
   ):
     def withAccess(siteDefault: Access): Validated =
       copy(access = dashboard.access.getOrElse(siteDefault))
+
+  /** What a failed read gives [[Dashboard.failedLabel]]. */
+  val FailedLabelHoles: Set[String] = Set("tone", "text")
 
   /** The theme's popup host. The dialog is a `popup` card composed into the
     * surface's content, so the backend renders every surface bare.

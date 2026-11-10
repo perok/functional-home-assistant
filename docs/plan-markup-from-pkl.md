@@ -3,7 +3,7 @@
 Part of the regions work (`docs/plan-regions.md` on branch `regions`, §9), done ahead of it. The
 rule: Scala renders markup Pkl wrote and fills only values it owns. Two places break it today.
 
-**State:** not built.
+**State:** built; awaiting review.
 
 ## 1. The failed-fetch label
 

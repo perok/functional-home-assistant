@@ -1919,6 +1919,7 @@
       "wrapAsCell" : false
     }
   },
+  "failedLabel" : "<span class=\"fh-label fh-label-{{tone}} fh-text\"><span class=\"fh-text-run\">{{text}}</span></span>",
   "surfaces" : {
     
   }

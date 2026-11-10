@@ -20,6 +20,8 @@ import fh.view.model.{
 }
 import fh.view.history.ChartStyle
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
+import fh.view.testkit.{PklFixture, PklWorkspace}
+import org.pkl.core.{EvaluatorBuilder, ModuleSource}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
   * render key moves with them.
@@ -90,7 +92,11 @@ class ChartSlotSuite extends munit.FunSuite {
     "a failed chart's label takes the theme's class rules; a drawing does not"
   ) {
     val classes = ThemeClasses(Map("fh-label" -> List("fh-label", "chip")))
-    val d = dashboardWith("{{{chart}}}").copy(theme = Theme(classes = classes))
+    val d = dashboardWith("{{{chart}}}").copy(
+      theme = Theme(classes = classes),
+      failedLabel =
+        """<span class="fh-label fh-label-{{tone}}">{{text}}</span>"""
+    )
     def body(f: FetchSnapshot) =
       Renderer
         .create(d)
@@ -104,6 +110,40 @@ class ChartSlotSuite extends munit.FunSuite {
     )
     val drawn = body(fragments("""<svg class="fh-label"/>"""))
     assert(drawn.contains("""<svg class="fh-label"/>"""), drawn)
+  }
+
+  test("a failed chart shows the label the library writes, in the error tone") {
+    val built = PklFixture.buildDashboard(
+      "failed-label",
+      """amends "@fh-dashboard/entry.pkl"
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |
+        |card = c.title("x")
+        |""".stripMargin
+    )
+    val textPkl = (PklWorkspace.resourcesLib / "core" / "text.pkl").toNIO.toUri
+    val ev = EvaluatorBuilder.preconfigured().build()
+    val expected =
+      try
+        ev.evaluateExpressionString(
+          ModuleSource.text(s"""import "$textPkl" as t"""),
+          """t.label("error", "Chart unavailable")"""
+        )
+      finally ev.close()
+    val html = Renderer
+      .create(
+        dashboardWith("{{{chart}}}").copy(failedLabel = built.failedLabel)
+      )
+      .renderBodyTraced(
+        Shared.of(states),
+        Viewing(
+          Selections.none,
+          FetchSnapshot.of(Map(read -> Staged.failed(stage)))
+        )
+      )
+      .html
+    assert(html.contains(expected), html)
   }
 
   test("rendering a chart nobody resolved is an error, not an empty slot") {
