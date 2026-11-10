@@ -181,6 +181,18 @@ lazy val snapshotUpdateCommands = Seq(
   Command.command("dashboardSnapshotsUpdate") { state =>
     runWithFlag("FH_UPDATE_SNAPSHOTS", "fh-datastar-view/testFull", state)
   },
+  // The goldens against a git revision, ids numbered by first appearance: for
+  // a change meant to move only ids.
+  Command.args("dashboardGoldensVs", "<rev>") { (state, args) =>
+    val flag = "FH_GOLDENS_AGAINST"
+    sys.props.put(flag, args.headOption.getOrElse("HEAD"))
+    try
+      Command.process(
+        "fh-datastar-view/testOnly *RenderGoldenSuite",
+        state
+      )
+    finally sys.props.remove(flag)
+  },
   Command.command("dashboardVisualSnapshotsUpdate") { state =>
     runWithFlag(
       "FH_UPDATE_VISUAL_SNAPSHOTS",
