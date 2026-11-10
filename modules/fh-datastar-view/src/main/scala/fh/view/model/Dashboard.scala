@@ -920,8 +920,8 @@ object Surface:
   *     before validation.
   *   - `css`: the base every dashboard gets, here rather than on [[Theme]] so a
   *     theme cannot drop it, only override it (ADR 0020).
-  *   - `failedLabel`: a template with `{{tone}}` and `{{text}}` holes, the line
-  *     shown where a read could not be answered. Empty shows nothing.
+  *   - `failedLabel`: a template with a `{{text}}` hole, the line shown where a
+  *     read could not be answered. Empty shows nothing.
   *   - `title`: `None` falls back to the slug.
   *   - `access`: `None` until `Site.decode` folds in the site default.
   */
@@ -1360,7 +1360,7 @@ object Dashboard:
       copy(access = dashboard.access.getOrElse(siteDefault))
 
   /** What a failed read gives [[Dashboard.failedLabel]]. */
-  val FailedLabelHoles: Set[String] = Set("tone", "text")
+  val FailedLabelHoles: Set[String] = Set("text")
 
   /** The theme's popup host. The dialog is a `popup` card composed into the
     * surface's content, so the backend renders every surface bare.

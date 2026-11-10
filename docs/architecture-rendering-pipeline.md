@@ -1269,8 +1269,8 @@ cards asks nothing. A chart in an open surface is asked on EVERY pull, since the
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 
 **A failed read is its chart's, not the render's.** `Staged.failed` holds the error text, and the
-render fills the dashboard's `failedLabel` with it in the `error` tone — a template `entry.pkl` emits
-from `core/text.pkl`'s `label` beside the base CSS, compiled with the cards — in a chart's hole, and
+render fills the dashboard's `failedLabel` with it — an `error`-toned label `entry.pkl` emits from
+`core/text.pkl`'s `label` beside the base CSS, compiled with the cards — in a chart's hole, and
 leaves a data hole empty; the version is below any real one. The page and the live stream carry on.
 
 **A fetch and a drawing are each computed once, on a fiber of their own** (`fetch/SharedCache`),

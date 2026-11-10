@@ -91,11 +91,15 @@ class ChartSlotSuite extends munit.FunSuite {
   test(
     "a failed chart's label takes the theme's class rules; a drawing does not"
   ) {
-    val classes = ThemeClasses(Map("fh-label" -> List("fh-label", "chip")))
+    val classes = ThemeClasses(
+      Map(
+        "fh-label" -> List("fh-label", "chip"),
+        "fh-label-error" -> List("fh-label-error", "red")
+      )
+    )
     val d = dashboardWith("{{{chart}}}").copy(
       theme = Theme(classes = classes),
-      failedLabel =
-        """<span class="fh-label fh-label-{{tone}}">{{text}}</span>"""
+      failedLabel = """<span class="fh-label fh-label-error">{{text}}</span>"""
     )
     def body(f: FetchSnapshot) =
       Renderer
@@ -105,7 +109,7 @@ class ChartSlotSuite extends munit.FunSuite {
     val failed =
       body(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
     assert(
-      failed.contains("""<span class="fh-label chip fh-label-error"""),
+      failed.contains("""<span class="fh-label chip fh-label-error red""""),
       failed
     )
     val drawn = body(fragments("""<svg class="fh-label"/>"""))

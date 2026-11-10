@@ -1931,7 +1931,7 @@ class Renderer(validated: Dashboard.Validated) {
       Templates.run(
         templates.failedLabel,
         out,
-        Renderer.FailedLabelScope(Map("tone" -> "error", "text" -> text))
+        Renderer.FailedLabelScope(Map("text" -> text))
       )
       out.toString
     }
