@@ -555,7 +555,8 @@ facts {
     // BeerCSS paints a card box only on `<article>`; a `<div class="card">`
     // left the lock floating on the page background.
     local t = c.cards["tile"].template
-    t.startsWith(#"<article class="fh-card fh-entity fh-tile-card">"#)
+    c.cards["tile"].tag == "article"
+    c.cards["tile"].classes == "fh-card fh-entity fh-tile-card"
     // The tap is the ROW's, and the features region opens after the row has
     // closed: nested inside it, one press would post the latch AND the tile's
     // tap.
@@ -736,7 +737,8 @@ facts {
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["switch"].template.contains(#"<article class="fh-card fh-toggle fh-tile-card""#)
+    cards["switch"].tag == "article"
+    cards["switch"].classes == "fh-card fh-toggle fh-tile-card"
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["switch"].template.contains(#"<span class="fh-text">"#)
@@ -748,7 +750,9 @@ facts {
     // three declaration blocks rather than a rule per card. The OUTER box is
     // what the card's own layout sizes; the INNER one is what a marquee moves,
     // and a bare text node could not be moved at all.
-    cards["sectionTitle"].template.contains(#"<h2 class="fh-section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
+    cards["sectionTitle"].tag == "h2"
+    cards["sectionTitle"].classes == "fh-section fh-text"
+    cards["sectionTitle"].template.contains(#"<span class="fh-text-run">{{label}}</span>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
     cards["tile"].template.contains(#"<span class="fh-sub fh-text">"#)
     // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
@@ -1345,8 +1349,8 @@ facts {
     local sw = c.toggle(kitchen)
     local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
-    t.contains(#"<article class="fh-card fh-toggle fh-tile-card" "#)
-    t.split("<label").first.contains("data-class:fh-error")
+    c.cards["switch"].tag == "article"
+    c.cards["switch"].attrs.contains("data-class:fh-error")
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,
     // shared rather than node-scoped.
@@ -1385,7 +1389,7 @@ facts {
     // The fill is a function of TWO entities, so it cannot be a transform: a
     // slot reads one entity. The guard is the substance — a `total` reading
     // `unknown` makes NaN, and the bar sits empty rather than painting NaN%.
-    local t = c.cards["progressBar"].template
+    local t = c.cards["progressBar"].attrs
     t.contains("{{#down.has}}100 - {{/down.has}}")
     t.contains(")) || 0")
   }
@@ -1432,7 +1436,7 @@ facts {
       unit_of_measurement = "s"
     }
     c.bar.remaining(remainingMin, programSecs).slotsByName["scale"].value == "60.0"
-    c.cards["progressBar"].template.contains(" * {{scale}}")
+    c.cards["progressBar"].attrs.contains(" * {{scale}}")
   }
 
   ["a percentage bar reads one entity and divides by nothing"] {

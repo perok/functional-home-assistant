@@ -44,10 +44,8 @@
   data-class:fh-loading="$_c_2__busy"
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">1 on</span></span></span></button></div>
-<div class="fh-cell" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -61,13 +59,10 @@
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#7">12.4 °C</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div>
-</article></div>
-<div class="fh-cell fh-active" id="c_4"
+  data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div></article>
+<article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#3: false, t#9: true, t#11: 'on'}, living_room: {t#10: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#9">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/' + 'light/toggle' + '/entity/light.kitchen?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/' + 'light/toggle' + '/entity/light.kitchen?node=c_4', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -81,21 +76,17 @@
   data-attr:aria-busy="$_c_4__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run"
   data-text="$_e.light.living_room.t#10">off</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">on</span></span></span></div>
-</article></div></div>
+  data-text="$_e.light.kitchen.t#11">on</span></span></span></div></article></div>
 <!-- ==== as fixtured · surface c_3_self ==== -->
 <div class="fh-cell" id="s_c_3_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell fh-col" id="s_c_3_self__c_0">
-<div class="fh-cell" id="s_c_3_self__c_0_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#12: '12.4 °C'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_3_self__c_0_0"
+  data-signals="{_e: {sensor: {outside_temp: {t#12: '12.4 °C'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#12">12.4 °C</span></span></span></div>
-</article></div>
+  data-text="$_e.sensor.outside_temp.t#12">12.4 °C</span></span></span></div></article>
 <div class="fh-cell fh-cols-full" id="s_c_3_self__c_0_1"
   data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']"><div class="fh-col">
 <div class="fh-cell" id="s_c_3_self__c_0_1_bar_0"><div class="fh-tabs fh-select"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
@@ -308,10 +299,8 @@
   data-class:fh-loading="$_c_2__busy"
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">1 on</span></span></span></button></div>
-<div class="fh-cell" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -325,13 +314,10 @@
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#7">12.4 °C</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div>
-</article></div>
-<div class="fh-cell" id="c_4"
+  data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div></article>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#3: false, t#9: false, t#11: 'off'}, living_room: {t#10: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#9">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/' + 'light/toggle' + '/entity/light.kitchen?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/' + 'light/toggle' + '/entity/light.kitchen?node=c_4', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -345,8 +331,7 @@
   data-attr:aria-busy="$_c_4__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run"
   data-text="$_e.light.living_room.t#10">on</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">off</span></span></span></div>
-</article></div></div>
+  data-text="$_e.light.kitchen.t#11">off</span></span></span></div></article></div>
 <!-- ==== flipped · surface c_3_self: as fixtured ==== -->
 <!-- ==== flipped · patch c_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_1: as fixtured ==== -->
@@ -401,10 +386,8 @@
   data-class:fh-loading="$_c_2__busy"
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">0 on</span></span></span></button></div>
-<div class="fh-cell" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: 'unavailable', t#8: 'temperature'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: 'unavailable', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -418,13 +401,10 @@
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#7">unavailable</span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div>
-</article></div>
-<div class="fh-cell" id="c_4"
+  data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div></article>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#3: true, t#9: false, t#11: 'unavailable'}, living_room: {t#10: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#9">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/' + 'light/toggle' + '/entity/light.kitchen?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/' + 'light/toggle' + '/entity/light.kitchen?node=c_4', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -438,21 +418,17 @@
   data-attr:aria-busy="$_c_4__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run"
   data-text="$_e.light.living_room.t#10">unavailable</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#11">unavailable</span></span></span></div>
-</article></div></div>
+  data-text="$_e.light.kitchen.t#11">unavailable</span></span></span></div></article></div>
 <!-- ==== unavailable · surface c_3_self ==== -->
 <div class="fh-cell" id="s_c_3_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell fh-col" id="s_c_3_self__c_0">
-<div class="fh-cell" id="s_c_3_self__c_0_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#12: 'unavailable'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_3_self__c_0_0"
+  data-signals="{_e: {sensor: {outside_temp: {t#12: 'unavailable'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.outside_temp.t#12">unavailable</span></span></span></div>
-</article></div>
+  data-text="$_e.sensor.outside_temp.t#12">unavailable</span></span></span></div></article>
 <div class="fh-cell fh-cols-full" id="s_c_3_self__c_0_1"
   data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']"><div class="fh-col">
 <div class="fh-cell" id="s_c_3_self__c_0_1_bar_0"><div class="fh-tabs fh-select"><a class="" id="s_c_3_self__c_0_1_bar_0_0"

@@ -439,9 +439,9 @@ open class Slider extends nodes.Node {
       ["head"] = new nodes.Region {}
       [nodes.defaultRegion] = new nodes.Region {}
     }
-    template = """
-      <article class="fh-card fh-slider-card \(groupSlot.ifSet("fh-slider-group"))">{{{head}}}<div class="fh-slider-members">{{{children}}}</div></article>
-      """
+    tag = "article"
+    classes = "fh-card fh-slider-card \(groupSlot.ifSet("fh-slider-group"))"
+    template = #"{{{head}}}<div class="fh-slider-members">{{{children}}}</div>"#
     css = sliderCss
     script = sliderTouchScript
   }

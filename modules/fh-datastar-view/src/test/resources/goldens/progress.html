@@ -1,9 +1,7 @@
 <!-- ==== as fixtured · body ==== -->
 <div class="fh-cell fh-col" id="c">
-<div class="fh-cell" id="c_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#1: '47m'}, washer_status: {t#2: 'Rinsing'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self')"
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
+  data-signals="{_e: {sensor: {washer_remaining: {t#1: '47m'}, washer_status: {t#2: 'Rinsing'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self')"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -20,34 +18,30 @@
   data-text="$_e.sensor.washer_status.t#2">Rinsing</span></span></span></div>
 <div class="fh-cell fh-cols-full" id="c_0_features_0"><div class="fh-ifhost" id="c_0_features_0_branch">
 <div class="fh-cell fh-row" id="s_c_0_features_0_then__c">
-<div class="fh-cell" id="s_c_0_features_0_then__c_0"
-  data-signals="{_e: {sensor: {washer_program_duration: {state: '120'}, washer_remaining: {state: '47'}}}}"><div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+<div class="fh-cell fh-bar" id="s_c_0_features_0_then__c_0"
+  data-signals="{_e: {sensor: {washer_program_duration: {state: '120'}, washer_remaining: {state: '47'}}}}" role="progressbar" aria-valuemin="0" aria-valuemax="100"
   data-show="$_e.sensor.washer_remaining.state !== '' && !isNaN($_e.sensor.washer_remaining.state) && $_e.sensor.washer_program_duration.state !== '' && !isNaN($_e.sensor.washer_program_duration.state)"
   data-computed="{'_s_c_0_features_0_then__c_0__fill': () => Math.min(100, Math.max(0, 100 - 100 * $_e.sensor.washer_remaining.state / $_e.sensor.washer_program_duration.state)) || 0}"
   data-attr:aria-valuenow="Math.round($_s_c_0_features_0_then__c_0__fill)"><div class="fh-bar-fill"
-  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div></div></div></div>
-</article></div></div>
+  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div></div></div></article></div>
 <!-- ==== as fixtured · surface c_0_features_0_then ==== -->
 <div class="fh-cell fh-row" id="s_c_0_features_0_then__c">
-<div class="fh-cell" id="s_c_0_features_0_then__c_0"
-  data-signals="{_e: {sensor: {washer_program_duration: {state: '120'}, washer_remaining: {state: '47'}}}}"><div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+<div class="fh-cell fh-bar" id="s_c_0_features_0_then__c_0"
+  data-signals="{_e: {sensor: {washer_program_duration: {state: '120'}, washer_remaining: {state: '47'}}}}" role="progressbar" aria-valuemin="0" aria-valuemax="100"
   data-show="$_e.sensor.washer_remaining.state !== '' && !isNaN($_e.sensor.washer_remaining.state) && $_e.sensor.washer_program_duration.state !== '' && !isNaN($_e.sensor.washer_program_duration.state)"
   data-computed="{'_s_c_0_features_0_then__c_0__fill': () => Math.min(100, Math.max(0, 100 - 100 * $_e.sensor.washer_remaining.state / $_e.sensor.washer_program_duration.state)) || 0}"
   data-attr:aria-valuenow="Math.round($_s_c_0_features_0_then__c_0__fill)"><div class="fh-bar-fill"
-  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div></div>
+  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div>
 <!-- ==== as fixtured · surface c_0_self ==== -->
 <div class="fh-cell" id="s_c_0_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell fh-col" id="s_c_0_self__c_0">
-<div class="fh-cell" id="s_c_0_self__c_0_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#3: '47 min'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_0_self__c_0_0"
+  data-signals="{_e: {sensor: {washer_remaining: {t#3: '47 min'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.washer_remaining.t#3">47 min</span></span></span></div>
-</article></div>
+  data-text="$_e.sensor.washer_remaining.t#3">47 min</span></span></span></div></article>
 <div class="fh-cell fh-cols-full" id="s_c_0_self__c_0_1"
   data-fh-url:window="['v.s_c_0_self__c_0_1.window', $_var_s_c_0_self__c_0_1__window, '24h']"><div class="fh-col">
 <div class="fh-cell" id="s_c_0_self__c_0_1_bar_0"><div class="fh-tabs fh-select"><a class="" id="s_c_0_self__c_0_1_bar_0_0"
@@ -106,11 +100,11 @@
 <div class="fh-cell" id="s_c_0_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · patch s_c_0_features_0_then__c_0 ==== -->
-<div class="fh-cell" id="s_c_0_features_0_then__c_0"><div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+<div class="fh-cell fh-bar" id="s_c_0_features_0_then__c_0" role="progressbar" aria-valuemin="0" aria-valuemax="100"
   data-show="$_e.sensor.washer_remaining.state !== '' && !isNaN($_e.sensor.washer_remaining.state) && $_e.sensor.washer_program_duration.state !== '' && !isNaN($_e.sensor.washer_program_duration.state)"
   data-computed="{'_s_c_0_features_0_then__c_0__fill': () => Math.min(100, Math.max(0, 100 - 100 * $_e.sensor.washer_remaining.state / $_e.sensor.washer_program_duration.state)) || 0}"
   data-attr:aria-valuenow="Math.round($_s_c_0_features_0_then__c_0__fill)"><div class="fh-bar-fill"
-  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div>
+  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_1_0 ==== -->
 <div class="fh-cell" id="s_c_0_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_1_bar_0_0 ==== -->
@@ -189,10 +183,8 @@
 <!-- ==== flipped · patch s_c_0_self__c_0_3: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
 <div class="fh-cell fh-col" id="c">
-<div class="fh-cell" id="c_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#1: ''}, washer_status: {t#2: 'unavailable'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self')"
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
+  data-signals="{_e: {sensor: {washer_remaining: {t#1: ''}, washer_status: {t#2: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self')"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -207,29 +199,25 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.washer_remaining.t#1"></span></span>  <span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.washer_status.t#2">unavailable</span></span></span></div>
-<div class="fh-cell fh-cols-full" id="c_0_features_0"><div class="fh-ifhost" id="c_0_features_0_branch"></div></div>
-</article></div></div>
+<div class="fh-cell fh-cols-full" id="c_0_features_0"><div class="fh-ifhost" id="c_0_features_0_branch"></div></div></article></div>
 <!-- ==== unavailable · surface c_0_features_0_then ==== -->
 <div class="fh-cell fh-row" id="s_c_0_features_0_then__c">
-<div class="fh-cell" id="s_c_0_features_0_then__c_0"
-  data-signals="{_e: {sensor: {washer_program_duration: {state: 'unavailable'}, washer_remaining: {state: 'unavailable'}}}}"><div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+<div class="fh-cell fh-bar" id="s_c_0_features_0_then__c_0"
+  data-signals="{_e: {sensor: {washer_program_duration: {state: 'unavailable'}, washer_remaining: {state: 'unavailable'}}}}" role="progressbar" aria-valuemin="0" aria-valuemax="100"
   data-show="$_e.sensor.washer_remaining.state !== '' && !isNaN($_e.sensor.washer_remaining.state) && $_e.sensor.washer_program_duration.state !== '' && !isNaN($_e.sensor.washer_program_duration.state)"
   data-computed="{'_s_c_0_features_0_then__c_0__fill': () => Math.min(100, Math.max(0, 100 - 100 * $_e.sensor.washer_remaining.state / $_e.sensor.washer_program_duration.state)) || 0}"
   data-attr:aria-valuenow="Math.round($_s_c_0_features_0_then__c_0__fill)"><div class="fh-bar-fill"
-  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div></div>
+  data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div>
 <!-- ==== unavailable · surface c_0_self ==== -->
 <div class="fh-cell" id="s_c_0_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell fh-col" id="s_c_0_self__c_0">
-<div class="fh-cell" id="s_c_0_self__c_0_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#3: 'unavailable'}}}}">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_0_self__c_0_0"
+  data-signals="{_e: {sensor: {washer_remaining: {t#3: 'unavailable'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-progress-clock" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Washing Machine</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.sensor.washer_remaining.t#3">unavailable</span></span></span></div>
-</article></div>
+  data-text="$_e.sensor.washer_remaining.t#3">unavailable</span></span></span></div></article>
 <div class="fh-cell fh-cols-full" id="s_c_0_self__c_0_1"
   data-fh-url:window="['v.s_c_0_self__c_0_1.window', $_var_s_c_0_self__c_0_1__window, '24h']"><div class="fh-col">
 <div class="fh-cell" id="s_c_0_self__c_0_1_bar_0"><div class="fh-tabs fh-select"><a class="" id="s_c_0_self__c_0_1_bar_0_0"
