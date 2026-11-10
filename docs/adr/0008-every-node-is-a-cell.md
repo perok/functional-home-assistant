@@ -118,7 +118,9 @@ root element.**
    and `-bottom` (`stick(edge)`) keep a cell on screen while its box is, and a
    column's `fillScreen()` makes it at least the screen's height, which is what
    lets a footer sit at the bottom of a short page. A container hands these to
-   its cells as inherited custom properties, so every container sets all of
+   its cells as custom properties set on its children (`>*`), not on itself,
+   since a container is a cell that reads its parent's; they inherit from
+   there, through a set's `display:contents` group. Every container sets all of
    them (`--fh-cell-flex`, `-width`, `-align-self`): one that sets only some
    passes its parent's value on for the rest. `--fh-gap` is the spacing knob;
    `core/css.pkl` carries all of this as `layoutCss`, which `entry.pkl` puts on

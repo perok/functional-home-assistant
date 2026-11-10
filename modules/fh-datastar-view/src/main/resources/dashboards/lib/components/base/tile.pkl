@@ -40,7 +40,7 @@ open class Tile extends nodes.ActiveNode {
     // cell inherits.
     css = """
       .fh-card.fh-tappable,.fh-tile.fh-tappable{cursor:pointer}
-      .fh-tile-card{--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
+      .fh-tile-card>*{--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
       .fh-tile-card>.fh-cell{margin:0 1rem .5rem}
       .fh-tile-card>.fh-tile+.fh-cell{margin-block-start:-.25rem}
       .fh-tile-card>.fh-cell:last-child{margin-block-end:1rem}

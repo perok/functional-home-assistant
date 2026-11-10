@@ -41,7 +41,7 @@ facts {
 
   ["each class the builders emit has a rule"] {
     for (cls in List("fh-justify-center", "fh-justify-end", "fh-wrap", "fh-grow", "fh-stick-top", "fh-stick-bottom", "fh-fill-screen")) {
-      cssMod.layoutCss.contains(".\(cls){") || cssMod.layoutCss.contains(".\(cls).") || cssMod.layoutCss.contains(".fh-row.\(cls){")
+      cssMod.layoutCss.contains(".\(cls){") || cssMod.layoutCss.contains(".\(cls).") || cssMod.layoutCss.contains(".fh-row.\(cls)>*{")
     }
   }
 
@@ -64,15 +64,15 @@ facts {
     c.column.justify("end").fillScreen().slotsByName["class"].value == "fh-justify-end fh-fill-screen"
   }
 
-  // A container passes its cells' layout down by inheritance, so one that sets
+  // A container passes its cells' layout down from its children (`>*`), so one that sets
   // only part of it hands its PARENT's value for the rest to its own cells: a
   // column in a row would split a filled screen evenly. A refinement
-  // (`.fh-row.fh-wrap`) changes one on a box that sets them all.
+  // (`.fh-row.fh-wrap>*`) changes one on a box that sets them all.
   ["every rule that sets a cell's layout sets all of it"] {
     cellProps == Set("--fh-cell-flex", "--fh-cell-align-self", "--fh-cell-width")
     cardCss.filter((css) -> css.contains("--fh-cell-")).length >= 2
     (List(cssMod.layoutCss) + cardCss).flatMap((css) -> rules(css))
-      .filter((r) -> !r.first.matches(Regex(#"\.[\w-]+(\.[\w-]+)+"#)) && !declared(r.second).isEmpty)
+      .filter((r) -> !r.first.matches(Regex(#"\.[\w-]+(\.[\w-]+)+(>\*)?"#)) && !declared(r.second).isEmpty)
       .filter((r) -> declared(r.second) != cellProps)
       .map((r) -> r.first)
       == List()
