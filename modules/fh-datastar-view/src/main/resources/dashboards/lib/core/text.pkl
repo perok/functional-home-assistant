@@ -61,9 +61,6 @@ typealias Tone = "normal"|"dim"|"error"|"warning"
 
 /// A short line in a [[Tone]], for a card with something to say. `body` is
 /// template markup; `tone` is a String so it can come through a slot.
-///
-/// The runtime writes the same structure where a chart could not be drawn
-/// (`Staged.label`, held equal by `FailureLabelSuite`), so change both.
 const function label(tone: String, body: String): String =
   #"<span class="fh-label fh-label-\#(tone) \#(BOX)"><span class="fh-text-run">\#(body)</span></span>"#
 

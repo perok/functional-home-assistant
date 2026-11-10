@@ -1268,10 +1268,10 @@ it fills shows. A target is a leaf, never structure, a set member's nodes includ
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 
-**A failed read is its chart's, not the render's.** `Staged.failed` puts the runtime's error label
-in a chart's hole — `core/text.pkl`'s `label` structure, a base-CSS contract like the busy and
-offline classes, held equal to the library's copy by `FailureLabelSuite` — and leaves a data hole
-empty; the version is below any real one. The page and the live stream carry on.
+**A failed read is its chart's, not the render's.** `Staged.failed` holds the error text, and the
+render fills the dashboard's `failedLabel` with it — an `error`-toned label `entry.pkl` emits from
+`core/text.pkl`'s `label` beside the base CSS, compiled with the cards — in a chart's hole, and
+leaves a data hole empty; the version is below any real one. The page and the live stream carry on.
 
 **A fetch and a drawing are each computed once, on a fiber of their own** (`fetch/SharedCache`),
 never on the fiber of whichever render asked first — a page abandoned mid-fetch cancels its asker,
@@ -1320,8 +1320,9 @@ through them once, when `Templates` compiled them. A themed value (its last step
 goes through them where it resolves (`Renderer.classed`): a literal once, into a
 `Planned.Constant`, a reading on each
 resolve, so a signal frame carries the swapped value too. The page's connection banners
-(`Server.pageInto`) and a failed fetch's label (`Fetches.label`, swapped in `resolveSlotValue`) are
-the markup Scala writes itself, and take the same rewrite.
+(`Theme.offlineBanners`, placed by `Server.pageInto`) and a failed fetch's label (`failedLabel`,
+filled in `resolveSlotValue`) are Pkl templates, and take the same rewrite; Scala writes no markup
+of its own for either.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction

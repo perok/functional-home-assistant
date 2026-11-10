@@ -105,8 +105,10 @@ a reading each time, a signal's value included. The value is a whole class name
 (`fh-size-small`, not a `small` the template completes), because the theme maps
 whole names. A themed value gets
 no token check: `{{x}}` escapes it, where the cell's classes, written unescaped,
-need one (ADR 0008). The markup Scala writes itself goes through the same rewrite: the
-page's connection banners and a failed fetch's label. `dashboard.json` shows the
+need one (ADR 0008). The runtime's own markup is Pkl too and goes through the same
+rewrite: the page's connection banners (`Theme.offlineBanners`, which a theme may restyle or
+translate) and a failed fetch's label (`entry.pkl`'s `failedLabel`, built from `core/text.pkl`'s
+`label` with a `{{text}}` hole). Scala fills values only. `dashboard.json` shows the
 rules beside unrewritten templates and values, which is the "what is going on" a
 reader needs.
 

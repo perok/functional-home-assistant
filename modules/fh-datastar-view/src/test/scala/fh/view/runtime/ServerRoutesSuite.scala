@@ -15,6 +15,7 @@ import fh.view.model.{
   Theme
 }
 import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 import org.http4s.*
@@ -137,6 +138,19 @@ class ServerRoutesSuite extends ServerHarness {
       slug = slug,
       title = title
     )
+
+  /** The banners are the theme's markup, so a page that shows them comes from
+    * the library's theme, not a hand-built dashboard.
+    */
+  private lazy val libraryDash: Dashboard = PklFixture.buildDashboard(
+    "home",
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |
+      |card = c.title("x")
+      |""".stripMargin
+  )
 
   private def pageHtml(dash: Dashboard, query: String = ""): IO[String] =
     TestServer.resource(dash, Nil).use(_.page(query)).timeout(30.seconds)
@@ -372,7 +386,7 @@ class ServerRoutesSuite extends ServerHarness {
     // Every fetch type but retrying/error/retries-failed is "fine", so without
     // a latch any later event cleared the banner, and the 600ms debounce could
     // swallow the failure before it painted.
-    pageHtml(titleDash("home", None)).map { html =>
+    pageHtml(libraryDash).map { html =>
       val handler = html.linesIterator
         .find(_.contains(s"data-on:${Server.StreamEvent}"))
         .getOrElse(fail(s"no stream handler in the shell: $html"))
@@ -623,7 +637,7 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("page serves both connection indicators (SSE transport + HA feed)") {
-    pageHtml(titleDash("home", None)).map { html =>
+    pageHtml(libraryDash).map { html =>
       assert(html.contains(Server.HaDownSignal), html)
       // Transport-down is derived client-side from the shell's own
       // [[Server.StreamEvent]], not `datastar-fetch`, which fires for every

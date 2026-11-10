@@ -11,7 +11,10 @@ import java.io.{Reader, StringReader, Writer}
 /** Card templates, compiled once by validation ([[Templates.card]]). A missing
   * slot renders empty.
   */
-final class Templates(cards: Map[String, Templates.Card]):
+final class Templates(
+    cards: Map[String, Templates.Card],
+    val failedLabel: JavaMustache
+):
   /** One template per card: a leaf's is its patch fragment. */
   val components: Map[String, JavaMustache] =
     cards.view.mapValues(_.mustache).toMap
