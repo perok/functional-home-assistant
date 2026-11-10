@@ -59,8 +59,11 @@ class SelectSuite extends CatsEffectSuite {
           clue = html
         )
         // The theme expands `fh-tabs`, so only the select's own class is fixed.
-        assert(html.contains("""fh-select">"""), html)
-        assert(html.contains("""<details class="fh-select-menu""""), html)
+        assert(html.contains("""fh-select" id="""), html)
+        assert(
+          html.contains("""<details class="fh-cell fh-select-menu""""),
+          html
+        )
         assert(html.contains("""class="fh-select-cycles""""), html)
         assert(
           html.contains(s"$$${key.pendingSignal} || $$${key.committedSignal}"),

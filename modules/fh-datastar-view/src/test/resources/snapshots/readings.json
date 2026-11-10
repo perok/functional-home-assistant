@@ -844,7 +844,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-col\">{{{bar}}}{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
     },
     "entityInfo" : {
       "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-card fh-entity-info\">\n  <code class=\"fh-entity-info-id\">{{entity_id}}</code>{{#attributes}}\n  <pre class=\"fh-entity-info-attrs\">{{attributes}}</pre>{{/attributes}}\n</div></div>"
@@ -877,7 +877,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-tabs fh-select\">{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "tab" : {
       "layoutCell" : false,

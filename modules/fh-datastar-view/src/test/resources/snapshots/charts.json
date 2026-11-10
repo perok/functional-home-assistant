@@ -300,7 +300,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-col\">{{{bar}}}{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
     },
     "fhcol" : {
       "regions" : {
@@ -322,7 +322,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-tabs fh-select\">{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "tab" : {
       "layoutCell" : false,

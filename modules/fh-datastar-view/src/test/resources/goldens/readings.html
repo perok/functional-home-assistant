@@ -87,9 +87,9 @@
   data-signals="{_e: {sensor: {outside_temp: {t#12: '12.4 °C'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#12">12.4 °C</span></span></span></div></article>
-<div class="fh-cell fh-cols-full" id="s_c_3_self__c_0_1"
-  data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']"><div class="fh-col">
-<div class="fh-cell" id="s_c_3_self__c_0_1_bar_0"><div class="fh-tabs fh-select"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
+<div class="fh-cell fh-col fh-cols-full" id="s_c_3_self__c_0_1"
+  data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']">
+<div class="fh-cell fh-tabs fh-select" id="s_c_3_self__c_0_1_bar_0"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
   data-on:click="$_s_c_3_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '1h'; @post('sse/var/readings/s_c_3_self__c_0_1/window/1h?group=var_s_c_3_self__c_0_1__window')"
   data-indicator="_s_c_3_self__c_0_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_0__error = ''))"
@@ -137,8 +137,8 @@
   data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_3__busy$/}"
   data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_3__busy_slow = $_s_c_3_self__c_0_1_bar_0_3__busy"
   data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_3__busy_slow"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'">30d</a></div></div>
-<div class="fh-cell" id="s_c_3_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div></div>
+  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'">30d</a></div>
+<div class="fh-cell" id="s_c_3_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div>
 <div class="fh-cell" id="s_c_3_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre>
 </div></div>
@@ -429,9 +429,9 @@
   data-signals="{_e: {sensor: {outside_temp: {t#12: 'unavailable'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#12">unavailable</span></span></span></div></article>
-<div class="fh-cell fh-cols-full" id="s_c_3_self__c_0_1"
-  data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']"><div class="fh-col">
-<div class="fh-cell" id="s_c_3_self__c_0_1_bar_0"><div class="fh-tabs fh-select"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
+<div class="fh-cell fh-col fh-cols-full" id="s_c_3_self__c_0_1"
+  data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']">
+<div class="fh-cell fh-tabs fh-select" id="s_c_3_self__c_0_1_bar_0"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
   data-on:click="$_s_c_3_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '1h'; @post('sse/var/readings/s_c_3_self__c_0_1/window/1h?group=var_s_c_3_self__c_0_1__window')"
   data-indicator="_s_c_3_self__c_0_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_0__error = ''))"
@@ -479,8 +479,8 @@
   data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_3__busy$/}"
   data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_3__busy_slow = $_s_c_3_self__c_0_1_bar_0_3__busy"
   data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_3__busy_slow"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'">30d</a></div></div>
-<div class="fh-cell" id="s_c_3_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div></div>
+  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'">30d</a></div>
+<div class="fh-cell" id="s_c_3_self__c_0_1_0"><div class="fh-card fh-chart"><svg/></div></div></div>
 <div class="fh-cell" id="s_c_3_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre>
 </div></div>

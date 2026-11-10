@@ -1913,7 +1913,7 @@
           "fill" : "baked"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><details class=\"fh-select-menu\" data-on:click__outside=\"el.open = false\"><summary class=\"fh-select-summary\"><span id=\"{{hostId}}\">{{{panel}}}</span><i class=\"mdi mdi-chevron-down\"></i></summary><div class=\"fh-select-list\" data-on:click=\"el.closest('details').open = false\">{{{children}}}</div></details></div>"
+      "template" : "<details class=\"fh-cell fh-select-menu{{{cellClasses}}}\"{{{cell}}} data-on:click__outside=\"el.open = false\"><summary class=\"fh-select-summary\"><span id=\"{{hostId}}\">{{{panel}}}</span><i class=\"mdi mdi-chevron-down\"></i></summary><div class=\"fh-select-list\" data-on:click=\"el.closest('details').open = false\">{{{children}}}</div></details>"
     },
     "slider" : {
       "regions" : {
