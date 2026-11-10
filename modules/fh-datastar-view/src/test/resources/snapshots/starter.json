@@ -719,7 +719,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-grid {{#class}}{{class}}{{/class}}\">{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-grid{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "sectionTitle" : {
       "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><h2 class=\"fh-section fh-text\"><span class=\"fh-text-run\">{{label}}</span></h2></div>"

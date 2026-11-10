@@ -1,5 +1,5 @@
 <!-- ==== as fixtured · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-active" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -111,7 +111,7 @@
   data-attr:class="$_e.lock.front_door.t#5"></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door Lock</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div>
-<div class="fh-cell" id="c_6_features_0"><div class="fh-row ">
+<div class="fh-cell fh-row" id="c_6_features_0">
 <div class="fh-cell" id="c_6_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
@@ -140,7 +140,7 @@
   data-on-signal-patch-filter="{include:/^_c_6_features_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_features_0_1__busy_slow = $_c_6_features_0_1__busy"
   data-class:fh-busy-spin="$_c_6_features_0_1__busy_slow"
-  data-attr:aria-busy="$_c_6_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div></div>
+  data-attr:aria-busy="$_c_6_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div>
 <div class="fh-cell" id="c_6_features_1"
   data-signals="{_e: {lock: {front_door: {t#9: false}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_6_features_1__busy ? '' : $_e.lock.front_door.t#9 ? '' : @post('sse/surface/taps/open/c_6_features_1_self')"
@@ -157,13 +157,13 @@
   data-class:fh-busy-spin="$_c_6_features_1__busy_slow"
   data-attr:aria-busy="$_c_6_features_1__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-text"><span class="fh-text-run">Open</span></span></button></div>
 </article></div>
-<div class="fh-cell" id="c_7"><a class="fh-button fh-press fh-size-large  " href="d/home"><span class="fh-text"><span class="fh-text-run">Home</span></span></a></div></div></div>
+<div class="fh-cell" id="c_7"><a class="fh-button fh-press fh-size-large  " href="d/home"><span class="fh-text"><span class="fh-text-run">Home</span></span></a></div></div>
 <!-- ==== as fixtured · surface c_1_self ==== -->
 <div class="fh-cell" id="s_c_1_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_1_self__c_0">
 <div class="fh-cell fh-active" id="s_c_1_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -183,7 +183,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">on</span></span></span></div>
 </article></div>
-<div class="fh-cell" id="s_c_1_self__c_0_1"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_1_self__c_0_1">
 <div class="fh-cell fh-active" id="s_c_1_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -202,18 +202,18 @@
   data-attr:aria-busy="$_s_c_1_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">on</span></span></span></div>
-</article></div></div></div>
+</article></div></div>
 <div class="fh-cell" id="s_c_1_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · surface c_2_self ==== -->
 <div class="fh-cell" id="s_c_2_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_2_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_2_self__c_0">
 <div class="fh-cell fh-active" id="s_c_2_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -233,7 +233,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">on</span></span></span></div>
 </article></div>
-<div class="fh-cell" id="s_c_2_self__c_0_1"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_2_self__c_0_1">
 <div class="fh-cell fh-active" id="s_c_2_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -252,27 +252,27 @@
   data-attr:aria-busy="$_s_c_2_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">on</span></span></span></div>
-</article></div></div></div>
+</article></div></div>
 <div class="fh-cell" id="s_c_2_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_2_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · surface c_5_self ==== -->
 <div class="fh-cell" id="s_c_5_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_5_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_5_self__c_0">
 <div class="fh-cell" id="s_c_5_self__c_0_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Inline</span></h2></div>
 <div class="fh-cell" id="s_c_5_self__c_0_1"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · surface c_6_features_1_self ==== -->
 <div class="fh-cell" id="s_c_6_features_1_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_6_features_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_6_features_1_self__c_0">
 <div class="fh-cell" id="s_c_6_features_1_self__c_0_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Open the door?</span></h2></div>
 <div class="fh-cell" id="s_c_6_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked', t#10: false, t#11: 'lock/unlock'}}}}"
@@ -305,13 +305,13 @@
   data-class:fh-loading="$_s_c_6_features_1_self__c_0_2__busy"
   data-class:fh-error="$_s_c_6_features_1_self__c_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button></div>
 <div class="fh-cell" id="s_c_6_features_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · surface c_6_self ==== -->
 <div class="fh-cell" id="s_c_6_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_6_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_6_self__c_0">
 <div class="fh-cell" id="s_c_6_self__c_0_0"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked'}}}}"
   data-class:fh-active="$_e.lock.front_door.t#4">
@@ -320,7 +320,7 @@
   data-attr:class="$_e.lock.front_door.t#5"></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door Lock</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div>
-<div class="fh-cell" id="s_c_6_self__c_0_0_features_0"><div class="fh-row ">
+<div class="fh-cell fh-row" id="s_c_6_self__c_0_0_features_0">
 <div class="fh-cell" id="s_c_6_self__c_0_0_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
@@ -349,7 +349,7 @@
   data-on-signal-patch-filter="{include:/^_s_c_6_self__c_0_0_features_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_s_c_6_self__c_0_0_features_0_1__busy_slow = $_s_c_6_self__c_0_0_features_0_1__busy"
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_1__busy_slow"
-  data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div></div>
+  data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_0_features_1"
   data-signals="{_e: {lock: {front_door: {t#9: false}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#9 ? '' : @post('sse/surface/taps/open/s_c_6_self__c_0_0_features_1_self')"
@@ -370,7 +370,7 @@
   <code class="fh-entity-info-id">lock.front_door</code>  <pre class="fh-entity-info-attrs">changed_by: keypad&#10;friendly_name: Front Door Lock&#10;supported_features: 1</pre>
 </div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_2"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · surface detail ==== -->
 <div class="fh-cell" id="s_detail__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
@@ -384,7 +384,7 @@
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_s_c_6_self__c_0_0_features_1_self__c_0">
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Open the door?</span></h2></div>
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked', t#10: false, t#11: 'lock/unlock'}}}}"
@@ -417,7 +417,7 @@
   data-class:fh-loading="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-class:fh-error="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button></div>
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></dialog></div>
 <!-- ==== as fixtured · patch c_4 ==== -->
 <div class="fh-cell" id="c_4"><button class="fh-press fh-size-large "
   data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/' + 'light/turn_off' + '/set/59218c0f5861fcb2?node=c_4', {filterSignals:{exclude:'.*'}})"
@@ -590,7 +590,7 @@
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_3"><button class="fh-press fh-size-large "
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div>
 <!-- ==== flipped · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell fh-col" id="c">
 <div class="fh-cell" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -702,7 +702,7 @@
   data-attr:class="$_e.lock.front_door.t#5"></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door Lock</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div>
-<div class="fh-cell" id="c_6_features_0"><div class="fh-row ">
+<div class="fh-cell fh-row" id="c_6_features_0">
 <div class="fh-cell" id="c_6_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
@@ -731,7 +731,7 @@
   data-on-signal-patch-filter="{include:/^_c_6_features_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_features_0_1__busy_slow = $_c_6_features_0_1__busy"
   data-class:fh-busy-spin="$_c_6_features_0_1__busy_slow"
-  data-attr:aria-busy="$_c_6_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div></div>
+  data-attr:aria-busy="$_c_6_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div>
 <div class="fh-cell" id="c_6_features_1"
   data-signals="{_e: {lock: {front_door: {t#9: false}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_6_features_1__busy ? '' : $_e.lock.front_door.t#9 ? '' : @post('sse/surface/taps/open/c_6_features_1_self')"
@@ -748,13 +748,13 @@
   data-class:fh-busy-spin="$_c_6_features_1__busy_slow"
   data-attr:aria-busy="$_c_6_features_1__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-text"><span class="fh-text-run">Open</span></span></button></div>
 </article></div>
-<div class="fh-cell" id="c_7"><a class="fh-button fh-press fh-size-large  " href="d/home"><span class="fh-text"><span class="fh-text-run">Home</span></span></a></div></div></div>
+<div class="fh-cell" id="c_7"><a class="fh-button fh-press fh-size-large  " href="d/home"><span class="fh-text"><span class="fh-text-run">Home</span></span></a></div></div>
 <!-- ==== flipped · surface c_1_self ==== -->
 <div class="fh-cell" id="s_c_1_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_1_self__c_0">
 <div class="fh-cell" id="s_c_1_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -774,7 +774,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">off</span></span></span></div>
 </article></div>
-<div class="fh-cell" id="s_c_1_self__c_0_1"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_1_self__c_0_1">
 <div class="fh-cell" id="s_c_1_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -793,18 +793,18 @@
   data-attr:aria-busy="$_s_c_1_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">off</span></span></span></div>
-</article></div></div></div>
+</article></div></div>
 <div class="fh-cell" id="s_c_1_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== flipped · surface c_2_self ==== -->
 <div class="fh-cell" id="s_c_2_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_2_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_2_self__c_0">
 <div class="fh-cell" id="s_c_2_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -824,7 +824,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">off</span></span></span></div>
 </article></div>
-<div class="fh-cell" id="s_c_2_self__c_0_1"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_2_self__c_0_1">
 <div class="fh-cell" id="s_c_2_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -843,12 +843,12 @@
   data-attr:aria-busy="$_s_c_2_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">off</span></span></span></div>
-</article></div></div></div>
+</article></div></div>
 <div class="fh-cell" id="s_c_2_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_2_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== flipped · surface c_5_self: as fixtured ==== -->
 <!-- ==== flipped · surface c_6_features_1_self: as fixtured ==== -->
 <!-- ==== flipped · surface c_6_self: as fixtured ==== -->
@@ -880,7 +880,7 @@
 <!-- ==== flipped · patch s_s_c_6_self__c_0_0_features_1_self__c_0_2: as fixtured ==== -->
 <!-- ==== flipped · patch s_s_c_6_self__c_0_0_features_1_self__c_0_3: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-col ">
+<div class="fh-cell fh-col" id="c">
 <div class="fh-cell" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -992,7 +992,7 @@
   data-attr:class="$_e.lock.front_door.t#5"></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door Lock</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">unavailable</span></span></span></div>
-<div class="fh-cell" id="c_6_features_0"><div class="fh-row ">
+<div class="fh-cell fh-row" id="c_6_features_0">
 <div class="fh-cell" id="c_6_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
@@ -1020,7 +1020,7 @@
   data-on-signal-patch-filter="{include:/^_c_6_features_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_features_0_1__busy_slow = $_c_6_features_0_1__busy"
   data-class:fh-busy-spin="$_c_6_features_0_1__busy_slow"
-  data-attr:aria-busy="$_c_6_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div></div>
+  data-attr:aria-busy="$_c_6_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div>
 <div class="fh-cell" id="c_6_features_1"
   data-signals="{_e: {lock: {front_door: {t#9: false}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_c_6_features_1__busy ? '' : $_e.lock.front_door.t#9 ? '' : @post('sse/surface/taps/open/c_6_features_1_self')"
@@ -1037,13 +1037,13 @@
   data-class:fh-busy-spin="$_c_6_features_1__busy_slow"
   data-attr:aria-busy="$_c_6_features_1__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-text"><span class="fh-text-run">Open</span></span></button></div>
 </article></div>
-<div class="fh-cell" id="c_7"><a class="fh-button fh-press fh-size-large  " href="d/home"><span class="fh-text"><span class="fh-text-run">Home</span></span></a></div></div></div>
+<div class="fh-cell" id="c_7"><a class="fh-button fh-press fh-size-large  " href="d/home"><span class="fh-text"><span class="fh-text-run">Home</span></span></a></div></div>
 <!-- ==== unavailable · surface c_1_self ==== -->
 <div class="fh-cell" id="s_c_1_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_1_self__c_0">
 <div class="fh-cell" id="s_c_1_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -1063,7 +1063,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div>
 </article></div>
-<div class="fh-cell" id="s_c_1_self__c_0_1"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_1_self__c_0_1">
 <div class="fh-cell" id="s_c_1_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -1082,18 +1082,18 @@
   data-attr:aria-busy="$_s_c_1_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div>
-</article></div></div></div>
+</article></div></div>
 <div class="fh-cell" id="s_c_1_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== unavailable · surface c_2_self ==== -->
 <div class="fh-cell" id="s_c_2_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_2_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_2_self__c_0">
 <div class="fh-cell" id="s_c_2_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -1113,7 +1113,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div>
 </article></div>
-<div class="fh-cell" id="s_c_2_self__c_0_1"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_2_self__c_0_1">
 <div class="fh-cell" id="s_c_2_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1">
@@ -1132,19 +1132,19 @@
   data-attr:aria-busy="$_s_c_2_self__c_0_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div>
-</article></div></div></div>
+</article></div></div>
 <div class="fh-cell" id="s_c_2_self__c_0_2"><div class="fh-card fh-entity-info">
   <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">friendly_name: Kitchen</pre>
 </div></div>
 <div class="fh-cell" id="s_c_2_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== unavailable · surface c_5_self: as fixtured ==== -->
 <!-- ==== unavailable · surface c_6_features_1_self ==== -->
 <div class="fh-cell" id="s_c_6_features_1_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_6_features_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_6_features_1_self__c_0">
 <div class="fh-cell" id="s_c_6_features_1_self__c_0_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Open the door?</span></h2></div>
 <div class="fh-cell" id="s_c_6_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable', t#10: true, t#11: 'lock/lock'}}}}"
@@ -1176,13 +1176,13 @@
   data-class:fh-loading="$_s_c_6_features_1_self__c_0_2__busy"
   data-class:fh-error="$_s_c_6_features_1_self__c_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button></div>
 <div class="fh-cell" id="s_c_6_features_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></dialog></div>
 <!-- ==== unavailable · surface c_6_self ==== -->
 <div class="fh-cell" id="s_c_6_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_6_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_c_6_self__c_0">
 <div class="fh-cell" id="s_c_6_self__c_0_0"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable'}}}}"
   data-class:fh-active="$_e.lock.front_door.t#4">
@@ -1191,7 +1191,7 @@
   data-attr:class="$_e.lock.front_door.t#5"></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Front Door Lock</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">unavailable</span></span></span></div>
-<div class="fh-cell" id="s_c_6_self__c_0_0_features_0"><div class="fh-row ">
+<div class="fh-cell fh-row" id="s_c_6_self__c_0_0_features_0">
 <div class="fh-cell" id="s_c_6_self__c_0_0_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
@@ -1219,7 +1219,7 @@
   data-on-signal-patch-filter="{include:/^_s_c_6_self__c_0_0_features_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_s_c_6_self__c_0_0_features_0_1__busy_slow = $_s_c_6_self__c_0_0_features_0_1__busy"
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_1__busy_slow"
-  data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div></div>
+  data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_0_features_1"
   data-signals="{_e: {lock: {front_door: {t#9: false}}}}"><button class="fh-press fh-size-large fh-badged"
   data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#9 ? '' : @post('sse/surface/taps/open/s_c_6_self__c_0_0_features_1_self')"
@@ -1240,14 +1240,14 @@
   <code class="fh-entity-info-id">lock.front_door</code>  <pre class="fh-entity-info-attrs">friendly_name: Front Door Lock&#10;supported_features: 1</pre>
 </div></div>
 <div class="fh-cell" id="s_c_6_self__c_0_2"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
 <!-- ==== unavailable · surface detail: as fixtured ==== -->
 <!-- ==== unavailable · surface s_c_6_self__c_0_0_features_1_self ==== -->
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c"><div class="fh-popup-backdrop"
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0"><div class="fh-col ">
+<div class="fh-cell fh-col" id="s_s_c_6_self__c_0_0_features_1_self__c_0">
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Open the door?</span></h2></div>
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable', t#10: true, t#11: 'lock/lock'}}}}"
@@ -1279,7 +1279,7 @@
   data-class:fh-loading="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-class:fh-error="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button></div>
 <div class="fh-cell" id="s_s_c_6_self__c_0_0_features_1_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></div></dialog></div>
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></div></dialog></div>
 <!-- ==== unavailable · patch c_4: as fixtured ==== -->
 <!-- ==== unavailable · patch c_5: as fixtured ==== -->
 <!-- ==== unavailable · patch c_6_features_0_0: as fixtured ==== -->

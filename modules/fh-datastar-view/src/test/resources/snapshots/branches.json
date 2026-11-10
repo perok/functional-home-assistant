@@ -681,7 +681,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "fhrow" : {
       "regions" : {
@@ -689,7 +689,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-row {{#class}}{{class}}{{/class}}\">{{{children}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-row{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "ifhost" : {
       "regions" : {

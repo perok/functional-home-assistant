@@ -156,7 +156,10 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
     "a class held in a slot's value is swapped, a literal and a reading alike"
   ) {
     valuesPage.map { html =>
-      assert(html.contains("""<div class="fh-row fh-boxed padded">"""), html)
+      assert(
+        html.contains("""<div class="fh-cell fh-row fh-boxed padded""""),
+        html
+      )
       assert(html.contains("""<button class="fh-press small """), html)
       assert(html.contains("""<i class="fh-lit bright""""), html)
     }

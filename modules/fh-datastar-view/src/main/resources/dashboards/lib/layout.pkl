@@ -32,7 +32,8 @@ typealias Justify = "start"|"center"|"end"
 
 const local function boxDef(cls: String): nodes.CardDef = new {
   regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-  template = #"<div class="\#(cls) \#(extraClass.ifTrue("\(extraClass)"))">{{{children}}}</div>"#
+  classes = cls + extraClass.ifTrue(" \(extraClass)")
+  template = "{{{children}}}"
 }
 
 class Row extends Box {
