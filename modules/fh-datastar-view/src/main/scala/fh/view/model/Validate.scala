@@ -576,7 +576,7 @@ private[model] object Validate:
     // A literal style is no cell slot, so nothing would ever write it.
     def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
       cell.toList
-        .flatMap(_.classes.keys)
+        .flatMap(c => c.layout ++ c.classes.keys)
         .flatMap(classTokenErrors(nodeId, _)) ++
         cell.toList.flatMap(_.styles.collect {
           case (p, s) if s.constant.isDefined =>
@@ -640,9 +640,6 @@ private[model] object Validate:
     ): List[(SlotKey, String, BoundSlot)] =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
-    def noWrap(cardName: String): Boolean =
-      cards.get(cardName).exists(!_.wrapAsCell)
-
     def walk(
         node: LayoutNode,
         prefix: String,
@@ -651,26 +648,16 @@ private[model] object Validate:
     ): List[String] =
       node match
         case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _) =>
-          val wrapErrors =
-            if (!noWrap(card)) Nil
-            else
-              val live = BoundSlot.liveEntities(c.bound.values)
-              Option
-                .when(live.nonEmpty)(
-                  s"$nodeId: card '$card' has wrapAsCell=false but binds live " +
-                    s"entities (${live.mkString(", ")}) — an " +
-                    "unwrapped node has no morph target, so its live updates " +
-                    "would never apply; make those slots literal or " +
-                    s"reads='${Reads.OnRender.wire}', or drop the opt-out"
-                )
-                .toList ++
-                Option
-                  .when(cell.isDefined)(
-                    s"$nodeId: card '$card' has wrapAsCell=false but carries " +
-                      "cell params — they ride on the .fh-cell wrapper this " +
-                      "card opts out of"
-                  )
-                  .toList
+          val layoutErrors = Option
+            .when(
+              cards.get(card).exists(!_.layoutCell) &&
+                cell.exists(_.layout.nonEmpty)
+            )(
+              s"$nodeId: card '$card' has layoutCell=false, so its root is " +
+                "no layout box — drop its layout classes " +
+                cell.toList.flatMap(_.layout).mkString(", ")
+            )
+            .toList
           val here = scope ++ c.defaults
           // Each `valueWhile` is checked as the slot it is, under its own name.
           val checked = c.bound ++ c.bound.flatMap((k, s) =>
@@ -687,7 +674,7 @@ private[model] object Validate:
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here)
+            layoutErrors ++ childErrors(c.regions, prefix, nodeId, here)
         // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>
           val setId = nodeId
@@ -710,7 +697,7 @@ private[model] object Validate:
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
             } ++
-            s.members.toList.sortBy(_._1).flatMap { case (candidate, m) =>
+            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
               m.clauses.zipWithIndex.flatMap { case (clause, i) =>
                 walk(
                   clause.node,
@@ -722,15 +709,7 @@ private[model] object Validate:
                     clause.node
                   ),
                   scope
-                ) ++ (clause.node match {
-                  case c: LayoutNode.Component if noWrap(c.card) =>
-                    List(
-                      s"$setId/$candidate: card '${c.card}' has " +
-                        "wrapAsCell=false and cannot be a set clause — every " +
-                        "member is wrapped as its own patch target"
-                    )
-                  case _ => Nil
-                })
+                )
               }
             }
 
@@ -797,6 +776,18 @@ private[model] object Validate:
                       s"card '$name': places region '$r' $n times — its " +
                         "children would render twice under the same ids"
                     )
+            } ++ CardDef.RootHoles.toList.sorted.flatMap { h =>
+              val hole = cd.holeOf(h)
+              Option
+                .when(
+                  reads.misplacedRegions(h) ||
+                    reads.regionHoles.getOrElse(h, 0) != 1
+                )(
+                  s"card '$name': its root must place $hole exactly once, " +
+                    "outside every section — the Pkl library writes the " +
+                    "root (ADR 0008), so a node's id cannot go missing"
+                )
+                .toList
             }
       }
 

@@ -125,6 +125,7 @@ abstract class Select extends nodes.Node {
         else new SelectCycle { target = t; choices = cs })
       (fresh) {
         cellClasses = self.cellClasses
+        layoutClasses = self.layoutClasses
         stateClasses = self.stateClasses
         liveClasses = self.liveClasses
         liveStyles = self.liveStyles
@@ -355,7 +356,7 @@ class Chooser extends nodes.Node {
       }
     }
   // A section header over its cards, not a third of a grid row.
-  cellClasses { "fh-cols-full" }
+  layoutClasses { "fh-cols-full" }
 
   function defaultingTo(v: varMod.Value): Chooser = let (self = this) let (d = v) (self) { defaultValue = d }
 }

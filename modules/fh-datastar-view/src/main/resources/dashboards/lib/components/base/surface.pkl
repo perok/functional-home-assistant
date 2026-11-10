@@ -16,10 +16,13 @@ import "../../layout.pkl" as layout
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)">\#(labelSlot)</a>"#
+    // An anchor, so a theme can style the bar's `> a`.
+    tag = "a"
+    layoutCell = false
+    attrs = #"data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)""#
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
-    // than shortened. Unwrapped, so a theme can style the bar's `> a`.
-    wrapAsCell = false
+    // than shortened.
+    template = "\(labelSlot)"
   }
   hidden label: String
   hidden tapAction: tapMod.SetVar
@@ -69,7 +72,7 @@ class Tabs extends nodes.Node {
     // the surrounding column.
     css = ".fh-tab-panel{display:contents}"
   }
-  cellClasses { "fh-cols-full" }
+  layoutClasses { "fh-cols-full" }
   /// label -> that tab's cards, in bar order. A tab amends into existence:
   ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
   /// A tab's cards sit in a [[Row]]; nest another container as its one card
@@ -125,7 +128,7 @@ class If extends nodes.Node {
     regions = new Mapping { ["branch"] = new nodes.Region { fill = "baked" } }
     template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
   }
-  cellClasses { "fh-cols-full" }
+  layoutClasses { "fh-cols-full" }
   hidden condition: slotMod.Expr|varMod.ValueIs
   hidden `then`: Listing<nodes.LayoutNode> = new {}
   hidden `else`: Listing<nodes.LayoutNode> = new {}

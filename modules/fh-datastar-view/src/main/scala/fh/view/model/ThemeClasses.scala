@@ -9,9 +9,9 @@ import scala.util.matching.Regex
   * to it; one that leaves it out replaces it, so the base stylesheet's rules
   * for it stop applying, which is how BeerCSS's spinner keeps the plain ring
   * from drawing under its mask. Applied wherever card or cell markup is
-  * emitted: the card templates once, at compile ([[rewriteTemplate]]); the
-  * wrapper's classes, live-class bindings and `cssClass` slot values at render;
-  * and the page's banners and a failed fetch's label, which are templates too.
+  * emitted: the card templates once, at compile ([[rewriteTemplate]]); the cell
+  * classes, live-class bindings and `cssClass` slot values at render; and the
+  * page's banners and a failed fetch's label, which are templates too.
   */
 final case class ThemeClasses(contents: Map[String, List[String]])
     derives CanEqual:

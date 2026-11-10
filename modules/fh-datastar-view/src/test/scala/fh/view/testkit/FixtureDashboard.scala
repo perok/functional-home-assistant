@@ -25,22 +25,22 @@ import io.circe.Json
 object FixtureDashboard {
 
   val cards: Map[String, CardDef] = Map(
-    "col" -> CardDef(
+    "col" -> TestCard(
       """<div class="col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
-    "reading" -> CardDef(
+    "reading" -> TestCard(
       """<div class="reading"><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
-    "light" -> CardDef(
+    "light" -> TestCard(
       """<div class="light">{{name}}: <span>{{state}}</span></div>"""
     ),
     // Name and state come from the member's own entity, so one card serves
     // every member.
-    "member" -> CardDef(
+    "member" -> TestCard(
       """<div class="member">{{name}}: <span>{{state}}</span></div>"""
     ),
-    "call" -> CardDef(
+    "call" -> TestCard(
       """<button>{{service}}</button>"""
     )
   )
@@ -145,7 +145,7 @@ object FixtureDashboard {
       elseBranch: LayoutNode.Component
   ): Dashboard =
     Dashboard(
-      cards = cards + ("ifhost" -> CardDef(
+      cards = cards + ("ifhost" -> TestCard(
         template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import api.homeassistant.HomeAssistantApi
@@ -246,7 +247,7 @@ class ResumeSuite extends ServerHarness {
   test("a page read ahead of the recorder shows the store's members") {
     val off = Map("light.a" -> es("light.a", "off"))
     val dash = Dashboard(
-      cards = Map("pill" -> CardDef("<b>{{state}}</b>")),
+      cards = Map("pill" -> TestCard("<b>{{state}}</b>")),
       card = LayoutNode.SetNode(
         candidates = List("light.a"),
         members = Map(
@@ -452,7 +453,7 @@ class ResumeSuite extends ServerHarness {
   }
 
   private def popupDash(template: String) = liveLeafDash.copy(
-    cards = liveLeafDash.cards + ("detail" -> CardDef(
+    cards = liveLeafDash.cards + ("detail" -> TestCard(
       template
     )),
     surfaces = Map(
@@ -551,7 +552,7 @@ class ResumeSuite extends ServerHarness {
 
   test("a dashboard edit repaints the tab selected now, not at connect") {
     def twoTabs(card: String) = mixedTabsDash.copy(
-      cards = mixedTabsDash.cards.updated("card", CardDef(card)),
+      cards = mixedTabsDash.cards.updated("card", TestCard(card)),
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
@@ -641,7 +642,7 @@ class ResumeSuite extends ServerHarness {
     // The repaint re-sends a changed body in full, so no reload.
     val editedCard = liveLeafDash.copy(
       cards = liveLeafDash.cards
-        .updated("card", CardDef("<b>{{state}}</b>"))
+        .updated("card", TestCard("<b>{{state}}</b>"))
     )
     assertEquals(Renderer.create(editedCard).headHash, base)
     // Nothing can un-apply a stylesheet.

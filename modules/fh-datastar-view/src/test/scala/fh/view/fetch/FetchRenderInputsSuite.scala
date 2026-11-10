@@ -1,5 +1,6 @@
 package fh.view.fetch
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.fetch.{FetchRequest, FetchSnapshot}
@@ -349,8 +350,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // `IO`.
     val d = Dashboard(
       cards = Map(
-        "chart" -> CardDef("""<div>{{{chart}}}</div>"""),
-        "col" -> CardDef(
+        "chart" -> TestCard("""<div>{{{chart}}}</div>"""),
+        "col" -> TestCard(
           """<div>{{{children}}}</div>""",
           regions = Map("children" -> Region())
         )
@@ -422,20 +423,19 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val r = Renderer.create(
       Dashboard(
-        cards =
-          Map(
-            "chart" -> CardDef(
-              """<div>{{{chart}}}</div>"""
-            ),
-            "col" -> CardDef(
-              """<div>{{{children}}}</div>""",
-              regions = Map("children" -> Region())
-            ),
-            "host" -> CardDef(
-              """<div id="{{hostId}}">{{{panel}}}</div>""",
-              regions = Map("panel" -> Region(Region.Baked))
-            )
+        cards = Map(
+          "chart" -> TestCard(
+            """<div>{{{chart}}}</div>"""
           ),
+          "col" -> TestCard(
+            """<div>{{{children}}}</div>""",
+            regions = Map("children" -> Region())
+          ),
+          "host" -> TestCard(
+            """<div id="{{hostId}}">{{{panel}}}</div>""",
+            regions = Map("panel" -> Region(Region.Baked))
+          )
+        ),
         card = LayoutNode.Component(
           card = "col",
           regions = LayoutNode.kids(
@@ -474,7 +474,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def dashboard(src: TemplateSlot) =
     Dashboard(
-      cards = Map("chart" -> CardDef("""<div id="{{id}}">{{{chart}}}</div>""")),
+      cards =
+        Map("chart" -> TestCard("""<div id="{{id}}">{{{chart}}}</div>""")),
       card = LayoutNode.Component(
         card = "chart",
         templateSlots = Map("chart" -> src)
@@ -495,7 +496,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // Otherwise `{{chart}}` renders `&lt;svg …` as text.
     def errsFor(hole: String) =
       Dashboard(
-        cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
+        cards = Map("chart" -> TestCard(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
           templateSlots = Map(

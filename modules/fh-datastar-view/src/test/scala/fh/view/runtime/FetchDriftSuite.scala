@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.history.Windows
@@ -107,13 +108,13 @@ class FetchDriftSuite extends munit.FunSuite {
     )
     val d = Dashboard(
       cards = Map(
-        "chart" -> CardDef("<div>{{{chart}}}</div>"),
-        "dot" -> CardDef("<span>{{state}}</span>"),
-        "col" -> CardDef(
+        "chart" -> TestCard("<div>{{{chart}}}</div>"),
+        "dot" -> TestCard("<span>{{state}}</span>"),
+        "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
-        "host" -> CardDef(
+        "host" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )

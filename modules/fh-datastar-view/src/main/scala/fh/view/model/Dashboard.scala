@@ -442,10 +442,13 @@ object SignalBind:
   * ([[fh.view.runtime.Templates.card]]), which `validate` holds every node of
   * it to.
   *
-  *   - `wrapAsCell`: off only for a card whose root must stay a direct child of
-  *     a structural parent (the tab anchors under `.tabs`). Such a card is
-  *     never its own morph target, so `validate` rejects live slots, `cell` and
-  *     set-clause use on it.
+  *   - `template`: the card's root element and its content, the root written by
+  *     the Pkl library (ADR 0008) with the two [[CardDef.RootHoles]] the
+  *     renderer fills: the node's cell classes inside its `class`, and its id,
+  *     signal seed and cell bindings after it.
+  *   - `layoutCell`: off for a root that must not be a layout box (the tab
+  *     anchors under `.fh-tabs`): it has no `fh-cell` class, and `validate`
+  *     refuses a node's `cell.layout` on it.
   *   - `regions`: a card is a leaf (none) or structure (some). Every region is
   *     filled by nodes with ids of their own, so a node's patch never carries a
   *     region's contents and a host changing cannot re-render what it hosts
@@ -459,7 +462,7 @@ object SignalBind:
   */
 case class CardDef(
     template: String,
-    wrapAsCell: Boolean = true,
+    layoutCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
     css: String = "",
     script: Option[String] = None
@@ -472,9 +475,19 @@ case class CardDef(
 
   def isStructure: Boolean = regions.nonEmpty
 
+  /** What the template places as `{{{name}}}`, each once, outside every
+    * section: the regions and the root's holes.
+    */
+  def holes: Set[String] = regions.keySet ++ CardDef.RootHoles
+
   def bakedRegions: Map[String, Region] =
     regions.filter(_._2.fill == Region.Baked)
 }
+
+object CardDef:
+  val CellClassesHole: String = "cellClasses"
+  val CellHole: String = "cell"
+  val RootHoles: Set[String] = Set(CellClassesHole, CellHole)
 
 /** `eager`: the node's own children, in the same render. `baked`: a surface
   * selected per viewer, rendered only while shown.
@@ -486,21 +499,24 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** The node's cell slots, which the renderer places on its `.fh-cell` wrapper
-  * ([[CellKey]]): classes by name, `"1"` for one always there, and custom
-  * properties. In wire order, which is the class attribute's. An object so it
-  * can grow `grid_options`-style fields without a wire break.
+/** The node's cell slots, which the renderer places on its card's root
+  * ([[CellKey]]): the layout builders' classes, classes by name, `"1"` for one
+  * always there, and custom properties. In wire order, `layout` first, which is
+  * the class attribute's. An object so it can grow `grid_options`-style fields
+  * without a wire break.
   */
 case class Cell(
+    layout: List[String] = Nil,
     classes: ListMap[String, ValueExpr] = ListMap.empty,
     styles: ListMap[String, ValueExpr] = ListMap.empty
 ) derives ConfiguredDecoder:
 
   /** Keyed once for the render walk: a `ListMap` iterates by building a list,
-    * and each wrapper of each paint walks both.
+    * and each root of each paint walks both.
     */
   def ready: Ready.Cell = Ready.Cell(
-    classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.constant)),
+    layout.map(n => Cell.Entry(n, CellKey.Class(n), Some(true))) ++
+      classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.constant)),
     styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.constant))
   )
 
@@ -1087,7 +1103,7 @@ case class Dashboard(
       name -> Templates.card(
         name,
         theme.classes.rewriteTemplate(cd.template),
-        cd.regions.keySet
+        cd.holes
       )
     )
 

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.fetch.FetchSnapshot
@@ -42,26 +43,26 @@ import scala.concurrent.duration.*
 class RenderInputsSuite extends munit.FunSuite {
 
   private val cards = Map(
-    "col" -> CardDef(
+    "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
-    "card" -> CardDef(
+    "card" -> TestCard(
       """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
     // A bake owner beside a live leaf: an owner holds regions, so it is
     // structure and never cached, and the leaf cannot see the selection. The
     // key is entity versions.
-    "banner" -> CardDef(
+    "banner" -> TestCard(
       template =
         """<div><i>{{bakeIndex}}</i>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
       regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
     ),
-    "bannerBar" -> CardDef("""<b>{{title}}</b>"""),
-    "btn" -> CardDef("""<button>{{label}}</button>"""),
+    "bannerBar" -> TestCard("""<b>{{title}}</b>"""),
+    "btn" -> TestCard("""<button>{{label}}</button>"""),
     // The signal's entity reaches the patch form only as a binding (ADR 0017),
     // the asymmetry the key must reflect.
-    "gauge" -> CardDef(
+    "gauge" -> TestCard(
       """<div><span>{{state}}</span><em {{{live.bind}}}>{{live}}</em></div>"""
     )
   )

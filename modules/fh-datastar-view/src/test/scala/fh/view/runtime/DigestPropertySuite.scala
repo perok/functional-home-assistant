@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.*
 import fh.view.testkit.TestIds.setId
@@ -51,7 +52,7 @@ class DigestPropertySuite extends HedgehogSuite {
 
   // A signal slot is placed by its bind; without one the value never updates.
   private def card(signal: Boolean): CardDef =
-    CardDef(
+    TestCard(
       if signal then """<b {{{v.bind}}} data-t="{{v}}">{{v}}</b>"""
       else """<b data-t="{{v}}">{{v}}</b>"""
     )

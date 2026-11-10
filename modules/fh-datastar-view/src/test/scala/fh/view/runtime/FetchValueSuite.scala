@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
@@ -41,7 +42,7 @@ class FetchValueSuite extends munit.FunSuite {
       nodeInputs: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
     cards = Map(
-      "bar" -> CardDef(
+      "bar" -> TestCard(
         """<div data-of="{{#of.signal}}{{of.signal}}{{/of.signal}}">{{value}}</div>"""
       )
     ),
@@ -162,7 +163,7 @@ class FetchValueSuite extends munit.FunSuite {
       value: ValueExpr,
       nodeInputs: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
-    cards = Map("bar" -> CardDef("<div>{{value}}</div>")),
+    cards = Map("bar" -> TestCard("<div>{{value}}</div>")),
     card = LayoutNode.Component(
       card = "bar",
       templateSlots = Map(

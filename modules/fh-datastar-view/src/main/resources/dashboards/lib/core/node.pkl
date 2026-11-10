@@ -1,8 +1,9 @@
 /// The layout tree and the card contract — what a component author extends.
 ///
 /// A card is a class: subclass [[Node]], give it a `card` name and a `cardDef`,
-/// and use it; [[cardsIn]] registers it off the node. The renderer wraps every
-/// node in an id'd `.fh-cell`, which the layout builders here put classes on.
+/// and use it; [[cardsIn]] registers it off the node. The library writes every
+/// card's root element ([[CardDef]]): an id'd `.fh-cell`, which the layout
+/// builders here put classes on.
 module core.node
 
 import "../hass.pkl"
@@ -42,11 +43,13 @@ const function disabledSlot(d: BooleanInput?): slotMod.Slot =
       signal = slotMod.asHandler
     }
 
-/// What the renderer places on a node's `.fh-cell` wrapper: its cell slots,
-/// keyed by the class name or the custom property. A class is `true` (always
-/// there) or a reading; a style is a reading. Authors use the [[LayoutNode]]
-/// builders rather than writing one.
+/// What the renderer places on a node's root: its cell slots, keyed by the
+/// class name or the custom property. A class is `true` (always there) or a
+/// reading; a style is a reading. `layout` is the layout builders' classes,
+/// written ahead of `classes`, which a `layoutCell = false` card refuses.
+/// Authors use the [[LayoutNode]] builders rather than writing one.
 class Cell {
+  layout: Listing<String> = new {}
   classes: Mapping<String, Boolean|Map<String, Any>> = new {}
   styles: Mapping<String, Map<String, Any>> = new {}
 }
@@ -68,6 +71,9 @@ abstract class LayoutNode {
   /// Inputs each builder amends, so the order an author chains them in does not
   /// matter: a card's own live class and an author's `.columns(3)` both land.
   hidden cellClasses: Listing<String> = new {}
+  /// What [[columns]], [[fullWidth]], [[hug]], [[grow]] and [[stick]] add: the
+  /// root as a layout box.
+  hidden layoutClasses: Listing<String> = new {}
   /// Classes a card derives from its own inputs ([[ActiveNode]]'s). Kept apart
   /// from [[cellClasses]], which a builder replaces whole, so an input set
   /// after `.columns(3)` still lands.
@@ -80,9 +86,17 @@ abstract class LayoutNode {
   /// builders would have added.
   cell: Cell? =
     let (static = (cellClasses.toList() + stateClasses.toList()).distinct)
+    let (boxClasses = layoutClasses.toList().distinct)
     let (subjectId = if (this is Node) subjectOf(this.slots) else null)
-      if (static.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty) null
+    let (attrs = if (this is Node) this.cardDef.attrs else "")
+    let (doubled = liveClasses.keys.toList().filter((cls) -> attrs.contains("data-class:\(cls)=") || attrs.contains("data-class:\(cls)__")))
+      if (this is Node && !this.cardDef.layoutCell && !boxClasses.isEmpty)
+        throw("card '\(this.card)' has layoutCell = false, so its root is no layout box: drop \(boxClasses.join(", "))")
+      else if (!doubled.isEmpty)
+        throw("card '\((this as Node).card)' binds data-class:\(doubled.first) in its attrs, which cellClassWhen(\"\(doubled.first)\") binds too: the browser keeps only one")
+      else if (static.isEmpty && boxClasses.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty) null
       else new Cell {
+        layout { for (c in boxClasses) { c } }
         classes {
           for (c in static) { [c] = true }
           for (c, r in liveClasses) { [c] = wireReading(r, subjectId, false) }
@@ -93,23 +107,23 @@ abstract class LayoutNode {
       }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
   /// [[Grid]] or a group.
-  function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
-  function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
+  function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addLayoutClass("fh-cols-\(n)")
+  function fullWidth(): LayoutNode = addLayoutClass("fh-cols-full")
   /// Shrink to the content instead of filling the cell's share.
-  function hug(): LayoutNode = addCellClass("fh-hug")
+  function hug(): LayoutNode = addLayoutClass("fh-hug")
   /// Take the space the surrounding row or column leaves: the body between a
   /// header and a footer, or the rest of a wrapped row's line.
-  function grow(): LayoutNode = addCellClass("fh-grow")
+  function grow(): LayoutNode = addLayoutClass("fh-grow")
   /// Stay on screen while the page scrolls, at that edge, for as long as the
   /// surrounding box is: a footer in the page's main column always is.
-  function stick(edge: Edge): LayoutNode = addCellClass("fh-stick-\(edge)")
+  function stick(edge: Edge): LayoutNode = addLayoutClass("fh-stick-\(edge)")
   /// Wrap, clip or scroll a label too long for its box (`core/text.pkl`), for
   /// this node and everything under it. The dashboard default is `entry.pkl`'s
   /// `textOverflow`.
   function textOverflow(o: textMod.Overflow): LayoutNode = addCellClass(textMod.cls(o))
-  /// Any plain class token on the wrapper; validated at build time.
+  /// Any plain class token on the root; validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
-  /// [[cellClass]] while `when` holds, bound on the wrapper so no template
+  /// [[cellClass]] while `when` holds, bound on the root so no template
   /// places it:
   ///
   ///     c.entityButton(l).cellClassWhen("warm", c.isOn(l))   // css: .fh-cell.warm>button
@@ -119,7 +133,7 @@ abstract class LayoutNode {
       if (`when` is Boolean) (if (`when`) self.addCellClass(cls) else self)
       else if (!(self is Node)) throw("cellClassWhen: a live class is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveClasses { [cls] = booleanReading(`when`) } }
-  /// A custom property on the wrapper, set from a reading and kept live, for
+  /// A custom property on the root, set from a reading and kept live, for
   /// the card's CSS to read by inheritance:
   ///
   ///     c.button(…).cellStyle("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
@@ -136,16 +150,20 @@ abstract class LayoutNode {
   // overridden.
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
-    let (family = cellClassFamilies.findOrNull((f) -> f.any((p) -> cls.startsWith(p))))
-    let (had = self.cellClasses.toList())
-    let (kept = if (family != null) had.filter((c) -> !family.any((p) -> c.startsWith(p))) else had)
-      (self) {
-        cellClasses = new Listing<String> {
-          for (c in kept) { c }
-          cls
-        }
-      }
+      (self) { cellClasses = withClass(self.cellClasses, cls) }
+  function addLayoutClass(cls: String): LayoutNode =
+    let (self = this)
+      (self) { layoutClasses = withClass(self.layoutClasses, cls) }
 }
+
+const local function withClass(had: Listing<String>, cls: String): Listing<String> =
+  let (family = cellClassFamilies.findOrNull((f) -> f.any((p) -> cls.startsWith(p))))
+  let (all = had.toList())
+  let (kept = if (family != null) all.filter((c) -> !family.any((p) -> c.startsWith(p))) else all)
+    new Listing<String> {
+      for (c in kept) { c }
+      cls
+    }
 
 /// Where a stuck cell stays: [[LayoutNode.stick]].
 typealias Edge = "top"|"bottom"
@@ -282,6 +300,21 @@ const defaultRegion: String = "children"
 /// (ADR 0012). A card that wants its own bytes to change puts that markup in a
 /// region, as a node ([[SliderHead]]).
 class CardDef {
+  /// The root element's name. The library writes the root from this,
+  /// [[classes]] and [[attrs]], with the node's id and cell classes on it, so
+  /// [[template]] is its content.
+  tag: String(matches(Regex("[a-z][a-z0-9]*(-[a-z0-9]+)*"))) = "div"
+  /// The root's own classes, after `fh-cell` and before the node's cell
+  /// classes.
+  classes: String = ""
+  /// The root's other attributes, as markup. Not `id`, `class`, `style` or
+  /// `data-signals`, which the root carries already: the browser keeps only the
+  /// first of two.
+  attrs: String(!contains(Regex(#"(?<![\w:-])(id|class|style|data-signals)="#))) = ""
+  /// `false` for a root that must not be a layout box: no `fh-cell` class, and
+  /// no [[LayoutNode.columns]] and the like. A [[TabButton]] under
+  /// `.fh-tabs > a` would otherwise take a `.fh-col`'s full-width cell.
+  layoutCell: Boolean = true
   /// Mustache, and the card's list of inputs: a name outside every section
   /// must be a slot the node sets (or `id`, `hostId`, `dashboardSlug`), one
   /// inside a section may be absent, and every slot the node sets must be
@@ -301,10 +334,27 @@ class CardDef {
   /// first paint; a theme cannot drop it. Bind through document-level
   /// listeners: the card's DOM is morphed under it.
   script: String? = null
-  // `false` only for a card whose root must be a direct child of a framework
-  // parent (a [[TabButton]] under `.fh-tabs > a`). It does not decide whether the
-  // card is a morph target; its shape does.
-  wrapAsCell: Boolean? = null
+}
+
+/// A [[CardDef]] as the wire holds it: the root written around the template,
+/// with the two holes the renderer fills, `cellClasses` (each with its leading
+/// space) and `cell` (the id, the signal seed, the cell bindings).
+class WireCard {
+  template: String
+  regions: Mapping<String, Region>?
+  css: String
+  script: String?
+  layoutCell: Boolean?
+}
+
+const local function wireCard(d: CardDef): WireCard = new {
+  template =
+    let (cls = (if (d.layoutCell) List("fh-cell") else List()) + (if (d.classes.isEmpty) List() else List(d.classes)))
+      "<\(d.tag) class=\"\(cls.join(" ")){{{cellClasses}}}\"{{{cell}}}\(if (d.attrs.isEmpty) "" else " " + d.attrs)>\(d.template)</\(d.tag)>"
+  regions = d.regions
+  css = d.css
+  script = d.script
+  layoutCell = if (d.layoutCell) null else false
 }
 
 const local function isStructure(d: CardDef): Boolean = d.regions != null
@@ -369,12 +419,12 @@ const local function wireSlots(slots: Listing<slotMod.Slot>, subject: String?): 
 /// templates, CSS and scripts and no others. Read off the nodes rather than
 /// their classes, so a card class registers by being used, from any module.
 /// Every node of one card must carry the same `cardDef`.
-const function cardsIn(roots: List<LayoutNode>): Mapping<String, CardDef> =
+const function cardsIn(roots: List<LayoutNode>): Mapping<String, WireCard> =
   roots.flatMap((r) -> nodesUnder(r))
     .groupBy((n) -> n.card)
     .mapValues((name, ns) ->
       let (defs = ns.map((n) -> n.cardDef).distinct)
-        if (defs.length == 1) defs.first
+        if (defs.length == 1) wireCard(defs.first)
         else throw("card '\(name)' has \(defs.length) different cardDefs: two card classes claim the name, or a cardDef reads its own node"))
     .toMapping()
 

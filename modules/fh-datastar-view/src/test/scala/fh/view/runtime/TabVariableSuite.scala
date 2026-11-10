@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
@@ -24,11 +25,11 @@ import scala.concurrent.duration.*
   */
 class TabVariableSuite extends ServerHarness {
 
-  private val barCard = CardDef(
+  private val barCard = TestCard(
     """<div id="{{hostId}}">{{{panel}}}</div>""",
     regions = Map("panel" -> Region(Region.Baked))
   )
-  private val textCard = CardDef("<p>{{text}}</p>")
+  private val textCard = TestCard("<p>{{text}}</p>")
 
   private def panel(i: Int, text: String) =
     Surface(

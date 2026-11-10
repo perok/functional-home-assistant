@@ -23,8 +23,8 @@
 ///
 /// A card's markup carries `fh-` classes only, besides an icon's `mdi` ones
 /// (`PklLibraryTestSuite` checks every card), so these are all your `styles`
-/// and [[classes]] need: `.fh-grid`/`.fh-row`/`.fh-col`, the node wrapper
-/// `.fh-cell`, a query set's `.fh-group` (always a passthrough),
+/// and [[classes]] need: `.fh-grid`/`.fh-row`/`.fh-col`, every card's root
+/// `.fh-cell` (a tab's root is its bare `<a>`), a query set's `.fh-group` (always a passthrough),
 /// `.fh-cols-<1..12>`/`.fh-cols-full`, `.fh-start`, `.fh-card`, `.fh-section`,
 /// a labelled button's `.fh-press` and an icon-only one's `.fh-circle`, a link
 /// button's `.fh-button`, `.fh-chip`, a tile's `.fh-tile` row, the toggle's
@@ -52,7 +52,8 @@
 /// the classes the markup carries in its place. Keep the `fh-` class in the
 /// content to add to it; leave it out to replace it, which also drops the base
 /// CSS for it. The server applies this to every card's `class="…"` and
-/// `data-class:…` and to the `.fh-cell` wrapper's classes, live ones included;
+/// `data-class:…`, a card's root included, and to the classes it puts on the
+/// root, live ones included;
 /// `fh-cell` and `fh-group` must stay in their own content.
 ///
 ///     classes {

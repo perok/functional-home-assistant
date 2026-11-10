@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.{Deferred, IO}
 import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
@@ -35,11 +36,11 @@ class VarTapSuite extends ServerHarness {
     * its span in the one point it answers with. A drawn chart is handed a
     * `Series`, never the window, which is the split working.
     */
-  private val chartCard = CardDef(
+  private val chartCard = TestCard(
     """<span>{{chart}}</span>"""
   )
 
-  private val panelCard = CardDef(
+  private val panelCard = TestCard(
     "<div>{{{children}}}</div>",
     regions = Map("children" -> Region())
   )
@@ -544,7 +545,7 @@ class VarTapSuite extends ServerHarness {
     * the two reach the client decides what it shows.
     */
   private val bothDash = dash.copy(
-    cards = dash.cards + ("both" -> CardDef(
+    cards = dash.cards + ("both" -> TestCard(
       """<span>s={{state}} w={{chart}}</span>"""
     )),
     card = LayoutNode.Component(

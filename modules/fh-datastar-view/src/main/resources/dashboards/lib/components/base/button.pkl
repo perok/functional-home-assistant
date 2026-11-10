@@ -214,7 +214,7 @@ class Pill extends nodes.ActiveNode {
       .fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
       """
   }
-  cellClasses { "fh-hug" }
+  layoutClasses { "fh-hug" }
   /// See [[Button.tapAction]].
   hidden tapAction: tapMod.TapAction = throw(noAction("c.pill"))
   /// See [[Button.icon]]; the tap's by default.

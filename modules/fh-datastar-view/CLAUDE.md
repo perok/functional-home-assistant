@@ -91,7 +91,7 @@ same commit; ADRs that change the pipeline update it too.
    them — a local rebaseline records this machine's font rasterization, which CI does not
    share. Normally you do not run it at all: let CI fail and read its before/after artifact.
    The backend model (`Dashboard.scala`) should not need to change for
-   authoring-layer work (the layout-cell fields — `Cell`, `CardDef.wrapAsCell`
+   authoring-layer work (the layout-cell fields — `Cell`, `CardDef.layoutCell`
    — were the sanctioned structural exception; see ADR 0008).
 4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
    browser (`sbt dashboardServe`), per ADR 0006.
@@ -286,11 +286,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   gesture showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken
   implementation still updates the card, because the morph the frame was meant to replace is still
   being sent — so `SignalSlotSuite` asserts what is *not* on the wire.
-- **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`
-  (the real flex/grid item and Datastar morph target; `CardDef.wrapAsCell = false` is the rare
-  opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
+- **Every node is a cell (ADR 0008)**: every card's root is an id'd `.fh-cell` the LIBRARY writes
+  (`core/node.pkl`, from `CardDef.tag`/`classes`/`attrs` around the template, a `div` by default),
+  the real flex/grid item and Datastar morph target; the renderer fills its two writer holes,
+  `{{{cellClasses}}}` and `{{{cell}}}`, and wraps nothing but a set's root. `layoutCell = false`
+  is the rare opt-out from being a layout box — the tab anchors — and keeps the id. `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
-  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)`/`textOverflow(…)`/`cellClass`
+  `cell.layout` (`columns`/`fullWidth`/`hug`/`grow`/`stick`) and `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)`/`textOverflow(…)`/`cellClass`
   on the Pkl `LayoutNode` base (chain them AFTER card-specific builders; `centered(false)` is the `Grid`'s own,
   `fillScreen()` a `Column`'s; `c.spacer` is an empty column that grows). Every container sets all three inherited
   `--fh-cell-*` properties, or its cells take the parent container's (`layout.test.pkl` checks every rule). Candidate sets flow
