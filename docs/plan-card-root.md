@@ -6,7 +6,7 @@ Today the renderer wraps every node in a `<div class="fh-cell" id="…">` it wri
 cannot be `<li>` or `<tr>` (a `<div>` between `<tbody>` and `<tr>` is moved out of the table by the
 HTML parser), and the tab anchors opt out with `wrapAsCell = false`.
 
-**State:** not built.
+**State:** step 1 built (ccad7d42); step 2 next.
 
 ## Design
 
@@ -40,7 +40,7 @@ reaches the root as any card markup (its `Token` pattern matches `fh-cell` befor
 - `layoutCell = false` replaces `wrapAsCell`: the root keeps `cell` and loses the `fh-cell` class,
   for a root that must not be a layout box. The tab anchors need it: in a `.fh-col` they would
   inherit `--fh-cell-width:100%`. The layout builders (`columns`, `fullWidth`, `hug`, `grow`,
-  `stick`) write a field of their own, `cell.layout`, and the build refuses a non-empty `layout` on
+  `stick`) write a field of their own, `cell.layout`, written ahead of the other cell classes, and the build refuses a non-empty `layout` on
   such a card; `cellClassWhen` and `cellStyle` stay allowed. `wrapAsCell`'s other two refusals
   (live slots, use as a set clause) go, since the root still has its id.
 - A card that sets no `tag` gets a `div` root with no classes and no attributes, which is today's
@@ -54,7 +54,8 @@ reaches the root as any card markup (its `Token` pattern matches `fh-cell` befor
 1. **The mechanism, byte-identical.** The fields, the two writer holes, `layoutCell`, `cell.layout`,
    the Pkl constraints; `Renderer` stops wrapping (`cellOpen`; `wrapperInto` becomes the `cell`
    hole's writer). `TabButton` moves to `tag = "a"`, `layoutCell = false`. Goldens byte-identical
-   except the tab anchors, which gain their id; wire snapshots regenerated deliberately.
+   except the tab anchors, which gain `class=""` and their id (kept: every root gets the class
+   attribute, so `cellClassWhen` has a place on a `layoutCell = false` root); wire snapshots regenerated deliberately.
    Bench `tickRender` and a page render, before and after: allocation first, with
    `-XX:-DoEscapeAnalysis` on both sides.
 2. **One commit per card family** moving its root into the fields: `layout.pkl` (Grid, Row,
