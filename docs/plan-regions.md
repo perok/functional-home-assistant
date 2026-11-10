@@ -214,7 +214,9 @@ entity's and the provider's refresh is a fetch's.
   replaced in R4, where the pick replaces bake groups; R3's choices over a variable lower to them
   in the build until then.
 
-`validate` refuses, at first, a guard that reads both a variable and entity state.
+A guard may read a variable and entity state together: a state change (through the reverse
+index) or the variable's write wakes it, and it is decided per viewer, a cost only such a guard
+pays.
 
 ### 6. Sets
 
@@ -350,6 +352,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      show nothing else moved. A URL naming a variable declared inside a panel (`v.<id>.x`) stops
      matching.
 6. **R4, one runtime path.**
+   - A test of one guard reading a variable and a state, with two viewers on different values.
    - The pick, its planner and its ids (§8), popups included; deciding per send; `Activation.Var`,
      `VarAt`, `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the popup
      literals go.
@@ -377,8 +380,6 @@ maintainer says so.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). After V a value slot reading the variable could show it, but
    it sits on a structure card, which refuses a live slot written as bytes; settle it in R3.
-3. **A guard reading a variable and entity state.** Refused at first; with deciding per send it
-   would simply be decided per viewer on each send. Lift it when a card needs it.
-4. **Not built until a card needs it:** a cell class whose name an expression computes
+3. **Not built until a card needs it:** a cell class whose name an expression computes
    (`cellClassFrom(state.match(…))`, expanded in Pkl to one bool per literal arm), and `Step.Match`
    with typed keys like `Case.is`.
