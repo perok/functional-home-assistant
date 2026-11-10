@@ -11,7 +11,7 @@ import scala.util.matching.Regex
   * from drawing under its mask. Applied wherever card or cell markup is
   * emitted: the card templates once, at compile ([[rewriteTemplate]]); the
   * wrapper's classes, live-class bindings and `cssClass` slot values at render;
-  * and the markup Scala writes (the page's banners, a failed fetch's label).
+  * and the page's banners and a failed fetch's label, which are templates too.
   */
 final case class ThemeClasses(contents: Map[String, List[String]])
     derives CanEqual:

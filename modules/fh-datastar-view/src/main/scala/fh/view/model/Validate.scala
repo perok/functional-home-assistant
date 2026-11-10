@@ -10,7 +10,8 @@ private[model] object Validate:
   def errors(
       d: Dashboard,
       locateTransform: String => Option[String],
-      compiled: Map[String, Either[String, Templates.Card]]
+      compiled: Map[String, Either[String, Templates.Card]],
+      label: Either[String, Templates.Card]
   ): List[String] =
     import d.*
     val cardReads: Map[String, Either[String, Templates.Reads]] =
@@ -905,6 +906,16 @@ private[model] object Validate:
         )
         .toList
 
+    // Given a tone and a text, nothing else: any other name would print empty.
+    val failedLabelErrors: List[String] = label.fold(
+      msg => List(s"failedLabel does not compile: $msg"),
+      card =>
+        (card.reads.names -- Dashboard.FailedLabelHoles).toList.sorted.map(n =>
+          s"failedLabel reads '$n', but a failed read gives it only " +
+            Dashboard.FailedLabelHoles.toList.sorted.mkString(" and ")
+        )
+    )
+
     // The hoist mints `bakeInto`, so a dangling one means the build's and the
     // renderer's id derivations drifted; otherwise the symptom is a blank
     // panel, indistinguishable from an unmatched state group.
@@ -1107,6 +1118,7 @@ private[model] object Validate:
       viewErrors ++
       regionNameErrors ++
       chromeErrors ++
+      failedLabelErrors ++
       theme.classes.errors ++
       danglingBakes ++
       activationErrors ++

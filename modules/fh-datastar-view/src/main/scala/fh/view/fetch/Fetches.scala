@@ -45,24 +45,16 @@ object Staged {
   val FailedVersion: Long = -1L
 
   /** A read that could not be answered, in its own hole: one chart's error,
-    * never the page's. Data (`json`) is simply absent — its hole is escaped, so
-    * it cannot hold markup.
+    * never the page's. The value is the text the dashboard's `failedLabel`
+    * shows, a constant and never a viewer's; data (`json`) has none, since its
+    * hole is escaped and cannot hold markup.
     */
   def failed(stage: Step.FetchStage): Staged =
     Staged(
       FailedVersion,
-      if Step.draws(stage) then
-        label("error", s"${Step.label(stage).capitalize} unavailable")
+      if Step.draws(stage) then s"${Step.label(stage).capitalize} unavailable"
       else ""
     )
-
-  /** The runtime's copy of `core/text.pkl`'s `label`: one structure, whose
-    * classes are the base CSS every dashboard carries, so what the runtime
-    * writes looks like a label an author placed. `FailureLabelSuite` holds the
-    * two copies equal. `text` is a constant, never a viewer's value.
-    */
-  def label(tone: String, text: String): String =
-    s"""<span class="fh-label fh-label-$tone fh-text"><span class="fh-text-run">$text</span></span>"""
 }
 
 /** A fetch as a provider answers it: decoded typed, with any node variable's
