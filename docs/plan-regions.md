@@ -62,23 +62,30 @@ cardDef { tag = "a"; classes = "fh-tab"; attrs = #"data-on:click="…""#; templa
 ```
 
 Pkl lowers it to the wire's one template,
-`<a class="fh-cell{{cellClasses}} fh-tab"{{{cell}}} data-on:click="…">{{label}}</a>`. The server
-fills `cellClasses` (the node's `cell` classes) and `cell` (the id, the document form's
-`data-signals` seed, the cell bindings and the URL mirror), the values `wrapperInto` writes today,
-as it injects `{{id}}`. The template is the root's content.
+`<a class="fh-cell fh-tab{{cellClasses}}"{{{cell}}} data-on:click="…">{{label}}</a>`: `fh-cell`,
+the card's classes, then the node's cell classes, the order `groupOpen` writes today. The server
+fills `cellClasses` (each with its leading space; a live one inline in the document form only, as
+`cellClassesInto` does) and `cell`: the document form's live `style`, the id, the `data-signals`
+seed, the cell bindings and the URL mirror, the values `wrapperInto` writes today. `cell` is a
+writer hole (`Templates.writerHoles`, as a region is), so it is written straight into the buffer
+and allocates nothing per render. The template is the root's content; the theme's class rewrite
+(`ThemeClasses.rewriteTemplate`) reaches the root as any card markup.
 
 - Every ADR 0008 guarantee holds: the library writes the root, so the id cannot be forgotten, the
   node has exactly one root, and every root carries `fh-cell`. What ADR 0008 rejected (an id the
   author places on the root) stays rejected.
-- The build refuses `id=`, `class=` or `data-signals` in `attrs`, a substring check on the field. A
-  second `class` or `data-signals` on one element is silently dropped by the browser.
+- `attrs` is a Pkl type constraint, by attribute name (the lookbehind `ThemeClasses.ClassAttr`
+  uses, so `data-class="{…}"` is not `class`): no `id`, `class`, `style` or `data-signals`, which
+  `cell` writes, and the browser drops a second one silently. `tag` is a plain element name.
+  `Validate` refuses a `data-class:x` in a card whose node binds `x` as a cell class.
 - `layoutCell = false` replaces `wrapAsCell`: the root keeps `cell` and loses the `fh-cell` class,
   for a root that must not be a layout box. The tab anchors need it: in a `.fh-col` they would
-  inherit `--fh-cell-width:100%`. The build refuses the cell builders (`columns(n)`, …) on such a
-  card; `wrapAsCell`'s other two refusals go, since the root still has its id.
+  inherit `--fh-cell-width:100%`. The layout builders (`columns`, `fullWidth`, `hug`, `grow`,
+  `stick`) write a field of their own, `cell.layout`, and the build refuses a non-empty `layout` on
+  such a card; `cellClassWhen` and `cellStyle` stay. `wrapAsCell`'s other two refusals go, since
+  the root still has its id.
 - A card that sets no `tag` gets a `div` root with no classes and no attributes, which is today's
-  wrapper byte for byte. So C lands with the goldens unchanged except the tab anchors, and cards
-  in a user's workspace keep working.
+  wrapper byte for byte. So C lands with the goldens unchanged except the tab anchors.
 - A card that moves its own root into the fields loses a `div`, and a set's members can be `<li>`
   or `<tr>`: today a `<div class="fh-cell">` between `<tbody>` and `<tr>` is moved out of the table
   by the HTML parser.
@@ -146,17 +153,23 @@ V adds a variable read as a ValueExpr source, resolved up the ancestors as a var
 `valueIs`, a tab's index, a select's value and an `Otherwise` lower to expressions (`tab == "1"`;
 `Otherwise` is no guard), and `Activation.Var` and `VarAt` go.
 
-- **A guard** is decided where what it reads is: one that reads a variable per viewer, any other
-  once per version in `Shared`, as a fetch read is routed today.
-- **A slot** may read a variable too. Its node's bytes then differ per viewer, so the node renders
-  per viewer and its render key carries the values it read, as a chart whose window a variable
-  picks already keys its bytes by the fetch it chose (`Renderer.renderInputs`).
+- **A guard** that reads a variable is decided per viewer, on that variable's write (`setVar`) and
+  on connect, and the result kept in the session: it cannot change on a state tick, so a send
+  does nothing for it. Any other guard is decided once per version in `Shared`, as a fetch read is
+  routed today.
+- **A slot reads a variable only as a signal**: a live cell class or style, or a signal slot. The
+  document form writes its value inline from the viewer's value, so a page's raw HTML is right
+  without scripts; the patch form carries only the binding, the variable's pending-or-committed
+  expression that `varMod` writes for a tab bar today, so patch bytes never depend on a viewer and
+  the shared render cache keeps one render per node per tick (`RenderCacheContentionSuite`). Only
+  `v` and `v.valueIs(x)` have that client form. A slot whose bytes would read a variable is
+  refused: its patch would be per viewer, and its morph could overwrite a pending highlight with
+  the committed one (ADR 0025).
 - **The chosen button is lit at render.** The tab bar's and a select's buttons are lit only by the
-  client today (`data-class:fh-chosen` over the pending-or-committed expression, `surface.pkl:45`),
-  so a page without scripts shows no open tab. Each button gets `chosen.of(v.valueIs(choice))`, a
-  bool slot whose document form writes `fh-chosen` and whose binding is that same expression, so a
-  switch still sends nothing for the bar (ADR 0017's two forms). This is what `{{bakeIndex}}` was
-  for (ADR 0012), and nothing reads it today.
+  client today (`data-class:fh-chosen` over that expression, `surface.pkl:45`), so a page without
+  scripts shows no open tab. Each button gets `.cellClassWhen("fh-chosen", v.valueIs(choice))`,
+  which needs the tab anchor's cell (step C), and its hand-written `data-class:fh-chosen` goes.
+  This is what `{{bakeIndex}}` was for (ADR 0012); no library card reads it.
 
 `validate` refuses, at first, a guard that reads both a variable and entity state. Lifting it is a
 later change to where the decision runs, not to the model.
@@ -180,16 +193,17 @@ Pkl splits `slots` by class at lowering, as it lowers them to `templateSlots` to
 
 No union type: the two kinds share only the name, and no consumer handles both (values go to the
 evaluator, nodes to the walk). `LayoutNode.SetNode` goes, and a set is a `Component`. `CardDef`
-loses `wrapAsCell` and gains `layoutCell`; `tag`, `classes` and `attrs` do not reach the wire,
-since Pkl assembles them into the template.
+loses `wrapAsCell` and gains `layoutCell`; `Cell` gains `layout`; `tag`, `classes` and `attrs` do
+not reach the wire, since Pkl assembles them into the template.
 
 ### 8. One runtime path
 
 A host is filled by one mechanism, a **pick**: keys, the clauses each key may show, an order and a
 limit. A choice is one key; a set is one key per candidate.
-- **Deciding:** each key's first holding clause, by the evaluator slots use (`Ready.Condition`),
-  in `Shared` or per viewer by what its guard reads (§5). Two guards with the same expression
-  share one decision.
+- **Deciding:** each key's first holding clause, by the evaluator slots use (`Ready.Condition`):
+  a state guard in `Shared` once per version, a variable guard on the variable's write and on
+  connect (§5). Two guards with the same expression share one decision. Where every guard is
+  `var == literal`, as a popup's is, deciding is one lookup by the variable's value.
 - **Fetch laziness:** a clause's fetches are read only once its guard holds, the rule a reading's
   `valueWhile` already has (`Fetching.Gate`); the pick reuses it.
 - **Patching:** one planner for arrive, leave, switch and move: `Before`/`Append`/`Remove` per
@@ -198,8 +212,9 @@ limit. A choice is one key; a set is one key per candidate.
 - **Popups** are one pick over a variable on the root, `popups`, in the chrome's `#popups` (the
   one host that is not a card's root; `validate` already checks the chrome writes it,
   `Dashboard.scala:1094`): one clause per popup on the dashboard, guard `popups == "<id>"`, empty
-  otherwise. A close is the pick's ordinary leave, and `orphanedPopup` becomes a `remove` on
-  `#popups > *` (the bundle's `remove` mode takes every match), so Scala writes no popup markup.
+  otherwise. An open is a write, one lookup and one patch, whatever the number of popups; a close
+  is the pick's ordinary leave, and `orphanedPopup` becomes a `remove` on `#popups > *` (the
+  bundle's `remove` mode takes every match), so Scala writes no popup markup.
   `Selections.popup`, `openPopup` and the popup case in `committedSelection` go; the build
   collects every popup in the tree into the pick, and the back button moves to the variable's URL
   mirror. Step 0 checks this works.
@@ -223,27 +238,30 @@ seeds, toast, reload and back-button handlers, the error page, and the default
 
 ## Steps
 
-Stacked branches, each its own PR on the one before.
+Stacked branches, each its own PR on the one before. The local workspaces outside the repo
+(`dashboard-local-dev-server/`, the HA box's) are migrated only when the maintainer asks.
 
 0. **The popup-variable spike**, on a throwaway branch, before V's design is fixed: opening a popup
    through the variable's write (`setVar`) instead of `/sse/surface/open`, that route re-minting a
    forgotten `conn` as the surface routes do (ADR 0024), the back button through the URL mirror,
    and `ui_popups` holding at most one id. The findings go into this plan, or into
    `docs/experiments.md` if the answer is no.
-1. **V, a variable as a source.**
-   - ValueExpr gains the variable read; `valueIs`, tab index, select value and `Otherwise` lower to
-     guards; `Activation.Var` and `VarAt` go.
-   - A guard or slot reading a variable is decided per viewer; a slot's reads join its render key.
-   - The tab and select buttons lit at render (§5).
-   - Wire snapshots change at every variable guard; goldens change at the buttons only.
-   - Bench a tab flip and a select change: allocation first, `-XX:-DoEscapeAnalysis` both sides.
-2. **C, the card writes its root.**
-   - First commit: `tag`/`classes`/`attrs`, `cell`/`cellClasses`, `layoutCell` for `wrapAsCell`;
-     `Renderer` stops wrapping (`cellOpen`). Goldens byte-identical except the tab anchors, which
-     gain their id.
+1. **C, the card writes its root.**
+   - First commit: `tag`/`classes`/`attrs`, the `cell` writer hole and `cellClasses`, `layoutCell`
+     for `wrapAsCell`, `cell.layout`; `Renderer` stops wrapping (`cellOpen`). Goldens
+     byte-identical except the tab anchors, which gain their id.
    - Then one commit per card family moving its root into the fields; each golden diff shows a
      `div` going. The view tests and CI's visual snapshots are the check, since the bytes move.
-   - Bench `tickRender` and a page render, as V.
+   - Bench `tickRender` and a page render: allocation first, `-XX:-DoEscapeAnalysis` both sides.
+2. **V, a variable as a source.**
+   - ValueExpr gains the variable read; `valueIs`, tab index, select value and `Otherwise` lower to
+     guards; `Activation.Var` and `VarAt` go.
+   - Variable guards decided on write and connect; a variable read in a slot only as a signal;
+     `validate` refuses the rest (§5).
+   - The tab and select buttons lit at render through `cellClassWhen`.
+   - Wire snapshots change at every variable guard; goldens change at the buttons only;
+     `RenderCacheContentionSuite` stays at 1.0.
+   - Bench a tab flip and a select change, as C, with `VarEnvBench` as the per-request baseline.
 3. **R1, slot classes.**
    - `ValueSlot`/`NodesSlot`; `CardDef.regions` and `nodes.Region` go; the 86 `slotMod.Slot` type
      references in 17 library files become `ValueSlot` where they use a value member (one bulk
@@ -263,30 +281,38 @@ Stacked branches, each its own PR on the one before.
      controls on it, the three that host beside other content through a `group`.
      `inlineSurfaces` stays only for popups; `Region.fill` and the bake fields, `bakeIndex`
      included, go.
+   - The four suites building on `{{bakeIndex}}` (`LiveStreamSuite`, `RenderInputsSuite`,
+     `RendererSuite`, `ServerHarness`) are rewritten; `LiveStreamSuite`'s server-rendered active
+     tab moves to the cell class form (agreed 2026-11-10).
    - The runtime still bakes: the wire's choice lowers to today's bake groups inside the build,
      each baked into its card's root.
-   - Goldens move: the If loses a `div`, and the panels' ids become their group's node id.
+   - Ids move: the If loses a `div`, and everything in a panel sits one path step deeper, under its
+     `group`. The view tests are the check, and the goldens are compared with ids normalised to
+     show nothing else moved. A URL naming a variable declared inside a panel (`v.<id>.x`) stops
+     matching.
 6. **R4, one runtime path.**
    - The pick, its planner and its ids (§8), popups included; `SurfaceGraph`'s bake groups and
      `MemberGraph`'s nesting cases go; the popup literals go.
-   - Ids move. The view tests are the check; the goldens are compared once with ids normalised, to
-     show nothing else moved, and then regenerated.
-   - Bench everything R2 and V measured, plus a popup open and close.
+   - Ids move again; the same normalised comparison, then the goldens are regenerated.
+   - Bench everything C, V and R2 measured, plus a popup open and close; check that variable
+     guards stay off the per-send path.
 7. **R5, markup.** The fetch label from Pkl, the banners from the theme. A test that no Scala
    source writes markup outside the contract in §9.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
 variable), 0007 (choices), 0008 (the cell is the card's root), 0012 (structure, `bakeIndex`),
-0017 (a variable-read slot's two forms), 0034/0035 (the variable source); the pipeline doc §1a and
-§3–§4b; terminology (region, host, bake, member, clause, cell, plus **nodes slot**, **fill**,
-**pick** and **group**); `writing-components.md` (the root fields, `layoutCell`, the one host
-rule) and `writing-dashboards.md` (`elif`, `.of(set)`); `theme.pkl`'s note on `fh-cell`; the module
-`CLAUDE.md` lines on the cell and `.fh-group`. This plan is deleted when the maintainer says so.
+0017 (a variable read as a signal), 0020 (theme classes on the root), 0022 (ids), 0034/0035 (the
+variable source); the pipeline doc §1a and §3–§4b; terminology (region, host, member, clause,
+cell, plus **nodes slot**, **fill**, **pick** and **group**; bake, bake group, `bakeInto`,
+`bakeAs` and `bakeIndex` go in R4); `writing-components.md` (the root fields, `layoutCell`, the
+one host rule) and `writing-dashboards.md` (`elif`, `.of(set)`); `theme.pkl`'s note on `fh-cell`;
+the module `CLAUDE.md` lines on the cell and `.fh-group`. This plan is deleted when the maintainer
+says so.
 
 ## Open questions
 
-1. **Names**, free to change while v0: the `core/node.pkl` alias, `group`, `layoutCell`, `pick`,
-   `Fill`'s cases, the nodes-slot wire map.
+1. **Names**, free to change while v0: the `core/node.pkl` alias, `group` (it shares a word with
+   the bake group until R4), `layoutCell`, `pick`, `Fill`'s cases, the nodes-slot wire map.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). After V it could be a slot reading the variable, but it sits
    on a structure card, which refuses a live slot written as bytes; settle it in R3.

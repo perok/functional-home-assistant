@@ -68,5 +68,12 @@ is built, and the order below is a proposal.
   step's frames and keeps the old state). A CEL failure would become that error instead of a
   `"cel error: …"` string carried as a value, which is the one way a step meets an input its type
   rules out (`First`, `AllOf` or `AnyOf` over a non-list).
+- **A cache, or one render per change set:** a leaf's patch is shared through `RenderCache`
+  (one generation per node, single-flight, keyed by what the render read), because each session
+  pulls on its own fiber at its own store version (ADR 0012). Most viewers are awake at once, so
+  rendering each changed node once per recorded change set and handing the bytes to every session
+  at that version may be simpler. Stragglers, resumes and per-viewer visibility are what the cache
+  absorbs today; check what each would cost first. Measure with `RenderCacheContentionSuite` and
+  `tickRender`.
 - **The tap call design:** a declared call id in place of the URL a template spells out. A
   `number` slot type (slot-views point 4) waits on it.
