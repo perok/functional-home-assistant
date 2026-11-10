@@ -67,41 +67,12 @@ its reads (`v.value`, `v.valueIs(x)`, expressions after V), and its write (`v.ch
 
 ### 2. The card writes its root (step C)
 
-The `.fh-cell` wrapper moves from Scala into the card's own root element, which the library writes
-from three `CardDef` fields:
-
-```pkl
-cardDef { tag = "a"; classes = "fh-tab"; attrs = #"data-on:click="…""#; template = "\(label)" }
-```
-
-Pkl lowers it to the wire's one template,
-`<a class="fh-cell fh-tab{{{cellClasses}}}"{{{cell}}} data-on:click="…">{{label}}</a>`: `fh-cell`,
-the card's classes, then the node's cell classes, the order `groupOpen` writes today. Both holes are
-writer holes (`Templates.writerHoles`, as a region is), written straight into the buffer:
-`cellClasses` each with its leading space (a live one inline in the document form only, as
-`cellClassesInto` does), and `cell` the document form's live `style`, the id, the `data-signals`
-seed, the cell bindings and the URL mirror, the values `wrapperInto` writes today. The template is
-the root's content; the theme's class rewrite (`ThemeClasses.rewriteTemplate`) reaches the root as
-any card markup.
-
-- Every ADR 0008 guarantee holds: the library writes the root, so the id cannot be forgotten, the
-  node has exactly one root, and every root carries `fh-cell`. What ADR 0008 rejected (an id the
-  author places on the root) stays rejected.
-- `attrs` is a Pkl type constraint, by attribute name (the lookbehind `ThemeClasses.ClassAttr`
-  uses, so `data-class="{…}"` is not `class`): no `id`, `class`, `style` or `data-signals`, which
-  `cell` writes, and the browser drops a second one silently. `tag` is a plain element name. A
-  node refuses, in Pkl, a `cellClassWhen(x)` where its card's `attrs` binds `data-class:x`.
-- `layoutCell = false` replaces `wrapAsCell`: the root keeps `cell` and loses the `fh-cell` class,
-  for a root that must not be a layout box. The tab anchors need it: in a `.fh-col` they would
-  inherit `--fh-cell-width:100%`. The layout builders (`columns`, `fullWidth`, `hug`, `grow`,
-  `stick`) write a field of their own, `cell.layout`, and the build refuses a non-empty `layout` on
-  such a card; `cellClassWhen`, `cellClassAtRender` and `cellStyle` stay. `wrapAsCell`'s other two
-  refusals go, since the root still has its id.
-- A card that sets no `tag` gets a `div` root with no classes and no attributes, which is today's
-  wrapper byte for byte. So C lands with the goldens unchanged except the tab anchors.
-- A card that moves its own root into the fields loses a `div`, and a set's members can be `<li>`
-  or `<tr>`: today a `<div class="fh-cell">` between `<tbody>` and `<tr>` is moved out of the table
-  by the HTML parser.
+**Done ahead, on branch `card-root` (#687, `docs/plan-card-root.md`):** the `.fh-cell` wrapper
+moves into each card's root, written by the library from `tag`/`classes`/`attrs` with the
+`{{{cell}}}` and `{{{cellClasses}}}` writer holes; `layoutCell` and `cell.layout` replace
+`wrapAsCell`. What this plan relies on: a card's root carries its node's id and is never
+re-rendered on a structure card, and a set's member is its card's root (so `<li>`/`<tr>` members
+work). Revisit against what landed there.
 
 ### 3. Placement and the one host rule
 
@@ -198,27 +169,13 @@ slots {
 
 ### 5. A variable is a source (step V; its guards in R4)
 
-`Value` gains `Var(name)`, beside `Literal`, `Entity`, `Fetch`, `Present`, `List` and `Cel`,
-resolved at compile up the ancestors to its declarer, as `VarGraph` resolves a variable today. The
-declaration says where the value lives; a write (`setVar`) is its trigger, as a state change is an
-entity's and the provider's refresh is a fetch's.
+**Done ahead, on branch `variable-source` (#688, `docs/plan-variable-source.md`):** `Value.Var`,
+the most-local-source rule, value slots reading a variable with the render cache split by the
+values read, `Choice[A]` with `by: ValueExpr` (for fetch windows), and `cellClassAtRender` lighting
+the open tab in the first page. Revisit this section against what landed there.
 
-- **An expression is decided where its most local source lives:** one reading only `Entity`,
-  `Fetch` and literals once per version, shared by every viewer; one reading a `Var` per viewer.
-- **A value slot may read a variable** (`label.of("Showing " + window.value)`). Its bytes then
-  differ per viewer, so its render key carries the values it read: `RenderInputs` gains them, and
-  `RenderCache` keeps one generation per node and set of values read, the bucketing ADR 0012 once
-  had (`RenderInputs.vars`). Viewers on different values cost one render per value instead of
-  evicting each other, bounded by the variable's values. A fetch window chosen by a variable (§4)
-  is keyed the same way.
-- **A class in the first page only:** `cellClassAtRender(cls, expr)` writes `cell.atRender`,
-  evaluated for the viewer in the document form and written into `class`; it has no signal, no
-  frame and no binding, so patches are the same for every viewer. The tab and select buttons use
-  it, `.cellClassAtRender("fh-chosen", v.valueIs(choice))`, so a page's raw HTML lights the open
-  tab without scripts (what `{{bakeIndex}}` was for, ADR 0012). Their live highlight stays the
-  browser's own `data-class:fh-chosen` over the pending-or-committed expression, instant on a
-  press, the spinner showing until the commit (ADRs 0019, 0025): a patch carrying the class could
-  arrive after a second press and light two tabs. From R1 the template spells it with a `VarSlot`
+What stays here:
+- **The tab's live highlight** is spelled with a `VarSlot` from R1
   (`String(\(chooses.chosen)) === '\(choiceSlot)'`), and `TabButton.active` goes.
 - **A guard** is `Choice.Chosen`'s `by` (§4). The bake groups' `Activation.Var` and `VarAt` are
   replaced in R4, where the pick replaces bake groups; R3's choices over a variable lower to them
@@ -289,13 +246,9 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 ### 9. Markup Scala stops writing
 
 The rule: Scala renders markup Pkl wrote and fills only values it owns.
-- **The cell wrapper** (§2) and **the set's root** (§6).
-- **The popup host** (§8): nothing to write.
-- **The failed-fetch label.** The build compiles `core/text.pkl`'s label like any card template,
-  and the runtime renders it with the tone and text. `Fetches.label` and `FailureLabelSuite` go.
-- **The offline banners** (`Server.scala:1925–1930`) are a theme template. The signals they read
-  (`_sse`, `haDown`) are Pkl constants, so a theme cannot misspell one; the text becomes the
-  theme's to translate.
+- **The set's root** (§6), here.
+- Done ahead: the cell wrapper (#687, `card-root`), the popup close's literal (#684,
+  `popup-close`), the failed-fetch label and the offline banners (#685, `markup-from-pkl`).
 
 What stays in Scala, as the contract: the page shell, the root `<div data-signals…>` with its
 seeds, toast, reload and back-button handlers, the error page, and the default
@@ -306,29 +259,18 @@ seeds, toast, reload and back-button handlers, the error page, and the default
 Stacked branches, each its own PR on the one before. The local workspaces outside the repo
 (`dashboard-local-dev-server/`, the HA box's) are migrated only when the maintainer asks.
 
+Done ahead of this plan, as their own plans and a stack off main: #684 `popup-close` →
+#685 `markup-from-pkl` → #686 `golden-ids` (the id-normalised golden check R3 and R4 use) →
+#687 `card-root` (C) → #688 `variable-source` (V). This plan's R steps stack on them. When they
+have landed, revisit §2, §5, §9 and the steps below against what they built.
+
 0. **The popup-variable spike**, on a throwaway branch: opening a popup through the variable's
    write (`setVar`) instead of `/sse/surface/open`, that route re-minting a forgotten `conn` as the
    surface routes do (ADR 0024), the back button through the URL mirror, `ui_popups` holding at
    most one id, and a match over every popup reproducing today's behaviour for popups declared
    inside a set's member or a choice's case, including the member leaving while its popup is open.
    The findings go into this plan, or into `docs/experiments.md` if the answer is no.
-1. **C, the card writes its root.**
-   - First commit: `tag`/`classes`/`attrs`, the `cell` and `cellClasses` writer holes, `layoutCell`
-     for `wrapAsCell`, `cell.layout`; `Renderer` stops wrapping (`cellOpen`). Goldens
-     byte-identical except the tab anchors, which gain their id.
-   - Then one commit per card family moving its root into the fields; each golden diff shows a
-     `div` going. The view tests and CI's visual snapshots are the check, since the bytes move.
-   - Bench `tickRender` and a page render: allocation first, `-XX:-DoEscapeAnalysis` both sides.
-2. **V, a variable is a source.**
-   - `Value.Var`, resolved at compile; `v.value`/`v.valueIs(x)` as expressions; the most-local-source
-     rule; `Choice.Chosen` with `by: ValueExpr`, typed `Case`s and `otherwise`, the fetch window on
-     it.
-   - `RenderInputs` with the values read, `RenderCache` bucketed by them. `RenderCacheContentionSuite`
-     stays at 1.0 renders a frame for nodes reading no variable, and a new case holds one render
-     per value for a node that reads one.
-   - `cellClassAtRender`; the tab and select buttons lit in the first page.
-   - Goldens change at the buttons only. Bench a tab flip, a select change and a chart over a
-     chosen window, as C, with `VarEnvBench` as the per-request baseline.
+1. **C** — #687. 2. **V** — #688.
 3. **R1, slot classes.**
    - `ValueSlot`/`NodesSlot`/`VarSlot`; `CardDef.regions` and `nodes.Region` go; the 86
      `slotMod.Slot` type references in 17 library files become `ValueSlot` where they use a value
@@ -369,8 +311,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
    - Bench everything C, V and R2 measured, plus a popup open and close on the largest test
      dashboard.
-7. **R5, markup.** The fetch label from Pkl, the banners from the theme. A test that no Scala
-   source writes markup outside the contract in §9.
+7. **R5, markup.** A test that no Scala source writes markup outside the contract in §9 (the
+   label and banners are #685).
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
 variable, the variable slot, `below`/`own` gone), 0007 (choices), 0008 (the cell is the card's
