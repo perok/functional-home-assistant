@@ -218,7 +218,17 @@ framework-agnostic, and a new look is a sibling module exporting a
   box*. It does not imply "never a patch target" — that is decided by card
   shape (`CardDef.isStructure`).
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
-  card moves its markup into the root fields to be one.
+  card moves its markup into the root fields to be one. The library's cards
+  have, except where the root cannot be static: a tag chosen by a slot
+  (button, pill, choice label), an id the root carries itself (`if`'s and a
+  var cycle's host), a cell that must be `display:contents` (the slider's
+  head, pill and controls), several top-level elements (popup, slider text),
+  a `style` on the root (wheel), or CSS keyed on the inner element as the
+  cell's child (entity option).
+- Wrapper-dissolving rules (`.fh-x .fh-cell{display:contents}`) and theme
+  rules that space siblings now reach a card's own root: the slider pill
+  exempts the dropdown, and `theme-beer` zeroes BeerCSS's flow margin on
+  cells. CI's visual snapshots, not the goldens, catch these.
 - The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,
   not a template — unlike static containers, a group's member flow has no
   card seam. A group wanting a non-grid flow says so via `cellClass` (an
