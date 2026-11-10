@@ -2350,7 +2350,7 @@
       "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
     },
     "entityInfo" : {
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-card fh-entity-info\">\n  <code class=\"fh-entity-info-id\">{{entity_id}}</code>{{#attributes}}\n  <pre class=\"fh-entity-info-attrs\">{{attributes}}</pre>{{/attributes}}\n</div></div>"
+      "template" : "<div class=\"fh-cell fh-card fh-entity-info{{{cellClasses}}}\"{{{cell}}}>  <code class=\"fh-entity-info-id\">{{entity_id}}</code>{{#attributes}}\n  <pre class=\"fh-entity-info-attrs\">{{attributes}}</pre>{{/attributes}}</div>"
     },
     "fhcol" : {
       "regions" : {
@@ -2369,7 +2369,7 @@
       "template" : "<div class=\"fh-cell fh-row{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "historyChart" : {
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-card fh-chart\">{{{chart}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-card fh-chart{{{cellClasses}}}\"{{{cell}}}>{{{chart}}}</div>"
     },
     "popup" : {
       "regions" : {
