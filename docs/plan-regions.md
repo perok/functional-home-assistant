@@ -146,11 +146,19 @@ case class Case[+A](is: Lit, value: A)
 enum Fill:                                     // a nodes slot's fill
   case Nodes(choice: Choice[List[LayoutNode]])   // Fixed: today's children; Chosen: a choice
   case Set(candidates: List[String],
-           members: Map[String, Choice.Chosen[List[LayoutNode]]],
+           members: Map[String, Choice[LayoutNode]],   // one node: its root is the key's element
            orderBy: List[SortTerm] = Nil, limit: Option[Int] = None)
 ```
 
 Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`, else nothing.
+
+- **`Choice` is data; deciding is the compile's.** `by` needs the evaluator, so `resolve(env)`
+  leaves `Choice`: `Ready` holds `by`'s compiled run beside a map from key to each case's ready
+  value, as it holds a slot's run beside its slot.
+- **What `A` may be:** data the build checks whole and that never depends on the key at render,
+  with a decoder and a `Ready` form: a `Window`, a node, a list of nodes. Only `by` is an
+  expression, so `A` needs no `ValueType`, and `validate` walks every case (`Choice.all`), as it
+  walks every window today.
 
 - **Keys are typed by `by`'s type**, checked in `validate` against `ValueExpr.typed`: `Text`,
   `Bool` or `Whole`; never `Real` (no exact equality), `Dyn` or `List`. On the wire `cases` is a
@@ -162,10 +170,12 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   `iff(p)` is `by = p`, `cases = [true → a]`.
 - **A set's member is the same shape**, once per candidate: today's `SetMember(clauses: [when → node])`
   is `by = List(Bool, [when₁, …]) |> IndexOfTrue` (a single guard is `by = when`), an unnamed read
-  in a guard reading the candidate. No case holding and no `otherwise` is today's "not rendered".
+  in a guard reading the candidate, and an unguarded member is `Fixed`. No case holding and no
+  `otherwise` is today's "not rendered".
 - **A fetch window** stays `Choice[Window]`: `p.history.chosen(v, table)` is
   `Chosen(by = Var(v), cases = table)`, with no `otherwise`, so a key the table lacks is still
-  refused at the write. `Choice.variable` becomes the variables `by` reads.
+  refused at the write. `Choice.variable` becomes the variables `by` reads. Since `by` is any
+  expression, an entity's state can pick a window too, decided once per version (§5).
 
 The author's side:
 
@@ -333,7 +343,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - Goldens byte-identical. Pkl facts: a typo is an error, an unplaced nodes slot is an error, a
      variable slot with no declarer above is an error.
 4. **R2, a set is a fill.**
-   - `Fill.Set` with members as `Choice.Chosen`, `IndexOfTrue`, `.of(set)`, the `group` card;
+   - `Fill.Set` with members as `Choice[LayoutNode]`, `IndexOfTrue`, `.of(set)`, the `group` card;
      `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and `groupOpen` goes.
    - Goldens byte-identical. Bench `publishSetOrdered`, `leaderRow`, `tickRender`, and `validated`
      timing. Pkl fact: a set beside other content is an error.
