@@ -142,6 +142,11 @@ class BeerTheme extends themeMod.Theme {
     ["fh-size-small"] = "small"
     ["fh-size-medium"] = ""
     ["fh-size-large"] = "large"
+    // A card's root is its cell, so an `article` or `.tabs` root sits beside its
+    // siblings, where BeerCSS's flow rule (`…>*+:is(article,.tabs,…)`) adds
+    // `margin-block-start:1rem` on top of the layout's gap; a class containing
+    // "margin" is that rule's own opt-out.
+    ["fh-cell"] = "fh-cell no-margin"
     // The cards' own classes, onto the BeerCSS ones that style them.
     ["fh-button"] = "fh-button button"
     ["fh-circle"] = "fh-circle circle small"

@@ -69,7 +69,10 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
         case List(w) => w
         case other   => fail("expected one bound wrapper", clues(other, html))
       }
-      assert(wrapper.startsWith("""<div class="fh-cell warm" """), wrapper)
+      assert(
+        wrapper.startsWith("""<div class="fh-cell no-margin warm" """),
+        wrapper
+      )
       // Seeded with the node's other signals, so it holds before any frame.
       assert(wrapper.contains(sig.split('.').last + ": true"), wrapper)
     }
@@ -112,7 +115,8 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
       .map { html =>
         assert(
-          boundWrappers(html).exists(_.startsWith("""<div class="fh-cell" """)),
+          boundWrappers(html)
+            .exists(_.startsWith("""<div class="fh-cell no-margin" """)),
           clue = html
         )
       }

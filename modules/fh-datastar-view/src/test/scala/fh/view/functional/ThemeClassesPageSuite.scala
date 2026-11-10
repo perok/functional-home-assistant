@@ -157,7 +157,9 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
   ) {
     valuesPage.map { html =>
       assert(
-        html.contains("""<div class="fh-cell fh-row fh-boxed padded""""),
+        html.contains(
+          """<div class="fh-cell no-margin fh-row fh-boxed padded""""
+        ),
         html
       )
       assert(html.contains("""<button class="fh-press small """), html)

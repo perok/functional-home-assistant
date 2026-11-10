@@ -118,7 +118,10 @@ class SinceStartBarSuite extends CatsEffectSuite {
         assertEquals(idleAsked, 0)
         val data = sent.flatMap(_.data).mkString
         assert(data.contains("101"), clue = data)
-        assert(data.contains("""class="fh-cell fh-bar""""), clue = data)
+        assert(
+          data.contains("""class="fh-cell no-margin fh-bar""""),
+          clue = data
+        )
         assert(runningAsked > 0)
         // The job ends: the bar goes again.
         val gone = ended.flatMap(_.data).mkString
