@@ -73,7 +73,7 @@ entry, and closing one goes back to the popup it was opened from (ADR 0005).
 
 Open, switch, and close are the same operation (`Server.swapHost`): evict
 whatever surface(s) occupy a host, set the new occupant, inner-patch the host —
-or patch it to an empty `<div>` for a close (`POST /sse/popup/<slug>/close`; the
+or `remove` the host's children (`#popups > *`) for a close, so the chrome's host element and its attributes stay (`POST /sse/popup/<slug>/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
 session's open set. A tab press reaches it through a variable write

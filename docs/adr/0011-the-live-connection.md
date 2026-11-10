@@ -575,8 +575,8 @@ one per subtree.
 
 **The one thing still worth its own branch** is a popup claim this dashboard
 cannot serve — renamed, removed, or belonging to another dashboard. That dialog is
-in nobody's open set, so no rule reconciles it, and without a host reset it would
-sit on screen forever. A connect and a swap both send the reset
+in nobody's open set, so no rule reconciles it, and without emptying the host it would
+sit on screen forever. A connect and a swap both send that `remove`
 (`Server.orphanedPopup`).
 
 ### The first connect carries no signals

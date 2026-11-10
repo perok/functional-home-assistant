@@ -78,6 +78,18 @@ class SurfaceTapSuite extends ServerHarness {
           afterClose.exists(_.contains(s""""$sig":""""")),
           clue = afterClose
         )
+        // The close empties the host the chrome owns; it never writes the
+        // host element, so attributes a theme put on it survive.
+        val host = Dashboard.PopupHostId
+        assert(afterClose.exists(_.contains("mode remove")), clue = afterClose)
+        assert(
+          afterClose.exists(_.contains(s"selector #$host > *")),
+          clue = afterClose
+        )
+        assert(
+          !afterClose.exists(_.contains(s"""id="$host"""")),
+          clue = afterClose
+        )
       }
     }
   }
