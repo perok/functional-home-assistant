@@ -1051,10 +1051,7 @@ class Server(
         case None =>
           (s.holds -- Patches.hostEvicts(renderer, host)) ->
             Option
-              .when(newSurface.isEmpty)(
-                Datastar
-                  .patch(s"""<div id="$host"></div>""", PatchMode.Outer, None)
-              )
+              .when(newSurface.isEmpty)(Datastar.remove(s"#$host > *"))
               .toList
       }
       // Committed here only, so a tap that never got this far cannot leave the
@@ -2830,11 +2827,7 @@ object Server {
       .when(
         requested.nonEmpty && renderer.surfaces.openPopup(requested).isEmpty
       )(
-        Datastar.patch(
-          s"""<div id="${Dashboard.PopupHostId}"></div>""",
-          PatchMode.Outer,
-          None
-        )
+        Datastar.remove(s"#${Dashboard.PopupHostId} > *")
       )
       .toList
 
