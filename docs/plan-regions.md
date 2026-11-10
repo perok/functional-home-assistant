@@ -227,14 +227,26 @@ entity's and the provider's refresh is a fetch's.
 
 ### 7. The wire
 
-Pkl splits `slots` by class at lowering, as it lowers them to `templateSlots` today:
-- `templateSlots: Map[String, TemplateSlot]`, unchanged (cell slots keep using `TemplateSlot`);
-- the nodes slots: `Map[String, Fill]` (§4);
-- the variable slots: `Map[String, String]`, slot name to variable name, resolved at compile.
+Pkl lowers `slots` to one map, as it lowers them to `templateSlots` today, each slot carrying its
+kind:
 
-No union type: the kinds share only the name, and no consumer handles two (values go to the
-evaluator, nodes to the walk, variables to the compile). `LayoutNode.SetNode` goes, and a set is a
-`Component`. `CardDef` loses `wrapAsCell` and gains `layoutCell`; `Cell` gains `layout` and
+```scala
+slots: Map[String, Slot]
+enum Slot:                         // decoded by `kind`
+  case Value(slot: TemplateSlot)   // "kind": "value", today's TemplateSlot fields beside it
+  case Nodes(fill: Fill)           // "kind": "nodes" (§4)
+  case Var(variable: String)       // "kind": "var", resolved at compile
+```
+
+- One map is one namespace, as a template's names are: a value slot and a nodes slot cannot share
+  a name, with no rule to say so.
+- The decoder only picks the case by `kind`. `Ready`'s compile splits the map by kind once, so the
+  evaluator, the walk and the variable resolution each get a typed map of their own, and no
+  consumer matches on the union.
+- Each Pkl slot class carries its `kind`, which `WireShapeSuite` pairs with the Scala case.
+- Cell slots keep using `TemplateSlot` inside `Cell`, whose maps are their placement.
+
+`LayoutNode.SetNode` goes, and a set is a `Component`. `CardDef` loses `wrapAsCell` and gains `layoutCell`; `Cell` gains `layout` and
 `atRender`; `tag`, `classes` and `attrs` do not reach the wire, since Pkl assembles them into the
 template.
 
@@ -310,7 +322,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `slotMod.Slot` type references in 17 library files become `ValueSlot` where they use a value
      member (one bulk edit), and the library's `nodes` import alias is renamed so it no longer reads
      like `slotMod.nodes` (one bulk edit).
-   - The nodes-slot wire map with `Fill.Nodes(Fixed)`, the variable-slot map. Every card that
+   - The one `slots` wire map (§7), `templateSlots` gone into it, with `Fill.Nodes(Fixed)`; wire
+     snapshots change once. Every card that
      declares a region moves: `layout.pkl` (Grid, Row, Column), `core/surface.pkl` (Popup),
      `components/base/surface.pkl` (Tabs, If), `components/select.pkl`, `components/base/slider.pkl`,
      `components/base/tile.pkl`. `TabButton` spells its highlight with a `VarSlot`; `active`,
@@ -360,7 +373,7 @@ maintainer says so.
 ## Open questions
 
 1. **Names**, free to change while v0: the `core/node.pkl` alias, `group` (it shares a word with
-   the bake group until R4), `layoutCell`, `atRender`, `pick`, `IndexOfTrue`, the wire maps.
+   the bake group until R4), `layoutCell`, `atRender`, `pick`, `IndexOfTrue`, `Slot`'s kinds.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). After V a value slot reading the variable could show it, but
    it sits on a structure card, which refuses a live slot written as bytes; settle it in R3.
