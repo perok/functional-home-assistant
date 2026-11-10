@@ -583,8 +583,8 @@ const local sliderCss: String = """
   /* Main controls: the shown head beside the pill, which sits over the track's end as
      any slider's buttons do: the track is the card's, a group's rows included.
      Static, or BeerCSS's `*{position:relative}` makes a wrapper the track's
-     box. */
-  .fh-slider-controls-cell,.fh-slider-pill-cell,.fh-slider-pill .fh-cell{display:contents}
+     box. The mode dropdown's root is its own cell and box, so it stays one. */
+  .fh-slider-controls-cell,.fh-slider-pill-cell,.fh-slider-pill .fh-cell:not(.fh-select-menu){display:contents}
   .fh-slider-controls{display:flex;flex-wrap:nowrap;align-items:center;position:static}
   .fh-slider-controls-panel{position:static;flex:1 1 auto;min-inline-size:0;align-self:stretch}
   .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3}
