@@ -145,19 +145,19 @@ follow that a template-authored `data-text` would not give:
   everywhere yields exactly the bytes this renderer emitted before signal slots existed — no
   binding, no seed — see "What was deliberately left out", and issue #133.
 - **Multiple signal slots per node work.** The seed is **node-level**: one `data-signals` on the
-  `.fh-cell` wrapper carrying every signal slot in the patch unit. A per-slot seed puts two
+  node's root (its `.fh-cell`) carrying every signal slot in the patch unit. A per-slot seed puts two
   `data-signals` on one element the moment a card has two, and the browser silently keeps one.
 - **Card authors never escape anything.** `data-signals` is compiled as a JS *expression* by the
   pinned bundle, so a value needs JS-string escaping inside HTML-attribute escaping. One place
   (`Datastar.signalsAttr`), not every card.
 
-The wrapper is the right home for the seed because it is renderer-owned and appears in precisely
-the renders that should carry it: the PATCH form is the card's own markup and is correctly
-seedless, while its document render includes the wrapper.
+The root's `{{{cell}}}` hole is the right home for the seed because the renderer fills it and
+writes the seed in precisely the renders that should carry it: the document form, not the PATCH
+form (ADR 0008).
 
 **A signal name never descends into children.** Every child is a node of its own — its own id,
-wrapper, seed, patched on its own — a set member's children included, under ids below the member's
-(#556). Descending would seed a child's signal on its parent's wrapper and leave the child's
+root, seed, patched on its own — a set member's children included, under ids below the member's
+(#556). Descending would seed a child's signal on its parent's root and leave the child's
 binding pointed at a signal nothing ever writes — silent, and permanent.
 
 ### Six binding kinds, because a value does not always land in text
@@ -222,7 +222,7 @@ second expression language, no escaping regime, and no drift to prevent.
 
 That is what `SignalBind.Handler` is: a signal with no binding at all, because nothing paints it.
 Everything else about it is an ordinary signal slot — one name per `(entity, transform)`, value
-withheld from the patch form, seeded on the wrapper, carried in the frame.
+withheld from the patch form, seeded on the root, carried in the frame.
 
 The one thing it forces on a card: **the URL is assembled in the template, not in the transform.**
 Mustache runs once and a slot's value is spliced raw, so a URL built server-side could not carry a

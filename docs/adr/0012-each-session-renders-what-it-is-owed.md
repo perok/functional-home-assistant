@@ -128,7 +128,7 @@ patch targets; what they hold is addressable in its own right. It is also why st
 the one thing NOT cached: its bytes carry its children, so it has no sound key.
 
 A structural node may still carry SIGNAL slots, and that is not an exception to the
-above: a signal is seeded on the node's `.fh-cell` wrapper and updated by a frame
+above: a signal is seeded on the node's root (its `.fh-cell`) and updated by a frame
 addressed by name, so it never becomes bytes in the element and never needs the node
 patched (ADR 0017).
 
