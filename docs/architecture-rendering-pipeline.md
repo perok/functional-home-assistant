@@ -1163,10 +1163,12 @@ does not arise for three reasons that have to stay true:
 - nothing lets a node's input depend on a value produced DURING the walk.
 
 **A fetch's window may be CHOSEN, and it resolves PER VIEWER.** A node declares node variables
-(`Component.vars`); a fetch's window is written down or chosen by one from a table
-(`Choice.Fixed`/`Choice.Chosen`, ADR 0031); a node holds a static `SlotAsk`, and `fetchesForPage`
-resolves each one against the values in scope at that node into the `SlotRead` everything keys
-on.
+(`Component.vars`); a fetch's window is written down or chosen from its cases by what `by`
+reads (`Choice.Fixed`/`Choice.Chosen`, ADR 0033); a node holds a static `SlotAsk`, and
+`fetchesForPage` resolves each one, `by` run over the state and the values in scope at that node
+(`Renderer.readOf`), into the `SlotRead` everything keys on, or into nothing where no case takes
+it, and then the slot reads null. A `by` over state is why `FetchSnapshot` no longer resolves an
+ask: it answers reads the renderer resolved.
 
 **The values ride inside `FetchSnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot

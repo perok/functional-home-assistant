@@ -3,7 +3,7 @@ package fh.view.fetch
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.model.{NodeId, SlotAsk, SlotRead}
+import fh.view.model.{NodeId, SlotRead}
 
 /** Every fetch a render reads, answered — a second snapshot beside the
   * `Map[String, EntityState]` one, resolved BEFORE the walk because a render is
@@ -25,18 +25,8 @@ final class FetchSnapshot private (
   def varsAt(node: NodeId): Map[String, String] =
     vars.getOrElse(node, Map.empty)
 
-  /** The one place an ask becomes a read. */
-  def read(node: NodeId, ask: SlotAsk): SlotRead = ask.resolve(varsAt(node))
-
-  def versions(node: NodeId, asks: List[SlotAsk]): Map[SlotRead, Long] =
-    asks.view.map(read(node, _)).map(r => r -> staged(r).version).toMap
-
-  def value(node: NodeId, ask: SlotAsk): String = staged(node, ask).value
-
-  /** For an ask no viewer's variable shapes: a decision's. */
-  def shared(ask: SlotAsk): String = staged(ask.resolve(Map.empty)).value
-
-  def staged(node: NodeId, ask: SlotAsk): Staged = staged(read(node, ask))
+  def versions(reads: List[SlotRead]): Map[SlotRead, Long] =
+    reads.view.map(r => r -> staged(r).version).toMap
 
   def has(read: SlotRead): Boolean = answers.contains(read)
 
@@ -44,7 +34,7 @@ final class FetchSnapshot private (
   def ++(more: FetchSnapshot): FetchSnapshot =
     new FetchSnapshot(answers ++ more.answers, vars)
 
-  private def staged(read: SlotRead): Staged =
+  def staged(read: SlotRead): Staged =
     answers.getOrElse(
       read,
       // A wiring bug (the caller resolved a different set), so loud.

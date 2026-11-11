@@ -35,20 +35,10 @@ typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
 /// segment and a JS string.
 typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 
-/// The wire shape of a read: what a chosen window is chosen `by`
-/// (`fh.view.model.Choice.Chosen`). `var` is the wire key, hence the backticks;
-/// get one from [[Variable.ref]].
-class Ref {
-  `var`: String
-}
-
 /// A node variable as one typed value: its name, and every spelling of it a
 /// reader below its declarer needs.
 class Variable {
   name: Name
-
-  /// A read of it, resolved up the ancestors at build time.
-  fixed ref: Ref = let (n = name) new Ref { `var` = n }
 
   /// The declaring node's id, written from a node below it: a token the build
   /// splices (`DashboardBuild.declarerToken`) and refuses where nothing above
@@ -111,7 +101,7 @@ class Variable {
 /// One node's declaration of a [[Variable]]. Its value, highest first: the
 /// viewer's choice, its [[initialTransform]]'s result, its [[default]].
 class Declaration {
-  /// What it declares, for the readers below: `d.variable.ref`.
+  /// What it declares, for the readers below: `d.variable.value`.
   hidden variable: Variable
   fixed name: Name = variable.name
   /// What it holds before anyone chooses.

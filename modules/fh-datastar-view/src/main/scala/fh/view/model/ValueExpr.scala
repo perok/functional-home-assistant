@@ -266,8 +266,10 @@ final case class ValueExpr(
     (source match
       case Value.Entity(of, _, _, _) => of.toList
       case Value.Present(cs, _)      => cs
-      case Value.Literal(_) | Value.Fetch(_) | Value.List(_, _) |
-          Value.Cel(_, _) | Value.Var(_) =>
+      // A window chosen by state follows it.
+      case Value.Fetch(f) => f.window.entities
+      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
+          Value.Var(_) =>
         Nil
     ) ++ partEntities
 

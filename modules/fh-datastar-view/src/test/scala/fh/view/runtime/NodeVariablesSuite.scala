@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.DashboardBuilders
+
 import fh.view.testkit.TestCard
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
@@ -26,7 +28,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     regions = Map("children" -> Region())
   )
 
-  private val chosen: Choice[Window] = Choice.Chosen("window", Windows.presets)
+  private val chosen: Choice[Window] =
+    DashboardBuilders.chosenBy("window", Windows.presets)
 
   private def chartSlot(param: Choice[Window] = chosen) =
     TemplateSlot(
@@ -131,10 +134,10 @@ class NodeVariablesSuite extends munit.FunSuite {
     val t = Option(chartSlot(Choice.Fixed(Windows.day)).expr.source).collect {
       case Value.Fetch(f) => f
     }.get
-    assertEquals(t.references, Nil)
+    assertEquals(t.variables, Nil)
     assertEquals(
-      t.resolve(Map("window" -> "7d")),
-      Right(FetchRequest.History("sensor.t", Windows.day))
+      t.resolve(FetchTemplate.atDeclared(Map("window" -> "7d"))),
+      Some(FetchRequest.History("sensor.t", Windows.day))
     )
   }
 
@@ -422,21 +425,35 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(d.fetchesIn(d.card).size, 2)
   }
 
-  test("a window decodes as written, a `Chosen` object as a table") {
+  test("a window decodes as written, a `Chosen` object as its cases") {
     assertEquals(
       decode[Choice[Window]]("""{"kind":"Raw","span":3600}"""),
       Right(Choice.Fixed(Windows.hour))
     )
     assertEquals(
       decode[Choice[Window]](
-        """{"kind":"Chosen","by":{"var":"window"},
-          |"options":{"1h":{"kind":"Raw","span":3600}}}""".stripMargin
+        """{"kind":"Chosen","by":{"source":{"kind":"Var","name":"window"}},
+          |"cases":[{"is":"1h","value":{"kind":"Raw","span":3600}}]}""".stripMargin
       ),
-      Right(Choice.Chosen("window", Map("1h" -> Windows.hour)))
+      Right(DashboardBuilders.chosenBy("window", Map("1h" -> Windows.hour)))
     )
+    assertEquals(
+      decode[Choice[Window]](
+        """{"kind":"Chosen","by":true,"cases":[],
+          |"otherwise":{"kind":"Raw","span":3600}}""".stripMargin
+      ),
+      Right(
+        Choice.Chosen(
+          ValueExpr(Value.Literal(Lit.Bool(true))),
+          Nil,
+          Some(Windows.hour)
+        )
+      )
+    )
+    // The table the cases replaced: a field the decoder does not know.
     assert(
       decode[Choice[Window]](
-        """{"kind":"Chosen","by":{"nope":"window"},"options":{}}"""
+        """{"kind":"Chosen","by":"window","cases":[],"options":{}}"""
       ).isLeft
     )
   }

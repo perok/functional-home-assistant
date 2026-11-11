@@ -81,14 +81,31 @@ groups, a path only a write has. An initial value is not a choice: no `v.` param
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
 default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
-**Reference.** A fetch reads a variable by choosing: a `Choice` is `Fixed(value)` or
-`Chosen(by, options)`, the variable's value a key into a table of typed values (a history window,
-ADR 0031). The value is a string, since it lives in a URL and a signal, so it picks a typed value
-rather than being one, and a key the table lacks is refused at the write. On the wire
-`{"kind": "Chosen", "by": {"var": "window"}, "options": {…}}`; anything else is the value written
-down. `FetchTemplate` is the authored fetch, its choice unmade; `SlotAsk` is a slot's ask as the
-TREE states it; `SlotRead` is that ask resolved for one render, and is still what every cache keys
-on.
+**Reference.** A fetch reads a variable by choosing: `Choice[A]` is the model's one choice,
+`Fixed(value)` or `Chosen(by, cases, otherwise)`, with `Case(is, value)`. `by` is an expression, a
+variable's value as `p.history.chosen(v, table)` writes it, and the value is the case whose `is`
+equals what `by` reads, else `otherwise`, else none. A value is a string, since it lives in a URL
+and a signal, so it picks a typed value (a history window, ADR 0031) rather than being one.
+
+- **No case is no value**, with no special case: the fetch asks nothing and its slot reads null,
+  shown through the slot's own null handling (its `default`). With no `otherwise`, a viewer's value
+  no case takes is refused at the write (`Renderer.refusals`), and a declared one fails the build.
+- **`A` is data the build checks whole** and that never depends on the key, so only `by` is an
+  expression and `A` needs no `ValueType`. `Choice` is data and deciding is the compile's: `by`
+  needs the evaluator, so `Ready.Dashboard.choices` holds each `by`'s run, found by its `inputKey`,
+  beside `Choice.table`, each case's value by key.
+- **Keys are typed by `by`'s type**, checked in `validate`: text, a bool or a whole number, never a
+  real, `dyn` or a list, and each case's `is` that type, once. On the wire `cases` is a list of
+  `{"is": <scalar>, "value": …}`, since a JSON object's keys are strings and decoding them by
+  another field's type would derive in the decoder: `{"kind": "Chosen", "by": <value>, "cases":
+  […], "otherwise": …}`; anything else is the value written down.
+- **`by` may read state**, so an entity can pick a window, decided per version. Those entities join
+  the node's reads: they wake it and its render key carries them, as any entity read does. It may
+  not read a fetch, whose answer would need the window first. A decision's window is written down,
+  since what a decision reads is fixed at build.
+
+`FetchTemplate` is the authored fetch, its choice unmade; `SlotAsk` is a slot's ask as the TREE
+states it; `SlotRead` is that ask resolved for one render, and is still what every cache keys on.
 
 **Resolution** is one walk at validate time carrying a scope stack. A reference resolves to the nearest
 declaring ancestor; a container that declares nothing is transparent; a nested declaration of the
@@ -152,8 +169,8 @@ process forgot (a restart, a reap) adopts them, where it would otherwise reset e
 declared value. Each is adopted on its own, so one stale value costs only its own variable. A live
 session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
-`Renderer.refusals`: every declared reader must still take it — a fetch must find it among its
-options, a panel must have a member for it. ADR 0023's bound on the read side holds by
+`Renderer.refusals`: every declared reader must still take it — a fetch with no `otherwise` must
+find a case for it, a panel must have a member for it. ADR 0023's bound on the read side holds by
 construction: a fetch's entity is written down, so no value can move a chart to the lock on a
 `Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own

@@ -122,7 +122,7 @@ private[runtime] object Shared {
     private[runtime] def close(): Unit = done = true
 
     private val fetched: Fetched = Evaluator.Lookup.answering(f =>
-      Series.celPoints(have.shared(SlotAsk(f, Step.Json)))
+      Series.celPoints(have.staged(SlotAsk(f, Step.Json).fixed).value)
     )
 
     private[Shared] def answers(reads: Set[SlotRead]): Option[Fetched] =

@@ -3,12 +3,13 @@ package fh.view.runtime
 import cats.effect.IO
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.fetch.{FetchSnapshot, Staged}
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.Series
 import fh.view.model.{
   Access,
   CardDef,
   Cell,
+  Choice,
   ChromeColors,
   Dashboard,
   DomId,
@@ -313,7 +314,7 @@ class Renderer(validated: Dashboard.Validated) {
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
       readsAt = id =>
-        fetchesForNode(id).flatMap(_.fetch.references).toSet ++
+        fetchesForNode(id).flatMap(_.fetch.variables).toSet ++
           variablesForNode(id)
     )
 
@@ -339,9 +340,8 @@ class Renderer(validated: Dashboard.Validated) {
         .map(key -> _)
     }.toMap
 
-  /** One line per refused choice: every fetch reading the variable must find
-    * the value among its options, and every panel it selects must have a member
-    * for it.
+  /** One line per refused choice: every fetch reading the variable must find a
+    * case for the value, and every panel it selects must have a member for it.
     */
   def refusals(choices: Map[VarKey, String]): List[String] = {
     val env = vars.env(choices)
@@ -349,9 +349,8 @@ class Renderer(validated: Dashboard.Validated) {
       val why = (vars
         .readersOf(key)
         .flatMap(id =>
-          fetchesForNode(id).flatMap(
-            _.fetch.resolve(env.getOrElse(id, Map.empty)).left.toOption
-          )
+          fetchesForNode(id)
+            .flatMap(a => refusedAt(a.fetch, env.getOrElse(id, Map.empty)))
         ) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
           Option.unless(surfaces.memberAt(gid, value).isDefined)(
@@ -363,6 +362,33 @@ class Renderer(validated: Dashboard.Validated) {
       )
     }
   }
+
+  /** A value no case takes, with no `otherwise`: decided over the viewer's
+    * values alone, so a `by` that reads state is not refused for it.
+    */
+  private def refusedAt(
+      f: FetchTemplate,
+      vars: Map[String, String]
+  ): Option[String] = f.window match
+    case c @ Choice.Chosen(by, cases, None) if by.entities.isEmpty =>
+      val read = dashboard.answer(Map.empty, Evaluator.Lookup.of(vars))(by)
+      Option.unless(Choice.keyOf(read).exists(c.table.contains))(
+        s"'${Steps.text(read)}' is not one of " +
+          cases.map(k => Steps.text(k.is.raw)).sorted.mkString(", ")
+      )
+    case _ => None
+
+  /** An ask at a node: its window's `by` over `states` and the node's
+    * variables, none where it decides no case.
+    */
+  private def readOf(
+      ask: SlotAsk,
+      states: Map[String, EntityState],
+      vars: Map[String, String]
+  ): Option[SlotRead] = ask.fetch.window match
+    case Choice.Fixed(w) =>
+      Some(SlotRead(FetchRequest.History(ask.fetch.entity, w), ask.stage))
+    case _ => ask.resolve(dashboard.answer(states, Evaluator.Lookup.of(vars)))
 
   /** `offered` on top of `kept`, each under [[refusals]] on its own, so one
     * stale value costs only its own variable. In key order, so which of two
@@ -454,7 +480,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): List[SlotRead] =
     asks.flatMap { (id, f) =>
       if (f.gate.forall(gateHolds(_, shared)))
-        f.asks.map(_.resolve(env.getOrElse(id, Map.empty)))
+        f.asks.flatMap(readOf(_, shared.states, env.getOrElse(id, Map.empty)))
       else Nil
     }.distinct
 
@@ -514,9 +540,13 @@ class Renderer(validated: Dashboard.Validated) {
       Option.when(asks.nonEmpty)(m -> asks)
     }.toMap
 
-  /** Every read a node can make, whatever its `valueWhile`s decide. */
+  /** Every read a node can make, whatever its `valueWhile`s decide, over no
+    * state.
+    */
   private[runtime] def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
-    fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
+    fetchesForNode(id).flatMap(
+      readOf(_, Map.empty, env.getOrElse(id, Map.empty))
+    )
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -1090,7 +1120,7 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               shared.states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, asked(c, shared)),
+            readVersions(id, c, shared, fragments),
             varsRead(id, c, fragments)
           )
         )
@@ -1099,11 +1129,24 @@ class Renderer(validated: Dashboard.Validated) {
           case (c: Ready.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, shared.states),
-              fragments.versions(id, asked(c, shared)),
+              readVersions(id, c, shared, fragments),
               varsRead(id, c, fragments)
             )
         }
     }
+
+  private def readVersions(
+      id: NodeId,
+      c: Ready.Component,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): Map[SlotRead, Long] =
+    val asks = asked(c, shared)
+    if (asks.isEmpty) Map.empty
+    else
+      fragments.versions(
+        asks.flatMap(readOf(_, shared.states, fragments.varsAt(id)))
+      )
 
   private def varsRead(
       id: NodeId,
@@ -1882,7 +1925,7 @@ class Renderer(validated: Dashboard.Validated) {
                   srcEntity,
                   source,
                   shared,
-                  lookupAt(fragments, id)
+                  lookupAt(fragments, id, shared.states)
                 )
               ))
             )
@@ -1916,17 +1959,25 @@ class Renderer(validated: Dashboard.Validated) {
   ): SlotValue = source.source.shape match {
     case SlotShape.Fetch(_) if withheld(source, shared) =>
       ""
-    // Answered before the walk began; `FetchSnapshot` raises on a miss.
+    // Answered before the walk began; `FetchSnapshot` raises on a miss. A
+    // choice that decides no case asks nothing, and reads as no value.
     case SlotShape.Fetch(ask) =>
-      val answer = fragments.staged(node, ask)
-      if (answer.version == Staged.FailedVersion) failedLabelText(answer.value)
-      else answer.value
+      readOf(ask, shared.states, fragments.varsAt(node)) match
+        case Some(read) =>
+          val answer = fragments.staged(read)
+          if (answer.version == Staged.FailedVersion)
+            failedLabelText(answer.value)
+          else answer.value
+        case None =>
+          source.source.default match
+            case Some(Lit.Bool(b)) => b
+            case d                 => d.fold("")(l => Steps.text(l.raw))
     case SlotShape.State(_) =>
       resolveStateSlotValue(
         srcEntity,
         source,
         shared,
-        lookupAt(fragments, node)
+        lookupAt(fragments, node, shared.states)
       )
   }
 
@@ -1951,10 +2002,12 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def lookupAt(
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      states: Map[String, EntityState]
   ): Evaluator.Lookup = new Evaluator.Lookup:
     def fetched(f: FetchTemplate): Object =
-      Series.celPoints(fragments.value(node, SlotAsk(f, Step.Json)))
+      readOf(SlotAsk(f, Step.Json), states, fragments.varsAt(node))
+        .fold(null)(r => Series.celPoints(fragments.staged(r).value))
     def variable(name: String): String =
       fragments.varsAt(node).getOrElse(name, Evaluator.noVariable(name))
 

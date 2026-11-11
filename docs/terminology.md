@@ -159,8 +159,8 @@ Three words go with it, and they are not interchangeable:
 
 - **Declarer** — the node whose `vars` a reference resolved to. Resolution is by NAME up the
   ancestor chain, so a node declaring nothing is transparent and the NEAREST declarer wins.
-- **Reference** (`varMod.Ref`, a `Choice.Chosen`'s `by`) — a read of one, as opposed to a value
-  written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
+- **Reference** (`v.value`, a `Choice.Chosen`'s `by` as `p.history.chosen` writes it) — a read
+  of one, as opposed to a value written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
   only a declared variable is writable, so a value written down has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
@@ -175,7 +175,8 @@ when it reads a variable (ADR 0033).
 
 What a variable holds, highest first:
 
-- **Choice** — what the viewer picked: a write, a `v.` URL param, a link.
+- **Choice** — what the viewer picked: a write, a `v.` URL param, a link. Not `Choice[A]`, the
+  model's value picked from cases by what `by` reads (ADR 0033).
 - **Initial value** — what the declaration's **initial transform** gave this session: CEL over one
   whole entity as `value` (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
   page opens. Not a choice (no URL param) and not a flip (it never follows the entity). A slider's

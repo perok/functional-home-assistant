@@ -51,6 +51,12 @@ private[view] object Evaluator {
       def fetched(f: FetchTemplate): Object = answer(f)
       def variable(name: String): String = noVariable(name)
 
+    /** Variables and no answers: what a chosen window's `by` reads. */
+    def of(vars: Map[String, String]): Lookup = new Lookup:
+      def fetched(f: FetchTemplate): Object = unanswered.fetched(f)
+      def variable(name: String): String =
+        vars.getOrElse(name, noVariable(name))
+
   def noVariable(name: String): Nothing =
     throw FHError.internal(
       s"a value read the variable '$name' where no viewer's values are in hand"

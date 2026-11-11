@@ -211,33 +211,50 @@
                                           "provider" : "history",
                                           "window" : {
                                             "by" : {
-                                              "var" : "window"
+                                              "source" : {
+                                                "kind" : "Var",
+                                                "name" : "window"
+                                              },
+                                              "steps" : [
+                                              ]
                                             },
-                                            "kind" : "Chosen",
-                                            "options" : {
-                                              "1h" : {
-                                                "kind" : "Raw",
-                                                "span" : 3600
+                                            "cases" : [
+                                              {
+                                                "is" : "1h",
+                                                "value" : {
+                                                  "kind" : "Raw",
+                                                  "span" : 3600
+                                                }
                                               },
-                                              "24h" : {
-                                                "fallback" : true,
-                                                "kind" : "Statistics",
-                                                "period" : "5minute",
-                                                "span" : 86400
+                                              {
+                                                "is" : "24h",
+                                                "value" : {
+                                                  "fallback" : true,
+                                                  "kind" : "Statistics",
+                                                  "period" : "5minute",
+                                                  "span" : 86400
+                                                }
                                               },
-                                              "30d" : {
-                                                "fallback" : true,
-                                                "kind" : "Statistics",
-                                                "period" : "hour",
-                                                "span" : 2592000
+                                              {
+                                                "is" : "7d",
+                                                "value" : {
+                                                  "fallback" : true,
+                                                  "kind" : "Statistics",
+                                                  "period" : "hour",
+                                                  "span" : 604800
+                                                }
                                               },
-                                              "7d" : {
-                                                "fallback" : true,
-                                                "kind" : "Statistics",
-                                                "period" : "hour",
-                                                "span" : 604800
+                                              {
+                                                "is" : "30d",
+                                                "value" : {
+                                                  "fallback" : true,
+                                                  "kind" : "Statistics",
+                                                  "period" : "hour",
+                                                  "span" : 2592000
+                                                }
                                               }
-                                            }
+                                            ],
+                                            "kind" : "Chosen"
                                           }
                                         },
                                         "kind" : "Fetch"

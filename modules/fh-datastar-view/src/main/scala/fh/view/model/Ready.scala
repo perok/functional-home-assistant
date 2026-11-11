@@ -162,8 +162,11 @@ object Ready:
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
           .map(_.celKey)
           .distinct
-          .traverse(k => scope.program(k).map(k -> _))
-      ).mapN((card, surfaces, calls, initials) =>
+          .traverse(k => scope.program(k).map(k -> _)),
+        d.choiceBys.traverse(by =>
+          Evaluator.compile(by, scope).map(by.inputKey -> _.run)
+        )
+      ).mapN((card, surfaces, calls, initials, choices) =>
         Dashboard(
           d.cards,
           card,
@@ -178,6 +181,7 @@ object Ready:
           d.watchedEntities,
           calls.toMap,
           initials.toMap,
+          choices.toMap,
           d.varScopes,
           d.warnings
         )
@@ -273,6 +277,20 @@ object Ready:
       calls: Map[TapCall, Reach],
       // Where a session opens a node variable, by its transform.
       initials: Map[Cel.Key, Cel.Program],
+      // Each chosen window's `by`, by its `inputKey`.
+      choices: Map[String, Evaluator.Run],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
       warnings: List[String]
-  )
+  ):
+    /** What a chosen window's `by` reads over `states` and `in`. */
+    def answer(
+        states: Map[String, EntityState],
+        in: Evaluator.Lookup
+    ): ValueExpr => Any = by =>
+      choices
+        .getOrElse(
+          by.inputKey,
+          throw fh.view.FHError.internal(
+            "a chosen window the compile did not see"
+          )
+        )(null, states, in)

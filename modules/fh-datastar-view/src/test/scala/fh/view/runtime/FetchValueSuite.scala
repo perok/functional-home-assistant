@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.DashboardBuilders
+
 import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
@@ -148,7 +150,9 @@ class FetchValueSuite extends munit.FunSuite {
         .contains("reads a live count, condition or fetch")
     )
     val undeclared =
-      history.copy(window = Choice.Chosen("window", Windows.presets))
+      history.copy(window =
+        DashboardBuilders.chosenBy("window", Windows.presets)
+      )
     assert(
       errs(
         dashboard(ofSlot =
@@ -289,7 +293,9 @@ class FetchValueSuite extends munit.FunSuite {
         .contains("'unread' its expression does not read")
     )
     val undeclared =
-      history.copy(window = Choice.Chosen("window", Windows.presets))
+      history.copy(window =
+        DashboardBuilders.chosenBy("window", Windows.presets)
+      )
     assert(
       errs(Map("past" -> ValueExpr(Value.Fetch(undeclared))))
         .contains("reads the variable 'window', which no ancestor declares")

@@ -35,7 +35,10 @@ class VarSourceSuite extends munit.FunSuite {
   )
 
   private def plain(e: ValueExpr) =
-    LayoutNode.Component("plain", templateSlots = Map("name" -> TemplateSlot(e)))
+    LayoutNode.Component(
+      "plain",
+      templateSlots = Map("name" -> TemplateSlot(e))
+    )
 
   private def panel(kids: LayoutNode*) =
     LayoutNode.Component(
@@ -45,7 +48,10 @@ class VarSourceSuite extends munit.FunSuite {
       id = Some("panel")
     )
 
-  private def dash(root: LayoutNode, surfaces: Map[String, Surface] = Map.empty) =
+  private def dash(
+      root: LayoutNode,
+      surfaces: Map[String, Surface] = Map.empty
+  ) =
     Dashboard(cards = cards, card = root, surfaces = surfaces)
 
   private val key = VarKey(NodeId.derived("panel"), "window")
@@ -106,9 +112,8 @@ class VarSourceSuite extends munit.FunSuite {
   }
 
   test("a live cell class refuses one: it is a signal too") {
-    val classed = plain(ValueExpr.literal("x")).copy(cell =
-      Some(Cell(classes = ListMap("fh-chosen" -> isWindow("7d"))))
-    )
+    val classed = plain(ValueExpr.literal("x"))
+      .copy(cell = Some(Cell(classes = ListMap("fh-chosen" -> isWindow("7d")))))
     refused(dash(panel(classed)), "signal, which every viewer shares")
   }
 

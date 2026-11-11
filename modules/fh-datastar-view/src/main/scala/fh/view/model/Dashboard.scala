@@ -191,14 +191,20 @@ object BoundSlot:
 
   /** A node's reverse index entries: what its live slots read. */
   def liveEntities(slots: Iterable[BoundSlot]): List[String] =
-    entitiesOf(stateSlots(slots).filter(isLive))
+    (entitiesOf(stateSlots(slots).filter(isLive)) ++ choosing(slots)).distinct
 
   /** Minus entities reached only through signal slots: what the render key and
     * the structure rule use. The two fail in opposite directions if swapped —
     * this list in the reverse index silently stops signal frames.
     */
   def liveEntitiesAsBytes(slots: Iterable[BoundSlot]): List[String] =
-    entitiesOf(stateSlots(slots).filter(s => isLive(s) && s.signal.isEmpty))
+    (entitiesOf(stateSlots(slots).filter(s => isLive(s) && s.signal.isEmpty)) ++
+      choosing(slots)).distinct
+
+  // A fetch slot's own entity is no wake (its answer is never pushed), but
+  // what picks its window is.
+  private def choosing(slots: Iterable[BoundSlot]): List[String] =
+    slots.toList.flatMap(_.fetch.toList.flatMap(_.window.entities))
 
   private def stateSlots(slots: Iterable[BoundSlot]): List[BoundSlot] =
     slots.toList.flatMap(_.shape match
@@ -234,54 +240,91 @@ object BoundSlot:
       subject
     )
 
-/** A value written down, or picked by a node variable from a table the build
-  * checked whole (issue #209). A variable's value lives in a URL and a signal,
-  * so it is a key rather than the value: a key the table lacks is refused at
-  * the write ([[fh.view.runtime.Renderer.refusals]]), never defaulted.
+/** A value written down, or picked from a table the build checked whole by what
+  * `by` reads: a node variable's value, or anything else a value can read
+  * (issue #209). The case whose `is` equals it, else `otherwise`, else no
+  * value. `A` never depends on the key at render, so only `by` is an
+  * expression. Deciding is the compile's ([[Ready.Compile]]), since `by` needs
+  * the evaluator: this is data, and [[decide]] takes `by`'s answer.
   */
 enum Choice[+A] derives CanEqual:
   case Fixed(value: A)
-  case Chosen(by: String, options: Map[String, A])
+  case Chosen(by: ValueExpr, cases: List[Case[A]], otherwise: Option[A] = None)
 
-  def variable: Option[String] = this match
-    case Fixed(_)      => None
-    case Chosen(by, _) => Some(by)
+  /** The node variables `by` reads: a write to one is refused where no case
+    * takes its value and there is no `otherwise`.
+    */
+  def variables: List[String] = this match
+    case Fixed(_)         => Nil
+    case Chosen(by, _, _) => by.variables
+
+  /** The entities `by` reads, which wake its reader as any entity read does. */
+  def entities: List[String] = this match
+    case Fixed(_)         => Nil
+    case Chosen(by, _, _) => by.entities
 
   def all: List[A] = this match
-    case Fixed(a)           => List(a)
-    case Chosen(_, options) => options.values.toList
+    case Fixed(a)                    => List(a)
+    case Chosen(_, cases, otherwise) => cases.map(_.value) ++ otherwise
 
-  def resolve(env: Map[String, String]): Either[String, A] = this match
-    case Fixed(a)            => Right(a)
-    case Chosen(by, options) =>
-      env
-        .get(by)
-        .toRight(s"the variable '$by' has no value here")
-        .flatMap(value =>
-          options
-            .get(value)
-            .toRight(
-              s"'$value' is not one of ${options.keys.toList.sorted.mkString(", ")}"
-            )
-        )
+  /** Each case's value by its key's [[Lit.key]], the first of a repeated key
+    * winning; `validate` refuses one.
+    */
+  lazy val table: Map[String, A] = this match
+    case Fixed(_)         => Map.empty
+    case Chosen(_, cs, _) => cs.reverse.map(c => Lit.key(c.is) -> c.value).toMap
+
+  /** `answer` is what `by` reads now. */
+  def decide(answer: ValueExpr => Any): Option[A] = this match
+    case Fixed(a)                     => Some(a)
+    case c @ Chosen(by, _, otherwise) =>
+      Choice.keyOf(answer(by)).flatMap(c.table.get).orElse(otherwise)
 
   def key(of: A => String): String = this match
-    case Fixed(a)            => of(a)
-    case Chosen(by, options) =>
-      s"$$$by{" + options.toList
-        .sortBy(_._1)
-        .map((k, a) => s"${k.length}:$k=${of(a)}")
-        .mkString(";") + "}"
+    case Fixed(a)                     => of(a)
+    case Chosen(by, cases, otherwise) =>
+      s"$$${by.inputKey.length}:${by.inputKey}{" + cases
+        .map(c => s"${Lit.key(c.is)}=${of(c.value)}")
+        .mkString(";") + "}" + otherwise.fold("")(a => s"|else=${of(a)}")
+
+/** One case of a [[Choice.Chosen]]: its value where `by` reads `is`. */
+final case class Case[+A](is: Lit, value: A) derives CanEqual
 
 object Choice:
 
-  /** `{"kind": "Chosen", "by": {"var": …}, "options": {…}}`, else the value. */
+  /** What `by` may read as: what a case's literal can spell. */
+  val KeyTypes: Set[ValueType] =
+    Set(ValueType.Text, ValueType.Bool, ValueType.Int)
+
+  /** A value's key as a case's `is` is keyed, or none for a value no literal
+    * spells: a `by` reads text, a bool or a whole number.
+    */
+  def keyOf(v: Any): Option[String] = v match
+    case s: String            => Some(Lit.key(Lit.Text(s)))
+    case b: java.lang.Boolean => Some(Lit.key(Lit.Bool(b.booleanValue)))
+    case n: java.lang.Long    => Some(Lit.key(Lit.Whole(n.longValue)))
+    case n: java.lang.Integer => Some(Lit.key(Lit.Whole(n.longValue)))
+    case _                    => None
+
+  /** `{"kind": "Chosen", "by": <value>, "cases": [{"is": …, "value": …}],
+    * "otherwise": …}`, else the value. A list, since a JSON object's keys are
+    * strings and typing them by `by` would derive in the decoder.
+    */
   given [A: Decoder]: Decoder[Choice[A]] = Decoder.instance { c =>
     c.get[String]("kind") match
       case Right("Chosen") =>
-        (c.downField("by").get[String]("var"), c.get[Map[String, A]]("options"))
-          .mapN(Chosen(_, _))
+        Strict.only(c, Set("kind", "by", "cases", "otherwise")) *> (
+          c.get[ValueExpr]("by"),
+          c.get[List[Case[A]]]("cases"),
+          c.getOrElse[Option[A]]("otherwise")(None)
+        ).mapN(Chosen(_, _, _))
       case _ => c.as[A].map(Fixed(_))
+  }
+
+object Case:
+  given [A: Decoder]: Decoder[Case[A]] = Decoder.instance { c =>
+    Strict.only(c, Set("is", "value")) *>
+      (c.get[Lit]("is"), c.get[A]("value")).mapN(Case(_, _))
   }
 
 /** A history fetch as authored, its window written down or chosen. `history` is
@@ -290,10 +333,11 @@ object Choice:
 case class FetchTemplate(entity: String, window: Choice[Window])
     derives CanEqual:
 
-  def references: List[String] = window.variable.toList
+  def variables: List[String] = window.variables
 
-  def resolve(env: Map[String, String]): Either[String, FetchRequest] =
-    window.resolve(env).map(FetchRequest.History(entity, _))
+  /** No value where its window's choice decides none: it asks nothing. */
+  def resolve(answer: ValueExpr => Any): Option[FetchRequest] =
+    window.decide(answer).map(FetchRequest.History(entity, _))
 
   def key: String =
     s"${FetchTemplate.Provider}($entity,${window.key(_.key)})"
@@ -301,6 +345,14 @@ case class FetchTemplate(entity: String, window: Choice[Window])
 object FetchTemplate:
 
   val Provider: String = "history"
+
+  /** A `by` read at the declared values `scope`, over no state, as the build
+    * reads one: a read of an entity is null there, so it decides no case.
+    */
+  def atDeclared(scope: Map[String, String]): ValueExpr => Any = by =>
+    Evaluator
+      .compile(by, Evaluator.Scope(""))
+      .fold(_ => null, _.run(null, Map.empty, Evaluator.Lookup.of(scope)))
 
   given Decoder[FetchTemplate] = Decoder.instance { c =>
     c.get[String]("provider").flatMap {
@@ -330,26 +382,25 @@ enum SlotShape derives CanEqual:
 case class SlotAsk(fetch: FetchTemplate, stage: Step.FetchStage)
     derives CanEqual:
 
-  /** `validate` proved the declared values resolve, and the write refuses a
-    * chosen one that does not, so a `Left` here is a bug.
+  /** `answer` is what its window's `by` reads now; none where the choice
+    * decides no case, which asks nothing.
     */
-  def resolve(env: Map[String, String]): SlotRead =
-    SlotRead(
-      fetch
-        .resolve(env)
-        .fold(
-          e => throw FHError.internal(s"${fetch.key} reached a render: $e"),
-          identity
-        ),
-      stage
-    )
+  def resolve(answer: ValueExpr => Any): Option[SlotRead] =
+    fetch.resolve(answer).map(SlotRead(_, stage))
+
+  /** A window written down: what a decision reads, the same for every viewer,
+    * where `validate` refuses a chosen one.
+    */
+  def fixed: SlotRead = fetch.window match
+    case Choice.Fixed(w) =>
+      SlotRead(FetchRequest.History(fetch.entity, w), stage)
+    case _: Choice.Chosen[?] =>
+      throw FHError.internal(s"${fetch.key} reached a decision chosen")
 
 object SlotAsk:
-  /** What a decision reads of `fetches`: raw, at no viewer's variables, which
-    * `validate` refuses there.
-    */
+  /** What a decision reads of `fetches`, raw. */
   def decision(fetches: List[FetchTemplate]): Set[SlotRead] =
-    fetches.map(SlotAsk(_, Step.Json).resolve(Map.empty)).toSet
+    fetches.map(SlotAsk(_, Step.Json).fixed).toSet
 
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
@@ -1270,8 +1321,20 @@ case class Dashboard(
       start: Map[String, String] = Map.empty
   ): List[SlotRead] =
     scopedSlots(n, start).flatMap { case (s, scope) =>
-      s.fetches.map(_.resolve(scope))
+      s.fetches.flatMap(_.resolve(FetchTemplate.atDeclared(scope)))
     }.distinct
+
+  /** Every chosen window's `by`, each compiled once ([[Ready.Compile]]). A
+    * decision's window is written down (`validate`), so a slot's are all.
+    */
+  lazy val choiceBys: List[ValueExpr] =
+    (scopedSlots(card, Map.empty) ++ surfaces.values.toList.flatMap(s =>
+      scopedSlots(s.content, Map.empty)
+    )).flatMap(_._1.fetches)
+      .collect { case SlotAsk(FetchTemplate(_, Choice.Chosen(by, _, _)), _) =>
+        by
+      }
+      .distinctBy(_.inputKey)
 
   /** `scope` is where a tree starts: empty, or a surface's [[scopeOf]]. */
   private def scopedSlots(
