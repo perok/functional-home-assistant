@@ -29,6 +29,14 @@ entity's.
   evicting each other, bounded by the variable's values. A write re-renders the variable's readers
   for that viewer, as a chart over a chosen window is re-rendered today.
 
+### Where a variable read may stand
+
+A leaf's value slots and `cellClassAtRender` only. `validate` refuses a `Var` in any shared
+decision (clauses, state surfaces, `valueWhile`, order keys, set calls), in any signal slot
+(`cellClassWhen` and `cellStyle` included, since a display signal is shared by name), and in a
+structural card's own byte slots. `c.iff(v.valueIs(x))` still lowers to `Activation.Var`. The
+regions work lifts these (`docs/plan-regions.md` §5 lists what it owes).
+
 ### One choice type
 
 `Choice[A]` becomes the model's one choice, with `by` an expression and typed keys:
@@ -41,6 +49,10 @@ case class Case[+A](is: Lit, value: A)
 ```
 
 - Deciding: evaluate `by`, take the case whose `is` equals it, else `otherwise`, else nothing.
+  Nothing is no value, with no special case: a fetch slot asks nothing and its reading is null,
+  which the slot's own null handling (its `default`) shows. A `by` reading entity state adds those
+  entities to the node's reads, so a state change wakes it and its render key carries them, as any
+  entity read does.
 - `Choice` is data; deciding is the compile's: `by` needs the evaluator, so `resolve(env)` leaves
   `Choice`, and `Ready` holds `by`'s compiled run beside a map from key to each case's value.
 - `A` is data the build checks whole and that never depends on the key at render (here a
