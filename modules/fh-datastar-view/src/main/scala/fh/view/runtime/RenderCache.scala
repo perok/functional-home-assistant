@@ -23,8 +23,10 @@ private[runtime] object NodeBytes {
   * would grow forever: every frame mints new entity versions and old ones are
   * never asked for again. A selection is not in the key: only structure reads
   * one, and structure is never cached (`RenderCacheContentionSuite` holds 1.0
-  * renders a frame across viewers and tabs). Fetch reads are per viewer, so two
-  * windows evict each other (issue #209).
+  * renders a frame across viewers and tabs). Fetch reads and the variable
+  * values a node read are per viewer: viewers on one value share the entry, and
+  * two values replace each other's, so a node keeps one entry however many
+  * values are posted.
   *
   * '''A straggler never displaces the current generation''': an install is
   * refused when what is there is at or ahead of the caller

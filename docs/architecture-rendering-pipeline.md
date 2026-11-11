@@ -955,6 +955,13 @@ node either of them is sent, and share one render. `RenderCacheContentionSuite` 
 renders a frame at any mix of viewers and tabs; a 2.0 would mean cost had started following the
 selection again.
 
+**A node variable a slot reads IS in the key** (`RenderInputs.vars`, ADR 0033): that node's bytes
+are the value's. Different values are unordered, so viewers on one value share one render and a
+viewer on another replaces the entry in place. The cache still keeps one entry per node, however
+many values are posted, and two values over one node alternate, each rendering — a cost only on
+ticks where the node's entities moved. The suite holds both: 1.0 a frame for viewers on one value,
+and one entry after fifty.
+
 **Sessions at different store versions is the other half, and it is an ordering problem, not a
 key problem.** Sessions pull on their own fibers and read the store when they get there, so they do
 not all render from one snapshot. Three racing — newest, straggler, newest — would otherwise cost
@@ -1171,8 +1178,9 @@ the values come from the render.
 **A leaf's value slot may read a variable too** (`Value.Var`, ADR 0033), from the same values: a
 run reads them through its `Evaluator.Lookup`, which for a slot is the node's
 `FetchSnapshot.varsAt` and for a decision none at all, so a decision that reached one would throw
-rather than pick a viewer. Such a node's bytes are that viewer's, so it renders outside the
-`RenderCache`, and `VarGraph.readersOf` counts it among the readers a write re-renders.
+rather than pick a viewer. Such a node's bytes are that viewer's value's, so its render key carries
+the values it read (`RenderInputs.vars`, §5), and `VarGraph.readersOf` counts it among the readers
+a write re-renders.
 
 A choice is addressed to the node that DECLARED the variable, which is what keeps a shadow
 independent from the write side. It arrives two ways, both narrowed to real declarations before

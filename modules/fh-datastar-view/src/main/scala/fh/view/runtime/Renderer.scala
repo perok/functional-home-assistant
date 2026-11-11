@@ -110,18 +110,24 @@ private[runtime] object WalkAt {
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
   * discriminating costs a wasted render; too coarse serves stale bytes silently
   * and forever. When in doubt, over-discriminate.
+  *
+  * @param vars
+  *   the node variables its slots read, by name, at the viewer's values.
   */
 case class RenderInputs(
     entities: Map[String, Long],
-    fetches: Map[SlotRead, Long] = Map.empty
+    fetches: Map[SlotRead, Long] = Map.empty,
+    vars: Map[String, String] = Map.empty
 ) derives CanEqual {
 
   /** The partial order [[RenderCache]] uses to refuse superseded bytes.
     * Different key sets are unordered, which also keeps two viewers on
-    * different windows from displacing each other's chart.
+    * different windows from displacing each other's chart; so are different
+    * variable values, so a viewer's install replaces another value's entry.
     */
   def isAtLeast(other: RenderInputs): Boolean =
-    sameOrAhead(entities, other.entities) &&
+    vars == other.vars &&
+      sameOrAhead(entities, other.entities) &&
       sameOrAhead(fetches, other.fetches)
 
   private def sameOrAhead[K](
@@ -1062,9 +1068,10 @@ class Renderer(validated: Dashboard.Validated) {
     *
     * No selection (only structure reads one, and structure is never cached) and
     * no children (a descendant's tick would invalidate every ancestor). `None`
-    * means not cacheable: [[ownRenderingOf]]'s `false`, or a node reading a
-    * variable, whose bytes are the viewer's and which the key cannot yet tell
-    * apart.
+    * means not cacheable: exactly [[ownRenderingOf]]'s `false`.
+    *
+    * The node variables its slots read, at this viewer's values: viewers on one
+    * value share a render, and one on another replaces the entry.
     */
   def renderInputs(
       id: NodeId,
@@ -1073,7 +1080,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[RenderInputs] =
     members.nodeAt(id, shared) match {
       case Some((m, c)) =>
-        Option.when(cacheable(c))(
+        Option.when(ownRenderingOf(c))(
           RenderInputs(
             // The subject chose the clause, so it keys the bytes even when no
             // slot reads it; the clause is named too, since every clause of a
@@ -1083,21 +1090,32 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               shared.states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, asked(c, shared))
+            fragments.versions(id, asked(c, shared)),
+            varsRead(id, c, fragments)
           )
         )
       case None =>
         allIndexed.get(id).collect {
-          case (c: Ready.Component, _) if cacheable(c) =>
+          case (c: Ready.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, shared.states),
-              fragments.versions(id, asked(c, shared))
+              fragments.versions(id, asked(c, shared)),
+              varsRead(id, c, fragments)
             )
         }
     }
 
-  private def cacheable(c: Ready.Component): Boolean =
-    ownRenderingOf(c) && c.variables.isEmpty
+  private def varsRead(
+      id: NodeId,
+      c: Ready.Component,
+      fragments: FetchSnapshot
+  ): Map[String, String] =
+    if (c.variables.isEmpty) Map.empty
+    else
+      val at = fragments.varsAt(id)
+      c.variables.view
+        .map(n => n -> at.getOrElse(n, Evaluator.noVariable(n)))
+        .toMap
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
