@@ -560,11 +560,17 @@ object Region {
   * always there, and custom properties. In wire order, `layout` first, which is
   * the class attribute's. An object so it can grow `grid_options`-style fields
   * without a wire break.
+  *
+  * @param atRender
+  *   classes decided for the viewer as the document renders, by a bool that may
+  *   read a node variable; no signal and no binding, and absent from the patch
+  *   form, so patches are the same for every viewer.
   */
 case class Cell(
     layout: List[String] = Nil,
     classes: ListMap[String, ValueExpr] = ListMap.empty,
-    styles: ListMap[String, ValueExpr] = ListMap.empty
+    styles: ListMap[String, ValueExpr] = ListMap.empty,
+    atRender: ListMap[String, ValueExpr] = ListMap.empty
 ) derives ConfiguredDecoder:
 
   /** Keyed once for the render walk: a `ListMap` iterates by building a list,

@@ -76,7 +76,8 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   test("what picks the window wakes the chart and keys its bytes") {
     val d = dash(chart(byState()))
-    val node = Ready.Compile(Evaluator.Scope(""))
+    val node = Ready
+      .Compile(Evaluator.Scope(""))
       .component(d.card.asComponent)
       .fold(e => fail(e.message), identity)
     assertEquals(node.liveEntities, List(span))
@@ -108,7 +109,12 @@ class ChosenWindowSuite extends munit.FunSuite {
       "chooses its window by a real"
     )
     refused(
-      dash(chosenBy(ValueExpr(Value.Entity(Some(span))), Case(Lit.Bool(true), Windows.day))),
+      dash(
+        chosenBy(
+          ValueExpr(Value.Entity(Some(span))),
+          Case(Lit.Bool(true), Windows.day)
+        )
+      ),
       "has the case 'true', a bool, where its window is chosen by a text"
     )
     refused(
@@ -130,11 +136,16 @@ class ChosenWindowSuite extends munit.FunSuite {
       candidates = List("sensor.t"),
       members = Map(
         "sensor.t" -> LayoutNode.SetMember(
-          List(LayoutNode.SetClause(Some(guard), chart(Choice.Fixed(Windows.day))))
+          List(
+            LayoutNode.SetClause(Some(guard), chart(Choice.Fixed(Windows.day)))
+          )
         )
       )
     )
-    refused(dash(set), "whose window is chosen: a decision's window is written down")
+    refused(
+      dash(set),
+      "whose window is chosen: a decision's window is written down"
+    )
   }
 
   test("a declared value no case takes is a build error; a value read is not") {

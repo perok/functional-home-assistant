@@ -36,7 +36,9 @@ root element.**
    `fh-cell`, the card's classes, then the node's cell classes. The two holes
    are writer holes the renderer fills straight into the buffer, as it fills a
    region (`Renderer.NodeContext.writeHole`): `cellClasses` each with its
-   leading space, a live one inline in the document form only; `cell` the live
+   leading space, a live one inline in the document form only, then those decided
+   for the viewer at render (`cell.atRender`, `cellClassAtRender`, ADR 0033), in
+   the document form only and with no binding; `cell` the live
    `style` (document form), the id, the one `data-signals` seed, the cell
    bindings and the URL mirror, in that order. A card that sets no `tag` gets
    `<div class="fh-cell{{{cellClasses}}}"{{{cell}}}>…</div>` around its

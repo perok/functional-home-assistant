@@ -197,6 +197,31 @@
             "children" : [
               {
                 "card" : "tab",
+                "cell" : {
+                  "atRender" : {
+                    "fh-chosen" : {
+                      "source" : {
+                        "kind" : "Var",
+                        "name" : "tab"
+                      },
+                      "steps" : [
+                        {
+                          "kind" : "Compare",
+                          "op" : "eq",
+                          "to" : "0"
+                        }
+                      ]
+                    }
+                  },
+                  "classes" : {
+                    
+                  },
+                  "layout" : [
+                  ],
+                  "styles" : {
+                    
+                  }
+                },
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : {
@@ -225,6 +250,31 @@
               },
               {
                 "card" : "tab",
+                "cell" : {
+                  "atRender" : {
+                    "fh-chosen" : {
+                      "source" : {
+                        "kind" : "Var",
+                        "name" : "tab"
+                      },
+                      "steps" : [
+                        {
+                          "kind" : "Compare",
+                          "op" : "eq",
+                          "to" : "1"
+                        }
+                      ]
+                    }
+                  },
+                  "classes" : {
+                    
+                  },
+                  "layout" : [
+                  ],
+                  "styles" : {
+                    
+                  }
+                },
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : {
@@ -487,6 +537,31 @@
                   "children" : [
                     {
                       "card" : "tab",
+                      "cell" : {
+                        "atRender" : {
+                          "fh-chosen" : {
+                            "source" : {
+                              "kind" : "Var",
+                              "name" : "view"
+                            },
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "eq",
+                                "to" : "simple"
+                              }
+                            ]
+                          }
+                        },
+                        "classes" : {
+                          
+                        },
+                        "layout" : [
+                        ],
+                        "styles" : {
+                          
+                        }
+                      },
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : {
@@ -515,6 +590,31 @@
                     },
                     {
                       "card" : "tab",
+                      "cell" : {
+                        "atRender" : {
+                          "fh-chosen" : {
+                            "source" : {
+                              "kind" : "Var",
+                              "name" : "view"
+                            },
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "eq",
+                                "to" : "detail"
+                              }
+                            ]
+                          }
+                        },
+                        "classes" : {
+                          
+                        },
+                        "layout" : [
+                        ],
+                        "styles" : {
+                          
+                        }
+                      },
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : {

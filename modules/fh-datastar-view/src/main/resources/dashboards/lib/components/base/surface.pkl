@@ -40,15 +40,18 @@ const local labelSlot: slotMod.Slot = slotMod.slot("label")
 const local activeSlot: slotMod.Slot = slotMod.textRaw("active")
 
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
-/// over a node variable — a [[Tabs]], `c.select(v)`.
-const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String): TabButton = new TabButton {
+/// over a node variable — a [[Tabs]], `c.select(v)`. Lit in the first HTML by the
+/// server, and live by the browser's `active` over the pending-or-committed
+/// value, so a press lights at once; a patch carrying the class could land
+/// after a second press and light two tabs (ADRs 0019, 0025).
+const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String): nodes.LayoutNode = (new TabButton {
   label = text
   // Strict, as strings: loose `==` makes `'' == 0` true, so an unseeded
   // selection would light a tab `0`. `Number('')` is 0 too, hence `String(…)`.
   // A Value cannot hold a quote, so it needs no escaping.
   active = "String(\(v.below.chosen)) === '\(choice)'"
   tapAction = v.choose(choice)
-}
+}).cellClassAtRender("fh-chosen", v.valueIs(choice))
 
 /// A tab bar over one panel. It declares the node variable `tab`, the open
 /// tab's index; each tab's cards become an inline surface baked into the panel

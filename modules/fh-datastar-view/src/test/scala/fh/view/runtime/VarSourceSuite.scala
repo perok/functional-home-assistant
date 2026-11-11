@@ -94,6 +94,56 @@ class VarSourceSuite extends munit.FunSuite {
     assertEquals(r.refusals(Map(key -> "anything")), Nil)
   }
 
+  /** A leaf lit at render while the viewer's `window` is 7d. */
+  private val lit = plain(ValueExpr.literal("x"))
+    .copy(cell = Some(Cell(atRender = ListMap("fh-chosen" -> isWindow("7d")))))
+
+  test(
+    "a class decided at render: in the document for the viewer, never in a patch"
+  ) {
+    val r = Renderer.create(dash(panel(lit)))
+    val id = LayoutNode.childId(
+      "",
+      NodeId.derived("panel"),
+      LayoutNode.Step(LayoutNode.DefaultRegion, 0),
+      lit
+    )
+    assert(!body(r, Map.empty).contains("fh-chosen"), body(r, Map.empty))
+    assert(body(r, Map(key -> "7d")).contains("fh-chosen"))
+    val patched = r.renderNodeById(
+      id,
+      Shared.of(Map.empty),
+      Viewing(
+        Selections.none,
+        FetchSnapshot.of(Map.empty, r.vars.env(Map(key -> "7d")))
+      )
+    )
+    assert(patched.exists(!_.contains("fh-chosen")), patched)
+    // Not a reader, so a write re-renders nothing for it, and not in its key.
+    assertEquals(r.vars.readersOf(key), Nil)
+    assertEquals(
+      r.renderInputs(
+        id,
+        Shared.of(Map.empty),
+        FetchSnapshot.of(Map.empty, r.vars.env(Map(key -> "7d")))
+      ).map(_.vars),
+      Some(Map.empty[String, String])
+    )
+  }
+
+  test("a class decided at render is a bool over declared variables") {
+    val notBool = plain(ValueExpr.literal("x"))
+      .copy(cell = Some(Cell(atRender = ListMap("fh-chosen" -> window))))
+    refused(
+      dash(panel(notBool)),
+      "cell class 'fh-chosen' at render: a condition is a bool"
+    )
+    refused(
+      dash(lit),
+      "at render reads the variable 'window', which no ancestor declares"
+    )
+  }
+
   private def refused(d: Dashboard, fragment: String): Unit =
     val errs = d.validate()
     assert(errs.exists(_.contains(fragment)), clue = errs)

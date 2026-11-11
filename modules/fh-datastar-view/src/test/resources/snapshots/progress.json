@@ -80,6 +80,31 @@
                                     "children" : [
                                       {
                                         "card" : "tab",
+                                        "cell" : {
+                                          "atRender" : {
+                                            "fh-chosen" : {
+                                              "source" : {
+                                                "kind" : "Var",
+                                                "name" : "window"
+                                              },
+                                              "steps" : [
+                                                {
+                                                  "kind" : "Compare",
+                                                  "op" : "eq",
+                                                  "to" : "1h"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "classes" : {
+                                            
+                                          },
+                                          "layout" : [
+                                          ],
+                                          "styles" : {
+                                            
+                                          }
+                                        },
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : {
@@ -108,6 +133,31 @@
                                       },
                                       {
                                         "card" : "tab",
+                                        "cell" : {
+                                          "atRender" : {
+                                            "fh-chosen" : {
+                                              "source" : {
+                                                "kind" : "Var",
+                                                "name" : "window"
+                                              },
+                                              "steps" : [
+                                                {
+                                                  "kind" : "Compare",
+                                                  "op" : "eq",
+                                                  "to" : "24h"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "classes" : {
+                                            
+                                          },
+                                          "layout" : [
+                                          ],
+                                          "styles" : {
+                                            
+                                          }
+                                        },
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : {
@@ -136,6 +186,31 @@
                                       },
                                       {
                                         "card" : "tab",
+                                        "cell" : {
+                                          "atRender" : {
+                                            "fh-chosen" : {
+                                              "source" : {
+                                                "kind" : "Var",
+                                                "name" : "window"
+                                              },
+                                              "steps" : [
+                                                {
+                                                  "kind" : "Compare",
+                                                  "op" : "eq",
+                                                  "to" : "7d"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "classes" : {
+                                            
+                                          },
+                                          "layout" : [
+                                          ],
+                                          "styles" : {
+                                            
+                                          }
+                                        },
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : {
@@ -164,6 +239,31 @@
                                       },
                                       {
                                         "card" : "tab",
+                                        "cell" : {
+                                          "atRender" : {
+                                            "fh-chosen" : {
+                                              "source" : {
+                                                "kind" : "Var",
+                                                "name" : "window"
+                                              },
+                                              "steps" : [
+                                                {
+                                                  "kind" : "Compare",
+                                                  "op" : "eq",
+                                                  "to" : "30d"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "classes" : {
+                                            
+                                          },
+                                          "layout" : [
+                                          ],
+                                          "styles" : {
+                                            
+                                          }
+                                        },
                                         "kind" : "Component",
                                         "templateSlots" : {
                                           "active" : {

@@ -114,8 +114,12 @@ object Ready:
     */
   final case class Cell(
       classSlots: List[fh.view.model.Cell.Entry],
-      styleSlots: List[fh.view.model.Cell.Entry]
+      styleSlots: List[fh.view.model.Cell.Entry],
+      atRender: List[AtRender] = Nil
   )
+
+  /** A class the document form writes while `run` holds for the viewer. */
+  final case class AtRender(name: String, run: Evaluator.Run)
 
   enum Activation:
     case User(defaultOpen: Boolean)
@@ -194,13 +198,22 @@ object Ready:
     def component(c: LayoutNode.Component): Built[Component] =
       (
         c.bound.toList.traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _))
-      ).mapN((slots, regions) =>
+        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
+        c.cell.traverse(cell =>
+          cell.atRender.toList
+            .traverse((n, e) =>
+              Evaluator
+                .compile(e.about(c.subjectEntity), scope)
+                .map(r => AtRender(n, r.run))
+            )
+            .map(at => cell.ready.copy(atRender = at))
+        )
+      ).mapN((slots, regions, cell) =>
         Component(
           c.card,
           slots.toMap,
           regions.toMap,
-          c.cell.map(_.ready),
+          cell,
           c.id,
           c.vars,
           c.subjectEntity

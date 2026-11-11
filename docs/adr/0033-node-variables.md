@@ -223,6 +223,15 @@ A highlight reads the committed `_var_<declarer>__<name>`, which the server writ
 declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
 token supplies, and a press re-renders the variable's readers and never the bar.
 
+**The open tab is lit in the first page.** `cellClassAtRender(cls, expr)` writes `cell.atRender`:
+evaluated for the viewer in the document form and written into `class`, with no signal, no frame
+and no binding, so patches are the same for every viewer. It is not a reader of a write and not
+in the render key. The tab and select buttons use it,
+`.cellClassAtRender("fh-chosen", v.valueIs(choice))`, so a page's raw HTML lights the open tab
+without scripts. Their live highlight stays the browser's own `data-class:fh-chosen` over the
+pending-or-committed value, instant on a press with the spinner until the commit (ADRs 0019,
+0025): a patch carrying the class could arrive after a second press and light two tabs.
+
 ### A variable is a source
 
 `Value.Var(name)` reads the viewer's value, beside `Literal`, `Entity`, `Fetch`, `Present`, `List`

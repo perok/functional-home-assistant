@@ -129,6 +129,7 @@ abstract class Select extends nodes.Node {
         stateClasses = self.stateClasses
         liveClasses = self.liveClasses
         liveStyles = self.liveStyles
+        renderClasses = self.renderClasses
         id = self.id
         vars = self.vars
         inputs = self.inputs

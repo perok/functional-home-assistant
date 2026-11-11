@@ -1351,7 +1351,7 @@ class Renderer(validated: Dashboard.Validated) {
         // A second, patch-form render only where it can differ: own rendering
         // and a signal slot. Such a node has no regions, so the document
         // children below are all it composes.
-        val twoForms = plan.ownRendering && plan.declaresSignals
+        val twoForms = plan.ownRendering && plan.twoForms
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
 
@@ -1563,7 +1563,9 @@ class Renderer(validated: Dashboard.Validated) {
       plan: NodePlan,
       paint: Map[SlotKey, SlotValue],
       bake: Map[String, String],
-      signals: Map[SignalId, SlotValue]
+      signals: Map[SignalId, SlotValue],
+      // The document form's classes decided for this viewer, each spaced.
+      atRender: String = ""
   ) {
     def structural: Map[String, String] = plan.structural
     def constants: Map[SlotKey, SlotValue] = plan.constants
@@ -1594,12 +1596,14 @@ class Renderer(validated: Dashboard.Validated) {
   /** The root's `{{{cellClasses}}}` hole, and a set's: each with its leading
     * space; `validate` checks they are plain class tokens. A live class only
     * where `paint` is given (the document form) and holds it truthy; its
-    * binding is [[cellBindingsInto]].
+    * binding is [[cellBindingsInto]]. `atRender` is the document form's classes
+    * decided for the viewer, after the rest.
     */
   private def cellClassesInto(
       buf: Sink,
       cell: Option[Ready.Cell],
-      paint: Map[SlotKey, SlotValue] | Null
+      paint: Map[SlotKey, SlotValue] | Null,
+      atRender: String = ""
   ): Unit = cell match
     case Some(c) =>
       c.classSlots.foreach { e =>
@@ -1611,6 +1615,7 @@ class Renderer(validated: Dashboard.Validated) {
           val _ = buf.append(cellClassTexts.computeIfAbsent(e.name, expandCell))
         }
       }
+      val _ = buf.append(atRender)
     case None => ()
 
   /** In both forms, and AFTER the root's own `data-signals`: the bundle applies
@@ -1654,11 +1659,14 @@ class Renderer(validated: Dashboard.Validated) {
 
     override def writeHole(name: String, writer: java.io.Writer): Boolean =
       if (name == CardDef.CellClassesHole) {
-        cellClassesInto(
-          out,
-          resolved.plan.node.cell,
-          if (form.isPatch) null else resolved.paint
-        )
+        if (form.isPatch) cellClassesInto(out, resolved.plan.node.cell, null)
+        else
+          cellClassesInto(
+            out,
+            resolved.plan.node.cell,
+            resolved.paint,
+            resolved.atRender
+          )
         true
       } else if (name == CardDef.CellHole) {
         cellInto(out, resolved, form)
@@ -1726,7 +1734,9 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       signalSeed: Datastar.SignalSeed,
       ownRendering: Boolean,
-      declaresSignals: Boolean,
+      // The document form differs from the patch form: a signal's value and
+      // seed, or a class decided at render.
+      twoForms: Boolean,
       nodeCount: Int
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
@@ -1851,7 +1861,8 @@ class Renderer(validated: Dashboard.Validated) {
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
-      declaresSignals = c.slots.values.exists(Renderer.isSignalSlot),
+      twoForms = c.slots.values.exists(Renderer.isSignalSlot) ||
+        c.cell.exists(_.atRender.nonEmpty),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
     )
@@ -1881,9 +1892,25 @@ class Renderer(validated: Dashboard.Validated) {
       plan,
       paint = paintB.result(),
       bake = bakeIndex,
-      signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
+      signalB.fold(Map.empty[SignalId, SlotValue])(_.result()),
+      atRenderOf(plan, shared, fragments)
     )
   }
+
+  private def atRenderOf(
+      plan: NodePlan,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): String = plan.node.cell match
+    case Some(c) if c.atRender.nonEmpty =>
+      val in = lookupAt(fragments, plan.id, shared.states)
+      val subject: EntityState | Null =
+        plan.node.subjectEntity.fold(null)(shared.states.getOrElse(_, null))
+      c.atRender.iterator
+        .filter(a => Evaluator.holds(a.run(subject, shared.states, in)))
+        .map(a => cellClassTexts.computeIfAbsent(a.name, expandCell))
+        .mkString
+    case _ => ""
 
   /** The signal values one node carries (ADR 0017), never its children's:
     * descending would name a child's signal under its parent and leave the

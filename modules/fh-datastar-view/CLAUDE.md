@@ -386,7 +386,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   the button/tile/slider, `cellClassWhen`: a Boolean, or any `slotMod.Expr` of a bool — a reading,
   `c.expr`, or a condition directly, `.disabled(lit.none())` — which is the bool slot's source; a `slotMod.bool` handle
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
-  tap's refusal in `core/tap.pkl`'s `refused`), **live cell properties** (`.cellStyle("--x",
+  tap's refusal in `core/tap.pkl`'s `refused`), **a class decided at render** (`.cellClassAtRender(cls,
+  v.valueIs(x))`, `cell.atRender`: written for the viewer in the document form only, no binding,
+  how a tab button lights the open tab in the first HTML; ADR 0033), **live cell properties** (`.cellStyle("--x",
   reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:

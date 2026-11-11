@@ -1330,7 +1330,10 @@ root also carries the node's cell slots (`Cell`, ADR 0008): its classes, static 
 (`LayoutNode.cellClassWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
 key's (`class:<name>`, `style:--…`): the renderer places the bindings on the root in both forms,
-and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`
+and a live class or `style="--x:…"` itself only in the document form, like any signal value. A
+class decided at render (`cell.atRender`, ADR 0033) is in the document form only too, decided for
+the viewer, with no binding at all, so a node carrying one has two forms and its digest is the
+patch form's, the same for every viewer. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
 through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
 goes through them where it resolves (`Renderer.classed`): a literal once, into a

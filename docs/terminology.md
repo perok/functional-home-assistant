@@ -27,7 +27,9 @@ The tier is each step's own form; nothing infers one from expression spelling.
 `type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
 places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`). That is a **template
 slot**; a **cell slot** is placed by the renderer on the node's **cell** instead, keyed by the class
-or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008).
+or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008). A class decided at
+render (`cell.atRender`, `cellClassAtRender`) is not a cell slot: it is written once, in the
+document form, for the viewer, with no signal and no binding (ADR 0033).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.

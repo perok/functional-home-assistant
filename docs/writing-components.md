@@ -282,6 +282,19 @@ no other cards may read one. The build refuses it in a signal slot (and so in
 `orderBy`: those are worked out once for everyone. To show a different branch
 per viewer, use `c.iff(v.valueIs(x))`.
 
+To put a class on a node for the viewer when the page is drawn, use
+`cellClassAtRender`. It is how a tab bar lights the open tab before any script
+runs:
+
+```pkl
+myTab.cellClassAtRender("fh-chosen", v.valueIs("1"))
+```
+
+It is written once, into the page as it loads, and never sent again: when the
+viewer picks something else, nothing changes it. Pair it with the card's own
+`data-class` binding where the class has to follow a press, as the tab button
+does.
+
 ### A value only while something holds
 
 `valueWhile` on a reading says when it has a value at all. Until then the value

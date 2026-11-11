@@ -52,6 +52,8 @@ class Cell {
   layout: Listing<String> = new {}
   classes: Mapping<String, Boolean|Map<String, Any>> = new {}
   styles: Mapping<String, Map<String, Any>> = new {}
+  /// Classes decided for the viewer as the document renders: [[LayoutNode.cellClassAtRender]].
+  atRender: Mapping<String, Map<String, Any>>? = null
 }
 
 /// Every layout-tree node. `kind` is the wire discriminator.
@@ -82,6 +84,8 @@ abstract class LayoutNode {
   /// no slots to bind them with, so the builders refuse them there.
   hidden liveClasses: Mapping<String, slotMod.Reading> = new {}
   hidden liveStyles: Mapping<String, slotMod.Reading> = new {}
+  /// What [[cellClassAtRender]] adds.
+  hidden renderClasses: Mapping<String, slotMod.Reading> = new {}
   /// Derived from the four above. Setting it directly replaces whatever the
   /// builders would have added.
   cell: Cell? =
@@ -94,7 +98,7 @@ abstract class LayoutNode {
         throw("card '\(this.card)' has layoutCell = false, so its root is no layout box: drop \(boxClasses.join(", "))")
       else if (!doubled.isEmpty)
         throw("card '\((this as Node).card)' binds data-class:\(doubled.first) in its attrs, which cellClassWhen(\"\(doubled.first)\") binds too: the browser keeps only one")
-      else if (static.isEmpty && boxClasses.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty) null
+      else if (static.isEmpty && boxClasses.isEmpty && liveClasses.isEmpty && liveStyles.isEmpty && renderClasses.isEmpty) null
       else new Cell {
         layout { for (c in boxClasses) { c } }
         classes {
@@ -104,6 +108,9 @@ abstract class LayoutNode {
         styles {
           for (p, r in liveStyles) { [p] = wireReading(r, subjectId, false) }
         }
+        atRender =
+          if (renderClasses.isEmpty) null
+          else new Mapping { for (c, r in renderClasses) { [c] = wireReading(r, subjectId, false) } }
       }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
   /// [[Grid]] or a group.
@@ -133,6 +140,19 @@ abstract class LayoutNode {
       if (`when` is Boolean) (if (`when`) self.addCellClass(cls) else self)
       else if (!(self is Node)) throw("cellClassWhen: a live class is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveClasses { [cls] = booleanReading(`when`) } }
+  /// [[cellClass]] while `when` holds for the viewer, decided as the document
+  /// renders and written into `class`: no signal, no binding, never sent again,
+  /// so a page's raw HTML shows it without scripts. It may read a node variable
+  /// (`v.valueIs(x)`), and only here or in a value slot:
+  ///
+  ///     tab.cellClassAtRender("fh-chosen", v.valueIs("1"))
+  ///
+  /// A patch of the node leaves it out, so keep it live with the card's own
+  /// `data-class` where the class must follow a change.
+  function cellClassAtRender(cls: String, `when`: slotMod.Expr): LayoutNode =
+    let (self = this)
+      if (!(self is Node)) throw("cellClassAtRender: a class decided at render is a slot, which only a card node has — put it on the clause's node")
+      else (self) { renderClasses { [cls] = booleanReading(`when`) } }
   /// A custom property on the root, set from a reading and kept live, for
   /// the card's CSS to read by inheritance:
   ///
