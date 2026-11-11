@@ -24,10 +24,11 @@ entity's.
   `Fetch` and literals once per version, shared by every viewer; one reading a `Var` per viewer.
 - **A value slot may read a variable** (`label.of("Showing " + window.value)`). Its bytes then
   differ per viewer, so its render key carries the values it read: `RenderInputs` gains them, and
-  `RenderCache` keeps one generation per node and set of values read, the bucketing ADR 0012 once
-  had (`RenderInputs.vars`). Viewers on different values cost one render per value instead of
-  evicting each other, bounded by the variable's values. A write re-renders the variable's readers
-  for that viewer, as a chart over a chosen window is re-rendered today.
+  `RenderCache` still keeps one generation per node, replaced in place, as a chart over a chosen
+  window does today. Viewers on the same value share a render; viewers on different values replace
+  each other's entry and each render, which costs only on ticks where the node's entities moved.
+  One entry per node bounds it whatever values a viewer posts. A write re-renders the variable's
+  readers for that viewer. Sharing across values is #689's question (`docs/plan-render-cache.md`).
 
 ### Where a variable read may stand
 
@@ -85,9 +86,10 @@ the `@@VAR:…@@` token and `TabButton.active` stay until its variable slot.
 ## Steps
 
 1. `Value.Var`, `v.value`/`v.valueIs`, the most-local-source rule, value slots reading a variable.
-2. `RenderInputs` with the values read, `RenderCache` bucketed by them. `RenderCacheContentionSuite`
-   stays at 1.0 renders a frame for nodes reading no variable; a new case holds one render per
-   value for a node that reads one.
+2. `RenderInputs` with the values read, one generation per node as today. `RenderCacheContentionSuite`
+   stays at 1.0 renders a frame for nodes reading no variable; a new case holds that viewers on the
+   same value share one render, and that the entries stay one per node however many values are
+   posted.
 3. `Choice[A]` with `by: ValueExpr`, `Case`s and `otherwise`; the fetch window on it; wire
    snapshots regenerated deliberately.
 4. `cellClassAtRender`; the tab and select buttons lit in the first page. Goldens change at the
