@@ -1167,8 +1167,8 @@ does not arise for three reasons that have to stay true:
 reads (`Choice.Fixed`/`Choice.Chosen`, ADR 0033); a node holds a static `SlotAsk`, and
 `fetchesForPage` resolves each one, `by` run over the state and the values in scope at that node
 (`Renderer.readOf`), into the `SlotRead` everything keys on, or into nothing where no case takes
-it, and then the slot reads null. A `by` over state is why `FetchSnapshot` no longer resolves an
-ask: it answers reads the renderer resolved.
+it, and then the slot reads null. Because `by` may read state, the renderer resolves an ask and
+`FetchSnapshot` only answers the reads it resolved.
 
 **The values ride inside `FetchSnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
