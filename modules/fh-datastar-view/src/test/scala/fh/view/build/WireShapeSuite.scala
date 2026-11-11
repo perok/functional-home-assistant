@@ -249,6 +249,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("Tally", Value.Present(Nil, Map.empty))
     check("PresentList", Value.Present(Nil, Map.empty))
     check("ListRead", Value.List(ValueType.Bool, Nil))
+    check("VarRead", Value.Var("x"))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     // Scala's `inputs` is Pkl's `wireInputs`: Pkl's `inputs` is the hidden one.
@@ -308,7 +309,8 @@ class WireShapeSuite extends munit.FunSuite {
           "FetchRead",
           "Tally",
           "ListRead",
-          "CelRead"
+          "CelRead",
+          "VarRead"
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple

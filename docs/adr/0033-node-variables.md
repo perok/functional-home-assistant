@@ -206,6 +206,30 @@ A highlight reads the committed `_var_<declarer>__<name>`, which the server writ
 declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
 token supplies, and a press re-renders the variable's readers and never the bar.
 
+### A variable is a source
+
+`Value.Var(name)` reads the viewer's value, beside `Literal`, `Entity`, `Fetch`, `Present`, `List`
+and `Cel` (ADR 0035): text, resolved up the ancestors as every reference is (rule 2), so a read
+with no declarer is a build error naming the slot (rule 8). On the wire `{"kind": "Var", "name":
+…}`. In Pkl `v.value` is the reading, and `v.valueIs(x)` the bool reading `value == x`
+(`varMod.ValueIs`, a `slotMod.Expr`). The declaration says where the value lives; a write is its
+trigger, as a state change is an entity's: it re-renders the variable's readers for that viewer
+(`VarGraph.readersOf`, a node's slots' reads beside its fetches'). A slot takes any value, so
+only a fetch or a panel refuses one.
+
+**An expression is decided where its most local source lives.** One reading only entities,
+fetches and literals is decided once per state version, for every viewer; one reading a variable
+is decided per viewer, as that viewer's bytes render. So a read stands only where bytes are
+rendered per viewer, a leaf's value slot, and `validate` refuses one:
+
+- in any decision made once for every viewer: a set's clause and order, a state surface's
+  condition, a `valueWhile`, a set a press acts on (`Dashboard.decisionExprs`);
+- in any signal slot, `cellClassWhen` and `cellStyle` included: a display signal is named by what
+  it reads, so every viewer shares it;
+- in a structural card's own slots, which are never re-rendered for a viewer.
+
+`c.iff(v.valueIs(x))` is not a decision there: it still lowers to `Activation.Var`, a selection.
+
 ## Why not
 
 **A list of allowed values on the declaration.** Built twice and removed. It bought a generic
@@ -244,8 +268,9 @@ link exists. An old link lands on the declared tab, which is what a stale `v.` l
 **Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022), which is
 why `@@NODE_ID@@` exists at all.
 
-**Letting CEL read variables.** A transform is opaque to static analysis, so a reference inside one
-could not be enumerated before the walk — the property this exists to keep.
+**Letting CEL read variables by name.** A transform is opaque to static analysis, so a reference
+inside one could not be enumerated before the walk — the property this exists to keep. A CEL reads
+one through a named input holding `v.value`, which the build sees.
 
 **Ordering the walk.** #209 predicted a declared edge would need topological ordering. It does not:
 a value is ambient session state, in hand before the walk, never computed by it.
@@ -297,9 +322,6 @@ instead.
   node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
   writes it meaning the tabs' id. A child naming its DECLARER is `Variable.declarer`; an explicit "I
   own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
-- **A plain-slot reader** — a slot whose rendered value is a variable, re-rendered on a write. No
-  component needs one. When one does, it is a slot shape and nothing on the write path: the write
-  already re-renders whatever `readersOf` returns.
 - **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
   header cannot steer charts in a sibling column. A root declaration would, addressed through a
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author

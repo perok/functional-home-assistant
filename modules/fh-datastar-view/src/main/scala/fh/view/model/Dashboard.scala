@@ -136,6 +136,11 @@ final case class BoundSlot(
     ) ++ inputs.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
+  /** The node variables it reads, its inputs' and `valueWhile`'s included. */
+  def variables: List[String] =
+    (expr.variables ++ inputs.values.flatMap(_.variables) ++
+      valueWhile.toList.flatMap(_.variables)).distinct
+
   /** `validate` refuses a fetch slot without a stage: its series fits no slot.
     */
   def shape: SlotShape =
@@ -1141,36 +1146,40 @@ case class Dashboard(
       fetchesIn(s.content, scopeOf(s))
     )).distinct
 
-  /** Every fetch a decision reads, beside where it is read: a set's clauses and
-    * order, a `valueWhile`, a state surface, a set a press acts on.
+  /** Every expression a decision reads, beside where it is read: a set's
+    * clauses and order, a `valueWhile` and the inputs it reads, a state
+    * surface, a set a press acts on. Made once for every viewer, so none may
+    * read a viewer's variable.
     */
-  lazy val decisionFetches: List[(String, FetchTemplate)] = {
-    def walk(n: LayoutNode): List[(String, FetchTemplate)] = n match
+  lazy val decisionExprs: List[(String, ValueExpr)] = {
+    def walk(n: LayoutNode): List[(String, ValueExpr)] = n match
       case c: LayoutNode.Component =>
         c.bound.toList.sortBy((k, _) => SlotKey.label(k)).flatMap { (k, s) =>
           s.valueWhile.toList
-            .flatMap(_.fetches)
-            .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _.fetch)
+            .flatMap(w => w.expr :: w.inputs.values.toList)
+            .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _)
         } ++ c.allChildren.flatMap(walk)
       case s: LayoutNode.SetNode =>
-        s.orderBy.flatMap(_.by.fetches).map("a set's order" -> _) ++
+        s.orderBy.map("a set's order" -> _.by) ++
           s.members.values.toList.flatMap(_.clauses).flatMap { cl =>
-            cl.when.toList.flatMap(_.fetches).map("a set's clause" -> _) ++
-              walk(cl.node)
+            cl.when.toList.map("a set's clause" -> _) ++ walk(cl.node)
           }
 
-    (walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
+    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
       (s.activation match
         case Activation.State(Some(c)) =>
-          c.fetches.map(s"surface '$sid''s condition" -> _)
+          List(s"surface '$sid''s condition" -> c)
         case _ => Nil
       ) ++ walk(s.content)
     } ++ calls.values.toList
-      .collect { case p: Value.Present => p }
-      .flatMap(
-        ValueExpr(_).fetches.map("a set a press acts on" -> _)
-      )).distinct
+      .collect { case p: Value.Present =>
+        "a set a press acts on" -> ValueExpr(p)
+      }
   }
+
+  /** Every fetch a decision reads ([[decisionExprs]]), beside where. */
+  lazy val decisionFetches: List[(String, FetchTemplate)] =
+    decisionExprs.flatMap((where, e) => e.fetches.map(where -> _)).distinct
 
   /** Node variables in scope at every node, by name (issue #209). A popup is
     * its own scope root, since one content may be opened from many places. An

@@ -258,6 +258,30 @@ A card of your own that takes a window the way `c.history.chart` does takes
 `p.HistoryWindow` and resolves it with `p.historyWindow(w)`: either a window,
 or a function handed the providers, so its users need no import.
 
+### Showing a viewer's choice
+
+A node variable (a tab bar's `tab`, a chooser's `window`) can be read like an
+entity. `v.value` is the viewer's value as text, and `v.valueIs(x)` is a
+yes/no that holds while it is `x`:
+
+```pkl
+local window = c.variable("window")
+
+slots {
+  label.of(window.value)            // "24h", then "7d" once the viewer picks it
+  isWeek.of(window.valueIs("7d"))   // a bool slot
+}
+```
+
+Each viewer sees their own value, and a pick redraws the card for that viewer
+alone. A node above the card must declare the variable, or the build fails.
+
+Because the value is the viewer's, only a plain value slot of a card that holds
+no other cards may read one. The build refuses it in a signal slot (and so in
+`cellClassWhen` and `cellStyle`), in a `valueWhile`, and in a set's `where` or
+`orderBy`: those are worked out once for everyone. To show a different branch
+per viewer, use `c.iff(v.valueIs(x))`.
+
 ### A value only while something holds
 
 `valueWhile` on a reading says when it has a value at all. Until then the value

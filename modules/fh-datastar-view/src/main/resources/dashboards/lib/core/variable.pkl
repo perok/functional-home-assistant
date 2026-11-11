@@ -24,6 +24,8 @@ module core.variable
 
 import "tap.pkl" as tapMod
 import "surface.pkl" as surfaceMod
+import "slot.pkl" as slotMod
+import "simple.pkl" as simpleMod
 import "../hass.pkl"
 
 /// A plain token: it is spelled into signal names and the URL.
@@ -75,8 +77,16 @@ class Variable {
   fixed selectingAnyOther: surfaceMod.VarActivation =
     let (n = name) new { name = n; at = new surfaceMod.AtOtherwise {} }
 
-  /// Whether it holds `at`, as an If's condition: `c.iff(window.valueIs("30d"))`.
-  /// Not a predicate, so it cannot be combined with one over entity state. Named
+  /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
+  /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
+  /// in a signal, on a card holding regions, and in anything decided once for
+  /// every viewer (a clause, a condition, a `valueWhile`, an order).
+  fixed value: slotMod.Reading =
+    let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }
+
+  /// Whether it holds `at`: `value == at`, a bool reading. As an If's condition,
+  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. Not a
+  /// predicate, so it cannot be combined with one over entity state. Named
   /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
@@ -123,10 +133,13 @@ class Declaration {
       (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }
 
-/// A node variable at one value: what an If over a variable is chosen by.
-class ValueIs {
-  variable: Variable
-  value: Value
+/// A node variable at one value: what an If over a variable is chosen by, and a
+/// bool reading wherever a variable may be read.
+class ValueIs extends slotMod.Expr {
+  hidden variable: Variable
+  hidden value: Value
+  source = let (n = variable.name) new slotMod.VarRead { name = n }
+  steps { let (v = value) new simpleMod.CompareStep { op = "eq"; to = v } }
 }
 
 /// Where a session opens a variable: CEL over one entity's state, which the

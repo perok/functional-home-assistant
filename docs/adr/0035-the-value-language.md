@@ -32,6 +32,9 @@ conditions, so `bool`), and each item is held to it. The type is the list's own,
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
 over none holds, `AnyOf` over none does not, `Count` is 0.
 
+**A node variable's value is text** (`Value.Var`, ADR 0033): the viewer's, so a reading of one is
+decided per viewer, where every other source is decided once per state version.
+
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
 entity does not report, a JSON `null`. And a step with no result: `First` over an empty list,
 `Percent`, `Fill` and `Duration` over text that is not a number, CEL returning `null`. A `once`
@@ -123,8 +126,10 @@ unavailable switch.
 ## The evaluator
 
 - **One compiler, run once, at the build.** `Evaluator.compile` turns a `ValueExpr` into a
-  closure `(subject, states, fetched) => Any` (SICP's `analyze`: the tree is walked once, at
-  compile, never per call). `Dashboard.validated` walks the wire model into a second, compiled
+  closure `(subject, states, lookup) => Any` (SICP's `analyze`: the tree is walked once, at
+  compile, never per call). The `Lookup` holds what is in hand besides state, the fetches'
+  answers and the node's variables, and throws on a read of either that is not: a decision's
+  has no variables, since it has no viewer. `Dashboard.validated` walks the wire model into a second, compiled
   one (`Ready`, `Ready.Compile`), every expression beside its run, from `validate`'s own typing;
   the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls read only that tree,
   so nothing that runs can reach an expression with no run. An expression inside another (a CEL

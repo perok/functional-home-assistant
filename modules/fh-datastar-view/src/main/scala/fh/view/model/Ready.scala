@@ -54,6 +54,12 @@ object Ready:
       */
     lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
+    /** The node variables its slots read: a write re-renders it for that
+      * viewer.
+      */
+    lazy val variables: Set[String] =
+      slots.values.flatMap(_.bound.variables).toSet
+
   /** A set: `order` is `None` where the candidates are already in order. Not a
     * case class: `MemberGraph`'s sources hold it, and hashing one walked every
     * clause (`publishSet` 11 µs -> 1.4 ms).
@@ -136,7 +142,7 @@ object Ready:
   final class SetCall(
       val present: (
           Map[String, EntityState],
-          FetchTemplate => Object
+          Evaluator.Lookup
       ) => List[String],
       val reads: Set[SlotRead]
   )

@@ -377,6 +377,46 @@ private[model] object Validate:
         s.expr.unnamedComparison(s"$nodeId: slot '$n'", s.typed)
       )
 
+    /** A variable's value is the viewer's, so it is read only where bytes are
+      * rendered per viewer: a leaf's value slot. A signal is named by what it
+      * reads and shared by every viewer, and structure is never re-rendered. A
+      * decision's are [[decisionVarErrors]]'.
+      */
+    def slotVarErrors(
+        nodeId: String,
+        cardName: String,
+        slots: Map[SlotKey, BoundSlot],
+        scope: Map[String, String]
+    ): List[String] =
+      val structural = cards.get(cardName).exists(_.isStructure)
+      labelled(slots).flatMap { (_, name, s) =>
+        val read = (s.expr.variables ++ s.inputs.values.flatMap(
+          _.variables
+        )).distinct.sorted
+        val where = read.map(v => s"'$v'").mkString(", ")
+        read
+          .filterNot(scope.contains)
+          .map(v =>
+            s"$nodeId: slot '$name' reads the variable '$v', which no " +
+              "ancestor declares — declare it on the node that owns the choice"
+          ) ++ (
+          if (read.isEmpty) None
+          else if (structural)
+            Some(
+              s"$nodeId: slot '$name' reads the variable $where, but card " +
+                s"'$cardName' holds regions, so its bytes are never re-rendered " +
+                "for a viewer — read it in a leaf below it"
+            )
+          else if (s.signal.isDefined)
+            Some(
+              s"$nodeId: slot '$name' reads the variable $where, but it is a " +
+                "signal, which every viewer shares — read it in a slot that " +
+                "is not a signal"
+            )
+          else None
+        )
+      }
+
     def valueWhileErrors(
         nodeId: String,
         slots: Map[SlotKey, BoundSlot]
@@ -670,6 +710,7 @@ private[model] object Validate:
             c.regions.keySet
           ) ++ slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
+            slotVarErrors(nodeId, card, c.bound, here) ++
             valueErrors(nodeId, c) ++
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
@@ -1101,9 +1142,21 @@ private[model] object Validate:
         )
       )
 
+    val decisionVarErrors: List[String] =
+      decisionExprs
+        .flatMap((where, e) =>
+          e.variables.map(v =>
+            s"$where reads the variable '$v': a decision is made for every " +
+              "viewer at once, so it cannot read a viewer's value — a " +
+              "variable chooses a branch through c.iff(v.valueIs(x))"
+          )
+        )
+        .distinct
+
     authoredIdErrors ++
       callSetErrors ++
       decisionFetchErrors ++
+      decisionVarErrors ++
       structureLiveSlotErrors ++
       regionHoleErrors ++
       viewErrors ++

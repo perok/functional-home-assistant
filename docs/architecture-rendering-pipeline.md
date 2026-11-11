@@ -1168,6 +1168,12 @@ NOT on a `NodePlan` — a plan is memoised per node and reused across sessions, 
 chosen window held there would be served to the next viewer; the plan carries the node's id and
 the values come from the render.
 
+**A leaf's value slot may read a variable too** (`Value.Var`, ADR 0033), from the same values: a
+run reads them through its `Evaluator.Lookup`, which for a slot is the node's
+`FetchSnapshot.varsAt` and for a decision none at all, so a decision that reached one would throw
+rather than pick a viewer. Such a node's bytes are that viewer's, so it renders outside the
+`RenderCache`, and `VarGraph.readersOf` counts it among the readers a write re-renders.
+
 A choice is addressed to the node that DECLARED the variable, which is what keeps a shadow
 independent from the write side. It arrives two ways, both narrowed to real declarations before
 they are recorded on the session (a pull has no request to read either off again): as a

@@ -79,7 +79,8 @@ evaluator runs every reading, slot and condition alike.
 without a reading's slot fields: `q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")` — and a
 reading of a bool is one too, CEL included (`c.exprOf(e, "value.state == 'on'")`). A boolean input
 takes one where it takes a reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
-which is not a condition: it is a viewer's selection, so it is not shared and never flips. The library
+which is a bool reading but not a condition there: it is a viewer's selection, so it is not shared
+and never flips. The library
 writes one of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`, `AllOf`/`AnyOf` over a
 `List`, `Count` over a set's **present** ids, `First` over a list of ids — and the one evaluator
 decides it as it fills a slot (ADR 0035); a build refuses one that is not a bool. So a slot can read one, which is how every boolean input (`active`,
@@ -166,6 +167,11 @@ Three words go with it, and they are not interchangeable:
 - **Variable** vs **declaration** — a variable (`varMod.Variable`) is only the name, which a
   reader holds without knowing who declares it. A declaration (`varMod.Declaration`, an entry in
   `Component.vars`) is one node owning a value for that name, and holds the variable.
+
+A variable is also a **source** (`Value.Var`, `v.value` in Pkl): a reading of the viewer's value,
+which a leaf's value slot may show. A reading is decided where its most local source lives: once
+per state version for every viewer when it reads only entities, fetches and literals, per viewer
+when it reads a variable (ADR 0033).
 
 What a variable holds, highest first:
 

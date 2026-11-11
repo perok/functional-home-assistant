@@ -13,8 +13,9 @@ import fh.view.model.{NodeId, SlotAsk, SlotRead}
   * §0): a read [[resolve]] could not answer holds [[Staged.failed]].
   *
   * It also carries this viewer's node variables, so a read is always resolved
-  * against the values its answers were fetched for. They are per render, not on
-  * a `NodePlan`, which is shared across sessions.
+  * against the values its answers were fetched for, and a slot reading one
+  * (`Value.Var`) reads it from here. They are per render, not on a `NodePlan`,
+  * which is shared across sessions.
   */
 final class FetchSnapshot private (
     private val answers: Map[SlotRead, Staged],

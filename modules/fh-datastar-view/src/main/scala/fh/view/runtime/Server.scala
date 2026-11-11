@@ -1095,8 +1095,8 @@ class Server(
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209): the fetches that read it, and the tab panels it selects,
-    * swapped as a tab press always was. Per session: no `Mutation`.
+    * (issue #209): the nodes whose fetches or slots read it, and the tab panels
+    * it selects, swapped as a tab press always was. Per session: no `Mutation`.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
     * Committed last even when no bytes moved: the commit ends the pending ask

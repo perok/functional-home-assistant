@@ -306,7 +306,9 @@ class Renderer(validated: Dashboard.Validated) {
       panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
-      asksAt = fetchesForNode
+      readsAt = id =>
+        fetchesForNode(id).flatMap(_.fetch.references).toSet ++
+          variablesForNode(id)
     )
 
   /** Where a session opening on `states` opens each variable with an initial
@@ -596,6 +598,23 @@ class Renderer(validated: Dashboard.Validated) {
       val asks = members.clauseNodesAt(id).flatMap(_.fetches).distinct
       Option.when(asks.nonEmpty)(id -> asks)
     }.toMap
+
+  /** The variables a node's own slots read, a member's whole subtree's in every
+    * clause, as [[fetchesForNode]] asks.
+    */
+  private def variablesForNode(id: NodeId): Set[String] =
+    allIndexed.get(id) match {
+      case Some((c: Ready.Component, _)) => c.variables
+      case _                             =>
+        variablesBelow.getOrElse(id, Set.empty)
+    }
+
+  private lazy val variablesBelow: Map[NodeId, Set[String]] =
+    (members.memberIds.toList.map(m =>
+      m -> members.clauseNodesOf(m).flatMap(Renderer.subtreeVariables).toSet
+    ) ++ members.memberIdsBelow.map(id =>
+      id -> members.clauseNodesAt(id).flatMap(_.variables).toSet
+    )).filter(_._2.nonEmpty).toMap
 
   /** The bound a variable write is held to (ADR 0023). The model's static walk,
     * not [[Index.byEntity]], which stops at a set: this must answer for
@@ -1043,7 +1062,9 @@ class Renderer(validated: Dashboard.Validated) {
     *
     * No selection (only structure reads one, and structure is never cached) and
     * no children (a descendant's tick would invalidate every ancestor). `None`
-    * means not cacheable: exactly [[ownRenderingOf]]'s `false`.
+    * means not cacheable: [[ownRenderingOf]]'s `false`, or a node reading a
+    * variable, whose bytes are the viewer's and which the key cannot yet tell
+    * apart.
     */
   def renderInputs(
       id: NodeId,
@@ -1052,7 +1073,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[RenderInputs] =
     members.nodeAt(id, shared) match {
       case Some((m, c)) =>
-        Option.when(ownRenderingOf(c))(
+        Option.when(cacheable(c))(
           RenderInputs(
             // The subject chose the clause, so it keys the bytes even when no
             // slot reads it; the clause is named too, since every clause of a
@@ -1067,13 +1088,16 @@ class Renderer(validated: Dashboard.Validated) {
         )
       case None =>
         allIndexed.get(id).collect {
-          case (c: Ready.Component, _) if ownRenderingOf(c) =>
+          case (c: Ready.Component, _) if cacheable(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, shared.states),
               fragments.versions(id, asked(c, shared))
             )
         }
     }
+
+  private def cacheable(c: Ready.Component): Boolean =
+    ownRenderingOf(c) && c.variables.isEmpty
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
@@ -1840,7 +1864,7 @@ class Renderer(validated: Dashboard.Validated) {
                   srcEntity,
                   source,
                   shared,
-                  fetchedIn(fragments, id)
+                  lookupAt(fragments, id)
                 )
               ))
             )
@@ -1884,7 +1908,7 @@ class Renderer(validated: Dashboard.Validated) {
         srcEntity,
         source,
         shared,
-        fetchedIn(fragments, node)
+        lookupAt(fragments, node)
       )
   }
 
@@ -1903,19 +1927,24 @@ class Renderer(validated: Dashboard.Validated) {
       out.toString
     }
 
-  /** A fetch value's answer, as CEL reads it. */
-  private def fetchedIn(fragments: FetchSnapshot, node: NodeId)(
-      f: FetchTemplate
-  ): Object =
-    Series.celPoints(
-      fragments.value(node, SlotAsk(f, Step.Json))
-    )
+  /** What `node`'s slots read besides state: a fetch value's answer as CEL
+    * reads it, and the node's variables at the values the answers were fetched
+    * for.
+    */
+  private def lookupAt(
+      fragments: FetchSnapshot,
+      node: NodeId
+  ): Evaluator.Lookup = new Evaluator.Lookup:
+    def fetched(f: FetchTemplate): Object =
+      Series.celPoints(fragments.value(node, SlotAsk(f, Step.Json)))
+    def variable(name: String): String =
+      fragments.varsAt(node).getOrElse(name, Evaluator.noVariable(name))
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
       planned: Planned.Live,
       shared: Shared,
-      fetched: FetchTemplate => Object
+      fetched: Evaluator.Lookup
   ): SlotValue = {
     val source = planned.source
     val st: EntityState | Null =
@@ -1974,6 +2003,14 @@ object Renderer {
       case c: Ready.Component =>
         c.fetches ++ c.allChildren.flatMap(subtreeAsks)
       case _: Ready.SetNode => Nil
+    }
+
+  /** [[subtreeAsks]]' twin for the variables its slots read. */
+  private def subtreeVariables(node: Ready.Node): Set[String] =
+    node match {
+      case c: Ready.Component =>
+        c.variables ++ c.allChildren.flatMap(subtreeVariables)
+      case _: Ready.SetNode => Set.empty
     }
 
   private final class FailedLabelScope(values: Map[String, String])

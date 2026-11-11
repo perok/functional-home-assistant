@@ -28,4 +28,11 @@ facts {
   ["over state, an If with no else has none, as before"] {
     !(c.iff(true).then(c.title("x")).inlineSurfaces as Mapping).containsKey("else")
   }
+  ["a variable's value reads it by name, and valueIs compares it as text"] {
+    let (json = new JsonRenderer { indent = "" })
+      json.renderValue(window.value.source) == #"{"kind":"Var","name":"window"}"#
+      && json.renderValue(window.valueIs("30d").source) == #"{"kind":"Var","name":"window"}"#
+      && json.renderValue(window.valueIs("30d").steps.toList())
+        == #"[{"kind":"Compare","op":"eq","to":"30d"}]"#
+  }
 }

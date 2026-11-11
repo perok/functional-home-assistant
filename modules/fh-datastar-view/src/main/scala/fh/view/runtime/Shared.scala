@@ -3,7 +3,7 @@ package fh.view.runtime
 import fh.view.FHError
 import fh.view.fetch.FetchSnapshot
 import fh.view.history.Series
-import fh.view.model.{FetchTemplate, NodeId, SetId, SlotAsk, SlotRead, Step}
+import fh.view.model.{NodeId, SetId, SlotAsk, SlotRead, Step}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -100,7 +100,7 @@ private[runtime] final class Shared private (
 
 private[runtime] object Shared {
 
-  type Fetched = FetchTemplate => Object
+  type Fetched = Evaluator.Lookup
 
   /** Shared with no one: a test's, or a reader's whose version is no longer
     * kept.
@@ -121,8 +121,9 @@ private[runtime] object Shared {
 
     private[runtime] def close(): Unit = done = true
 
-    private val fetched: Fetched = f =>
+    private val fetched: Fetched = Evaluator.Lookup.answering(f =>
       Series.celPoints(have.shared(SlotAsk(f, Step.Json)))
+    )
 
     private[Shared] def answers(reads: Set[SlotRead]): Option[Fetched] =
       val missing = reads.filterNot(have.has)

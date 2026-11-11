@@ -122,7 +122,7 @@ and kept into the next version until a change dirties them (pipeline doc §1a). 
 walk reaches asks for its fetches: one it lacks the answers for reads as not shown, and the walk
 runs again once a batch has answered them (`Renderer.decide`), so a hidden branch's fetch is never
 asked, and a decision inside another costs a round. Because the decision is shared, the build
-refuses a fetch in one that reads a viewer's variable (a chooser's window). As in a slot, a moved
+refuses a viewer's variable in one, read directly or by a fetch's window (ADR 0033). As in a slot, a moved
 answer wakes nothing: the decision is made again when its entities change, or an entity its fetch
 names with `updateOnEntityChange()` (a value's `dependsOn`, an edge like an entity read). Without
 it, a decision over a fetch alone is carried as made; an author who wants the history to count
@@ -200,8 +200,8 @@ render key, the paint and the signal path ask the same decisions, so none decide
 little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). It may read a fetch, as every
 decision may: it is decided in an earlier round than the fetches it gates, so it never waits on
-them. A decision is made once for every viewer, so the build refuses a fetch in
-one that reads a viewer's variable (a chooser's window). It also refuses one that does not produce
+them. A decision is made once for every viewer, so the build refuses a viewer's variable in
+one, read directly or by a fetch's window. It also refuses one that does not produce
 a bool, and one on a `once` slot, whose memo would keep its first answer.
 
 `""` is the empty value, as a CEL `null` already is: a `null` in a signals frame deletes the signal

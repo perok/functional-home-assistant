@@ -103,6 +103,13 @@ class EntityRead extends Value {
   bypassUnavailable: Boolean? = null
 }
 
+/// A node variable's value as the viewer holds it, by name: what
+/// `varMod.Variable.value` reads.
+class VarRead extends Value {
+  kind: "Var" = "Var"
+  name: String
+}
+
 /// A provider's answer.
 class FetchRead extends Value {
   kind: "Fetch" = "Fetch"
