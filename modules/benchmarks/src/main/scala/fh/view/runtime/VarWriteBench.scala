@@ -8,7 +8,6 @@ import cats.syntax.all.*
 import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
   Activation,
-  Choice,
   Dashboard,
   FetchTemplate,
   LayoutNode,
@@ -24,7 +23,7 @@ import fh.view.model.{
   VarAt
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.DashboardBuilders.{chosenBy, declared}
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -201,7 +200,7 @@ object VarWriteBench {
             Value.Fetch(
               FetchTemplate(
                 entity,
-                Choice.Chosen("window", fh.view.history.Windows.presets)
+                chosenBy("window", fh.view.history.Windows.presets)
               )
             ),
             List(Step.Chart())
