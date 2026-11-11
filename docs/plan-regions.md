@@ -185,6 +185,19 @@ A guard may read a variable and entity state together: a state change (through t
 index) or the variable's write wakes it, and it is decided per viewer, a cost only such a guard
 pays.
 
+**What V refuses, for this work to lift and clean up.** V allows a variable read (`v.value`,
+`v.valueIs`) only in a leaf's value slots and `cellClassAtRender`; `validate` refuses it elsewhere,
+and each refusal is a stopgap to remove here, not a rule to keep:
+- **Shared decisions** (clauses, state surfaces, `valueWhile`, order keys, set calls): decided per
+  viewer once the pick replaces bake groups (R4), and `Activation.Var`/`VarAt` and the lowering of
+  `c.iff(v.valueIs(x))` to them go.
+- **Signal slots** (`cellClassWhen`, `cellStyle`, any display signal): a plain `v.value` or
+  `v.valueIs(x)` can bind the client's own committed signal (`_var_<declarer>__<name>`), with no
+  server frame, as the tab bar does; any other expression needs CEL lowered to a Datastar
+  expression, which does not exist.
+- **A structural card's own bytes**: structure is never cached, so it is a render and a patch per
+  viewer on each write; no dashboard needs it yet.
+
 ### 6. Sets
 
 - `.of(set)` places the members straight into its card's root, with no wrapper of its own. With
