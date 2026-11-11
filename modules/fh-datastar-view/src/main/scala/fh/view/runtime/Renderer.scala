@@ -1188,13 +1188,14 @@ class Renderer(validated: Dashboard.Validated) {
           )
         val plan = planOf(id, c, shared)
         val b = Map.newBuilder[String, String]
+        val in = lookupAt(fragments, plan.id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           // A live cell slot is always a signal, so only names reach here.
           if (!plan.signalSlots.contains(slot))
             b += (
               (
                 SlotKey.label(slot),
-                resolveSlot(srcEntity, source, shared, fragments, plan.id)
+                resolveSlot(srcEntity, source, shared, fragments, plan.id, in)
               )
             )
         }
@@ -1880,9 +1881,11 @@ class Renderer(validated: Dashboard.Validated) {
     val signalB =
       if (plan.signalNameBySlot.isEmpty) None
       else Some(Map.newBuilder[SignalId, SlotValue])
+    // One per node: its slots read the same answers and variables.
+    val in = lookupAt(fragments, plan.id, shared.states)
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
       val value =
-        resolveSlotValue(srcEntity, source, shared, fragments, plan.id)
+        resolveSlotValue(srcEntity, source, shared, fragments, plan.id, in)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
@@ -1942,18 +1945,14 @@ class Renderer(validated: Dashboard.Validated) {
       else {
         val b = Map.newBuilder[SignalId, SlotValue]
         b.sizeHint(plan.signalNameBySlot.size)
+        val in = lookupAt(fragments, id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           plan.signalNameBySlot
             .get(slot)
             .foreach(sig =>
               b += ((
                 sig,
-                resolveStateSlotValue(
-                  srcEntity,
-                  source,
-                  shared,
-                  lookupAt(fragments, id, shared.states)
-                )
+                resolveStateSlotValue(srcEntity, source, shared, in)
               ))
             )
         }
@@ -1968,10 +1967,11 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned.Live,
       shared: Shared,
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      in: Evaluator.Lookup
   ): String =
     SlotValue.text(
-      resolveSlotValue(srcEntity, source, shared, fragments, node)
+      resolveSlotValue(srcEntity, source, shared, fragments, node, in)
     )
 
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
@@ -1982,7 +1982,8 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned.Live,
       shared: Shared,
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      in: Evaluator.Lookup
   ): SlotValue = source.source.shape match {
     case SlotShape.Fetch(_) if withheld(source, shared) =>
       ""
@@ -2000,12 +2001,7 @@ class Renderer(validated: Dashboard.Validated) {
             case Some(Lit.Bool(b)) => b
             case d                 => d.fold("")(l => Steps.text(l.raw))
     case SlotShape.State(_) =>
-      resolveStateSlotValue(
-        srcEntity,
-        source,
-        shared,
-        lookupAt(fragments, node, shared.states)
-      )
+      resolveStateSlotValue(srcEntity, source, shared, in)
   }
 
   /** The dashboard's `failedLabel` filled in; nothing for a failure with no
