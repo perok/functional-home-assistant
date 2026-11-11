@@ -78,6 +78,36 @@ to `" °C"`. And every slot you set must be placed somewhere in the template.
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
 
+### The card's outer element
+
+Every card gets an outer element the library writes for you: it carries the
+node's id (which live updates find it by) and its layout classes
+(`.columns(3)`, `.hug()`). By default it is a `<div class="fh-cell">` around
+your template, so the banner above is two elements. To make your own element
+the outer one, say what it is instead of writing it in the template:
+
+```pkl
+cardDef = new nodes.CardDef {
+  tag = "article"
+  classes = "banner"
+  attrs = #"data-on:click="$open = true""#
+  template = "\(message)"
+}
+```
+
+That renders `<article class="fh-cell banner" id="…" data-on:click="…">…</article>`,
+and the template is only what goes inside it. `tag` is a plain element name,
+`classes` the element's own classes, and `attrs` any other attributes —
+except `id`, `class`, `style` and `data-signals`, which the library writes
+itself; the build refuses those.
+
+Set `layoutCell = false` when the element must not be a layout box — a tab
+inside a tab bar, which the bar lays out itself. It then has no `fh-cell`
+class, and `.columns(n)`, `.fullWidth()`, `.hug()`, `.grow()` and `.stick(…)`
+on such a card are a build error. `cellClass`, `cellClassWhen` and
+`cellStyle` still work. A `cellClassWhen("x", …)` on a card whose `attrs`
+already binds `data-class:x` is refused too: an element keeps only one of two.
+
 ## Using it
 
 Import your module and use the card:

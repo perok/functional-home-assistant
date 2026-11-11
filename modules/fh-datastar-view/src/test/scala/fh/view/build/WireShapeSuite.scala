@@ -6,6 +6,7 @@ import fh.view.model.{
   SortTerm,
   Access,
   Activation,
+  CardDef,
   Cell,
   Dashboard,
   LayoutNode,
@@ -198,6 +199,8 @@ class WireShapeSuite extends munit.FunSuite {
   test("ordering and layout-cell shapes agree on both sides") {
     check("SortTerm", SortTerm(Conds.prop("state")))
     check("Cell", Cell())
+    // `CardDef` is the author's side; `cardsIn` lowers it to a `WireCard`.
+    check("WireCard", CardDef(""))
   }
 
   test("the slot shape agrees, minus what only one side names") {

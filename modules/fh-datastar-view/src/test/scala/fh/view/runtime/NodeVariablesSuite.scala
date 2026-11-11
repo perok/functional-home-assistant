@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
 import fh.view.history.{ChartStyle, Window, Windows}
@@ -16,11 +17,11 @@ import fh.view.testkit.DashboardBuilders.declared
   */
 class NodeVariablesSuite extends munit.FunSuite {
 
-  private val chartCard = CardDef(
+  private val chartCard = TestCard(
     "<div>{{{chart}}}</div>"
   )
-  private val plainCard = CardDef("<span>{{name}}</span>")
-  private val boxCard = CardDef(
+  private val plainCard = TestCard("<span>{{name}}</span>")
+  private val boxCard = TestCard(
     "<div>{{{children}}}</div>",
     regions = Map("children" -> Region())
   )

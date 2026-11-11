@@ -427,7 +427,7 @@ class ControlSmokeSuite extends SmokeSuite {
             .hasCount(2)
         )
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-cell.fh-active>article.fh-entity"))
+          assertThat(page.locator("article.fh-entity.fh-cell.fh-active"))
             .hasCount(1)
         )
         json <- IO.blocking(

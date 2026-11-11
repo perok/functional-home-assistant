@@ -1268,10 +1268,10 @@ it fills shows. A target is a leaf, never structure, a set member's nodes includ
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 
-**A failed read is its chart's, not the render's.** `Staged.failed` puts the runtime's error label
-in a chart's hole — `core/text.pkl`'s `label` structure, a base-CSS contract like the busy and
-offline classes, held equal to the library's copy by `FailureLabelSuite` — and leaves a data hole
-empty; the version is below any real one. The page and the live stream carry on.
+**A failed read is its chart's, not the render's.** `Staged.failed` holds the error text, and the
+render fills the dashboard's `failedLabel` with it — an `error`-toned label `entry.pkl` emits from
+`core/text.pkl`'s `label` beside the base CSS, compiled with the cards — in a chart's hole, and
+leaves a data hole empty; the version is below any real one. The page and the live stream carry on.
 
 **A fetch and a drawing are each computed once, on a fiber of their own** (`fetch/SharedCache`),
 never on the fiber of whichever render asked first — a page abandoned mid-fetch cancels its asker,
@@ -1307,21 +1307,22 @@ it. A signal slot's value is not in those bytes at all (ADR 0017) — the elemen
 binding, or for a `handler` slot not even that — so the node's digest stands still while the value moves, the morph is
 suppressed, and one `datastar-patch-signals` frame carries the values for the whole batch. The
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
-instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
+instead: value inline, plus a `data-signals` seed on the node's root (its `.fh-cell`), so an element
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
-wrapper also carries the node's cell slots (`Cell`, ADR 0008): its classes, static or live
+root also carries the node's cell slots (`Cell`, ADR 0008): its classes, static or live
 (`LayoutNode.cellClassWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
-key's (`class:<name>`, `style:--…`): the renderer places the bindings on the wrapper in both forms,
+key's (`class:<name>`, `style:--…`): the renderer places the bindings on the root in both forms,
 and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
 through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
 goes through them where it resolves (`Renderer.classed`): a literal once, into a
 `Planned.Constant`, a reading on each
 resolve, so a signal frame carries the swapped value too. The page's connection banners
-(`Server.pageInto`) and a failed fetch's label (`Fetches.label`, swapped in `resolveSlotValue`) are
-the markup Scala writes itself, and take the same rewrite.
+(`Theme.offlineBanners`, placed by `Server.pageInto`) and a failed fetch's label (`failedLabel`,
+filled in `resolveSlotValue`) are Pkl templates, and take the same rewrite; Scala writes no markup
+of its own for either.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
@@ -1398,7 +1399,10 @@ head has been flushed, so a cold chart's fetch overlaps the browser fetching sty
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
 `writerHoles`, written at its `{{{name}}}`, and `Sink` IS the writer the whole document goes
-through, shell included. Three things follow, and all are load-bearing:
+through, shell included. The card's root is in its template (`core/node.pkl` writes it, ADR 0008),
+and its two holes are writer holes too: `{{{cellClasses}}}` inside its `class`, `{{{cell}}}` after
+it (style, id, seed, bindings, URL mirror). `NodeContext.writeHole` answers them on every run, so
+no map is built for them; the renderer wraps nothing but a set's root. Three things follow, and all are load-bearing:
 
 - **`digesting` is what differs between a page and a patch.** A node's own fingerprint is a digest
   of a contiguous run of the walk's output, and that run is what lets a signal-less member's
@@ -1511,7 +1515,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
-| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; `wrapperInto` is shared with the walk) |
+| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; the root's holes, `cellInto`/`cellClassesInto`, are shared with the walk) |
 | a signal's name, and a node's inputs | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |

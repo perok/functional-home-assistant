@@ -1,8 +1,7 @@
 <!-- ==== as fixtured · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-grid ">
-<div class="fh-cell" id="c_0"
+<div class="fh-cell fh-grid" id="c">
+<article class="fh-cell fh-card fh-slider-card " id="c_0"
   data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]">
-<article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-controls-cell" id="c_0_head_0"><div class="fh-slider-controls"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-head-cell fh-active" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
@@ -51,10 +50,9 @@
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
   data-indicator="_s_c_0_head_0_0_0_o0__c__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o0__c__error = ''))"
-  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div></div><div class="fh-slider-members"></div></article></div>
-<div class="fh-cell" id="c_1"
+  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div></div><div class="fh-slider-members"></div></article>
+<article class="fh-cell fh-card fh-slider-card " id="c_1"
   data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']">
-<article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-controls-cell" id="c_1_head_0"><div class="fh-slider-controls"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-head-cell fh-active" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
@@ -113,11 +111,11 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_0__busy_slow = $_c_1_head_0_0_0__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_0__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div>
-<div class="fh-cell" id="c_1_head_0_0_1"><details class="fh-select-menu"
+  data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div><details class="fh-cell fh-select-menu" id="c_1_head_0_0_1"
   data-on:click__outside="el.open = false"><summary class="fh-select-summary"><span id="c_1_head_0_0_1_panel">
 <div class="fh-cell" id="s_c_1_head_0_0_1_o0__c"><i class="mdi mdi-brightness-6" title="Brightness"></i></div></span><i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list"
-  data-on:click="el.closest('details').open = false"><a data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
+  data-on:click="el.closest('details').open = false"><a class="" id="c_1_head_0_0_1_0"
+  data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_0__error = ''))"
   data-fh-node="c_1_head_0_0_1_0"
@@ -128,7 +126,8 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_0__busy_slow = $_c_1_head_0_0_1_0__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a><a data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a><a class="" id="c_1_head_0_0_1_1"
+  data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_1__error = ''))"
   data-fh-node="c_1_head_0_0_1_1"
@@ -139,7 +138,8 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_1__busy_slow = $_c_1_head_0_0_1_1__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a><a data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a><a class="" id="c_1_head_0_0_1_2"
+  data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_2__error = ''))"
   data-fh-node="c_1_head_0_0_1_2"
@@ -150,7 +150,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_2__busy_slow = $_c_1_head_0_0_1_2__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_2__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colour'">Colour</a></div></details></div>
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colour'">Colour</a></div></details>
 <div class="fh-cell fh-hug" id="c_1_head_0_0_2"><button class="fh-chip fh-circle"
   data-on:click="$_c_1_head_0_0_2__busy ? '' : @post('sse/surface/light-controls/open/c_1_head_0_0_2_self')"
   data-indicator="_c_1_head_0_0_2__busy"
@@ -163,7 +163,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_2__busy_slow = $_c_1_head_0_0_2__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_2__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div></div><div class="fh-slider-members"></div></article></div></div></div>
+  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div></div><div class="fh-slider-members"></div></article></div>
 <!-- ==== as fixtured · surface c_0_head_0_0_0_o0 ==== -->
 <div class="fh-cell fh-hug" id="s_c_0_head_0_0_0_o0__c"><button class="fh-chip fh-circle"
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
@@ -480,7 +480,8 @@
   data-class:fh-busy-spin="$_c_1_head_0_0_0__busy_slow"
   data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div>
 <!-- ==== as fixtured · patch c_1_head_0_0_1_0 ==== -->
-<a data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
+<a class="" id="c_1_head_0_0_1_0"
+  data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_0__error = ''))"
   data-fh-node="c_1_head_0_0_1_0"
@@ -493,7 +494,8 @@
   data-class:fh-busy-after="$_c_1_head_0_0_1_0__busy_slow"
   data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a>
 <!-- ==== as fixtured · patch c_1_head_0_0_1_1 ==== -->
-<a data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
+<a class="" id="c_1_head_0_0_1_1"
+  data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_1__error = ''))"
   data-fh-node="c_1_head_0_0_1_1"
@@ -506,7 +508,8 @@
   data-class:fh-busy-after="$_c_1_head_0_0_1_1__busy_slow"
   data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a>
 <!-- ==== as fixtured · patch c_1_head_0_0_1_2 ==== -->
-<a data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
+<a class="" id="c_1_head_0_0_1_2"
+  data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_2__error = ''))"
   data-fh-node="c_1_head_0_0_1_2"
@@ -587,10 +590,9 @@
 <!-- ==== as fixtured · patch s_c_1_head_0_m2__c_text_0 ==== -->
 <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
 <!-- ==== flipped · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-grid ">
-<div class="fh-cell" id="c_0"
+<div class="fh-cell fh-grid" id="c">
+<article class="fh-cell fh-card fh-slider-card " id="c_0"
   data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]">
-<article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-controls-cell" id="c_0_head_0"><div class="fh-slider-controls"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
@@ -639,10 +641,9 @@
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
   data-indicator="_s_c_0_head_0_0_0_o0__c__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o0__c__error = ''))"
-  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div></div><div class="fh-slider-members"></div></article></div>
-<div class="fh-cell" id="c_1"
+  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div></div><div class="fh-slider-members"></div></article>
+<article class="fh-cell fh-card fh-slider-card " id="c_1"
   data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']">
-<article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-controls-cell" id="c_1_head_0"><div class="fh-slider-controls"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
@@ -701,11 +702,11 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_0__busy_slow = $_c_1_head_0_0_0__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_0__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div>
-<div class="fh-cell" id="c_1_head_0_0_1"><details class="fh-select-menu"
+  data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div><details class="fh-cell fh-select-menu" id="c_1_head_0_0_1"
   data-on:click__outside="el.open = false"><summary class="fh-select-summary"><span id="c_1_head_0_0_1_panel">
 <div class="fh-cell" id="s_c_1_head_0_0_1_o0__c"><i class="mdi mdi-brightness-6" title="Brightness"></i></div></span><i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list"
-  data-on:click="el.closest('details').open = false"><a data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
+  data-on:click="el.closest('details').open = false"><a class="" id="c_1_head_0_0_1_0"
+  data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_0__error = ''))"
   data-fh-node="c_1_head_0_0_1_0"
@@ -716,7 +717,8 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_0__busy_slow = $_c_1_head_0_0_1_0__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a><a data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a><a class="" id="c_1_head_0_0_1_1"
+  data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_1__error = ''))"
   data-fh-node="c_1_head_0_0_1_1"
@@ -727,7 +729,8 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_1__busy_slow = $_c_1_head_0_0_1_1__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a><a data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a><a class="" id="c_1_head_0_0_1_2"
+  data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_2__error = ''))"
   data-fh-node="c_1_head_0_0_1_2"
@@ -738,7 +741,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_2__busy_slow = $_c_1_head_0_0_1_2__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_2__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colour'">Colour</a></div></details></div>
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colour'">Colour</a></div></details>
 <div class="fh-cell fh-hug" id="c_1_head_0_0_2"><button class="fh-chip fh-circle"
   data-on:click="$_c_1_head_0_0_2__busy ? '' : @post('sse/surface/light-controls/open/c_1_head_0_0_2_self')"
   data-indicator="_c_1_head_0_0_2__busy"
@@ -751,7 +754,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_2__busy_slow = $_c_1_head_0_0_2__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_2__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div></div><div class="fh-slider-members"></div></article></div></div></div>
+  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div></div><div class="fh-slider-members"></div></article></div>
 <!-- ==== flipped · surface c_0_head_0_0_0_o0: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_head_0_0_0_o1: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_head_0_0_0_o2: as fixtured ==== -->
@@ -1030,10 +1033,9 @@
 <!-- ==== flipped · patch s_c_1_head_0_m1__c_text_0: as fixtured ==== -->
 <!-- ==== flipped · patch s_c_1_head_0_m2__c_text_0: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-grid ">
-<div class="fh-cell" id="c_0"
+<div class="fh-cell fh-grid" id="c">
+<article class="fh-cell fh-card fh-slider-card " id="c_0"
   data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]">
-<article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-controls-cell" id="c_0_head_0"><div class="fh-slider-controls"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
@@ -1081,10 +1083,9 @@
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
   data-indicator="_s_c_0_head_0_0_0_o0__c__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o0__c__error = ''))"
-  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div></div><div class="fh-slider-members"></div></article></div>
-<div class="fh-cell" id="c_1"
+  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div></div><div class="fh-slider-members"></div></article>
+<article class="fh-cell fh-card fh-slider-card " id="c_1"
   data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']">
-<article class="fh-card fh-slider-card ">
 <div class="fh-cell fh-slider-controls-cell" id="c_1_head_0"><div class="fh-slider-controls"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
@@ -1141,11 +1142,11 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_0__busy_slow = $_c_1_head_0_0_0__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_0__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div>
-<div class="fh-cell" id="c_1_head_0_0_1"><details class="fh-select-menu"
+  data-attr:aria-busy="$_c_1_head_0_0_0__busy_slow"><i class="mdi mdi-power"></i></button></div><details class="fh-cell fh-select-menu" id="c_1_head_0_0_1"
   data-on:click__outside="el.open = false"><summary class="fh-select-summary"><span id="c_1_head_0_0_1_panel">
 <div class="fh-cell" id="s_c_1_head_0_0_1_o0__c"><i class="mdi mdi-brightness-6" title="Brightness"></i></div></span><i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list"
-  data-on:click="el.closest('details').open = false"><a data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
+  data-on:click="el.closest('details').open = false"><a class="" id="c_1_head_0_0_1_0"
+  data-on:click="$_c_1_head_0_0_1_0__busy ? '' : $_var_c_1__control__pending = 'brightness'; @post('sse/var/light-controls/c_1/control/brightness?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_0__error = ''))"
   data-fh-node="c_1_head_0_0_1_0"
@@ -1156,7 +1157,8 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_0__busy_slow = $_c_1_head_0_0_1_0__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a><a data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'brightness'">Brightness</a><a class="" id="c_1_head_0_0_1_1"
+  data-on:click="$_c_1_head_0_0_1_1__busy ? '' : $_var_c_1__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_1/control/colourTemp?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_1__error = ''))"
   data-fh-node="c_1_head_0_0_1_1"
@@ -1167,7 +1169,8 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_1__busy_slow = $_c_1_head_0_0_1_1__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a><a data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colourTemp'">Colour temperature</a><a class="" id="c_1_head_0_0_1_2"
+  data-on:click="$_c_1_head_0_0_1_2__busy ? '' : $_var_c_1__control__pending = 'colour'; @post('sse/var/light-controls/c_1/control/colour?group=var_c_1__control')"
   data-indicator="_c_1_head_0_0_1_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0_0_1_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0_0_1_2__error = ''))"
   data-fh-node="c_1_head_0_0_1_2"
@@ -1178,7 +1181,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_1_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_1_2__busy_slow = $_c_1_head_0_0_1_2__busy"
   data-class:fh-busy-after="$_c_1_head_0_0_1_2__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colour'">Colour</a></div></details></div>
+  data-class:fh-chosen="String(($_var_c_1__control__pending || $_var_c_1__control)) === 'colour'">Colour</a></div></details>
 <div class="fh-cell fh-hug" id="c_1_head_0_0_2"><button class="fh-chip fh-circle"
   data-on:click="$_c_1_head_0_0_2__busy ? '' : @post('sse/surface/light-controls/open/c_1_head_0_0_2_self')"
   data-indicator="_c_1_head_0_0_2__busy"
@@ -1191,7 +1194,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_2__busy_slow = $_c_1_head_0_0_2__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_2__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div></div><div class="fh-slider-members"></div></article></div></div></div>
+  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div></div><div class="fh-slider-members"></div></article></div>
 <!-- ==== unavailable · surface c_0_head_0_0_0_o0: as fixtured ==== -->
 <!-- ==== unavailable · surface c_0_head_0_0_0_o1: as fixtured ==== -->
 <!-- ==== unavailable · surface c_0_head_0_0_0_o2: as fixtured ==== -->

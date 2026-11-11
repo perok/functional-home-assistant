@@ -1,5 +1,6 @@
 package fh.view.functional
 
+import fh.view.testkit.TestCard
 import api.homeassistant.ws.domain.HistoryPoint
 import cats.effect.IO
 import fh.view.history.Windows
@@ -20,8 +21,8 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
   // A member while the washer has any history in the last hour.
   private val dashboard = Dashboard(
     cards = Map(
-      "item" -> CardDef("<i>{{label}}</i>"),
-      "col" -> CardDef(
+      "item" -> TestCard("<i>{{label}}</i>"),
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map(LayoutNode.DefaultRegion -> Region())
       )

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 import fh.view.testkit.Conds
@@ -1974,7 +1975,7 @@ object RenderBench {
     * [[RenderBench.pageSignals]] a comparison of one variable.
     */
   def cards: Map[String, CardDef] = Map(
-    "entity" -> CardDef(
+    "entity" -> TestCard(
       template = """<div class="fh-entity {{cls}}">""" +
         """<i class="fh-icon">{{icon}}</i>""" +
         """<div class="fh-body"><span class="fh-name">{{name}}</span>""" +
@@ -1984,7 +1985,7 @@ object RenderBench {
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
         """</div>"""
     ),
-    "col" -> CardDef(
+    "col" -> TestCard(
       template = """<div class="fh-col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     )
@@ -2123,7 +2124,7 @@ object RenderBench {
     */
   def flipDash(signals: Boolean = true): Dashboard =
     Dashboard(
-      cards = cards + ("ifhost" -> CardDef(
+      cards = cards + ("ifhost" -> TestCard(
         template = """<div id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),
@@ -2290,7 +2291,7 @@ object RenderBench {
     * the dashboard returned carries their branches.
     */
   def ifSetDash(leaves: Int, states: Map[String, EntityState]): Dashboard = {
-    val withHost = cards + ("ifhost" -> CardDef(
+    val withHost = cards + ("ifhost" -> TestCard(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))

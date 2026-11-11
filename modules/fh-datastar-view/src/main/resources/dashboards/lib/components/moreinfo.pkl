@@ -22,10 +22,9 @@ import "../hass/actions.pkl" as hassActions
 class EntityInfo extends nodes.Node {
   card = "entityInfo"
   cardDef = new nodes.CardDef {
+    classes = "fh-card fh-entity-info"
     template = """
-      <div class="fh-card fh-entity-info">
         <code class="fh-entity-info-id">\(slotMod.subject)</code>\(attributes.ifTrue(#"\#n  <pre class="fh-entity-info-attrs">\#(attributes)</pre>"#))
-      </div>
       """
     // Capped, so a chatty entity cannot push the controls and ✕ off screen.
     css = """

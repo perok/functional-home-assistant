@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 import fh.view.testkit.DashboardBuilders.noSubject
 
@@ -14,7 +15,7 @@ import io.circe.parser.decode
 class SimpleReadsSuite extends munit.FunSuite {
 
   private val card =
-    CardDef("""<b {{{v.bind}}}>{{#v}}set{{/v}}</b>""")
+    TestCard("""<b {{{v.bind}}}>{{#v}}set{{/v}}</b>""")
 
   private def slot(expr: ValueExpr, bool: Boolean = false) = TemplateSlot(
     expr,

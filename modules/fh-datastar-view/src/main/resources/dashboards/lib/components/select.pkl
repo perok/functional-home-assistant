@@ -125,6 +125,7 @@ abstract class Select extends nodes.Node {
         else new SelectCycle { target = t; choices = cs })
       (fresh) {
         cellClasses = self.cellClasses
+        layoutClasses = self.layoutClasses
         stateClasses = self.stateClasses
         liveClasses = self.liveClasses
         liveStyles = self.liveStyles
@@ -169,25 +170,28 @@ class SelectButtons extends Select {
   card = "selectButtons"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = #"<div class="fh-tabs fh-select">{{{children}}}</div>"#
+    classes = "fh-tabs fh-select"
+    template = "{{{children}}}"
     css = """
       .fh-select>.fh-cell{display:contents}
       """
   }
 }
 
-// The menu's markup around its label; the label differs by target.
+// The menu's content around its label; the label differs by target.
 const local function menuTemplate(chosen: String): String =
-  #"<details class="fh-select-menu" data-on:click__outside="el.open = false"><summary class="fh-select-summary">"# +
+  #"<summary class="fh-select-summary">"# +
     chosen +
-    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{{children}}}</div></details>"#
+    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{{children}}}</div>"#
+
+const local menuAttrs: String = #"data-on:click__outside="el.open = false""#
 
 // An open list hangs over the cells after it, and a later cell painted above it
-// once (a chart's svg took the click meant for an option), so the open menu and
-// its cell both rise; `:has` is iPadOS 15.4+, so the menu's own z-index stays.
+// once (a chart's svg took the click meant for an option), so the open menu,
+// which is its own cell, rises.
 const local menuCss: String = """
   .fh-select-menu{position:relative;display:inline-block}
-  .fh-select-menu[open],.fh-cell:has(>.fh-select-menu[open]){position:relative;z-index:20}
+  .fh-select-menu[open]{position:relative;z-index:20}
   .fh-select-summary{display:inline-flex;align-items:center;gap:.25rem;list-style:none;cursor:pointer;
   min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
   .fh-select-summary::-webkit-details-marker{display:none}
@@ -215,6 +219,9 @@ class SelectDropdown extends Select {
   card = "selectDropdown"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
+    tag = "details"
+    classes = "fh-select-menu"
+    attrs = menuAttrs
     template = menuTemplate(#"<span \#(chosenSlot.bind)>\#(chosenSlot)</span>"#)
     css = menuCss
   }
@@ -243,6 +250,9 @@ class VarSelectDropdown extends Select {
   card = "selectVarDropdown"
   cardDef = new nodes.CardDef {
     regions = (optionsRegion) { ...panelRegion }
+    tag = "details"
+    classes = "fh-select-menu"
+    attrs = menuAttrs
     template = menuTemplate(#"<span id="{{hostId}}">{{{panel}}}</span>"#)
     css = menuCss
   }
@@ -259,7 +269,8 @@ class SelectCycle extends Select {
   card = "selectCycle"
   cardDef = new nodes.CardDef {
     regions = optionsRegion
-    template = #"<div class="fh-select-cycles fh-select-marked">{{{children}}}</div>"#
+    classes = "fh-select-cycles fh-select-marked"
+    template = "{{{children}}}"
     css = cycleCss
   }
   cycling = true
@@ -341,9 +352,8 @@ class Chooser extends nodes.Node {
       [nodes.defaultRegion] = new nodes.Region {}
       ["bar"] = new nodes.Region {}
     }
-    template = """
-      <div class="fh-col">{{{bar}}}{{{children}}}</div>
-      """
+    classes = "fh-col"
+    template = "{{{bar}}}{{{children}}}"
   }
   vars { (bar.target as varMod.Variable).defaultingTo(defaultValue) }
   // `let`: inside the Mapping's body `children` does not resolve to this node's.
@@ -355,7 +365,7 @@ class Chooser extends nodes.Node {
       }
     }
   // A section header over its cards, not a third of a grid row.
-  cellClasses { "fh-cols-full" }
+  layoutClasses { "fh-cols-full" }
 
   function defaultingTo(v: varMod.Value): Chooser = let (self = this) let (d = v) (self) { defaultValue = d }
 }

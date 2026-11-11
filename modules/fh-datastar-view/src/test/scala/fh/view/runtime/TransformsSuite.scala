@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.build.DashboardBuild
@@ -122,7 +123,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "slug" -> Json.fromString("k"),
       "cards" -> Json.obj(
         "c" -> Json.obj(
-          "template" -> Json.fromString("<b>{{v}}</b>"),
+          "template" -> Json.fromString(TestCard.root("<b>{{v}}</b>")),
           "slots" -> Json.arr(Json.fromString("v"))
         )
       ),
@@ -282,7 +283,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
   private def dashboard(slug: String) =
     Dashboard(
       cards = Map(
-        "c" -> CardDef(template = "<b>{{onclick}}</b>")
+        "c" -> TestCard(template = "<b>{{onclick}}</b>")
       ),
       card = LayoutNode.Component(
         card = "c",
@@ -309,7 +310,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "slug" -> Json.fromString(slug),
       "cards" -> Json.obj(
         "c" -> Json.obj(
-          "template" -> Json.fromString("<b>{{onclick}}</b>"),
+          "template" -> Json.fromString(TestCard.root("<b>{{onclick}}</b>")),
           "slots" -> Json.arr(Json.fromString("onclick"))
         )
       ),
@@ -394,7 +395,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       nodeInputs: Map[String, ValueExpr] = Map.empty
   ): String =
     Dashboard(
-      Map("c" -> CardDef("<b>{{v}}</b>")),
+      Map("c" -> TestCard("<b>{{v}}</b>")),
       LayoutNode.Component(
         "c",
         templateSlots = Map("v" -> TemplateSlot(e)),

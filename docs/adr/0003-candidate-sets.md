@@ -145,8 +145,7 @@ Three silent failure modes are worth naming, because all three were real bugs:
 - **A clause switch whose arriving card binds nothing live** contributes no
   reverse-index edge, so nothing would name it while its bytes moved. The
   member's ID is the sound handle — it exists whatever the card renders, since
-  `validate` rejects a `wrapAsCell = false` card as a clause precisely so every
-  member has its own element — so `syncMembers` reports the members it REPLACED
+  every card's root carries its id (ADR 0008) — so `syncMembers` reports the members it REPLACED
   and the recorder touches those by id.
 - **Container selection reads `MemberGraph.sources`, not the static index.** A nested
   set is not in the static index — it hangs off a member — so selecting from the

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.runtime.RendererTestOps.*
@@ -40,7 +41,7 @@ class SetNodeSuite extends ServerHarness {
     v.change(next).map(elementPatches)
 
   private val tile = Map(
-    "tile" -> CardDef("<b>{{state}}</b>")
+    "tile" -> TestCard("<b>{{state}}</b>")
   )
 
   private val whileOn: ValueExpr =
@@ -270,7 +271,7 @@ class SetNodeSuite extends ServerHarness {
     // A member's children are nodes with ids of their own (#556), so a tick on
     // what one child binds patches that child, not the whole member.
     val cards = tile ++ Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
@@ -324,7 +325,7 @@ class SetNodeSuite extends ServerHarness {
     // Nested rather than composed so a bulb patches its own element, and the
     // tile, a registry fact and so a literal, is never re-rendered.
     val cards = tile ++ Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
@@ -388,7 +389,7 @@ class SetNodeSuite extends ServerHarness {
     // must be a container it knows, two levels deep so one level cannot pass by
     // luck.
     val cards = tile ++ Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )

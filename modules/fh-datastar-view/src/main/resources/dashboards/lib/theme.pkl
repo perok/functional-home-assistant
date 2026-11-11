@@ -23,8 +23,8 @@
 ///
 /// A card's markup carries `fh-` classes only, besides an icon's `mdi` ones
 /// (`PklLibraryTestSuite` checks every card), so these are all your `styles`
-/// and [[classes]] need: `.fh-grid`/`.fh-row`/`.fh-col`, the node wrapper
-/// `.fh-cell`, a query set's `.fh-group` (always a passthrough),
+/// and [[classes]] need: `.fh-grid`/`.fh-row`/`.fh-col`, every card's root
+/// `.fh-cell` (a tab's root is its bare `<a>`), a query set's `.fh-group` (always a passthrough),
 /// `.fh-cols-<1..12>`/`.fh-cols-full`, `.fh-start`, `.fh-card`, `.fh-section`,
 /// a labelled button's `.fh-press` and an icon-only one's `.fh-circle`, a link
 /// button's `.fh-button`, `.fh-chip`, a tile's `.fh-tile` row, the toggle's
@@ -52,7 +52,8 @@
 /// the classes the markup carries in its place. Keep the `fh-` class in the
 /// content to add to it; leave it out to replace it, which also drops the base
 /// CSS for it. The server applies this to every card's `class="…"` and
-/// `data-class:…` and to the `.fh-cell` wrapper's classes, live ones included;
+/// `data-class:…`, a card's root included, and to the classes it puts on the
+/// root, live ones included;
 /// `fh-cell` and `fh-group` must stay in their own content.
 ///
 ///     classes {
@@ -87,6 +88,9 @@
 ///      (checked by `Dashboard.validate`) and should host
 ///      `<div id="popups">{{{popups}}}</div>`, where a restored popup is baked
 ///      for the first paint; without it a popup still works, a moment late.
+///   7. `offlineBanners`: the "connection lost" and "Home Assistant
+///      unavailable" notices, to restyle or translate. Leave it out to keep
+///      the default.
 module theme
 
 import "tokens.pkl" as tokenPalette
@@ -98,6 +102,22 @@ import "tokens.pkl" as tokenPalette
 const local mdiVersion: String = "7.4.47"
 const mdiCdn: String =
   "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
+
+/// The signals the shell declares and the offline banners read, held equal to
+/// the server's names (`Server.SseSignal`, `Server.HaDownSignal`) by a test.
+const sseSignal: String = "_sse"
+const haDownSignal: String = "_haDown"
+
+/// Both banners: the stream's (a retry, then a Reload button) and Home
+/// Assistant's. Placed inside the shell's root element, which declares the two
+/// signals; each starts hidden inline, or it flashes before Datastar loads.
+const local defaultOfflineBanners: String = #"""
+    <div class="fh-offline fh-offline-sse" style="display:none" role="status" aria-live="assertive" data-show="$\#(sseSignal) > 0">
+      <span style="display:none" data-show="$\#(sseSignal) < 2">Reconnecting to the dashboard…</span>
+      <span style="display:none" data-show="$\#(sseSignal) >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
+    </div>
+    <div class="fh-offline fh-offline-ha" style="display:none" role="status" aria-live="polite" data-show="$\#(haDownSignal) && $\#(sseSignal) == 0">Home Assistant unavailable — reconnecting…</div>
+  """#
 
 open class Theme {
   /// HA-named tokens, emitted as `:root` properties; every `--fh-*` variable
@@ -122,6 +142,11 @@ open class Theme {
     <main id="dashboard">{{{body}}}</main>
     <div id="popups">{{{popups}}}</div>
     """
+  /// The "connection lost" and "Home Assistant unavailable" banners, as markup:
+  /// restyle or translate them here. Keep each `data-show` and its inline
+  /// `display:none`; they read the signals `$_sse` (0 fine, 1 retrying, 2 gave
+  /// up) and `$_haDown` (true while Home Assistant is down).
+  offlineBanners: String = defaultOfflineBanners
   /// `fh-` class -> the space-separated classes in its place. See "Your own
   /// class names in card markup" above.
   classes: Mapping<String(startsWith("fh-")), String(matches(Regex(#"[\w -]*"#)))> = new {}

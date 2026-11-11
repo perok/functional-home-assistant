@@ -37,7 +37,27 @@ local defaults = (n: nodes.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> 
 // Whether `n`'s cell carries `cls` as a reading, which the renderer binds.
 local liveOn = (n: nodes.LayoutNode, cls: String) -> n.cell?.classes?.getOrNull(cls) is Map
 // The classes `n`'s cell always carries.
-local staticOn = (n: nodes.LayoutNode) -> n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
+local staticOn = (n: nodes.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
+// What the root's class attribute carries from the cell, in order: the layout
+// builders' classes, then the rest.
+local rootClasses = (n: nodes.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.keys.toList()
+
+// Cards whose root is written from their `cardDef`'s root fields.
+local class PlainRoot extends nodes.Node {
+  card = "plainRoot"
+  cardDef = new nodes.CardDef { template = "<b>x</b>" }
+}
+local class AnchorRoot extends nodes.Node {
+  card = "anchorRoot"
+  cardDef = new nodes.CardDef {
+    tag = "a"
+    classes = "my-tab"
+    layoutCell = false
+    attrs = #"data-on:click="go()" data-class:warm="$w""#
+    template = "x"
+  }
+}
+local wireOf = (n: nodes.Node) -> nodes.cardsIn(List(n))[n.card]
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -238,17 +258,53 @@ facts {
   }
 
   ["layout builders put fh- contract classes on the wrapper"] {
-    c.title("x").columns(3).cell.classes.keys.toList() == List("fh-cols-3")
-    c.title("x").fullWidth().cell.classes.keys.toList() == List("fh-cols-full")
-    c.title("x").hug().cell.classes.keys.toList() == List("fh-hug")
-    c.title("x").cellClass("my-thing").cell.classes.keys.toList() == List("my-thing")
+    rootClasses.apply(c.title("x").columns(3)) == List("fh-cols-3")
+    rootClasses.apply(c.title("x").fullWidth()) == List("fh-cols-full")
+    rootClasses.apply(c.title("x").hug()) == List("fh-hug")
+    rootClasses.apply(c.title("x").cellClass("my-thing")) == List("my-thing")
   }
 
   ["ONE SPAN PER NODE: a later fh-cols-* drops the earlier one"] {
-    c.title("x").columns(3).columns(7).cell.classes.keys.toList() == List("fh-cols-7")
-    c.title("x").columns(3).fullWidth().cell.classes.keys.toList() == List("fh-cols-full")
+    rootClasses.apply(c.title("x").columns(3).columns(7)) == List("fh-cols-7")
+    rootClasses.apply(c.title("x").columns(3).fullWidth()) == List("fh-cols-full")
     // a non-span class is additive, not a replacement
-    c.title("x").columns(3).hug().cell.classes.keys.toList() == List("fh-cols-3", "fh-hug")
+    rootClasses.apply(c.title("x").columns(3).hug()) == List("fh-cols-3", "fh-hug")
+  }
+
+  ["the library writes a card's root: a div cell when it names no tag, its own element when it does"] {
+    wireOf.apply(new PlainRoot {}).template
+      == #"<div class="fh-cell{{{cellClasses}}}"{{{cell}}}><b>x</b></div>"#
+    wireOf.apply(new PlainRoot {}).layoutCell == null
+    wireOf.apply(new AnchorRoot {}).template
+      == #"<a class="my-tab{{{cellClasses}}}"{{{cell}}} data-on:click="go()" data-class:warm="$w">x</a>"#
+    wireOf.apply(new AnchorRoot {}).layoutCell == false
+    // A tab is an anchor straight under the bar, never a layout box.
+    wireOf.apply(surfacesMod.tabButton(new varMod.Variable { name = "v" }, "a", "A")).template.startsWith(#"<a class="{{{cellClasses}}}"{{{cell}}} data-on:click="#)
+  }
+
+  ["a root's attrs cannot carry what the root writes itself, by attribute name"] {
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"id="x""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"data-on:click="go()" class="x""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"style="color:red""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"data-signals="{a: 1}""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; tag = "a href" }.tag).contains("Type constraint")
+    // Other attributes that merely contain one of those names.
+    new nodes.CardDef {
+      template = ""
+      attrs = #"data-class="{a: $b}" data-class:x="$y" data-style:color="$c" data-signals__ifmissing="{c: 1}" data-attr:id="$d""#
+    }.attrs.contains("data-attr:id")
+  }
+
+  ["a layoutCell = false root refuses the layout builders and keeps its other cell classes"] {
+    module.catch(() -> (new AnchorRoot {}).columns(3).cell).contains("layoutCell = false")
+    module.catch(() -> (new AnchorRoot {}).hug().cell).contains("layoutCell = false")
+    rootClasses.apply((new AnchorRoot {}).cellClass("hero")) == List("hero")
+    (new AnchorRoot {}).cellStyle("--x", c.isOn(kitchen)).cell.styles.containsKey("--x")
+  }
+
+  ["cellClassWhen refuses a class its card's attrs already binds"] {
+    module.catch(() -> (new AnchorRoot {}).cellClassWhen("warm", c.isOn(kitchen)).cell).contains("data-class:warm")
+    (new AnchorRoot {}).cellClassWhen("cold", c.isOn(kitchen)).cell.classes.containsKey("cold")
   }
 
   // ---- more-info (#106) ----
@@ -499,7 +555,8 @@ facts {
     // BeerCSS paints a card box only on `<article>`; a `<div class="card">`
     // left the lock floating on the page background.
     local t = c.cards["tile"].template
-    t.startsWith(#"<article class="fh-card fh-entity fh-tile-card">"#)
+    c.cards["tile"].tag == "article"
+    c.cards["tile"].classes == "fh-card fh-entity fh-tile-card"
     // The tap is the ROW's, and the features region opens after the row has
     // closed: nested inside it, one press would post the latch AND the tile's
     // tap.
@@ -680,7 +737,8 @@ facts {
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["switch"].template.contains(#"<article class="fh-card fh-toggle fh-tile-card""#)
+    cards["switch"].tag == "article"
+    cards["switch"].classes == "fh-card fh-toggle fh-tile-card"
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["switch"].template.contains(#"<span class="fh-text">"#)
@@ -692,7 +750,9 @@ facts {
     // three declaration blocks rather than a rule per card. The OUTER box is
     // what the card's own layout sizes; the INNER one is what a marquee moves,
     // and a bare text node could not be moved at all.
-    cards["sectionTitle"].template.contains(#"<h2 class="fh-section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
+    cards["sectionTitle"].tag == "h2"
+    cards["sectionTitle"].classes == "fh-section fh-text"
+    cards["sectionTitle"].template.contains(#"<span class="fh-text-run">{{label}}</span>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
     cards["tile"].template.contains(#"<span class="fh-sub fh-text">"#)
     // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
@@ -1065,10 +1125,11 @@ facts {
     local after = c.button("x", tap).columns(3).active(c.isOn(kitchen))
     local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
     after.cell == before.cell
-    after.cell.classes["fh-cols-3"] == true
+    after.cell.layout.toList() == List("fh-cols-3")
     liveOn.apply(after, "fh-active")
     c.button("x", tap).active(true).columns(3).cell.classes.toMap()
-      == Map("fh-cols-3", true, "fh-active", true)
+      == Map("fh-active", true)
+    c.button("x", tap).active(true).columns(3).cell.layout.toList() == List("fh-cols-3")
   }
 
   ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
@@ -1190,7 +1251,7 @@ facts {
 
   ["a card's own on state survives a builder that ran before it"] {
     // `.columns(n)` replaces the builder classes whole; `active` is not one.
-    c.button("x", c.tap.toggle(kitchen)).columns(3).active(true).cell.classes.keys.toList().sort()
+    rootClasses.apply(c.button("x", c.tap.toggle(kitchen)).columns(3).active(true)).sort()
       == List("fh-active", "fh-cols-3")
   }
 
@@ -1288,8 +1349,8 @@ facts {
     local sw = c.toggle(kitchen)
     local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
-    t.contains(#"<article class="fh-card fh-toggle fh-tile-card" "#)
-    t.split("<label").first.contains("data-class:fh-error")
+    c.cards["switch"].tag == "article"
+    c.cards["switch"].attrs.contains("data-class:fh-error")
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,
     // shared rather than node-scoped.
@@ -1328,7 +1389,7 @@ facts {
     // The fill is a function of TWO entities, so it cannot be a transform: a
     // slot reads one entity. The guard is the substance — a `total` reading
     // `unknown` makes NaN, and the bar sits empty rather than painting NaN%.
-    local t = c.cards["progressBar"].template
+    local t = c.cards["progressBar"].attrs
     t.contains("{{#down.has}}100 - {{/down.has}}")
     t.contains(")) || 0")
   }
@@ -1375,7 +1436,7 @@ facts {
       unit_of_measurement = "s"
     }
     c.bar.remaining(remainingMin, programSecs).slotsByName["scale"].value == "60.0"
-    c.cards["progressBar"].template.contains(" * {{scale}}")
+    c.cards["progressBar"].attrs.contains(" * {{scale}}")
   }
 
   ["a percentage bar reads one entity and divides by nothing"] {

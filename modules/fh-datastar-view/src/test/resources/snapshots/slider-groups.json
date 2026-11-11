@@ -22,6 +22,8 @@
                         "classes" : {
                           "fh-slider-controls-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -61,6 +63,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -76,6 +80,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -245,6 +251,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -260,6 +268,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -433,6 +443,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -448,6 +460,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -618,6 +632,8 @@
                         "classes" : {
                           "fh-slider-controls-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -657,6 +673,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -672,6 +690,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -823,6 +843,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -838,6 +860,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -997,6 +1021,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -1012,6 +1038,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -1161,6 +1189,8 @@
                   "classes" : {
                     "fh-slider-controls-cell" : true
                   },
+                  "layout" : [
+                  ],
                   "styles" : {
                     
                   }
@@ -1200,6 +1230,8 @@
                           },
                           "fh-slider-head-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -1215,6 +1247,8 @@
                               "classes" : {
                                 "fh-slider-text" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -1368,6 +1402,8 @@
                           },
                           "fh-slider-head-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -1383,6 +1419,8 @@
                               "classes" : {
                                 "fh-slider-text" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -1540,6 +1578,8 @@
                           },
                           "fh-slider-head-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -1555,6 +1595,8 @@
                               "classes" : {
                                 "fh-slider-text" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -1692,6 +1734,8 @@
                         "classes" : {
                           "fh-slider-pill-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -1719,9 +1763,11 @@
                                       "otherwise" : true
                                     }
                                   ]
-                                },
-                                "fh-hug" : true
+                                }
                               },
+                              "layout" : [
+                                "fh-hug"
+                              ],
                               "styles" : {
                                 
                               }
@@ -1798,8 +1844,11 @@
                                   "card" : "pill",
                                   "cell" : {
                                     "classes" : {
-                                      "fh-hug" : true
+                                      
                                     },
+                                    "layout" : [
+                                      "fh-hug"
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -1852,8 +1901,11 @@
                                   "card" : "pill",
                                   "cell" : {
                                     "classes" : {
-                                      "fh-hug" : true
+                                      
                                     },
+                                    "layout" : [
+                                      "fh-hug"
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -1906,8 +1958,11 @@
                                   "card" : "pill",
                                   "cell" : {
                                     "classes" : {
-                                      "fh-hug" : true
+                                      
                                     },
+                                    "layout" : [
+                                      "fh-hug"
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -2002,6 +2057,8 @@
                         "classes" : {
                           "fh-slider-controls-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -2041,6 +2098,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -2056,6 +2115,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -2225,6 +2286,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -2240,6 +2303,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -2413,6 +2478,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -2428,6 +2495,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -2579,6 +2648,8 @@
                               "classes" : {
                                 "fh-slider-pill-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -2605,8 +2676,11 @@
                                         "card" : "pill",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-hug" : true
+                                            
                                           },
+                                          "layout" : [
+                                            "fh-hug"
+                                          ],
                                           "styles" : {
                                             
                                           }
@@ -2659,8 +2733,11 @@
                                         "card" : "pill",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-hug" : true
+                                            
                                           },
+                                          "layout" : [
+                                            "fh-hug"
+                                          ],
                                           "styles" : {
                                             
                                           }
@@ -2713,8 +2790,11 @@
                                         "card" : "pill",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-hug" : true
+                                            
                                           },
+                                          "layout" : [
+                                            "fh-hug"
+                                          ],
                                           "styles" : {
                                             
                                           }
@@ -2801,6 +2881,8 @@
                         "classes" : {
                           "fh-slider-controls-cell" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -2840,6 +2922,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -2855,6 +2939,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -3024,6 +3110,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -3039,6 +3127,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -3212,6 +3302,8 @@
                                 },
                                 "fh-slider-head-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -3227,6 +3319,8 @@
                                     "classes" : {
                                       "fh-slider-text" : true
                                     },
+                                    "layout" : [
+                                    ],
                                     "styles" : {
                                       
                                     }
@@ -3378,6 +3472,8 @@
                               "classes" : {
                                 "fh-slider-pill-cell" : true
                               },
+                              "layout" : [
+                              ],
                               "styles" : {
                                 
                               }
@@ -3404,8 +3500,11 @@
                                         "card" : "pill",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-hug" : true
+                                            
                                           },
+                                          "layout" : [
+                                            "fh-hug"
+                                          ],
                                           "styles" : {
                                             
                                           }
@@ -3458,8 +3557,11 @@
                                         "card" : "pill",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-hug" : true
+                                            
                                           },
+                                          "layout" : [
+                                            "fh-hug"
+                                          ],
                                           "styles" : {
                                             
                                           }
@@ -3512,8 +3614,11 @@
                                         "card" : "pill",
                                         "cell" : {
                                           "classes" : {
-                                            "fh-hug" : true
+                                            
                                           },
+                                          "layout" : [
+                                            "fh-hug"
+                                          ],
                                           "styles" : {
                                             
                                           }
@@ -3611,6 +3716,8 @@
                     },
                     "fh-slider-head-cell" : true
                   },
+                  "layout" : [
+                  ],
                   "styles" : {
                     
                   }
@@ -3638,9 +3745,11 @@
                                 "otherwise" : true
                               }
                             ]
-                          },
-                          "fh-hug" : true
+                          }
                         },
+                        "layout" : [
+                          "fh-hug"
+                        ],
                         "styles" : {
                           
                         }
@@ -3706,6 +3815,8 @@
                         "classes" : {
                           "fh-slider-text" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -3844,6 +3955,8 @@
                       ]
                     }
                   },
+                  "layout" : [
+                  ],
                   "styles" : {
                     
                   }
@@ -3949,6 +4062,8 @@
                     },
                     "fh-slider-head-cell" : true
                   },
+                  "layout" : [
+                  ],
                   "styles" : {
                     
                   }
@@ -3964,6 +4079,8 @@
                         "classes" : {
                           "fh-slider-text" : true
                         },
+                        "layout" : [
+                        ],
                         "styles" : {
                           
                         }
@@ -4090,10 +4207,10 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+      "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "pill" : {
-      "template" : "{{#href}}<a class=\"fh-chip {{#round.has}}fh-circle{{/round.has}} {{#current}}fh-current-dashboard{{/current}}\"{{#current}} aria-current=\"page\"{{/current}} href=\"{{href}}\"{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</a>{{/href}}{{^href}}<button class=\"fh-chip {{#round.has}}fh-circle{{/round.has}}\" data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}{{#busyVisual.has}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual.has}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>{{/href}}"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}>{{#href}}<a class=\"fh-chip {{#round.has}}fh-circle{{/round.has}} {{#current}}fh-current-dashboard{{/current}}\"{{#current}} aria-current=\"page\"{{/current}} href=\"{{href}}\"{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</a>{{/href}}{{^href}}<button class=\"fh-chip {{#round.has}}fh-circle{{/round.has}}\" data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}{{#busyVisual.has}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual.has}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>{{/href}}</div>"
     },
     "selectVarCycle" : {
       "regions" : {
@@ -4101,7 +4218,7 @@
           "fill" : "baked"
         }
       },
-      "template" : "<div id=\"{{hostId}}\" class=\"fh-select-cycles\">{{{panel}}}</div>"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div id=\"{{hostId}}\" class=\"fh-select-cycles\">{{{panel}}}</div></div>"
     },
     "slider" : {
       "regions" : {
@@ -4113,7 +4230,7 @@
         }
       },
       "script" : "(() => {\n  const ARM_PX = 6, SCROLL_PX = 10, TAP_MS = 350, STILL_MS = 400;\n  let wrap = null, input = null, x0 = 0, y0 = 0, t0 = 0, pointerId = 0;\n  let armed = false, tap = false, lastScroll = 0;\n  document.addEventListener('scroll', () => { lastScroll = Date.now(); },\n    { capture: true, passive: true });\n\n  const release = () => {\n    if (wrap) {\n      wrap.classList.remove('fh-armed');\n      try { wrap.releasePointerCapture(pointerId); } catch (e) {}\n    }\n    wrap = null; input = null; armed = false; tap = false;\n  };\n\n  const setAt = (clientX, commit) => {\n    if (!wrap || !input) return;\n    const box = wrap.getBoundingClientRect();\n    if (!box.width) return;\n    const min = +input.min || 0, max = +input.max || 100, step = +input.step || 1;\n    const along = Math.min(1, Math.max(0, (clientX - box.left) / box.width));\n    const value = Math.min(max, Math.max(min,\n      Math.round((min + along * (max - min)) / step) * step));\n    if (value != +input.value) {\n      input.value = value;\n      input.dispatchEvent(new Event('input', { bubbles: true }));\n    }\n    if (commit) input.dispatchEvent(new Event('change', { bubbles: true }));\n  };\n\n  document.addEventListener('pointerdown', (e) => {\n    if (e.pointerType === 'mouse') return;\n    const slider = e.target && e.target.closest && e.target.closest('.fh-slider');\n    if (!slider) return;\n    release();\n    const range = slider.querySelector('input[type=range]');\n    if (!range) return;\n    wrap = slider; input = range;\n    x0 = e.clientX; y0 = e.clientY; t0 = e.timeStamp; pointerId = e.pointerId;\n    tap = Date.now() - lastScroll > STILL_MS;\n  }, true);\n\n  document.addEventListener('pointermove', (e) => {\n    if (!wrap) return;\n    const dx = e.clientX - x0, dy = e.clientY - y0;\n    if (!armed) {\n      if (Math.abs(dy) > SCROLL_PX && Math.abs(dy) > Math.abs(dx)) { release(); return; }\n      if (Math.abs(dx) < ARM_PX) return;\n      armed = true;\n      wrap.classList.add('fh-armed');\n      try { wrap.setPointerCapture(pointerId); } catch (e) {}\n      if (navigator.vibrate) navigator.vibrate(8);\n    }\n    setAt(e.clientX, false);\n  }, true);\n\n  const end = (e) => {\n    if (!wrap) return;\n    const isTap = tap && e.timeStamp - t0 <= TAP_MS\n      && Math.abs(e.clientX - x0) < ARM_PX && Math.abs(e.clientY - y0) < SCROLL_PX;\n    if (e.type === 'pointerup' && (armed || isTap)) setAt(e.clientX, true);\n    release();\n  };\n  document.addEventListener('pointerup', end, true);\n  document.addEventListener('pointercancel', end, true);\n})();",
-      "template" : "<article class=\"fh-card fh-slider-card {{#group.has}}fh-slider-group{{/group.has}}\">{{{head}}}<div class=\"fh-slider-members\">{{{children}}}</div></article>"
+      "template" : "<article class=\"fh-cell fh-card fh-slider-card {{#group.has}}fh-slider-group{{/group.has}}{{{cellClasses}}}\"{{{cell}}}>{{{head}}}<div class=\"fh-slider-members\">{{{children}}}</div></article>"
     },
     "sliderControls" : {
       "regions" : {
@@ -4124,7 +4241,7 @@
           "fill" : "baked"
         }
       },
-      "template" : "<div class=\"fh-slider-controls\"><div id=\"{{hostId}}\" class=\"fh-slider-controls-panel\">{{{panel}}}</div>{{{children}}}</div>"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-slider-controls\"><div id=\"{{hostId}}\" class=\"fh-slider-controls-panel\">{{{panel}}}</div>{{{children}}}</div></div>"
     },
     "sliderHead" : {
       "regions" : {
@@ -4135,7 +4252,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-slider-body\">\n  <div class=\"fh-slider-head {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\">\n    {{#icon.has}}<span class=\"fh-badge fh-icon-shape fh-slider-icon {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\" data-attr:aria-busy=\"$_{{id}}__busy_change_slow\"{{/busyVisual.has}}><i class=\"mdi {{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}\n    {{{text}}}\n    {{#state.has}}<span class=\"fh-reading\" {{{state.bind}}}>{{state}}</span>{{/state.has}}\n    <div class=\"fh-slider-actions\">{{{actions}}}</div>\n  </div>\n  <div class=\"fh-slider {{#hueTrack.has}}fh-track-hue{{/hueTrack.has}} {{#kelvinTrack.has}}fh-track-kelvin{{/kelvinTrack.has}} {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>\n    {{^toggle.has}}<input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value.bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: '{{value}}' }\"\n      data-bind=\"_{{id}}__slide\"\n      {{#value.signal}}data-on-signal-patch-filter=\"{include:/^{{value.signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = {{{value.jsValue}}}\"{{/value.signal}}\n      data-effect=\"$_sse > 0 && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"\n      data-on:input=\"{{#fill.signal}}${{fill.signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}; ${{state.signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = (evt.target.value >= {{min}} ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}}\"\n      data-on:change=\"{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}$_{{id}}__busy_change ? '' : @post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', {payload: {data: {'{{dataKey}}': {{#valueRest}}[{{/valueRest}}Number($_{{id}}__slide){{#valueRest}}{{valueRest}}]{{/valueRest}} } } })\" />{{/toggle.has}}\n    <span style=\"--fh-fill: {{fill}};background:{{fillColor}}\" {{{fill.bind}}} {{{fillColor.bind}}}></span>\n    {{#toggle.has}}<button type=\"button\" class=\"fh-slider-toggle\" aria-label=\"{{label}}\"\n      {{{value.bind}}}\n      data-on:click=\"$_{{id}}__busy_change ? '' : {{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"></button>{{/toggle.has}}\n  </div>\n</div>"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-slider-body\">\n  <div class=\"fh-slider-head {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\">\n    {{#icon.has}}<span class=\"fh-badge fh-icon-shape fh-slider-icon {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\" data-attr:aria-busy=\"$_{{id}}__busy_change_slow\"{{/busyVisual.has}}><i class=\"mdi {{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}\n    {{{text}}}\n    {{#state.has}}<span class=\"fh-reading\" {{{state.bind}}}>{{state}}</span>{{/state.has}}\n    <div class=\"fh-slider-actions\">{{{actions}}}</div>\n  </div>\n  <div class=\"fh-slider {{#hueTrack.has}}fh-track-hue{{/hueTrack.has}} {{#kelvinTrack.has}}fh-track-kelvin{{/kelvinTrack.has}} {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>\n    {{^toggle.has}}<input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value.bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: '{{value}}' }\"\n      data-bind=\"_{{id}}__slide\"\n      {{#value.signal}}data-on-signal-patch-filter=\"{include:/^{{value.signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = {{{value.jsValue}}}\"{{/value.signal}}\n      data-effect=\"$_sse > 0 && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"\n      data-on:input=\"{{#fill.signal}}${{fill.signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}; ${{state.signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = (evt.target.value >= {{min}} ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}}\"\n      data-on:change=\"{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}$_{{id}}__busy_change ? '' : @post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', {payload: {data: {'{{dataKey}}': {{#valueRest}}[{{/valueRest}}Number($_{{id}}__slide){{#valueRest}}{{valueRest}}]{{/valueRest}} } } })\" />{{/toggle.has}}\n    <span style=\"--fh-fill: {{fill}};background:{{fillColor}}\" {{{fill.bind}}} {{{fillColor.bind}}}></span>\n    {{#toggle.has}}<button type=\"button\" class=\"fh-slider-toggle\" aria-label=\"{{label}}\"\n      {{{value.bind}}}\n      data-on:click=\"$_{{id}}__busy_change ? '' : {{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"></button>{{/toggle.has}}\n  </div>\n</div></div>"
     },
     "sliderPill" : {
       "regions" : {
@@ -4143,10 +4260,10 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-slider-pill\">{{{children}}}</div>"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-slider-pill\">{{{children}}}</div></div>"
     },
     "sliderText" : {
-      "template" : "<strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</div>"
     },
     "tile" : {
       "regions" : {
@@ -4154,9 +4271,10 @@
           "fill" : "eager"
         }
       },
-      "template" : "<article class=\"fh-card fh-entity fh-tile-card\">\n  <div class=\"fh-tile {{#tappable.has}}fh-tappable{{/tappable.has}} {{#tapDisabled}}fh-disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}fh-disabled{{/disabled}}{{/tapDisabled}}\"{{#tappable.has}}\n  data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{/tappable.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\" {{{label.bind}}}>{{label}}</span></span>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value.bind}}}>{{value}}</span></span>{{#secondary.has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</span></div>{{{features}}}\n</article>"
+      "template" : "<article class=\"fh-cell fh-card fh-entity fh-tile-card{{{cellClasses}}}\"{{{cell}}}>  <div class=\"fh-tile {{#tappable.has}}fh-tappable{{/tappable.has}} {{#tapDisabled}}fh-disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}fh-disabled{{/disabled}}{{/tapDisabled}}\"{{#tappable.has}}\n  data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{/tappable.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\" {{{label.bind}}}>{{label}}</span></span>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value.bind}}}>{{value}}</span></span>{{#secondary.has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</span></div>{{{features}}}</article>"
     }
   },
+  "failedLabel" : "<span class=\"fh-label fh-label-error fh-text\"><span class=\"fh-text-run\">{{text}}</span></span>",
   "surfaces" : {
     
   }

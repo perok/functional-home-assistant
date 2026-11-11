@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import cats.effect.IO
@@ -45,8 +46,8 @@ class SetMembershipSuite extends ServerHarness {
 
   private def caseDash = Dashboard(
     cards = Map(
-      "bright" -> CardDef("<b>{{state}}</b>"),
-      "dim" -> CardDef("<i>{{state}}</i>")
+      "bright" -> TestCard("<b>{{state}}</b>"),
+      "dim" -> TestCard("<i>{{state}}</i>")
     ),
     card = onSet(
       List("light.a", "light.b"),
@@ -69,7 +70,7 @@ class SetMembershipSuite extends ServerHarness {
 
   private def crossDash = Dashboard(
     cards = Map(
-      "dot" -> CardDef(
+      "dot" -> TestCard(
         "<span>{{state}}/{{extra}}</span>"
       )
     ),
@@ -96,8 +97,8 @@ class SetMembershipSuite extends ServerHarness {
 
   private def literalCaseDash = Dashboard(
     cards = Map(
-      "live" -> CardDef("<b>{{state}}</b>"),
-      "plain" -> CardDef("<i>{{label}}</i>")
+      "live" -> TestCard("<b>{{state}}</b>"),
+      "plain" -> TestCard("<i>{{label}}</i>")
     ),
     card = onSet(
       List("light.a", "light.b"),
@@ -265,11 +266,11 @@ class SetMembershipSuite extends ServerHarness {
     */
   private def surfaceDynDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "dot" -> CardDef(
+      "dot" -> TestCard(
         "<span>{{state}}/{{level}}</span>"
       )
     ),
@@ -333,11 +334,11 @@ class SetMembershipSuite extends ServerHarness {
     */
   private def nestedSurfaceDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "dot" -> CardDef("<span>{{state}}</span>")
+      "dot" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component("col"),
     surfaces = Map(
