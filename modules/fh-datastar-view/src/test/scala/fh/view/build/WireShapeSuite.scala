@@ -6,6 +6,8 @@ import fh.view.model.{
   SortTerm,
   Access,
   Activation,
+  CardDef,
+  Case,
   Cell,
   Dashboard,
   LayoutNode,
@@ -198,6 +200,8 @@ class WireShapeSuite extends munit.FunSuite {
   test("ordering and layout-cell shapes agree on both sides") {
     check("SortTerm", SortTerm(Conds.prop("state")))
     check("Cell", Cell())
+    // `CardDef` is the author's side; `cardsIn` lowers it to a `WireCard`.
+    check("WireCard", CardDef(""))
   }
 
   test("the slot shape agrees, minus what only one side names") {
@@ -235,7 +239,12 @@ class WireShapeSuite extends munit.FunSuite {
       Window.Statistics(1L, StatisticsPeriod.Hour),
       pklOnly = Set("kind")
     )
-    check("Chosen", Choice.Chosen("w", Map.empty), pklOnly = Set("kind"))
+    check(
+      "Chosen",
+      Choice.Chosen(ValueExpr(Value.Var("w")), Nil),
+      pklOnly = Set("kind")
+    )
+    check("Case", Case(Lit.Text("1h"), Window.Raw(1L)))
   }
 
   test("the value model agrees on both sides") {
@@ -246,6 +255,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("Tally", Value.Present(Nil, Map.empty))
     check("PresentList", Value.Present(Nil, Map.empty))
     check("ListRead", Value.List(ValueType.Bool, Nil))
+    check("VarRead", Value.Var("x"))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     // Scala's `inputs` is Pkl's `wireInputs`: Pkl's `inputs` is the hidden one.
@@ -305,7 +315,8 @@ class WireShapeSuite extends munit.FunSuite {
           "FetchRead",
           "Tally",
           "ListRead",
-          "CelRead"
+          "CelRead",
+          "VarRead"
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple

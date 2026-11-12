@@ -575,9 +575,9 @@ one per subtree.
 
 **The one thing still worth its own branch** is a popup claim this dashboard
 cannot serve — renamed, removed, or belonging to another dashboard. That dialog is
-in nobody's open set, so no rule reconciles it, and without a host reset it would
-sit on screen forever. A connect and a swap both send the reset
-(`Server.orphanedPopup`).
+in nobody's open set, so no rule reconciles it, and without emptying the host it would
+sit on screen forever. A connect and a swap both send a `remove` of the host's children
+(`#popups > *`, `Server.orphanedPopup`), so the chrome's host element stays.
 
 ### The first connect carries no signals
 
@@ -771,7 +771,7 @@ is why they are hardening rather than gates:
 
 ~~**The per-viewer render memo.**~~ **Landed**, and as one mechanism rather than the two
 this section anticipated. Every session renders for itself, and `RenderCache` (per slug,
-single-flight, one generation per node per selection, keyed by the renderer plus what the
+single-flight, one generation per node, keyed by the renderer plus what the
 render READ)
 is what keeps N sessions woken by one ring from rendering the same node N times. It is
 deliberately NOT keyed on the store version — a global counter, so one humidity sensor

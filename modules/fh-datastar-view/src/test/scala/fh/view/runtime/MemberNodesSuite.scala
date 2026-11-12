@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.runtime.RendererTestOps.*
@@ -29,16 +30,16 @@ import org.http4s.Status
 class MemberNodesSuite extends ServerHarness {
 
   private val cards = Map(
-    "tile" -> CardDef("<b>{{state}}</b>"),
-    "col" -> CardDef(
+    "tile" -> TestCard("<b>{{state}}</b>"),
+    "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
-    "host" -> CardDef(
+    "host" -> TestCard(
       """<div id="{{hostId}}">{{{panel}}}</div>""",
       regions = Map("panel" -> Region(Region.Baked))
     ),
-    "text" -> CardDef("<p>{{text}}</p>")
+    "text" -> TestCard("<p>{{text}}</p>")
   )
 
   private def tile(id: String) = LayoutNode.Component(

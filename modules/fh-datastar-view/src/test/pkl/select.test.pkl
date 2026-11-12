@@ -39,13 +39,13 @@ facts {
   ["style keeps what was set on the select before it; every node field is carried or the card's"] {
     local before = c.select(shade).options(List("a", "b")).columns(6).cellStyle("--x", new slotMod.Reading { entityId = "sensor.x"; steps { simpleMod.cel("state") } }) as selectMod.Select
     local after = before.style("dropdown")
-    after.cellClasses.toList() == List("fh-cols-6")
+    after.layoutClasses.toList() == List("fh-cols-6")
     after.liveStyles == before.liveStyles && !after.liveStyles.isEmpty
     after.card == "selectVarDropdown"
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
-    local carried = Set("cellClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "slots", "templateSlots", "slotsByName", "children", "regions", "wireInputs", "inlineSurfaces")
+    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "renderClasses", "id", "vars", "inputs")
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "children", "regions", "wireInputs", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
 

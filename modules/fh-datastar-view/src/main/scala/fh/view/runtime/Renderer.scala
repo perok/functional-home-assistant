@@ -3,11 +3,13 @@ package fh.view.runtime
 import cats.effect.IO
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.fetch.{FetchSnapshot, Staged}
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.Series
 import fh.view.model.{
   Access,
+  CardDef,
   Cell,
+  Choice,
   ChromeColors,
   Dashboard,
   DomId,
@@ -45,7 +47,7 @@ private[runtime] case class Painted(
 )
 
 /** A walk's accumulator: what each own-rendering node painted, and the signals
-  * a structural node's wrapper seeded. Structure has no bytes of its own to
+  * a structural node's root seeded. Structure has no bytes of its own to
   * digest, but the client holds its seed all the same; left out, a node's first
   * frame after a page load re-sent every value it already had.
   */
@@ -109,18 +111,24 @@ private[runtime] object WalkAt {
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
   * discriminating costs a wasted render; too coarse serves stale bytes silently
   * and forever. When in doubt, over-discriminate.
+  *
+  * @param vars
+  *   the node variables its slots read, by name, at the viewer's values.
   */
 case class RenderInputs(
     entities: Map[String, Long],
-    fetches: Map[SlotRead, Long] = Map.empty
+    fetches: Map[SlotRead, Long] = Map.empty,
+    vars: Map[String, String] = Map.empty
 ) derives CanEqual {
 
   /** The partial order [[RenderCache]] uses to refuse superseded bytes.
     * Different key sets are unordered, which also keeps two viewers on
-    * different windows from displacing each other's chart.
+    * different windows from displacing each other's chart; so are different
+    * variable values, so a viewer's install replaces another value's entry.
     */
   def isAtLeast(other: RenderInputs): Boolean =
-    sameOrAhead(entities, other.entities) &&
+    vars == other.vars &&
+      sameOrAhead(entities, other.entities) &&
       sameOrAhead(fetches, other.fetches)
 
   private def sameOrAhead[K](
@@ -143,7 +151,6 @@ class Renderer(validated: Dashboard.Validated) {
   val access: Access = validated.access
 
   val themeClasses: ThemeClasses = dashboard.theme.classes
-  private val cellOpen = s"""<div class="${themeClasses.expandAll("fh-cell")}"""
   private val groupOpen =
     s"""<div class="${themeClasses.expandAll("fh-cell fh-group")}"""
   // A cell's classes are fixed, so each is swapped once per renderer rather
@@ -220,10 +227,6 @@ class Renderer(validated: Dashboard.Validated) {
   val styleHash: String = Renderer.styleFingerprint(dashboard)
 
   val warnings: List[String] = dashboard.warnings
-
-  // Their root must stay a direct child of a structural parent (tab anchors).
-  private val noWrapCards: Set[String] =
-    dashboard.cards.collect { case (name, cd) if !cd.wrapAsCell => name }.toSet
 
   /** `reactive: false` slot values by `(entityId, transform)`: they read only
     * identity, so they never change for this renderer's life. A racing fill
@@ -310,7 +313,9 @@ class Renderer(validated: Dashboard.Validated) {
       panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
-      asksAt = fetchesForNode
+      readsAt = id =>
+        fetchesForNode(id).flatMap(_.fetch.variables).toSet ++
+          variablesForNode(id)
     )
 
   /** Where a session opening on `states` opens each variable with an initial
@@ -335,9 +340,8 @@ class Renderer(validated: Dashboard.Validated) {
         .map(key -> _)
     }.toMap
 
-  /** One line per refused choice: every fetch reading the variable must find
-    * the value among its options, and every panel it selects must have a member
-    * for it.
+  /** One line per refused choice: every fetch reading the variable must find a
+    * case for the value, and every panel it selects must have a member for it.
     */
   def refusals(choices: Map[VarKey, String]): List[String] = {
     val env = vars.env(choices)
@@ -345,9 +349,8 @@ class Renderer(validated: Dashboard.Validated) {
       val why = (vars
         .readersOf(key)
         .flatMap(id =>
-          fetchesForNode(id).flatMap(
-            _.fetch.resolve(env.getOrElse(id, Map.empty)).left.toOption
-          )
+          fetchesForNode(id)
+            .flatMap(a => refusedAt(a.fetch, env.getOrElse(id, Map.empty)))
         ) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
           Option.unless(surfaces.memberAt(gid, value).isDefined)(
@@ -359,6 +362,33 @@ class Renderer(validated: Dashboard.Validated) {
       )
     }
   }
+
+  /** A value no case takes, with no `otherwise`: decided over the viewer's
+    * values alone, so a `by` that reads state is not refused for it.
+    */
+  private def refusedAt(
+      f: FetchTemplate,
+      vars: Map[String, String]
+  ): Option[String] = f.window match
+    case c @ Choice.Chosen(by, cases, _) if c.refusesUntaken =>
+      val read = dashboard.answer(Map.empty, Evaluator.Lookup.of(vars))(by)
+      Option.unless(c.takes(read))(
+        s"'${Steps.text(read)}' is not one of " +
+          cases.map(k => Steps.text(k.is.raw)).sorted.mkString(", ")
+      )
+    case _ => None
+
+  /** An ask at a node: its window's `by` over `states` and the node's
+    * variables, none where it decides no case.
+    */
+  private def readOf(
+      ask: SlotAsk,
+      states: Map[String, EntityState],
+      vars: Map[String, String]
+  ): Option[SlotRead] = ask.fetch.window match
+    case Choice.Fixed(w) =>
+      Some(SlotRead(FetchRequest.History(ask.fetch.entity, w), ask.stage))
+    case _ => ask.resolve(dashboard.answer(states, Evaluator.Lookup.of(vars)))
 
   /** `offered` on top of `kept`, each under [[refusals]] on its own, so one
     * stale value costs only its own variable. In key order, so which of two
@@ -450,7 +480,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): List[SlotRead] =
     asks.flatMap { (id, f) =>
       if (f.gate.forall(gateHolds(_, shared)))
-        f.asks.map(_.resolve(env.getOrElse(id, Map.empty)))
+        f.asks.flatMap(readOf(_, shared.states, env.getOrElse(id, Map.empty)))
       else Nil
     }.distinct
 
@@ -510,9 +540,13 @@ class Renderer(validated: Dashboard.Validated) {
       Option.when(asks.nonEmpty)(m -> asks)
     }.toMap
 
-  /** Every read a node can make, whatever its `valueWhile`s decide. */
+  /** Every read a node can make, whatever its `valueWhile`s decide, over no
+    * state.
+    */
   private[runtime] def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
-    fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
+    fetchesForNode(id).flatMap(
+      readOf(_, Map.empty, env.getOrElse(id, Map.empty))
+    )
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -601,6 +635,23 @@ class Renderer(validated: Dashboard.Validated) {
       Option.when(asks.nonEmpty)(id -> asks)
     }.toMap
 
+  /** The variables a node's own slots read, a member's whole subtree's in every
+    * clause, as [[fetchesForNode]] asks.
+    */
+  private def variablesForNode(id: NodeId): Set[String] =
+    allIndexed.get(id) match {
+      case Some((c: Ready.Component, _)) => c.variables
+      case _                             =>
+        variablesBelow.getOrElse(id, Set.empty)
+    }
+
+  private lazy val variablesBelow: Map[NodeId, Set[String]] =
+    (members.memberIds.toList.map(m =>
+      m -> members.clauseNodesOf(m).flatMap(Renderer.subtreeVariables).toSet
+    ) ++ members.memberIdsBelow.map(id =>
+      id -> members.clauseNodesAt(id).flatMap(_.variables).toSet
+    )).filter(_._2.nonEmpty).toMap
+
   /** The bound a variable write is held to (ADR 0023). The model's static walk,
     * not [[Index.byEntity]], which stops at a set: this must answer for
     * entities nothing renders yet.
@@ -636,6 +687,8 @@ class Renderer(validated: Dashboard.Validated) {
     dashboard.surfaces.get(surfaceId)
 
   def stylesheets: List[String] = dashboard.theme.stylesheets
+
+  def offlineBanners: String = dashboard.theme.offlineBanners
 
   def deferredStylesheets: List[String] = dashboard.theme.deferredStylesheets
 
@@ -1046,6 +1099,9 @@ class Renderer(validated: Dashboard.Validated) {
     * No selection (only structure reads one, and structure is never cached) and
     * no children (a descendant's tick would invalidate every ancestor). `None`
     * means not cacheable: exactly [[ownRenderingOf]]'s `false`.
+    *
+    * The node variables its slots read, at this viewer's values: viewers on one
+    * value share a render, and one on another replaces the entry.
     */
   def renderInputs(
       id: NodeId,
@@ -1064,7 +1120,8 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               shared.states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, asked(c, shared))
+            readVersions(id, c, shared, fragments),
+            varsRead(id, c, fragments)
           )
         )
       case None =>
@@ -1072,10 +1129,35 @@ class Renderer(validated: Dashboard.Validated) {
           case (c: Ready.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, shared.states),
-              fragments.versions(id, asked(c, shared))
+              readVersions(id, c, shared, fragments),
+              varsRead(id, c, fragments)
             )
         }
     }
+
+  private def readVersions(
+      id: NodeId,
+      c: Ready.Component,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): Map[SlotRead, Long] =
+    val asks = asked(c, shared)
+    if (asks.isEmpty) Map.empty
+    else
+      val vars = fragments.varsAt(id)
+      fragments.versions(asks.flatMap(readOf(_, shared.states, vars)))
+
+  private def varsRead(
+      id: NodeId,
+      c: Ready.Component,
+      fragments: FetchSnapshot
+  ): Map[String, String] =
+    if (c.variables.isEmpty) Map.empty
+    else
+      val at = fragments.varsAt(id)
+      c.variables.view
+        .map(n => n -> at.getOrElse(n, Evaluator.noVariable(n)))
+        .toMap
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
@@ -1105,13 +1187,14 @@ class Renderer(validated: Dashboard.Validated) {
           )
         val plan = planOf(id, c, shared)
         val b = Map.newBuilder[String, String]
+        val in = lookupAt(fragments, plan.id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           // A live cell slot is always a signal, so only names reach here.
           if (!plan.signalSlots.contains(slot))
             b += (
               (
                 SlotKey.label(slot),
-                resolveSlot(srcEntity, source, shared, fragments, plan.id)
+                resolveSlot(srcEntity, source, shared, fragments, plan.id, in)
               )
             )
         }
@@ -1130,8 +1213,9 @@ class Renderer(validated: Dashboard.Validated) {
   /** A leaf's patch form is written directly, not taken from a [[traced]] walk,
     * which builds the document form, its digest and the trace maps a tick
     * throws away. A leaf has no children and no bake group (its card declares
-    * no region), so this is its whole body; [[wrapperInto]] is shared with the
-    * walk, and `DigestPropertySuite` pins that the two agree.
+    * no region), so this is its whole body; its root's holes are the walk's
+    * ([[NodeContext.writeHole]]), and `DigestPropertySuite` pins that the two
+    * agree.
     */
   private def render(
       node: Ready.Node,
@@ -1145,13 +1229,11 @@ class Renderer(validated: Dashboard.Validated) {
       val plan = planOf(id, c, shared)
       val resolved = resolvePlanned(plan, shared, Map.empty, viewing.fragments)
       Some(Sink.scratched { buf =>
-        wrapperInto(buf, c, id, plan, resolved, SlotForm.Patch)
         Templates.run(
           plan.tpl,
           buf,
-          NodeContext(resolved, SlotForm.Patch)
+          NodeContext(resolved, SlotForm.Patch, buf)
         )
-        if (plan.wrapped) { val _ = buf.append("</div>") }
         buf.result
       })
     case _ =>
@@ -1269,16 +1351,7 @@ class Renderer(validated: Dashboard.Validated) {
         // A second, patch-form render only where it can differ: own rendering
         // and a signal slot. Such a node has no regions, so the document
         // children below are all it composes.
-        val twoForms = plan.ownRendering && plan.declaresSignals
-        // Every node gets the renderer-owned `.fh-cell` wrapper unless its card
-        // opts out (`wrapAsCell = false`: the tab anchors, which must stay
-        // children of `.tabs`). A bake owner too — the cell is the layout
-        // item, and without it `.columns(n)` on `Tabs`/`If` is dropped.
-        //
-        // The wrapper carries the one `data-signals` seed for the whole node
-        // (ADR 0017), document form only: a second `data-signals` on an element
-        // is silently dropped by the browser.
-        val wrapped = plan.wrapped
+        val twoForms = plan.ownRendering && plan.twoForms
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
 
@@ -1296,9 +1369,6 @@ class Renderer(validated: Dashboard.Validated) {
               )
           }
 
-        def wrapper(buf: Sink, form: SlotForm): Unit =
-          wrapperInto(buf, c, id, plan, resolved, form)
-
         def bodyInto(
             buf: Sink,
             form: SlotForm
@@ -1309,7 +1379,7 @@ class Renderer(validated: Dashboard.Validated) {
             Templates.run(
               tpl,
               buf,
-              NodeContext(resolved, form)
+              NodeContext(resolved, form, buf)
             )
           else {
             val eager: Map[String, java.io.Writer => Unit] =
@@ -1356,16 +1426,12 @@ class Renderer(validated: Dashboard.Validated) {
             Templates.run(
               tpl,
               buf,
-              NodeContext(resolved, form, holes)
+              NodeContext(resolved, form, buf, holes)
             )
           }
         }
 
-        def documentInto(o: Sink): Unit = {
-          wrapper(o, SlotForm.Document)
-          bodyInto(o, SlotForm.Document)
-          if (wrapped) { val _ = o.append("</div>") }
-        }
+        def documentInto(o: Sink): Unit = bodyInto(o, SlotForm.Document)
         // One form: the sink digests the document bytes as they pass.
         val inlineDigest: Digest | Null =
           if (plan.ownRendering && !twoForms) out.digesting(documentInto)
@@ -1374,13 +1440,11 @@ class Renderer(validated: Dashboard.Validated) {
             null
           }
 
-        // Wrapper included and in patch form, as `renderNodeById` produces.
+        // In patch form, as `renderNodeById` produces.
         val own = Option.when(plan.ownRendering) {
           if (twoForms) {
             val digest = Sink.scratched(_.digesting { buf =>
-              wrapper(buf, SlotForm.Patch)
               bodyInto(buf, SlotForm.Patch)
-              if (wrapped) { val _ = buf.append("</div>") }
             })
             Painted(digest, resolved.signals)
           } else Painted(inlineDigest.nn, resolved.signals)
@@ -1418,34 +1482,46 @@ class Renderer(validated: Dashboard.Validated) {
         val _ = out.append("</div>")
     }
 
-  private def wrapperInto(
+  /** The root's `{{{cell}}}` hole, after its `class`: a live style inline in
+    * the document form only, then the id, the one `data-signals` seed for the
+    * whole node (ADR 0017; document form only, since a second `data-signals` on
+    * an element is silently dropped), the cell bindings and the URL mirror.
+    */
+  private def cellInto(
       buf: Sink,
-      c: Ready.Component,
-      id: NodeId,
-      plan: NodePlan,
       resolved: Resolved,
       form: SlotForm
-  ): Unit =
-    if (plan.wrapped) {
-      cellOpenInto(buf, c.cell, resolved, form)
-      buf
-        .append(""" id="""")
-        .append(id)
-        .append('"')
-      if (!form.isPatch)
-        Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
-      cellBindingsInto(buf, c.cell, resolved)
-      // On the declarer, so a param lives as long as what it chooses for, not
-      // as long as a control choosing it (ADR 0005).
-      c.vars.filter(_.inUrl).sortBy(_.name).foreach { d =>
-        val _ = buf
-          .append(' ')
-          .append(
-            VarKey(id, d.name).urlMirrorAttr(d)
-          )
-      }
-      val _ = buf.append('>')
+  ): Unit = {
+    val plan = resolved.plan
+    val c = plan.node
+    c.cell match
+      case Some(cell) if !form.isPatch && cell.styleSlots.nonEmpty =>
+        val props = cell.styleSlots.flatMap(e =>
+          resolved.paint.get(e.key).map(v => e.name + ":" + SlotValue.text(v))
+        )
+        if (props.nonEmpty)
+          val _ = buf
+            .append(""" style="""")
+            .append(Server.escapeHtml(props.mkString(";")))
+            .append('"')
+      case _ => ()
+    buf
+      .append(""" id="""")
+      .append(plan.id)
+      .append('"')
+    if (!form.isPatch)
+      Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
+    cellBindingsInto(buf, c.cell, resolved)
+    // On the declarer, so a param lives as long as what it chooses for, not
+    // as long as a control choosing it (ADR 0005).
+    c.vars.filter(_.inUrl).sortBy(_.name).foreach { d =>
+      val _ = buf
+        .append(' ')
+        .append(
+          VarKey(plan.id, d.name).urlMirrorAttr(d)
+        )
     }
+  }
 
   def renderMemberById(
       setId: SetId,
@@ -1467,40 +1543,37 @@ class Renderer(validated: Dashboard.Validated) {
     )
 
   /** One paint's resolution as layers, not a merged map: the plan's constant
-    * layers ride by reference, and [[NodeContext.fhGet]] reads them in
-    * precedence order.
+    * layers are read through the plan, one reference rather than one per layer
+    * (each node allocates one of these per paint), and [[NodeContext.fhGet]]
+    * reads them in precedence order.
     *
-    * @param structural
-    *   constants from the node's position (ids, inherited entity)
-    * @param constants
-    *   literal and identity-`once` slot values
-    * @param jsConstants
-    *   their `x.jsValue`, quoted
-    * @param signalled
-    *   each signal slot's views: the plan's for a constant subject, built per
-    *   paint for a dynamic one, whose signal names can change
-    * @param slots
-    *   every slot the node sets, which is what `x.has` asks
+    * @param plan
+    *   what the paint cannot change: the node's position (`structural`), its
+    *   literal and `once` slot values and their `jsValue`s, its signal slots'
+    *   views, every slot it sets (what `x.has` asks), and the slots the patch
+    *   form withholds
     * @param paint
     *   the live slot values — empty when the card has none
     * @param bake
     *   the client's bake selection (empty off bake groups)
-    * @param signalSlots
-    *   slots withheld (blanked) in the patch form
     * @param signals
     *   the seed values, captured as they resolve
     */
   private case class Resolved(
-      structural: Map[String, String],
-      constants: Map[SlotKey, SlotValue],
-      jsConstants: Map[SlotKey, String],
-      signalled: Map[SlotKey, Signalled],
-      slots: Map[SlotKey, Planned],
+      plan: NodePlan,
       paint: Map[SlotKey, SlotValue],
       bake: Map[String, String],
-      signalSlots: Set[SlotKey],
-      signals: Map[SignalId, SlotValue]
-  )
+      signals: Map[SignalId, SlotValue],
+      // The document form's classes decided for this viewer, each spaced.
+      atRender: String = ""
+  ) {
+    def structural: Map[String, String] = plan.structural
+    def constants: Map[SlotKey, SlotValue] = plan.constants
+    def jsConstants: Map[SlotKey, String] = plan.jsConstants
+    def signalled: Map[SlotKey, Signalled] = plan.signalled
+    def slots: Map[SlotKey, Planned] = plan.slots
+    def signalSlots: Set[SlotKey] = plan.signalSlots
+  }
 
   /** A signal slot's views. `bind` is in both forms: a morph that dropped it
     * would leave the element inert; only the value is withheld.
@@ -1520,40 +1593,17 @@ class Renderer(validated: Dashboard.Validated) {
       s"$$$signal"
     )
 
-  /** A component's `<div class="fh-cell …"` from its cell slots: a literal
-    * class always, a live class or style inline in the document form only,
-    * where signal values are not withheld. Their bindings are
-    * [[cellBindingsInto]].
-    */
-  private def cellOpenInto(
-      buf: Sink,
-      cell: Option[Ready.Cell],
-      r: Resolved,
-      form: SlotForm
-  ): Unit = {
-    buf.append(cellOpen)
-    cellClassesInto(buf, cell, if (form.isPatch) null else r.paint)
-    val _ = buf.append('"')
-    cell match
-      case Some(c) if !form.isPatch && c.styleSlots.nonEmpty =>
-        val props = c.styleSlots.flatMap(e =>
-          r.paint.get(e.key).map(v => e.name + ":" + SlotValue.text(v))
-        )
-        if (props.nonEmpty)
-          val _ = buf
-            .append(""" style="""")
-            .append(Server.escapeHtml(props.mkString(";")))
-            .append('"')
-      case _ => ()
-  }
-
-  /** Each with its leading space; `validate` checks they are plain class
-    * tokens. A live class only where `paint` is given and holds it truthy.
+  /** The root's `{{{cellClasses}}}` hole, and a set's: each with its leading
+    * space; `validate` checks they are plain class tokens. A live class only
+    * where `paint` is given (the document form) and holds it truthy; its
+    * binding is [[cellBindingsInto]]. `atRender` is the document form's classes
+    * decided for the viewer, after the rest.
     */
   private def cellClassesInto(
       buf: Sink,
       cell: Option[Ready.Cell],
-      paint: Map[SlotKey, SlotValue] | Null
+      paint: Map[SlotKey, SlotValue] | Null,
+      atRender: String = ""
   ): Unit = cell match
     case Some(c) =>
       c.classSlots.foreach { e =>
@@ -1565,12 +1615,13 @@ class Renderer(validated: Dashboard.Validated) {
           val _ = buf.append(cellClassTexts.computeIfAbsent(e.name, expandCell))
         }
       }
+      val _ = buf.append(atRender)
     case None => ()
 
-  /** In both forms, and AFTER the wrapper's own `data-signals`: the bundle
-    * applies an element's attributes in order, so a binding ahead of the seed
-    * reads a signal that does not exist yet (`Cannot read properties of
-    * undefined`, the first `LiveCellClassSmokeSuite` run).
+  /** In both forms, and AFTER the root's own `data-signals`: the bundle applies
+    * an element's attributes in order, so a binding ahead of the seed reads a
+    * signal that does not exist yet (`Cannot read properties of undefined`, the
+    * first `LiveCellClassSmokeSuite` run).
     */
   private def cellBindingsInto(
       buf: Sink,
@@ -1600,9 +1651,27 @@ class Renderer(validated: Dashboard.Validated) {
   private case class NodeContext(
       resolved: Resolved,
       form: SlotForm,
+      // What the root's holes and the regions write into.
+      out: Sink,
       // Each region the walk fills, written at its `{{{name}}}`.
       override val writerHoles: Map[String, java.io.Writer => Unit] = Map.empty
   ) extends Templates.FhScope {
+
+    override def writeHole(name: String, writer: java.io.Writer): Boolean =
+      if (name == CardDef.CellClassesHole) {
+        if (form.isPatch) cellClassesInto(out, resolved.plan.node.cell, null)
+        else
+          cellClassesInto(
+            out,
+            resolved.plan.node.cell,
+            resolved.paint,
+            resolved.atRender
+          )
+        true
+      } else if (name == CardDef.CellHole) {
+        cellInto(out, resolved, form)
+        true
+      } else super.writeHole(name, writer)
 
     def fhGet(name: String): AnyRef =
       if (form.isPatch && resolved.signalSlots.contains(name)) ""
@@ -1665,8 +1734,9 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       signalSeed: Datastar.SignalSeed,
       ownRendering: Boolean,
-      declaresSignals: Boolean,
-      wrapped: Boolean,
+      // The document form differs from the patch form: a signal's value and
+      // seed, or a class decided at render.
+      twoForms: Boolean,
       nodeCount: Int
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
@@ -1791,8 +1861,8 @@ class Renderer(validated: Dashboard.Validated) {
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
-      declaresSignals = c.slots.values.exists(Renderer.isSignalSlot),
-      wrapped = !noWrapCards(c.card),
+      twoForms = c.slots.values.exists(Renderer.isSignalSlot) ||
+        c.cell.exists(_.atRender.nonEmpty),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
     )
@@ -1810,26 +1880,39 @@ class Renderer(validated: Dashboard.Validated) {
     val signalB =
       if (plan.signalNameBySlot.isEmpty) None
       else Some(Map.newBuilder[SignalId, SlotValue])
+    // One per node: its slots read the same answers and variables.
+    val in = lookupAt(fragments, plan.id, shared.states)
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
       val value =
-        resolveSlotValue(srcEntity, source, shared, fragments, plan.id)
+        resolveSlotValue(srcEntity, source, shared, fragments, plan.id, in)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
         .foreach(sig => signalB.foreach(_ += ((sig, value))))
     }
     Resolved(
-      plan.structural,
-      plan.constants,
-      plan.jsConstants,
-      plan.signalled,
-      plan.slots,
+      plan,
       paint = paintB.result(),
       bake = bakeIndex,
-      plan.signalSlots,
-      signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
+      signalB.fold(Map.empty[SignalId, SlotValue])(_.result()),
+      atRenderOf(plan, shared, fragments)
     )
   }
+
+  private def atRenderOf(
+      plan: NodePlan,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): String = plan.node.cell match
+    case Some(c) if c.atRender.nonEmpty =>
+      val in = lookupAt(fragments, plan.id, shared.states)
+      val subject: EntityState | Null =
+        plan.node.subjectEntity.fold(null)(shared.states.getOrElse(_, null))
+      c.atRender.iterator
+        .filter(a => Evaluator.holds(a.run(subject, shared.states, in)))
+        .map(a => cellClassTexts.computeIfAbsent(a.name, expandCell))
+        .mkString
+    case _ => ""
 
   /** The signal values one node carries (ADR 0017), never its children's:
     * descending would name a child's signal under its parent and leave the
@@ -1861,18 +1944,14 @@ class Renderer(validated: Dashboard.Validated) {
       else {
         val b = Map.newBuilder[SignalId, SlotValue]
         b.sizeHint(plan.signalNameBySlot.size)
+        val in = lookupAt(fragments, id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           plan.signalNameBySlot
             .get(slot)
             .foreach(sig =>
               b += ((
                 sig,
-                resolveStateSlotValue(
-                  srcEntity,
-                  source,
-                  shared,
-                  fetchedIn(fragments, id)
-                )
+                resolveStateSlotValue(srcEntity, source, shared, in)
               ))
             )
         }
@@ -1887,10 +1966,11 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned.Live,
       shared: Shared,
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      in: Evaluator.Lookup
   ): String =
     SlotValue.text(
-      resolveSlotValue(srcEntity, source, shared, fragments, node)
+      resolveSlotValue(srcEntity, source, shared, fragments, node, in)
     )
 
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
@@ -1901,40 +1981,63 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned.Live,
       shared: Shared,
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      in: Evaluator.Lookup
   ): SlotValue = source.source.shape match {
     case SlotShape.Fetch(_) if withheld(source, shared) =>
       ""
-    // Answered before the walk began; `FetchSnapshot` raises on a miss.
+    // Answered before the walk began; `FetchSnapshot` raises on a miss. A
+    // choice that decides no case asks nothing, and reads as no value.
     case SlotShape.Fetch(ask) =>
-      val answer = fragments.staged(node, ask)
-      // The failure is the runtime's own markup (`Fetches.label`), whose
-      // `fh-` classes the theme renames as it does a card's.
-      if (answer.version == Staged.FailedVersion)
-        themeClasses.rewriteTemplate(answer.value)
-      else answer.value
+      readOf(ask, shared.states, fragments.varsAt(node)) match
+        case Some(read) =>
+          val answer = fragments.staged(read)
+          if (answer.version == Staged.FailedVersion)
+            failedLabelText(answer.value)
+          else answer.value
+        case None =>
+          source.source.default match
+            case Some(Lit.Bool(b)) => b
+            case d                 => d.fold("")(l => Steps.text(l.raw))
     case SlotShape.State(_) =>
-      resolveStateSlotValue(
-        srcEntity,
-        source,
-        shared,
-        fetchedIn(fragments, node)
-      )
+      resolveStateSlotValue(srcEntity, source, shared, in)
   }
 
-  /** A fetch value's answer, as CEL reads it. */
-  private def fetchedIn(fragments: FetchSnapshot, node: NodeId)(
-      f: FetchTemplate
-  ): Object =
-    Series.celPoints(
-      fragments.value(node, SlotAsk(f, Step.Json))
-    )
+  /** The dashboard's `failedLabel` filled in; nothing for a failure with no
+    * text to show.
+    */
+  private def failedLabelText(text: String): String =
+    if text.isEmpty then ""
+    else {
+      val out = new java.io.StringWriter()
+      Templates.run(
+        templates.failedLabel,
+        out,
+        Renderer.FailedLabelScope(Map("text" -> text))
+      )
+      out.toString
+    }
+
+  /** What `node`'s slots read besides state: a fetch value's answer as CEL
+    * reads it, and the node's variables at the values the answers were fetched
+    * for.
+    */
+  private def lookupAt(
+      fragments: FetchSnapshot,
+      node: NodeId,
+      states: Map[String, EntityState]
+  ): Evaluator.Lookup = new Evaluator.Lookup:
+    def fetched(f: FetchTemplate): Object =
+      readOf(SlotAsk(f, Step.Json), states, fragments.varsAt(node))
+        .fold(null)(r => Series.celPoints(fragments.staged(r).value))
+    def variable(name: String): String =
+      fragments.varsAt(node).getOrElse(name, Evaluator.noVariable(name))
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
       planned: Planned.Live,
       shared: Shared,
-      fetched: FetchTemplate => Object
+      fetched: Evaluator.Lookup
   ): SlotValue = {
     val source = planned.source
     val st: EntityState | Null =
@@ -1995,6 +2098,19 @@ object Renderer {
       case _: Ready.SetNode => Nil
     }
 
+  /** [[subtreeAsks]]' twin for the variables its slots read. */
+  private def subtreeVariables(node: Ready.Node): Set[String] =
+    node match {
+      case c: Ready.Component =>
+        c.variables ++ c.allChildren.flatMap(subtreeVariables)
+      case _: Ready.SetNode => Set.empty
+    }
+
+  private final class FailedLabelScope(values: Map[String, String])
+      extends Templates.FhScope {
+    def fhGet(name: String): AnyRef = values.getOrElse(name, null)
+  }
+
   /** The chrome's scope: no names, only the body and dialog holes. */
   private final class PageScope(holes: Map[String, java.io.Writer => Unit])
       extends Templates.FhScope {
@@ -2024,6 +2140,7 @@ object Renderer {
         dashboard.theme.inlineScripts,
         dashboard.cardScripts,
         dashboard.theme.chrome,
+        dashboard.theme.offlineBanners,
         // The one token-derived head part a style patch cannot repair.
         themeColorTags(dashboard)
       ).toString
@@ -2152,7 +2269,7 @@ object Renderer {
       }
     }
 
-  /** A shipped leaf is 1-2 kB with wrapper and seed; 512 made every leaf grow
+  /** A shipped leaf is 1-2 kB with its root and seed; 512 made every leaf grow
     * twice.
     */
   private[runtime] val NodeBytesHint = 1024

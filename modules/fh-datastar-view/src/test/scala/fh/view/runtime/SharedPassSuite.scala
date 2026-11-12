@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -27,11 +28,11 @@ class SharedPassSuite extends ServerHarness {
   // later heals it; the other is a barrier proving the connection is live.
   private def twoLeafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>")
+      "card" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",

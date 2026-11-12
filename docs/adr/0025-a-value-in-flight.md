@@ -341,16 +341,18 @@ restore makes it fail.
 
 A live list, not a backlog — delete an entry when it is answered.
 
-**One card still reads `_sse` by literal name**, and it is the slider's
-dead-stream rollback. The tabs half is gone — that rule moved to the page shell,
-where the counter already lives — so what is left is the single case that could
-not follow it, for a reason worth stating rather than working around:
+**Two cards still read the transport counter**, through `core/shell.pkl`'s
+`streamDown`: the slider's and the colour wheel's dead-stream rollback. The tabs
+half is gone — that rule moved to the page shell, where the counter already
+lives — so what is left is the one case that could not follow it, for a reason
+worth stating rather than working around:
 
 - The sweep can only SET a constant, and this fix is arithmetic: recompute the
   thumb, the fill and the readout from the committed value.
 - "The reconnect will restate truth" is false here, uniquely. `holds` says this
   DOM already has the correct `_<id>__value`, and it does — what is wrong is
-  `_<id>__slide`, which is client-owned and the server does not track. So the
+  `_<id>__slide` (the wheel's local hue and saturation likewise), which is
+  client-owned and the server does not track. So the
   server correctly sends nothing on reconnect and the thumb keeps lying.
 
 That makes it a genuine exception rather than a pattern, which is the important

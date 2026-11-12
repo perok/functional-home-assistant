@@ -955,6 +955,13 @@ node either of them is sent, and share one render. `RenderCacheContentionSuite` 
 renders a frame at any mix of viewers and tabs; a 2.0 would mean cost had started following the
 selection again.
 
+**A node variable a slot reads IS in the key** (`RenderInputs.vars`, ADR 0033): that node's bytes
+are the value's. Different values are unordered, so viewers on one value share one render and a
+viewer on another replaces the entry in place. The cache still keeps one entry per node, however
+many values are posted, and two values over one node alternate, each rendering — a cost only on
+ticks where the node's entities moved. The suite holds both: 1.0 a frame for viewers on one value,
+and one entry after fifty.
+
 **Sessions at different store versions is the other half, and it is an ordering problem, not a
 key problem.** Sessions pull on their own fibers and read the store when they get there, so they do
 not all render from one snapshot. Three racing — newest, straggler, newest — would otherwise cost
@@ -1156,10 +1163,12 @@ does not arise for three reasons that have to stay true:
 - nothing lets a node's input depend on a value produced DURING the walk.
 
 **A fetch's window may be CHOSEN, and it resolves PER VIEWER.** A node declares node variables
-(`Component.vars`); a fetch's window is written down or chosen by one from a table
-(`Choice.Fixed`/`Choice.Chosen`, ADR 0031); a node holds a static `SlotAsk`, and `fetchesForPage`
-resolves each one against the values in scope at that node into the `SlotRead` everything keys
-on.
+(`Component.vars`); a fetch's window is written down or chosen from its cases by what `by`
+reads (`Choice.Fixed`/`Choice.Chosen`, ADR 0033); a node holds a static `SlotAsk`, and
+`fetchesForPage` resolves each one, `by` run over the state and the values in scope at that node
+(`Renderer.readOf`), into the `SlotRead` everything keys on, or into nothing where no case takes
+it, and then the slot reads null. Because `by` may read state, the renderer resolves an ask and
+`FetchSnapshot` only answers the reads it resolved.
 
 **The values ride inside `FetchSnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
@@ -1167,6 +1176,13 @@ fetched for another's, because the resolution happens from the snapshot's own va
 NOT on a `NodePlan` — a plan is memoised per node and reused across sessions, so a
 chosen window held there would be served to the next viewer; the plan carries the node's id and
 the values come from the render.
+
+**A leaf's value slot may read a variable too** (`Value.Var`, ADR 0033), from the same values: a
+run reads them through its `Evaluator.Lookup`, which for a slot is the node's
+`FetchSnapshot.varsAt` and for a decision none at all, so a decision that reached one would throw
+rather than pick a viewer. Such a node's bytes are that viewer's value's, so its render key carries
+the values it read (`RenderInputs.vars`, §5), and `VarGraph.readersOf` counts it among the readers
+a write re-renders.
 
 A choice is addressed to the node that DECLARED the variable, which is what keeps a shadow
 independent from the write side. It arrives two ways, both narrowed to real declarations before
@@ -1268,10 +1284,10 @@ it fills shows. A target is a leaf, never structure, a set member's nodes includ
 cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
 every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 
-**A failed read is its chart's, not the render's.** `Staged.failed` puts the runtime's error label
-in a chart's hole — `core/text.pkl`'s `label` structure, a base-CSS contract like the busy and
-offline classes, held equal to the library's copy by `FailureLabelSuite` — and leaves a data hole
-empty; the version is below any real one. The page and the live stream carry on.
+**A failed read is its chart's, not the render's.** `Staged.failed` holds the error text, and the
+render fills the dashboard's `failedLabel` with it — an `error`-toned label `entry.pkl` emits from
+`core/text.pkl`'s `label` beside the base CSS, compiled with the cards — in a chart's hole, and
+leaves a data hole empty; the version is below any real one. The page and the live stream carry on.
 
 **A fetch and a drawing are each computed once, on a fiber of their own** (`fetch/SharedCache`),
 never on the fiber of whichever render asked first — a page abandoned mid-fetch cancels its asker,
@@ -1307,21 +1323,25 @@ it. A signal slot's value is not in those bytes at all (ADR 0017) — the elemen
 binding, or for a `handler` slot not even that — so the node's digest stands still while the value moves, the morph is
 suppressed, and one `datastar-patch-signals` frame carries the values for the whole batch. The
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
-instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
+instead: value inline, plus a `data-signals` seed on the node's root (its `.fh-cell`), so an element
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
 entity nothing on the page was reading and still be right — there is no frame coming for it. The
-wrapper also carries the node's cell slots (`Cell`, ADR 0008): its classes, static or live
+root also carries the node's cell slots (`Cell`, ADR 0008): its classes, static or live
 (`LayoutNode.cellClassWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
-key's (`class:<name>`, `style:--…`): the renderer places the bindings on the wrapper in both forms,
-and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`
+key's (`class:<name>`, `style:--…`): the renderer places the bindings on the root in both forms,
+and a live class or `style="--x:…"` itself only in the document form, like any signal value. A
+class decided at render (`cell.atRender`, ADR 0033) is in the document form only too, decided for
+the viewer, with no binding at all, so a node carrying one has two forms and its digest is the
+patch form's, the same for every viewer. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
 through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
 goes through them where it resolves (`Renderer.classed`): a literal once, into a
 `Planned.Constant`, a reading on each
 resolve, so a signal frame carries the swapped value too. The page's connection banners
-(`Server.pageInto`) and a failed fetch's label (`Fetches.label`, swapped in `resolveSlotValue`) are
-the markup Scala writes itself, and take the same rewrite.
+(`Theme.offlineBanners`, placed by `Server.pageInto`) and a failed fetch's label (`failedLabel`,
+filled in `resolveSlotValue`) are Pkl templates, and take the same rewrite; Scala writes no markup
+of its own for either.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
@@ -1398,7 +1418,10 @@ head has been flushed, so a cold chart's fetch overlaps the browser fetching sty
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
 `writerHoles`, written at its `{{{name}}}`, and `Sink` IS the writer the whole document goes
-through, shell included. Three things follow, and all are load-bearing:
+through, shell included. The card's root is in its template (`core/node.pkl` writes it, ADR 0008),
+and its two holes are writer holes too: `{{{cellClasses}}}` inside its `class`, `{{{cell}}}` after
+it (style, id, seed, bindings, URL mirror). `NodeContext.writeHole` answers them on every run, so
+no map is built for them; the renderer wraps nothing but a set's root. Three things follow, and all are load-bearing:
 
 - **`digesting` is what differs between a page and a patch.** A node's own fingerprint is a digest
   of a contiguous run of the walk's output, and that run is what lets a signal-less member's
@@ -1511,7 +1534,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
-| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; `wrapperInto` is shared with the walk) |
+| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; the root's holes, `cellInto`/`cellClassesInto`, are shared with the walk) |
 | a signal's name, and a node's inputs | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
@@ -1681,9 +1704,12 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
-  first — so the `RenderCache` removes about three quarters of it and is earning its place. What
-  remains is unprofiled: the changelog read, the visibility narrowing, the per-node cache lookup
-  and digest compare, the signal diff against `Held.signals`.
+  first — so the `RenderCache` removes about three quarters of it and is earning its place. A hit
+  on equal inputs now reads the entry and nothing else (no byte-slot values, no `Deferred`, no
+  CAS): `resumeSignalsFanout` allocated 16.7% less (1,167,658 -> 972,138 B/op, escape analysis
+  off), while one client's tick, all misses, pays 2.0% more for the peek. What remains is
+  unprofiled: the changelog read, the visibility narrowing, the digest compare, the signal diff
+  against `Held.signals`.
 
   Encoding the frame is **~5% of that time and ~9% of those bytes**. Sharing it across clients
   measures 10x in isolation (`wireCommon` vs `wireCommonShared`) and that number should not be
@@ -1697,8 +1723,8 @@ Live list — delete an entry when it is answered, and say where the answer land
   RENDERED — rendering it is how we discover the bytes did not move — because the `RenderCache`
   key holds a per-entity `contentVersion` and the shipped `EntityCard`'s name reads
   `friendly_name` as BYTES, which re-admitted the entity to the key on every brightness tick.
-  `Patches.bytes` now hands the cache the resolved byte-slot values
-  (`Renderer.byteSlotValues`) and `RenderCache.apply` reuses an entry carrying the same ones:
+  `Patches.bytes` hands the cache the byte-slot values (`Renderer.byteSlotValues`), resolved only
+  when the inputs miss, and `RenderCache.apply` reuses an entry carrying the same ones:
   `resumeSignals` 262 µs / 442 kB -> **102 µs / 151 kB**, landing on `resumeSignalsPure`'s
   106 µs. A signals tick is now the cheap one. Note the saving is one render per tick per SLUG,
   not per client — the clients behind the first already shared its render.

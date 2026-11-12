@@ -24,6 +24,8 @@ module core.variable
 
 import "tap.pkl" as tapMod
 import "surface.pkl" as surfaceMod
+import "slot.pkl" as slotMod
+import "simple.pkl" as simpleMod
 import "../hass.pkl"
 
 /// A plain token: it is spelled into signal names and the URL.
@@ -33,20 +35,10 @@ typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
 /// segment and a JS string.
 typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 
-/// The wire shape of a read: what a chosen window is chosen `by`
-/// (`fh.view.model.Choice.Chosen`). `var` is the wire key, hence the backticks;
-/// get one from [[Variable.ref]].
-class Ref {
-  `var`: String
-}
-
 /// A node variable as one typed value: its name, and every spelling of it a
 /// reader below its declarer needs.
 class Variable {
   name: Name
-
-  /// A read of it, resolved up the ancestors at build time.
-  fixed ref: Ref = let (n = name) new Ref { `var` = n }
 
   /// The declaring node's id, written from a node below it: a token the build
   /// splices (`DashboardBuild.declarerToken`) and refuses where nothing above
@@ -75,8 +67,16 @@ class Variable {
   fixed selectingAnyOther: surfaceMod.VarActivation =
     let (n = name) new { name = n; at = new surfaceMod.AtOtherwise {} }
 
-  /// Whether it holds `at`, as an If's condition: `c.iff(window.valueIs("30d"))`.
-  /// Not a predicate, so it cannot be combined with one over entity state. Named
+  /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
+  /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
+  /// in a signal, on a card holding regions, and in anything decided once for
+  /// every viewer (a clause, a condition, a `valueWhile`, an order).
+  fixed value: slotMod.Reading =
+    let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }
+
+  /// Whether it holds `at`: `value == at`, a bool reading. As an If's condition,
+  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. Not a
+  /// predicate, so it cannot be combined with one over entity state. Named
   /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
@@ -101,7 +101,7 @@ class Variable {
 /// One node's declaration of a [[Variable]]. Its value, highest first: the
 /// viewer's choice, its [[initialTransform]]'s result, its [[default]].
 class Declaration {
-  /// What it declares, for the readers below: `d.variable.ref`.
+  /// What it declares, for the readers below: `d.variable.value`.
   hidden variable: Variable
   fixed name: Name = variable.name
   /// What it holds before anyone chooses.
@@ -123,10 +123,13 @@ class Declaration {
       (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }
 
-/// A node variable at one value: what an If over a variable is chosen by.
-class ValueIs {
-  variable: Variable
-  value: Value
+/// A node variable at one value: what an If over a variable is chosen by, and a
+/// bool reading wherever a variable may be read.
+class ValueIs extends slotMod.Expr {
+  hidden variable: Variable
+  hidden value: Value
+  source = let (n = variable.name) new slotMod.VarRead { name = n }
+  steps { let (v = value) new simpleMod.CompareStep { op = "eq"; to = v } }
 }
 
 /// Where a session opens a variable: CEL over one entity's state, which the

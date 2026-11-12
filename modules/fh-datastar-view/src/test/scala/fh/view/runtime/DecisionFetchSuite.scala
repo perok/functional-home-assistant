@@ -1,5 +1,8 @@
 package fh.view.runtime
 
+import fh.view.testkit.DashboardBuilders
+
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.FHError
@@ -44,7 +47,7 @@ class DecisionFetchSuite extends munit.FunSuite {
   private def pastOf(entity: String) =
     FetchTemplate(entity, Choice.Fixed(Windows.day))
   private def readOf(entity: String) =
-    SlotAsk(pastOf(entity), Step.Json).resolve(Map.empty)
+    SlotAsk(pastOf(entity), Step.Json).fixed
   private def hasPastOf(entity: String) =
     ValueExpr(Value.Cel("size(past) > 0", past(pastOf(entity))))
       .copy(dependsOn = List(entity))
@@ -75,9 +78,9 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   private def dashboard(kids: LayoutNode*) = Dashboard(
     cards = Map(
-      "item" -> CardDef("<i>{{label}}</i>"),
-      "call" -> CardDef("<button>{{service}}</button>"),
-      "col" -> CardDef(
+      "item" -> TestCard("<i>{{label}}</i>"),
+      "call" -> TestCard("<button>{{service}}</button>"),
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map(LayoutNode.DefaultRegion -> Region())
       )
@@ -142,7 +145,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     assert(body(r, answering(some, asked)).contains("member-b"))
     assertEquals(
       asked.toList,
-      List(Set(SlotAsk(history, Step.Json).resolve(Map.empty)))
+      List(Set(SlotAsk(history, Step.Json).fixed))
     )
     assert(!body(r, answering(empty)).contains("member-b"))
   }
@@ -214,7 +217,7 @@ class DecisionFetchSuite extends munit.FunSuite {
       new MemberGraph(Map.empty, Map.empty)
     )
     val gid = NodeId.derived("c")
-    val read = SlotAsk(history, Step.Json).resolve(Map.empty)
+    val read = SlotAsk(history, Step.Json).fixed
     def branch(have: FetchSnapshot) = {
       val run = Shared.Run(have)
       g.resolveActiveByState(gid, Shared.of(states()).asking(run)) -> run.needs
@@ -286,7 +289,7 @@ class DecisionFetchSuite extends munit.FunSuite {
   test("a decision's fetch cannot read a viewer's variable") {
     val chosen = FetchTemplate(
       "sensor.left",
-      Choice.Chosen("window", Map("day" -> Windows.day))
+      DashboardBuilders.chosenBy("window", Map("day" -> Windows.day))
     )
     val guard = ValueExpr(Value.Cel("size(past) > 0", past(chosen)))
     val errs = dashboard(set(Some(guard))).validate()

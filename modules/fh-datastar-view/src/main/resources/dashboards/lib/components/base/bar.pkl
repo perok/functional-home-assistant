@@ -35,9 +35,9 @@ class ProgressBar extends nodes.Node {
   cardDef = new nodes.CardDef {
     // Not a `<progress>`, whose parts need a vendor pseudo-element each; the
     // ARIA role carries its meaning.
-    template = """
-      <div class="fh-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-show="\(readable)" data-computed="{'\(fillSig)': () => \(fillExpr)}" data-attr:aria-valuenow="Math.round($\(fillSig))"><div class="fh-bar-fill" data-style:width="$\(fillSig) + '%'"></div></div>
-      """
+    classes = "fh-bar"
+    attrs = #"role="progressbar" aria-valuemin="0" aria-valuemax="100" data-show="\#(readable)" data-computed="{'\#(fillSig)': () => \#(fillExpr)}" data-attr:aria-valuenow="Math.round($\#(fillSig))""#
+    template = #"<div class="fh-bar-fill" data-style:width="$\#(fillSig) + '%'"></div>"#
     css = """
       .fh-bar{block-size:.5rem;inline-size:100%;border-radius:.25rem;
       background:var(--fh-track,rgba(128,128,128,.25));overflow:hidden}

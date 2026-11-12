@@ -93,7 +93,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         .use(_.page())
         .timeout(60.seconds)
         .map { html =>
-          """<a class="[^"]*fh-current-dashboard[^"]*" aria-current="page" href="d/(\w+)">""".r
+          """<a class="fh-cell [^"]*fh-current-dashboard[^"]*" id="[^"]+" href="d/(\w+)" aria-current="page">""".r
             .findAllMatchIn(html)
             .map(_.group(1))
             .toList
@@ -110,10 +110,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // against <base href>, which works before Datastar loads. Its size is
       // BeerCSS's own class, through the theme's class rules.
       assert(
-        html.contains(
-          """<a class="fh-button button fh-press large  " href="d/other">""" +
-            """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
-        ),
+        ("""<a class="fh-cell fh-button button fh-press large  " id="[^"]+" href="d/other">""" +
+          """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>""").r
+          .findFirstIn(html)
+          .nonEmpty,
         clue = html
       )
     }

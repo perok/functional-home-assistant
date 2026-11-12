@@ -81,14 +81,31 @@ groups, a path only a write has. An initial value is not a choice: no `v.` param
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
 default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
-**Reference.** A fetch reads a variable by choosing: a `Choice` is `Fixed(value)` or
-`Chosen(by, options)`, the variable's value a key into a table of typed values (a history window,
-ADR 0031). The value is a string, since it lives in a URL and a signal, so it picks a typed value
-rather than being one, and a key the table lacks is refused at the write. On the wire
-`{"kind": "Chosen", "by": {"var": "window"}, "options": {…}}`; anything else is the value written
-down. `FetchTemplate` is the authored fetch, its choice unmade; `SlotAsk` is a slot's ask as the
-TREE states it; `SlotRead` is that ask resolved for one render, and is still what every cache keys
-on.
+**Reference.** A fetch reads a variable by choosing: `Choice[A]` is the model's one choice,
+`Fixed(value)` or `Chosen(by, cases, otherwise)`, with `Case(is, value)`. `by` is an expression, a
+variable's value as `p.history.chosen(v, table)` writes it, and the value is the case whose `is`
+equals what `by` reads, else `otherwise`, else none. A value is a string, since it lives in a URL
+and a signal, so it picks a typed value (a history window, ADR 0031) rather than being one.
+
+- **No case is no value**, with no special case: the fetch asks nothing and its slot reads null,
+  shown through the slot's own null handling (its `default`). With no `otherwise`, a viewer's value
+  no case takes is refused at the write (`Renderer.refusals`), and a declared one fails the build.
+- **`A` is data the build checks whole** and that never depends on the key, so only `by` is an
+  expression and `A` needs no `ValueType`. `Choice` is data and deciding is the compile's: `by`
+  needs the evaluator, so `Ready.Dashboard.choices` holds each `by`'s run, found by its `inputKey`,
+  beside `Choice.table`, each case's value by key.
+- **Keys are typed by `by`'s type**, checked in `validate`: text, a bool or a whole number, never a
+  real, `dyn` or a list, and each case's `is` that type, once. On the wire `cases` is a list of
+  `{"is": <scalar>, "value": …}`, since a JSON object's keys are strings and decoding them by
+  another field's type would derive in the decoder: `{"kind": "Chosen", "by": <value>, "cases":
+  […], "otherwise": …}`; anything else is the value written down.
+- **`by` may read state**, so an entity can pick a window, decided per version. Those entities join
+  the node's reads: they wake it and its render key carries them, as any entity read does. It may
+  not read a fetch, whose answer would need the window first. A decision's window is written down,
+  since what a decision reads is fixed at build.
+
+`FetchTemplate` is the authored fetch, its choice unmade; `SlotAsk` is a slot's ask as the TREE
+states it; `SlotRead` is that ask resolved for one render, and is still what every cache keys on.
 
 **Resolution** is one walk at validate time carrying a scope stack. A reference resolves to the nearest
 declaring ancestor; a container that declares nothing is transparent; a nested declaration of the
@@ -152,8 +169,8 @@ process forgot (a restart, a reap) adopts them, where it would otherwise reset e
 declared value. Each is adopted on its own, so one stale value costs only its own variable. A live
 session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
-`Renderer.refusals`: every declared reader must still take it — a fetch must find it among its
-options, a panel must have a member for it. ADR 0023's bound on the read side holds by
+`Renderer.refusals`: every declared reader must still take it — a fetch with no `otherwise` must
+find a case for it, a panel must have a member for it. ADR 0023's bound on the read side holds by
 construction: a fetch's entity is written down, so no value can move a chart to the lock on a
 `Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own
@@ -206,6 +223,39 @@ A highlight reads the committed `_var_<declarer>__<name>`, which the server writ
 declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
 token supplies, and a press re-renders the variable's readers and never the bar.
 
+**The open tab is lit in the first page.** `cellClassAtRender(cls, expr)` writes `cell.atRender`:
+evaluated for the viewer in the document form and written into `class`, with no signal, no frame
+and no binding, so patches are the same for every viewer. It is not a reader of a write and not
+in the render key. The tab and select buttons use it,
+`.cellClassAtRender("fh-chosen", v.valueIs(choice))`, so a page's raw HTML lights the open tab
+without scripts. Their live highlight stays the browser's own `data-class:fh-chosen` over the
+pending-or-committed value, instant on a press with the spinner until the commit (ADRs 0019,
+0025): a patch carrying the class could arrive after a second press and light two tabs.
+
+### A variable is a source
+
+`Value.Var(name)` reads the viewer's value, beside `Literal`, `Entity`, `Fetch`, `Present`, `List`
+and `Cel` (ADR 0035): text, resolved up the ancestors as every reference is (rule 2), so a read
+with no declarer is a build error naming the slot (rule 8). On the wire `{"kind": "Var", "name":
+…}`. In Pkl `v.value` is the reading, and `v.valueIs(x)` the bool reading `value == x`
+(`varMod.ValueIs`, a `slotMod.Expr`). The declaration says where the value lives; a write is its
+trigger, as a state change is an entity's: it re-renders the variable's readers for that viewer
+(`VarGraph.readersOf`, a node's slots' reads beside its fetches'). A slot takes any value, so
+only a fetch or a panel refuses one.
+
+**An expression is decided where its most local source lives.** One reading only entities,
+fetches and literals is decided once per state version, for every viewer; one reading a variable
+is decided per viewer, as that viewer's bytes render. So a read stands only where bytes are
+rendered per viewer, a leaf's value slot, and `validate` refuses one:
+
+- in any decision made once for every viewer: a set's clause and order, a state surface's
+  condition, a `valueWhile`, a set a press acts on (`Dashboard.decisionExprs`);
+- in any signal slot, `cellClassWhen` and `cellStyle` included: a display signal is named by what
+  it reads, so every viewer shares it;
+- in a structural card's own slots, which are never re-rendered for a viewer.
+
+`c.iff(v.valueIs(x))` is not a decision there: it still lowers to `Activation.Var`, a selection.
+
 ## Why not
 
 **A list of allowed values on the declaration.** Built twice and removed. It bought a generic
@@ -244,8 +294,9 @@ link exists. An old link lands on the declared tab, which is what a stale `v.` l
 **Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022), which is
 why `@@NODE_ID@@` exists at all.
 
-**Letting CEL read variables.** A transform is opaque to static analysis, so a reference inside one
-could not be enumerated before the walk — the property this exists to keep.
+**Letting CEL read variables by name.** A transform is opaque to static analysis, so a reference
+inside one could not be enumerated before the walk — the property this exists to keep. A CEL reads
+one through a named input holding `v.value`, which the build sees.
 
 **Ordering the walk.** #209 predicted a declared edge would need topological ordering. It does not:
 a value is ambient session state, in hand before the walk, never computed by it.
@@ -267,13 +318,15 @@ instead.
   value, and a session this process forgot adopts it as a choice, initial value or not.
 - **One place an initial transform does nothing.** Rows that are `.fromChooser()` follow the head, which starts
   from the group entity's state, not each bulb's.
-- **The render key gained nothing.** A fetch's choice resolves into a `SlotRead`, and a
-  bake group's selection is structure, which is never cached. Two viewers on different windows
-  already produce different `SlotRead`s, which the render key and both caches
-  distinguish. Measured: two windows over one sensor are unordered in `RenderCache`, so
-  alternating viewers re-render each time — a mustache splice of SVG already drawn, since
-  `renderNodeById` takes a `FetchSnapshot` and cannot fetch or draw. No bucketing; reopen only if
-  a profile puts a chart node's paint somewhere it shows.
+- **The render key carries what a node read, and still one entry per node.** A fetch's choice
+  resolves into a `SlotRead`, and a slot reading a variable puts that value in
+  `RenderInputs.vars`; a bake group's selection is structure, which is never cached. Different
+  values are unordered (`RenderInputs.isAtLeast`), so viewers on one value share a render and a
+  viewer on another replaces the entry, in place: `RenderCache` keeps one entry per node however
+  many values are posted, and two values over one node alternate, each re-rendering, which costs
+  only on ticks where the node's entities moved (`RenderCacheContentionSuite`). For a chart that
+  is a mustache splice of SVG already drawn, since `renderNodeById` takes a `FetchSnapshot` and
+  cannot fetch or draw. No per-value buckets; sharing across values is issue #689's question.
 - **A write is an update, not a first paint**, so a new chart may land after the press; ADR 0025's
   pending value keeps the press instant meanwhile.
 - **"vars" is taken twice already** — a card's mustache context in `Renderer`, CSS custom properties
@@ -297,9 +350,6 @@ instead.
   node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
   writes it meaning the tabs' id. A child naming its DECLARER is `Variable.declarer`; an explicit "I
   own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
-- **A plain-slot reader** — a slot whose rendered value is a variable, re-rendered on a write. No
-  component needs one. When one does, it is a slot shape and nothing on the write path: the write
-  already re-renders whatever `readersOf` returns.
 - **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
   header cannot steer charts in a sibling column. A root declaration would, addressed through a
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author

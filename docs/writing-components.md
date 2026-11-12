@@ -78,6 +78,50 @@ to `" °C"`. And every slot you set must be placed somewhere in the template.
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
 
+### The card's outer element
+
+Every card gets an outer element the library writes for you: it carries the
+node's id (which live updates find it by) and its layout classes
+(`.columns(3)`, `.hug()`). By default it is a `<div class="fh-cell">` around
+your template, so the banner above is two elements. To make your own element
+the outer one, say what it is instead of writing it in the template:
+
+```pkl
+cardDef = new nodes.CardDef {
+  tag = "article"
+  classes = "banner"
+  attrs = #"data-on:click="$open = true""#
+  template = "\(message)"
+}
+```
+
+That renders `<article class="fh-cell banner" id="…" data-on:click="…">…</article>`,
+and the template is only what goes inside it. `tag` is a plain element name,
+`classes` the element's own classes, and `attrs` any other attributes —
+except `id`, `class`, `style` and `data-signals`, which the library writes
+itself; the build refuses those.
+
+The outer element is the same for every use of a card, so a card definition
+cannot branch on the node's own properties: `tag = if (href != null) "a" else
+"button"` fails the build with "card 'banner' has 2 different cardDefs". When it depends on
+something you know as you build the node — a link is an `<a>`, a press a
+`<button>` — give each form its own card name and a definition of its own,
+declared once at the top of your module, in `variants`, and pick both the name
+and its definition from the same fact:
+
+```pkl
+variants = new Mapping { ["banner"] = plainDef; ["bannerLink"] = linkDef }
+card = if (href != null) "bannerLink" else "banner"
+cardDef = variants!![card]
+```
+
+Set `layoutCell = false` when the element must not be a layout box — a tab
+inside a tab bar, which the bar lays out itself. It then has no `fh-cell`
+class, and `.columns(n)`, `.fullWidth()`, `.hug()`, `.grow()` and `.stick(…)`
+on such a card are a build error. `cellClass`, `cellClassWhen` and
+`cellStyle` still work. A `cellClassWhen("x", …)` on a card whose `attrs`
+already binds `data-class:x` is refused too: an element keeps only one of two.
+
 ## Using it
 
 Import your module and use the card:
@@ -227,6 +271,43 @@ map; this CEL has no `filter` or `map`.
 A card of your own that takes a window the way `c.history.chart` does takes
 `p.HistoryWindow` and resolves it with `p.historyWindow(w)`: either a window,
 or a function handed the providers, so its users need no import.
+
+### Showing a viewer's choice
+
+A node variable (a tab bar's `tab`, a chooser's `window`) can be read like an
+entity. `v.value` is the viewer's value as text, and `v.valueIs(x)` is a
+yes/no that holds while it is `x`:
+
+```pkl
+local window = c.variable("window")
+
+slots {
+  label.of(window.value)            // "24h", then "7d" once the viewer picks it
+  isWeek.of(window.valueIs("7d"))   // a bool slot
+}
+```
+
+Each viewer sees their own value, and a pick redraws the card for that viewer
+alone. A node above the card must declare the variable, or the build fails.
+
+Because the value is the viewer's, only a plain value slot of a card that holds
+no other cards may read one. The build refuses it in a signal slot (and so in
+`cellClassWhen` and `cellStyle`), in a `valueWhile`, and in a set's `where` or
+`orderBy`: those are worked out once for everyone. To show a different branch
+per viewer, use `c.iff(v.valueIs(x))`.
+
+To put a class on a node for the viewer when the page is drawn, use
+`cellClassAtRender`. It is how a tab bar lights the open tab before any script
+runs:
+
+```pkl
+myTab.cellClassAtRender("fh-chosen", v.valueIs("1"))
+```
+
+It is written once, into the page as it loads, and never sent again: when the
+viewer picks something else, nothing changes it. Pair it with the card's own
+`data-class` binding where the class has to follow a press, as the tab button
+does.
 
 ### A value only while something holds
 

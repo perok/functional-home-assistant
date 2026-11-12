@@ -22,6 +22,7 @@ import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switch
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
 import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
+import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -37,7 +38,27 @@ local defaults = (n: nodes.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> 
 // Whether `n`'s cell carries `cls` as a reading, which the renderer binds.
 local liveOn = (n: nodes.LayoutNode, cls: String) -> n.cell?.classes?.getOrNull(cls) is Map
 // The classes `n`'s cell always carries.
-local staticOn = (n: nodes.LayoutNode) -> n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
+local staticOn = (n: nodes.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
+// What the root's class attribute carries from the cell, in order: the layout
+// builders' classes, then the rest.
+local rootClasses = (n: nodes.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.keys.toList()
+
+// Cards whose root is written from their `cardDef`'s root fields.
+local class PlainRoot extends nodes.Node {
+  card = "plainRoot"
+  cardDef = new nodes.CardDef { template = "<b>x</b>" }
+}
+local class AnchorRoot extends nodes.Node {
+  card = "anchorRoot"
+  cardDef = new nodes.CardDef {
+    tag = "a"
+    classes = "my-tab"
+    layoutCell = false
+    attrs = #"data-on:click="go()" data-class:warm="$w""#
+    template = "x"
+  }
+}
+local wireOf = (n: nodes.Node) -> nodes.cardsIn(List(n))[n.card]
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -238,17 +259,53 @@ facts {
   }
 
   ["layout builders put fh- contract classes on the wrapper"] {
-    c.title("x").columns(3).cell.classes.keys.toList() == List("fh-cols-3")
-    c.title("x").fullWidth().cell.classes.keys.toList() == List("fh-cols-full")
-    c.title("x").hug().cell.classes.keys.toList() == List("fh-hug")
-    c.title("x").cellClass("my-thing").cell.classes.keys.toList() == List("my-thing")
+    rootClasses.apply(c.title("x").columns(3)) == List("fh-cols-3")
+    rootClasses.apply(c.title("x").fullWidth()) == List("fh-cols-full")
+    rootClasses.apply(c.title("x").hug()) == List("fh-hug")
+    rootClasses.apply(c.title("x").cellClass("my-thing")) == List("my-thing")
   }
 
   ["ONE SPAN PER NODE: a later fh-cols-* drops the earlier one"] {
-    c.title("x").columns(3).columns(7).cell.classes.keys.toList() == List("fh-cols-7")
-    c.title("x").columns(3).fullWidth().cell.classes.keys.toList() == List("fh-cols-full")
+    rootClasses.apply(c.title("x").columns(3).columns(7)) == List("fh-cols-7")
+    rootClasses.apply(c.title("x").columns(3).fullWidth()) == List("fh-cols-full")
     // a non-span class is additive, not a replacement
-    c.title("x").columns(3).hug().cell.classes.keys.toList() == List("fh-cols-3", "fh-hug")
+    rootClasses.apply(c.title("x").columns(3).hug()) == List("fh-cols-3", "fh-hug")
+  }
+
+  ["the library writes a card's root: a div cell when it names no tag, its own element when it does"] {
+    wireOf.apply(new PlainRoot {}).template
+      == #"<div class="fh-cell{{{cellClasses}}}"{{{cell}}}><b>x</b></div>"#
+    wireOf.apply(new PlainRoot {}).layoutCell == null
+    wireOf.apply(new AnchorRoot {}).template
+      == #"<a class="my-tab{{{cellClasses}}}"{{{cell}}} data-on:click="go()" data-class:warm="$w">x</a>"#
+    wireOf.apply(new AnchorRoot {}).layoutCell == false
+    // A tab is an anchor straight under the bar, never a layout box.
+    wireOf.apply(surfacesMod.tabButton(new varMod.Variable { name = "v" }, "a", "A")).template.startsWith(#"<a class="{{{cellClasses}}}"{{{cell}}} data-on:click="#)
+  }
+
+  ["a root's attrs cannot carry what the root writes itself, by attribute name"] {
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"id="x""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"data-on:click="go()" class="x""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"style="color:red""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"data-signals="{a: 1}""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodes.CardDef { template = ""; tag = "a href" }.tag).contains("Type constraint")
+    // Other attributes that merely contain one of those names.
+    new nodes.CardDef {
+      template = ""
+      attrs = #"data-class="{a: $b}" data-class:x="$y" data-style:color="$c" data-signals__ifmissing="{c: 1}" data-attr:id="$d""#
+    }.attrs.contains("data-attr:id")
+  }
+
+  ["a layoutCell = false root refuses the layout builders and keeps its other cell classes"] {
+    module.catch(() -> (new AnchorRoot {}).columns(3).cell).contains("layoutCell = false")
+    module.catch(() -> (new AnchorRoot {}).hug().cell).contains("layoutCell = false")
+    rootClasses.apply((new AnchorRoot {}).cellClass("hero")) == List("hero")
+    (new AnchorRoot {}).cellStyle("--x", c.isOn(kitchen)).cell.styles.containsKey("--x")
+  }
+
+  ["cellClassWhen refuses a class its card's attrs already binds"] {
+    module.catch(() -> (new AnchorRoot {}).cellClassWhen("warm", c.isOn(kitchen)).cell).contains("data-class:warm")
+    (new AnchorRoot {}).cellClassWhen("cold", c.isOn(kitchen)).cell.classes.containsKey("cold")
   }
 
   // ---- more-info (#106) ----
@@ -280,7 +337,7 @@ facts {
       == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
-    body.children[1].children[0].slotsByName["chart"].value.fetch.window.by.`var`
+    (body.children[1].children[0].slotsByName["chart"].value.fetch.window.by.source as slotMod.VarRead).name
       == "window"
   }
 
@@ -292,10 +349,10 @@ facts {
     // name between them — which is the property, not the string: an author
     // cannot misspell one side of this pair because neither side is typed.
     defaults.apply(picked) == Map("window", "24h")
-    picked.children[0].slotsByName["chart"].value.fetch.window.by.`var` == "window"
+    (picked.children[0].slotsByName["chart"].value.fetch.window.by.source as slotMod.VarRead).name == "window"
     // Each key the bar offers is a window the chart has: the bar and the
     // table are one mapping, so neither can offer what the other lacks.
-    picked.children[0].slotsByName["chart"].value.fetch.window.options.keys
+    picked.children[0].slotsByName["chart"].value.fetch.window.cases.toList().map((k) -> k.`is`).toSet()
       == p.history.presets.keys
     // The entity is still written down beside it. Only a declared variable is
     // writable, so this chart's subject has nowhere for a write to land.
@@ -351,7 +408,7 @@ facts {
     tab.own.urlParam == "v.{{id}}.tab"
     tab.below.group == "var_@@VAR:tab@@__tab"
     tab.below.pending == "_var_@@VAR:tab@@__tab__pending"
-    tab.ref.`var` == "tab"
+    (tab.value.source as slotMod.VarRead).name == "tab"
     tab.defaultingTo("0").variable == tab
     tab.defaultingTo("0").default == "0"
     tab.selects.name == "tab"
@@ -499,7 +556,8 @@ facts {
     // BeerCSS paints a card box only on `<article>`; a `<div class="card">`
     // left the lock floating on the page background.
     local t = c.cards["tile"].template
-    t.startsWith(#"<article class="fh-card fh-entity fh-tile-card">"#)
+    c.cards["tile"].tag == "article"
+    c.cards["tile"].classes == "fh-card fh-entity fh-tile-card"
     // The tap is the ROW's, and the features region opens after the row has
     // closed: nested inside it, one press would post the latch AND the tile's
     // tap.
@@ -680,7 +738,8 @@ facts {
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["switch"].template.contains(#"<article class="fh-card fh-toggle fh-tile-card""#)
+    cards["switch"].tag == "article"
+    cards["switch"].classes == "fh-card fh-toggle fh-tile-card"
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["switch"].template.contains(#"<span class="fh-text">"#)
@@ -692,7 +751,9 @@ facts {
     // three declaration blocks rather than a rule per card. The OUTER box is
     // what the card's own layout sizes; the INNER one is what a marquee moves,
     // and a bare text node could not be moved at all.
-    cards["sectionTitle"].template.contains(#"<h2 class="fh-section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
+    cards["sectionTitle"].tag == "h2"
+    cards["sectionTitle"].classes == "fh-section fh-text"
+    cards["sectionTitle"].template.contains(#"<span class="fh-text-run">{{label}}</span>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
     cards["tile"].template.contains(#"<span class="fh-sub fh-text">"#)
     // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
@@ -735,6 +796,15 @@ facts {
     // The default is what a dashboard emits at :root, so a node that says
     // nothing inherits it rather than each card carrying a copy.
     textMod.rootCss("scroll").startsWith(":root{--fh-text-lines:nowrap")
+  }
+
+  ["a popup's root is its backdrop, which closes only on a tap of its own"] {
+    // The dialog sits inside the backdrop, so its clicks bubble there; without
+    // the target test any tap inside the popup would close it.
+    local popup = c.cards["popup"]
+    popup.classes == "fh-popup-backdrop"
+    popup.attrs == #"data-on:click="evt.target === el && \#(surfaceMod.closeExpr)""#
+    popup.template.startsWith("<dialog open class=\"fh-popup\">")
   }
 
   ["the popup's ✕ is a touch target, and a member row has an edge"] {
@@ -905,7 +975,7 @@ facts {
     // blank, so a VALUE guard (`{{#secondary}}`) would delete the element on the
     // first tick, and a run without the bind would never update.
     local placing = c.cards.toMap().filter((_, d) -> d.template.contains("{{secondary}}"))
-    placing.keys == Set("tile", "button", "sliderText")
+    placing.keys == Set("tile", "button", "buttonLink", "sliderText")
     placing.every((_, d) ->
       d.template.contains("{{{secondary.bind}}}") && !d.template.contains("{{#secondary}}"))
 
@@ -933,10 +1003,11 @@ facts {
     local glyphed = c.button("", c.view.closePopup()).icon("mdi:power").secondary("Off")
     !glyphed.slotsByName.containsKey("round")
 
-    // Both arms place it, under the same section that opens the column.
-    local t = c.cards["button"].template
-    t.split("{{#secondary.has}}<span class=\"fh-lines\">").length == 3
-    t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>")
+    // Both forms place it, under the same section that opens the column.
+    List("button", "buttonLink").every((k) ->
+      let (t = c.cards[k].template)
+        t.split("{{#secondary.has}}<span class=\"fh-lines\">").length == 2
+          && t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span></span>"))
   }
 
   ["a pill wears its tap's look: round alone, named for a screen reader"] {
@@ -994,7 +1065,7 @@ facts {
     glyphOnly.cell == null
     c.entityButton(kitchen).cell == null
     liveOn.apply(c.entityButton(kitchen).active(c.isOn(kitchen)), "fh-active")
-    c.cards["button"].css.contains(".fh-cell.fh-active>")
+    c.cards["button"].css.contains(".fh-cell.fh-active:is(.fh-button,button){")
   }
 
   ["a toggle and an entity card are their base built by hand, and nothing more"] {
@@ -1065,10 +1136,11 @@ facts {
     local after = c.button("x", tap).columns(3).active(c.isOn(kitchen))
     local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
     after.cell == before.cell
-    after.cell.classes["fh-cols-3"] == true
+    after.cell.layout.toList() == List("fh-cols-3")
     liveOn.apply(after, "fh-active")
     c.button("x", tap).active(true).columns(3).cell.classes.toMap()
-      == Map("fh-cols-3", true, "fh-active", true)
+      == Map("fh-active", true)
+    c.button("x", tap).active(true).columns(3).cell.layout.toList() == List("fh-cols-3")
   }
 
   ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
@@ -1106,16 +1178,17 @@ facts {
       let (s = n.slotsByName["current"]) let (cur = s.value as slotMod.Reading)
         (cur.source as slotMod.CelRead).src == "dashboard_slug == 'home'" && cur.steps.isEmpty
           && s.type == "bool" && s.signal == null)
-    List("button", "pill").every((k) ->
-      let (t = c.cards[k].template)
-        t.contains(tapMod.currentClass + "\"" + tapMod.currentAttr + " href="))
+    List("buttonLink", "pillLink").every((k) ->
+      let (d = c.cards[k])
+        d.tag == "a" && d.classes.endsWith(" " + tapMod.currentClass)
+          && d.attrs.startsWith(#"href="{{href}}""# + tapMod.currentAttr))
     // A service tap is no link, so it has nothing to mark.
     !c.button("x", c.tap.toggle(kitchen)).slotsByName.containsKey("current")
     // A slug is a key the author wrote, so a quote in it stays in the string.
     (c.button("x", c.view.navigate("it's")).slotsByName["current"].value as slotMod.Reading).source.src
       == #"dashboard_slug == 'it\'s'"#
     // Ringed, not filled: a fill already means on.
-    cssMod.baseCss.contains(".fh-cell>.fh-current-dashboard{outline:")
+    cssMod.baseCss.contains(".fh-cell.fh-current-dashboard{outline:")
   }
 
   ["an entity button wears its entity's icon, live where the domain's follows its state"] {
@@ -1174,7 +1247,7 @@ facts {
     // No card paints a badge's look of its own: that is how the switch and the
     // tile came to disagree (#522). The button keeps its seat under its pill.
     local paints = Regex(#"\.fh-badge[^{,]*\{[^}]*(background|color):"#)
-    c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button")
+    c.cards.toMap().filter((_, d) -> !paints.findMatchesIn(d.css).isEmpty).keys == Set("button", "buttonLink")
     // On is the cell's; whether there is an off is the badge's.
     liveOn.apply(c.toggle(kitchen), "fh-active")
     c.toggle(kitchen).slotsByName["onoff"].value == true
@@ -1190,7 +1263,7 @@ facts {
 
   ["a card's own on state survives a builder that ran before it"] {
     // `.columns(n)` replaces the builder classes whole; `active` is not one.
-    c.button("x", c.tap.toggle(kitchen)).columns(3).active(true).cell.classes.keys.toList().sort()
+    rootClasses.apply(c.button("x", c.tap.toggle(kitchen)).columns(3).active(true)).sort()
       == List("fh-active", "fh-cols-3")
   }
 
@@ -1228,7 +1301,7 @@ facts {
     acts.toList().every((a) -> a.slotsByName["round"].value == true)
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
-    c.cards["pill"].template.contains(#"data-indicator="_{{id}}__busy""#)
+    c.cards["pill"].attrs.contains(#"data-indicator="_{{id}}__busy""#)
     // A toggle's pill is lit by its entity; a view tap's binds no class signal.
     liveOn.apply(acts[0], "fh-active")
     !liveOn.apply(acts[1], "fh-active")
@@ -1288,8 +1361,8 @@ facts {
     local sw = c.toggle(kitchen)
     local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
-    t.contains(#"<article class="fh-card fh-toggle fh-tile-card" "#)
-    t.split("<label").first.contains("data-class:fh-error")
+    c.cards["switch"].tag == "article"
+    c.cards["switch"].attrs.contains("data-class:fh-error")
     t.split("<label").last.contains("data-on:datastar-fetch__document")
     // Truth lives on a SECOND signal the press cannot reach: same reading,
     // shared rather than node-scoped.
@@ -1328,7 +1401,7 @@ facts {
     // The fill is a function of TWO entities, so it cannot be a transform: a
     // slot reads one entity. The guard is the substance — a `total` reading
     // `unknown` makes NaN, and the bar sits empty rather than painting NaN%.
-    local t = c.cards["progressBar"].template
+    local t = c.cards["progressBar"].attrs
     t.contains("{{#down.has}}100 - {{/down.has}}")
     t.contains(")) || 0")
   }
@@ -1375,7 +1448,7 @@ facts {
       unit_of_measurement = "s"
     }
     c.bar.remaining(remainingMin, programSecs).slotsByName["scale"].value == "60.0"
-    c.cards["progressBar"].template.contains(" * {{scale}}")
+    c.cards["progressBar"].attrs.contains(" * {{scale}}")
   }
 
   ["a percentage bar reads one entity and divides by nothing"] {

@@ -107,16 +107,11 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // Every node is a cell (ADR 0008), so a cell holding the button alone
-        // matches too and `.last()` would take it; requiring the tile pins the
-        // cell to `c.lock.controls`'s card. Two `filter` calls: `has` is one
-        // field, so a second `setHas` replaces the first.
+        // Every node is a cell (ADR 0008), so every container holding the
+        // button matches `.fh-cell` too; the tile is the article that is itself
+        // a cell, which pins `c.lock.controls`'s card.
         val lockCard = page
-          .locator(".fh-cell")
-          .filter(
-            new Locator.FilterOptions()
-              .setHas(page.locator("article.fh-entity"))
-          )
+          .locator("article.fh-entity.fh-cell")
           .filter(
             new Locator.FilterOptions().setHas(
               page.getByRole(
@@ -150,7 +145,7 @@ class ComponentVisualSuite extends SmokeSuite {
     Scene.of(SmokeDashboard.lightSlider).entity(SmokeDashboard.colourLamp)
 
   private def lightSliderCell(page: Page) =
-    page.locator(".fh-cell:has(> article.fh-slider-card)").first()
+    page.locator("article.fh-slider-card.fh-cell").first()
 
   test("the light slider looks right on brightness") {
     withPage(lightSliderScene, viewport) { (page, _) =>

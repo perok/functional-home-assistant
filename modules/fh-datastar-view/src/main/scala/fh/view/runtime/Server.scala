@@ -1051,10 +1051,7 @@ class Server(
         case None =>
           (s.holds -- Patches.hostEvicts(renderer, host)) ->
             Option
-              .when(newSurface.isEmpty)(
-                Datastar
-                  .patch(s"""<div id="$host"></div>""", PatchMode.Outer, None)
-              )
+              .when(newSurface.isEmpty)(Datastar.remove(s"#$host > *"))
               .toList
       }
       // Committed here only, so a tap that never got this far cannot leave the
@@ -1098,8 +1095,8 @@ class Server(
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209): the fetches that read it, and the tab panels it selects,
-    * swapped as a tab press always was. Per session: no `Mutation`.
+    * (issue #209): the nodes whose fetches or slots read it, and the tab panels
+    * it selects, swapped as a tab press always was. Per session: no `Mutation`.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
     * Committed last even when no bytes moved: the commit ends the pending ask
@@ -1718,6 +1715,7 @@ class Server(
               },
               renderer.themeColorTags,
               renderer.themeClasses,
+              renderer.offlineBanners,
               renderer.stylesheets.map(assets.rewrite),
               renderer.deferredStylesheets.map(assets.rewrite),
               renderer.scripts.map(assets.rewrite),
@@ -1811,6 +1809,7 @@ class Server(
       bodyInto: Sink => Unit,
       themeColorTags: String,
       themeClasses: ThemeClasses,
+      offlineBanners: String,
       stylesheets: List[String],
       deferredStylesheets: List[String],
       scripts: List[String],
@@ -1855,10 +1854,8 @@ class Server(
     // (`healthy`, pushed as a signal); the SSE transport down only the client
     // can see, through [[Server.StreamEvent]] (not `datastar-fetch`, which
     // fires for every fetch — see the re-dispatch in `shell.ts`). A dead
-    // transport freezes `haDown`, so the HA banner waits on `$_sse == 0`.
-    //
-    // This pinned build needs the `$` sigil even for a bare read.
-    val ha = "$" + Server.HaDownSignal
+    // transport freezes `haDown`, so the HA banner waits on `$_sse == 0`
+    // (`theme.pkl`'s `offlineBanners`).
     // 2 = gave up, 1 = trying, 0 = fine.
     val sseState =
       "evt.detail.type === 'retries-failed' ? 2 : " +
@@ -1866,7 +1863,7 @@ class Server(
     // 2 latches: any later event classifies as 0, and a `finished` in the same
     // debounce window swallowed the failure before it painted. Only a reload
     // gets out, which is all that reconnects once retries are exhausted.
-    val sseLatched = s"$$_sse >= 2 ? 2 : ($sseState)"
+    val sseLatched = s"$$${Server.SseSignal} >= 2 ? 2 : ($sseState)"
     // Inline, or the banners flash before the deferred module runs; and not
     // in CSS, because `data-show` only clears the inline `display`.
     val hidden = """style="display:none""""
@@ -1914,22 +1911,18 @@ class Server(
           .sortBy(_.committedSignal)
           .map(_.pendingClear)
           .mkString(s"""\n  <div $hidden data-effect="""", "; ", "\"></div>")
-    // The banners' `fh-offline*` classes are the theme's to rename, as a card's.
+    // The banners are the theme's markup, so its class rules apply as to a card's.
     val connBanner = themeClasses.rewriteTemplate(
-      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
+      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, ${Server.SseSignal}: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
          |     data-fh-url__history="['$popupParamName', $$$popupSignalName]"
          |     data-on:popstate__window="$popupFromUrl"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
-         |     data-on:$sseEvent="$$_sse = $sseLatched">
+         |     data-on:$sseEvent="$$${Server.SseSignal} = $sseLatched">
          |  <div $hidden ${Server.PendingSweep}></div>$varClear
-         |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
-         |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
-         |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
-         |  </div>
-         |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
+         |$offlineBanners
          |</div>""".stripMargin
     )
     val _ = out.append(s"""<!doctype html>
@@ -2599,6 +2592,11 @@ object Server {
 
   val HaDownSignal: String = "_haDown"
 
+  /** The stream's state as the client sees it: 0 fine, 1 retrying, 2 gave up.
+    * The offline banners (`theme.pkl`) and the slider and wheel read it.
+    */
+  val SseSignal: String = "_sse"
+
   /** Re-dispatched by `shell.ts` for the SSE stream's own fetch. Shared with
     * the TypeScript: rename one and the banner silently stops updating.
     */
@@ -2830,11 +2828,7 @@ object Server {
       .when(
         requested.nonEmpty && renderer.surfaces.openPopup(requested).isEmpty
       )(
-        Datastar.patch(
-          s"""<div id="${Dashboard.PopupHostId}"></div>""",
-          PatchMode.Outer,
-          None
-        )
+        Datastar.remove(s"#${Dashboard.PopupHostId} > *")
       )
       .toList
 

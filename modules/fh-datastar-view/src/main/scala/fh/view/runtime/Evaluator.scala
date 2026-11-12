@@ -28,18 +28,43 @@ import fh.view.model.{
 private[view] object Evaluator {
 
   /** Over the subject an unnamed read reads (`null` when there is none), the
-    * states, and the fetches' answers.
+    * states, and what else is in hand.
     */
   type Run =
     (
         EntityState | Null,
         Map[String, EntityState],
-        FetchTemplate => Object
+        Lookup
     ) => Any
+
+  /** What a run reads besides state: the fetches' answers, and the node
+    * variables at the node it runs for. A read of either that is not in hand is
+    * a wiring bug, so it throws: a decision has no viewer, so no variables.
+    */
+  trait Lookup:
+    def fetched(f: FetchTemplate): Object
+    def variable(name: String): String
+
+  object Lookup:
+    /** Answers and no variables: a decision's. */
+    def answering(answer: FetchTemplate => Object): Lookup = new Lookup:
+      def fetched(f: FetchTemplate): Object = answer(f)
+      def variable(name: String): String = noVariable(name)
+
+    /** Variables and no answers: what a chosen window's `by` reads. */
+    def of(vars: Map[String, String]): Lookup = new Lookup:
+      def fetched(f: FetchTemplate): Object = unanswered.fetched(f)
+      def variable(name: String): String =
+        vars.getOrElse(name, noVariable(name))
+
+  def noVariable(name: String): Nothing =
+    throw FHError.internal(
+      s"a value read the variable '$name' where no viewer's values are in hand"
+    )
 
   /** A CEL's named inputs, as it reads them. */
   type Inputs =
-    (Map[String, EntityState], FetchTemplate => Object) => Map[String, Object]
+    (Map[String, EntityState], Lookup) => Map[String, Object]
 
   private val noInputs: Inputs = (_, _) => Map.empty
 
@@ -48,7 +73,7 @@ private[view] object Evaluator {
     * Subject-free, as `validate` holds them.
     */
   final case class Named(
-      read: (Map[String, EntityState], FetchTemplate => Object) => Object,
+      read: (Map[String, EntityState], Lookup) => Object,
       out: ValueType
   )
 
@@ -116,7 +141,7 @@ private[view] object Evaluator {
       outer: Map[String, Named]
   ): Built[Named] = e.source match
     case Value.Fetch(f) if e.steps.isEmpty =>
-      Right(Named((_, fetched) => fetched(f), ValueType.Series))
+      Right(Named((_, in) => in.fetched(f), ValueType.Series))
     case _ =>
       compile(e, scope, outer).map { c =>
         val run = c.run
@@ -192,17 +217,19 @@ private[view] object Evaluator {
   /** Where no fetch was answered: a run that reads one is a wiring bug, so loud
     * rather than an empty series.
     */
-  val unanswered: FetchTemplate => Object = f =>
-    throw FHError.internal(
-      s"a value read the fetch '${f.key}' where none is answered"
-    )
+  val unanswered: Lookup = new Lookup:
+    def fetched(f: FetchTemplate): Object =
+      throw FHError.internal(
+        s"a value read the fetch '${f.key}' where none is answered"
+      )
+    def variable(name: String): String = noVariable(name)
 
   /** A set's candidates present in a snapshot: what a call over it acts on. */
   def presentOf(
       p: Value.Present,
       scope: Scope
   ): Built[
-    (Map[String, EntityState], FetchTemplate => Object) => List[String]
+    (Map[String, EntityState], Lookup) => List[String]
   ] =
     present(p, scope).map(is =>
       (states, fetched) => p.candidates.filter(is(_, states, fetched))
@@ -229,7 +256,7 @@ private[view] object Evaluator {
     def of(
         id: String,
         states: Map[String, EntityState],
-        fetched: FetchTemplate => Object
+        fetched: Lookup
     ): Array[Any] =
       val out = buffer()
       into(out, id, states, fetched)
@@ -241,7 +268,7 @@ private[view] object Evaluator {
         out: Array[Any],
         id: String,
         states: Map[String, EntityState],
-        fetched: FetchTemplate => Object
+        fetched: Lookup
     ): Unit =
       val st = states.getOrElse(id, null)
       val n = runs.length
@@ -355,7 +382,8 @@ private[view] object Evaluator {
           lift(Cel.eval(p, null, scope.slug, inputs(states, fetched)))
       )
     // Its answer is drawn by its stage, never read here.
-    case _: Value.Fetch => Right((_, _, _) => "")
+    case _: Value.Fetch  => Right((_, _, _) => "")
+    case Value.Var(name) => Right((_, _, in) => in.variable(name))
 
   private def step(
       s: Step,
@@ -449,7 +477,7 @@ private[view] object Evaluator {
       p: Value.Present,
       scope: Scope
   ): Built[
-    (String, Map[String, EntityState], FetchTemplate => Object) => Boolean
+    (String, Map[String, EntityState], Lookup) => Boolean
   ] =
     p.when.toList
       .traverse((id, g) => inner(g, scope).map(id -> _.run))
@@ -471,7 +499,7 @@ private[view] object Evaluator {
       is: (
           String,
           Map[String, EntityState],
-          FetchTemplate => Object
+          Lookup
       ) => Boolean,
       op: Op,
       n: Long
@@ -516,7 +544,7 @@ private[view] object Evaluator {
       ids: List[?],
       keys: Keys,
       states: Map[String, EntityState],
-      fetched: FetchTemplate => Object
+      fetched: Lookup
   ): Any =
     var best: String | Null = null
     var bestKeys = keys.buffer()

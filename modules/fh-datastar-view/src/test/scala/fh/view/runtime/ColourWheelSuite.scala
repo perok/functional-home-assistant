@@ -71,7 +71,7 @@ class ColourWheelSuite extends CatsEffectSuite {
       } yield {
         assertEquals(status, Status.NoContent)
         val patch = queued.flatMap(_.data).mkString
-        assert(patch.contains("""class="fh-wheel""""), clue = patch)
+        assert(patch.contains("""class="fh-cell fh-wheel""""), clue = patch)
         assert(patch.contains("--fh-h:30.5deg;--fh-s:0.8"), clue = patch)
         assert(patch.contains("background:hsl(31,80%,50%)"), clue = patch)
       }

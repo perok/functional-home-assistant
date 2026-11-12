@@ -1,4 +1,4 @@
-# ADR 0008 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract
+# ADR 0008 — Every node is a cell: a library-written root + the `fh-` layout contract
 
 - **Status:** Accepted
 - **Date:** 2026-07-12
@@ -25,46 +25,67 @@ know.
 
 ## Decision
 
-**Every node is a cell, and the backend owns the cell.**
+**Every node is a cell, and the library writes the cell: it is the card's own
+root element.**
 
-1. **Universal wrapper.** `Renderer.render` wraps EVERY component — containers
-   included, static and dynamic, main page and surfaces — in
-   `<div class="fh-cell" id="…">` (`Renderer.scala`). One invariant replaces
-   the old conditional: every node is addressable, and every
-   direct child of a container is a real `.fh-cell` box. The wrapper stays
-   backend-owned (a single string concatenation around the rendered template;
-   ids are pure tree-path strings computed before templating — no HTML
-   parsing anywhere).
-2. **`CardDef.wrapAsCell` is the escape hatch** (default `true`). A card sets
-   it `false` only when its template root must remain a *direct* child of a
-   framework-structural parent. The one opt-out is the `tab` card: a theme
-   styles a tab bar by the structural selector `.fh-tabs > a` (BeerCSS's
-   `.tabs > a`, under the default theme). Everything that
-   rides on the wrapper is unusable on such a card, and would fail *silently*
-   at render time — so `Dashboard.validate` rejects the three shapes loudly:
-   live-entity slots (an unwrapped node has nothing to patch, so its pushed
-   patches could never match), authored `cell` params (no wrapper to carry
-   the classes), and use as a dynamic-group case (per-entity children are
-   always wrapped — they ARE the patch targets).
+1. **The card's root is the cell.** `core/node.pkl` writes every card's root
+   element from three `CardDef` fields — `tag` (default `div`), `classes` and
+   `attrs` — around the card's `template`, which is the root's content. On the
+   wire it is the card's one template:
+   `<a class="fh-cell fh-tab{{{cellClasses}}}"{{{cell}}} data-on:click="…">…</a>`:
+   `fh-cell`, the card's classes, then the node's cell classes. The two holes
+   are writer holes the renderer fills straight into the buffer, as it fills a
+   region (`Renderer.NodeContext.writeHole`): `cellClasses` each with its
+   leading space, a live one inline in the document form only, then those decided
+   for the viewer at render (`cell.atRender`, `cellClassAtRender`, ADR 0033), in
+   the document form only and with no binding; `cell` the live
+   `style` (document form), the id, the one `data-signals` seed, the cell
+   bindings and the URL mirror, in that order. A card that sets no `tag` gets
+   `<div class="fh-cell{{{cellClasses}}}"{{{cell}}}>…</div>` around its
+   template, so a card written as markup alone still renders as a cell.
+   `tag`, `classes` and `attrs` do not reach the wire.
+
+   The invariants are the library's: the id cannot be forgotten, a node has
+   exactly one root, and every root carries `fh-cell` unless it opts out (2).
+   `validate` holds a pushed wire to the same: each root hole is placed exactly
+   once, outside every section. `attrs` is refused, in Pkl, an `id`, `class`,
+   `style` or `data-signals` attribute — the root writes those, and the browser
+   keeps only the first of two — matched by attribute name, so
+   `data-class="{…}"` is not `class`; and a node refuses a `cellClassWhen(x)`
+   whose card's `attrs` binds `data-class:x` itself. `tag` is a plain element
+   name. Ids are pure tree-path strings computed before templating — no HTML
+   parsing anywhere. A set's root (`fh-cell fh-group`) is still the renderer's.
+2. **`CardDef.layoutCell = false` is the escape hatch** (default `true`): the
+   root keeps its id and its `cell` hole and loses the `fh-cell` class, for a
+   root that must not be a layout box. The opt-outs are roots no container
+   lays out, which in a `.fh-col` would otherwise inherit
+   `--fh-cell-width:100%`: the `tab` card, an `<a>` straight under the bar so a
+   theme can style it by `.fh-tabs > a` (BeerCSS's `.tabs > a`), an entity
+   select's option, an `<a>` under the same bar or in the dropdown's list, and
+   the slider's pill and main-controls row, boxes inside the slider card. The layout builders write a field of their own,
+   `cell.layout`, and a non-empty one on such a card is refused, in Pkl and by
+   `validate`; `cellClassWhen` and `cellStyle` stay allowed. Since the root
+   still has its id, such a card may bind live slots and be a set clause.
 3. **`.fh-cell` is the real layout box.** `display:contents` is gone; the
-   themes lay the wrapper itself out (`.fh-row>.fh-cell{flex:1 1 0;…}`, the
+   themes lay the root itself out (`.fh-row>.fh-cell{flex:1 1 0;…}`, the
    grid rules below). This kills the col-vs-bare-card asymmetry: all row
    children share space uniformly, all grid children are grid cells.
-4. **Node-level `cell` wire field.** `Cell(classes, styles)` holds the node's
-   **cell slots**: ordinary slots the renderer places on the wrapper, keyed by
+4. **Node-level `cell` wire field.** `Cell(layout, classes, styles)` holds the
+   node's **cell slots**: ordinary slots the renderer places on the root, keyed by
    the class name or the custom property rather than placed by name in a
    template. A class is `"1"` (always there) or a reading, bound by name
    (`data-class:<name>`, ADR 0034); a style is a reading (`data-style:<prop>`).
    The map a slot sits in is its placement, so nothing reads meaning out of a
    slot's name. It is optional on `LayoutNode.Component`, `LayoutNode.SetNode`
    (the container root, literal classes only: a set has no slots to bind a
-   reading with), and each clause node (the per-member wrapper).
+   reading with), and each clause node. `layout` is the layout builders'
+   classes (6), written ahead of `classes`.
    `Dashboard.validate` rejects any class that is not a plain token
    (`[A-Za-z0-9_-]+`) — the values are string-interpolated into markup. An
    object (not a bare list) so it can grow HA-`grid_options`-style fields
    (rows, dense) without a wire break. A literal class is static wire data, so
    in-place morphs, membership inserts, and whole-group repaints re-emit
-   byte-identical wrappers.
+   byte-identical roots.
 5. **The `fh-` layout contract: three container behaviours.** The class
    vocabulary is theme-agnostic, and each container speaks exactly one sizing
    language — the fix for the original bug, where `.fh-cell` tried to speak
@@ -101,7 +122,9 @@ know.
    and `-bottom` (`stick(edge)`) keep a cell on screen while its box is, and a
    column's `fillScreen()` makes it at least the screen's height, which is what
    lets a footer sit at the bottom of a short page. A container hands these to
-   its cells as inherited custom properties, so every container sets all of
+   its cells as custom properties set on its children (`>*`), not on itself,
+   since a container is a cell that reads its parent's; they inherit from
+   there, through a set's `display:contents` group. Every container sets all of
    them (`--fh-cell-flex`, `-width`, `-align-self`): one that sets only some
    passes its parent's value on for the rest. `--fh-gap` is the spacing knob;
    `core/css.pkl` carries all of this as `layoutCss`, which `entry.pkl` puts on
@@ -114,25 +137,26 @@ know.
    `LayoutNode` base, so components and dynamic groups share them: `columns(n)`
    (HA `grid_options.columns`), `fullWidth()` (HA `columns: full`), `hug()`
    (shrink to content), `grow()` (take what is left), `stick(edge)`, and the
-   `cellClass("…")` escape hatch. They append to the node's `cell.classes`
-   (never amending the null default) and return the base `LayoutNode` type —
+   `cellClass("…")` escape hatch. The first five append to the node's
+   `cell.layout`, the rest to `cell.classes` (never amending the null default) and return the base `LayoutNode` type —
    chain them AFTER card-specific builders (`c.entityCard(e).tapAction(…).columns(3)`).
    `caseOf` copies a render fn's `cell` onto the emitted `Case`. The `Grid`
    class (`card = "fhgrid"`) is the default top-level container and carries the
    `centered(on: Boolean)` toggle (group-centering, default on); `Row`/`Column`
    are the one-dimensional share/fill flows that nest inside it.
 
-### Rejected: template-owned id roots
+### Rejected: an id the author places on the root
 
 The considered alternative — every card template carries `id="{{id}}"` on its
-root (the var is already injected) and the renderer stops wrapping — was
-rejected. It makes every template load-bearing for SSE correctness (a
-forgotten id silently kills live patching, guarded only by a fragile regex
-over multi-line template roots), it still needs per-template `{{cellClasses}}`
-boilerplate to carry layout params, the renderer keeps its special cases
-anyway (dynamic child ids, the group root), and the "all grid children are
-cells" invariant would depend on every card's root class list instead of one
-backend-emitted class. Same CSS work, weaker invariants, one less `<div>`.
+own root (the var is already injected) — was rejected. It makes every template
+load-bearing for SSE correctness (a forgotten id silently kills live patching,
+guarded only by a fragile regex over multi-line template roots), it needs
+per-template `{{cellClasses}}` boilerplate to carry layout params, and the "all
+grid children are cells" invariant would depend on every card's root class list
+instead of one library-written class. The root the library writes from
+`tag`/`classes`/`attrs` keeps what this alternative wanted — one element per
+node, so a set's member can be an `<li>` or a `<tr>` — without handing the id
+to the author.
 
 ### The cell is the layout item, and for a leaf it is the patch target too
 
@@ -151,7 +175,7 @@ So the mapping is one function, in one direction only:
 > at all is `CardDef.isStructure`, asked of the card.
 
 **Structure is not a patch target and not a log key.** Its `.fh-cell` is a
-constant wrapper around holes; rendering it by id would render its whole
+constant root around holes; rendering it by id would render its whole
 subtree, which is its children's business and not its own. `Dashboard.validate`
 says the same from the other side — it rejects a live BYTES slot on structure
 *because there is nothing to patch* — and the log follows the same rule (ADR
@@ -185,18 +209,38 @@ framework-agnostic, and a new look is a sibling module exporting a
 
 ## Consequences
 
-- The wire format grew `CardDef.wrapAsCell`, `cell` on the three node shapes
-  — old JSON decodes unchanged (defaults). The wire snapshots pin all of it.
+- The wire format has `CardDef.layoutCell`, `cell` (with `layout`) on the
+  three node shapes, and a card template that includes its root. The wire
+  snapshots pin all of it.
 - The backend model changed for a layout feature. That is the sanctioned
   exception to "authoring-layer work shouldn't touch `Dashboard.scala`": cell
-  params are structural (the renderer owns the wrapper), not presentational.
+  params are structural (the renderer fills the root's holes), not
+  presentational.
 - Every node now being id-addressable improves the editor overlay
   (`.fh-cell[id]` selects everything) and future per-node tooling.
-- `wrapAsCell = false` means exactly one thing: *my root must not be wrapped in
-  a layout box*. It does not imply "never a patch target" — that is decided by
-  card shape (`CardDef.isStructure`).
-- DOM depth grows by one `div` per node; inert in flow terms everywhere but
-  the layout containers, where it is the point.
+- `layoutCell = false` means exactly one thing: *my root is not a layout
+  box*. It does not imply "never a patch target" — that is decided by card
+  shape (`CardDef.isStructure`).
+- A card that sets no `tag` is two elements, the `div` root and its markup; a
+  card moves its markup into the root fields to be one. The library's cards
+  have, except two whose inner host carries an id of its own beside the
+  node's, which one element cannot hold: `if`'s host and a variable cycle's
+  (the regions work settles them). A root may
+  still be `display:contents` on purpose, when what it holds is laid out by
+  the parent: the slider head's (its label line and track are the card's
+  rows) and the slider text's (its two lines are the head's grid items). The
+  popup's root is its backdrop, holding the dialog; only a click on the
+  backdrop itself closes it.
+- A root that differs by a fact known at build time is one card name per
+  form, each with a constant def (`Node.variants`; the node's `card` and
+  `cardDef` pick on the same fact, so `cardsIn`'s one def per name holds): a
+  navigating button or pill is an `<a>` (`buttonLink`, `pillLink`), a choice
+  label with an icon an `<i>` (`selectChoiceIcon`). A Mustache section cannot
+  choose the root's tag, which is why the choice moved to Pkl.
+- Wrapper-dissolving rules (`.fh-x .fh-cell{display:contents}`) and theme
+  rules that space siblings now reach a card's own root: the slider pill
+  dissolves only `div` cells (a var cycle's root), and `theme-beer` zeroes BeerCSS's flow margin on
+  cells. CI's visual snapshots, not the goldens, catch these.
 - The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,
   not a template — unlike static containers, a group's member flow has no
   card seam. A group wanting a non-grid flow says so via `cellClass` (an
@@ -208,9 +252,9 @@ framework-agnostic, and a new look is a sibling module exporting a
 
 ## Verification
 
-`fh-datastar-view/testFull` green (132 tests): renderer wrapper semantics
-(universal wrap, `wrapAsCell = false` bare render, cell classes on all three
-wrapper kinds incl. the per-member in-place path), builder-vs-property JSON
+`fh-datastar-view/testFull` green: root semantics (the lowering and its
+refusals in `components.test.pkl`, a `layoutCell = false` root keeping its id,
+cell classes on all three root kinds incl. the per-member in-place path), builder-vs-property JSON
 identity, the `Grid.centered(false)` → `.fh-start` marker (default emits no
 class), `caseOf` cell copy, validate's token rejection, and the wire snapshots
 (regenerated deliberately for the flex-based grid CSS — span basis, group

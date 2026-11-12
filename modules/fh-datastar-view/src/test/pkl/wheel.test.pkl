@@ -30,17 +30,19 @@ facts {
     // copy, which the drag moves and a refusal, a dead stream, a cancelled
     // pointer and a mount put back to the light's.
     w.slotsByName["hue"].signal == slotMod.asHandler
-    local t = w.cardDef.template
-    t.contains(#"data-style:--fh-h="$_{{id}}__h""#)
-    t.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")
-    t.contains("data-effect=\"$_sse > 0 && (")
-    t.contains("data-on:pointercancel=")
-    t.contains("data-init=")
+    // The knob is the template; the wheel itself, which takes the pointer, the root.
+    local knob = w.cardDef.template
+    local root = w.cardDef.attrs
+    knob.contains(#"data-style:--fh-h="$_{{id}}__h""#)
+    knob.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")
+    root.contains("data-effect=\"$_sse > 0 && (")
+    root.contains("data-on:pointercancel=")
+    knob.contains("data-init=")
     // What sets that error: the guard's mechanism, on the element that posts.
-    t.contains(tapMod.guardMechanism) && w.slotsByName["busy"].value == true
+    root.contains(tapMod.guardMechanism) && w.slotsByName["busy"].value == true
     w.slotsByName["service"].value == "light/turn_on"
     w.slotsByName["dataKey"].value == "hs_color"
-    w.cardDef.template.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
+    root.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
     // A light with no colour mode has no wheel.
     module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
       .contains("colour != null")

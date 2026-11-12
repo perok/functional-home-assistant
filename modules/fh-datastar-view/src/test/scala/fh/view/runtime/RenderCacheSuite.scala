@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.std.CountDownLatch
 import cats.effect.unsafe.implicits.global
@@ -23,7 +24,10 @@ class RenderCacheSuite extends munit.FunSuite {
   /** Generations compare by identity, so only distinct instances matter. */
   private def aRenderer: Renderer =
     Renderer.create(
-      Dashboard(Map("card" -> CardDef("<i></i>")), LayoutNode.Component("card"))
+      Dashboard(
+        Map("card" -> TestCard("<i></i>")),
+        LayoutNode.Component("card")
+      )
     )
 
   private val r = aRenderer
@@ -86,6 +90,22 @@ class RenderCacheSuite extends munit.FunSuite {
     assertEquals(n, 1)
   }
 
+  test("a hit on equal inputs does not resolve the byte values") {
+    // Every session woken by one tick asks for the same inputs; resolving the
+    // byte slots for each of them was work only a miss can use.
+    val resolved = new AtomicInteger(0)
+    val values = () => {
+      resolved.incrementAndGet(); Some(Map("name" -> "Lamp"))
+    }
+    (for {
+      cache <- RenderCache.create
+      _ <- cache(id, r, v1, values)(IO.pure("<i>1</i>"))
+      _ <- List.fill(3)(cache(id, r, v1, values)(IO.pure("<i>2</i>"))).sequence
+    } yield ()).timeout(10.seconds).unsafeRunSync()
+
+    assertEquals(resolved.get(), 1)
+  }
+
   test("new inputs REPLACE a node's entry rather than adding one") {
     // Every batch brings new inputs, so keyed by (node, inputs) the map would
     // grow forever for hits that never come.
@@ -111,8 +131,8 @@ class RenderCacheSuite extends munit.FunSuite {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
       count = (html: String) => IO(runs.incrementAndGet()).as(html)
-      a <- cache(id, r, v1, name)(count("<i>1</i>"))
-      b <- cache(id, r, v2, name)(count("<i>2</i>"))
+      a <- cache(id, r, v1, () => name)(count("<i>1</i>"))
+      b <- cache(id, r, v2, () => name)(count("<i>2</i>"))
       n <- cache.size
     } yield (a.html, b.html, runs.get(), n)).timeout(10.seconds).unsafeRunSync()
 
@@ -129,8 +149,12 @@ class RenderCacheSuite extends munit.FunSuite {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
       count = (html: String) => IO(runs.incrementAndGet()).as(html)
-      a <- cache(id, r, v1, Some(Map("name" -> "Lamp")))(count("<i>1</i>"))
-      b <- cache(id, r, v2, Some(Map("name" -> "Lantern")))(count("<i>2</i>"))
+      a <- cache(id, r, v1, () => Some(Map("name" -> "Lamp")))(
+        count("<i>1</i>")
+      )
+      b <- cache(id, r, v2, () => Some(Map("name" -> "Lantern")))(
+        count("<i>2</i>")
+      )
     } yield (a.html, b.html, runs.get())).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(renders, 2)
@@ -145,9 +169,9 @@ class RenderCacheSuite extends munit.FunSuite {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
       count = (html: String) => IO(runs.incrementAndGet()).as(html)
-      a <- cache(id, r, v1, None)(count("<i>1</i>"))
-      b <- cache(id, r, v2, None)(count("<i>2</i>"))
-      c <- cache(id, r, v1, Some(Map("k" -> "v")))(count("<i>3</i>"))
+      a <- cache(id, r, v1, () => None)(count("<i>1</i>"))
+      b <- cache(id, r, v2, () => None)(count("<i>2</i>"))
+      c <- cache(id, r, v1, () => Some(Map("k" -> "v")))(count("<i>3</i>"))
     } yield (runs.get(), (a.html, b.html, c.html)))
       .timeout(10.seconds)
       .unsafeRunSync()
@@ -165,10 +189,10 @@ class RenderCacheSuite extends munit.FunSuite {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
       count = (html: String) => IO(runs.incrementAndGet()).as(html)
-      _ <- cache(id, r, v2, vals)(count("<i>current</i>"))
-      old <- cache(id, r, v1, vals)(count("<i>stale</i>"))
+      _ <- cache(id, r, v2, () => vals)(count("<i>current</i>"))
+      old <- cache(id, r, v1, () => vals)(count("<i>stale</i>"))
       // Had the straggler installed, this would miss and render.
-      now <- cache(id, r, v2, vals)(count("<i>never runs</i>"))
+      now <- cache(id, r, v2, () => vals)(count("<i>never runs</i>"))
     } yield (runs.get(), old.html, now.html))
       .timeout(10.seconds)
       .unsafeRunSync()

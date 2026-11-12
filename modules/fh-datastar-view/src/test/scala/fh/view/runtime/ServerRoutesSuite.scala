@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
@@ -15,6 +16,7 @@ import fh.view.model.{
   Theme
 }
 import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 import org.http4s.*
@@ -128,7 +130,7 @@ class ServerRoutesSuite extends ServerHarness {
   private def titleDash(slug: String, title: Option[String]): Dashboard =
     Dashboard(
       cards = Map(
-        "col" -> CardDef(
+        "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         )
@@ -137,6 +139,19 @@ class ServerRoutesSuite extends ServerHarness {
       slug = slug,
       title = title
     )
+
+  /** The banners are the theme's markup, so a page that shows them comes from
+    * the library's theme, not a hand-built dashboard.
+    */
+  private lazy val libraryDash: Dashboard = PklFixture.buildDashboard(
+    "home",
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |
+      |card = c.title("x")
+      |""".stripMargin
+  )
 
   private def pageHtml(dash: Dashboard, query: String = ""): IO[String] =
     TestServer.resource(dash, Nil).use(_.page(query)).timeout(30.seconds)
@@ -372,14 +387,14 @@ class ServerRoutesSuite extends ServerHarness {
     // Every fetch type but retrying/error/retries-failed is "fine", so without
     // a latch any later event cleared the banner, and the 600ms debounce could
     // swallow the failure before it painted.
-    pageHtml(titleDash("home", None)).map { html =>
+    pageHtml(libraryDash).map { html =>
       val handler = html.linesIterator
         .find(_.contains(s"data-on:${Server.StreamEvent}"))
         .getOrElse(fail(s"no stream handler in the shell: $html"))
       assert(handler.contains("$_sse >= 2 ? 2 :"), clue = handler)
       assert(handler.contains("'retries-failed' ? 2"), clue = handler)
       assert(handler.contains("'retrying'"), clue = handler)
-      assert(html.contains("""data-show="$_sse < 2""""), clue = html)
+      assert(html.contains("""data-show="$_sse == 1""""), clue = html)
       assert(html.contains("""data-show="$_sse >= 2""""), clue = html)
       // A blip is not latched: 1 must fall back to 0, or an ordinary refetch
       // pins "Reconnecting…".
@@ -539,7 +554,7 @@ class ServerRoutesSuite extends ServerHarness {
     val base = titleDash("home", None)
     val r = Renderer.create(
       base.copy(
-        cards = base.cards + ("tabs" -> CardDef(
+        cards = base.cards + ("tabs" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )),
@@ -623,7 +638,7 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("page serves both connection indicators (SSE transport + HA feed)") {
-    pageHtml(titleDash("home", None)).map { html =>
+    pageHtml(libraryDash).map { html =>
       assert(html.contains(Server.HaDownSignal), html)
       // Transport-down is derived client-side from the shell's own
       // [[Server.StreamEvent]], not `datastar-fetch`, which fires for every
@@ -700,7 +715,7 @@ class ServerRoutesSuite extends ServerHarness {
     val cardJs = "document.addEventListener('pointermove',()=>{});"
     val themeJs = "void 0;"
     val base = titleDash("home", None)
-    val shared = CardDef("<i></i>", script = Some(cardJs))
+    val shared = TestCard("<i></i>", script = Some(cardJs))
     val dash = base.copy(
       cards = base.cards ++ Map("a" -> shared, "b" -> shared),
       theme = Theme(inlineScripts = List(themeJs))

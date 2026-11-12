@@ -1,5 +1,8 @@
 package fh.view.runtime
 
+import fh.view.testkit.DashboardBuilders
+
+import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.model.*
@@ -41,7 +44,7 @@ class FetchValueSuite extends munit.FunSuite {
       nodeInputs: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
     cards = Map(
-      "bar" -> CardDef(
+      "bar" -> TestCard(
         """<div data-of="{{#of.signal}}{{of.signal}}{{/of.signal}}">{{value}}</div>"""
       )
     ),
@@ -147,7 +150,9 @@ class FetchValueSuite extends munit.FunSuite {
         .contains("reads a live count, condition or fetch")
     )
     val undeclared =
-      history.copy(window = Choice.Chosen("window", Windows.presets))
+      history.copy(window =
+        DashboardBuilders.chosenBy("window", Windows.presets)
+      )
     assert(
       errs(
         dashboard(ofSlot =
@@ -162,7 +167,7 @@ class FetchValueSuite extends munit.FunSuite {
       value: ValueExpr,
       nodeInputs: Map[String, ValueExpr] = Map.empty
   ) = Dashboard(
-    cards = Map("bar" -> CardDef("<div>{{value}}</div>")),
+    cards = Map("bar" -> TestCard("<div>{{value}}</div>")),
     card = LayoutNode.Component(
       card = "bar",
       templateSlots = Map(
@@ -288,7 +293,9 @@ class FetchValueSuite extends munit.FunSuite {
         .contains("'unread' its expression does not read")
     )
     val undeclared =
-      history.copy(window = Choice.Chosen("window", Windows.presets))
+      history.copy(window =
+        DashboardBuilders.chosenBy("window", Windows.presets)
+      )
     assert(
       errs(Map("past" -> ValueExpr(Value.Fetch(undeclared))))
         .contains("reads the variable 'window', which no ancestor declares")

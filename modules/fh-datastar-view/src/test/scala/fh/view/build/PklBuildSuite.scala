@@ -1,5 +1,6 @@
 package fh.view.build
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import api.homeassistant.ServiceTarget
@@ -1172,7 +1173,9 @@ class PklBuildSuite extends munit.FunSuite {
       "tile",
       "entityInfo",
       "button",
+      "buttonLink",
       "pill",
+      "pillLink",
       "switch",
       "tab",
       "slider",
@@ -1193,6 +1196,7 @@ class PklBuildSuite extends munit.FunSuite {
       "selectVarDropdown",
       "selectVarCycle",
       "selectChoice",
+      "selectChoiceIcon",
       "selectEntityOption",
       "colourWheel"
     )
@@ -1203,15 +1207,20 @@ class PklBuildSuite extends munit.FunSuite {
     )
     expectedCards.foreach { name =>
       val card = cards.downField(name)
+      // A card is markup: its template, or a root of its own (an icon's `<i>`).
       assert(
-        card.get[String]("template").toOption.exists(_.nonEmpty),
+        card.get[String]("template").toOption.exists(_.nonEmpty) ||
+          card.get[String]("tag").toOption.exists(_ != "div"),
         clue = name
       )
-      // `tab` is the one wrapAsCell opt-out (the `.fh-tabs > a` selector); every
-      // other card omits the key, which defaults to true.
+      // The layoutCell opt-outs: `tab` and an entity's option (the `.fh-tabs > a`
+      // selector), and the slider's pill and controls, boxes inside its card.
       assertEquals(
-        card.get[Option[Boolean]]("wrapAsCell").toOption.flatten,
-        Option.when(name == "tab")(false),
+        card.get[Boolean]("layoutCell").toOption,
+        Some(
+          !Set("tab", "selectEntityOption", "sliderPill", "sliderControls")
+            .contains(name)
+        ),
         clue = name
       )
     }
@@ -1551,7 +1560,7 @@ class PklBuildSuite extends munit.FunSuite {
         |  .build()""".stripMargin
     )
     val cards = Map(
-      "tile" -> CardDef(
+      "tile" -> TestCard(
         // `tile` marks `value` and `tapDisabled` as signal slots, and
         // `validate` rejects a card that declares one without placing its
         // binding — or, for a handler, its read (ADR 0017).
@@ -1651,7 +1660,7 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |builder = c.entityCard(x).columns(3).cellClass("hero")
         |amend = (c.entityCard(x)) {
-        |  cell = new c.Cell { classes { ["fh-cols-3"] = true; ["hero"] = true } }
+        |  cell = new c.Cell { layout { "fh-cols-3" } classes { ["hero"] = true } }
         |}
         |full = c.entityCard(x).fullWidth()
         |custom = c.entityCard(x).cellClass("my-hero")
@@ -1676,20 +1685,20 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
-    // The ones always there, in wire order.
-    def classes(k: String) =
-      cur
-        .downField(k)
-        .downField("cell")
-        .get[io.circe.JsonObject]("classes")
-        .toOption
-        .map(_.toList.collect {
-          case (c, v) if v.asBoolean.contains(true) => c
-        })
+    // The ones always there, in wire order: the layout builders' first.
+    def classes(k: String) = {
+      val cell = cur.downField(k).downField("cell")
+      for {
+        layout <- cell.get[List[String]]("layout").toOption
+        rest <- cell.get[io.circe.JsonObject]("classes").toOption
+      } yield layout ++ rest.toList.collect {
+        case (c, v) if v.asBoolean.contains(true) => c
+      }
+    }
     assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
     assertEquals(classes("full"), Some(List("fh-cols-full")))
     assertEquals(classes("custom"), Some(List("my-hero")))
-    assertEquals(classes("respan"), Some(List("hero", "fh-cols-6")))
+    assertEquals(classes("respan"), Some(List("fh-cols-6", "hero")))
     assertEquals(classes("tabsDefault"), Some(List("fh-cols-full")))
     assertEquals(classes("tabsSized"), Some(List("fh-cols-6")))
     assertEquals(classes("hugged"), Some(List("fh-hug")))
@@ -1749,31 +1758,13 @@ class PklBuildSuite extends munit.FunSuite {
       .head
       .node
       .asComponent
-    assertEquals(
-      node.cell.map(
-        _.classes
-          .collect {
-            case (c, s) if s.constant.isDefined => c
-          }
-          .toList
-      ),
-      Some(List("fh-cols-full"))
-    )
+    assertEquals(node.cell.map(_.layout), Some(List("fh-cols-full")))
     val sized = probeSet(
       """node = (q.from(hass.lights(dump.areas.stue.all))
         |  .render((e) -> c.entityCard(e))
         |  .build()).fullWidth()""".stripMargin
     )
-    assertEquals(
-      sized.cell.map(
-        _.classes
-          .collect {
-            case (c, s) if s.constant.isDefined => c
-          }
-          .toList
-      ),
-      Some(List("fh-cols-full"))
-    )
+    assertEquals(sized.cell.map(_.layout), Some(List("fh-cols-full")))
     assertEquals(
       sized
         .members("light.taklys")
@@ -1783,9 +1774,11 @@ class PklBuildSuite extends munit.FunSuite {
         .asComponent
         .cell
         .toList
-        .flatMap(_.classes.collect {
-          case (c, s) if s.constant.isDefined => c
-        }),
+        .flatMap(c =>
+          c.layout ++ c.classes.collect {
+            case (c, s) if s.constant.isDefined => c
+          }
+        ),
       Nil
     )
   }
