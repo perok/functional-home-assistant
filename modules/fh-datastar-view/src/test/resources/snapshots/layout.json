@@ -33,10 +33,7 @@
                   },
                   "layout" : [
                     "fh-hug"
-                  ],
-                  "styles" : {
-                    
-                  }
+                  ]
                 },
                 "kind" : "Component",
                 "templateSlots" : {
@@ -110,10 +107,7 @@
                   },
                   "layout" : [
                     "fh-hug"
-                  ],
-                  "styles" : {
-                    
-                  }
+                  ]
                 },
                 "kind" : "Component",
                 "templateSlots" : {

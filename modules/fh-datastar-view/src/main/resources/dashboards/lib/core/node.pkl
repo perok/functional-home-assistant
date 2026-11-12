@@ -56,6 +56,15 @@ class Cell {
   atRender: Mapping<String, Map<String, Any>>? = null
 }
 
+/// How `site.pkl` and `entry.pkl` render the wire: a [[Cell]]'s empty fields are
+/// left out. They stay non-null for the author, since a null default cannot be
+/// amended (`new c.Cell { classes { … } }`).
+const wireRenderer: JsonRenderer = new {
+  converters {
+    [Cell] = (cell) -> cell.toMap().filter((_, v) -> !((v is Listing || v is Mapping) && v.isEmpty))
+  }
+}
+
 /// Every layout-tree node. `kind` is the wire discriminator.
 ///
 /// A button the card holding it fills in from its subject entity (`c.its`), so

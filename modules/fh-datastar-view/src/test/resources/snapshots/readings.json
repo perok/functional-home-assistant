@@ -23,8 +23,6 @@
                 ]
               }
             },
-            "layout" : [
-            ],
             "styles" : {
               "--fh-x" : {
                 "default" : "",
@@ -117,10 +115,7 @@
             },
             "layout" : [
               "fh-hug"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "templateSlots" : {
@@ -364,15 +359,9 @@
                           {
                             "card" : "chooser",
                             "cell" : {
-                              "classes" : {
-                                
-                              },
                               "layout" : [
                                 "fh-cols-full"
-                              ],
-                              "styles" : {
-                                
-                              }
+                              ]
                             },
                             "kind" : "Component",
                             "regions" : {
@@ -399,14 +388,6 @@
                                                 }
                                               ]
                                             }
-                                          },
-                                          "classes" : {
-                                            
-                                          },
-                                          "layout" : [
-                                          ],
-                                          "styles" : {
-                                            
                                           }
                                         },
                                         "kind" : "Component",
@@ -452,14 +433,6 @@
                                                 }
                                               ]
                                             }
-                                          },
-                                          "classes" : {
-                                            
-                                          },
-                                          "layout" : [
-                                          ],
-                                          "styles" : {
-                                            
                                           }
                                         },
                                         "kind" : "Component",
@@ -505,14 +478,6 @@
                                                 }
                                               ]
                                             }
-                                          },
-                                          "classes" : {
-                                            
-                                          },
-                                          "layout" : [
-                                          ],
-                                          "styles" : {
-                                            
                                           }
                                         },
                                         "kind" : "Component",
@@ -558,14 +523,6 @@
                                                 }
                                               ]
                                             }
-                                          },
-                                          "classes" : {
-                                            
-                                          },
-                                          "layout" : [
-                                          ],
-                                          "styles" : {
-                                            
                                           }
                                         },
                                         "kind" : "Component",
@@ -839,11 +796,6 @@
                   }
                 ]
               }
-            },
-            "layout" : [
-            ],
-            "styles" : {
-              
             }
           },
           "kind" : "Component",

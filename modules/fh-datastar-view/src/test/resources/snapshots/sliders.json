@@ -32,11 +32,6 @@
                       ]
                     },
                     "fh-slider-head-cell" : true
-                  },
-                  "layout" : [
-                  ],
-                  "styles" : {
-                    
                   }
                 },
                 "kind" : "Component",
@@ -49,11 +44,6 @@
                       "cell" : {
                         "classes" : {
                           "fh-slider-text" : true
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -196,11 +186,6 @@
                       ]
                     },
                     "fh-slider-head-cell" : true
-                  },
-                  "layout" : [
-                  ],
-                  "styles" : {
-                    
                   }
                 },
                 "kind" : "Component",
@@ -213,11 +198,6 @@
                       "cell" : {
                         "classes" : {
                           "fh-slider-text" : true
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -376,11 +356,6 @@
                       ]
                     },
                     "fh-slider-head-cell" : true
-                  },
-                  "layout" : [
-                  ],
-                  "styles" : {
-                    
                   }
                 },
                 "kind" : "Component",
@@ -389,15 +364,9 @@
                     {
                       "card" : "pill",
                       "cell" : {
-                        "classes" : {
-                          
-                        },
                         "layout" : [
                           "fh-hug"
-                        ],
-                        "styles" : {
-                          
-                        }
+                        ]
                       },
                       "kind" : "Component",
                       "templateSlots" : {
@@ -458,11 +427,6 @@
                       "cell" : {
                         "classes" : {
                           "fh-slider-text" : true
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -605,11 +569,6 @@
                       ]
                     },
                     "fh-slider-head-cell" : true
-                  },
-                  "layout" : [
-                  ],
-                  "styles" : {
-                    
                   }
                 },
                 "kind" : "Component",
@@ -622,11 +581,6 @@
                       "cell" : {
                         "classes" : {
                           "fh-slider-text" : true
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",

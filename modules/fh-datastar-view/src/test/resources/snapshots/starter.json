@@ -7,15 +7,9 @@
         {
           "card" : "sectionTitle",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "templateSlots" : {
@@ -30,15 +24,9 @@
             "light.living_room"
           ],
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "SetNode",
           "members" : {
@@ -73,11 +61,6 @@
                                 ]
                               },
                               "fh-slider-head-cell" : true
-                            },
-                            "layout" : [
-                            ],
-                            "styles" : {
-                              
                             }
                           },
                           "kind" : "Component",
@@ -90,11 +73,6 @@
                                 "cell" : {
                                   "classes" : {
                                     "fh-slider-text" : true
-                                  },
-                                  "layout" : [
-                                  ],
-                                  "styles" : {
-                                    
                                   }
                                 },
                                 "kind" : "Component",
@@ -243,11 +221,6 @@
                             }
                           ]
                         }
-                      },
-                      "layout" : [
-                      ],
-                      "styles" : {
-                        
                       }
                     },
                     "kind" : "Component",
@@ -361,11 +334,6 @@
                                 ]
                               },
                               "fh-slider-head-cell" : true
-                            },
-                            "layout" : [
-                            ],
-                            "styles" : {
-                              
                             }
                           },
                           "kind" : "Component",
@@ -378,11 +346,6 @@
                                 "cell" : {
                                   "classes" : {
                                     "fh-slider-text" : true
-                                  },
-                                  "layout" : [
-                                  ],
-                                  "styles" : {
-                                    
                                   }
                                 },
                                 "kind" : "Component",
@@ -531,11 +494,6 @@
                             }
                           ]
                         }
-                      },
-                      "layout" : [
-                      ],
-                      "styles" : {
-                        
                       }
                     },
                     "kind" : "Component",
@@ -625,15 +583,9 @@
         {
           "card" : "sectionTitle",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "templateSlots" : {
@@ -646,15 +598,9 @@
           "candidates" : [
           ],
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "SetNode",
           "members" : {
@@ -666,15 +612,9 @@
         {
           "card" : "sectionTitle",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "templateSlots" : {
@@ -687,15 +627,9 @@
           "candidates" : [
           ],
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "SetNode",
           "members" : {

@@ -32,11 +32,6 @@
                             }
                           ]
                         }
-                      },
-                      "layout" : [
-                      ],
-                      "styles" : {
-                        
                       }
                     },
                     "kind" : "Component",
@@ -164,11 +159,6 @@
                             }
                           ]
                         }
-                      },
-                      "layout" : [
-                      ],
-                      "styles" : {
-                        
                       }
                     },
                     "kind" : "Component",
@@ -308,11 +298,6 @@
                             }
                           ]
                         }
-                      },
-                      "layout" : [
-                      ],
-                      "styles" : {
-                        
                       }
                     },
                     "kind" : "Component",
@@ -428,11 +413,6 @@
                             }
                           ]
                         }
-                      },
-                      "layout" : [
-                      ],
-                      "styles" : {
-                        
                       }
                     },
                     "kind" : "Component",
@@ -590,10 +570,7 @@
             },
             "layout" : [
               "fh-hug"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "templateSlots" : {

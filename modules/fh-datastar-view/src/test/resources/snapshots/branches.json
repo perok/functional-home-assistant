@@ -7,15 +7,9 @@
         {
           "card" : "tabs",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "inlineSurfaces" : {
             "t0" : {
@@ -52,11 +46,6 @@
                               }
                             ]
                           }
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -212,14 +201,6 @@
                         }
                       ]
                     }
-                  },
-                  "classes" : {
-                    
-                  },
-                  "layout" : [
-                  ],
-                  "styles" : {
-                    
                   }
                 },
                 "kind" : "Component",
@@ -265,14 +246,6 @@
                         }
                       ]
                     }
-                  },
-                  "classes" : {
-                    
-                  },
-                  "layout" : [
-                  ],
-                  "styles" : {
-                    
                   }
                 },
                 "kind" : "Component",
@@ -317,15 +290,9 @@
         {
           "card" : "ifhost",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "inlineSurfaces" : {
             "else" : {
@@ -401,11 +368,6 @@
                               }
                             ]
                           }
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -517,15 +479,9 @@
         {
           "card" : "chooser",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "regions" : {
@@ -552,14 +508,6 @@
                               }
                             ]
                           }
-                        },
-                        "classes" : {
-                          
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -605,14 +553,6 @@
                               }
                             ]
                           }
-                        },
-                        "classes" : {
-                          
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -654,15 +594,9 @@
               {
                 "card" : "ifhost",
                 "cell" : {
-                  "classes" : {
-                    
-                  },
                   "layout" : [
                     "fh-cols-full"
-                  ],
-                  "styles" : {
-                    
-                  }
+                  ]
                 },
                 "inlineSurfaces" : {
                   "else" : {

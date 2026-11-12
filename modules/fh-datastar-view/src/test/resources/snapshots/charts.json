@@ -39,15 +39,9 @@
         {
           "card" : "chooser",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "regions" : {
@@ -74,14 +68,6 @@
                               }
                             ]
                           }
-                        },
-                        "classes" : {
-                          
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -127,14 +113,6 @@
                               }
                             ]
                           }
-                        },
-                        "classes" : {
-                          
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -180,14 +158,6 @@
                               }
                             ]
                           }
-                        },
-                        "classes" : {
-                          
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -233,14 +203,6 @@
                               }
                             ]
                           }
-                        },
-                        "classes" : {
-                          
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
