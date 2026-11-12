@@ -59,6 +59,19 @@ went from 1,167,658 to 972,138 (-16.7%). One viewer is the common home case, so 
 win that back: round 2 (a session skipping by its own `holds`) removes the miss on a signal-only
 tick altogether, and is the first thing to measure against `resumeSignals`.
 
+**Round 2, spiked.** `Held` keeps the byte-slot values its digest was rendered from (the page
+seeds them; a morph records its own), and `Patches.morph` returns nothing when the values a session
+holds equal the resolved ones, before any cache lookup. Escape analysis off:
+
+| Bench | Before (B/op) | Spike (B/op) | Change |
+|---|---|---|---|
+| `resumeSignals` | 163,317 | 127,477 | −21.9% |
+| `resumeSignalsFanout` | 972,138 | 866,842 | −10.8% |
+| `tickRender` | 98,816 | 98,816 | 0 |
+
+That wins back #688's +2.0% several times over. Round 1's check holds for a static-tree leaf: its
+patch bytes are a function of the renderer, the id and the byte-slot values (a member also needs its
+clause), compared as `SlotValue`s, not text.
 
 - A lookup-only bench: the cost of `RenderCache.apply` on a hit, and on a miss without the render.
 - `RenderBench.resumeSignals`, `resumeSignalsFanout` and `tickRender` as the baselines, plus
