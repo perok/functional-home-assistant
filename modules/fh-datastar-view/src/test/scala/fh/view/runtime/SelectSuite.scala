@@ -119,12 +119,12 @@ class SelectSuite extends CatsEffectSuite {
   /** What the dropdown's summary and the cycle's face show. */
   private def shown(html: String): (List[String], List[String]) =
     (
-      """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><span>([^<]*)</span>""".r
+      """<summary class="fh-select-summary"><span id="[^"]+"><span class="fh-cell" id="[^"]+">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList,
       // The cycle's face is a pill; nothing else here is one.
-      """<button class="fh-chip[^"]*".*?><span class="fh-text"><span class="fh-text-run">([^<]*)</span>""".r
+      """<button class="fh-cell fh-chip[^"]*".*?><span class="fh-text"><span class="fh-text-run">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList
@@ -163,7 +163,12 @@ class SelectSuite extends CatsEffectSuite {
           assertEquals(result._1, Status.NoContent, clue = result)
           val sent = queued.flatMap(_.data).mkString("\n")
           // Each panel's swap: the label, then the cycle's face.
-          assert(sent.contains("><span>7d</span></div>"), clue = sent)
+          assert(
+            """<span class="fh-cell" id="[^"]+">7d</span>""".r
+              .findFirstIn(sent)
+              .nonEmpty,
+            clue = sent
+          )
           assertEquals(shown(sent)._2, List("7d"), sent)
           // The cycle's 7d chooses the next, round.
           assert(sent.contains("/c/shade/30d?group="), clue = sent)
@@ -235,10 +240,13 @@ class SelectSuite extends CatsEffectSuite {
             .isDefined,
           html
         )
-        // Only `turbo`'s cells: lit in the list, marked in the cycle, whose
-        // face is a pill that a lit look would read as "on".
+        // Only `turbo`'s roots (an option is no cell, as a tab is not): lit in
+        // the list, marked in the cycle, whose face is a pill that a lit look
+        // would read as "on".
         assertEquals(
-          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          """class="[^"]*(?:fh-cell|fh-select-opt)[^"]*fh-active""".r
+            .findAllMatchIn(html)
+            .size,
           1,
           clue = html
         )
@@ -317,7 +325,9 @@ class SelectSuite extends CatsEffectSuite {
         // `heat` in the buttons and `high` in the list are lit; `comfort` is
         // the cycle's marked face.
         assertEquals(
-          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          """class="[^"]*(?:fh-cell|fh-select-opt)[^"]*fh-active""".r
+            .findAllMatchIn(html)
+            .size,
           2,
           clue = html
         )

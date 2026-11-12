@@ -54,6 +54,12 @@ object Ready:
       */
     lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
+    /** The node variables its slots read: a write re-renders it for that
+      * viewer.
+      */
+    lazy val variables: Set[String] =
+      slots.values.flatMap(_.bound.variables).toSet
+
   /** A set: `order` is `None` where the candidates are already in order. Not a
     * case class: `MemberGraph`'s sources hold it, and hashing one walked every
     * clause (`publishSet` 11 µs -> 1.4 ms).
@@ -108,8 +114,12 @@ object Ready:
     */
   final case class Cell(
       classSlots: List[fh.view.model.Cell.Entry],
-      styleSlots: List[fh.view.model.Cell.Entry]
+      styleSlots: List[fh.view.model.Cell.Entry],
+      atRender: List[AtRender] = Nil
   )
+
+  /** A class the document form writes while `run` holds for the viewer. */
+  final case class AtRender(name: String, run: Evaluator.Run)
 
   enum Activation:
     case User(defaultOpen: Boolean)
@@ -136,7 +146,7 @@ object Ready:
   final class SetCall(
       val present: (
           Map[String, EntityState],
-          FetchTemplate => Object
+          Evaluator.Lookup
       ) => List[String],
       val reads: Set[SlotRead]
   )
@@ -156,8 +166,11 @@ object Ready:
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
           .map(_.celKey)
           .distinct
-          .traverse(k => scope.program(k).map(k -> _))
-      ).mapN((card, surfaces, calls, initials) =>
+          .traverse(k => scope.program(k).map(k -> _)),
+        d.choiceBys.traverse(by =>
+          Evaluator.compile(by, scope).map(by.inputKey -> _.run)
+        )
+      ).mapN((card, surfaces, calls, initials, choices) =>
         Dashboard(
           d.cards,
           card,
@@ -172,6 +185,7 @@ object Ready:
           d.watchedEntities,
           calls.toMap,
           initials.toMap,
+          choices.toMap,
           d.varScopes,
           d.warnings
         )
@@ -184,13 +198,22 @@ object Ready:
     def component(c: LayoutNode.Component): Built[Component] =
       (
         c.bound.toList.traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _))
-      ).mapN((slots, regions) =>
+        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
+        c.cell.traverse(cell =>
+          cell.atRender.toList
+            .traverse((n, e) =>
+              Evaluator
+                .compile(e.about(c.subjectEntity), scope)
+                .map(r => AtRender(n, r.run))
+            )
+            .map(at => cell.ready.copy(atRender = at))
+        )
+      ).mapN((slots, regions, cell) =>
         Component(
           c.card,
           slots.toMap,
           regions.toMap,
-          c.cell.map(_.ready),
+          cell,
           c.id,
           c.vars,
           c.subjectEntity
@@ -267,6 +290,20 @@ object Ready:
       calls: Map[TapCall, Reach],
       // Where a session opens a node variable, by its transform.
       initials: Map[Cel.Key, Cel.Program],
+      // Each chosen window's `by`, by its `inputKey`.
+      choices: Map[String, Evaluator.Run],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
       warnings: List[String]
-  )
+  ):
+    /** What a chosen window's `by` reads over `states` and `in`. */
+    def answer(
+        states: Map[String, EntityState],
+        in: Evaluator.Lookup
+    ): ValueExpr => Any = by =>
+      choices
+        .getOrElse(
+          by.inputKey,
+          throw fh.view.FHError.internal(
+            "a chosen window the compile did not see"
+          )
+        )(null, states, in)

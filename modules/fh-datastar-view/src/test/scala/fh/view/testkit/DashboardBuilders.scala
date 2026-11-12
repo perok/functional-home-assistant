@@ -1,6 +1,16 @@
 package fh.view.testkit
 
-import fh.view.model.{Cell, Dashboard, LayoutNode, ValueExpr, TemplateSlot}
+import fh.view.model.{
+  Case,
+  Cell,
+  Choice,
+  Dashboard,
+  LayoutNode,
+  Lit,
+  TemplateSlot,
+  Value,
+  ValueExpr
+}
 
 import scala.collection.immutable.ListMap
 import fh.view.runtime.EntityState
@@ -27,6 +37,15 @@ object DashboardBuilders {
       case other => throw new AssertionError(s"expected a SetNode, got: $other")
     }
   }
+
+  /** A table chosen by the variable `name`, as `p.history.chosen` writes one:
+    * each key a text case, no `otherwise`.
+    */
+  def chosenBy[A](name: String, table: Map[String, A]): Choice[A] =
+    Choice.Chosen(
+      ValueExpr(Value.Var(name)),
+      table.toList.sortBy(_._1).map((k, a) => Case(Lit.Text(k), a))
+    )
 
   /** An [[EntityState]] with optional typed attributes. */
   def st(entityId: String, state: String, attrs: (String, Json)*): EntityState =

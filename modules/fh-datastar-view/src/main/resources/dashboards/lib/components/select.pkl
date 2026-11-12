@@ -129,6 +129,7 @@ abstract class Select extends nodes.Node {
         stateClasses = self.stateClasses
         liveClasses = self.liveClasses
         liveStyles = self.liveStyles
+        renderClasses = self.renderClasses
         id = self.id
         vars = self.vars
         inputs = self.inputs
@@ -172,9 +173,6 @@ class SelectButtons extends Select {
     regions = optionsRegion
     classes = "fh-tabs fh-select"
     template = "{{{children}}}"
-    css = """
-      .fh-select>.fh-cell{display:contents}
-      """
   }
 }
 
@@ -195,13 +193,11 @@ const local menuCss: String = """
   .fh-select-summary{display:inline-flex;align-items:center;gap:.25rem;list-style:none;cursor:pointer;
   min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
   .fh-select-summary::-webkit-details-marker{display:none}
-  .fh-select-summary .fh-cell{display:contents}
   .fh-select-list{position:absolute;inset-block-start:calc(100% + .25rem);inset-inline-start:0;z-index:10;
   display:flex;flex-direction:column;min-inline-size:100%;padding-block:.25rem;border-radius:.75rem;
   background:var(--fh-surface);box-shadow:0 .25rem 1rem rgba(0,0,0,.25)}
-  .fh-select-list .fh-cell{display:contents}
   .fh-select-list a{display:block;padding:.5rem 1rem;white-space:nowrap;cursor:pointer;color:var(--fh-text)}
-  .fh-select-list :is(a.fh-chosen,.fh-active>a){font-weight:600;background:var(--fh-surface-alt)}
+  .fh-select-list :is(a.fh-chosen,a.fh-active){font-weight:600;background:var(--fh-surface-alt)}
   """
 
 // Over an entity every face is sent and the server marks the chosen one: its
@@ -295,10 +291,9 @@ class VarSelectCycle extends Select {
 /// the label, as on a cycle's face, so a dropdown fits a slider's pill; the
 /// list still names every option.
 class ChoiceLabel extends nodes.Node {
-  card = "selectChoice"
-  cardDef = new nodes.CardDef {
-    template = glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)" title="\#(labelSlot)"></i>"#, "<span>\(labelSlot)</span>")
-  }
+  variants = new Mapping { ["selectChoice"] = choiceDef; ["selectChoiceIcon"] = choiceIconDef }
+  card = if (icon != null) "selectChoiceIcon" else "selectChoice"
+  cardDef = variants!![card]
   hidden label: String
   hidden icon: String? = null
   slots {
@@ -307,18 +302,36 @@ class ChoiceLabel extends nodes.Node {
   }
 }
 
+const local choiceDef: nodes.CardDef = new {
+  tag = "span"
+  template = "\(labelSlot)"
+}
+
+const local choiceIconDef: nodes.CardDef = new {
+  tag = "i"
+  classes = "\(glyphSlot)"
+  attrs = #"title="\#(labelSlot)""#
+  template = ""
+}
+
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 const local glyphSlot: slotMod.Slot = slotMod.cssClass("glyph")
 const local chosenSlot: slotMod.Slot = slotMod.slot("chosen")
 
-/// One option of a select over an entity: `fh-active` on its cell while the
-/// entity holds this value, decided by the server, so the first HTML is right.
+/// One option of a select over an entity: `fh-active` while the entity holds
+/// this value, decided by the server, so the first HTML is right.
 class EntityOption extends nodes.ActiveNode {
   card = "selectEntityOption"
   cardDef = new nodes.CardDef {
-    template = #"<a class="fh-select-opt" title="\#(labelSlot)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)>"# + glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)"></i>"#, "\(labelSlot)") + "</a>"
+    // An anchor straight under the bar or the list, as a tab is, and no layout
+    // box for the same reason ([[surfaces.TabButton]]).
+    tag = "a"
+    layoutCell = false
+    classes = "fh-select-opt"
+    attrs = #"title="\#(labelSlot)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)"#
+    template = glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)"></i>"#, "\(labelSlot)")
     css = """
-      .fh-select .fh-active>.fh-select-opt{font-weight:600}
+      .fh-select .fh-select-opt.fh-active{font-weight:600}
       """
   }
   hidden label: String

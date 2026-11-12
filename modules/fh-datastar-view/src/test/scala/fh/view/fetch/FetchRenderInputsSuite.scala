@@ -42,7 +42,6 @@ import fh.view.runtime.{
 }
 import io.circe.Json
 import io.github.iltotore.iron.*
-import fh.view.testkit.TestIds.given
 import fh.view.FHError
 import fh.view.testkit.DashboardBuilders.declared
 
@@ -167,10 +166,10 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // unresolved fetch is loud, not an empty hole.
     val q = read()
     val f = FetchSnapshot.of(Map(q -> Staged(100L, "<svg/>")))
-    assertEquals(f.versions("c_0", List(ask())), Map(q -> 100L))
-    assertEquals(f.value("c_0", ask()), "<svg/>")
+    assertEquals(f.versions(List(ask().fixed)), Map(q -> 100L))
+    assertEquals(f.staged(ask().fixed).value, "<svg/>")
 
-    val miss = intercept[FHError](FetchSnapshot.empty.value("c_0", ask()))
+    val miss = intercept[FHError](FetchSnapshot.empty.staged(ask().fixed).value)
     assertEquals(miss.status, 500)
     assert(miss.getMessage.contains("not resolved for this render"))
   }
@@ -228,8 +227,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       counts <- (fetches.get, draws.get).tupled
     } yield {
       assertEquals(counts, (1, 2))
-      assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
-      assertEquals(f.value("n", ask(width = 320)), "<svg>320</svg>")
+      assertEquals(f.staged(ask(width = 600).fixed).value, "<svg>600</svg>")
+      assertEquals(f.staged(ask(width = 320).fixed).value, "<svg>320</svg>")
     }
   }
 
@@ -243,7 +242,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       )
     val a = sensor("sensor.a")
     val b = sensor("sensor.b")
-    val reads = List(a, b).map(_.resolve(Map.empty))
+    val reads = List(a, b).map(_.fixed)
     for {
       history <- History.create(
         source { (entityId, end) =>
@@ -263,8 +262,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         FetchIdentity.Instance
       )
     } yield {
-      assertEquals(f.value("n", a), "<svg>1.0</svg>")
-      assertEquals(f.value("n", b), "<svg>2.0</svg>")
+      assertEquals(f.staged(a.fixed).value, "<svg>1.0</svg>")
+      assertEquals(f.staged(b.fixed).value, "<svg>2.0</svg>")
     }
   }
 
@@ -287,8 +286,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       assertEquals(d, 0)
       val rawAsk = SlotAsk(chart(), Step.Json)
       assert(
-        f.value("n", rawAsk).contains("\"points\""),
-        clue = f.value("n", rawAsk)
+        f.staged(rawAsk.fixed).value.contains("\"points\""),
+        clue = f.staged(rawAsk.fixed).value
       )
     }
   }
@@ -309,11 +308,14 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         FetchIdentity.Instance
       )
     } yield {
-      assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
-      assertEquals(f.value("n", ask(width = 1)), Staged.failed(drawn()).value)
+      assertEquals(f.staged(ask(width = 600).fixed).value, "<svg>600</svg>")
+      assertEquals(
+        f.staged(ask(width = 1).fixed).value,
+        Staged.failed(drawn()).value
+      )
       // Below any real version, so the next good answer moves the key.
       assertEquals(
-        f.versions("n", List(ask(width = 1))),
+        f.versions(List(ask(width = 1).fixed)),
         Map(bad -> Staged.FailedVersion)
       )
     }

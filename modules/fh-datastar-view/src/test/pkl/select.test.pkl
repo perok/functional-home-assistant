@@ -44,8 +44,8 @@ facts {
     after.card == "selectVarDropdown"
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
-    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "slots", "templateSlots", "slotsByName", "children", "regions", "wireInputs", "inlineSurfaces")
+    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "renderClasses", "id", "vars", "inputs")
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "children", "regions", "wireInputs", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
 

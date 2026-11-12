@@ -767,7 +767,7 @@ class RenderBench {
           conditionViaCel,
           null,
           "dashboard",
-          isOnInputs(st, _ => sys.error("no fetch"))
+          isOnInputs(st, Evaluator.unanswered)
         )
       )
       i += 1

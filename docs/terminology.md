@@ -27,7 +27,9 @@ The tier is each step's own form; nothing infers one from expression spelling.
 `type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
 places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`). That is a **template
 slot**; a **cell slot** is placed by the renderer on the node's **cell** instead, keyed by the class
-or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008).
+or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008). A class decided at
+render (`cell.atRender`, `cellClassAtRender`) is not a cell slot: it is written once, in the
+document form, for the viewer, with no signal and no binding (ADR 0033).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
@@ -79,7 +81,8 @@ evaluator runs every reading, slot and condition alike.
 without a reading's slot fields: `q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")` — and a
 reading of a bool is one too, CEL included (`c.exprOf(e, "value.state == 'on'")`). A boolean input
 takes one where it takes a reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
-which is not a condition: it is a viewer's selection, so it is not shared and never flips. The library
+which is a bool reading but not a condition there: it is a viewer's selection, so it is not shared
+and never flips. The library
 writes one of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`, `AllOf`/`AnyOf` over a
 `List`, `Count` over a set's **present** ids, `First` over a list of ids — and the one evaluator
 decides it as it fills a slot (ADR 0035); a build refuses one that is not a bool. So a slot can read one, which is how every boolean input (`active`,
@@ -158,8 +161,8 @@ Three words go with it, and they are not interchangeable:
 
 - **Declarer** — the node whose `vars` a reference resolved to. Resolution is by NAME up the
   ancestor chain, so a node declaring nothing is transparent and the NEAREST declarer wins.
-- **Reference** (`varMod.Ref`, a `Choice.Chosen`'s `by`) — a read of one, as opposed to a value
-  written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
+- **Reference** (`v.value`, a `Choice.Chosen`'s `by` as `p.history.chosen` writes it) — a read
+  of one, as opposed to a value written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
   only a declared variable is writable, so a value written down has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
@@ -167,9 +170,15 @@ Three words go with it, and they are not interchangeable:
   reader holds without knowing who declares it. A declaration (`varMod.Declaration`, an entry in
   `Component.vars`) is one node owning a value for that name, and holds the variable.
 
+A variable is also a **source** (`Value.Var`, `v.value` in Pkl): a reading of the viewer's value,
+which a leaf's value slot may show. A reading is decided where its most local source lives: once
+per state version for every viewer when it reads only entities, fetches and literals, per viewer
+when it reads a variable (ADR 0033).
+
 What a variable holds, highest first:
 
-- **Choice** — what the viewer picked: a write, a `v.` URL param, a link.
+- **Choice** — what the viewer picked: a write, a `v.` URL param, a link. Not `Choice[A]`, the
+  model's value picked from cases by what `by` reads (ADR 0033).
 - **Initial value** — what the declaration's **initial transform** gave this session: CEL over one
   whole entity as `value` (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
   page opens. Not a choice (no URL param) and not a flip (it never follows the entity). A slider's

@@ -23,8 +23,10 @@ private[runtime] object NodeBytes {
   * would grow forever: every frame mints new entity versions and old ones are
   * never asked for again. A selection is not in the key: only structure reads
   * one, and structure is never cached (`RenderCacheContentionSuite` holds 1.0
-  * renders a frame across viewers and tabs). Fetch reads are per viewer, so two
-  * windows evict each other (issue #209).
+  * renders a frame across viewers and tabs). Fetch reads and the variable
+  * values a node read are per viewer: viewers on one value share the entry, and
+  * two values replace each other's, so a node keeps one entry however many
+  * values are posted.
   *
   * '''A straggler never displaces the current generation''': an install is
   * refused when what is there is at or ahead of the caller
@@ -50,16 +52,37 @@ private[runtime] final class RenderCache(
     * would hide the effect without forbidding it. Today it is one node's own
     * markup; if that grows, bound it (a `Semaphore`, `evalOn`, `cede`).
     *
+    * '''A hit on equal inputs reads the entry and nothing else''', the common
+    * case when N sessions share a tick: no byte-slot values, no `Deferred`, no
+    * CAS. Racing an install only sends the caller down the full path.
+    *
     * @param byteValues
     *   [[Renderer.byteSlotValues]]: equal values reuse an entry whose `inputs`
-    *   moved, as on a signal-only tick. `None` disables that.
+    *   moved, as on a signal-only tick. `None` disables that. Resolved only
+    *   when the inputs miss.
     */
   def apply(
       id: NodeId,
       renderer: Renderer,
       inputs: RenderInputs,
-      byteValues: Option[Map[String, String]] = None
+      byteValues: () => Option[Map[String, String]] = () => None
   )(
+      render: IO[String]
+  ): IO[NodeBytes] =
+    IO.defer {
+      live.get(id) match {
+        case e: RenderCache.Entry
+            if (e.renderer eq renderer) && e.gen.inputs == inputs =>
+          e.gen.slot.get.rethrow
+        case _ => miss(id, renderer, inputs, byteValues(), render)
+      }
+    }
+
+  private def miss(
+      id: NodeId,
+      renderer: Renderer,
+      inputs: RenderInputs,
+      byteValues: Option[Map[String, String]],
       render: IO[String]
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>

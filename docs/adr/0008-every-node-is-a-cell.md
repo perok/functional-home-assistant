@@ -36,7 +36,9 @@ root element.**
    `fh-cell`, the card's classes, then the node's cell classes. The two holes
    are writer holes the renderer fills straight into the buffer, as it fills a
    region (`Renderer.NodeContext.writeHole`): `cellClasses` each with its
-   leading space, a live one inline in the document form only; `cell` the live
+   leading space, a live one inline in the document form only, then those decided
+   for the viewer at render (`cell.atRender`, `cellClassAtRender`, ADR 0033), in
+   the document form only and with no binding; `cell` the live
    `style` (document form), the id, the one `data-signals` seed, the cell
    bindings and the URL mirror, in that order. A card that sets no `tag` gets
    `<div class="fh-cell{{{cellClasses}}}"{{{cell}}}>…</div>` around its
@@ -55,10 +57,12 @@ root element.**
    parsing anywhere. A set's root (`fh-cell fh-group`) is still the renderer's.
 2. **`CardDef.layoutCell = false` is the escape hatch** (default `true`): the
    root keeps its id and its `cell` hole and loses the `fh-cell` class, for a
-   root that must not be a layout box. The one opt-out is the `tab` card, an
-   `<a>` straight under the bar so a theme can style it by `.fh-tabs > a`
-   (BeerCSS's `.tabs > a`), which in a `.fh-col` would otherwise inherit
-   `--fh-cell-width:100%`. The layout builders write a field of their own,
+   root that must not be a layout box. The opt-outs are roots no container
+   lays out, which in a `.fh-col` would otherwise inherit
+   `--fh-cell-width:100%`: the `tab` card, an `<a>` straight under the bar so a
+   theme can style it by `.fh-tabs > a` (BeerCSS's `.tabs > a`), an entity
+   select's option, an `<a>` under the same bar or in the dropdown's list, and
+   the slider's pill and main-controls row, boxes inside the slider card. The layout builders write a field of their own,
    `cell.layout`, and a non-empty one on such a card is refused, in Pkl and by
    `validate`; `cellClassWhen` and `cellStyle` stay allowed. Since the root
    still has its id, such a card may bind live slots and be a set clause.
@@ -219,15 +223,23 @@ framework-agnostic, and a new look is a sibling module exporting a
   shape (`CardDef.isStructure`).
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
   card moves its markup into the root fields to be one. The library's cards
-  have, except where the root cannot be static: a tag chosen by a slot
-  (button, pill, choice label), an id the root carries itself (`if`'s and a
-  var cycle's host), a cell that must be `display:contents` (the slider's
-  head, pill and controls), several top-level elements (popup, slider text),
-  a `style` on the root (wheel), or CSS keyed on the inner element as the
-  cell's child (entity option).
+  have, except two whose inner host carries an id of its own beside the
+  node's, which one element cannot hold: `if`'s host and a variable cycle's
+  (the regions work settles them). A root may
+  still be `display:contents` on purpose, when what it holds is laid out by
+  the parent: the slider head's (its label line and track are the card's
+  rows) and the slider text's (its two lines are the head's grid items). The
+  popup's root is its backdrop, holding the dialog; only a click on the
+  backdrop itself closes it.
+- A root that differs by a fact known at build time is one card name per
+  form, each with a constant def (`Node.variants`; the node's `card` and
+  `cardDef` pick on the same fact, so `cardsIn`'s one def per name holds): a
+  navigating button or pill is an `<a>` (`buttonLink`, `pillLink`), a choice
+  label with an icon an `<i>` (`selectChoiceIcon`). A Mustache section cannot
+  choose the root's tag, which is why the choice moved to Pkl.
 - Wrapper-dissolving rules (`.fh-x .fh-cell{display:contents}`) and theme
   rules that space siblings now reach a card's own root: the slider pill
-  exempts the dropdown, and `theme-beer` zeroes BeerCSS's flow margin on
+  dissolves only `div` cells (a var cycle's root), and `theme-beer` zeroes BeerCSS's flow margin on
   cells. CI's visual snapshots, not the goldens, catch these.
 - The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,
   not a template — unlike static containers, a group's member flow has no

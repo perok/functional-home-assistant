@@ -182,7 +182,7 @@ const local sharedCss: String = """
   .fh-tile{display:flex;align-items:center;gap:.75rem;min-inline-size:0;
   padding:1rem;border-radius:inherit}
   .fh-tile>.fh-lines{flex:1 1 auto}
-  .fh-cell>.fh-current-dashboard{outline:.125rem solid var(--fh-accent);outline-offset:-.125rem}
+  .fh-cell.fh-current-dashboard{outline:.125rem solid var(--fh-accent);outline-offset:-.125rem}
   """
 
 /// No pinch or double-tap zoom on touch (#306): a dashboard is an app surface

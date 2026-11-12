@@ -7,6 +7,7 @@ module components.base.slider
 import "../../core/badge.pkl" as badgeMod
 import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodes
+import "../../core/shell.pkl"
 import "../../core/slot.pkl" as slotMod
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/tap.pkl" as tapMod
@@ -120,7 +121,7 @@ const local toggleButton: String = """
 /// `data-on-signal-patch`, the refusal half would run when `failedOn` clears the
 /// error at the NEXT commit's start, and snap the thumb back under the finger.
 const local restoreOnDeadStream: String =
-  #"data-effect="$_sse > 0 && (\#(rollbackToCommitted))""#
+  #"data-effect="\#(shell.streamDown) && (\#(rollbackToCommitted))""#
 
 const local restoreOnRefusal: String =
   #"data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(rollbackToCommitted))""#
@@ -131,9 +132,6 @@ const local restoreOnRefusal: String =
 /// so the slider's on look is too.
 class SliderHead extends nodes.ActiveNode {
   card = "sliderHead"
-  // `display:contents`, so the cell is no box, and the group rules can still
-  // tell the master's head from its members'.
-  cellClasses { "fh-slider-head-cell" }
   cardDef = new nodes.CardDef {
     // Everything else on this row that moves is a signal (ADR 0017), which is
     // what lets the head be structure.
@@ -141,19 +139,20 @@ class SliderHead extends nodes.ActiveNode {
       ["text"] = new nodes.Region {}
       ["actions"] = new nodes.Region {}
     }
+    // `display:contents` (`.fh-slider-body`): the label line and the track are
+    // the card's own rows, or a member's one grid cell.
+    classes = "fh-slider-body"
     template = """
-      <div class="fh-slider-body">
-        <div class="fh-slider-head \(greyedSlot.ifSet("fh-slider-greyed"))">
-          \(badgeMod.seat("fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
-          {{{text}}}
-          \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
-          <div class="fh-slider-actions">{{{actions}}}</div>
-        </div>
-        <div class="fh-slider \(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSetElse(" \(tapMod.busyClassChange)", tapMod.refusedClass))>
-          \(toggleSlot.ifUnset(rangeInput))
-          <span style="--fh-fill: \(fillSlot);background:\(fillColorSlot)" \(fillSlot.bind) \(fillColorSlot.bind)></span>
-          \(toggleSlot.ifSet(toggleButton))
-        </div>
+      <div class="fh-slider-head \(greyedSlot.ifSet("fh-slider-greyed"))">
+        \(badgeMod.seat("fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
+        {{{text}}}
+        \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
+        <div class="fh-slider-actions">{{{actions}}}</div>
+      </div>
+      <div class="fh-slider \(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSetElse(" \(tapMod.busyClassChange)", tapMod.refusedClass))>
+        \(toggleSlot.ifUnset(rangeInput))
+        <span style="--fh-fill: \(fillSlot);background:\(fillColorSlot)" \(fillSlot.bind) \(fillColorSlot.bind)></span>
+        \(toggleSlot.ifSet(toggleButton))
       </div>
       """
     // `state` is not declared: a grouped head omits it. `label` is the toggle
@@ -162,12 +161,12 @@ class SliderHead extends nodes.ActiveNode {
 }
 
 /// The label and its second line: the head's only moving bytes, so a node and
-/// a patch target of their own. `display:contents` on its cell, so the group's
-/// grid still places `strong` and `.fh-sub`.
+/// a patch target of their own. Its root is `display:contents`, so the head
+/// lays out `strong` and `.fh-sub` (a group's in two grid rows).
 class SliderText extends nodes.Node {
   card = "sliderText"
-  cellClasses { "fh-slider-text" }
   cardDef = new nodes.CardDef {
+    classes = "fh-slider-text"
     template = """
       <strong class="\(textMod.BOX)">\(textMod.run(labelSlot))</strong>\(secondarySlot.ifSet(#"<span class="fh-sub \#(textMod.BOX)">\#(textMod.liveRun(secondarySlot))</span>"#))
       """
@@ -218,10 +217,13 @@ const local function controlPanels(ms: List<ControlHead>): Mapping<String, surfa
 /// them: one pill over every head, so it stays put while they swap.
 class SliderPill extends nodes.Node {
   card = "sliderPill"
-  cellClasses { "fh-slider-pill-cell" }
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
-    template = #"<div class="fh-slider-pill">{{{children}}}</div>"#
+    // A box inside the controls' row, not a container's cell: the inherited
+    // `--fh-cell-width` would stretch it.
+    layoutCell = false
+    classes = "fh-slider-pill"
+    template = "{{{children}}}"
   }
   hidden buttons: List<SliderButton?>
   children = new Mapping { [nodes.defaultRegion] = pillsOf(buttons) }
@@ -232,13 +234,15 @@ class SliderPill extends nodes.Node {
 /// rendered nor kept live. A group's row has the heads and no pill.
 class SliderControls extends nodes.Node {
   card = "sliderControls"
-  cellClasses { "fh-slider-controls-cell" }
   cardDef = new nodes.CardDef {
     regions = new Mapping {
       [nodes.defaultRegion] = new nodes.Region {}
       ["panel"] = new nodes.Region { fill = "baked" }
     }
-    template = #"<div class="fh-slider-controls"><div id="{{hostId}}" class="fh-slider-controls-panel">{{{panel}}}</div>{{{children}}}</div>"#
+    // A row of the slider card, not a container's cell, as [[SliderPill]].
+    layoutCell = false
+    classes = "fh-slider-controls"
+    template = #"<div id="{{hostId}}" class="fh-slider-controls-panel">{{{panel}}}</div>{{{children}}}"#
   }
   hidden controls: List<ControlHead>
   inlineSurfaces = controlPanels(controls)
@@ -575,7 +579,6 @@ const local sliderCss: String = """
   background:none;box-shadow:none;color:inherit;font:inherit;border-radius:inherit;
   appearance:none;-webkit-appearance:none;cursor:pointer}
   .fh-slider-body{display:contents}
-  .fh-slider-head-cell{display:contents}
   .fh-slider-members:empty{display:none}
   /* A slider holding sliders: the master's fill is the whole card's
      background, behind the rows, so the group reads as one control. */
@@ -583,13 +586,14 @@ const local sliderCss: String = """
   /* Main controls: the shown head beside the pill, which sits over the track's end as
      any slider's buttons do: the track is the card's, a group's rows included.
      Static, or BeerCSS's `*{position:relative}` makes a wrapper the track's
-     box. The mode dropdown's root is its own cell and box, so it stays one. */
-  .fh-slider-controls-cell,.fh-slider-pill-cell,.fh-slider-pill .fh-cell:not(.fh-select-menu){display:contents}
+     box. Only a `div` cell in the pill is a wrapper (a variable cycle's root):
+     a pill and the mode dropdown are their own cells and boxes. */
+  .fh-slider-pill div.fh-cell{display:contents}
   .fh-slider-controls{display:flex;flex-wrap:nowrap;align-items:center;position:static}
   .fh-slider-controls-panel{position:static;flex:1 1 auto;min-inline-size:0;align-self:stretch}
   .fh-slider-pill{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:.25rem;padding-inline:.5rem;z-index:3}
-  .fh-slider-pill>*{--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:stretch}
-  .fh-slider-pill .fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-slider-pill>*{--fh-cell-flex:0 0 auto;--fh-cell-width:auto;--fh-cell-align-self:center}
+  .fh-slider-pill button.fh-cell:not(.fh-active){background:var(--fh-surface-alt);color:var(--fh-text)}
   /* A row's head and track share the panel's one grid cell, as they share the
      row's without controls, so the label stays centred; its pill, if it has one,
      sits at the row's end, in line with the head's buttons above. */
@@ -601,23 +605,23 @@ const local sliderCss: String = """
      declared, or the badge spanning both pushes the label's two lines apart;
      `1/3` rather than `1/-1` for the same explicit grid. A tile's height with a
      second line. */
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
   grid-template-rows:auto auto;align-items:center;align-content:center;
   min-block-size:5rem;box-sizing:border-box;gap:0 .75rem}
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-text>strong{grid-column:2;grid-row:1}
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-text>.fh-sub{grid-column:2;grid-row:2}
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-icon{grid-row:1/3}
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-reading{grid-column:3;grid-row:1/3}
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider-head>.fh-slider-actions{grid-column:4;grid-row:1/3}
-  .fh-slider-text,.fh-slider-actions>.fh-cell{display:contents}
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider-head>.fh-slider-text>strong{grid-column:2;grid-row:1}
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider-head>.fh-slider-text>.fh-sub{grid-column:2;grid-row:2}
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider-head>.fh-slider-icon{grid-row:1/3}
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider-head>.fh-reading{grid-column:3;grid-row:1/3}
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider-head>.fh-slider-actions{grid-column:4;grid-row:1/3}
+  .fh-slider-text{display:contents}
   /* The buttons are the row's only controls, so they take the pointer back. */
   .fh-slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
   .fh-slider-actions:empty{display:none}
   /* By position, not by a class of their own; an active button keeps its look. */
-  .fh-slider-actions>.fh-cell:not(.fh-active)>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .fh-slider-actions>button.fh-cell:not(.fh-active){background:var(--fh-surface-alt);color:var(--fh-text)}
   /* The master's track spans the whole card, members included, so a drag lands
      on the master wherever its fill is. */
-  .fh-slider-group>:not(.fh-slider-members) .fh-slider-body>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
+  :is(.fh-slider-group>.fh-slider-body,.fh-slider-group>:not(.fh-slider-members) .fh-slider-body)>.fh-slider>span:not([class]){inset:0 var(--fh-fill) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
   /* Above the master's span, and indented to the head's badge, so the rows read
      as the head's own. */
   .fh-slider-members{display:flex;flex-direction:column;gap:.25rem;

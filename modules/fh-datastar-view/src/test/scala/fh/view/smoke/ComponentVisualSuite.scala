@@ -107,9 +107,9 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // Every node is a cell (ADR 0008), so a cell holding the button alone
-        // matches too and `.last()` would take it; the tile is the article
-        // that is itself a cell, which pins `c.lock.controls`'s card.
+        // Every node is a cell (ADR 0008), so every container holding the
+        // button matches `.fh-cell` too; the tile is the article that is itself
+        // a cell, which pins `c.lock.controls`'s card.
         val lockCard = page
           .locator("article.fh-entity.fh-cell")
           .filter(

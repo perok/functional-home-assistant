@@ -3,12 +3,13 @@ package fh.view.runtime
 import cats.effect.IO
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.fetch.{FetchSnapshot, Staged}
+import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.Series
 import fh.view.model.{
   Access,
   CardDef,
   Cell,
+  Choice,
   ChromeColors,
   Dashboard,
   DomId,
@@ -110,18 +111,24 @@ private[runtime] object WalkAt {
 /** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
   * discriminating costs a wasted render; too coarse serves stale bytes silently
   * and forever. When in doubt, over-discriminate.
+  *
+  * @param vars
+  *   the node variables its slots read, by name, at the viewer's values.
   */
 case class RenderInputs(
     entities: Map[String, Long],
-    fetches: Map[SlotRead, Long] = Map.empty
+    fetches: Map[SlotRead, Long] = Map.empty,
+    vars: Map[String, String] = Map.empty
 ) derives CanEqual {
 
   /** The partial order [[RenderCache]] uses to refuse superseded bytes.
     * Different key sets are unordered, which also keeps two viewers on
-    * different windows from displacing each other's chart.
+    * different windows from displacing each other's chart; so are different
+    * variable values, so a viewer's install replaces another value's entry.
     */
   def isAtLeast(other: RenderInputs): Boolean =
-    sameOrAhead(entities, other.entities) &&
+    vars == other.vars &&
+      sameOrAhead(entities, other.entities) &&
       sameOrAhead(fetches, other.fetches)
 
   private def sameOrAhead[K](
@@ -306,7 +313,9 @@ class Renderer(validated: Dashboard.Validated) {
       panelsSelected = surfaces.varBakeOwnerIds.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
-      asksAt = fetchesForNode
+      readsAt = id =>
+        fetchesForNode(id).flatMap(_.fetch.variables).toSet ++
+          variablesForNode(id)
     )
 
   /** Where a session opening on `states` opens each variable with an initial
@@ -331,9 +340,8 @@ class Renderer(validated: Dashboard.Validated) {
         .map(key -> _)
     }.toMap
 
-  /** One line per refused choice: every fetch reading the variable must find
-    * the value among its options, and every panel it selects must have a member
-    * for it.
+  /** One line per refused choice: every fetch reading the variable must find a
+    * case for the value, and every panel it selects must have a member for it.
     */
   def refusals(choices: Map[VarKey, String]): List[String] = {
     val env = vars.env(choices)
@@ -341,9 +349,8 @@ class Renderer(validated: Dashboard.Validated) {
       val why = (vars
         .readersOf(key)
         .flatMap(id =>
-          fetchesForNode(id).flatMap(
-            _.fetch.resolve(env.getOrElse(id, Map.empty)).left.toOption
-          )
+          fetchesForNode(id)
+            .flatMap(a => refusedAt(a.fetch, env.getOrElse(id, Map.empty)))
         ) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
           Option.unless(surfaces.memberAt(gid, value).isDefined)(
@@ -355,6 +362,33 @@ class Renderer(validated: Dashboard.Validated) {
       )
     }
   }
+
+  /** A value no case takes, with no `otherwise`: decided over the viewer's
+    * values alone, so a `by` that reads state is not refused for it.
+    */
+  private def refusedAt(
+      f: FetchTemplate,
+      vars: Map[String, String]
+  ): Option[String] = f.window match
+    case c @ Choice.Chosen(by, cases, _) if c.refusesUntaken =>
+      val read = dashboard.answer(Map.empty, Evaluator.Lookup.of(vars))(by)
+      Option.unless(c.takes(read))(
+        s"'${Steps.text(read)}' is not one of " +
+          cases.map(k => Steps.text(k.is.raw)).sorted.mkString(", ")
+      )
+    case _ => None
+
+  /** An ask at a node: its window's `by` over `states` and the node's
+    * variables, none where it decides no case.
+    */
+  private def readOf(
+      ask: SlotAsk,
+      states: Map[String, EntityState],
+      vars: Map[String, String]
+  ): Option[SlotRead] = ask.fetch.window match
+    case Choice.Fixed(w) =>
+      Some(SlotRead(FetchRequest.History(ask.fetch.entity, w), ask.stage))
+    case _ => ask.resolve(dashboard.answer(states, Evaluator.Lookup.of(vars)))
 
   /** `offered` on top of `kept`, each under [[refusals]] on its own, so one
     * stale value costs only its own variable. In key order, so which of two
@@ -446,7 +480,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): List[SlotRead] =
     asks.flatMap { (id, f) =>
       if (f.gate.forall(gateHolds(_, shared)))
-        f.asks.map(_.resolve(env.getOrElse(id, Map.empty)))
+        f.asks.flatMap(readOf(_, shared.states, env.getOrElse(id, Map.empty)))
       else Nil
     }.distinct
 
@@ -506,9 +540,13 @@ class Renderer(validated: Dashboard.Validated) {
       Option.when(asks.nonEmpty)(m -> asks)
     }.toMap
 
-  /** Every read a node can make, whatever its `valueWhile`s decide. */
+  /** Every read a node can make, whatever its `valueWhile`s decide, over no
+    * state.
+    */
   private[runtime] def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
-    fetchesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
+    fetchesForNode(id).flatMap(
+      readOf(_, Map.empty, env.getOrElse(id, Map.empty))
+    )
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -596,6 +634,23 @@ class Renderer(validated: Dashboard.Validated) {
       val asks = members.clauseNodesAt(id).flatMap(_.fetches).distinct
       Option.when(asks.nonEmpty)(id -> asks)
     }.toMap
+
+  /** The variables a node's own slots read, a member's whole subtree's in every
+    * clause, as [[fetchesForNode]] asks.
+    */
+  private def variablesForNode(id: NodeId): Set[String] =
+    allIndexed.get(id) match {
+      case Some((c: Ready.Component, _)) => c.variables
+      case _                             =>
+        variablesBelow.getOrElse(id, Set.empty)
+    }
+
+  private lazy val variablesBelow: Map[NodeId, Set[String]] =
+    (members.memberIds.toList.map(m =>
+      m -> members.clauseNodesOf(m).flatMap(Renderer.subtreeVariables).toSet
+    ) ++ members.memberIdsBelow.map(id =>
+      id -> members.clauseNodesAt(id).flatMap(_.variables).toSet
+    )).filter(_._2.nonEmpty).toMap
 
   /** The bound a variable write is held to (ADR 0023). The model's static walk,
     * not [[Index.byEntity]], which stops at a set: this must answer for
@@ -1044,6 +1099,9 @@ class Renderer(validated: Dashboard.Validated) {
     * No selection (only structure reads one, and structure is never cached) and
     * no children (a descendant's tick would invalidate every ancestor). `None`
     * means not cacheable: exactly [[ownRenderingOf]]'s `false`.
+    *
+    * The node variables its slots read, at this viewer's values: viewers on one
+    * value share a render, and one on another replaces the entry.
     */
   def renderInputs(
       id: NodeId,
@@ -1062,7 +1120,8 @@ class Renderer(validated: Dashboard.Validated) {
               m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
               shared.states
             ) + (Renderer.clauseKey(m.clause) -> 0L),
-            fragments.versions(id, asked(c, shared))
+            readVersions(id, c, shared, fragments),
+            varsRead(id, c, fragments)
           )
         )
       case None =>
@@ -1070,10 +1129,35 @@ class Renderer(validated: Dashboard.Validated) {
           case (c: Ready.Component, _) if ownRenderingOf(c) =>
             RenderInputs(
               versions(c.liveEntitiesAsBytes, shared.states),
-              fragments.versions(id, asked(c, shared))
+              readVersions(id, c, shared, fragments),
+              varsRead(id, c, fragments)
             )
         }
     }
+
+  private def readVersions(
+      id: NodeId,
+      c: Ready.Component,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): Map[SlotRead, Long] =
+    val asks = asked(c, shared)
+    if (asks.isEmpty) Map.empty
+    else
+      val vars = fragments.varsAt(id)
+      fragments.versions(asks.flatMap(readOf(_, shared.states, vars)))
+
+  private def varsRead(
+      id: NodeId,
+      c: Ready.Component,
+      fragments: FetchSnapshot
+  ): Map[String, String] =
+    if (c.variables.isEmpty) Map.empty
+    else
+      val at = fragments.varsAt(id)
+      c.variables.view
+        .map(n => n -> at.getOrElse(n, Evaluator.noVariable(n)))
+        .toMap
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
@@ -1103,13 +1187,14 @@ class Renderer(validated: Dashboard.Validated) {
           )
         val plan = planOf(id, c, shared)
         val b = Map.newBuilder[String, String]
+        val in = lookupAt(fragments, plan.id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           // A live cell slot is always a signal, so only names reach here.
           if (!plan.signalSlots.contains(slot))
             b += (
               (
                 SlotKey.label(slot),
-                resolveSlot(srcEntity, source, shared, fragments, plan.id)
+                resolveSlot(srcEntity, source, shared, fragments, plan.id, in)
               )
             )
         }
@@ -1266,7 +1351,7 @@ class Renderer(validated: Dashboard.Validated) {
         // A second, patch-form render only where it can differ: own rendering
         // and a signal slot. Such a node has no regions, so the document
         // children below are all it composes.
-        val twoForms = plan.ownRendering && plan.declaresSignals
+        val twoForms = plan.ownRendering && plan.twoForms
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
 
@@ -1478,7 +1563,9 @@ class Renderer(validated: Dashboard.Validated) {
       plan: NodePlan,
       paint: Map[SlotKey, SlotValue],
       bake: Map[String, String],
-      signals: Map[SignalId, SlotValue]
+      signals: Map[SignalId, SlotValue],
+      // The document form's classes decided for this viewer, each spaced.
+      atRender: String = ""
   ) {
     def structural: Map[String, String] = plan.structural
     def constants: Map[SlotKey, SlotValue] = plan.constants
@@ -1509,12 +1596,14 @@ class Renderer(validated: Dashboard.Validated) {
   /** The root's `{{{cellClasses}}}` hole, and a set's: each with its leading
     * space; `validate` checks they are plain class tokens. A live class only
     * where `paint` is given (the document form) and holds it truthy; its
-    * binding is [[cellBindingsInto]].
+    * binding is [[cellBindingsInto]]. `atRender` is the document form's classes
+    * decided for the viewer, after the rest.
     */
   private def cellClassesInto(
       buf: Sink,
       cell: Option[Ready.Cell],
-      paint: Map[SlotKey, SlotValue] | Null
+      paint: Map[SlotKey, SlotValue] | Null,
+      atRender: String = ""
   ): Unit = cell match
     case Some(c) =>
       c.classSlots.foreach { e =>
@@ -1526,6 +1615,7 @@ class Renderer(validated: Dashboard.Validated) {
           val _ = buf.append(cellClassTexts.computeIfAbsent(e.name, expandCell))
         }
       }
+      val _ = buf.append(atRender)
     case None => ()
 
   /** In both forms, and AFTER the root's own `data-signals`: the bundle applies
@@ -1569,11 +1659,14 @@ class Renderer(validated: Dashboard.Validated) {
 
     override def writeHole(name: String, writer: java.io.Writer): Boolean =
       if (name == CardDef.CellClassesHole) {
-        cellClassesInto(
-          out,
-          resolved.plan.node.cell,
-          if (form.isPatch) null else resolved.paint
-        )
+        if (form.isPatch) cellClassesInto(out, resolved.plan.node.cell, null)
+        else
+          cellClassesInto(
+            out,
+            resolved.plan.node.cell,
+            resolved.paint,
+            resolved.atRender
+          )
         true
       } else if (name == CardDef.CellHole) {
         cellInto(out, resolved, form)
@@ -1641,7 +1734,9 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       signalSeed: Datastar.SignalSeed,
       ownRendering: Boolean,
-      declaresSignals: Boolean,
+      // The document form differs from the patch form: a signal's value and
+      // seed, or a class decided at render.
+      twoForms: Boolean,
       nodeCount: Int
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
@@ -1766,7 +1861,8 @@ class Renderer(validated: Dashboard.Validated) {
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
-      declaresSignals = c.slots.values.exists(Renderer.isSignalSlot),
+      twoForms = c.slots.values.exists(Renderer.isSignalSlot) ||
+        c.cell.exists(_.atRender.nonEmpty),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
     )
@@ -1784,9 +1880,11 @@ class Renderer(validated: Dashboard.Validated) {
     val signalB =
       if (plan.signalNameBySlot.isEmpty) None
       else Some(Map.newBuilder[SignalId, SlotValue])
+    // One per node: its slots read the same answers and variables.
+    val in = lookupAt(fragments, plan.id, shared.states)
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
       val value =
-        resolveSlotValue(srcEntity, source, shared, fragments, plan.id)
+        resolveSlotValue(srcEntity, source, shared, fragments, plan.id, in)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
@@ -1796,9 +1894,25 @@ class Renderer(validated: Dashboard.Validated) {
       plan,
       paint = paintB.result(),
       bake = bakeIndex,
-      signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
+      signalB.fold(Map.empty[SignalId, SlotValue])(_.result()),
+      atRenderOf(plan, shared, fragments)
     )
   }
+
+  private def atRenderOf(
+      plan: NodePlan,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): String = plan.node.cell match
+    case Some(c) if c.atRender.nonEmpty =>
+      val in = lookupAt(fragments, plan.id, shared.states)
+      val subject: EntityState | Null =
+        plan.node.subjectEntity.fold(null)(shared.states.getOrElse(_, null))
+      c.atRender.iterator
+        .filter(a => Evaluator.holds(a.run(subject, shared.states, in)))
+        .map(a => cellClassTexts.computeIfAbsent(a.name, expandCell))
+        .mkString
+    case _ => ""
 
   /** The signal values one node carries (ADR 0017), never its children's:
     * descending would name a child's signal under its parent and leave the
@@ -1830,18 +1944,14 @@ class Renderer(validated: Dashboard.Validated) {
       else {
         val b = Map.newBuilder[SignalId, SlotValue]
         b.sizeHint(plan.signalNameBySlot.size)
+        val in = lookupAt(fragments, id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           plan.signalNameBySlot
             .get(slot)
             .foreach(sig =>
               b += ((
                 sig,
-                resolveStateSlotValue(
-                  srcEntity,
-                  source,
-                  shared,
-                  fetchedIn(fragments, id)
-                )
+                resolveStateSlotValue(srcEntity, source, shared, in)
               ))
             )
         }
@@ -1856,10 +1966,11 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned.Live,
       shared: Shared,
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      in: Evaluator.Lookup
   ): String =
     SlotValue.text(
-      resolveSlotValue(srcEntity, source, shared, fragments, node)
+      resolveSlotValue(srcEntity, source, shared, fragments, node, in)
     )
 
   /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
@@ -1870,22 +1981,26 @@ class Renderer(validated: Dashboard.Validated) {
       source: Planned.Live,
       shared: Shared,
       fragments: FetchSnapshot,
-      node: NodeId
+      node: NodeId,
+      in: Evaluator.Lookup
   ): SlotValue = source.source.shape match {
     case SlotShape.Fetch(_) if withheld(source, shared) =>
       ""
-    // Answered before the walk began; `FetchSnapshot` raises on a miss.
+    // Answered before the walk began; `FetchSnapshot` raises on a miss. A
+    // choice that decides no case asks nothing, and reads as no value.
     case SlotShape.Fetch(ask) =>
-      val answer = fragments.staged(node, ask)
-      if (answer.version == Staged.FailedVersion) failedLabelText(answer.value)
-      else answer.value
+      readOf(ask, shared.states, fragments.varsAt(node)) match
+        case Some(read) =>
+          val answer = fragments.staged(read)
+          if (answer.version == Staged.FailedVersion)
+            failedLabelText(answer.value)
+          else answer.value
+        case None =>
+          source.source.default match
+            case Some(Lit.Bool(b)) => b
+            case d                 => d.fold("")(l => Steps.text(l.raw))
     case SlotShape.State(_) =>
-      resolveStateSlotValue(
-        srcEntity,
-        source,
-        shared,
-        fetchedIn(fragments, node)
-      )
+      resolveStateSlotValue(srcEntity, source, shared, in)
   }
 
   /** The dashboard's `failedLabel` filled in; nothing for a failure with no
@@ -1903,19 +2018,26 @@ class Renderer(validated: Dashboard.Validated) {
       out.toString
     }
 
-  /** A fetch value's answer, as CEL reads it. */
-  private def fetchedIn(fragments: FetchSnapshot, node: NodeId)(
-      f: FetchTemplate
-  ): Object =
-    Series.celPoints(
-      fragments.value(node, SlotAsk(f, Step.Json))
-    )
+  /** What `node`'s slots read besides state: a fetch value's answer as CEL
+    * reads it, and the node's variables at the values the answers were fetched
+    * for.
+    */
+  private def lookupAt(
+      fragments: FetchSnapshot,
+      node: NodeId,
+      states: Map[String, EntityState]
+  ): Evaluator.Lookup = new Evaluator.Lookup:
+    def fetched(f: FetchTemplate): Object =
+      readOf(SlotAsk(f, Step.Json), states, fragments.varsAt(node))
+        .fold(null)(r => Series.celPoints(fragments.staged(r).value))
+    def variable(name: String): String =
+      fragments.varsAt(node).getOrElse(name, Evaluator.noVariable(name))
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
       planned: Planned.Live,
       shared: Shared,
-      fetched: FetchTemplate => Object
+      fetched: Evaluator.Lookup
   ): SlotValue = {
     val source = planned.source
     val st: EntityState | Null =
@@ -1974,6 +2096,14 @@ object Renderer {
       case c: Ready.Component =>
         c.fetches ++ c.allChildren.flatMap(subtreeAsks)
       case _: Ready.SetNode => Nil
+    }
+
+  /** [[subtreeAsks]]' twin for the variables its slots read. */
+  private def subtreeVariables(node: Ready.Node): Set[String] =
+    node match {
+      case c: Ready.Component =>
+        c.variables ++ c.allChildren.flatMap(subtreeVariables)
+      case _: Ready.SetNode => Set.empty
     }
 
   private final class FailedLabelScope(values: Map[String, String])

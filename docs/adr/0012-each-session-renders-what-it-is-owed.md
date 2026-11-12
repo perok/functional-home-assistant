@@ -44,9 +44,12 @@ woken by one ring of the doorbell render each node once between them. The render
 the key because a dashboard edit changes the markup while the entity versions it reads
 stay exactly where they were.
 
-**One generation per node.** `RenderInputs` is entity versions and nothing else, and those
-CHURN — every frame moves one, so the generation for the previous version is dead the
-moment it is replaced.
+**One generation per node.** `RenderInputs` is the entity versions and fetch reads a node
+read, and those CHURN — every frame moves one, so the generation for the previous version is
+dead the moment it is replaced. It also carries the node variables a node's slots read, at the
+viewer's values (ADR 0033): different values are unordered, so viewers on one value share the
+entry and a viewer on another replaces it in place, one entry per node however many values are
+posted. A node reading no variable keys exactly as before.
 
 Not every entity the node READS, though: only those whose movement can change its BYTES
 (`Ready.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
@@ -168,11 +171,14 @@ anyone else's DOM.
 
 ## Why the no-JS path is worth its cost
 
-`{{bakeIndex}}` is the only way a selection is visible without scripts — a
-tab click is then an `<a href="?v.<host>.tab=N">` and the answer is a fresh document.
-Supporting it used to cost four concepts and a branch in the diff path. It now costs
-nothing: the renderer already takes the viewer's `Selections`, and a node whose markup reads the selection
-is structure, which is never cached — so no key has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
+A selection is visible without scripts two ways: `{{bakeIndex}}` in a bake owner's own markup,
+and a class decided at render on a leaf (`cellClassAtRender`, ADR 0033), which is how a tab bar's
+buttons light the open tab in the first HTML — a tab click is then an
+`<a href="?v.<host>.tab=N">` and the answer is a fresh document. Supporting it used to cost four
+concepts and a branch in the diff path. It now costs nothing: the renderer already takes the
+viewer's `Selections`, a node whose markup reads the selection is structure, which is never
+cached, and a class decided at render is written in the document form only, so a leaf's patch
+is the same for every viewer and no key has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
 still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
 pipeline to simplify by dropping it.
 
@@ -198,7 +204,7 @@ bytes.
 RAM: the changelog SHRINKS (it dropped digests, and then content entirely), `holds` duplicates per
 session (tens of KB, now O(sessions), though immutable `Map`s applying the same updates from a
 common ancestor share most of their structure), and the render cache is the new cost — bounded at
-one generation per node per SELECTION, which is why it needs no timer.
+one generation per node, which is why it needs no timer.
 
 The complexity is close to a wash in volume. What changes is its KIND: shared-state reasoning, where
 a wrong answer is silent and affects everyone, became per-session bookkeeping, which is more code
@@ -271,12 +277,13 @@ other.
   of that key — see below.
 - **Keeping N generations per node** to stop two viewers evicting each other. It fixes the
   right problem with the wrong bound: N-1 of those generations are stale entity versions
-  nobody will ask for. This was answered by bucketing on the SELECTION
-  (`RenderInputs.vars`) — and that half is now gone too: a bake owner holds its content in
-  REGIONS, which makes it structure, which is never cached, so no node's bytes mention a
-  selection any more. `RenderInputs` is entity versions and nothing else, and the cache
-  holds ONE generation per node. `RenderCacheContentionSuite` measures two viewers on two
-  tabs at one render a frame where the old shape needed two.
+  nobody will ask for. This was answered by bucketing on the SELECTION — and that half is now
+  gone too: a bake owner holds its content in REGIONS, which makes it structure, which is never
+  cached, so no node's bytes mention a selection any more, and the cache holds ONE generation
+  per node. `RenderCacheContentionSuite` measures two viewers on two tabs at one render a frame
+  where the old shape needed two. A slot reading a variable's value does not bring the buckets
+  back: two values over one node replace each other's entry and each render, which costs only
+  on ticks where the node's entities moved; sharing across values is issue #689's question.
 - **Rotating the cache on a renderer swap** instead of naming the renderer in each entry.
   Leaves a window where a pull that read the previous renderer writes its bytes into the
   fresh map — the same bug with a smaller target.

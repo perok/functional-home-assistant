@@ -219,6 +219,7 @@ final case class ValueExpr(
       case Value.Entity(_, _: Part.Attr, _, _) => plain(ValueType.Dyn)
       case Value.Entity(_, Part.Whole, _, _)   => plain(ValueType.Entity)
       case Value.Fetch(_)                      => plain(ValueType.Series)
+      case Value.Var(_)                        => plain(ValueType.Text)
       case Value.Present(_, when)              =>
         when.toList
           .sortBy(_._1)
@@ -250,7 +251,8 @@ final case class ValueExpr(
   lazy val isLive: Boolean =
     (source match
       case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) => false
-      case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) =>
+      case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) |
+          Value.Var(_) =>
         true
     ) || parts.exists {
       case ValueExpr.Inner.Operand(v)   => Value.Operand.entity(v).nonEmpty
@@ -264,10 +266,16 @@ final case class ValueExpr(
     (source match
       case Value.Entity(of, _, _, _) => of.toList
       case Value.Present(cs, _)      => cs
-      case Value.Literal(_) | Value.Fetch(_) | Value.List(_, _) |
-          Value.Cel(_, _) =>
+      // A window chosen by state follows it.
+      case Value.Fetch(f) => f.window.entities
+      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
+          Value.Var(_) =>
         Nil
     ) ++ partEntities
+
+  /** Every node variable it reads, at any depth: what makes it per viewer. */
+  def variables: List[String] =
+    all.map(_.source).collect { case Value.Var(n) => n }.distinct
 
 object ValueExpr:
 
@@ -511,6 +519,13 @@ enum Value derives CanEqual:
     */
   case Cel(src: String, inputs: Map[String, ValueExpr] = Map.empty)
 
+  /** A node variable's value as this viewer holds it, by name, resolved up the
+    * ancestors to its declarer (ADR 0033). Text, since a value lives in a URL
+    * and a signal. Per viewer, so `validate` keeps it out of every decision
+    * made once for all of them.
+    */
+  case Var(name: String)
+
 object Value:
 
   /** What a step reads besides the value before it. Pkl writes only these
@@ -536,7 +551,7 @@ object Value:
   def about(subject: Option[String])(v: Value): Value = v match
     case e: Entity      => named(subject)(e)
     case List(t, items) => List(t, items.map(_.about(subject)))
-    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _)) => v
+    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _) | Var(_)) => v
 
   /** [[ValueExpr.parts]] of a source. */
   def parts(v: Value): scala.List[ValueExpr.Inner] = v match
@@ -544,7 +559,7 @@ object Value:
       when.values.toList.map(ValueExpr.Inner.PerMember(_))
     case List(_, items) => items.map(ValueExpr.Inner.Item(_))
     case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
-    case Literal(_) | Entity(_, _, _, _) | Fetch(_) => Nil
+    case Literal(_) | Entity(_, _, _, _) | Fetch(_) | Var(_) => Nil
 
   /** An entity read that names none, reading `subject`. */
   def named(subject: Option[String])(e: Entity): Entity =
@@ -569,6 +584,7 @@ object Value:
       items.map(i => sized(i.inputKey)).mkString("list(", "", ")")
     case Cel(src, inputs) =>
       s"cel:${src.length}:$src" + ValueExpr.inputsKey(inputs)
+    case Var(name) => s"var:${sized(name)}"
 
   private def sized(k: String) = s"${k.length}:$k"
 
@@ -610,11 +626,14 @@ object Value:
             c.get[String]("src"),
             c.getOrElse[Map[String, ValueExpr]]("wireInputs")(Map.empty)
           ).mapN(Cel.apply)
+        case "Var" =>
+          Strict.only(c, Set("kind", "name")) *>
+            c.get[String]("name").map(Var(_))
         case other =>
           Left(
             DecodingFailure(
               s"unknown value kind '$other' — Entity, Fetch, Present, " +
-                "List or Cel, or a bare literal",
+                "List, Cel or Var, or a bare literal",
               c.history
             )
           )

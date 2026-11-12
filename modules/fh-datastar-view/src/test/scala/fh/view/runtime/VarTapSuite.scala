@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.DashboardBuilders
+
 import fh.view.testkit.TestCard
 import cats.effect.{Deferred, IO}
 import cats.effect.kernel.Ref as CeRef
@@ -12,7 +14,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Choice,
   Region,
   Value,
   ValueExpr,
@@ -53,7 +54,7 @@ class VarTapSuite extends ServerHarness {
           Value.Fetch(
             FetchTemplate(
               "sensor.a",
-              Choice.Chosen("window", Windows.presets)
+              DashboardBuilders.chosenBy("window", Windows.presets)
             )
           ),
           List(Step.Json, Step.JsonText)
@@ -85,7 +86,7 @@ class VarTapSuite extends ServerHarness {
                 Value.Fetch(
                   FetchTemplate(
                     "sensor.b",
-                    Choice.Chosen("w", Windows.presets)
+                    DashboardBuilders.chosenBy("w", Windows.presets)
                   )
                 ),
                 List(Step.Json, Step.JsonText)
@@ -277,7 +278,7 @@ class VarTapSuite extends ServerHarness {
                   Value.Fetch(
                     FetchTemplate(
                       entity,
-                      Choice.Chosen("window", Windows.presets)
+                      DashboardBuilders.chosenBy("window", Windows.presets)
                     )
                   ),
                   List(Step.Json, Step.JsonText)

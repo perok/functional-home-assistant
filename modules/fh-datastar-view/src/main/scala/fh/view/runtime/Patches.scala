@@ -574,7 +574,7 @@ private[runtime] object Patches {
           id,
           renderer,
           inputs,
-          renderer.byteSlotValues(id, shared, viewing.fragments)
+          () => renderer.byteSlotValues(id, shared, viewing.fragments)
         )(
           IO(
             mustRender(

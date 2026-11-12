@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import cats.syntax.all.*
 import munit.CatsEffectSuite
 import org.http4s.Status
 
@@ -66,6 +67,37 @@ class IfVariableSuite extends CatsEffectSuite {
           assert(text(afterWeek).contains("Week"), text(afterWeek))
           assert(text(afterWeek).contains("Other"), text(afterWeek))
           assert(!text(afterOther).contains("Week"), text(afterOther))
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("a tab bar's raw HTML lights the open tab, a linked one included") {
+    val tabs =
+      """amends "@fh-dashboard/entry.pkl"
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |
+        |card = (c.tabs) {
+        |  tabs {
+        |    ["One"] { c.title("first") }
+        |    ["Two"] { c.title("second") }
+        |  }
+        |}
+        |""".stripMargin
+    TestServer
+      .fromWorkspace("tab-lit", tabs, Nil)
+      .use { ts =>
+        (ts.page(), ts.page("?v.c.tab=1")).tupled.map { (opened, linked) =>
+          def lit(page: String) =
+            """<a class="([^"]*)" id="c_(\d)"""".r
+              .findAllMatchIn(page)
+              .collect {
+                case m if m.group(1).contains("fh-chosen") => m.group(2)
+              }
+              .toList
+          assertEquals(lit(opened), List("0"), opened)
+          assertEquals(lit(linked), List("1"), linked)
         }
       }
       .timeout(60.seconds)

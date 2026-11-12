@@ -7,15 +7,9 @@
         {
           "card" : "tabs",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "inlineSurfaces" : {
             "t0" : {
@@ -52,11 +46,6 @@
                               }
                             ]
                           }
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -197,6 +186,23 @@
             "children" : [
               {
                 "card" : "tab",
+                "cell" : {
+                  "atRender" : {
+                    "fh-chosen" : {
+                      "source" : {
+                        "kind" : "Var",
+                        "name" : "tab"
+                      },
+                      "steps" : [
+                        {
+                          "kind" : "Compare",
+                          "op" : "eq",
+                          "to" : "0"
+                        }
+                      ]
+                    }
+                  }
+                },
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : {
@@ -225,6 +231,23 @@
               },
               {
                 "card" : "tab",
+                "cell" : {
+                  "atRender" : {
+                    "fh-chosen" : {
+                      "source" : {
+                        "kind" : "Var",
+                        "name" : "tab"
+                      },
+                      "steps" : [
+                        {
+                          "kind" : "Compare",
+                          "op" : "eq",
+                          "to" : "1"
+                        }
+                      ]
+                    }
+                  }
+                },
                 "kind" : "Component",
                 "templateSlots" : {
                   "active" : {
@@ -267,15 +290,9 @@
         {
           "card" : "ifhost",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "inlineSurfaces" : {
             "else" : {
@@ -351,11 +368,6 @@
                               }
                             ]
                           }
-                        },
-                        "layout" : [
-                        ],
-                        "styles" : {
-                          
                         }
                       },
                       "kind" : "Component",
@@ -467,15 +479,9 @@
         {
           "card" : "chooser",
           "cell" : {
-            "classes" : {
-              
-            },
             "layout" : [
               "fh-cols-full"
-            ],
-            "styles" : {
-              
-            }
+            ]
           },
           "kind" : "Component",
           "regions" : {
@@ -487,6 +493,23 @@
                   "children" : [
                     {
                       "card" : "tab",
+                      "cell" : {
+                        "atRender" : {
+                          "fh-chosen" : {
+                            "source" : {
+                              "kind" : "Var",
+                              "name" : "view"
+                            },
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "eq",
+                                "to" : "simple"
+                              }
+                            ]
+                          }
+                        }
+                      },
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : {
@@ -515,6 +538,23 @@
                     },
                     {
                       "card" : "tab",
+                      "cell" : {
+                        "atRender" : {
+                          "fh-chosen" : {
+                            "source" : {
+                              "kind" : "Var",
+                              "name" : "view"
+                            },
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "eq",
+                                "to" : "detail"
+                              }
+                            ]
+                          }
+                        }
+                      },
                       "kind" : "Component",
                       "templateSlots" : {
                         "active" : {
@@ -554,15 +594,9 @@
               {
                 "card" : "ifhost",
                 "cell" : {
-                  "classes" : {
-                    
-                  },
                   "layout" : [
                     "fh-cols-full"
-                  ],
-                  "styles" : {
-                    
-                  }
+                  ]
                 },
                 "inlineSurfaces" : {
                   "else" : {

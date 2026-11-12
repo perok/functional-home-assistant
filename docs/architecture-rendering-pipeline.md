@@ -955,6 +955,13 @@ node either of them is sent, and share one render. `RenderCacheContentionSuite` 
 renders a frame at any mix of viewers and tabs; a 2.0 would mean cost had started following the
 selection again.
 
+**A node variable a slot reads IS in the key** (`RenderInputs.vars`, ADR 0033): that node's bytes
+are the value's. Different values are unordered, so viewers on one value share one render and a
+viewer on another replaces the entry in place. The cache still keeps one entry per node, however
+many values are posted, and two values over one node alternate, each rendering — a cost only on
+ticks where the node's entities moved. The suite holds both: 1.0 a frame for viewers on one value,
+and one entry after fifty.
+
 **Sessions at different store versions is the other half, and it is an ordering problem, not a
 key problem.** Sessions pull on their own fibers and read the store when they get there, so they do
 not all render from one snapshot. Three racing — newest, straggler, newest — would otherwise cost
@@ -1156,10 +1163,12 @@ does not arise for three reasons that have to stay true:
 - nothing lets a node's input depend on a value produced DURING the walk.
 
 **A fetch's window may be CHOSEN, and it resolves PER VIEWER.** A node declares node variables
-(`Component.vars`); a fetch's window is written down or chosen by one from a table
-(`Choice.Fixed`/`Choice.Chosen`, ADR 0031); a node holds a static `SlotAsk`, and `fetchesForPage`
-resolves each one against the values in scope at that node into the `SlotRead` everything keys
-on.
+(`Component.vars`); a fetch's window is written down or chosen from its cases by what `by`
+reads (`Choice.Fixed`/`Choice.Chosen`, ADR 0033); a node holds a static `SlotAsk`, and
+`fetchesForPage` resolves each one, `by` run over the state and the values in scope at that node
+(`Renderer.readOf`), into the `SlotRead` everything keys on, or into nothing where no case takes
+it, and then the slot reads null. Because `by` may read state, the renderer resolves an ask and
+`FetchSnapshot` only answers the reads it resolved.
 
 **The values ride inside `FetchSnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
@@ -1167,6 +1176,13 @@ fetched for another's, because the resolution happens from the snapshot's own va
 NOT on a `NodePlan` — a plan is memoised per node and reused across sessions, so a
 chosen window held there would be served to the next viewer; the plan carries the node's id and
 the values come from the render.
+
+**A leaf's value slot may read a variable too** (`Value.Var`, ADR 0033), from the same values: a
+run reads them through its `Evaluator.Lookup`, which for a slot is the node's
+`FetchSnapshot.varsAt` and for a decision none at all, so a decision that reached one would throw
+rather than pick a viewer. Such a node's bytes are that viewer's value's, so its render key carries
+the values it read (`RenderInputs.vars`, §5), and `VarGraph.readersOf` counts it among the readers
+a write re-renders.
 
 A choice is addressed to the node that DECLARED the variable, which is what keeps a shadow
 independent from the write side. It arrives two ways, both narrowed to real declarations before
@@ -1314,7 +1330,10 @@ root also carries the node's cell slots (`Cell`, ADR 0008): its classes, static 
 (`LayoutNode.cellClassWhen`), and live custom properties (`LayoutNode.cellStyle`). They are ordinary
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
 key's (`class:<name>`, `style:--…`): the renderer places the bindings on the root in both forms,
-and a live class or `style="--x:…"` itself only in the document form, like any signal value. Every class the renderer emits there, and every `class:`
+and a live class or `style="--x:…"` itself only in the document form, like any signal value. A
+class decided at render (`cell.atRender`, ADR 0033) is in the document form only too, decided for
+the viewer, with no binding at all, so a node carrying one has two forms and its digest is the
+patch form's, the same for every viewer. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
 through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
 goes through them where it resolves (`Renderer.classed`): a literal once, into a
@@ -1685,9 +1704,12 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
-  first — so the `RenderCache` removes about three quarters of it and is earning its place. What
-  remains is unprofiled: the changelog read, the visibility narrowing, the per-node cache lookup
-  and digest compare, the signal diff against `Held.signals`.
+  first — so the `RenderCache` removes about three quarters of it and is earning its place. A hit
+  on equal inputs now reads the entry and nothing else (no byte-slot values, no `Deferred`, no
+  CAS): `resumeSignalsFanout` allocated 16.7% less (1,167,658 -> 972,138 B/op, escape analysis
+  off), while one client's tick, all misses, pays 2.0% more for the peek. What remains is
+  unprofiled: the changelog read, the visibility narrowing, the digest compare, the signal diff
+  against `Held.signals`.
 
   Encoding the frame is **~5% of that time and ~9% of those bytes**. Sharing it across clients
   measures 10x in isolation (`wireCommon` vs `wireCommonShared`) and that number should not be
@@ -1701,8 +1723,8 @@ Live list — delete an entry when it is answered, and say where the answer land
   RENDERED — rendering it is how we discover the bytes did not move — because the `RenderCache`
   key holds a per-entity `contentVersion` and the shipped `EntityCard`'s name reads
   `friendly_name` as BYTES, which re-admitted the entity to the key on every brightness tick.
-  `Patches.bytes` now hands the cache the resolved byte-slot values
-  (`Renderer.byteSlotValues`) and `RenderCache.apply` reuses an entry carrying the same ones:
+  `Patches.bytes` hands the cache the byte-slot values (`Renderer.byteSlotValues`), resolved only
+  when the inputs miss, and `RenderCache.apply` reuses an entry carrying the same ones:
   `resumeSignals` 262 µs / 442 kB -> **102 µs / 151 kB**, landing on `resumeSignalsPure`'s
   106 µs. A signals tick is now the cheap one. Note the saving is one render per tick per SLUG,
   not per client — the clients behind the first already shared its render.

@@ -59,12 +59,22 @@ class Statistics extends Window {
   function orRaw(): Statistics = let (self = this) (self) { fallback = true }
 }
 
-/// A window chosen by a node variable's value from `options`. The variable
-/// holds a key, and the server refuses a key the table lacks.
+/// A window picked by what `by` reads: the case whose `is` it equals, else
+/// `otherwise`, else none, and a chart with no window draws its default. `by`
+/// is any reading of text, a bool or a whole number: a node variable's value,
+/// or an entity's state, decided once per state change. With no `otherwise`,
+/// the server refuses a viewer's value no case takes.
 class Chosen {
   kind: "Chosen" = "Chosen"
-  by: varMod.Ref
-  options: Mapping<String, Window>
+  by: slotMod.Expr
+  cases: Listing<Case>
+  otherwise: Window? = null
+}
+
+/// One of a [[Chosen]]'s windows, and the key that picks it.
+class Case {
+  `is`: String|Boolean|Int
+  value: Window
 }
 
 /// `d` of the recorder's raw rows: every reading. HA keeps them
@@ -79,7 +89,10 @@ const function statistics(d: Duration, p: Period): Statistics =
 
 /// `v`'s value picks one of `table`.
 const function chosen(v: varMod.Variable, table: Mapping<String, Window>): Chosen =
-  new Chosen { by = v.ref; options = table }
+  new Chosen {
+    by = v.value
+    cases { for (k, w in table) { new Case { `is` = k; value = w } } }
+  }
 
 /// More-info's windows, and `c.history.chooser`'s: an hour of raw rows, then
 /// statistics, falling back to raw rows for a sensor without any.

@@ -33,8 +33,8 @@
   data-attr:aria-valuenow="Math.round($_s_c_0_features_0_then__c_0__fill)"><div class="fh-bar-fill"
   data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div>
 <!-- ==== as fixtured · surface c_0_self ==== -->
-<div class="fh-cell" id="s_c_0_self__c"><div class="fh-popup-backdrop"
-  data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
+<div class="fh-cell fh-popup-backdrop" id="s_c_0_self__c"
+  data-on:click="evt.target === el && $ui_popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell fh-col" id="s_c_0_self__c_0">
@@ -56,7 +56,7 @@
   data-on-signal-patch-filter="{include:/^_s_c_0_self__c_0_1_bar_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_0__busy_slow = $_s_c_0_self__c_0_1_bar_0_0__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_0__busy_slow"
-  data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a><a class="" id="s_c_0_self__c_0_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a><a class=" fh-chosen" id="s_c_0_self__c_0_1_bar_0_1"
   data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/var/progress/s_c_0_self__c_0_1/window/24h?group=var_s_c_0_self__c_0_1__window')"
   data-indicator="_s_c_0_self__c_0_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_1__error = ''))"
@@ -94,9 +94,8 @@
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_3__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '30d'">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="s_c_0_self__c_0_1_0"><svg/></div></div>
-<div class="fh-cell fh-card fh-entity-info" id="s_c_0_self__c_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div>
-<div class="fh-cell" id="s_c_0_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
+<div class="fh-cell fh-card fh-entity-info" id="s_c_0_self__c_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div><button class="fh-cell fh-press fh-size-large " id="s_c_0_self__c_0_3"
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch s_c_0_features_0_then__c_0 ==== -->
 <div class="fh-cell fh-bar" id="s_c_0_features_0_then__c_0" role="progressbar" aria-valuemin="0" aria-valuemax="100"
   data-show="$_e.sensor.washer_remaining.state !== '' && !isNaN($_e.sensor.washer_remaining.state) && $_e.sensor.washer_program_duration.state !== '' && !isNaN($_e.sensor.washer_program_duration.state)"
@@ -164,8 +163,8 @@
 <!-- ==== as fixtured · patch s_c_0_self__c_0_2 ==== -->
 <div class="fh-cell fh-card fh-entity-info" id="s_c_0_self__c_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_3 ==== -->
-<div class="fh-cell" id="s_c_0_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div>
+<button class="fh-cell fh-press fh-size-large " id="s_c_0_self__c_0_3"
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== flipped · body: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_features_0_then: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_self: as fixtured ==== -->
@@ -205,8 +204,8 @@
   data-attr:aria-valuenow="Math.round($_s_c_0_features_0_then__c_0__fill)"><div class="fh-bar-fill"
   data-style:width="$_s_c_0_features_0_then__c_0__fill + '%'"></div></div></div>
 <!-- ==== unavailable · surface c_0_self ==== -->
-<div class="fh-cell" id="s_c_0_self__c"><div class="fh-popup-backdrop"
-  data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
+<div class="fh-cell fh-popup-backdrop" id="s_c_0_self__c"
+  data-on:click="evt.target === el && $ui_popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
 <div class="fh-cell fh-col" id="s_c_0_self__c_0">
@@ -228,7 +227,7 @@
   data-on-signal-patch-filter="{include:/^_s_c_0_self__c_0_1_bar_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_0__busy_slow = $_s_c_0_self__c_0_1_bar_0_0__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_0__busy_slow"
-  data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a><a class="" id="s_c_0_self__c_0_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a><a class=" fh-chosen" id="s_c_0_self__c_0_1_bar_0_1"
   data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/var/progress/s_c_0_self__c_0_1/window/24h?group=var_s_c_0_self__c_0_1__window')"
   data-indicator="_s_c_0_self__c_0_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_1__error = ''))"
@@ -266,9 +265,8 @@
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_3__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '30d'">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="s_c_0_self__c_0_1_0"><svg/></div></div>
-<div class="fh-cell fh-card fh-entity-info" id="s_c_0_self__c_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div>
-<div class="fh-cell" id="s_c_0_self__c_0_3"><button class="fh-press fh-size-large "
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></div></dialog></div>
+<div class="fh-cell fh-card fh-entity-info" id="s_c_0_self__c_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div><button class="fh-cell fh-press fh-size-large " id="s_c_0_self__c_0_3"
+  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== unavailable · patch s_c_0_features_0_then__c_0: as fixtured ==== -->
 <!-- ==== unavailable · patch s_c_0_self__c_0_1_0: as fixtured ==== -->
 <!-- ==== unavailable · patch s_c_0_self__c_0_1_bar_0_0: as fixtured ==== -->

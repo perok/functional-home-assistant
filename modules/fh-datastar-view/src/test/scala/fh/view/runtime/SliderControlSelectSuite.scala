@@ -48,7 +48,7 @@ class SliderControlSelectSuite extends CatsEffectSuite {
 
   private val label =
     // A control's icon is the face; its label is the icon's title.
-    """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><i class="[^"]*" title="([^"]*)">""".r
+    """<summary class="fh-select-summary"><span id="[^"]+"><i class="fh-cell [^"]*" id="[^"]+" title="([^"]*)">""".r
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer
@@ -106,7 +106,12 @@ class SliderControlSelectSuite extends CatsEffectSuite {
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
         assert(sent.contains("max=\"360\""), clue = sent)
-        assert(sent.contains("title=\"Colour\"></i></div>"), clue = sent)
+        assert(
+          """<i class="fh-cell mdi mdi-palette" id="[^"]+" title="Colour"></i>""".r
+            .findFirstIn(sent)
+            .nonEmpty,
+          clue = sent
+        )
         assert(
           sent.contains(s"\"_var_${declarer}__control\":\"colour\""),
           clue = sent

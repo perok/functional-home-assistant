@@ -125,6 +125,41 @@ class RenderCacheContentionSuite extends ServerHarness {
     )
   )
 
+  /** `c_0` reads the shared sensor AND the viewer's `window`, declared on the
+    * root `c`, so its bytes are each value's.
+    */
+  private def varDash = Dashboard(
+    cards = Map(
+      "col" -> TestCard(
+        "<div>{{{children}}}</div>",
+        regions = Map("children" -> Region())
+      ),
+      "card" -> TestCard("<span>{{state}} {{window}}</span>")
+    ),
+    card = LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(
+        LayoutNode.Component(
+          "card",
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.shared")))
+            ),
+            "window" -> TemplateSlot(ValueExpr(Value.Var("window")))
+          )
+        )
+      ),
+      vars = declared("window" -> "24h")
+    )
+  )
+
+  /** What a reconnect carries: the committed value, adopted by the session. */
+  private def onWindow(value: String): String =
+    "?datastar=" + java.net.URLEncoder.encode(
+      s"""{"_var_c__window":"$value"}""",
+      "UTF-8"
+    )
+
   private val initial = Map(
     "sensor.shared" -> st("sensor.shared", "0"),
     "sensor.a" -> st("sensor.a", "a"),
@@ -245,6 +280,42 @@ class RenderCacheContentionSuite extends ServerHarness {
         leafDash,
         0.0
       )
+  }
+
+  /** The values a node reads are in its key: viewers on one value share its
+    * render, and viewers on two each render, replacing each other's entry. A
+    * node reading no variable is the 1.0 above.
+    */
+  test("a node reading a variable: one render a frame per value viewers hold") {
+    assertCost(
+      "3 viewers on one value",
+      List.fill(3)(onWindow("7d")),
+      varDash,
+      1.0
+    ) *>
+      assertCost(
+        "1+1 on two values",
+        List(onWindow("7d"), onWindow("30d")),
+        varDash,
+        2.0
+      )
+  }
+
+  test("one entry per node, however many values are posted") {
+    val renderer = Renderer.create(varDash)
+    val on = (v: String) =>
+      RenderInputs(Map("sensor.shared" -> 1L), vars = Map("window" -> v))
+    for {
+      cache <- RenderCache.create
+      _ <- (1 to 50).toList.traverse_(i =>
+        cache("c_0", renderer, on(s"v$i"))(IO.pure(s"<b>$i</b>"))
+      )
+      gens <- cache.generations
+      again <- cache("c_0", renderer, on("v50"))(IO.pure("<b>never</b>"))
+    } yield {
+      assertEquals(gens, 1, "50 values, one entry")
+      assertEquals(again.html, "<b>50</b>", "the last value's install stands")
+    }
   }
 
   /** A node keeps one generation, so churn leaves the count where it started;

@@ -154,10 +154,11 @@ any span, and statistics at `5minute` up to `year`.
   (ADR 0028 point 3). The string `params` map parsed by its provider afterwards was dropped: a
   window would have needed a string grammar (`"7d@hour"`) parsed back out again.
 - **A node variable picks a window by key.** A variable lives in a URL and a signal, so it holds a
-  string; a `Chosen` window carries the table (`{"kind": "Chosen", "by": {"var": "window"},
-  "options": {…}}`), and `Renderer.refusals` refuses a key the table lacks. Simple's `Match` was
+  string; a `Chosen` window carries its cases, each a key and a window, and `Renderer.refusals`
+  refuses a key no case takes (ADR 0033 has the `Choice` and its wire). Simple's `Match` was
   considered and rejected: it maps a live entity's state, which nobody controls, so it must be
-  total, and its `otherwise` would hide a bad key instead of refusing it.
+  total, and its `otherwise` would hide a bad key instead of refusing it. A `Choice` keeps that
+  difference: its `otherwise` is optional, and without one a key no case takes is refused.
 - **A period no shorter than the span is a build error.** HA answers `hour` over one hour with
   nothing (measured), so the chart would be blank forever.
 
