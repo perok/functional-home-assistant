@@ -17,7 +17,7 @@ import fh.view.build.{
 import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
 
-import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace}
+import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace, TestCard}
 
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
@@ -607,10 +607,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     assertEquals(dashboard.validate(), Nil)
     assertEquals(
       dashboard.cards.get("badge").map(_.template),
-      // The root the library writes for a card that names no tag.
-      Some(
-        """<div class="fh-cell{{{cellClasses}}}"{{{cell}}}><b class="badge">here</b></div>"""
-      )
+      // The root the library writes for a card that names no tag, which is the
+      // root `TestCard` writes for every Scala fixture: they must not drift.
+      Some(TestCard.root("""<b class="badge">here</b>"""))
     )
   }
 
