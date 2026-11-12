@@ -101,7 +101,9 @@ and the template is only what goes inside it. `tag` is a plain element name,
 except `id`, `class`, `style` and `data-signals`, which the library writes
 itself; the build refuses those.
 
-The outer element is the same for every use of a card. When it depends on
+The outer element is the same for every use of a card, so a card definition
+cannot branch on the node's own properties: `tag = if (href != null) "a" else
+"button"` fails the build with "card 'banner' has 2 different cardDefs". When it depends on
 something you know as you build the node — a link is an `<a>`, a press a
 `<button>` — give each form its own card name and a definition of its own,
 declared once at the top of your module, in `variants`, and pick both the name

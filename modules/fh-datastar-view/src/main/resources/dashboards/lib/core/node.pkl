@@ -203,11 +203,14 @@ const local cellClassFamilies: List<List<String>> =
 abstract class Node extends LayoutNode {
   kind: "Component" = "Component"
   card: String
-  // The same for every node of the card ([[cardsIn]]), so it must not
-  // reference instance properties beyond a slot's name. A node may pick
-  // between constant defs on a fact known at build time when its `card` name
-  // picks the same way: [[variants]]. Keep each HTML attribute value on one
-  // line.
+  /// The card's markup, the same for every node of one [[card]] name: the wire
+  /// holds one template per name, compiled once. So it cannot branch on this
+  /// node's own properties, which surprises: `tag = if (href != null) "a" else
+  /// "button"` builds two defs under one name and fails the build with "card
+  /// 'x' has 2 different cardDefs" ([[cardsIn]]). Branch on a fact known at
+  /// build by giving each form its own name and def ([[variants]]); branch on
+  /// a live value inside the template, through a slot. Keep each HTML attribute
+  /// value on one line.
   hidden cardDef: CardDef
   /// A card whose root differs by a fact known at build time (a button that
   /// navigates is an `<a>`): one name and constant def per form, `card` picking
