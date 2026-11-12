@@ -1704,9 +1704,12 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
-  first — so the `RenderCache` removes about three quarters of it and is earning its place. What
-  remains is unprofiled: the changelog read, the visibility narrowing, the per-node cache lookup
-  and digest compare, the signal diff against `Held.signals`.
+  first — so the `RenderCache` removes about three quarters of it and is earning its place. A hit
+  on equal inputs now reads the entry and nothing else (no byte-slot values, no `Deferred`, no
+  CAS): `resumeSignalsFanout` allocated 16.7% less (1,167,658 -> 972,138 B/op, escape analysis
+  off), while one client's tick, all misses, pays 2.0% more for the peek. What remains is
+  unprofiled: the changelog read, the visibility narrowing, the digest compare, the signal diff
+  against `Held.signals`.
 
   Encoding the frame is **~5% of that time and ~9% of those bytes**. Sharing it across clients
   measures 10x in isolation (`wireCommon` vs `wireCommonShared`) and that number should not be
@@ -1720,8 +1723,8 @@ Live list — delete an entry when it is answered, and say where the answer land
   RENDERED — rendering it is how we discover the bytes did not move — because the `RenderCache`
   key holds a per-entity `contentVersion` and the shipped `EntityCard`'s name reads
   `friendly_name` as BYTES, which re-admitted the entity to the key on every brightness tick.
-  `Patches.bytes` now hands the cache the resolved byte-slot values
-  (`Renderer.byteSlotValues`) and `RenderCache.apply` reuses an entry carrying the same ones:
+  `Patches.bytes` hands the cache the byte-slot values (`Renderer.byteSlotValues`), resolved only
+  when the inputs miss, and `RenderCache.apply` reuses an entry carrying the same ones:
   `resumeSignals` 262 µs / 442 kB -> **102 µs / 151 kB**, landing on `resumeSignalsPure`'s
   106 µs. A signals tick is now the cheap one. Note the saving is one render per tick per SLUG,
   not per client — the clients behind the first already shared its render.
