@@ -89,6 +89,7 @@ const local pillCircle: String = roundSlot.ifSet("fh-circle")
 const local pillCss: String = """
   .fh-cell.fh-chip{background:var(--fh-surface);color:var(--fh-text);
   border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
+  .fh-cell.fh-chip:not(.fh-circle){inline-size:fit-content}
   .fh-card .fh-cell.fh-chip{background:var(--fh-surface-alt);box-shadow:none}
   .fh-cell.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
   .fh-cell.fh-active.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
@@ -113,9 +114,11 @@ const local pillDef: nodes.CardDef = new {
 
 // A labelled button fills its cell, as every other card does; a framework
 // sizing buttons to their label left three nav buttons ragged. It is the cell,
-// so it takes the cell's width rather than `100%`, which a tile's feature
-// margins would push past the card; `flex` makes it a block where the parent is
-// no flex container (a popup's dialog). `block-size:auto` lets a long label
+// so it stretches to the space its parent gives (`stretch`, older WebKit's
+// `-webkit-fill-available`) rather than `100%`, which a tile's feature margins
+// would push past the card: a `<button>` with `width:auto` keeps its label's
+// width even as a block, which left a popup's Close narrow. A hugged one keeps
+// its own width. `block-size:auto` lets a long label
 // take a second line where BeerCSS pins the height.
 //
 // It rests on the card surface and takes the accent only while `fh-active`; a
@@ -130,12 +133,13 @@ const local pressCss: String = """
   .fh-press.fh-size-small{--fh-press-size:2rem}
   .fh-press.fh-size-medium{--fh-press-size:2.5rem}
   .fh-press.fh-size-large{--fh-press-size:3rem}
-  .fh-cell:is(.fh-button,button).fh-press{display:flex;box-sizing:border-box;
+  .fh-cell:is(.fh-button,button).fh-press{display:flex;inline-size:-webkit-fill-available;inline-size:stretch;box-sizing:border-box;
   block-size:auto;min-block-size:var(--fh-press-size,3rem);justify-content:flex-start;gap:.75rem;
   padding:calc(var(--fh-press-size,3rem) * .125) 1.25rem;border-radius:999px;text-align:start;
   --fh-badge-size:calc(var(--fh-press-size,3rem) * .75);
   background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
   .fh-cell:is(.fh-button,button).fh-press.fh-badged{padding-inline-start:.5rem}
+  .fh-cell.fh-hug:is(.fh-button,button).fh-press{inline-size:auto}
   .fh-card .fh-cell:is(.fh-button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
   .fh-card .fh-press .fh-badge:not([aria-busy=true]){background:var(--fh-surface)}
   .fh-press .fh-sub{color:var(--fh-text-dim)}
