@@ -49,6 +49,14 @@ client's, all misses, 2.0% more.
 
 ## Measure first
 
+**The single viewer pays for the hit path today.** f87fd3b6 made a hit free and a miss dearer: one
+client's tick, all misses, went from 160,117 to 163,317 B/op (+2.0%, `resumeSignals`, escape
+analysis off), for the byte-values closure and the `IO.defer` before the old path; ten clients'
+went from 1,167,658 to 972,138 (-16.7%). One viewer is the common home case, so the rounds must
+win that back: round 2 (a session skipping by its own `holds`) removes the miss on a signal-only
+tick altogether, and is the first thing to measure against `resumeSignals`.
+
+
 - A lookup-only bench: the cost of `RenderCache.apply` on a hit, and on a miss without the render.
 - `RenderBench.resumeSignals`, `resumeSignalsFanout` and `tickRender` as the baselines, plus
   `VarWriteBench` (#688) for per-viewer values. Allocation first, with `-XX:-DoEscapeAnalysis` on
