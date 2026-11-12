@@ -240,10 +240,13 @@ class SelectSuite extends CatsEffectSuite {
             .isDefined,
           html
         )
-        // Only `turbo`'s cells: lit in the list, marked in the cycle, whose
-        // face is a pill that a lit look would read as "on".
+        // Only `turbo`'s roots (an option is no cell, as a tab is not): lit in
+        // the list, marked in the cycle, whose face is a pill that a lit look
+        // would read as "on".
         assertEquals(
-          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          """class="[^"]*(?:fh-cell|fh-select-opt)[^"]*fh-active""".r
+            .findAllMatchIn(html)
+            .size,
           1,
           clue = html
         )
@@ -322,7 +325,9 @@ class SelectSuite extends CatsEffectSuite {
         // `heat` in the buttons and `high` in the list are lit; `comfort` is
         // the cycle's marked face.
         assertEquals(
-          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          """class="[^"]*(?:fh-cell|fh-select-opt)[^"]*fh-active""".r
+            .findAllMatchIn(html)
+            .size,
           2,
           clue = html
         )

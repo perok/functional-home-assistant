@@ -60,8 +60,9 @@ root element.**
    root that must not be a layout box. The opt-outs are roots no container
    lays out, which in a `.fh-col` would otherwise inherit
    `--fh-cell-width:100%`: the `tab` card, an `<a>` straight under the bar so a
-   theme can style it by `.fh-tabs > a` (BeerCSS's `.tabs > a`), and the
-   slider's pill and main-controls row, boxes inside the slider card. The layout builders write a field of their own,
+   theme can style it by `.fh-tabs > a` (BeerCSS's `.tabs > a`), an entity
+   select's option, an `<a>` under the same bar or in the dropdown's list, and
+   the slider's pill and main-controls row, boxes inside the slider card. The layout builders write a field of their own,
    `cell.layout`, and a non-empty one on such a card is refused, in Pkl and by
    `validate`; `cellClassWhen` and `cellStyle` stay allowed. Since the root
    still has its id, such a card may bind live slots and be a set clause.
@@ -223,9 +224,7 @@ framework-agnostic, and a new look is a sibling module exporting a
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
   card moves its markup into the root fields to be one. The library's cards
   have, except where the root cannot be static: an id the root carries itself
-  (`if`'s and a var cycle's host), several top-level elements (popup, slider text),
-  or CSS keyed on the inner element as the
-  cell's child (entity option).
+  (`if`'s and a var cycle's host), or several top-level elements (popup, slider text).
 - A root that differs by a fact known at build time is one card name per
   form, each with a constant def (`Node.variants`; the node's `card` and
   `cardDef` pick on the same fact, so `cardsIn`'s one def per name holds): a
