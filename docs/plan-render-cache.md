@@ -21,12 +21,11 @@ It does them with two mechanisms: a key of entity and fetch versions (`RenderInp
 variable values a node reads, and asked how per-viewer values are bounded; this plan answers that
 for the cache as a whole rather than for variables alone.
 
-## Waste already found
+## Done ahead
 
-- **`Patches.bytes` resolves the byte slots for every session before the lookup**, an argument
-  evaluated eagerly, so a session that hits on equal inputs pays for values it never reads.
-- **`RenderCache.apply` allocates a `Deferred` on every call**, hit or miss, before the
-  compare-and-set that decides whether it is needed.
+A hit on equal inputs reads the entry and nothing else: no byte-slot values, no `Deferred`, no
+compare-and-set (f87fd3b6 on #688's branch). Ten clients' tick allocates 16.7% less; one
+client's, all misses, 2.0% more.
 
 ## Design rounds
 
@@ -42,8 +41,7 @@ for the cache as a whole rather than for variables alone.
    (or beside) the bytes' digest, a session could tell "nothing to send" without rendering or
    looking anything up, which is the common signal-only tick.
 3. **Is sharing across viewers worth its machinery?** Each lookup is a `MapRef` compare-and-set, a
-   `Deferred` and an uncancelable region. Their cost is inside the 70 µs per further client and has
-   never been measured on its own. With 1 and 2, what is left to share is the render on a byte
+   `Deferred` and an uncancelable region. A hit no longer pays them ("Done ahead"); a miss does. With 1 and 2, what is left to share is the render on a byte
    tick, which a home dashboard's handful of viewers may not need: compare keeping single-flight,
    a memo for one tick, and none.
 4. **Bounding per-viewer values.** Whatever 1–3 decide, the entries for one node must not grow
@@ -59,8 +57,7 @@ for the cache as a whole rather than for variables alone.
 
 ## Steps
 
-To be written once the rounds are decided. The two wastes above are a first, separate step either
-way.
+To be written once the rounds are decided.
 
 ## Docs
 
