@@ -100,6 +100,13 @@ object Templates {
       */
     def writerHoles: Map[String, Writer => Unit] = Map.empty
 
+    /** Writes the hole `name` if this scope has one. A scope that fills a hole
+      * on every run (a card root's) answers it here, so no map is built per
+      * run.
+      */
+    def writeHole(name: String, writer: Writer): Boolean =
+      writerHoles.contains(name) && { writerHoles(name)(writer); true }
+
   private class FhObjectHandler
       extends com.github.mustachejava.reflect.SimpleObjectHandler() {
     override def get(name: String, scope: AnyRef): AnyRef = scope match
@@ -154,10 +161,8 @@ object Templates {
       var i = scopes.size() - 1
       while wrote == null && i >= 0 do
         scopes.get(i) match
-          case s: FhScope if s.writerHoles.contains(name) =>
-            val _ = s.writerHoles(name)(writer)
-            wrote = writer
-          case _ => i -= 1
+          case s: FhScope if s.writeHole(name, writer) => wrote = writer
+          case _                                       => i -= 1
       // The literal after the hole lives in this code's `appended` text;
       // skipping `appendText` dropped every template's trailing bytes.
       if wrote != null then appendText(wrote)

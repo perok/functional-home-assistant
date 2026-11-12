@@ -22,9 +22,8 @@ const local chart: slotMod.Slot = slotMod.textRaw("chart")
 class HistoryChart extends nodes.Node {
   card = "historyChart"
   cardDef = new nodes.CardDef {
-    template = """
-      <div class="fh-card fh-chart">\(chart.raw)</div>
-      """
+    classes = "fh-card fh-chart"
+    template = chart.raw
     // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled
     // by the browser to the cell.
     css = """

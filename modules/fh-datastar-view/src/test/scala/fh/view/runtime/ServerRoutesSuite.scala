@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
@@ -129,7 +130,7 @@ class ServerRoutesSuite extends ServerHarness {
   private def titleDash(slug: String, title: Option[String]): Dashboard =
     Dashboard(
       cards = Map(
-        "col" -> CardDef(
+        "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         )
@@ -553,7 +554,7 @@ class ServerRoutesSuite extends ServerHarness {
     val base = titleDash("home", None)
     val r = Renderer.create(
       base.copy(
-        cards = base.cards + ("tabs" -> CardDef(
+        cards = base.cards + ("tabs" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )),
@@ -714,7 +715,7 @@ class ServerRoutesSuite extends ServerHarness {
     val cardJs = "document.addEventListener('pointermove',()=>{});"
     val themeJs = "void 0;"
     val base = titleDash("home", None)
-    val shared = CardDef("<i></i>", script = Some(cardJs))
+    val shared = TestCard("<i></i>", script = Some(cardJs))
     val dash = base.copy(
       cards = base.cards ++ Map("a" -> shared, "b" -> shared),
       theme = Theme(inlineScripts = List(themeJs))

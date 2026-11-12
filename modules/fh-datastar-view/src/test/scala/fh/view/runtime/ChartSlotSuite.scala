@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.{
@@ -41,7 +42,7 @@ class ChartSlotSuite extends munit.FunSuite {
   private def dashboardWith(hole: String) =
     Dashboard(
       cards = Map(
-        "chart" -> CardDef(
+        "chart" -> TestCard(
           s"""<div>$hole<b>{{name}}</b></div>"""
         )
       ),

@@ -114,11 +114,11 @@ Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hi
 content, a card's own part included.
 ADR 0034.
 
-**Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
-(`LayoutNode.cellClassWhen`). The renderer binds it on the wrapper itself, so it works on any card and
+**Live cell class** — a class on a node's cell while a reading holds
+(`LayoutNode.cellClassWhen`). The renderer binds it on the root itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
 
-**Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
+**Live cell property** — a CSS custom property on a node's cell, set from a reading
 and kept live (`LayoutNode.cellStyle`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
@@ -183,11 +183,13 @@ beside the declaration would be a second, weaker copy of that, free to disagree 
 the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that
 emits the declaration and its control from one list.
 
-**Cell** — a node's cell is the wrapper element the renderer puts around it (`.fh-cell`), and the
-item the layout sizes: the grid or flex item that `columns(n)`, `hug()` and `grow()` act on. It
-carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`) and the node's cell
-slots (`cellClass`, `cellClassWhen`, `cellStyle`). Layout is the backend's job, not each card's.
-ADR 0008.
+**Cell** — a node's cell is its card's root element, which the library writes (`CardDef.tag`,
+`classes`, `attrs`; a `div` by default) and the renderer fills with the node's id: the item the
+layout sizes, the grid or flex item that `columns(n)`, `hug()` and `grow()` act on, marked
+`.fh-cell`. It carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`, the
+wire's `cell.layout`) and the node's cell slots (`cellClass`, `cellClassWhen`, `cellStyle`). A
+`layoutCell = false` card's root is no layout box: it keeps its id and loses `.fh-cell` and the
+layout classes. Layout is the library's job, not each card's. ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,
 a tab panel, an `if`/`else` branch. Registered separately from the main tree and addressed by id.

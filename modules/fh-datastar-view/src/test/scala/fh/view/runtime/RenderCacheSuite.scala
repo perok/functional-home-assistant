@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.std.CountDownLatch
 import cats.effect.unsafe.implicits.global
@@ -23,7 +24,10 @@ class RenderCacheSuite extends munit.FunSuite {
   /** Generations compare by identity, so only distinct instances matter. */
   private def aRenderer: Renderer =
     Renderer.create(
-      Dashboard(Map("card" -> CardDef("<i></i>")), LayoutNode.Component("card"))
+      Dashboard(
+        Map("card" -> TestCard("<i></i>")),
+        LayoutNode.Component("card")
+      )
     )
 
   private val r = aRenderer

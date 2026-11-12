@@ -1,11 +1,8 @@
 <!-- ==== as fixtured · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-col ">
-<div class="fh-cell" id="c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Theme</span></h2></div>
-<div class="fh-cell fh-active" id="c_1"
+<div class="fh-cell fh-col" id="c"><h2 class="fh-cell fh-section fh-text" id="c_0"><span class="fh-text-run">Theme</span></h2>
+<article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/theme/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/theme/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -19,17 +16,14 @@
   data-class:loading-indicator="$_c_1__busy_slow"
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#3">on</span></span></span></div>
-</article></div>
-<div class="fh-cell fh-active" id="c_2"
+  data-text="$_e.light.kitchen.t#3">on</span></span></span></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="c_2"
   data-signals="{_c_2__checked: 'on', _e: {light: {kitchen: {t#2: false, t#4: true, t#5: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#4">
-<article class="fh-card fh-toggle fh-tile-card"
+  data-class:fh-active="$_e.light.kitchen.t#4"
   data-attr:data-switched="$_e.light.kitchen.t#5"
   data-class:fh-disabled="$_c_2__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_2__busy"
-  data-class:fh-error="$_c_2__error">
-  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-class:fh-error="$_c_2__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
   data-signals__ifmissing="{_c_2__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
@@ -46,10 +40,8 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2" />
     <span></span>
-  </label></div>
-</article></div>
-<div class="fh-cell" id="c_3">
-<article class="fh-card fh-slider-card ">
+  </label></div></article>
+<article class="fh-cell fh-card fh-slider-card " id="c_3">
 <div class="fh-cell fh-slider-head-cell fh-active" id="c_3_head_0"
   data-signals="{_e: {light: {kitchen: {state: 'on', t#1: true, t#2: false, t#6: '180', t#7: '29.5275590551%'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><div class="fh-slider-body">
@@ -90,7 +82,7 @@
       data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_3_head_0__busy_change ? '' : @post('sse/call/theme/light/turn_on/entity/light.kitchen?node=c_3_head_0', {payload: {data: {'brightness': Number($_c_3_head_0__slide) } } })" />    <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#7" ></span>
   </div>
-</div></div><div class="fh-slider-members"></div></article></div>
+</div></div><div class="fh-slider-members"></div></article>
 <div class="fh-cell fh-hug fh-active" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><button class="fh-chip chip fh-circle circle small"
@@ -118,8 +110,9 @@
   data-class:fh-disabled="$_c_5__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_5__busy"
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button></div>
-<div class="fh-cell fh-cols-full" id="c_6"
-  data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-col"><div class="fh-tabs tabs"><a data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
+<div class="fh-cell fh-col fh-cols-full" id="c_6"
+  data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-tabs tabs"><a class="" id="c_6_0"
+  data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
   data-fh-node="c_6_0"
@@ -131,7 +124,8 @@
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
   data-class:fh-busy-after="$_c_6_0__busy_slow"
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a class="" id="c_6_1"
+  data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
   data-fh-node="c_6_1"
@@ -144,25 +138,20 @@
   data-class:fh-busy-after="$_c_6_1__busy_slow"
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
-<div class="fh-cell" id="s_c_6_t0__c"><div class="fh-row ">
-<div class="fh-cell" id="s_c_6_t0__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">One</span></h2></div></div></div></div></div></div></div></div>
+<div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div></div></div></div>
 <!-- ==== as fixtured · surface c_6_t0 ==== -->
-<div class="fh-cell" id="s_c_6_t0__c"><div class="fh-row ">
-<div class="fh-cell" id="s_c_6_t0__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">One</span></h2></div></div></div>
+<div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div>
 <!-- ==== as fixtured · surface c_6_t1 ==== -->
-<div class="fh-cell" id="s_c_6_t1__c"><div class="fh-row ">
-<div class="fh-cell" id="s_c_6_t1__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Two</span></h2></div></div></div>
+<div class="fh-cell fh-row" id="s_c_6_t1__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t1__c_0"><span class="fh-text-run">Two</span></h2></div>
 <!-- ==== as fixtured · patch c_0 ==== -->
-<div class="fh-cell" id="c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Theme</span></h2></div>
+<h2 class="fh-cell fh-section fh-text" id="c_0"><span class="fh-text-run">Theme</span></h2>
 <!-- ==== as fixtured · patch c_2 ==== -->
-<div class="fh-cell" id="c_2"
-  data-class:fh-active="$_e.light.kitchen.t#4">
-<article class="fh-card fh-toggle fh-tile-card"
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_2"
+  data-class:fh-active="$_e.light.kitchen.t#4"
   data-attr:data-switched="$_e.light.kitchen.t#5"
   data-class:fh-disabled="$_c_2__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_2__busy"
-  data-class:fh-error="$_c_2__error">
-  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-class:fh-error="$_c_2__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
   data-signals__ifmissing="{_c_2__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
@@ -179,8 +168,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2" />
     <span></span>
-  </label></div>
-</article></div>
+  </label></div></article>
 <!-- ==== as fixtured · patch c_3_head_0_text_0 ==== -->
 <div class="fh-cell fh-slider-text" id="c_3_head_0_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen</span></strong></div>
 <!-- ==== as fixtured · patch c_4 ==== -->
@@ -211,7 +199,8 @@
   data-class:fh-loading="$_c_5__busy"
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button></div>
 <!-- ==== as fixtured · patch c_6_0 ==== -->
-<a data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
+<a class="" id="c_6_0"
+  data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
   data-fh-node="c_6_0"
@@ -225,7 +214,8 @@
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
   data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a>
 <!-- ==== as fixtured · patch c_6_1 ==== -->
-<a data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
+<a class="" id="c_6_1"
+  data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
   data-fh-node="c_6_1"
@@ -239,17 +229,14 @@
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a>
 <!-- ==== as fixtured · patch s_c_6_t0__c_0 ==== -->
-<div class="fh-cell" id="s_c_6_t0__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">One</span></h2></div>
+<h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2>
 <!-- ==== as fixtured · patch s_c_6_t1__c_0 ==== -->
-<div class="fh-cell" id="s_c_6_t1__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Two</span></h2></div>
+<h2 class="fh-cell fh-section fh-text" id="s_c_6_t1__c_0"><span class="fh-text-run">Two</span></h2>
 <!-- ==== flipped · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-col ">
-<div class="fh-cell" id="c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Theme</span></h2></div>
-<div class="fh-cell" id="c_1"
+<div class="fh-cell fh-col" id="c"><h2 class="fh-cell fh-section fh-text" id="c_0"><span class="fh-text-run">Theme</span></h2>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/theme/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/theme/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -263,17 +250,14 @@
   data-class:loading-indicator="$_c_1__busy_slow"
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#3">off</span></span></span></div>
-</article></div>
-<div class="fh-cell" id="c_2"
+  data-text="$_e.light.kitchen.t#3">off</span></span></span></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_2"
   data-signals="{_c_2__checked: '', _e: {light: {kitchen: {t#2: false, t#4: false, t#5: ''}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#4">
-<article class="fh-card fh-toggle fh-tile-card"
+  data-class:fh-active="$_e.light.kitchen.t#4"
   data-attr:data-switched="$_e.light.kitchen.t#5"
   data-class:fh-disabled="$_c_2__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_2__busy"
-  data-class:fh-error="$_c_2__error">
-  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-class:fh-error="$_c_2__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
   data-signals__ifmissing="{_c_2__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
@@ -290,10 +274,8 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2" />
     <span></span>
-  </label></div>
-</article></div>
-<div class="fh-cell" id="c_3">
-<article class="fh-card fh-slider-card ">
+  </label></div></article>
+<article class="fh-cell fh-card fh-slider-card " id="c_3">
 <div class="fh-cell fh-slider-head-cell" id="c_3_head_0"
   data-signals="{_e: {light: {kitchen: {state: 'off', t#1: false, t#2: false, t#6: '180', t#7: '29.5275590551%'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><div class="fh-slider-body">
@@ -334,7 +316,7 @@
       data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_3_head_0__busy_change ? '' : @post('sse/call/theme/light/turn_on/entity/light.kitchen?node=c_3_head_0', {payload: {data: {'brightness': Number($_c_3_head_0__slide) } } })" />    <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#7" ></span>
   </div>
-</div></div><div class="fh-slider-members"></div></article></div>
+</div></div><div class="fh-slider-members"></div></article>
 <div class="fh-cell fh-hug" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><button class="fh-chip chip fh-circle circle small"
@@ -362,8 +344,9 @@
   data-class:fh-disabled="$_c_5__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_5__busy"
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button></div>
-<div class="fh-cell fh-cols-full" id="c_6"
-  data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-col"><div class="fh-tabs tabs"><a data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
+<div class="fh-cell fh-col fh-cols-full" id="c_6"
+  data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-tabs tabs"><a class="" id="c_6_0"
+  data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
   data-fh-node="c_6_0"
@@ -375,7 +358,8 @@
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
   data-class:fh-busy-after="$_c_6_0__busy_slow"
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a class="" id="c_6_1"
+  data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
   data-fh-node="c_6_1"
@@ -388,8 +372,7 @@
   data-class:fh-busy-after="$_c_6_1__busy_slow"
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
-<div class="fh-cell" id="s_c_6_t0__c"><div class="fh-row ">
-<div class="fh-cell" id="s_c_6_t0__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">One</span></h2></div></div></div></div></div></div></div></div>
+<div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div></div></div></div>
 <!-- ==== flipped · surface c_6_t0: as fixtured ==== -->
 <!-- ==== flipped · surface c_6_t1: as fixtured ==== -->
 <!-- ==== flipped · patch c_0: as fixtured ==== -->
@@ -402,13 +385,10 @@
 <!-- ==== flipped · patch s_c_6_t0__c_0: as fixtured ==== -->
 <!-- ==== flipped · patch s_c_6_t1__c_0: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
-<div class="fh-cell" id="c"><div class="fh-col ">
-<div class="fh-cell" id="c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">Theme</span></h2></div>
-<div class="fh-cell" id="c_1"
+<div class="fh-cell fh-col" id="c"><h2 class="fh-cell fh-section fh-text" id="c_0"><span class="fh-text-run">Theme</span></h2>
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">
-<article class="fh-card fh-entity fh-tile-card">
-  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/theme/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/theme/' + 'light/toggle' + '/entity/light.kitchen?node=c_1', {filterSignals:{exclude:'.*'}})"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -422,17 +402,14 @@
   data-class:loading-indicator="$_c_1__busy_slow"
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
-  data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div>
-</article></div>
-<div class="fh-cell" id="c_2"
+  data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_2"
   data-signals="{_c_2__checked: '', _e: {light: {kitchen: {t#2: true, t#4: false, t#5: ''}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#4">
-<article class="fh-card fh-toggle fh-tile-card"
+  data-class:fh-active="$_e.light.kitchen.t#4"
   data-attr:data-switched="$_e.light.kitchen.t#5"
   data-class:fh-disabled="$_c_2__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_2__busy"
-  data-class:fh-error="$_c_2__error">
-  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-class:fh-error="$_c_2__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
   data-signals__ifmissing="{_c_2__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2__busy_slow = $_c_2__busy"
@@ -448,10 +425,8 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2" />
     <span></span>
-  </label></div>
-</article></div>
-<div class="fh-cell" id="c_3">
-<article class="fh-card fh-slider-card ">
+  </label></div></article>
+<article class="fh-cell fh-card fh-slider-card " id="c_3">
 <div class="fh-cell fh-slider-head-cell" id="c_3_head_0"
   data-signals="{_e: {light: {kitchen: {state: 'unavailable', t#1: false, t#2: true, t#6: '0', t#7: '100%'}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><div class="fh-slider-body">
@@ -491,7 +466,7 @@
       data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_3_head_0__busy_change ? '' : @post('sse/call/theme/light/turn_on/entity/light.kitchen?node=c_3_head_0', {payload: {data: {'brightness': Number($_c_3_head_0__slide) } } })" />    <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#7" ></span>
   </div>
-</div></div><div class="fh-slider-members"></div></article></div>
+</div></div><div class="fh-slider-members"></div></article>
 <div class="fh-cell fh-hug" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><button class="fh-chip chip fh-circle circle small"
@@ -517,8 +492,9 @@
   data-class:fh-disabled="$_c_5__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_5__busy"
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button></div>
-<div class="fh-cell fh-cols-full" id="c_6"
-  data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-col"><div class="fh-tabs tabs"><a data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
+<div class="fh-cell fh-col fh-cols-full" id="c_6"
+  data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-tabs tabs"><a class="" id="c_6_0"
+  data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/var/theme/c_6/tab/0?group=var_c_6__tab')"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
   data-fh-node="c_6_0"
@@ -530,7 +506,8 @@
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
   data-class:fh-busy-after="$_c_6_0__busy_slow"
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a class="" id="c_6_1"
+  data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/var/theme/c_6/tab/1?group=var_c_6__tab')"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
   data-fh-node="c_6_1"
@@ -543,8 +520,7 @@
   data-class:fh-busy-after="$_c_6_1__busy_slow"
   data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
-<div class="fh-cell" id="s_c_6_t0__c"><div class="fh-row ">
-<div class="fh-cell" id="s_c_6_t0__c_0"><h2 class="fh-section fh-text"><span class="fh-text-run">One</span></h2></div></div></div></div></div></div></div></div>
+<div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div></div></div></div>
 <!-- ==== unavailable · surface c_6_t0: as fixtured ==== -->
 <!-- ==== unavailable · surface c_6_t1: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0: as fixtured ==== -->

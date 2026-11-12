@@ -40,8 +40,11 @@
           "card" : "chooser",
           "cell" : {
             "classes" : {
-              "fh-cols-full" : true
+              
             },
+            "layout" : [
+              "fh-cols-full"
+            ],
             "styles" : {
               
             }
@@ -297,7 +300,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-col\">{{{bar}}}{{{children}}}</div>"
+      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
     },
     "fhcol" : {
       "regions" : {
@@ -305,13 +308,13 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-col {{#class}}{{class}}{{/class}}\">{{{children}}}</div>"
+      "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "historyChart" : {
-      "template" : "<div class=\"fh-card fh-chart\">{{{chart}}}</div>"
+      "template" : "<div class=\"fh-cell fh-card fh-chart{{{cellClasses}}}\"{{{cell}}}>{{{chart}}}</div>"
     },
     "historyReadings" : {
-      "template" : "<article class=\"fh-card fh-readings\" data-signals:_hist_{{id}}=\"{{readings}}\">\n  <header><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <dl>\n    <div><dt>Now</dt><dd data-text=\"(p => p.length ? Math.round(p[p.length - 1] * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Low</dt><dd data-text=\"(p => p.length ? Math.round(Math.min(...p) * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>High</dt><dd data-text=\"(p => p.length ? Math.round(Math.max(...p) * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Covers</dt><dd class=\"fh-readings-span\" data-text=\"(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')($_hist_{{id}}.points)\"></dd></div>\n  </dl>\n</article>"
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><article class=\"fh-card fh-readings\" data-signals:_hist_{{id}}=\"{{readings}}\">\n  <header><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <dl>\n    <div><dt>Now</dt><dd data-text=\"(p => p.length ? Math.round(p[p.length - 1] * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Low</dt><dd data-text=\"(p => p.length ? Math.round(Math.min(...p) * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>High</dt><dd data-text=\"(p => p.length ? Math.round(Math.max(...p) * 10) / 10 + '{{postfix}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Covers</dt><dd class=\"fh-readings-span\" data-text=\"(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')($_hist_{{id}}.points)\"></dd></div>\n  </dl>\n</article></div>"
     },
     "selectButtons" : {
       "regions" : {
@@ -319,11 +322,11 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-tabs fh-select\">{{{children}}}</div>"
+      "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "tab" : {
-      "template" : "<a data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{{onclick}}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>",
-      "wrapAsCell" : false
+      "layoutCell" : false,
+      "template" : "<a class=\"{{{cellClasses}}}\"{{{cell}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{{onclick}}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}} data-class:fh-chosen=\"{{{active}}}\">{{label}}</a>"
     }
   },
   "failedLabel" : "<span class=\"fh-label fh-label-error fh-text\"><span class=\"fh-text-run\">{{text}}</span></span>",

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.{ChartStyle, Windows}
 import fh.view.model.{
@@ -26,7 +27,7 @@ class SlotTypeSuite extends munit.FunSuite {
 
   private def errors(hole: String, slot: TemplateSlot) =
     Dashboard(
-      cards = Map("c" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
+      cards = Map("c" -> TestCard(s"""<div id="{{id}}">$hole</div>""")),
       card = LayoutNode.Component(
         card = "c",
         templateSlots = Map("x" -> slot)
@@ -138,7 +139,7 @@ class SlotTypeSuite extends munit.FunSuite {
 
   test("jsonText places the provider's answer, escaped") {
     val d = Dashboard(
-      cards = Map("c" -> CardDef("""<div id="{{id}}">{{x}}</div>""")),
+      cards = Map("c" -> TestCard("""<div id="{{id}}">{{x}}</div>""")),
       card = LayoutNode.Component(
         card = "c",
         templateSlots = Map(

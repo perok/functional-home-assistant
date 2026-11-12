@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.FHError
@@ -75,9 +76,9 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   private def dashboard(kids: LayoutNode*) = Dashboard(
     cards = Map(
-      "item" -> CardDef("<i>{{label}}</i>"),
-      "call" -> CardDef("<button>{{service}}</button>"),
-      "col" -> CardDef(
+      "item" -> TestCard("<i>{{label}}</i>"),
+      "call" -> TestCard("<button>{{service}}</button>"),
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map(LayoutNode.DefaultRegion -> Region())
       )

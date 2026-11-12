@@ -91,12 +91,13 @@ no case the content cannot spell.
 **The server applies the rules, not the registry.** A card's markup is a
 class-level `cardDef` default, so Pkl can only reach it once the registry is
 built — but the classes that most need a theme's word are not all in templates.
-The `.fh-cell` wrapper, its `.columns(n)` spans and its `cellClassWhen` live classes
-are emitted by `Renderer`, so a Pkl-side rewrite would cover half the markup and
-leave a second mechanism for the rest. `Theme.classes` therefore rides the wire,
-and `ThemeClasses` rewrites every card template once, when it is compiled
-(`class="…"` tokens and `data-class:fh-…` bindings), and expands each class the
-renderer emits. A class can also arrive as a slot's VALUE (a `Box`'s author
+A node's `.columns(n)` spans and its `cellClassWhen` live classes are emitted by
+`Renderer`, into the root the library writes (ADR 0008), so a Pkl-side rewrite would
+cover half the markup and leave a second mechanism for the rest. `Theme.classes`
+therefore rides the wire, and `ThemeClasses` rewrites every card template once, when it
+is compiled (`class="…"` tokens and `data-class:fh-…` bindings), and expands each class
+the renderer emits. The root's own `fh-cell`, its `classes` and its `attrs` are in the
+template, so they take the rewrite as any card markup does. A class can also arrive as a slot's VALUE (a `Box`'s author
 class, a button's size, a glyph): a slot placed in a `class` attribute is a
 `cssClass` handle (`slotMod.cssClass(name)`), whose value ends with the
 `ThemeClasses` stage, a step like any other, last so a default is swapped too.

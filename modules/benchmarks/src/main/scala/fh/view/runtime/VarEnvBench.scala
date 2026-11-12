@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
@@ -108,7 +109,7 @@ object VarEnvBench {
 
   def dashboard: Dashboard = Dashboard(
     cards = RenderBench.cards ++ Map(
-      "chart" -> CardDef("<div>{{chart}}</div>")
+      "chart" -> TestCard("<div>{{chart}}</div>")
     ),
     card = LayoutNode.Component(
       "col",

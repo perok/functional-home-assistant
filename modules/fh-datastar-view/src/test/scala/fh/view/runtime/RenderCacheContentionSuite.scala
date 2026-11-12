@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
@@ -37,12 +38,12 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   private def leafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>"),
-      "tabs" -> CardDef(
+      "card" -> TestCard("<span>{{state}}</span>"),
+      "tabs" -> TestCard(
         template =
           """{{{bar}}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
@@ -103,11 +104,11 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   private def plainDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>")
+      "card" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",

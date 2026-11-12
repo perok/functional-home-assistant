@@ -153,6 +153,11 @@ class BeerTheme extends themeMod.Theme {
   }
 
   styles = """
+    /* A card's root is its cell, so an article or .tabs root sits beside its
+       siblings, where BeerCSS's flow rule (this selector, without .fh-cell) adds
+       1rem on top of the layout's gap. Its own opt-out, a class containing
+       "margin", would also pad every parent (:has(>[class*=margin])). */
+    :not(.grid,nav,.row)>:not(progress.max)+.fh-cell:is(address,article,blockquote,code,.field,fieldset,form,.grid,h1,h2,h3,h4,h5,h6,nav,ol,p,pre,.row,section,aside,table,.tabs,ul){margin-block-start:0}
     /* The MD3 palette, late-bound from md3Light/md3Dark. */
     body,body.light,body.dark{\(cssVars(md3Light))}
     @media (prefers-color-scheme:dark){

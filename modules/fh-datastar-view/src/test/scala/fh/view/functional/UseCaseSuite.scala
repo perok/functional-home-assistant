@@ -607,7 +607,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     assertEquals(dashboard.validate(), Nil)
     assertEquals(
       dashboard.cards.get("badge").map(_.template),
-      Some("""<b class="badge">here</b>""")
+      // The root the library writes for a card that names no tag.
+      Some(
+        """<div class="fh-cell{{{cellClasses}}}"{{{cell}}}><b class="badge">here</b></div>"""
+      )
     )
   }
 
