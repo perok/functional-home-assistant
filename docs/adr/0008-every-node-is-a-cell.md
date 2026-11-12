@@ -224,7 +224,7 @@ framework-agnostic, and a new look is a sibling module exporting a
   card moves its markup into the root fields to be one. The library's cards
   have, except where the root cannot be static: an id the root carries itself
   (`if`'s and a var cycle's host), several top-level elements (popup, slider text),
-  a `style` on the root (wheel), or CSS keyed on the inner element as the
+  or CSS keyed on the inner element as the
   cell's child (entity option).
 - A root that differs by a fact known at build time is one card name per
   form, each with a constant def (`Node.variants`; the node's `card` and

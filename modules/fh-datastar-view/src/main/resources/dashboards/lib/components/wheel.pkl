@@ -57,10 +57,16 @@ class ColourWheel extends nodes.Node {
   card = "colourWheel"
   cardDef = new nodes.CardDef {
     // Two elements carry the patch handlers: one element holds one
-    // `data-on-signal-patch` (the slider splits its two the same way).
-    template = #"<div class="fh-wheel" style="--fh-h:\#(hue);--fh-s:\#(sat)" \#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '\#(hue)', _{{id}}__s: '\#(sat)', _{{id}}__p: '\#(paint)' }" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" \#(adoptOnPatch) data-effect="\#(shell.streamDown) && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)><span class="fh-wheel-knob" style="background:\#(paint)" data-style:background="\#(shownP)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span></div>"#
+    // `data-on-signal-patch` (the slider splits its two the same way). The
+    // knob's position is on the knob, which alone reads it, so the root, which
+    // the cell writes `style` on, needs none: a `cellStyle` would bind the
+    // server's reading where the knob shows the drag.
+    classes = "fh-wheel"
+    attrs = #"\#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '\#(hue)', _{{id}}__s: '\#(sat)', _{{id}}__p: '\#(paint)' }" \#(adoptOnPatch) data-effect="\#(shell.streamDown) && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)"#
+    template = #"<span class="fh-wheel-knob" style="background:\#(paint);--fh-h:\#(hue);--fh-s:\#(sat)" data-style:background="\#(shownP)" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span>"#
+    // `flex:none`: its size is the wheel's, whatever share a row hands a cell.
     css = """
-      .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;
+      .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;flex:none;
       border-radius:50%;touch-action:none;cursor:crosshair;
       background:radial-gradient(closest-side,#fff,rgba(255,255,255,0)),conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
       .fh-wheel-knob{position:absolute;left:50%;top:50%;inline-size:1.75rem;aspect-ratio:1;border-radius:50%;pointer-events:none;

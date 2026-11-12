@@ -301,10 +301,8 @@
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_1_head_0_0_2_self__c_0"
-  data-signals="{_e: {light: {lamp: {t#2: false, t#12: '30deg', t#13: '0.6', t#14: 'hsl(30,60%,50%)'}}}}"><div class="fh-wheel" style="--fh-h:30deg;--fh-s:0.6"    data-signals__ifmissing="{ _s_c_1_head_0_0_2_self__c_0__drag: false, _s_c_1_head_0_0_2_self__c_0__hs: [], _s_c_1_head_0_0_2_self__c_0__h: '30deg', _s_c_1_head_0_0_2_self__c_0__s: '0.6', _s_c_1_head_0_0_2_self__c_0__p: 'hsl(30,60%,50%)' }"
-  data-style:--fh-h="$_s_c_1_head_0_0_2_self__c_0__h"
-  data-style:--fh-s="$_s_c_1_head_0_0_2_self__c_0__s"
+<div class="fh-cell fh-wheel" id="s_c_1_head_0_0_2_self__c_0"
+  data-signals="{_e: {light: {lamp: {t#2: false, t#12: '30deg', t#13: '0.6', t#14: 'hsl(30,60%,50%)'}}}}"    data-signals__ifmissing="{ _s_c_1_head_0_0_2_self__c_0__drag: false, _s_c_1_head_0_0_2_self__c_0__hs: [], _s_c_1_head_0_0_2_self__c_0__h: '30deg', _s_c_1_head_0_0_2_self__c_0__s: '0.6', _s_c_1_head_0_0_2_self__c_0__p: 'hsl(30,60%,50%)' }"
   data-on-signal-patch-filter="{include:/^(_e.light.lamp.t#12|_e.light.lamp.t#13|_e.light.lamp.t#14)$/}"
   data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14"
   data-effect="$_sse > 0 && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"
@@ -314,11 +312,13 @@
   data-on:pointercancel="$_s_c_1_head_0_0_2_self__c_0__drag && ($_s_c_1_head_0_0_2_self__c_0__drag = false, $_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"
   data-indicator="_s_c_1_head_0_0_2_self__c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_0_2_self__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_0_2_self__c_0__error = ''))"
-  data-fh-node="s_c_1_head_0_0_2_self__c_0"><span class="fh-wheel-knob" style="background:hsl(30,60%,50%)"
+  data-fh-node="s_c_1_head_0_0_2_self__c_0"><span class="fh-wheel-knob" style="background:hsl(30,60%,50%);--fh-h:30deg;--fh-s:0.6"
   data-style:background="$_s_c_1_head_0_0_2_self__c_0__p"
+  data-style:--fh-h="$_s_c_1_head_0_0_2_self__c_0__h"
+  data-style:--fh-s="$_s_c_1_head_0_0_2_self__c_0__s"
   data-init="$_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14"
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_0_2_self__c_0__error$/}"
-  data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></div></dialog></div>
+  data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></dialog></div>
 <!-- ==== as fixtured · surface c_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
@@ -542,9 +542,7 @@
 <!-- ==== as fixtured · patch s_c_1_head_0_0_1_o2__c ==== -->
 <i class="fh-cell mdi mdi-palette" id="s_c_1_head_0_0_1_o2__c" title="Colour"></i>
 <!-- ==== as fixtured · patch s_c_1_head_0_0_2_self__c_0 ==== -->
-<div class="fh-cell" id="s_c_1_head_0_0_2_self__c_0"><div class="fh-wheel" style="--fh-h:;--fh-s:"    data-signals__ifmissing="{ _s_c_1_head_0_0_2_self__c_0__drag: false, _s_c_1_head_0_0_2_self__c_0__hs: [], _s_c_1_head_0_0_2_self__c_0__h: '', _s_c_1_head_0_0_2_self__c_0__s: '', _s_c_1_head_0_0_2_self__c_0__p: '' }"
-  data-style:--fh-h="$_s_c_1_head_0_0_2_self__c_0__h"
-  data-style:--fh-s="$_s_c_1_head_0_0_2_self__c_0__s"
+<div class="fh-cell fh-wheel" id="s_c_1_head_0_0_2_self__c_0"    data-signals__ifmissing="{ _s_c_1_head_0_0_2_self__c_0__drag: false, _s_c_1_head_0_0_2_self__c_0__hs: [], _s_c_1_head_0_0_2_self__c_0__h: '', _s_c_1_head_0_0_2_self__c_0__s: '', _s_c_1_head_0_0_2_self__c_0__p: '' }"
   data-on-signal-patch-filter="{include:/^(_e.light.lamp.t#12|_e.light.lamp.t#13|_e.light.lamp.t#14)$/}"
   data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14"
   data-effect="$_sse > 0 && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"
@@ -554,11 +552,13 @@
   data-on:pointercancel="$_s_c_1_head_0_0_2_self__c_0__drag && ($_s_c_1_head_0_0_2_self__c_0__drag = false, $_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"
   data-indicator="_s_c_1_head_0_0_2_self__c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_0_2_self__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_0_2_self__c_0__error = ''))"
-  data-fh-node="s_c_1_head_0_0_2_self__c_0"><span class="fh-wheel-knob" style="background:"
+  data-fh-node="s_c_1_head_0_0_2_self__c_0"><span class="fh-wheel-knob" style="background:;--fh-h:;--fh-s:"
   data-style:background="$_s_c_1_head_0_0_2_self__c_0__p"
+  data-style:--fh-h="$_s_c_1_head_0_0_2_self__c_0__h"
+  data-style:--fh-s="$_s_c_1_head_0_0_2_self__c_0__s"
   data-init="$_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14"
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_0_2_self__c_0__error$/}"
-  data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></div>
+  data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div>
 <!-- ==== as fixtured · patch s_c_1_head_0_m0__c_text_0 ==== -->
 <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
 <!-- ==== as fixtured · patch s_c_1_head_0_m1__c_text_0 ==== -->
@@ -1263,10 +1263,8 @@
   data-on:click="$ui_popups && history.back()"></div><dialog open class="fh-popup"><button class="fh-popup-close"
   data-on:click="$ui_popups && history.back()"
   data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell" id="s_c_1_head_0_0_2_self__c_0"
-  data-signals="{_e: {light: {lamp: {t#2: true, t#12: '0deg', t#13: '0', t#14: '#fff'}}}}"><div class="fh-wheel" style="--fh-h:0deg;--fh-s:0"    data-signals__ifmissing="{ _s_c_1_head_0_0_2_self__c_0__drag: false, _s_c_1_head_0_0_2_self__c_0__hs: [], _s_c_1_head_0_0_2_self__c_0__h: '0deg', _s_c_1_head_0_0_2_self__c_0__s: '0', _s_c_1_head_0_0_2_self__c_0__p: '#fff' }"
-  data-style:--fh-h="$_s_c_1_head_0_0_2_self__c_0__h"
-  data-style:--fh-s="$_s_c_1_head_0_0_2_self__c_0__s"
+<div class="fh-cell fh-wheel" id="s_c_1_head_0_0_2_self__c_0"
+  data-signals="{_e: {light: {lamp: {t#2: true, t#12: '0deg', t#13: '0', t#14: '#fff'}}}}"    data-signals__ifmissing="{ _s_c_1_head_0_0_2_self__c_0__drag: false, _s_c_1_head_0_0_2_self__c_0__hs: [], _s_c_1_head_0_0_2_self__c_0__h: '0deg', _s_c_1_head_0_0_2_self__c_0__s: '0', _s_c_1_head_0_0_2_self__c_0__p: '#fff' }"
   data-on-signal-patch-filter="{include:/^(_e.light.lamp.t#12|_e.light.lamp.t#13|_e.light.lamp.t#14)$/}"
   data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14"
   data-effect="$_sse > 0 && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"
@@ -1276,11 +1274,13 @@
   data-on:pointercancel="$_s_c_1_head_0_0_2_self__c_0__drag && ($_s_c_1_head_0_0_2_self__c_0__drag = false, $_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"
   data-indicator="_s_c_1_head_0_0_2_self__c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_0_2_self__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_0_2_self__c_0__error = ''))"
-  data-fh-node="s_c_1_head_0_0_2_self__c_0"><span class="fh-wheel-knob" style="background:#fff"
+  data-fh-node="s_c_1_head_0_0_2_self__c_0"><span class="fh-wheel-knob" style="background:#fff;--fh-h:0deg;--fh-s:0"
   data-style:background="$_s_c_1_head_0_0_2_self__c_0__p"
+  data-style:--fh-h="$_s_c_1_head_0_0_2_self__c_0__h"
+  data-style:--fh-s="$_s_c_1_head_0_0_2_self__c_0__s"
   data-init="$_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14"
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_0_2_self__c_0__error$/}"
-  data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></div></dialog></div>
+  data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></dialog></div>
 <!-- ==== unavailable · surface c_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
