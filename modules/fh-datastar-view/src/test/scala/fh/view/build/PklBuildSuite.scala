@@ -1213,10 +1213,11 @@ class PklBuildSuite extends munit.FunSuite {
           card.get[String]("tag").toOption.exists(_ != "div"),
         clue = name
       )
-      // `tab` is the one layoutCell opt-out (the `.fh-tabs > a` selector).
+      // The layoutCell opt-outs: `tab` (the `.fh-tabs > a` selector), and the
+      // slider's pill and controls, boxes inside its card.
       assertEquals(
         card.get[Boolean]("layoutCell").toOption,
-        Some(name != "tab"),
+        Some(!Set("tab", "sliderPill", "sliderControls").contains(name)),
         clue = name
       )
     }

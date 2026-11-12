@@ -1,13 +1,11 @@
 <!-- ==== as fixtured · body ==== -->
 <div class="fh-cell fh-grid" id="c">
 <article class="fh-cell fh-card fh-slider-card " id="c_0"
-  data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]">
-<div class="fh-cell fh-slider-controls-cell" id="c_0_head_0"><div class="fh-slider-controls"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_0_head_0_m0__c"
+  data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]"><div class="fh-slider-controls" id="c_0_head_0"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
+<div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m0__c__error"
@@ -16,12 +14,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m0__c__busy_change_slow = $_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__error && ($_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -39,25 +37,21 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
-</div></div></div>
-<div class="fh-cell fh-slider-pill-cell" id="c_0_head_0_0"><div class="fh-slider-pill">
+</div></div></div><div class="fh-slider-pill" id="c_0_head_0_0">
 <div class="fh-cell" id="c_0_head_0_0_0"><div id="c_0_head_0_0_0_panel" class="fh-select-cycles"><button class="fh-cell fh-chip fh-circle fh-hug" id="s_c_0_head_0_0_0_o0__c"
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
   data-indicator="_s_c_0_head_0_0_0_o0__c__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o0__c__error = ''))"
-  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div><div class="fh-slider-members"></div></article>
+  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_1"
-  data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']">
-<div class="fh-cell fh-slider-controls-cell" id="c_1_head_0"><div class="fh-slider-controls"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_1_head_0_m0__c"
+  data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']"><div class="fh-slider-controls" id="c_1_head_0"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
+<div class="fh-cell fh-slider-body fh-active" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m0__c__error"
@@ -66,12 +60,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m0__c__busy_change_slow = $_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m0__c__error && ($_s_c_1_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -89,12 +83,10 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
-</div></div></div>
-<div class="fh-cell fh-slider-pill-cell" id="c_1_head_0_0"><div class="fh-slider-pill"><button class="fh-cell fh-chip fh-circle fh-hug fh-active" id="c_1_head_0_0_0"
+</div></div></div><div class="fh-slider-pill" id="c_1_head_0_0"><button class="fh-cell fh-chip fh-circle fh-hug fh-active" id="c_1_head_0_0_0"
   data-signals="{_e: {light: {lamp: {t#1: true, t#2: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"
   data-on:click="$_c_1_head_0_0_0__busy ? '' : $_e.light.lamp.t#2 ? '' : @post('sse/call/light-controls/' + 'light/toggle' + '/entity/light.lamp?node=c_1_head_0_0_0', {filterSignals:{exclude:'.*'}})"
@@ -159,7 +151,7 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_2__busy_slow = $_c_1_head_0_0_2__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_2__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div><div class="fh-slider-members"></div></article></div>
+  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div><div class="fh-slider-members"></div></article></div>
 <!-- ==== as fixtured · surface c_0_head_0_0_0_o0 ==== -->
 <button class="fh-cell fh-chip fh-circle fh-hug" id="s_c_0_head_0_0_0_o0__c"
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
@@ -179,11 +171,10 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o2__c__error = ''))"
   data-fh-node="s_c_0_head_0_0_0_o2__c" title="Colour" aria-label="Colour"><i class="mdi mdi-palette"></i></button>
 <!-- ==== as fixtured · surface c_0_head_0_m0 ==== -->
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_0_head_0_m0__c"
+<div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m0__c__error"
@@ -192,12 +183,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m0__c__busy_change_slow = $_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__error && ($_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -215,17 +206,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
 </div></div>
 <!-- ==== as fixtured · surface c_0_head_0_m1 ==== -->
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_0_head_0_m1__c"
+<div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m1__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#6: '3000', t#7: '77.7777777778%', t#8: 'rgb(243,179,124)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m1__c__error"
@@ -234,12 +223,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m1__c__busy_change_slow = $_s_c_0_head_0_m1__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m1__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m1__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider  fh-track-kelvin "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider  fh-track-kelvin "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m1__c__error && ($_s_c_0_head_0_m1__c__slide = $_e.light.lamp.t#6, $_e.light.lamp.t#7 = (100 - (($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000))) + '%', $_e.light.lamp.t#8 = ($_e.light.lamp.t#6 >= 2000 ? 'rgb(' + Math.round(255 - 54 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent'))"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -257,17 +246,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#7 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_0_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_0_head_0_m1__c__slide) } } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#7"
   data-style:background="$_e.light.lamp.t#8"></span>
-  </div>
 </div></div>
 <!-- ==== as fixtured · surface c_0_head_0_m2 ==== -->
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_0_head_0_m2__c"
+<div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m2__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#9: '30', t#10: '91.6666666667%', t#11: 'hsl(30,100%,50%)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m2__c__error"
@@ -276,12 +263,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m2__c__busy_change_slow = $_s_c_0_head_0_m2__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m2__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m2__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider fh-track-hue  "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider fh-track-hue  "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m2__c__error && ($_s_c_0_head_0_m2__c__slide = $_e.light.lamp.t#9, $_e.light.lamp.t#10 = (100 - (($_e.light.lamp.t#9 - 0) * 100 / (360 - 0))) + '%', $_e.light.lamp.t#11 = 'hsl(' + Math.round($_e.light.lamp.t#9) + ',100%,50%)')"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -299,10 +286,9 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#11 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_0_head_0_m2__c__slide),100] } } })" />    <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_0_head_0_m2__c__slide),100] } } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
-  </div>
 </div></div>
 <!-- ==== as fixtured · surface c_1_head_0_0_1_o0 ==== -->
 <i class="fh-cell mdi mdi-brightness-6" id="s_c_1_head_0_0_1_o0__c" title="Brightness"></i>
@@ -334,11 +320,10 @@
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_0_2_self__c_0__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></div></dialog></div>
 <!-- ==== as fixtured · surface c_1_head_0_m0 ==== -->
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_1_head_0_m0__c"
+<div class="fh-cell fh-slider-body fh-active" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m0__c__error"
@@ -347,12 +332,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m0__c__busy_change_slow = $_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m0__c__error && ($_s_c_1_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -370,17 +355,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
 </div></div>
 <!-- ==== as fixtured · surface c_1_head_0_m1 ==== -->
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_1_head_0_m1__c"
+<div class="fh-cell fh-slider-body fh-active" id="s_c_1_head_0_m1__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#6: '3000', t#7: '77.7777777778%', t#8: 'rgb(243,179,124)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m1__c__error"
@@ -389,12 +372,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m1__c__busy_change_slow = $_s_c_1_head_0_m1__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m1__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m1__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider  fh-track-kelvin "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider  fh-track-kelvin "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m1__c__error && ($_s_c_1_head_0_m1__c__slide = $_e.light.lamp.t#6, $_e.light.lamp.t#7 = (100 - (($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000))) + '%', $_e.light.lamp.t#8 = ($_e.light.lamp.t#6 >= 2000 ? 'rgb(' + Math.round(255 - 54 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent'))"
   data-class:fh-disabled="$_s_c_1_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -412,17 +395,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#7 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_1_head_0_m1__c__slide) } } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#7"
   data-style:background="$_e.light.lamp.t#8"></span>
-  </div>
 </div></div>
 <!-- ==== as fixtured · surface c_1_head_0_m2 ==== -->
-<div class="fh-cell fh-slider-head-cell fh-active" id="s_c_1_head_0_m2__c"
+<div class="fh-cell fh-slider-body fh-active" id="s_c_1_head_0_m2__c"
   data-signals="{_e: {light: {lamp: {state: 'on', t#1: true, t#2: false, t#9: '30', t#10: '91.6666666667%', t#11: 'hsl(30,100%,50%)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m2__c__error"
@@ -431,12 +412,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m2__c__busy_change_slow = $_s_c_1_head_0_m2__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m2__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m2__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">on</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider fh-track-hue  "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider fh-track-hue  "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m2__c__error && ($_s_c_1_head_0_m2__c__slide = $_e.light.lamp.t#9, $_e.light.lamp.t#10 = (100 - (($_e.light.lamp.t#9 - 0) * 100 / (360 - 0))) + '%', $_e.light.lamp.t#11 = 'hsl(' + Math.round($_e.light.lamp.t#9) + ',100%,50%)')"
   data-class:fh-disabled="$_s_c_1_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -454,10 +435,9 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#11 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_1_head_0_m2__c__slide),100] } } })" />    <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_1_head_0_m2__c__slide),100] } } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
-  </div>
 </div></div>
 <!-- ==== as fixtured · patch c_1_head_0_0_0 ==== -->
 <button class="fh-cell fh-chip fh-circle fh-hug" id="c_1_head_0_0_0"
@@ -588,13 +568,11 @@
 <!-- ==== flipped · body ==== -->
 <div class="fh-cell fh-grid" id="c">
 <article class="fh-cell fh-card fh-slider-card " id="c_0"
-  data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]">
-<div class="fh-cell fh-slider-controls-cell" id="c_0_head_0"><div class="fh-slider-controls"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m0__c"
+  data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]"><div class="fh-slider-controls" id="c_0_head_0"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m0__c__error"
@@ -603,12 +581,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m0__c__busy_change_slow = $_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__error && ($_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -626,25 +604,21 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
-</div></div></div>
-<div class="fh-cell fh-slider-pill-cell" id="c_0_head_0_0"><div class="fh-slider-pill">
+</div></div></div><div class="fh-slider-pill" id="c_0_head_0_0">
 <div class="fh-cell" id="c_0_head_0_0_0"><div id="c_0_head_0_0_0_panel" class="fh-select-cycles"><button class="fh-cell fh-chip fh-circle fh-hug" id="s_c_0_head_0_0_0_o0__c"
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
   data-indicator="_s_c_0_head_0_0_0_o0__c__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o0__c__error = ''))"
-  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div><div class="fh-slider-members"></div></article>
+  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_1"
-  data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']">
-<div class="fh-cell fh-slider-controls-cell" id="c_1_head_0"><div class="fh-slider-controls"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m0__c"
+  data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']"><div class="fh-slider-controls" id="c_1_head_0"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m0__c__error"
@@ -653,12 +627,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m0__c__busy_change_slow = $_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m0__c__error && ($_s_c_1_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -676,12 +650,10 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
-</div></div></div>
-<div class="fh-cell fh-slider-pill-cell" id="c_1_head_0_0"><div class="fh-slider-pill"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_1_head_0_0_0"
+</div></div></div><div class="fh-slider-pill" id="c_1_head_0_0"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_1_head_0_0_0"
   data-signals="{_e: {light: {lamp: {t#1: false, t#2: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"
   data-on:click="$_c_1_head_0_0_0__busy ? '' : $_e.light.lamp.t#2 ? '' : @post('sse/call/light-controls/' + 'light/toggle' + '/entity/light.lamp?node=c_1_head_0_0_0', {filterSignals:{exclude:'.*'}})"
@@ -746,16 +718,15 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_2__busy_slow = $_c_1_head_0_0_2__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_2__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div><div class="fh-slider-members"></div></article></div>
+  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div><div class="fh-slider-members"></div></article></div>
 <!-- ==== flipped · surface c_0_head_0_0_0_o0: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_head_0_0_0_o1: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_head_0_0_0_o2: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_head_0_m0 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m0__c"
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m0__c__error"
@@ -764,12 +735,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m0__c__busy_change_slow = $_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__error && ($_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -787,17 +758,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
 </div></div>
 <!-- ==== flipped · surface c_0_head_0_m1 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m1__c"
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m1__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#6: '3000', t#7: '77.7777777778%', t#8: 'rgb(243,179,124)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m1__c__error"
@@ -806,12 +775,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m1__c__busy_change_slow = $_s_c_0_head_0_m1__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m1__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m1__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider  fh-track-kelvin "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider  fh-track-kelvin "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m1__c__error && ($_s_c_0_head_0_m1__c__slide = $_e.light.lamp.t#6, $_e.light.lamp.t#7 = (100 - (($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000))) + '%', $_e.light.lamp.t#8 = ($_e.light.lamp.t#6 >= 2000 ? 'rgb(' + Math.round(255 - 54 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent'))"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -829,17 +798,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#7 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_0_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_0_head_0_m1__c__slide) } } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#7"
   data-style:background="$_e.light.lamp.t#8"></span>
-  </div>
 </div></div>
 <!-- ==== flipped · surface c_0_head_0_m2 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m2__c"
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m2__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#9: '30', t#10: '91.6666666667%', t#11: 'hsl(30,100%,50%)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m2__c__error"
@@ -848,12 +815,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m2__c__busy_change_slow = $_s_c_0_head_0_m2__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m2__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m2__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider fh-track-hue  "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider fh-track-hue  "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m2__c__error && ($_s_c_0_head_0_m2__c__slide = $_e.light.lamp.t#9, $_e.light.lamp.t#10 = (100 - (($_e.light.lamp.t#9 - 0) * 100 / (360 - 0))) + '%', $_e.light.lamp.t#11 = 'hsl(' + Math.round($_e.light.lamp.t#9) + ',100%,50%)')"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -871,21 +838,19 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#11 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_0_head_0_m2__c__slide),100] } } })" />    <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_0_head_0_m2__c__slide),100] } } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
-  </div>
 </div></div>
 <!-- ==== flipped · surface c_1_head_0_0_1_o0: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_head_0_0_1_o1: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_head_0_0_1_o2: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_head_0_0_2_self: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_head_0_m0 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m0__c"
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m0__c__error"
@@ -894,12 +859,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m0__c__busy_change_slow = $_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m0__c__error && ($_s_c_1_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -917,17 +882,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
 </div></div>
 <!-- ==== flipped · surface c_1_head_0_m1 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m1__c"
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m1__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#6: '3000', t#7: '77.7777777778%', t#8: 'rgb(243,179,124)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m1__c__error"
@@ -936,12 +899,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m1__c__busy_change_slow = $_s_c_1_head_0_m1__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m1__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m1__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider  fh-track-kelvin "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider  fh-track-kelvin "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m1__c__error && ($_s_c_1_head_0_m1__c__slide = $_e.light.lamp.t#6, $_e.light.lamp.t#7 = (100 - (($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000))) + '%', $_e.light.lamp.t#8 = ($_e.light.lamp.t#6 >= 2000 ? 'rgb(' + Math.round(255 - 54 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent'))"
   data-class:fh-disabled="$_s_c_1_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -959,17 +922,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#7 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_1_head_0_m1__c__slide) } } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#7"
   data-style:background="$_e.light.lamp.t#8"></span>
-  </div>
 </div></div>
 <!-- ==== flipped · surface c_1_head_0_m2 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m2__c"
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m2__c"
   data-signals="{_e: {light: {lamp: {state: 'off', t#1: false, t#2: false, t#9: '30', t#10: '91.6666666667%', t#11: 'hsl(30,100%,50%)'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m2__c__error"
@@ -978,12 +939,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m2__c__busy_change_slow = $_s_c_1_head_0_m2__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m2__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m2__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">off</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider fh-track-hue  "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider fh-track-hue  "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m2__c__error && ($_s_c_1_head_0_m2__c__slide = $_e.light.lamp.t#9, $_e.light.lamp.t#10 = (100 - (($_e.light.lamp.t#9 - 0) * 100 / (360 - 0))) + '%', $_e.light.lamp.t#11 = 'hsl(' + Math.round($_e.light.lamp.t#9) + ',100%,50%)')"
   data-class:fh-disabled="$_s_c_1_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -1001,10 +962,9 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#11 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_1_head_0_m2__c__slide),100] } } })" />    <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_1_head_0_m2__c__slide),100] } } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
-  </div>
 </div></div>
 <!-- ==== flipped · patch c_1_head_0_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_1_head_0_0_1_0: as fixtured ==== -->
@@ -1027,13 +987,11 @@
 <!-- ==== unavailable · body ==== -->
 <div class="fh-cell fh-grid" id="c">
 <article class="fh-cell fh-card fh-slider-card " id="c_0"
-  data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]">
-<div class="fh-cell fh-slider-controls-cell" id="c_0_head_0"><div class="fh-slider-controls"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m0__c"
+  data-fh-url:control="['v.c_0.control', $_var_c_0__control, $_var_c_0__control__initialValue]"><div class="fh-slider-controls" id="c_0_head_0"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m0__c__error"
@@ -1042,12 +1000,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m0__c__busy_change_slow = $_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__error && ($_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1064,25 +1022,21 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
-</div></div></div>
-<div class="fh-cell fh-slider-pill-cell" id="c_0_head_0_0"><div class="fh-slider-pill">
+</div></div></div><div class="fh-slider-pill" id="c_0_head_0_0">
 <div class="fh-cell" id="c_0_head_0_0_0"><div id="c_0_head_0_0_0_panel" class="fh-select-cycles"><button class="fh-cell fh-chip fh-circle fh-hug" id="s_c_0_head_0_0_0_o0__c"
   data-on:click="$_s_c_0_head_0_0_0_o0__c__busy ? '' : $_var_c_0__control__pending = 'colourTemp'; @post('sse/var/light-controls/c_0/control/colourTemp?group=var_c_0__control')"
   data-indicator="_s_c_0_head_0_0_0_o0__c__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_0_0_o0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_0_0_o0__c__error = ''))"
-  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div></div></div><div class="fh-slider-members"></div></article>
+  data-fh-node="s_c_0_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_1"
-  data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']">
-<div class="fh-cell fh-slider-controls-cell" id="c_1_head_0"><div class="fh-slider-controls"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m0__c"
+  data-fh-url:control="['v.c_1.control', $_var_c_1__control, 'brightness']"><div class="fh-slider-controls" id="c_1_head_0"><div id="c_1_head_0_panel" class="fh-slider-controls-panel">
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m0__c__error"
@@ -1091,12 +1045,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m0__c__busy_change_slow = $_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m0__c__error && ($_s_c_1_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1113,12 +1067,10 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
-</div></div></div>
-<div class="fh-cell fh-slider-pill-cell" id="c_1_head_0_0"><div class="fh-slider-pill"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_1_head_0_0_0"
+</div></div></div><div class="fh-slider-pill" id="c_1_head_0_0"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_1_head_0_0_0"
   data-signals="{_e: {light: {lamp: {t#1: false, t#2: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"
   data-on:click="$_c_1_head_0_0_0__busy ? '' : $_e.light.lamp.t#2 ? '' : @post('sse/call/light-controls/' + 'light/toggle' + '/entity/light.lamp?node=c_1_head_0_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.light.lamp.t#2"
@@ -1182,16 +1134,15 @@
   data-on-signal-patch-filter="{include:/^_c_1_head_0_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_head_0_0_2__busy_slow = $_c_1_head_0_0_2__busy"
   data-class:fh-busy-spin="$_c_1_head_0_0_2__busy_slow"
-  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div></div></div><div class="fh-slider-members"></div></article></div>
+  data-attr:aria-busy="$_c_1_head_0_0_2__busy_slow"><i class="mdi mdi-palette-swatch"></i></button></div></div><div class="fh-slider-members"></div></article></div>
 <!-- ==== unavailable · surface c_0_head_0_0_0_o0: as fixtured ==== -->
 <!-- ==== unavailable · surface c_0_head_0_0_0_o1: as fixtured ==== -->
 <!-- ==== unavailable · surface c_0_head_0_0_0_o2: as fixtured ==== -->
 <!-- ==== unavailable · surface c_0_head_0_m0 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m0__c"
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m0__c__error"
@@ -1200,12 +1151,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m0__c__busy_change_slow = $_s_c_0_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__error && ($_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1222,17 +1173,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_0_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
 </div></div>
 <!-- ==== unavailable · surface c_0_head_0_m1 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m1__c"
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m1__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#6: '0', t#7: '100%', t#8: 'transparent'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m1__c__error"
@@ -1241,12 +1190,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m1__c__busy_change_slow = $_s_c_0_head_0_m1__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m1__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m1__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider  fh-track-kelvin "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider  fh-track-kelvin "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m1__c__error && ($_s_c_0_head_0_m1__c__slide = $_e.light.lamp.t#6, $_e.light.lamp.t#7 = (100 - (($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000))) + '%', $_e.light.lamp.t#8 = ($_e.light.lamp.t#6 >= 2000 ? 'rgb(' + Math.round(255 - 54 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent'))"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -1263,17 +1212,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#7 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_0_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 100%;background:transparent"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_0_head_0_m1__c__slide) } } })" />  <span style="--fh-fill: 100%;background:transparent"
   data-style:--fh-fill="$_e.light.lamp.t#7"
   data-style:background="$_e.light.lamp.t#8"></span>
-  </div>
 </div></div>
 <!-- ==== unavailable · surface c_0_head_0_m2 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_0_head_0_m2__c"
+<div class="fh-cell fh-slider-body" id="s_c_0_head_0_m2__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#9: '0', t#10: '100%', t#11: '#fff'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_0_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_0_head_0_m2__c__error"
@@ -1282,12 +1229,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_head_0_m2__c__busy_change_slow = $_s_c_0_head_0_m2__c__busy_change"
   data-class:fh-busy-spin="$_s_c_0_head_0_m2__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_0_head_0_m2__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider fh-track-hue  "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider fh-track-hue  "
   data-on-signal-patch-filter="{include:/^_s_c_0_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_0_head_0_m2__c__error && ($_s_c_0_head_0_m2__c__slide = $_e.light.lamp.t#9, $_e.light.lamp.t#10 = (100 - (($_e.light.lamp.t#9 - 0) * 100 / (360 - 0))) + '%', $_e.light.lamp.t#11 = 'hsl(' + Math.round($_e.light.lamp.t#9) + ',100%,50%)')"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -1304,10 +1251,9 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#11 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_0_head_0_m2__c__slide),100] } } })" />    <span style="--fh-fill: 100%;background:#fff"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_0_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_0_head_0_m2__c__slide),100] } } })" />  <span style="--fh-fill: 100%;background:#fff"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
-  </div>
 </div></div>
 <!-- ==== unavailable · surface c_1_head_0_0_1_o0: as fixtured ==== -->
 <!-- ==== unavailable · surface c_1_head_0_0_1_o1: as fixtured ==== -->
@@ -1336,11 +1282,10 @@
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_0_2_self__c_0__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_0_2_self__c_0__error && ($_s_c_1_head_0_0_2_self__c_0__h = $_e.light.lamp.t#12, $_s_c_1_head_0_0_2_self__c_0__s = $_e.light.lamp.t#13, $_s_c_1_head_0_0_2_self__c_0__p = $_e.light.lamp.t#14)"></span></div></div></dialog></div>
 <!-- ==== unavailable · surface c_1_head_0_m0 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m0__c"
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m0__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m0__c__error"
@@ -1349,12 +1294,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m0__c__busy_change_slow = $_s_c_1_head_0_m0__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m0__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m0__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider   "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider   "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m0__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m0__c__error && ($_s_c_1_head_0_m0__c__slide = $_e.light.lamp.t#3, $_e.light.lamp.t#4 = (100 - (($_e.light.lamp.t#3 - 1) * 100 / (255 - 1))) + '%')"
   data-class:fh-disabled="$_s_c_1_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1371,17 +1316,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />    <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m0__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m0__c', {payload: {data: {'brightness': Number($_s_c_1_head_0_m0__c__slide) } } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
-  </div>
 </div></div>
 <!-- ==== unavailable · surface c_1_head_0_m1 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m1__c"
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m1__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#6: '0', t#7: '100%', t#8: 'transparent'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m1__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m1__c__error"
@@ -1390,12 +1333,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m1__c__busy_change_slow = $_s_c_1_head_0_m1__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m1__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m1__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider  fh-track-kelvin "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider  fh-track-kelvin "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m1__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m1__c__error && ($_s_c_1_head_0_m1__c__slide = $_e.light.lamp.t#6, $_e.light.lamp.t#7 = (100 - (($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000))) + '%', $_e.light.lamp.t#8 = ($_e.light.lamp.t#6 >= 2000 ? 'rgb(' + Math.round(255 - 54 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * ((($_e.light.lamp.t#6 - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent'))"
   data-class:fh-disabled="$_s_c_1_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -1412,17 +1355,15 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#7 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_1_head_0_m1__c__slide) } } })" />    <span style="--fh-fill: 100%;background:transparent"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m1__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m1__c', {payload: {data: {'color_temp_kelvin': Number($_s_c_1_head_0_m1__c__slide) } } })" />  <span style="--fh-fill: 100%;background:transparent"
   data-style:--fh-fill="$_e.light.lamp.t#7"
   data-style:background="$_e.light.lamp.t#8"></span>
-  </div>
 </div></div>
 <!-- ==== unavailable · surface c_1_head_0_m2 ==== -->
-<div class="fh-cell fh-slider-head-cell" id="s_c_1_head_0_m2__c"
+<div class="fh-cell fh-slider-body" id="s_c_1_head_0_m2__c"
   data-signals="{_e: {light: {lamp: {state: 'unavailable', t#1: false, t#2: true, t#9: '0', t#10: '100%', t#11: '#fff'}}}}"
-  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-body">
-  <div class="fh-slider-head ">
-    <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
+  data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
+  <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_1_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
   data-class:fh-loading="$_s_c_1_head_0_m2__c__busy_change"
   data-class:fh-error="$_s_c_1_head_0_m2__c__error"
@@ -1431,12 +1372,12 @@
   data-on-signal-patch__delay.300ms="$_s_c_1_head_0_m2__c__busy_change_slow = $_s_c_1_head_0_m2__c__busy_change"
   data-class:fh-busy-spin="$_s_c_1_head_0_m2__c__busy_change_slow"
   data-attr:aria-busy="$_s_c_1_head_0_m2__c__busy_change_slow"><i class="mdi mdi-lightbulb" ></i></span>
-    <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
-    <span class="fh-reading"
+  <div class="fh-cell fh-slider-text" id="s_c_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp</span></strong></div>
+  <span class="fh-reading"
   data-text="$_e.light.lamp.state">unavailable</span>
-    <div class="fh-slider-actions"></div>
-  </div>
-  <div class="fh-slider fh-track-hue  "
+  <div class="fh-slider-actions"></div>
+</div>
+<div class="fh-slider fh-track-hue  "
   data-on-signal-patch-filter="{include:/^_s_c_1_head_0_m2__c__error$/}"
   data-on-signal-patch="$_s_c_1_head_0_m2__c__error && ($_s_c_1_head_0_m2__c__slide = $_e.light.lamp.t#9, $_e.light.lamp.t#10 = (100 - (($_e.light.lamp.t#9 - 0) * 100 / (360 - 0))) + '%', $_e.light.lamp.t#11 = 'hsl(' + Math.round($_e.light.lamp.t#9) + ',100%,50%)')"
   data-class:fh-disabled="$_s_c_1_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -1453,10 +1394,9 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#11 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_1_head_0_m2__c__slide),100] } } })" />    <span style="--fh-fill: 100%;background:#fff"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_head_0_m2__c__busy_change ? '' : @post('sse/call/light-controls/light/turn_on/entity/light.lamp?node=s_c_1_head_0_m2__c', {payload: {data: {'hs_color': [Number($_s_c_1_head_0_m2__c__slide),100] } } })" />  <span style="--fh-fill: 100%;background:#fff"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
-  </div>
 </div></div>
 <!-- ==== unavailable · patch c_1_head_0_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_1_head_0_0_1_0: as fixtured ==== -->

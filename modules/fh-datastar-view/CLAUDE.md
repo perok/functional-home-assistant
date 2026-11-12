@@ -290,7 +290,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (`core/node.pkl`, from `CardDef.tag`/`classes`/`attrs` around the template, a `div` by default),
   the real flex/grid item and Datastar morph target; the renderer fills its two writer holes,
   `{{{cellClasses}}}` and `{{{cell}}}`, and wraps nothing but a set's root. `layoutCell = false`
-  is the rare opt-out from being a layout box — the tab anchors — and keeps the id. `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
+  is the rare opt-out from being a layout box — the tab anchors, the slider's pill and controls row — and keeps the id. `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
   `cell.layout` (`columns`/`fullWidth`/`hug`/`grow`/`stick`) and `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)`/`textOverflow(…)`/`cellClass`
   on the Pkl `LayoutNode` base (chain them AFTER card-specific builders; `centered(false)` is the `Grid`'s own,

@@ -57,10 +57,11 @@ root element.**
    parsing anywhere. A set's root (`fh-cell fh-group`) is still the renderer's.
 2. **`CardDef.layoutCell = false` is the escape hatch** (default `true`): the
    root keeps its id and its `cell` hole and loses the `fh-cell` class, for a
-   root that must not be a layout box. The one opt-out is the `tab` card, an
-   `<a>` straight under the bar so a theme can style it by `.fh-tabs > a`
-   (BeerCSS's `.tabs > a`), which in a `.fh-col` would otherwise inherit
-   `--fh-cell-width:100%`. The layout builders write a field of their own,
+   root that must not be a layout box. The opt-outs are roots no container
+   lays out, which in a `.fh-col` would otherwise inherit
+   `--fh-cell-width:100%`: the `tab` card, an `<a>` straight under the bar so a
+   theme can style it by `.fh-tabs > a` (BeerCSS's `.tabs > a`), and the
+   slider's pill and main-controls row, boxes inside the slider card. The layout builders write a field of their own,
    `cell.layout`, and a non-empty one on such a card is refused, in Pkl and by
    `validate`; `cellClassWhen` and `cellStyle` stay allowed. Since the root
    still has its id, such a card may bind live slots and be a set clause.
@@ -222,8 +223,7 @@ framework-agnostic, and a new look is a sibling module exporting a
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
   card moves its markup into the root fields to be one. The library's cards
   have, except where the root cannot be static: an id the root carries itself
-  (`if`'s and a var cycle's host), a cell that must be `display:contents` (the slider's
-  head, pill and controls), several top-level elements (popup, slider text),
+  (`if`'s and a var cycle's host), several top-level elements (popup, slider text),
   a `style` on the root (wheel), or CSS keyed on the inner element as the
   cell's child (entity option).
 - A root that differs by a fact known at build time is one card name per
