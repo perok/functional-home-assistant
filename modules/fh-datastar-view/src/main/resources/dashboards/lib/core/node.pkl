@@ -166,7 +166,7 @@ abstract class LayoutNode {
   /// the card's CSS to read by inheritance:
   ///
   ///     c.button(…).cellStyle("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
-  ///     // css: .fh-cell>button { background-size: var(--fh-fill) 100% }
+  ///     // css: button.fh-cell { background-size: var(--fh-fill) 100% }
   ///
   /// Only `--…`: a plain property would fight the theme's framework.
   function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading): LayoutNode =
@@ -204,9 +204,16 @@ abstract class Node extends LayoutNode {
   kind: "Component" = "Component"
   card: String
   // The same for every node of the card ([[cardsIn]]), so it must not
-  // reference instance properties beyond a slot's name. Keep each HTML
-  // attribute value on one line.
+  // reference instance properties beyond a slot's name. A node may pick
+  // between constant defs on a fact known at build time when its `card` name
+  // picks the same way: [[variants]]. Keep each HTML attribute value on one
+  // line.
   hidden cardDef: CardDef
+  /// A card whose root differs by a fact known at build time (a button that
+  /// navigates is an `<a>`): one name and constant def per form, `card` picking
+  /// the name and `cardDef` its def. The library's index (`components.pkl`'s
+  /// `cards`) reads these, since such a `card` has no value without a node.
+  hidden variants: Mapping<String, CardDef>? = null
   // The structural check mirrors `LayoutNode.Component.liveEntitiesAsBytes`.
   /// What this node's card reads ([[slotMod.Slot]]): `slots { label.of(…) }`. A
   /// slot with no value is not set; [[templateSlots]] is what reaches the backend.

@@ -1173,7 +1173,9 @@ class PklBuildSuite extends munit.FunSuite {
       "tile",
       "entityInfo",
       "button",
+      "buttonLink",
       "pill",
+      "pillLink",
       "switch",
       "tab",
       "slider",
@@ -1194,6 +1196,7 @@ class PklBuildSuite extends munit.FunSuite {
       "selectVarDropdown",
       "selectVarCycle",
       "selectChoice",
+      "selectChoiceIcon",
       "selectEntityOption",
       "colourWheel"
     )
@@ -1204,8 +1207,10 @@ class PklBuildSuite extends munit.FunSuite {
     )
     expectedCards.foreach { name =>
       val card = cards.downField(name)
+      // A card is markup: its template, or a root of its own (an icon's `<i>`).
       assert(
-        card.get[String]("template").toOption.exists(_.nonEmpty),
+        card.get[String]("template").toOption.exists(_.nonEmpty) ||
+          card.get[String]("tag").toOption.exists(_ != "div"),
         clue = name
       )
       // `tab` is the one layoutCell opt-out (the `.fh-tabs > a` selector).

@@ -101,6 +101,18 @@ and the template is only what goes inside it. `tag` is a plain element name,
 except `id`, `class`, `style` and `data-signals`, which the library writes
 itself; the build refuses those.
 
+The outer element is the same for every use of a card. When it depends on
+something you know as you build the node — a link is an `<a>`, a press a
+`<button>` — give each form its own card name and a definition of its own,
+declared once at the top of your module, in `variants`, and pick both the name
+and its definition from the same fact:
+
+```pkl
+variants = new Mapping { ["banner"] = plainDef; ["bannerLink"] = linkDef }
+card = if (href != null) "bannerLink" else "banner"
+cardDef = variants!![card]
+```
+
 Set `layoutCell = false` when the element must not be a layout box — a tab
 inside a tab bar, which the bar lays out itself. It then has no `fh-cell`
 class, and `.columns(n)`, `.fullWidth()`, `.hug()`, `.grow()` and `.stick(…)`

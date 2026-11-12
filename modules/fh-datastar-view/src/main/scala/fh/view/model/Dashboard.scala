@@ -1027,10 +1027,16 @@ case class Dashboard(
 ):
 
   /** Every registered card, not only those used: pruning would have to account
-    * for surfaces and set clauses (ADR 0020's open work).
+    * for surfaces and set clauses (ADR 0020's open work). Distinct, since a
+    * card's variants (`button`, `buttonLink`) share one stylesheet.
     */
   lazy val cardCss: String =
-    cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
+    cards.toList
+      .sortBy(_._1)
+      .map(_._2.css)
+      .filter(_.nonEmpty)
+      .distinct
+      .mkString("\n")
 
   /** Same selection as [[cardCss]]. Distinct, so cards sharing one script run
     * it once.

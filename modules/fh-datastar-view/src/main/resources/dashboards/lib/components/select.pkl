@@ -196,7 +196,6 @@ const local menuCss: String = """
   .fh-select-summary{display:inline-flex;align-items:center;gap:.25rem;list-style:none;cursor:pointer;
   min-block-size:2.5rem;padding-inline:1rem;border-radius:1.25rem;background:var(--fh-surface-alt);color:var(--fh-text)}
   .fh-select-summary::-webkit-details-marker{display:none}
-  .fh-select-summary .fh-cell{display:contents}
   .fh-select-list{position:absolute;inset-block-start:calc(100% + .25rem);inset-inline-start:0;z-index:10;
   display:flex;flex-direction:column;min-inline-size:100%;padding-block:.25rem;border-radius:.75rem;
   background:var(--fh-surface);box-shadow:0 .25rem 1rem rgba(0,0,0,.25)}
@@ -296,16 +295,27 @@ class VarSelectCycle extends Select {
 /// the label, as on a cycle's face, so a dropdown fits a slider's pill; the
 /// list still names every option.
 class ChoiceLabel extends nodes.Node {
-  card = "selectChoice"
-  cardDef = new nodes.CardDef {
-    template = glyphSlot.ifTrueElse(#"<i class="\#(glyphSlot)" title="\#(labelSlot)"></i>"#, "<span>\(labelSlot)</span>")
-  }
+  variants = new Mapping { ["selectChoice"] = choiceDef; ["selectChoiceIcon"] = choiceIconDef }
+  card = if (icon != null) "selectChoiceIcon" else "selectChoice"
+  cardDef = variants!![card]
   hidden label: String
   hidden icon: String? = null
   slots {
     labelSlot.of(label)
     glyphSlot.of(icon.ifNonNull((i) -> "mdi " + icons.mdiClass(i)))
   }
+}
+
+const local choiceDef: nodes.CardDef = new {
+  tag = "span"
+  template = "\(labelSlot)"
+}
+
+const local choiceIconDef: nodes.CardDef = new {
+  tag = "i"
+  classes = "\(glyphSlot)"
+  attrs = #"title="\#(labelSlot)""#
+  template = ""
 }
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")

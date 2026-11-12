@@ -75,7 +75,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
   private def level(page: Page): IO[String] =
     IO.blocking(
       page
-        .locator(".fh-cell:has(> button)")
+        .locator("button.fh-cell")
         .last()
         .evaluate(
           "el => getComputedStyle(el).getPropertyValue('--fh-level').trim()"
@@ -100,7 +100,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
         // signal is not, so only the morph could take the property away.
         _ <- ts.fake.emit(kitchen.entityId, "on", dimmed("Galley", 90))
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-cell:has(> button)").last())
+          assertThat(page.locator("button.fh-cell").last())
             .containsText("Galley")
         )
         now <- level(page)
@@ -109,7 +109,7 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
   }
 
   private def warmCell(page: Page) =
-    page.locator(".fh-cell:has(> button:not(:has-text('Lock')))").last()
+    page.locator("button.fh-cell:not(:has-text('Lock'))").last()
 
   private def hasWarm(page: Page): IO[Boolean] =
     IO.blocking(

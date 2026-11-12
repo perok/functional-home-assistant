@@ -39,19 +39,37 @@ const local pressClass: String = "fh-press \(sizeClass) \(glyphSlot.ifSet("fh-ba
 
 const local roundOrPress: String = roundSlot.ifSetElse("fh-circle", pressClass)
 
-// A navigating button is an `<a href>`, so the browser gives it middle-click and
-// a click that works before Datastar loads.
-const local buttonAnchor: String =
-  #"<a class="fh-button \#(roundOrPress) \#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot)">"#
-    + glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag, #"<span class="fh-badge">\#(glyphTag)</span>"#))
-    + buttonText + "</a>"
+// The anchor's attributes, as its card's root writes them.
+const local anchorAttrs: String = #"href="\#(hrefSlot)""# + tapMod.currentAttr
 
-const local buttonPress: String =
-  #"<button class="\#(roundOrPress)" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)"#
-    + tapMod.busyVisual.ifSet(glyphSlot.ifSet(roundSlot.ifSet(" " + tapMod.busyShapeClass))) + ">"
-    + glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag,
+const local pressAttrs: String =
+  #"data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)"#
+
+// A navigating button is an `<a href>`, so the browser gives it middle-click and
+// a click that works before Datastar loads. `fh-button` is for a theme that
+// styles a class where it styles `<button>`, so both forms look the same.
+const local buttonLinkDef: nodes.CardDef = new {
+  tag = "a"
+  classes = "fh-button \(roundOrPress) \(tapMod.currentClass)"
+  attrs = anchorAttrs
+  template = glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag, #"<span class="fh-badge">\#(glyphTag)</span>"#))
+    + buttonText
+  css = pressCss
+}
+
+// A labelled button is a card-like pill (`fh-press`), its glyph in a round badge
+// that also carries the spinner. Icon-only is `round` (`fh-circle`): a glyph
+// alone in a rectangle reads as a broken label, and there the button itself
+// spins.
+const local buttonDef: nodes.CardDef = new {
+  tag = "button"
+  classes = roundOrPress
+  attrs = pressAttrs + tapMod.busyVisual.ifSet(glyphSlot.ifSet(roundSlot.ifSet(" " + tapMod.busyShapeClass)))
+  template = glyphSlot.ifSet(roundSlot.ifSetElse(glyphTag,
       #"<span class="fh-badge fh-icon-shape""# + tapMod.busyVisual.ifSet(" " + tapMod.busyShapeClass) + ">" + glyphTag + "</span>"))
-    + buttonText + "</button>"
+    + buttonText
+  css = pressCss
+}
 
 // A pill's accessible name, when it shows no text.
 const local pillName: String =
@@ -60,23 +78,51 @@ const local pillName: String =
 const local pillGlyph: String =
   glyphSlot.ifTrue(#"<i class="mdi \#(glyphSlot)"></i>"#) + labelSlot.ifTrue(textMod.hole(labelSlot))
 
-const local pillAnchor: String =
-  #"<a class="fh-chip \#(roundSlot.ifSet("fh-circle")) \#(tapMod.currentClass)"\#(tapMod.currentAttr) href="\#(hrefSlot)"\#(pillName)>"#
-    + pillGlyph + "</a>"
+const local pillCircle: String = roundSlot.ifSet("fh-circle")
 
-const local pillPress: String =
-  #"<button class="fh-chip \#(roundSlot.ifSet("fh-circle"))" data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.refusedAttr)\#(tapMod.guard)\#(pillName)"#
-    + tapMod.busyVisual.ifSet(glyphSlot.ifTrue(" " + tapMod.busyShapeClass)) + ">"
-    + pillGlyph + "</button>"
+// BeerCSS's `.chip` under the default theme, already border-box. A round one is
+// `fh-circle`, the class an icon button carries, so the two are one size. Its
+// glyph keeps the spinner's colour (`aria-busy`, which any theme's spinner
+// carries). It wears the button's surface, so a run of pills and a button read
+// as one family. A pill is as wide as what it shows, which a column's
+// `--fh-cell-width` would otherwise stretch; a round one is sized by the theme.
+const local pillCss: String = """
+  .fh-cell.fh-chip{background:var(--fh-surface);color:var(--fh-text);
+  border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
+  .fh-cell.fh-chip:not(.fh-circle){inline-size:fit-content}
+  .fh-card .fh-cell.fh-chip{background:var(--fh-surface-alt);box-shadow:none}
+  .fh-cell.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
+  .fh-cell.fh-active.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
+  .fh-cell.fh-active.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
+  """
+
+const local pillLinkDef: nodes.CardDef = new {
+  tag = "a"
+  classes = "fh-chip \(pillCircle) \(tapMod.currentClass)"
+  attrs = anchorAttrs + pillName
+  template = pillGlyph
+  css = pillCss
+}
+
+const local pillDef: nodes.CardDef = new {
+  tag = "button"
+  classes = "fh-chip \(pillCircle)"
+  attrs = pressAttrs + pillName + tapMod.busyVisual.ifSet(glyphSlot.ifTrue(" " + tapMod.busyShapeClass))
+  template = pillGlyph
+  css = pillCss
+}
 
 // A labelled button fills its cell, as every other card does; a framework
-// sizing buttons to their label left three nav buttons ragged. `block-size:auto`
-// lets a long label take a second line where BeerCSS pins the height.
+// sizing buttons to their label left three nav buttons ragged. It is the cell,
+// so it takes the cell's width rather than `100%`, which a tile's feature
+// margins would push past the card; `flex` makes it a block where the parent is
+// no flex container (a popup's dialog). `block-size:auto` lets a long label
+// take a second line where BeerCSS pins the height.
 //
-// It rests on the card surface and takes the accent only while `fh-active`,
-// which sits on the cell; a container painting its buttons by position must
-// leave an active one alone. Inside a card it steps to the alternate surface,
-// or it would vanish into it, and its badge steps the other way.
+// It rests on the card surface and takes the accent only while `fh-active`; a
+// container painting its buttons by position must leave an active one alone.
+// Inside a card it steps to the alternate surface, or it would vanish into it,
+// and its badge steps the other way.
 //
 // One height per size, `--fh-press-size`, which a theme may point at its own;
 // the badge and the padding around it are fractions of it, so a large button
@@ -85,37 +131,26 @@ const local pressCss: String = """
   .fh-press.fh-size-small{--fh-press-size:2rem}
   .fh-press.fh-size-medium{--fh-press-size:2.5rem}
   .fh-press.fh-size-large{--fh-press-size:3rem}
-  .fh-cell>:is(.fh-button,button).fh-press{inline-size:100%;box-sizing:border-box;
+  .fh-cell:is(.fh-button,button).fh-press{display:flex;box-sizing:border-box;
   block-size:auto;min-block-size:var(--fh-press-size,3rem);justify-content:flex-start;gap:.75rem;
   padding:calc(var(--fh-press-size,3rem) * .125) 1.25rem;border-radius:999px;text-align:start;
   --fh-badge-size:calc(var(--fh-press-size,3rem) * .75);
   background:var(--fh-surface);color:var(--fh-text);box-shadow:var(--fh-raise)}
-  .fh-cell>:is(.fh-button,button).fh-press.fh-badged{padding-inline-start:.5rem}
-  .fh-card .fh-cell>:is(.fh-button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
+  .fh-cell:is(.fh-button,button).fh-press.fh-badged{padding-inline-start:.5rem}
+  .fh-card .fh-cell:is(.fh-button,button).fh-press{background:var(--fh-surface-alt);box-shadow:none}
   .fh-card .fh-press .fh-badge:not([aria-busy=true]){background:var(--fh-surface)}
   .fh-press .fh-sub{color:var(--fh-text-dim)}
-  .fh-cell.fh-active>:is(.fh-button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
-  .fh-cell.fh-active>.fh-press .fh-sub{color:inherit;opacity:.8}
-  .fh-cell>:is(.fh-button,button).fh-circle{background:var(--fh-surface-alt);color:var(--fh-accent)}
-  .fh-cell.fh-active>:is(.fh-button,button).fh-circle{background:var(--fh-accent);color:var(--fh-on-accent)}
+  .fh-cell.fh-active:is(.fh-button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
+  .fh-cell.fh-active.fh-press .fh-sub{color:inherit;opacity:.8}
+  .fh-cell:is(.fh-button,button).fh-circle{background:var(--fh-surface-alt);color:var(--fh-accent)}
+  .fh-cell.fh-active:is(.fh-button,button).fh-circle{background:var(--fh-accent);color:var(--fh-on-accent)}
   """
 
 /// A label, a glyph and a tap that names its own target.
 open class Button extends nodes.ActiveNode {
-  card = "button"
-  cardDef = new nodes.CardDef {
-    // A navigating button is an `<a href>`, so the browser gives it
-    // middle-click and a click that works before Datastar loads. `fh-button`
-    // is for a theme that styles a class where it styles `<button>`, so both
-    // forms look the same.
-    //
-    // A labelled button is a card-like pill (`fh-press`), its glyph in a round
-    // badge that also carries the spinner. Icon-only is `round`
-    // (`fh-circle`): a glyph alone in a rectangle reads as a broken label, and
-    // there the button itself spins.
-    template = hrefSlot.ifTrueElse(buttonAnchor, buttonPress)
-    css = pressCss
-  }
+  variants = new Mapping { ["button"] = buttonDef; ["buttonLink"] = buttonLinkDef }
+  card = if (tapAction.href != null) "buttonLink" else "button"
+  cardDef = variants!![card]
   hidden label: (String|slotMod.Reading)? = null
   /// A smaller, dimmer second line: a literal, an expression or any reading.
   hidden secondary: slotMod.Secondary? = null
@@ -197,23 +232,9 @@ open class Button extends nodes.ActiveNode {
 ///     c.pill(c.tap.activate(kveld))                 // the scene's name
 ///     c.pill(c.view.navigate("under")).label("⬇️ Under")
 class Pill extends nodes.ActiveNode {
-  card = "pill"
-  cardDef = new nodes.CardDef {
-    // BeerCSS's `.chip` under the default theme, already border-box. A round
-    // one is `fh-circle`, the class an icon button carries, so the two are one
-    // size. Its glyph keeps the spinner's colour (`aria-busy`, which
-    // any theme's spinner carries). It wears the
-    // button's surface, so a run of pills and a button read as one family.
-    template = hrefSlot.ifTrueElse(pillAnchor, pillPress)
-    css = """
-      .fh-cell>.fh-chip{background:var(--fh-surface);color:var(--fh-text);
-      border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
-      .fh-card .fh-cell>.fh-chip{background:var(--fh-surface-alt);box-shadow:none}
-      .fh-cell>.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
-      .fh-cell.fh-active>.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
-      .fh-cell.fh-active>.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
-      """
-  }
+  variants = new Mapping { ["pill"] = pillDef; ["pillLink"] = pillLinkDef }
+  card = if (tapAction.href != null) "pillLink" else "pill"
+  cardDef = variants!![card]
   layoutClasses { "fh-hug" }
   /// See [[Button.tapAction]].
   hidden tapAction: tapMod.TapAction = throw(noAction("c.pill"))

@@ -211,7 +211,7 @@ class BeerTheme extends themeMod.Theme {
     /* Only the header badge has no box of its own; `.shape` defaults to 3.5rem. */
     .fh-icon-shape.shape{inline-size:var(--fh-badge-size,2.25rem);block-size:var(--fh-badge-size,2.25rem)}
     /* A button's height is BeerCSS's per size class, through its private knob. */
-    .fh-cell>.fh-press{--fh-press-size:var(--_size)}
+    .fh-cell.fh-press{--fh-press-size:var(--_size)}
     /* BeerCSS shrinks a chip's glyph to 1.25rem; a round pill is an icon
        button and keeps its 1.5rem. */
     .chip.circle>i{--_size:1.5rem}

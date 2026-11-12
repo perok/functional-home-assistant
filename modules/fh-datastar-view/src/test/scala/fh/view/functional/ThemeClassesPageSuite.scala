@@ -58,13 +58,11 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
       .map(_.group(1))
       .toList
 
-  test("every wrapper carries an added class; a replaced cell class is gone") {
+  test("every cell carries an added class; a replaced cell class is gone") {
     page(rules).map { html =>
-      val wrappers = """<div class="fh-cell[^"]*"""".r.findAllIn(html).toList
-      assert(wrappers.nonEmpty, html)
-      wrappers.foreach(w =>
-        assert(w.startsWith("""<div class="fh-cell s12"""), w)
-      )
+      val wrappers = """<[a-z]+ class="fh-cell[^"]*"""".r.findAllIn(html).toList
+      assert(wrappers.exists(_.startsWith("<button ")), html)
+      wrappers.foreach(w => assert(w.contains(""" class="fh-cell s12"""), w))
       assert(!wrappers.exists(_.contains("fh-cols-3")), wrappers)
       assert(wrappers.exists(_.contains(" s4")), wrappers)
     }
@@ -160,7 +158,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
         html.contains("""<div class="fh-cell fh-row fh-boxed padded""""),
         html
       )
-      assert(html.contains("""<button class="fh-press small """), html)
+      assert(html.contains("""<button class="fh-cell fh-press small """), html)
       assert(html.contains("""<i class="fh-lit bright""""), html)
     }
   }
