@@ -394,7 +394,7 @@ class ServerRoutesSuite extends ServerHarness {
       assert(handler.contains("$_sse >= 2 ? 2 :"), clue = handler)
       assert(handler.contains("'retries-failed' ? 2"), clue = handler)
       assert(handler.contains("'retrying'"), clue = handler)
-      assert(html.contains("""data-show="$_sse < 2""""), clue = html)
+      assert(html.contains("""data-show="$_sse == 1""""), clue = html)
       assert(html.contains("""data-show="$_sse >= 2""""), clue = html)
       // A blip is not latched: 1 must fall back to 0, or an ordinary refetch
       // pins "Reconnecting…".

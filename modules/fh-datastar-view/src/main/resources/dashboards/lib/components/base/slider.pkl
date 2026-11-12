@@ -7,6 +7,7 @@ module components.base.slider
 import "../../core/badge.pkl" as badgeMod
 import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodes
+import "../../core/shell.pkl"
 import "../../core/slot.pkl" as slotMod
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/tap.pkl" as tapMod
@@ -120,7 +121,7 @@ const local toggleButton: String = """
 /// `data-on-signal-patch`, the refusal half would run when `failedOn` clears the
 /// error at the NEXT commit's start, and snap the thumb back under the finger.
 const local restoreOnDeadStream: String =
-  #"data-effect="$_sse > 0 && (\#(rollbackToCommitted))""#
+  #"data-effect="\#(shell.streamDown) && (\#(rollbackToCommitted))""#
 
 const local restoreOnRefusal: String =
   #"data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(rollbackToCommitted))""#

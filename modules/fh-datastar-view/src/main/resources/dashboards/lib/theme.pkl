@@ -94,6 +94,7 @@
 module theme
 
 import "tokens.pkl" as tokenPalette
+import "core/shell.pkl"
 
 /// Material Design Icons, HA's own set, so an entity's `icon` renders as its
 /// author chose under any theme: the cards emit its `mdi mdi-x` classes. ~500 KB
@@ -103,20 +104,16 @@ const local mdiVersion: String = "7.4.47"
 const mdiCdn: String =
   "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
 
-/// The signals the shell declares and the offline banners read, held equal to
-/// the server's names (`Server.SseSignal`, `Server.HaDownSignal`) by a test.
-const sseSignal: String = "_sse"
-const haDownSignal: String = "_haDown"
-
 /// Both banners: the stream's (a retry, then a Reload button) and Home
-/// Assistant's. Placed inside the shell's root element, which declares the two
-/// signals; each starts hidden inline, or it flashes before Datastar loads.
+/// Assistant's. Placed inside the shell's root element, which declares the
+/// signals `core/shell.pkl` reads; each starts hidden inline, or it flashes
+/// before Datastar loads.
 const local defaultOfflineBanners: String = #"""
-    <div class="fh-offline fh-offline-sse" style="display:none" role="status" aria-live="assertive" data-show="$\#(sseSignal) > 0">
-      <span style="display:none" data-show="$\#(sseSignal) < 2">Reconnecting to the dashboard…</span>
-      <span style="display:none" data-show="$\#(sseSignal) >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
+    <div class="fh-offline fh-offline-sse" style="display:none" role="status" aria-live="assertive" data-show="\#(shell.streamDown)">
+      <span style="display:none" data-show="\#(shell.streamRetrying)">Reconnecting to the dashboard…</span>
+      <span style="display:none" data-show="\#(shell.streamLost)">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
     </div>
-    <div class="fh-offline fh-offline-ha" style="display:none" role="status" aria-live="polite" data-show="$\#(haDownSignal) && $\#(sseSignal) == 0">Home Assistant unavailable — reconnecting…</div>
+    <div class="fh-offline fh-offline-ha" style="display:none" role="status" aria-live="polite" data-show="\#(shell.haDown) && !(\#(shell.streamDown))">Home Assistant unavailable — reconnecting…</div>
   """#
 
 open class Theme {
@@ -144,8 +141,8 @@ open class Theme {
     """
   /// The "connection lost" and "Home Assistant unavailable" banners, as markup:
   /// restyle or translate them here. Keep each `data-show` and its inline
-  /// `display:none`; they read the signals `$_sse` (0 fine, 1 retrying, 2 gave
-  /// up) and `$_haDown` (true while Home Assistant is down).
+  /// `display:none`; the conditions are `core/shell.pkl`'s (`streamRetrying`,
+  /// `streamLost`, `haDown`, …).
   offlineBanners: String = defaultOfflineBanners
   /// `fh-` class -> the space-separated classes in its place. See "Your own
   /// class names in card markup" above.
