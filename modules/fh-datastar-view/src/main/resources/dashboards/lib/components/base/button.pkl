@@ -89,7 +89,6 @@ const local pillCircle: String = roundSlot.ifSet("fh-circle")
 const local pillCss: String = """
   .fh-cell.fh-chip{background:var(--fh-surface);color:var(--fh-text);
   border-color:transparent;border-radius:999px;box-shadow:var(--fh-raise)}
-  .fh-cell.fh-chip:not(.fh-circle){inline-size:fit-content}
   .fh-card .fh-cell.fh-chip{background:var(--fh-surface-alt);box-shadow:none}
   .fh-cell.fh-chip:not([aria-busy=true])>i.mdi{color:var(--fh-accent)}
   .fh-cell.fh-active.fh-chip{background:var(--fh-accent);color:var(--fh-on-accent)}
