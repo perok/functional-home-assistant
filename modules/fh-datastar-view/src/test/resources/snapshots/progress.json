@@ -626,7 +626,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-popup-backdrop\" data-on:click=\"$ui_popups && history.back()\"></div><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
+      "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-on:click=\"evt.target === el && $ui_popups && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
     },
     "progressBar" : {
       "template" : "<div class=\"fh-cell fh-bar{{{cellClasses}}}\"{{{cell}}} role=\"progressbar\" aria-valuemin=\"0\" aria-valuemax=\"100\" data-show=\"{{{value.jsValue}}} !== '' && !isNaN({{{value.jsValue}}}){{#of.has}} && {{{of.jsValue}}} !== '' && !isNaN({{{of.jsValue}}}){{/of.has}}\" data-computed=\"{'_{{id}}__fill': () => Math.min(100, Math.max(0, {{#down.has}}100 - {{/down.has}}{{#of.has}}100 * {{{value.jsValue}}}{{#scale.has}} * {{scale}}{{/scale.has}} / {{{of.jsValue}}}{{/of.has}}{{^of.has}}+{{{value.jsValue}}}{{/of.has}})) || 0}\" data-attr:aria-valuenow=\"Math.round($_{{id}}__fill)\"><div class=\"fh-bar-fill\" data-style:width=\"$_{{id}}__fill + '%'\"></div></div>"

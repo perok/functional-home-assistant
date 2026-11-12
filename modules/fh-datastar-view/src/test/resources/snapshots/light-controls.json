@@ -55,11 +55,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -224,11 +219,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -397,11 +387,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -790,11 +775,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -959,11 +939,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -1132,11 +1107,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -1809,7 +1779,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-popup-backdrop\" data-on:click=\"$ui_popups && history.back()\"></div><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
+      "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-on:click=\"evt.target === el && $ui_popups && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
     },
     "selectChoiceIcon" : {
       "template" : "<i class=\"fh-cell {{glyph}}{{{cellClasses}}}\"{{{cell}}} title=\"{{label}}\"></i>"
@@ -1878,7 +1848,7 @@
       "template" : "<div class=\"fh-slider-pill{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "sliderText" : {
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</div>"
+      "template" : "<div class=\"fh-cell fh-slider-text{{{cellClasses}}}\"{{{cell}}}><strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</div>"
     },
     "tab" : {
       "layoutCell" : false,

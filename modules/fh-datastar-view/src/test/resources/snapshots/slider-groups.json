@@ -60,11 +60,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp2",
@@ -237,11 +232,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp2",
@@ -418,11 +408,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp2",
@@ -627,11 +612,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.dimmer",
@@ -786,11 +766,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.dimmer",
@@ -953,11 +928,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.dimmer",
@@ -1141,11 +1111,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -1302,11 +1267,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -1467,11 +1427,6 @@
                         "text" : [
                           {
                             "card" : "sliderText",
-                            "cell" : {
-                              "classes" : {
-                                "fh-slider-text" : true
-                              }
-                            },
                             "kind" : "Component",
                             "templateSlots" : {
                               "entity_id" : "light.lamp",
@@ -1935,11 +1890,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp",
@@ -2112,11 +2062,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp",
@@ -2293,11 +2238,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp",
@@ -2688,11 +2628,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp2",
@@ -2865,11 +2800,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp2",
@@ -3046,11 +2976,6 @@
                               "text" : [
                                 {
                                   "card" : "sliderText",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-slider-text" : true
-                                    }
-                                  },
                                   "kind" : "Component",
                                   "templateSlots" : {
                                     "entity_id" : "light.lamp2",
@@ -3500,11 +3425,6 @@
                   "text" : [
                     {
                       "card" : "sliderText",
-                      "cell" : {
-                        "classes" : {
-                          "fh-slider-text" : true
-                        }
-                      },
                       "kind" : "Component",
                       "templateSlots" : {
                         "entity_id" : "light.dimmer",
@@ -3748,11 +3668,6 @@
                   "text" : [
                     {
                       "card" : "sliderText",
-                      "cell" : {
-                        "classes" : {
-                          "fh-slider-text" : true
-                        }
-                      },
                       "kind" : "Component",
                       "templateSlots" : {
                         "entity_id" : "light.kitchen",
@@ -3933,7 +3848,7 @@
       "template" : "<div class=\"fh-slider-pill{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "sliderText" : {
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</div>"
+      "template" : "<div class=\"fh-cell fh-slider-text{{{cellClasses}}}\"{{{cell}}}><strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</div>"
     },
     "tile" : {
       "regions" : {

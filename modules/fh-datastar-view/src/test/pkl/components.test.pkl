@@ -22,6 +22,7 @@ import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switch
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
 import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
+import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -795,6 +796,15 @@ facts {
     // The default is what a dashboard emits at :root, so a node that says
     // nothing inherits it rather than each card carrying a copy.
     textMod.rootCss("scroll").startsWith(":root{--fh-text-lines:nowrap")
+  }
+
+  ["a popup's root is its backdrop, which closes only on a tap of its own"] {
+    // The dialog sits inside the backdrop, so its clicks bubble there; without
+    // the target test any tap inside the popup would close it.
+    local popup = c.cards["popup"]
+    popup.classes == "fh-popup-backdrop"
+    popup.attrs == #"data-on:click="evt.target === el && \#(surfaceMod.closeExpr)""#
+    popup.template.startsWith("<dialog open class=\"fh-popup\">")
   }
 
   ["the popup's ✕ is a touch target, and a member row has an edge"] {

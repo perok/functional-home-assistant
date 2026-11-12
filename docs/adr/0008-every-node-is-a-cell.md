@@ -223,8 +223,14 @@ framework-agnostic, and a new look is a sibling module exporting a
   shape (`CardDef.isStructure`).
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
   card moves its markup into the root fields to be one. The library's cards
-  have, except where the root cannot be static: an id the root carries itself
-  (`if`'s and a var cycle's host), or several top-level elements (popup, slider text).
+  have, except two whose inner host carries an id of its own beside the
+  node's, which one element cannot hold: `if`'s host and a variable cycle's
+  (the regions work settles them). A root may
+  still be `display:contents` on purpose, when what it holds is laid out by
+  the parent: the slider head's (its label line and track are the card's
+  rows) and the slider text's (its two lines are the head's grid items). The
+  popup's root is its backdrop, holding the dialog; only a click on the
+  backdrop itself closes it.
 - A root that differs by a fact known at build time is one card name per
   form, each with a constant def (`Node.variants`; the node's `card` and
   `cardDef` pick on the same fact, so `cardsIn`'s one def per name holds): a

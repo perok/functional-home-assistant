@@ -161,12 +161,12 @@ class SliderHead extends nodes.ActiveNode {
 }
 
 /// The label and its second line: the head's only moving bytes, so a node and
-/// a patch target of their own. `display:contents` on its cell, so the group's
-/// grid still places `strong` and `.fh-sub`.
+/// a patch target of their own. Its root is `display:contents`, so the head
+/// lays out `strong` and `.fh-sub` (a group's in two grid rows).
 class SliderText extends nodes.Node {
   card = "sliderText"
-  cellClasses { "fh-slider-text" }
   cardDef = new nodes.CardDef {
+    classes = "fh-slider-text"
     template = """
       <strong class="\(textMod.BOX)">\(textMod.run(labelSlot))</strong>\(secondarySlot.ifSet(#"<span class="fh-sub \#(textMod.BOX)">\#(textMod.liveRun(secondarySlot))</span>"#))
       """
