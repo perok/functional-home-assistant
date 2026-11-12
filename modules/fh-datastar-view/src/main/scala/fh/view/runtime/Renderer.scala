@@ -43,7 +43,8 @@ private[runtime] case class Painted(
     // The digest, not the bytes: holding them kept 99 kB of a 128 kB page a
     // second time.
     digest: Digest,
-    signals: Map[SignalId, SlotValue]
+    signals: Map[SignalId, SlotValue],
+    values: Option[Map[String, SlotValue]] = None
 )
 
 /** A walk's accumulator: what each own-rendering node painted, and the signals
@@ -56,7 +57,7 @@ private[runtime] final class Trace {
   val seeded = new java.util.HashMap[NodeId, Map[SignalId, SlotValue]]()
   def holds: Map[NodeId, Held] =
     own.asScala.view.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> Held(Some(p.digest), p.signals, p.values)
     }.toMap ++
       seeded.asScala.view.map { case (id, s) => id -> Held(signals = s) }
 }
@@ -1166,6 +1167,8 @@ class Renderer(validated: Dashboard.Validated) {
     * give the saving back: 0.28 µs against a 5.45 µs render
     * (`RenderBench.byteSlotResolve` vs `tickRender`).
     *
+    * Values, not their text: a section reads `false` and `"false"` differently.
+    *
     * `None` means "cannot answer cheaply", never "unchanged": a member. A bake
     * owner raises instead: it is structure and never cached, and a quiet `None`
     * here would serve stale bytes.
@@ -1174,7 +1177,7 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       shared: Shared,
       fragments: FetchSnapshot
-  ): Option[Map[String, String]] =
+  ): Option[Map[String, SlotValue]] =
     allIndexed.get(id).flatMap {
       case (c: Ready.Component, _) if hasOwnRendering(id) =>
         if (surfaces.bakeGroup(id).nonEmpty)
@@ -1186,7 +1189,7 @@ class Renderer(validated: Dashboard.Validated) {
               "than tolerated."
           )
         val plan = planOf(id, c, shared)
-        val b = Map.newBuilder[String, String]
+        val b = Map.newBuilder[String, SlotValue]
         val in = lookupAt(fragments, plan.id, shared.states)
         plan.dynamic.foreach { case (slot, srcEntity, source) =>
           // A live cell slot is always a signal, so only names reach here.
@@ -1194,7 +1197,14 @@ class Renderer(validated: Dashboard.Validated) {
             b += (
               (
                 SlotKey.label(slot),
-                resolveSlot(srcEntity, source, shared, fragments, plan.id, in)
+                resolveSlotValue(
+                  srcEntity,
+                  source,
+                  shared,
+                  fragments,
+                  plan.id,
+                  in
+                )
               )
             )
         }
@@ -1252,7 +1262,9 @@ class Renderer(validated: Dashboard.Validated) {
   ) {
 
     def claims: Map[NodeId, Held] =
-      own.map { case (id, p) => id -> Held(Some(p.digest), p.signals) } ++
+      own.map { case (id, p) =>
+        id -> Held(Some(p.digest), p.signals, p.values)
+      } ++
         seeded.map { case (id, s) => id -> Held(signals = s) }
   }
 
@@ -1442,12 +1454,24 @@ class Renderer(validated: Dashboard.Validated) {
 
         // In patch form, as `renderNodeById` produces.
         val own = Option.when(plan.ownRendering) {
+          // What [[byteSlotValues]] answers for this node: only the static
+          // tree's, as it does.
+          val values = Option.when(within == WalkAt.Static) {
+            val b = Map.newBuilder[String, SlotValue]
+            plan.dynamic.foreach { case (slot, _, _) =>
+              if (!plan.signalSlots.contains(slot))
+                resolved.paint
+                  .get(slot)
+                  .foreach(v => b += ((SlotKey.label(slot), v)))
+            }
+            b.result()
+          }
           if (twoForms) {
             val digest = Sink.scratched(_.digesting { buf =>
               bodyInto(buf, SlotForm.Patch)
             })
-            Painted(digest, resolved.signals)
-          } else Painted(inlineDigest.nn, resolved.signals)
+            Painted(digest, resolved.signals, values)
+          } else Painted(inlineDigest.nn, resolved.signals, values)
         }
         // Keyed by the plan's id, not this paint's: `holds` keeps the key per
         // session, and a fresh string each paint was a third of an entry.
@@ -1960,20 +1984,8 @@ class Renderer(validated: Dashboard.Validated) {
     case _: Ready.SetNode => Map.empty
   }
 
-  /** Resolves before any state arrives, so a `domain` action still works. */
-  private def resolveSlot(
-      srcEntity: Option[String],
-      source: Planned.Live,
-      shared: Shared,
-      fragments: FetchSnapshot,
-      node: NodeId,
-      in: Evaluator.Lookup
-  ): String =
-    SlotValue.text(
-      resolveSlotValue(srcEntity, source, shared, fragments, node, in)
-    )
-
-  /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
+  /** Resolves before any state arrives, so a `domain` action still works. Keeps
+    * a boolean boolean ([[SlotValue]]); `false` never falls through to
     * `default`.
     */
   private def resolveSlotValue(

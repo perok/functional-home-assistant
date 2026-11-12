@@ -1,6 +1,7 @@
 # Plan: what the render cache is for, and a key made of values
 
-**State:** plan only, nothing agreed. Measure first; the design rounds below decide what is built.
+**State:** round 2 built (the user's go of 2026-11-12, given for the night's run); rounds 1, 3 and 4
+undecided.
 
 ## Why
 
@@ -40,9 +41,11 @@ client's, all misses, 2.0% more.
    reaches a leaf's patch bytes (the ids, `dashboardSlug`, a fetch slot's bytes, which a hash or the
    fetch's version would stand for). Cost: resolving the byte slots measured 0.28 µs against a
    5.45 µs render (`RenderBench.byteSlotResolve` vs `tickRender`).
-2. **Skip per session, before rendering.** If `holds` kept a hash of those values instead of
-   (or beside) the bytes' digest, a session could tell "nothing to send" without rendering or
-   looking anything up, which is the common signal-only tick.
+2. **Skip per session, before rendering.** *Built* (ADR 0012, "A session asks its own `holds`
+   first"): `Held.values` beside the digest, the values themselves rather than a hash, since a
+   home dashboard's byte slots are few and short. Left open: a suppressed morph records nothing,
+   so a node whose values moved while its bytes did not renders on every later tick until its
+   bytes move; closing it needs a holds-only update, which `Addressed` has no form for.
 3. **Is sharing across viewers worth its machinery?** Each lookup is a `MapRef` compare-and-set, a
    `Deferred` and an uncancelable region. A hit no longer pays them ("Done ahead"); a miss does. With 1 and 2, what is left to share is the render on a byte
    tick, which a home dashboard's handful of viewers may not need: compare keeping single-flight,
@@ -59,7 +62,7 @@ went from 1,167,658 to 972,138 (-16.7%). One viewer is the common home case, so 
 win that back: round 2 (a session skipping by its own `holds`) removes the miss on a signal-only
 tick altogether, and is the first thing to measure against `resumeSignals`.
 
-**Round 2, spiked.** `Held` keeps the byte-slot values its digest was rendered from (the page
+**Round 2, measured as spiked and as built** (the same numbers). `Held` keeps the byte-slot values its digest was rendered from (the page
 seeds them; a morph records its own), and `Patches.morph` returns nothing when the values a session
 holds equal the resolved ones, before any cache lookup. Escape analysis off:
 
@@ -81,7 +84,8 @@ clause), compared as `SlotValue`s, not text.
 
 ## Steps
 
-To be written once the rounds are decided.
+1. Round 2: done.
+2. The rest once rounds 1, 3 and 4 are decided.
 
 ## Docs
 

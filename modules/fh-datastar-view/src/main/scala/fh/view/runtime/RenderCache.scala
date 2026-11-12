@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.effect.kernel.Deferred
 import cats.effect.std.MapRef
-import fh.view.model.NodeId
+import fh.view.model.{NodeId, SlotValue}
 
 import java.util.concurrent.ConcurrentHashMap
 
@@ -65,7 +65,7 @@ private[runtime] final class RenderCache(
       id: NodeId,
       renderer: Renderer,
       inputs: RenderInputs,
-      byteValues: () => Option[Map[String, String]] = () => None
+      byteValues: () => Option[Map[String, SlotValue]] = () => None
   )(
       render: IO[String]
   ): IO[NodeBytes] =
@@ -82,7 +82,7 @@ private[runtime] final class RenderCache(
       id: NodeId,
       renderer: Renderer,
       inputs: RenderInputs,
-      byteValues: Option[Map[String, String]],
+      byteValues: Option[Map[String, SlotValue]],
       render: IO[String]
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
@@ -156,7 +156,7 @@ private[runtime] object RenderCache {
 
   private[runtime] case class Gen(
       inputs: RenderInputs,
-      byteValues: Option[Map[String, String]],
+      byteValues: Option[Map[String, SlotValue]],
       slot: Deferred[IO, Either[Throwable, NodeBytes]]
   )
 

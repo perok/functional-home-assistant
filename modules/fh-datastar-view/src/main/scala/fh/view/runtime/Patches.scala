@@ -550,13 +550,26 @@ private[runtime] object Patches {
       shared: Shared,
       viewing: Viewing,
       id: NodeId
-  ): IO[Option[Addressed]] =
-    bytes(renderer, cache, id, shared, viewing).map(_.flatMap {
-      case NodeBytes(html, digest) =>
-        Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
-          Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
-        )
-    })
+  ): IO[Option[Addressed]] = {
+    // Equal byte-slot values, equal patch bytes (`DigestPropertySuite`): what
+    // this viewer holds already answers, with no render and no cache lookup.
+    // A suppressed morph records nothing, so a node whose values moved without
+    // its bytes renders again on every later tick until its bytes move.
+    val values = renderer.byteSlotValues(id, shared, viewing.fragments)
+    val held = holds.get(id)
+    if (values.isDefined && held.exists(_.values == values))
+      IO.pure(None)
+    else
+      bytes(renderer, cache, id, shared, viewing, () => values).map(_.flatMap {
+        case NodeBytes(html, digest) =>
+          Option.when(!held.flatMap(_.digest).contains(digest))(
+            Addressed(
+              Patch.Morph(html),
+              Map(id -> Held(Some(digest), values = values))
+            )
+          )
+      })
+  }
 
   /** Through the slug's [[RenderCache]], so N sessions woken together render a
     * node once; a node without a sound key renders uncached.
@@ -566,16 +579,12 @@ private[runtime] object Patches {
       cache: RenderCache,
       id: NodeId,
       shared: Shared,
-      viewing: Viewing
+      viewing: Viewing,
+      values: () => Option[Map[String, SlotValue]]
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, shared, viewing.fragments) match {
       case Some(inputs) =>
-        cache(
-          id,
-          renderer,
-          inputs,
-          () => renderer.byteSlotValues(id, shared, viewing.fragments)
-        )(
+        cache(id, renderer, inputs, values)(
           IO(
             mustRender(
               renderer.renderNodeById(id, shared, viewing),
@@ -603,7 +612,14 @@ private[runtime] object Patches {
       viewing: Viewing
   ): IO[Option[(String, Map[NodeId, Held])]] =
     if (renderer.memberIsTarget(id))
-      bytes(renderer, cache, id, shared, viewing).map(
+      bytes(
+        renderer,
+        cache,
+        id,
+        shared,
+        viewing,
+        () => renderer.byteSlotValues(id, shared, viewing.fragments)
+      ).map(
         _.map(b => b.html -> Map(id -> Held.bytes(b.digest)))
       )
     else

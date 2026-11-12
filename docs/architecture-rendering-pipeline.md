@@ -108,7 +108,7 @@ flowchart TB
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
   VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
-  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: digest + signals),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
+  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: digest, byte-slot values, signals),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
@@ -1533,7 +1533,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `filled`, `removed`, `placed`, `since` |
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
-| what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
+| what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest, byte-slot values, signals) / `position` |
 | the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the patch form's digest, only for a node that has one), `render` (a leaf's patch form, written directly; the root's holes, `cellInto`/`cellClassesInto`, are shared with the walk) |
 | a signal's name, and a node's inputs | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
@@ -1707,7 +1707,9 @@ Live list — delete an entry when it is answered, and say where the answer land
   first — so the `RenderCache` removes about three quarters of it and is earning its place. A hit
   on equal inputs now reads the entry and nothing else (no byte-slot values, no `Deferred`, no
   CAS): `resumeSignalsFanout` allocated 16.7% less (1,167,658 -> 972,138 B/op, escape analysis
-  off), while one client's tick, all misses, pays 2.0% more for the peek. What remains is
+  off). A session whose `holds` already has a node's byte-slot values skips it before the
+  cache (ADR 0012): one client's tick 163,317 -> 127,477 B/op, ten clients' 972,138 -> 866,842.
+  What remains is
   unprofiled: the changelog read, the visibility narrowing, the digest compare, the signal diff
   against `Held.signals`.
 
@@ -1727,7 +1729,8 @@ Live list — delete an entry when it is answered, and say where the answer land
   when the inputs miss, and `RenderCache.apply` reuses an entry carrying the same ones:
   `resumeSignals` 262 µs / 442 kB -> **102 µs / 151 kB**, landing on `resumeSignalsPure`'s
   106 µs. A signals tick is now the cheap one. Note the saving is one render per tick per SLUG,
-  not per client — the clients behind the first already shared its render.
+  not per client — the clients behind the first already shared its render. Before the cache, a
+  session compares the values with what its own `holds` recorded and skips the node outright.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the

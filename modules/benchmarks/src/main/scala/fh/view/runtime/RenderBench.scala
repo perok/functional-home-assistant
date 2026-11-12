@@ -447,14 +447,14 @@ class RenderBench {
     // the case the suppression exists to avoid measuring.
     val paint = signalled.renderPageTraced(st)
     heldAfterPaint = paint.own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> Held(Some(p.digest), p.signals, p.values)
     }
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
     val purePaint = pure.renderPageTraced(st)
     heldPure = purePaint.own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> Held(Some(p.digest), p.signals, p.values)
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()

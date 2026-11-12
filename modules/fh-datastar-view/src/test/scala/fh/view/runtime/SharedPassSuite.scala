@@ -1,7 +1,6 @@
 package fh.view.runtime
 
 import fh.view.testkit.TestCard
-import fh.view.fetch.FetchSnapshot
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
@@ -16,6 +15,7 @@ import fh.view.model.{
   TemplateSlot
 }
 import fh.view.testkit.TestIds.given
+import RendererTestOps.heldFor
 
 import scala.concurrent.duration.*
 
@@ -66,15 +66,8 @@ class SharedPassSuite extends ServerHarness {
         held <- session.state.map(_.holds)
         now <- ts.store.current
       } yield {
-        val renderer = Renderer.create(twoLeafDash)
         def rendered(id: NodeId) =
-          renderer
-            .renderNodeById(
-              id,
-              Shared.of(now.entities),
-              Viewing(Selections.none, FetchSnapshot.empty)
-            )
-            .map(Held.of)
+          Renderer.create(twoLeafDash).heldFor(id, now.entities)
         // The repaint claimed everything it painted, and the tick re-claimed
         // the one node that moved at its new bytes: a record of what this
         // connection was sent.

@@ -30,7 +30,8 @@ So there is no audience tag on a patch and no per-client filter at the wire edge
 patch exists only because the session that will send it asked for it.
 
 **"Does this client already have these bytes?" is a per-session question, and only
-that.** `Session.holds` is a node-to-digest map seeded by the DOCUMENT that created the
+that.** `Session.holds` maps a node to the digest of what this client has (and, for a static-tree
+node, the byte-slot values it came from), seeded by the DOCUMENT that created the
 session — the page render is the first and largest thing that puts fragments in this
 client's DOM, and the only place that knows what they were. It is written where bytes
 are SENT to this client, never from what another client was told and never from what a
@@ -95,6 +96,18 @@ displacing fresher bytes, so this is a pre-check that skips the render, not a ne
 105.9 µs — the shipped card now costs what a card the key already protected costs. The saving is
 one render per tick per SLUG, not per client: the clients behind the first were already sharing its
 render. `RenderBench`'s `resumeSignals` / `resumeSignalsPure` pair is where those numbers come from.
+
+**A session asks its own `holds` first.** `Held.values` keeps the byte-slot values a node's bytes
+were rendered from (the page walk records them, as does each morph), and `Patches.morph` returns
+nothing when the live values equal them, before any render or cache lookup: equal values, equal
+patch bytes, since a static-tree node's patch form is its renderer, its id and those values
+(`DigestPropertySuite` pins the walk and the live path to the same values). Compared as
+`SlotValue`s, not their text, since a section reads `false` and `"false"` differently. A member
+records none (its bytes also depend on its clause), so it goes to the cache as before. Escape
+analysis off: one client's signal-only tick 163,317 -> 127,477 B/op (`resumeSignals`), ten
+clients' 972,138 -> 866,842 (`resumeSignalsFanout`). A suppressed morph records nothing, so a
+node whose values moved while its bytes did not renders again on each later tick until its bytes
+move; a holds-only update would close that, and nothing measured asks for it yet.
 
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers

@@ -117,6 +117,31 @@ class DigestPropertySuite extends HedgehogSuite {
     }
   }
 
+  property(
+    "a leaf's recorded values are the live path's, and decide its bytes"
+  ) {
+    // `Patches.morph` skips a node whose held values equal the live ones, so
+    // the walk's values must be the live path's, and equal values equal bytes.
+    for {
+      v <- genValue.forAll
+      w <- genValue.forAll
+      signal <- genSignal.forAll
+    } yield {
+      val r = Renderer.create(dashboard(signal))
+      val id = NodeId.derived("c")
+      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val recorded = r.renderBodyTraced(at(v), viewing).own.values.head.values
+      def values(s: String) = r.byteSlotValues(id, at(s), FetchSnapshot.empty)
+      def bytes(s: String) = r.renderNodeById(id, at(s), viewing)
+      Result.all(
+        List(
+          Result.assert(recorded.isDefined && recorded == values(v)),
+          Result.assert(values(v) != values(w) || bytes(v) == bytes(w))
+        )
+      )
+    }
+  }
+
   property("a member's recorded digest matches what the live path renders") {
     for {
       v <- genValue.forAll

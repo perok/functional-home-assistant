@@ -419,8 +419,9 @@ shared one.
 **Mutation (Gone / Placed)** — a structural change in the log: a node left the DOM, or arrived.
 Replayed to a reconnecting client as a remove and an insert.
 
-**Holds** — one session's map of `node id -> digest of the bytes that tab currently has`. The answer
-to "does this client already have this?", asked per session and nowhere else.
+**Holds** — one session's map of `node id -> what that tab currently has`: the digest of the
+node's bytes, the byte-slot values they were rendered from where known, and its signal values
+(`Held`). The answer to "does this client already have this?", asked per session and nowhere else.
 
 **Digest** — a hash of a node's own HTML, so "unchanged" is cheap to decide without keeping the
 bytes.

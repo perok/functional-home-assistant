@@ -41,14 +41,19 @@ private[runtime] object Digest {
   */
 private[runtime] case class Held(
     digest: Option[Digest] = None,
-    signals: Map[SignalId, SlotValue] = Map.empty
+    signals: Map[SignalId, SlotValue] = Map.empty,
+    // The byte-slot values `digest`'s bytes were rendered from, when known;
+    // never set without `digest`.
+    values: Option[Map[String, SlotValue]] = None
 ) {
 
   /** `later` says nothing by being absent, so re-sending one of two signals
-    * cannot drop the other.
+    * cannot drop the other. `values` belong to their digest: new bytes take
+    * theirs, even none.
     */
   def merge(later: Held): Held =
-    Held(later.digest.orElse(digest), signals ++ later.signals)
+    if (later.digest.isDefined) later.copy(signals = signals ++ later.signals)
+    else copy(signals = signals ++ later.signals)
 }
 
 private[runtime] object Held {

@@ -15,6 +15,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
+import RendererTestOps.heldFor
 import io.circe.Json
 
 /** End to end over the real stream, with several clients: what one connection
@@ -209,16 +210,10 @@ class LiveStreamSuite extends ServerHarness {
         )
       )
     )
-    val painted = Held.of(
-      Renderer
-        .create(dash)
-        .renderNodeById(
-          "s_det__c_0",
-          Shared.of(Map("sensor.a" -> es("sensor.a", "cold"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
-        )
-        .get
-    )
+    val painted = Renderer
+      .create(dash)
+      .heldFor("s_det__c_0", Map("sensor.a" -> es("sensor.a", "cold")))
+      .get
     val node = NodeId.derived("s_det__c_0")
     live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
       for {
@@ -343,14 +338,7 @@ class LiveStreamSuite extends ServerHarness {
     // Holding exactly what a patch for that node alone would carry, which makes
     // the two comparable.
     val leaf: NodeId = "s_then__c_0"
-    assertEquals(
-      patch.establishes.get(leaf),
-      r.renderNodeById(
-        leaf,
-        Shared.of(armed),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      ).map(Held.of)
-    )
+    assertEquals(patch.establishes.get(leaf), r.heldFor(leaf, armed))
     val root = NodeId.derived("s_then__c")
     assertEquals(
       r.renderNodeById(
