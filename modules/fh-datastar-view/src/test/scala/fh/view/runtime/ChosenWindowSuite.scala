@@ -162,4 +162,31 @@ class ChosenWindowSuite extends munit.FunSuite {
     // Over state the build cannot know: the choice decides at render.
     assertEquals(dash(chart(byState())).validate(), Nil)
   }
+
+  test(
+    "a `by` that reads a fetch is refused, not thrown at its declared value"
+  ) {
+    val past = ValueExpr(
+      Value.Fetch(FetchTemplate("sensor.t", Choice.Fixed(Windows.day)))
+    )
+    val by = ValueExpr(
+      Value.Cel("size(past) > 0 ? '24h' : '4h'", Map("past" -> past))
+    )
+    val errs = dash(chosenBy(by, Case(Lit.Text("24h"), Windows.day))).validate()
+    // It types, so only the fetch rule stands between it and evaluating `by`.
+    assert(!errs.exists(_.contains("does not type")), clue = errs)
+    assert(
+      errs.exists(_.contains("chooses its window by a fetch")),
+      clue = errs
+    )
+  }
+
+  test("a constant `by` no case takes is refused without naming a variable") {
+    refused(
+      dash(
+        chosenBy(ValueExpr.literal("4h"), Case(Lit.Text("24h"), Windows.day))
+      ),
+      "chooses its window by a value no case takes: '4h' is not one of 24h"
+    )
+  }
 }

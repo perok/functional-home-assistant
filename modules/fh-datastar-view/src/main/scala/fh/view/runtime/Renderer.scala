@@ -370,9 +370,9 @@ class Renderer(validated: Dashboard.Validated) {
       f: FetchTemplate,
       vars: Map[String, String]
   ): Option[String] = f.window match
-    case c @ Choice.Chosen(by, cases, None) if by.entities.isEmpty =>
+    case c @ Choice.Chosen(by, cases, _) if c.refusesUntaken =>
       val read = dashboard.answer(Map.empty, Evaluator.Lookup.of(vars))(by)
-      Option.unless(Choice.keyOf(read).exists(c.table.contains))(
+      Option.unless(c.takes(read))(
         s"'${Steps.text(read)}' is not one of " +
           cases.map(k => Steps.text(k.is.raw)).sorted.mkString(", ")
       )
@@ -1144,9 +1144,8 @@ class Renderer(validated: Dashboard.Validated) {
     val asks = asked(c, shared)
     if (asks.isEmpty) Map.empty
     else
-      fragments.versions(
-        asks.flatMap(readOf(_, shared.states, fragments.varsAt(id)))
-      )
+      val vars = fragments.varsAt(id)
+      fragments.versions(asks.flatMap(readOf(_, shared.states, vars)))
 
   private def varsRead(
       id: NodeId,

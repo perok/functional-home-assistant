@@ -263,6 +263,17 @@ enum Choice[+A] derives CanEqual:
     case Fixed(_)         => Nil
     case Chosen(by, _, _) => by.entities
 
+  /** Whether the viewer's variables alone decide `by` (it reads no entity and
+    * no fetch) with no `otherwise` to fall back on: then a value no case
+    * [[takes]] is refused at the write and checked at the declared value.
+    */
+  def refusesUntaken: Boolean = this match
+    case Chosen(by, _, None) => by.entities.isEmpty && by.fetches.isEmpty
+    case _                   => false
+
+  /** Whether a case takes what `by` read. */
+  def takes(read: Any): Boolean = Choice.keyOf(read).exists(table.contains)
+
   def all: List[A] = this match
     case Fixed(a)                    => List(a)
     case Chosen(_, cases, otherwise) => cases.map(_.value) ++ otherwise

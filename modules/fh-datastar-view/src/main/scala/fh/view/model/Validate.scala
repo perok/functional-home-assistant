@@ -235,17 +235,19 @@ private[model] object Validate:
             )
             .toList
           val declared =
-            if (
-              refErrors.nonEmpty || keyType.isLeft || otherwise.isDefined ||
-              by.entities.nonEmpty
-            ) Nil
+            if (refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken) Nil
             else
               val read = FetchTemplate.atDeclared(scope)(by)
+              val reads =
+                if (by.variables.isEmpty)
+                  "chooses its window by a value no case takes"
+                else
+                  s"reads the variable '${by.variables.mkString(", ")}' at " +
+                    "its declared value"
               Option
-                .unless(Choice.keyOf(read).exists(c.table.contains))(
-                  s"$at reads the variable '${by.variables.mkString(", ")}' " +
-                    s"at its declared value: '${Steps.text(read)}' is not one " +
-                    s"of ${cases.map(k => shown(k.is)).sorted.mkString(", ")}"
+                .unless(c.takes(read))(
+                  s"$at $reads: '${Steps.text(read)}' is not one of " +
+                    cases.map(k => shown(k.is)).sorted.mkString(", ")
                 )
                 .toList
           refErrors ++ caseErrors ++ fetchErrors ++ declared ++ problems
