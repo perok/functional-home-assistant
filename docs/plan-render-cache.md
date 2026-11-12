@@ -5,7 +5,10 @@
 ## Why
 
 The render cache (`RenderCache`, ADR 0012) sits on the patch path only: live ticks, reconnect
-resumes and variable writes (`Patches.bytes`); a page load never uses it. It does two jobs, each
+resumes and variable writes (`Patches.bytes`); a page load never uses it, and the numbers say it
+should not: on the Pi (`pkl-demo`, 55 kB) the page spends 21 ms before its first byte and 22 ms
+walking after it, while the browser opens the stream about 400 ms after the document arrives (the
+server answers it in about 20 ms). Only the walk is a cache's to take. It does two jobs, each
 measured (ADR 0012, the pipeline doc's open questions):
 
 - **Within one tick, across viewers.** Sessions woken by one change render each node once between
@@ -24,7 +27,7 @@ for the cache as a whole rather than for variables alone.
 ## Done ahead
 
 A hit on equal inputs reads the entry and nothing else: no byte-slot values, no `Deferred`, no
-compare-and-set (f87fd3b6 on #688's branch). Ten clients' tick allocates 16.7% less; one
+compare-and-set (#688). Ten clients' tick allocates 16.7% less; one
 client's, all misses, 2.0% more.
 
 ## Design rounds
@@ -49,7 +52,7 @@ client's, all misses, 2.0% more.
 
 ## Measure first
 
-**The single viewer pays for the hit path today.** f87fd3b6 made a hit free and a miss dearer: one
+**The single viewer pays for the hit path today.** #688 made a hit free and a miss dearer: one
 client's tick, all misses, went from 160,117 to 163,317 B/op (+2.0%, `resumeSignals`, escape
 analysis off), for the byte-values closure and the `IO.defer` before the old path; ten clients'
 went from 1,167,658 to 972,138 (-16.7%). One viewer is the common home case, so the rounds must
