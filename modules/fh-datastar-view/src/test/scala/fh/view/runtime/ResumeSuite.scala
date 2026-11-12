@@ -397,7 +397,7 @@ class ResumeSuite extends ServerHarness {
     // Backgrounding a phone tab must not dismiss the dialog. Its host sits
     // outside #dashboard, so it is re-rendered from the client's own claim.
     val hostSelector = s"selector #${Dashboard.PopupHostId}"
-    val hostReset = s"""<div id="${Dashboard.PopupHostId}"></div>"""
+    val hostReset = s"selector #${Dashboard.PopupHostId} > *"
     val withPopup = liveLeafDash.copy(
       surfaces = Map(
         "det" -> Surface(
