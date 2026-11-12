@@ -783,6 +783,7 @@
       "template" : "<strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}"
     }
   },
+  "failedLabel" : "<span class=\"fh-label fh-label-error fh-text\"><span class=\"fh-text-run\">{{text}}</span></span>",
   "surfaces" : {
     
   }

@@ -637,6 +637,8 @@ class Renderer(validated: Dashboard.Validated) {
 
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
+  def offlineBanners: String = dashboard.theme.offlineBanners
+
   def deferredStylesheets: List[String] = dashboard.theme.deferredStylesheets
 
   val themeColorTags: String = Renderer.themeColorTags(dashboard)
@@ -1908,10 +1910,7 @@ class Renderer(validated: Dashboard.Validated) {
     // Answered before the walk began; `FetchSnapshot` raises on a miss.
     case SlotShape.Fetch(ask) =>
       val answer = fragments.staged(node, ask)
-      // The failure is the runtime's own markup (`Fetches.label`), whose
-      // `fh-` classes the theme renames as it does a card's.
-      if (answer.version == Staged.FailedVersion)
-        themeClasses.rewriteTemplate(answer.value)
+      if (answer.version == Staged.FailedVersion) failedLabelText(answer.value)
       else answer.value
     case SlotShape.State(_) =>
       resolveStateSlotValue(
@@ -1921,6 +1920,21 @@ class Renderer(validated: Dashboard.Validated) {
         fetchedIn(fragments, node)
       )
   }
+
+  /** The dashboard's `failedLabel` filled in; nothing for a failure with no
+    * text to show.
+    */
+  private def failedLabelText(text: String): String =
+    if text.isEmpty then ""
+    else {
+      val out = new java.io.StringWriter()
+      Templates.run(
+        templates.failedLabel,
+        out,
+        Renderer.FailedLabelScope(Map("text" -> text))
+      )
+      out.toString
+    }
 
   /** A fetch value's answer, as CEL reads it. */
   private def fetchedIn(fragments: FetchSnapshot, node: NodeId)(
@@ -1995,6 +2009,11 @@ object Renderer {
       case _: Ready.SetNode => Nil
     }
 
+  private final class FailedLabelScope(values: Map[String, String])
+      extends Templates.FhScope {
+    def fhGet(name: String): AnyRef = values.getOrElse(name, null)
+  }
+
   /** The chrome's scope: no names, only the body and dialog holes. */
   private final class PageScope(holes: Map[String, java.io.Writer => Unit])
       extends Templates.FhScope {
@@ -2024,6 +2043,7 @@ object Renderer {
         dashboard.theme.inlineScripts,
         dashboard.cardScripts,
         dashboard.theme.chrome,
+        dashboard.theme.offlineBanners,
         // The one token-derived head part a style patch cannot repair.
         themeColorTags(dashboard)
       ).toString
