@@ -74,6 +74,9 @@ same commit; ADRs that change the pipeline update it too.
    What the test dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
    (`src/test/resources/goldens/`, the same command) hold each body, surface and node patch, so a
    change that moves the wire wholesale can still show it sends the same bytes.
+   For a change meant to move only node ids, **`sbt 'dashboardGoldensVs <rev>'`** (default `HEAD`)
+   renders every golden and compares it with that revision's once ids are numbered by first
+   appearance, naming the first differing line, before you regenerate.
 
    **Use the command; do not hand-roll the flag.** Two footguns it exists to close, both of
    which have fired: a shell `FH_UPDATE_SNAPSHOTS=1` export sticks to the long-lived sbt
