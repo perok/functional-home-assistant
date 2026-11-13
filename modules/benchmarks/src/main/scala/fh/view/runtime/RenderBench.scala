@@ -1629,6 +1629,8 @@ class RenderBench {
   ): List[List[Addressed]] = {
     val at = wireRot.toLong
     val log = nodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
+    // One per version, as `Renderer.shared` hands every session.
+    val shared = Shared.of(moved)
     (1 to clients).toList
       .traverse { _ =>
         Patches.resume(
@@ -1636,7 +1638,7 @@ class RenderBench {
           liveCache,
           log,
           held,
-          Shared.of(moved),
+          shared,
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,

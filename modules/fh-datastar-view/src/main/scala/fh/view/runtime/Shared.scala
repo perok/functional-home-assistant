@@ -3,7 +3,15 @@ package fh.view.runtime
 import fh.view.FHError
 import fh.view.fetch.FetchSnapshot
 import fh.view.history.Series
-import fh.view.model.{NodeId, SetId, SlotAsk, SlotRead, Step}
+import fh.view.model.{
+  NodeId,
+  SetId,
+  SignalId,
+  SlotAsk,
+  SlotRead,
+  SlotValue,
+  Step
+}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -46,6 +54,21 @@ private[runtime] final class Shared private (
   def branch(gid: NodeId, reads: Set[SlotRead])(
       derive: Shared.Fetched => Option[Int]
   ): Option[Int] = decide(tables.branches, gid, reads, None)(derive)
+
+  /** A node's signal values at this version, for a node no viewer's fetch or
+    * variable reaches. Never carried: any change may move them.
+    */
+  inline def signals(id: NodeId)(
+      derive: => Map[SignalId, SlotValue]
+  ): Map[SignalId, SlotValue] = {
+    val got = tables.signals.get(id)
+    if (got != null) got.nn
+    else {
+      val v = derive
+      val _ = tables.signals.putIfAbsent(id, v)
+      v
+    }
+  }
 
   def holds(key: String, reads: Set[SlotRead])(
       derive: Shared.Fetched => Boolean
@@ -158,6 +181,7 @@ private[runtime] object Shared {
     val members = new Table[NodeId, Option[Member]]
     val branches = new Table[NodeId, Option[Int]]
     val gates = new Table[String, java.lang.Boolean]
+    val signals = new ConcurrentHashMap[NodeId, Map[SignalId, SlotValue]]()
   }
 
   private final class Table[K, V] {

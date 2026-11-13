@@ -1951,7 +1951,13 @@ class Renderer(validated: Dashboard.Validated) {
     // Not gated on own rendering: structure's signal slots would be seeded
     // once and then never move.
     nodeAt(id, shared)
-      .map((node, _) => signalsOfSlots(id, node, shared, fragments))
+      .map {
+        // A fetch's answer is the viewer's; a variable cannot reach a signal
+        // (validate refuses it).
+        case (c: Ready.Component, _) if c.fetching.isEmpty =>
+          shared.signals(id)(signalsOfSlots(id, c, shared, fragments))
+        case (node, _) => signalsOfSlots(id, node, shared, fragments)
+      }
       .getOrElse(Map.empty)
 
   /** Through the plan: re-deriving the names per tick was 9.4% of a signals
