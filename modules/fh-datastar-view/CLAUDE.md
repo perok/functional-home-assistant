@@ -125,8 +125,8 @@ same commit; ADRs that change the pipeline update it too.
 |---|---|
 | `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`); `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
-| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.32.1) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
-| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.pkl/cache`, and whichever workspace dir the run was given). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
+| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.33.0) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
+| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.cache/pkl`, and whichever workspace dir the run was given). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
 | `fh/view/build/DumpPackage.scala` | The dump as a content-versioned package (`fh-home@1.0.0-g<hash>`; the lib is versioned the same way, base from `lib/PklProject`), the ONLY form it takes anywhere: `seedFromText` builds + seeds it into the cache and rewrites `.fh/pins.json` on every dump render (server startup + `DumpRefresh`). Consumed by the instance's own eval AND by laptops, via `/system/pkl/packages`. **ADR 0010** owns the packaging and pinning design |
 | `scripts/fh.sc` (repo root) | The laptop CLI: `init`, `pull`, `push` (`--slug`, `--write`, `--watch`), `init-lsp-fix`, `update`. Typelevel toolkit + decline + in-process pkl-core, installed by curl from GitHub raw (`update` sha256-compares against the repo copy); needs only scala-cli. Its own suite is `scripts/fh.test.scala` (weaver), run with `cd scripts && SCALA_TEST_MODE=true scala-cli test .` — the script gates its dispatcher behind that variable — and it is a CI step. **What each command does and why is ADR 0010** (`push --write` sending SOURCE, the `Analyzer.importGraph` watch set, the pkl-CLI bug behind `init-lsp-fix`); that pushing `site.pkl` installs every dashboard it names is ADR 0021 |
 | `fh/view/build/RegistryDump.scala` | **The** dump — there is no second path. Built from the WS registries joined onto the `subscribe_entities` snapshot, which is the SPINE (a LEFT join from states; the registry also lists disabled entities no dashboard can render). Also owns the shared `transform`/`entityKey`/`slug` keying. `build` is pure, so `RegistryDumpSuite` tests it with no HA. Attributes are filtered to `CapabilityAttributes`, widenable via `FH_DUMP_ATTRIBUTES` (comma-separated, additive) — **before adding one, read ADR 0013**: the filter protects the dump's CONTENT HASH, not just freshness, so a volatile attribute re-evaluates every dashboard on every change |
@@ -398,12 +398,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 
 #### Pkl: verify semantics empirically, never from intuition
 
-Pkl (pinned: pkl-core **0.32.1**) has unusual semantics; wrong guesses compile into confusing
+Pkl (pinned: pkl-core **0.33.0**) has unusual semantics; wrong guesses compile into confusing
 errors. When unsure, **run a 2-minute spike** instead of reasoning from analogy: a scratch dir
 with a `lib.pkl` + `entry.pkl` and a scala-cli runner —
 
 ```scala
-//> using dep org.pkl-lang:pkl-core:0.32.1
+//> using dep org.pkl-lang:pkl-core:0.33.0
 import org.pkl.core.*
 @main def run(): Unit =
   val ev = EvaluatorBuilder.preconfigured().build()
@@ -412,8 +412,8 @@ import org.pkl.core.*
   finally ev.close()
 ```
 
-Gotchas spiked on 0.31.1 and carried forward to the 0.32.1 pin — 0.32.x changed no evaluator
-semantics, and the suite still pins the ones it covers (full list: ADR 0006, "Pkl authoring
+Gotchas spiked on 0.31.1 and carried forward to the 0.33.0 pin — 0.32.x changed no evaluator
+semantics, 0.33 broke none of them (the suite still pins the ones it covers) (full list: ADR 0006, "Pkl authoring
 gotchas"):
 
 - Amending ANY parent that isn't a `new` expression **requires outer parens** — method-call
@@ -447,8 +447,10 @@ gotchas"):
 - A module-level function called from inside a **class body** must be `const` (the error says
   so, and offers self-import as the alternative).
 - Classes are **closed for extension** by default — `open class` (or `abstract class`) to
-  subclass. Only stdlib members may have **type parameters**: user-defined generics
-  (`class Box<T>`) are rejected outright. That does NOT force `Any` everywhere: a marker
+  subclass. A user-defined CLASS may not have **type parameters** (`class Box<T>` is rejected
+  outright), but from 0.33 a method may: `function firstOr<T>(xs: List<T>, d: T): T`, called
+  `firstOr<Int>(…)` and checked at the call; without `<…>` it is `unknown`. And `this` is a
+  type (`List<this>`, the subclass when inherited). That does NOT force `Any` everywhere: a marker
   supertype (`abstract class Candidate { entity_id: String }`) states what a container requires,
   and callers recover the concrete type by annotating the lambda parameter — `(e: LightEntity) -> …`
   works, and a WRONG annotation is caught at application.

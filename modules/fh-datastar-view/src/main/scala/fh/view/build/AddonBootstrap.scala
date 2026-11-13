@@ -118,14 +118,19 @@ object AddonBootstrap {
       )
       .spaces2 + "\n"
 
-  /** pkl's own `~/.pkl/cache`, shared with the CLI and pkl-lsp. The add-on
-    * overrides it: in the container it is an image layer, wiped per update. Not
-    * an appdirs path: that read `XDG_DATA_HOME`, and a leaked value pointed a
-    * container at an inaccessible home.
+  /** pkl's own default (`$XDG_CACHE_HOME/pkl`, else `~/.cache/pkl`), shared
+    * with the CLI and pkl-lsp. The add-on overrides it: in the container it is
+    * an image layer, wiped per update.
     */
   def defaultCacheDir: String =
     // pkl internals, not its API; the build.sbt pin keeps this honest.
-    org.pkl.core.util.IoUtils.getDefaultModuleCacheDir().toString
+    Option(org.pkl.core.util.IoUtils.getSystemModuleCacheDir())
+      .getOrElse(
+        sys.error(
+          "pkl has no default package cache dir (no XDG_CACHE_HOME, no user.home); set FH_PKL_CACHE_DIR"
+        )
+      )
+      .toString
 
   /** Here, naming it, rather than as an I/O error per dashboard. */
   private def requireUsableCacheDir(cacheDir: os.Path): Unit =
@@ -201,7 +206,7 @@ object AddonBootstrap {
        |///
        |///   FH_PKL_CACHE_DIR  where resolved packages live. Unset, and with no
        |///                     `cacheDir` in machine.json, this is pkl's own
-       |///                     `~/.pkl/cache` — the one your pkl-lsp and `pkl`
+       |///                     `~/.cache/pkl` — the one your pkl-lsp and `pkl`
        |///                     CLI already use, so nothing has to be declared.
        |///   FH_INSTANCE_URL   the instance whose `/system/pkl/packages/` serves
        |///                     `@fh-dashboard` and `@fh-home`. With neither this

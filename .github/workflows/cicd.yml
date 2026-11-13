@@ -109,7 +109,7 @@ jobs:
       # different version would be testing different semantics than we ship.
       - uses: pkl-community/setup-pkl@v0
         with:
-          pkl-version: "0.32.1"
+          pkl-version: "0.33.0"
 
       - parallel:
           - name: Fmt check
