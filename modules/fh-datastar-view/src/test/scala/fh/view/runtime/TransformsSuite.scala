@@ -66,8 +66,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
   }
 
   test("CEL reads attr through its own map type as it reads a plain map") {
-    // `javaAttributes` is cel-java's internal `MutableMapValue`, so an upgrade
-    // that changes how CEL reads one shows here.
+    // `javaAttributes` is our own `CelValue` map, so an upgrade that changes
+    // how CEL reads one shows here.
     val attrs = Map(
       "brightness" -> Json.fromInt(180),
       "rgb_color" -> Json.arr(Json.fromInt(255), Json.fromInt(170)),

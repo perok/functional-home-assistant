@@ -1132,6 +1132,23 @@ class RenderBench {
     )
   }
 
+  /** [[resumeSignals]] with each ticked light reporting what a Hue colour bulb
+    * does ([[LightAttributes]]): a new state converts what CEL reads of `attr`.
+    */
+  @Benchmark
+  def resumeSignalsLight(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(
+        signalled,
+        heldAfterPaint,
+        tickNodeIds,
+        signalTick(wireRot, LightAttributes),
+        1
+      )
+    )
+  }
+
   /** [[resumeSignals]] where the ticked nodes are candidate-set MEMBERS, so
     * every render and cache key first finds the member (`MemberGraph.memberAt`)
     * — the one reader path a static node never takes.
@@ -1661,13 +1678,19 @@ class RenderBench {
     * moved reaches only signal slots. See [[resumeSignalsPure]].
     */
   private def signalTick(rot: Int): Map[String, EntityState] =
+    signalTick(rot, Map.empty)
+
+  private def signalTick(
+      rot: Int,
+      rest: Map[String, Json]
+  ): Map[String, EntityState] =
     tickEntities.zipWithIndex.foldLeft(st) { case (acc, (e, i)) =>
       acc.updated(
         e,
         EntityState(
           e,
           if ((rot + i) % 2 == 0) "on" else "off",
-          Map(
+          rest ++ Map(
             // UNCHANGED: this is the only attribute the bytes carry.
             "friendly_name" -> Json.fromString(s"Tile number $i"),
             "brightness" -> Json.fromInt(1 + (rot * 7 + i * 13) % 254),

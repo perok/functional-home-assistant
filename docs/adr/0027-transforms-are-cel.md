@@ -103,12 +103,16 @@ Dashjoin is gone from the build, benchmarks included.
   entity's own cached references, unboxed.
 - **`attr` is CEL's own map type.** cel-java 0.14.0 converts a plain
   `java.util.Map` on every read of `attr`, walking every attribute, and passes
-  its own `CelValue`s through; so `javaAttributes` is a `MutableMapValue`,
-  built once per state. It is an `@Internal` class, used knowingly: the
-  fallback is the plain map, and `TransformsSuite` pins that CEL reads both the
-  same. Measured: `page` 726 → 589 µs, `pageLightAttributes` (a Hue bulb's
-  attributes on every light) 922 → 631 µs. Upstream `main` stops the walk for a
-  select chain (`attr.x`) but not for a bare `attr` (`'k' in attr`).
+  its own `CelValue`s through; so `javaAttributes` is our own `CelValue` map
+  (`EntityState.LazyAttrs`, shaped as cel-java's `MutableMapValue`, which
+  copies what it wraps), converting each attribute when first read and keeping
+  it. The fallback is the plain map, and `TransformsSuite` pins that CEL reads
+  both the same. Measured against the plain map: `page` 726 → 589 µs,
+  `pageLightAttributes` (a Hue bulb's attributes on every light) 922 → 631 µs;
+  against converting every attribute once per state, a signal tick on Hue
+  bulbs (`resumeSignalsLight`) 219 → 133 kB and 80 → 60 µs, at +19 ns on a
+  fresh state's first read (`conditionAttr`). Upstream `main` stops the walk
+  for a select chain (`attr.x`) but not for a bare `attr` (`'k' in attr`).
 - **The fast tier beside it is a closed catalog (`Step.Simple`).** The
   shapes the library bakes that CAN be read as data — the raw `state` read,
   the guarded attribute read, the fallback-to-id name, the unit suffix, a
