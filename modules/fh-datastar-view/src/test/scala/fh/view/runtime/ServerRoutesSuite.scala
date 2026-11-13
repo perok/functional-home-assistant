@@ -289,6 +289,28 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("the page names an icon the server serves, and asks for no buffering") {
+    TestServer
+      .resource(titleDash("home", None), Nil)
+      .use { s =>
+        for {
+          page <- s.pageResponse()
+          html <- page.as[String]
+          href = """<link rel="icon" href="([^"]+)">""".r
+            .findFirstMatchIn(html)
+            .map(_.group(1))
+          icon <- href.traverse(h => s.get(Uri.unsafeFromString(s"/$h")))
+        } yield {
+          assertEquals(
+            page.headers.get(CIString("X-Accel-Buffering")).map(_.head.value),
+            Some("no")
+          )
+          assertEquals(icon.map(_.status), Some(Status.Ok), clue = html)
+        }
+      }
+      .timeout(30.seconds)
+  }
+
   test("the page head links the manifest and registers the service worker") {
     pageHtml(titleDash("home", None)).map { html =>
       assert(

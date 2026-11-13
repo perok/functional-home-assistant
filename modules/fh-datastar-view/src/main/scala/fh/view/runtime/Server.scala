@@ -1763,7 +1763,11 @@ class Server(
         }
         .onFinalize(fetch.cancel)
       resp <- Ok(body)
-    } yield resp.withContentType(`Content-Type`(MediaType.text.html))
+      // nginx (the add-on's proxy) otherwise buffers and gzips the whole page
+      // before the first byte, so the head no longer arrives first.
+    } yield resp
+      .withContentType(`Content-Type`(MediaType.text.html))
+      .putHeaders(Header.Raw(CIString("X-Accel-Buffering"), "no"))
   }
 
   /** A self-contained page for a slug whose build failed: no theme, session or
@@ -1933,6 +1937,7 @@ class Server(
        |  $themeColorTags
        |  <base href="$baseHref">
        |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
+       |  <link rel="icon" href="icon-192.png">
        |  $pageTitle
        |  <script>${Server.ShellScript}</script>
        |  <script>${Server.swRegisterCall}</script>
