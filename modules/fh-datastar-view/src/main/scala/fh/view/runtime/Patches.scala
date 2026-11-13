@@ -16,6 +16,8 @@ import fh.view.model.{
 import fh.view.model.DomId.selector
 import io.circe.Json
 
+import scala.collection.immutable.HashMap
+
 /** One DOM patch, rendered to SSE only at the edge. A `Morph` carries its
   * target's id inside `html`; `Signals` touches no element (ADR 0017). Targets
   * are [[DomId]]s, never a [[NodeId]], with the `#` added here.
@@ -511,36 +513,51 @@ private[runtime] object Patches {
       fragments: FetchSnapshot,
       ids: List[NodeId]
   ): List[Addressed] = {
-    // One pass: a collections pipeline was 19% of a signals tick's allocation
-    // (`RenderBench.resumeSignals`). Never key a node's signals by node id —
-    // that silently keeps one of the slider's four.
-    val payload = Map.newBuilder[SignalId, Json]
-    val heldB = Map.newBuilder[NodeId, Held]
+    // Per session and per signal, so no tuple, `Some` or builder that a
+    // lookup or a pair-taking `+=` would allocate: this was most of an extra
+    // client's cost (`RenderBench.resumeSignalsFanout`). Never key a node's
+    // signals by node id — that silently keeps one of the slider's four.
+    val payload = HashMap.newBuilder[SignalId, Json]
+    val heldB = HashMap.newBuilder[NodeId, Held]
     var anyMoved = false
     ids.foreach { id =>
-      val held = holds.get(id).fold(Map.empty[SignalId, SlotValue])(_.signals)
-      val nodeB = Map.newBuilder[SignalId, SlotValue]
-      var nodeMoved = false
-      renderer.signalsFor(id, shared, fragments).foreach { case (name, value) =>
-        if (!held.get(name).contains(value)) {
+      val held = holds.get(id) match
+        case Some(h) => h.signals
+        case None    => Map.empty[SignalId, SlotValue]
+      val now = renderer.signalsFor(id, shared, fragments)
+      var moved = 0
+      now.foreachEntry { (name, value) =>
+        if (!holdsValue(held, name, value)) {
           // A JSON boolean: the string `"false"` is truthy in every binding.
-          payload += ((
+          payload.addOne(
             name,
             value match
               case b: Boolean => Json.fromBoolean(b)
               case s: String  => Json.fromString(s)
-          ))
-          nodeB += ((name, value))
-          nodeMoved = true
+          )
+          moved += 1
         }
       }
-      if (nodeMoved) {
-        heldB += ((id, Held(signals = nodeB.result())))
+      if (moved > 0) {
+        // Usually every one moved, and then the node's map is the held one.
+        val nodeHeld =
+          if (moved == now.size) now
+          else now.filter((name, value) => !holdsValue(held, name, value))
+        heldB.addOne(id, Held(signals = nodeHeld))
         anyMoved = true
       }
     }
     if (!anyMoved) Nil
     else List(Addressed(Patch.Signals(payload.result()), heldB.result()))
+  }
+
+  private def holdsValue(
+      held: Map[SignalId, SlotValue],
+      name: SignalId,
+      value: SlotValue
+  ): Boolean = {
+    val h = held.getOrElse(name, null)
+    h != null && h == value
   }
 
   /** The whole suppression rule, against this viewer's `holds`. */
