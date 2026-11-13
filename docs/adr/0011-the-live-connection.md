@@ -771,7 +771,7 @@ is why they are hardening rather than gates:
 
 ~~**The per-viewer render memo.**~~ **Landed**, and as one mechanism rather than the two
 this section anticipated. Every session renders for itself, and `RenderCache` (per slug,
-single-flight, one generation per node, keyed by the renderer plus what the
+a memo, one generation per node, keyed by the renderer plus what the
 render READ)
 is what keeps N sessions woken by one ring from rendering the same node N times. It is
 deliberately NOT keyed on the store version — a global counter, so one humidity sensor

@@ -1587,6 +1587,23 @@ class RenderBench {
     )
   }
 
+  /** [[resumeMorphs]] fanned to [[WireClients]]: the tick the render cache's
+    * sharing is for, since every client really needs the new bytes.
+    */
+  @Benchmark
+  def resumeMorphsFanout(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(
+        signalled,
+        heldAfterPaint,
+        tickNodeIds,
+        byteTick(wireRot),
+        WireClients
+      )
+    )
+  }
+
   /** One doorbell ring, `clients` sessions — the real shape of a tick. Each
     * client resumes from the version before this one against its own `holds`,
     * which is what makes the suppression decision per client.

@@ -1,9 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
-import cats.effect.kernel.Deferred
-import cats.effect.std.MapRef
-import fh.view.model.{NodeId, SlotValue}
+import fh.view.model.NodeId
 
 import java.util.concurrent.ConcurrentHashMap
 
@@ -14,154 +12,66 @@ private[runtime] object NodeBytes {
   def of(html: String): NodeBytes = NodeBytes(html, Digest.of(html))
 }
 
-/** Single-flight cache of node bytes, keyed by what the render reads
-  * ([[Renderer.renderInputs]], ADR 0012). Per slug; it outlives a renderer swap
-  * and invalidates by renderer identity, since a rotated map would let a pull
-  * that read the old renderer write into the new one.
+/** Node bytes shared by the sessions one tick wakes, keyed by what the render
+  * reads ([[Renderer.renderInputs]], ADR 0012). Per slug; it outlives a
+  * renderer swap and invalidates by renderer identity.
   *
   * '''One generation per node, replaced in place.''' Keying by `(node, inputs)`
   * would grow forever: every frame mints new entity versions and old ones are
   * never asked for again. A selection is not in the key: only structure reads
-  * one, and structure is never cached (`RenderCacheContentionSuite` holds 1.0
-  * renders a frame across viewers and tabs). Fetch reads and the variable
-  * values a node read are per viewer: viewers on one value share the entry, and
-  * two values replace each other's, so a node keeps one entry however many
-  * values are posted.
+  * one, and structure is never cached. Fetch reads and the variable values a
+  * node read are per viewer: viewers on one value share the entry, and two
+  * values replace each other's, so a node keeps one entry however many values
+  * are posted.
   *
-  * '''A straggler never displaces the current generation''': an install is
-  * refused when what is there is at or ahead of the caller
-  * ([[RenderInputs.isAtLeast]]). The cost is that stragglers at one older
-  * version each render — bounded by one frame's skew, never wrong bytes.
-  * Measure before widening the bound.
+  * '''A memo, not single-flight.''' Sessions that miss together each render,
+  * and a later install replaces an earlier one. A `Deferred` and a CAS per miss
+  * cost 1.5 kB a node against a 3.2 kB render, while sessions woken by one ring
+  * rarely miss together (`RenderCacheContentionSuite` holds one render a
+  * frame); a race costs a render, never wrong bytes.
   *
-  * A [[MapRef]], so contention on one node never retries another's caller.
+  * '''A straggler never displaces a newer generation''': an install is skipped
+  * when what is there is at or ahead of the caller
+  * ([[RenderInputs.isAtLeast]]). Unlocked, so a race can still displace one,
+  * which costs a render.
   */
 private[runtime] final class RenderCache(
-    entries: MapRef[IO, NodeId, Option[RenderCache.Entry]],
     live: ConcurrentHashMap[NodeId, RenderCache.Entry]
 ) {
 
-  /** `render` runs zero times or once per generation.
-    *
-    * '''Uncancelable; `guarantee` would not do''': between the CAS and [[fill]]
-    * starting nothing has run, and during the render `guaranteeCase` could only
-    * fail every waiter. Only the waiter (`poll`) is cancelable.
-    *
-    * '''So the caller owes a bounded render''': a cancellation (disconnect,
-    * displacement) waits for it. `IO[String]`, not a by-name `String`, which
-    * would hide the effect without forbidding it. Today it is one node's own
-    * markup; if that grows, bound it (a `Semaphore`, `evalOn`, `cede`).
-    *
-    * '''A hit on equal inputs reads the entry and nothing else''', the common
-    * case when N sessions share a tick: no byte-slot values, no `Deferred`, no
-    * CAS. Racing an install only sends the caller down the full path.
-    *
-    * @param byteValues
-    *   [[Renderer.byteSlotValues]]: equal values reuse an entry whose `inputs`
-    *   moved, as on a signal-only tick. `None` disables that. Resolved only
-    *   when the inputs miss.
-    */
-  def apply(
-      id: NodeId,
-      renderer: Renderer,
-      inputs: RenderInputs,
-      byteValues: () => Option[Map[String, SlotValue]] = () => None
-  )(
-      render: IO[String]
-  ): IO[NodeBytes] =
-    IO.defer {
-      live.get(id) match {
-        case e: RenderCache.Entry
-            if (e.renderer eq renderer) && e.gen.inputs == inputs =>
-          e.gen.slot.get.rethrow
-        case _ => miss(id, renderer, inputs, byteValues(), render)
-      }
+  /** A failed `render` installs nothing, so the next caller renders again. */
+  def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
+      render: => String
+  ): NodeBytes =
+    live.get(id) match {
+      case e: RenderCache.Entry
+          if (e.renderer eq renderer) && e.inputs == inputs =>
+        e.bytes
+      case _ =>
+        val bytes = NodeBytes.of(render)
+        val overtaken = live.get(id) match {
+          case e: RenderCache.Entry =>
+            (e.renderer eq renderer) && e.inputs.isAtLeast(inputs)
+          case null => false
+        }
+        if (!overtaken) {
+          val _ = live.put(id, RenderCache.Entry(renderer, inputs, bytes))
+        }
+        bytes
     }
 
-  private def miss(
-      id: NodeId,
-      renderer: Renderer,
-      inputs: RenderInputs,
-      byteValues: Option[Map[String, SlotValue]],
-      render: IO[String]
-  ): IO[NodeBytes] =
-    Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
-      // `fill` is only built here; a losing CAS costs an equality check.
-      IO.uncancelable { poll =>
-        entries(id)
-          .modify { current =>
-            val here = current.filter(_.renderer eq renderer).map(_.gen)
-            // `None` on either side is unknown, never equal.
-            val sameBytes = here.filter(g =>
-              byteValues.isDefined && g.byteValues == byteValues
-            )
-            here.filter(_.inputs == inputs) match {
-              case Some(gen) => (current, poll(gen.slot.get))
-              // Same bytes: serve the slot. A straggler does not re-stamp, which
-              // would downgrade the generation.
-              case None if sameBytes.isDefined =>
-                val gen = sameBytes.get
-                if (gen.inputs.isAtLeast(inputs)) (current, poll(gen.slot.get))
-                else
-                  (
-                    Some(
-                      RenderCache.Entry(renderer, gen.copy(inputs = inputs))
-                    ),
-                    poll(gen.slot.get)
-                  )
-              // A straggler: render and serve, leaving the newer entry.
-              // Cancelable, since nothing waits on it.
-              case None if here.exists(_.inputs.isAtLeast(inputs)) =>
-                (current, poll(fresh(render)))
-              case None =>
-                val gen = RenderCache.Gen(inputs, byteValues, mine)
-                (Some(RenderCache.Entry(renderer, gen)), fill(id, gen, render))
-            }
-          }
-          .flatten
-          .rethrow
-      }
-    }
-
-  private def fresh(render: IO[String]): IO[Either[Throwable, NodeBytes]] =
-    render.map(html => NodeBytes(html, Digest.of(html))).attempt
-
-  private def fill(
-      id: NodeId,
-      gen: RenderCache.Gen,
-      render: IO[String]
-  ): IO[Either[Throwable, NodeBytes]] =
-    render
-      .map(html => NodeBytes(html, Digest.of(html)))
-      .attempt
-      // Evict a failure before completing, so the next caller retries while
-      // current waiters see the error. Only our own generation, by identity:
-      // a newer one may have replaced it.
-      .flatTap {
-        case Left(_) =>
-          entries(id).update(_.filterNot(_.gen eq gen))
-        case Right(_) => IO.unit
-      }
-      .flatTap(gen.slot.complete(_).void)
-
-  // Test seams: a `MapRef` has no size of its own.
+  // Test seam.
   def size: IO[Int] = IO(live.size)
-
-  def generations: IO[Int] = IO(live.size)
 }
 
 private[runtime] object RenderCache {
 
-  private[runtime] case class Entry(renderer: Renderer, gen: Gen)
-
-  private[runtime] case class Gen(
+  private[runtime] case class Entry(
+      renderer: Renderer,
       inputs: RenderInputs,
-      byteValues: Option[Map[String, SlotValue]],
-      slot: Deferred[IO, Either[Throwable, NodeBytes]]
+      bytes: NodeBytes
   )
 
   def create: IO[RenderCache] =
-    IO(new ConcurrentHashMap[NodeId, Entry]()).map(chm =>
-      new RenderCache(MapRef.fromConcurrentHashMap(chm), chm)
-    )
+    IO(new RenderCache(new ConcurrentHashMap[NodeId, Entry]()))
 }

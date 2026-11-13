@@ -557,10 +557,9 @@ private[runtime] object Patches {
     // its bytes renders again on every later tick until its bytes move.
     val values = renderer.byteSlotValues(id, shared, viewing.fragments)
     val held = holds.get(id)
-    if (values.isDefined && held.exists(_.values == values))
-      IO.pure(None)
+    if (values.isDefined && held.exists(_.values == values)) unchanged
     else
-      bytes(renderer, cache, id, shared, viewing, () => values).map(_.flatMap {
+      IO(bytes(renderer, cache, id, shared, viewing).flatMap {
         case NodeBytes(html, digest) =>
           Option.when(!held.flatMap(_.digest).contains(digest))(
             Addressed(
@@ -571,33 +570,29 @@ private[runtime] object Patches {
       })
   }
 
-  /** Through the slug's [[RenderCache]], so N sessions woken together render a
-    * node once; a node without a sound key renders uncached.
+  // Shared: the common tick skips every node, and an `IO` each was 1 kB a tick.
+  private val unchanged: IO[Option[Addressed]] = IO.pure(None)
+
+  /** Through the slug's [[RenderCache]], so the sessions one tick wakes share a
+    * node's render; a node without a sound key renders uncached. Runs inside
+    * its caller's `IO`.
     */
   private def bytes(
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
       shared: Shared,
-      viewing: Viewing,
-      values: () => Option[Map[String, SlotValue]]
-  ): IO[Option[NodeBytes]] =
+      viewing: Viewing
+  ): Option[NodeBytes] =
     renderer.renderInputs(id, shared, viewing.fragments) match {
       case Some(inputs) =>
-        cache(id, renderer, inputs, values)(
-          IO(
-            mustRender(
-              renderer.renderNodeById(id, shared, viewing),
-              id
-            )
+        Some(
+          cache(id, renderer, inputs)(
+            mustRender(renderer.renderNodeById(id, shared, viewing), id)
           )
-        ).map(Some(_))
-      case None =>
-        IO(
-          renderer
-            .renderNodeById(id, shared, viewing)
-            .map(NodeBytes.of)
         )
+      case None =>
+        renderer.renderNodeById(id, shared, viewing).map(NodeBytes.of)
     }
 
   /** What a placed member inserts and claims. A member that is a leaf comes
@@ -611,23 +606,15 @@ private[runtime] object Patches {
       shared: Shared,
       viewing: Viewing
   ): IO[Option[(String, Map[NodeId, Held])]] =
-    if (renderer.memberIsTarget(id))
-      bytes(
-        renderer,
-        cache,
-        id,
-        shared,
-        viewing,
-        () => renderer.byteSlotValues(id, shared, viewing.fragments)
-      ).map(
-        _.map(b => b.html -> Map(id -> Held.bytes(b.digest)))
-      )
-    else
-      IO(
+    IO(
+      if (renderer.memberIsTarget(id))
+        bytes(renderer, cache, id, shared, viewing)
+          .map(b => b.html -> Map(id -> Held.bytes(b.digest)))
+      else
         renderer
           .renderMemberTraced(id, shared, viewing)
           .map(t => t.html -> t.claims)
-      )
+    )
 
   /** Positional in `ordered`, never by comparing ids, so an author-chosen order
     * works.

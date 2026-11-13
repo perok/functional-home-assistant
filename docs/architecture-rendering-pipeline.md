@@ -942,10 +942,11 @@ whole page. That is
 worth ~5.7 ms on a 200-card page. Nothing here relies on it.
 
 Each session renders for itself; what makes the pull ×1 is that every pull goes through one
-`RenderCache` keyed by what the render READS (`Renderer.renderInputs`), so whoever arrives first
-renders and the rest wait on the same slot. `RenderCacheContentionSuite` holds the number as a cost
-contract: a 2 there means a key is varying per viewer where it should not, or a pull is rendering
-outside the cache.
+`RenderCache` keyed by what the render READS (`Renderer.renderInputs`), so the first session to miss
+renders and installs and the rest hit. It is a memo, not single-flight (ADR 0012): sessions that miss
+at the same moment each render. `RenderCacheContentionSuite` holds the number as a cost contract: a 2
+there means a key is varying per viewer where it should not, a pull is rendering outside the cache,
+or sessions have started missing together.
 
 **A viewer's SELECTION is not in the key, and does not need to be.** A node whose bytes could depend
 on which tab is showing would be a node holding regions — and structure is never a patch target, so
@@ -1704,11 +1705,11 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
-  first — so the `RenderCache` removes about three quarters of it and is earning its place. A hit
-  on equal inputs now reads the entry and nothing else (no byte-slot values, no `Deferred`, no
-  CAS): `resumeSignalsFanout` allocated 16.7% less (1,167,658 -> 972,138 B/op, escape analysis
-  off). A session whose `holds` already has a node's byte-slot values skips it before the
-  cache (ADR 0012): one client's tick 163,317 -> 127,477 B/op, ten clients' 972,138 -> 866,842.
+  first — so the `RenderCache` removes about three quarters of it and is earning its place. A
+  session whose `holds` already has a node's byte-slot values skips it before the cache (ADR 0012):
+  one client's tick 163,317 -> 127,477 B/op, ten clients' 972,138 -> 866,842, escape analysis off.
+  On a byte tick the cache is a memo (ADR 0012): ten clients' `resumeMorphsFanout` 1,055,833 B/op,
+  no cache 1,628,427.
   What remains is
   unprofiled: the changelog read, the visibility narrowing, the digest compare, the signal diff
   against `Held.signals`.
@@ -1725,12 +1726,10 @@ Live list — delete an entry when it is answered, and say where the answer land
   RENDERED — rendering it is how we discover the bytes did not move — because the `RenderCache`
   key holds a per-entity `contentVersion` and the shipped `EntityCard`'s name reads
   `friendly_name` as BYTES, which re-admitted the entity to the key on every brightness tick.
-  `Patches.bytes` hands the cache the byte-slot values (`Renderer.byteSlotValues`), resolved only
-  when the inputs miss, and `RenderCache.apply` reuses an entry carrying the same ones:
-  `resumeSignals` 262 µs / 442 kB -> **102 µs / 151 kB**, landing on `resumeSignalsPure`'s
-  106 µs. A signals tick is now the cheap one. Note the saving is one render per tick per SLUG,
-  not per client — the clients behind the first already shared its render. Before the cache, a
-  session compares the values with what its own `holds` recorded and skips the node outright.
+  Comparing the resolved byte-slot values (`Renderer.byteSlotValues`) instead of rendering fixed
+  it: as a branch of the cache, `resumeSignals` 262 µs / 442 kB -> **102 µs / 151 kB**, landing on
+  `resumeSignalsPure`'s 106 µs. The comparison now runs in each session against its own `holds`
+  (ADR 0012), so a signals tick reaches no cache at all.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the

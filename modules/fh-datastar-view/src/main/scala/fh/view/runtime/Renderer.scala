@@ -1160,7 +1160,8 @@ class Renderer(validated: Dashboard.Validated) {
         .map(n => n -> at.getOrElse(n, Evaluator.noVariable(n)))
         .toMap
 
-  /** The render cache's pre-check: equal byte-slot values, equal bytes. The
+  /** What a session compares with its `holds` before rendering
+    * (`Patches.morph`): equal byte-slot values, equal patch bytes. The render
     * key's `contentVersion` moves on any change, so without this every
     * brightness tick on the shipped `EntityCard` re-renders to identical bytes.
     * Byte slots only — resolving the signal ones (where the CEL lives) would
@@ -1184,9 +1185,9 @@ class Renderer(validated: Dashboard.Validated) {
           sys.error(
             s"node $id has its own rendering AND a bake group; ADR 0012 holds " +
               "these are exclusive (a bake owner holds regions, so it is " +
-              "structure and is never cached). The render cache's byte-value " +
-              "pre-check cannot see a selection, so this must be fixed rather " +
-              "than tolerated."
+              "structure and is never cached). A session's byte-value check " +
+              "cannot see a selection, so this must be fixed rather than " +
+              "tolerated."
           )
         val plan = planOf(id, c, shared)
         val b = Map.newBuilder[String, SlotValue]

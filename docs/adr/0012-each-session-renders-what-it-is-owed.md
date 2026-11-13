@@ -39,11 +39,19 @@ shared structure believes. The changelog holds no content at all: node to the ve
 last moved at, plus membership mutations.
 
 **N viewers still cost one render, via a cache rather than a shared pass.** `RenderCache`
-is per slug, single-flight (`MapRef` of `Deferred`), keyed by node id and holding the
-renderer that produced it plus what that render READ (`Renderer.renderInputs`). N sessions
-woken by one ring of the doorbell render each node once between them. The renderer is in
-the key because a dashboard edit changes the markup while the entity versions it reads
-stay exactly where they were.
+is per slug, keyed by node id and holding the renderer that produced it plus what that render
+READ (`Renderer.renderInputs`). N sessions woken by one ring of the doorbell render each node
+once between them. The renderer is in the key because a dashboard edit changes the markup while
+the entity versions it reads stay exactly where they were.
+
+**A memo, not single-flight.** A miss renders and installs; sessions that miss together each
+render. Single-flight (a `MapRef` of `Deferred`s, the render uncancelable) cost about 1.5 kB per
+missed node, against about 3.2 kB for a second render, and sessions woken by one ring rarely miss
+together: `RenderCacheContentionSuite` still counts one render a frame across viewers. Escape
+analysis off, a byte tick (`resumeMorphs`) went 246,472 -> 216,727 B/op for one client and
+1,120,489 -> 1,055,833 for ten (`resumeMorphsFanout`); no cache at all was 205,797 and
+1,628,427. In time (escape analysis on), 114 -> 86 µs and 420 -> 359 µs. A race costs a render,
+never wrong bytes, and a failed render installs nothing.
 
 **One generation per node.** `RenderInputs` is the entity versions and fetch reads a node
 read, and those CHURN — every frame moves one, so the generation for the previous version is
@@ -80,22 +88,15 @@ Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` again
 **2.6x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
 live path — an order of magnitude more than encoding the frame.
 
-**Fixed** (`Renderer.byteSlotValues` + a fourth branch in `RenderCache.apply`): not by predicting
-the inputs more finely but by **comparing the resolved byte-slot VALUES** before rendering — identical values mean identical bytes, so the entry's bytes are
-reused and re-stamped without mustache, wrapper or digest. It needs no static analysis, so CEL
-and the simple steps go through the same path, and on the shipped card there is at most one
-byte slot to resolve — the signal slots are evaluated on a signals tick regardless. ("The name,
-an `AttrOrId` off ADR 0028's fast tier" is what this said, and it was wrong twice over: nothing
-in the library ever called that shape, and `slot.labelSlot` bakes the name as a LITERAL off the
-dump, so the shipped `EntityCard` may have no byte transform to resolve at all. The measured
-numbers below stand — they came from `RenderBench`'s own card, not from this sentence — but
-whether the pre-check has anything to do on the shipped card is an open question for this ADR.) Note the values must NOT become the key:
-`RenderInputs.isAtLeast` is a partial order over versions and is what stops a straggler
-displacing fresher bytes, so this is a pre-check that skips the render, not a new key.
-`resumeSignals` went 261.7 µs / 442 kB to 101.7 µs / 151 kB, landing on `resumeSignalsPure`'s
-105.9 µs — the shipped card now costs what a card the key already protected costs. The saving is
-one render per tick per SLUG, not per client: the clients behind the first were already sharing its
-render. `RenderBench`'s `resumeSignals` / `resumeSignalsPure` pair is where those numbers come from.
+**Fixed by comparing the resolved byte-slot VALUES** (`Renderer.byteSlotValues`) rather than
+predicting the inputs more finely: identical values mean identical patch bytes, so nothing is
+rendered. It needs no static analysis, so CEL and the simple steps go through the same path, and
+on the shipped card there is at most one byte slot to resolve — the signal slots are evaluated on
+a signals tick regardless. The shipped `EntityCard` bakes its name as a LITERAL off the dump
+(`slot.labelSlot`), so whether the check has anything to do on that card is an open question for
+this ADR; the numbers come from `RenderBench`'s own card, which reads the name live. As a branch
+of the cache, `resumeSignals` went 261.7 µs / 442 kB to 101.7 µs / 151 kB, landing on
+`resumeSignalsPure`'s 105.9 µs. The check now runs in the session, below.
 
 **A session asks its own `holds` first.** `Held.values` keeps the byte-slot values a node's bytes
 were rendered from (the page walk records them, as does each morph), and `Patches.morph` returns
@@ -103,9 +104,10 @@ nothing when the live values equal them, before any render or cache lookup: equa
 patch bytes, since a static-tree node's patch form is its renderer, its id and those values
 (`DigestPropertySuite` pins the walk and the live path to the same values). Compared as
 `SlotValue`s, not their text, since a section reads `false` and `"false"` differently. A member
-records none (its bytes also depend on its clause), so it goes to the cache as before. Escape
-analysis off: one client's signal-only tick 163,317 -> 127,477 B/op (`resumeSignals`), ten
-clients' 972,138 -> 866,842 (`resumeSignalsFanout`). A suppressed morph records nothing, so a
+records none (its bytes also depend on its clause), so it goes to the cache. The cache keeps no
+check of its own: a session holding the values never reaches it. Escape analysis off: one
+client's signal-only tick 163,317 -> 127,477 B/op (`resumeSignals`), ten clients' 972,138 ->
+866,842 (`resumeSignalsFanout`). A suppressed morph records nothing, so a
 node whose values moved while its bytes did not renders again on each later tick until its bytes
 move; a holds-only update would close that, and nothing measured asks for it yet.
 

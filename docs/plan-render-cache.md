@@ -1,7 +1,6 @@
 # Plan: what the render cache is for, and a key made of values
 
-**State:** round 2 built (the user's go of 2026-11-12, given for the night's run); rounds 1, 3 and 4
-undecided.
+**State:** rounds 2 and 3 built, round 4 answered by them; round 1 open, now with the digest in it.
 
 ## Why
 
@@ -46,12 +45,20 @@ client's, all misses, 2.0% more.
    home dashboard's byte slots are few and short. Left open: a suppressed morph records nothing,
    so a node whose values moved while its bytes did not renders on every later tick until its
    bytes move; closing it needs a holds-only update, which `Addressed` has no form for.
-3. **Is sharing across viewers worth its machinery?** Each lookup is a `MapRef` compare-and-set, a
-   `Deferred` and an uncancelable region. A hit no longer pays them ("Done ahead"); a miss does. With 1 and 2, what is left to share is the render on a byte
-   tick, which a home dashboard's handful of viewers may not need: compare keeping single-flight,
-   a memo for one tick, and none.
-4. **Bounding per-viewer values.** Whatever 1–3 decide, the entries for one node must not grow
-   with values a viewer posts (ADR 0033 has no allowed-values list).
+3. **Is sharing across viewers worth its machinery?** *Built: a memo* (ADR 0012, "A memo, not
+   single-flight"), and the cache's own byte-value check deleted, since round 2 does that job in
+   the session. Byte tick, escape analysis off, B/op:
+
+   | Bench | single-flight | memo | no cache |
+   |---|---|---|---|
+   | `resumeMorphs` (1 client) | 246,472 | 216,727 | 205,797 |
+   | `resumeMorphsFanout` (10) | 1,120,489 | 1,055,833 | 1,628,427 |
+
+   Time, escape analysis on, two forks, µs: `resumeMorphs` 114.1 -> 86.0, `resumeMorphsFanout`
+   420.5 -> 358.7, `resumeMembers` 124.9 -> 92.1. `RenderCacheContentionSuite` holds one render a
+   frame across five runs.
+4. **Bounding per-viewer values.** *Answered by 2 and 3*: the cache keeps one entry per node
+   whatever values are posted, and a session's `Held.values` is one map per node it holds.
 
 ## Measure first
 
@@ -85,7 +92,11 @@ clause), compared as `SlotValue`s, not text.
 ## Steps
 
 1. Round 2: done.
-2. The rest once rounds 1, 3 and 4 are decided.
+2. Round 3: done.
+3. Round 1, undecided: key the memo by the byte-slot values a session already resolved, and let a
+   static node's `holds` drop its digest. That would drop `renderInputs` from the live path, the
+   per-node hashing from the page walk (and the second patch-form render a two-form node pays
+   there), and the snag in round 2. A member needs its clause beside its values.
 
 ## Docs
 

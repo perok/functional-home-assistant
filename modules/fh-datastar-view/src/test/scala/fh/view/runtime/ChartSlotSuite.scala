@@ -189,9 +189,9 @@ class ChartSlotSuite extends munit.FunSuite {
     )
   }
 
-  test("the byte-slot pre-check sees the chart, so new bytes are not held") {
-    // Without its charts every series slot would compare equal, so the
-    // pre-check would serve the first chart drawn for the dashboard's life.
+  test("the byte-slot values see the chart, so a new one is sent") {
+    // Without its charts every series slot would compare equal, so a session
+    // would keep the first chart drawn for the dashboard's life.
     val d = dashboardWith("{{{chart}}}")
     val r = Renderer.create(d)
     val id = rootId(d)
