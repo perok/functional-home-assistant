@@ -30,8 +30,8 @@ So there is no audience tag on a patch and no per-client filter at the wire edge
 patch exists only because the session that will send it asked for it.
 
 **"Does this client already have these bytes?" is a per-session question, and only
-that.** `Session.holds` maps a node to the digest of what this client has (and, for a static-tree
-node, the byte-slot values it came from), seeded by the DOCUMENT that created the
+that.** `Session.holds` maps a node to the byte-slot values this client's bytes for it were
+rendered from (below), seeded by the DOCUMENT that created the
 session — the page render is the first and largest thing that puts fragments in this
 client's DOM, and the only place that knows what they were. It is written where bytes
 are SENT to this client, never from what another client was told and never from what a
@@ -39,10 +39,10 @@ shared structure believes. The changelog holds no content at all: node to the ve
 last moved at, plus membership mutations.
 
 **N viewers still cost one render, via a cache rather than a shared pass.** `RenderCache`
-is per slug, keyed by node id and holding the renderer that produced it plus what that render
-READ (`Renderer.renderInputs`). N sessions woken by one ring of the doorbell render each node
-once between them. The renderer is in the key because a dashboard edit changes the markup while
-the entity versions it reads stay exactly where they were.
+is per slug, keyed by node id and holding the renderer that produced it plus the byte-slot values
+it was rendered from. N sessions woken by one ring of the doorbell render each node once between
+them. The renderer is in the key because a dashboard edit changes the markup while the values stay
+exactly where they were.
 
 **A memo, not single-flight.** A miss renders and installs; sessions that miss together each
 render. Single-flight (a `MapRef` of `Deferred`s, the render uncancelable) cost about 1.5 kB per
@@ -53,63 +53,49 @@ analysis off, a byte tick (`resumeMorphs`) went 246,472 -> 216,727 B/op for one 
 1,628,427. In time (escape analysis on), 114 -> 86 µs and 420 -> 359 µs. A race costs a render,
 never wrong bytes, and a failed render installs nothing.
 
-**One generation per node.** `RenderInputs` is the entity versions and fetch reads a node
-read, and those CHURN — every frame moves one, so the generation for the previous version is
-dead the moment it is replaced. It also carries the node variables a node's slots read, at the
-viewer's values (ADR 0033): different values are unordered, so viewers on one value share the
-entry and a viewer on another replaces it in place, one entry per node however many values are
-posted. A node reading no variable keys exactly as before.
+**The key is the values.** A node's patch form is a function of its renderer, its id and the
+resolved values of its BYTE slots (`Renderer.byteSlotValues`, the value after the slot's whole
+chain: read, CEL, default, formatting). Everything else it reads is fixed per renderer (template,
+constants, `dashboardSlug`), and a fetch answer or a node variable reaches the bytes only through a
+slot (ADR 0031, ADR 0033). Signal slots are left out: the patch form does not carry their values
+(ADR 0017). Below a set member the CLAUSE is one more entry, since every clause of a candidate
+mints the same ids and the clause picks the card and the host id. So one map answers both
+questions:
 
-Not every entity the node READS, though: only those whose movement can change its BYTES
-(`Ready.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
-the patch form entirely (ADR 0017), so its value moving cannot move these bytes, and keying
-on it would throw away a generation whose re-render is identical. The reverse index still
-wants the wider list — a signal has to make its node a candidate or no frame is ever computed
-for it — so the two lists are both real and neither derives the other. Getting them the wrong
-way round fails asymmetrically, and only one way is loud: the wide list in the key wastes a
-render, the narrow list in the reverse index silently stops signal frames.
+- **A session asks its own `holds` first.** `Patches.morph` returns nothing when the live values
+  equal the held ones, before any render or cache lookup; otherwise it sends, and records the new
+  values. The page walk records each node's values off the same paint (`ByteValuesPropertySuite`
+  pins the walk and the live path to the same values, and equal values to equal bytes; the
+  timeline pairs in `ByteSlotKeySuite` pin it through a real store).
+- **The cache is keyed by the same map.** Viewers on one value share the entry; a viewer on
+  another (a different chart window, a variable) replaces it in place, one entry per node however
+  many values are posted.
 
-**The narrowing is per ENTITY, and that is not far enough.** The key holds
-`contentVersion`, which `StateStore.update` stamps whenever an entity's content moved *at
-all* — a brightness change included. So the exclusion above only bites where an entity
-reaches a node **exclusively** through signal slots. One byte-reading slot re-admits it, and
-from then on every signal-only change to that entity moves the key, misses the cache, and
-re-renders the node to discover its bytes are identical.
+**`holds` never outlives its renderer.** A dashboard edit repaints every session's body, or
+reloads the page, and replaces its `holds` (`Server.reloadRepaints`), so values held under one
+template are never taken for another's bytes (`ResumeSuite`: an edit that moves only markup
+reaches the client).
 
-The shipped `EntityCard` has exactly one such slot: the name, which reads `friendly_name`.
-Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` against
-`resumeSignalsPure`, the same dashboard with the name held as a literal):
+Compared as `SlotValue`s, not their text, since a section reads `false` and `"false"`
+differently. Unequal values usually mean new bytes but need not: a slot read only as a section's
+test renders the same for any non-empty value. Then the session sends one morph to the bytes the
+client already has (the DOM does not change) and records the new values, so it happens once
+(`ByteSlotKeySuite`). Comparing digests of the bytes would suppress that frame, at the price of
+rendering and hashing every node whose values moved.
 
-| | us/op | B/op |
-|---|---:|---:|
-| shipped card — name reads `friendly_name` | 261.7 | 442,296 |
-| same card, name as a literal | 101.4 | 138,575 |
+Measured against the previous key (entity and fetch versions, ordered against stragglers, with a
+separate value pre-check, and a 128-bit digest of the patch bytes in `holds`), escape analysis off,
+B/op, then time (escape analysis on, two forks):
 
-**2.6x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
-live path — an order of magnitude more than encoding the frame.
+| Bench | versions + digests | values | µs before -> after |
+|---|---:|---:|---|
+| `page` | 1,677,274 | 1,419,146 | 605 -> 545 |
+| `pageWalkStream` | 1,429,203 | 1,070,963 | 829 -> 657 |
+| `resumeMorphs` (1 client) | 202,327 | 171,216 | 94 -> 84 |
+| `resumeMorphsFanout` (10) | 777,625 | 657,305 | 277 -> 232 |
 
-**Fixed by comparing the resolved byte-slot VALUES** (`Renderer.byteSlotValues`) rather than
-predicting the inputs more finely: identical values mean identical patch bytes, so nothing is
-rendered. It needs no static analysis, so CEL and the simple steps go through the same path, and
-on the shipped card there is at most one byte slot to resolve — the signal slots are evaluated on
-a signals tick regardless. The shipped `EntityCard` bakes its name as a LITERAL off the dump
-(`slot.labelSlot`), so whether the check has anything to do on that card is an open question for
-this ADR; the numbers come from `RenderBench`'s own card, which reads the name live. As a branch
-of the cache, `resumeSignals` went 261.7 µs / 442 kB to 101.7 µs / 151 kB, landing on
-`resumeSignalsPure`'s 105.9 µs. The check now runs in the session, below.
-
-**A session asks its own `holds` first.** `Held.values` keeps the byte-slot values a node's bytes
-were rendered from (the page walk records them, as does each morph), and `Patches.morph` returns
-nothing when the live values equal them, before any render or cache lookup: equal values, equal
-patch bytes, since a static-tree node's patch form is its renderer, its id and those values
-(`DigestPropertySuite` pins the walk and the live path to the same values). Compared as
-`SlotValue`s, not their text, since a section reads `false` and `"false"` differently. A member
-records none (its bytes also depend on its clause), so it goes to the cache. The cache keeps no
-check of its own: a session holding the values never reaches it. Escape analysis off: one
-client's signal-only tick 163,317 -> 127,477 B/op (`resumeSignals`), ten clients' 972,138 ->
-866,842 (`resumeSignalsFanout`). A suppressed morph records nothing, so a
-node whose values moved while its bytes did not renders again on each later tick until its bytes
-move; a holds-only update would close that, and nothing measured asks for it yet.
+The page walk no longer hashes each node or renders a node with a signal slot a second time in
+patch form; the live path no longer builds a version key or hashes the bytes it sends.
 
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers
@@ -122,14 +108,10 @@ So the contention did not move, it went: `RenderCacheContentionSuite` measures t
 viewers on two tabs at ONE render a frame where the old shape needed two, and the
 structural owner at none.
 
-**A straggler never displaces the current generation.** Sessions pull in parallel and read
-the store when they get there, so they do not all render from one snapshot — and an
-install refuses when the generation present is at or ahead of the caller's on every entity
-that can change its bytes (`RenderInputs.isAtLeast`). The straggler renders and is served;
-the map keeps the newer bytes. Without it, three sessions racing (newest, straggler, newest) cost three
-renders, the third re-rendering what the first had already produced. Accepted cost: a
-CLUSTER of stragglers at one older version stops sharing with itself. The newest snapshot
-is what more arrivals are coming for, so it is what the single slot should hold.
+**A straggler needs no rule.** Sessions pull in parallel and read the store when they get
+there, so they do not all render from one snapshot. Bytes are a function of their key, so a
+straggler installing its own values costs the next session on the newer values a render, never
+wrong bytes (`RenderCacheContentionSuite`).
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
 `{{bakeIndex}}`, the selection a card can show without scripts — is now just a node: the session renders
@@ -207,19 +189,18 @@ the measurements taken while designing it found no CPU or RAM problem to solve. 
 | a slug nobody is watching | rendered every affected node, every frame | records a few map writes, or nothing at all |
 | a slug with N viewers | one shared render pass + one shared log write | one record pass + N pulls, whose RENDERS are shared through the cache |
 | sharing a render | within one batch | across batches — a laggard shares with a current session |
-| knowing a render is unnecessary | render, then compare digests | unchanged: the digest still requires the bytes |
+| knowing a render is unnecessary | render, then compare digests | compare the byte-slot values; no render |
 
 So the shape of the cost moves from *constant regardless of viewers* to *proportional to viewers*
 in the pull, while the renders behind those pulls stay shared. For a household that is a clear win,
 because the idle case dominates; for fifty simultaneous tabs it would be a loss, and that is worth
-stating rather than discovering. The one thing that does NOT improve is suppression: only the
-client's own `holds` can say whether bytes are worth sending, and there is no digest without the
-bytes.
+stating rather than discovering. Only the client's own `holds` can say whether bytes are worth
+sending, and it answers from values, without the bytes.
 
 RAM: the changelog SHRINKS (it dropped digests, and then content entirely), `holds` duplicates per
 session (tens of KB, now O(sessions), though immutable `Map`s applying the same updates from a
 common ancestor share most of their structure), and the render cache is the new cost — bounded at
-one generation per node, which is why it needs no timer.
+one entry per node, which is why it needs no timer.
 
 The complexity is close to a wash in volume. What changes is its KIND: shared-state reasoning, where
 a wrong answer is silent and affects everyone, became per-session bookkeeping, which is more code
@@ -286,13 +267,16 @@ other.
 - **Keying the log by `(NodeId, variant)`.** Puts a non-node-id into the ledger and into
   `since`'s results. The variance belonged inside the entry — and then the entry stopped
   having content at all.
-- **Keying the render cache by `(nodeId, inputs)` in full.** Unbounded: the recording pass
-  selects exactly the nodes binding an entity that just moved, so every batch mints new
-  ENTITY VERSIONS and old ones are never asked for again. What IS kept is the other half
-  of that key — see below.
+- **Keying the render cache by `(nodeId, values)` in full.** Unbounded: every value a node
+  ever showed would keep an entry nobody asks for again. One entry per node, replaced in place.
+- **Entity and fetch versions as the key, and a digest of the bytes in `holds`.** The previous
+  design. A version moves on any change to its entity, a signal-only one included, so it needed
+  a value pre-check beside it, a partial order so a straggler would not displace fresher bytes,
+  and a hash of every node's bytes on every page and every send. The values answer all three
+  (measured above).
 - **Keeping N generations per node** to stop two viewers evicting each other. It fixes the
-  right problem with the wrong bound: N-1 of those generations are stale entity versions
-  nobody will ask for. This was answered by bucketing on the SELECTION — and that half is now
+  right problem with the wrong bound: N-1 of those generations are stale values nobody will
+  ask for. This was answered by bucketing on the SELECTION — and that half is now
   gone too: a bake owner holds its content in REGIONS, which makes it structure, which is never
   cached, so no node's bytes mention a selection any more, and the cache holds ONE generation
   per node. `RenderCacheContentionSuite` measures two viewers on two tabs at one render a frame

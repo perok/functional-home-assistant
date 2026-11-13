@@ -147,9 +147,8 @@ class LiveStreamSuite extends ServerHarness {
   )
 
   /** Structure is refused by id: its rendering holds hosts, and the log is per
-    * slug, so a digest for it is one viewer's bytes presented as everyone's.
-    * The failure it caused: a client on tab 1 reconnected and was morphed onto
-    * tab 0.
+    * slug, so a record of it is one viewer's bytes presented as everyone's. The
+    * failure it caused: a client on tab 1 reconnected and was morphed onto tab 0.
     */
 
   private def barePopupTabsDash = Dashboard(
@@ -368,12 +367,8 @@ class LiveStreamSuite extends ServerHarness {
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
       Map(
-        host -> Held.of(
-          r.renderNodeById(
-            host,
-            Shared.of(states),
-            Viewing(Selections.none, FetchSnapshot.empty)
-          ).get
+        host -> Held(
+          r.byteSlotValues(host, Shared.of(states), FetchSnapshot.empty)
         )
       )
     val owed = resumeNow(
@@ -419,11 +414,8 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderNodeById(
-        id,
-        Shared.of(before),
-        Viewing(mine, FetchSnapshot.empty)
-      ).map(h => id -> Held.of(h))
+      r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
+        .map(v => id -> Held(Some(v)))
     }.toMap
 
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
@@ -578,10 +570,10 @@ class LiveStreamSuite extends ServerHarness {
   )
 
   test(
-    "a variant keeps its own digest, so an unchanged tick is suppressed"
+    "a variant keeps its own record, so an unchanged tick is suppressed"
   ) {
     // Variants of a bake owner are static, one per member, so each has its own
-    // digest: two viewers on different tabs get their own suppression.
+    // record: two viewers on different tabs get their own suppression.
     live(
       serverHighlightDash,
       Map(
@@ -809,7 +801,7 @@ class LiveStreamSuite extends ServerHarness {
     "viewers SHARING a selection each get the fill, not just the first"
   ) {
     // The verdict is memoised, not the render. Sharing the render let the first
-    // viewer write the digest, so the second was told its branch was unchanged
+    // viewer write the record, so the second was told its branch was unchanged
     // and sat on an empty host. The other multi-client tests use different
     // selections, so none pinned this.
     live(

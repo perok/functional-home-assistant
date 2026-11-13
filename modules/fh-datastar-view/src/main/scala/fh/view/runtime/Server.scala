@@ -1736,7 +1736,7 @@ class Server(
           }.flatMap { own =>
             // Nodes with a rendering of their own, as before structure's seeds
             // joined the holds.
-            val painted = own.count(_._2.digest.isDefined).toLong
+            val painted = own.count(_._2.values.isDefined).toLong
             ownRef.set(own) *>
               tracer.currentSpanOrNoop.flatMap(
                 _.addAttribute(Attribute("fh.nodes", painted))

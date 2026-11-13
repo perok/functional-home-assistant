@@ -1,64 +1,24 @@
 package fh.view.runtime
 
-import com.google.common.hash.Hashing
 import fh.view.model.{NodeId, SignalId, SlotValue}
 
-import java.nio.charset.StandardCharsets
-
-/** 128 bits, not `String.hashCode`: a collision suppresses a real change and
-  * leaves the client stale. Two `Long`s, not `Array[Byte]`, so `==` compares
-  * content.
-  */
-private[runtime] final case class Digest(hi: Long, lo: Long) derives CanEqual
-
-private[runtime] object Digest {
-
-  /** Murmur3, not SHA-256: a digest never leaves the server's memory, so it
-    * needs no resistance to a crafted collision, and SHA-256 is fast only on a
-    * CPU with SHA instructions, which a Pi 4 lacks. `RenderBench.holdsSeed`,
-    * 200 digests: SHA-256 75 µs, or 447 µs without them; murmur3 46 µs.
-    */
-  private val murmur = Hashing.murmur3_128()
-
-  def of(html: String): Digest = {
-    val b = java.nio.ByteBuffer.wrap(
-      murmur.hashBytes(html.getBytes(StandardCharsets.UTF_8)).asBytes()
-    )
-    Digest(b.getLong(0), b.getLong(8))
-  }
-
-  /** Copies the slice: a `CharsetEncoder` version without the copy measured +83
-    * kB and +17% time, since `String.getBytes` is intrinsified.
-    */
-  def ofRange(buf: CharSequence, from: Int, until: Int): Digest =
-    of(buf.subSequence(from, until).toString)
-}
-
-/** What one client has for one node: the digest of the bytes it was sent and
-  * its signal values (ADR 0017). One map keyed by node, so a host fill's
-  * invalidation is the containment test `Patches.applied` already runs.
-  * `digest` is optional because a patch may establish only one half.
+/** What one client has for one node: the byte-slot values its bytes were
+  * rendered from ([[Renderer.byteSlotValues]]) and its signal values (ADR
+  * 0017). One map keyed by node, so a host fill's invalidation is the
+  * containment test `Patches.applied` already runs. `values` is optional
+  * because a signal frame establishes only the signals.
   */
 private[runtime] case class Held(
-    digest: Option[Digest] = None,
-    signals: Map[SignalId, SlotValue] = Map.empty,
-    // The byte-slot values `digest`'s bytes were rendered from, when known;
-    // never set without `digest`.
-    values: Option[Map[String, SlotValue]] = None
+    values: Option[Map[String, SlotValue]] = None,
+    signals: Map[SignalId, SlotValue] = Map.empty
 ) {
 
   /** `later` says nothing by being absent, so re-sending one of two signals
-    * cannot drop the other. `values` belong to their digest: new bytes take
-    * theirs, even none.
+    * cannot drop the other; new bytes bring their own values.
     */
   def merge(later: Held): Held =
-    if (later.digest.isDefined) later.copy(signals = signals ++ later.signals)
+    if (later.values.isDefined) later.copy(signals = signals ++ later.signals)
     else copy(signals = signals ++ later.signals)
-}
-
-private[runtime] object Held {
-  def bytes(digest: Digest): Held = Held(Some(digest))
-  def of(html: String): Held = bytes(Digest.of(html))
 }
 
 /** Decides the replay: a set member is a sibling-preserving delta, a branch one

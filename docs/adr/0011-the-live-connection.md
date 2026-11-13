@@ -166,7 +166,7 @@ def reaches(v: Long): Boolean                      // false across a stretch nob
 case class Resume(nodes: List[NodeId], moved: …, refill: List[NodeId])
 ```
 
-**There is no content in the changelog at all** — not the bytes, not a digest of them.
+**There is no content in the changelog at all** — not the bytes, not what they were made from.
 `fragments` holds a version and nothing else, so the log answers only *when did this
 node last move*. What a given client HOLDS is that client's own record (`Session.holds`,
 ADR 0012), which is the only place that question can be answered exactly.
@@ -199,7 +199,7 @@ descendant host has selected — and whichever a shared structure recorded would
 somebody.
 
 **A node whose own html differs between viewers needs no special treatment.** Since the
-session renders what it is owed, it renders with its own `Selections` and records the digest
+session renders what it is owed, it renders with its own `Selections` and records what it sent
 in its own `holds` — no variant key, no second entry, nothing shared to disagree about.
 The rule that makes it safe is statement (1): a node's own rendering contains no region's
 contents, its own or a child's.
@@ -215,18 +215,14 @@ outcome of a wrong entry is a suppressed change, which is silent and permanent.
 Everything that mutates the DOM without knowing its own bytes exactly (a host fill, a
 branch placement) uses that escape.
 
-**The version and the digest answer different questions, and the split survived the flip
+**The version and `holds` answer different questions, and the split survived the flip
 into the sessions.** A node's `fragments` version says *this node moved at V* — the
 changelog's whole content, and what `since(cursor)` reads to decide what a returning
-client is owed. A digest says *these are the bytes it has*, and lives per session
-(`Session.holds`). A consequence worth stating because it looks like an optimisation and
+client is owed. `holds` says *these are the values its bytes were rendered from*
+(ADR 0012), and lives per session (`Session.holds`). A consequence worth stating because it looks like an optimisation and
 is not: a node re-rendered to the same bytes must NOT have its version advanced. That
 would make the version mean "when did we last look", `since` would over-report, and
 returning clients would be sent morphs for nodes that never changed.
-
-Digests are compared, never inspected, and are held as two `Long`s rather than
-`Array[Byte]` — array equality is by reference, so the map would have quietly
-never matched.
 
 **`>=`, not `>`.** The cursor is pushed alongside a patch batch and one store
 version can produce several batches (one `StateChange` per entity, each diffed
@@ -495,7 +491,7 @@ correct and merely expensive; a wrong resume is silently stale forever.
 **...and a session may only be resumed against a record the client has ACKNOWLEDGED.**
 `holds` records what was *sent*, which is not the same claim as what was *applied*. A
 stream that breaks mid-batch, or a tab frozen while its socket keeps filling, leaves a
-session claiming digests that DOM never received — and because a resume answers from
+session claiming bytes that DOM never received — and because a resume answers from
 `holds`, every later one then computes "nothing owed". The tab is stale until its user
 reloads, and nothing reports it. This shipped, and the report was "a backgrounded tab
 never catches up".
@@ -771,8 +767,8 @@ is why they are hardening rather than gates:
 
 ~~**The per-viewer render memo.**~~ **Landed**, and as one mechanism rather than the two
 this section anticipated. Every session renders for itself, and `RenderCache` (per slug,
-a memo, one generation per node, keyed by the renderer plus what the
-render READ)
+a memo, one entry per node, keyed by the renderer plus the byte-slot
+values it was rendered from)
 is what keeps N sessions woken by one ring from rendering the same node N times. It is
 deliberately NOT keyed on the store version — a global counter, so one humidity sensor
 would invalidate every node on every dashboard — which is the one warning from the
@@ -823,7 +819,7 @@ chose, which closes the race between a tab click and a patch already in flight.
 
 - **A server-side mirror of each client's DOM *as the resume mechanism*.** This is the
   rejection worth reading carefully, because the shape it rejected now exists: a session
-  DOES keep a node-to-digest record of what its client holds. What stays rejected is
+  DOES keep a node-to-values record of what its client holds. What stays rejected is
   depending on it. The cursor is what a resume is computed from, everything works with
   that record empty, and losing it degrades a reconnect by one rung (redundant bytes)
   rather than breaking it. A mirror the design could not do without would have to be

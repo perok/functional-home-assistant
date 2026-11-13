@@ -30,17 +30,16 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** Is [[Renderer.renderInputs]] a sound cache key (ADR 0012)? A
-  * too-discriminating key costs a render; a too-coarse one serves bytes that no
-  * longer match state, silently. So the property is
+/** Is [[Renderer.byteSlotValues]] a sound key (ADR 0012)? It keys the render
+  * cache and decides whether a session sends a morph, so a too-coarse key
+  * serves or keeps bytes that no longer match state, silently. The property is
   *
-  * {{{renderInputs(a) == renderInputs(b) => render(a) == render(b)}}}
+  * {{{byteSlotValues(a) == byteSlotValues(b) => render(a) == render(b)}}}
   *
   * over all pairs of a timeline, since the failure is a pair, not a step. The
-  * timeline runs through a real [[StateStore]], so the stamp tested is the one
-  * it assigns, dedup included.
+  * timeline runs through a real [[StateStore]], dedup included.
   */
-class RenderInputsSuite extends munit.FunSuite {
+class ByteSlotKeySuite extends munit.FunSuite {
 
   private val cards = Map(
     "col" -> TestCard(
@@ -51,8 +50,7 @@ class RenderInputsSuite extends munit.FunSuite {
       """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
     // A bake owner beside a live leaf: an owner holds regions, so it is
-    // structure and never cached, and the leaf cannot see the selection. The
-    // key is entity versions.
+    // structure and never cached, and the leaf cannot see the selection.
     "banner" -> TestCard(
       template =
         """<div><i>{{bakeIndex}}</i>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
@@ -194,7 +192,7 @@ class RenderInputsSuite extends munit.FunSuite {
     "light.b" -> st("light.b", "off")
   )
 
-  /** Every step's snapshot, the first included, as the store stamps them. */
+  /** Every step's snapshot, the first included, as the store keeps them. */
   private def timeline(
       steps: List[EntityState]
   ): List[Map[String, EntityState]] =
@@ -227,16 +225,16 @@ class RenderInputsSuite extends munit.FunSuite {
   /** `c` and `c_3` compose rather than render, so they have no entry. */
   private val ids: List[NodeId] = List("c_0", "c_1", "c_2", "c_4")
 
-  test("agreeing on renderInputs means agreeing on the bytes") {
+  test("agreeing on byte-slot values means agreeing on the bytes") {
     for {
       id <- ids
       (a, i) <- line.zipWithIndex
       (b, j) <- line.zipWithIndex
       key <- renderer
-        .renderInputs(id, Shared.of(a), fragments = FetchSnapshot.empty)
+        .byteSlotValues(id, Shared.of(a), fragments = FetchSnapshot.empty)
         .toList
       if renderer
-        .renderInputs(id, Shared.of(b), fragments = FetchSnapshot.empty)
+        .byteSlotValues(id, Shared.of(b), fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
       renderer
@@ -256,23 +254,23 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  test("an entity reached ONLY through a signal slot is not in the key") {
-    // sensor.other is a signal on c_4, absent from the patch form (ADR 0017),
-    // so keying on it would throw away an identical generation. The all-pairs
-    // property above covers soundness if this narrowing goes too far.
+  test("a signal slot is not in the key") {
+    // `live` is a signal on c_4, absent from the patch form (ADR 0017), so
+    // keying on it would re-render to identical bytes. The all-pairs property
+    // above covers soundness if this narrowing goes too far.
     val key =
       renderer
-        .renderInputs(
+        .byteSlotValues(
           "c_4",
           Shared.of(line.head),
           fragments = FetchSnapshot.empty
         )
         .get
-    assertEquals(key.entities.keySet, Set("sensor.t"))
+    assertEquals(key.keySet, Set("state"))
   }
 
   test("a signal slot's entity still reaches the reverse index") {
-    // The loud-vs-silent half: the key may drop sensor.other, but
+    // The loud-vs-silent half: the key may drop `live`, but
     // `componentsFor` may not, or no frame is ever computed for the signal.
     val nodes = renderer.componentsFor("sensor.other")
     assert(nodes.contains(NodeId.derived("c_4")), clue = nodes)
@@ -288,10 +286,10 @@ class RenderInputsSuite extends munit.FunSuite {
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
       key <- ra
-        .renderInputs(id, Shared.of(a), fragments = FetchSnapshot.empty)
+        .byteSlotValues(id, Shared.of(a), fragments = FetchSnapshot.empty)
         .toList
       if rb
-        .renderInputs(id, Shared.of(b), fragments = FetchSnapshot.empty)
+        .byteSlotValues(id, Shared.of(b), fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
       ra.renderNodeById(
@@ -312,7 +310,11 @@ class RenderInputsSuite extends munit.FunSuite {
   test("the key is not trivially discriminating — it hits where it must") {
     def key(id: NodeId, at: Int) =
       renderer
-        .renderInputs(id, Shared.of(line(at)), fragments = FetchSnapshot.empty)
+        .byteSlotValues(
+          id,
+          Shared.of(line(at)),
+          fragments = FetchSnapshot.empty
+        )
         .get
 
     // Without this the cache would miss on every HA reconnect.
@@ -324,7 +326,7 @@ class RenderInputsSuite extends munit.FunSuite {
   test("an absent entity keys differently from any version it could hold") {
     val absent =
       renderer
-        .renderInputs(
+        .byteSlotValues(
           "c_0",
           Shared.of(Map.empty),
           fragments = FetchSnapshot.empty
@@ -333,15 +335,13 @@ class RenderInputsSuite extends munit.FunSuite {
     assertNotEquals(
       absent,
       renderer
-        .renderInputs(
+        .byteSlotValues(
           "c_0",
           Shared.of(line.head),
           fragments = FetchSnapshot.empty
         )
         .get
     )
-    // No entry at all, so no stamp can collide with it.
-    assertEquals(absent.entities, Map.empty[String, Long])
   }
 
   test("STRUCTURE has NO key") {
@@ -349,7 +349,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // excludes children, so it cannot be cached: `None`, not a key a caller
     // must know not to trust.
     assertEquals(
-      renderer.renderInputs(
+      renderer.byteSlotValues(
         "c",
         Shared.of(line.head),
         fragments = FetchSnapshot.empty
@@ -391,7 +391,7 @@ class RenderInputsSuite extends munit.FunSuite {
   test("a bake owner with a live signal of its own has no key either") {
     val tabs = Renderer.create(tabsOwner)
     assertEquals(
-      tabs.renderInputs(
+      tabs.byteSlotValues(
         "c",
         Shared.of(line.head),
         fragments = FetchSnapshot.empty
@@ -411,7 +411,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   test("a node that composes rather than renders has no key") {
     assertEquals(
-      renderer.renderInputs(
+      renderer.byteSlotValues(
         "c_3",
         Shared.of(line.head),
         fragments = FetchSnapshot.empty
@@ -429,8 +429,8 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  /** '''No cacheable node owns a bake group.''' The key is entity versions
-    * only, so two viewers on two tabs would otherwise share one slot. It holds
+  /** '''No cacheable node owns a bake group.''' The key is byte-slot values
+    * only, so two viewers on two tabs would otherwise share one entry. It holds
     * because `Dashboard.validate` requires a `bakeInto` target to declare a
     * baked region, and a card with a region is structure: the join of two rules
     * in different files, true until one is relaxed for a good local reason.
@@ -441,7 +441,7 @@ class RenderInputsSuite extends munit.FunSuite {
       assert(owners.nonEmpty, s"$label exercises no bake group at all")
       owners.foreach(id =>
         assertEquals(
-          r.renderInputs(
+          r.byteSlotValues(
             id,
             Shared.of(states),
             fragments = FetchSnapshot.empty
@@ -456,5 +456,81 @@ class RenderInputsSuite extends munit.FunSuite {
     // state-activated, `tabsOwner` user-selected.
     check("state-activated", renderer, line.head)
     check("user-selected", Renderer.create(tabsOwner), line.head)
+  }
+
+  test("a member's clause is in its key, even when no slot value moves") {
+    // Two clauses, two cards, no live slot: every clause of a candidate mints
+    // the same ids, so without the clause the key could not tell them apart.
+    val twoCards = Dashboard(
+      cards,
+      LayoutNode.SetNode(
+        candidates = List("light.a"),
+        members = Map(
+          "light.a" -> LayoutNode.SetMember(
+            List(
+              LayoutNode.SetClause(
+                Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+                LayoutNode.Component("btn", Map("label" -> lit("A")))
+              ),
+              LayoutNode.SetClause(
+                None,
+                LayoutNode.Component("bannerBar", Map("title" -> lit("A")))
+              )
+            )
+          )
+        )
+      )
+    )
+    val r = Renderer.create(twoCards)
+    val id = r.members.memberIdOf(setId("c"), "light.a")
+    def at(state: String) = Shared.of(Map("light.a" -> st("light.a", state)))
+    def bytes(state: String) =
+      r.renderNodeById(
+        id,
+        at(state),
+        Viewing(Selections.none, FetchSnapshot.empty)
+      )
+    assertNotEquals(bytes("on"), bytes("off"))
+    assertNotEquals(
+      r.byteSlotValues(id, at("on"), FetchSnapshot.empty),
+      r.byteSlotValues(id, at("off"), FetchSnapshot.empty)
+    )
+  }
+
+  test("a value the bytes do not show sends one redundant morph, then none") {
+    // The reverse of the property above does not hold: a slot read only as a
+    // section's test renders the same for any non-empty value. A session then
+    // sends a morph to the bytes the client already has (no DOM change) and
+    // records the new values, so the next tick on them sends nothing.
+    val r = Renderer.create(
+      Dashboard(
+        Map("card" -> TestCard("<b>{{#v}}set{{/v}}</b>")),
+        LayoutNode.Component(
+          "card",
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+            "v" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+          )
+        )
+      )
+    )
+    val id = NodeId.derived("c")
+    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+    def state(s: String) =
+      Shared.of(Map("sensor.a" -> EntityState("sensor.a", s, Map.empty)))
+    val cache = RenderCache.create.unsafeRunSync()
+    def morph(holds: Map[NodeId, Held], s: String) =
+      Patches.morph(r, cache, holds, state(s), viewing, id).unsafeRunSync()
+    val painted = r.renderBodyTraced(state("on"), viewing).own
+    val holds = painted.map((k, p) => k -> p.held)
+    val onBytes = r.renderNodeById(id, state("on"), viewing)
+    assertEquals(r.renderNodeById(id, state("playing"), viewing), onBytes)
+
+    val sent = morph(holds, "playing")
+    sent.map(_.patch) match
+      case Some(Patch.Morph(html)) => assertEquals(Some(html), onBytes)
+      case other                   => fail(s"expected one morph, got $other")
+    val after = holds ++ sent.fold(Map.empty[NodeId, Held])(_.establishes)
+    assertEquals(morph(after, "playing"), None)
   }
 }

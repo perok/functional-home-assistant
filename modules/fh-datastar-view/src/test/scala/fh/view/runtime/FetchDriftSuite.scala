@@ -266,7 +266,7 @@ class FetchDriftSuite extends munit.FunSuite {
         nodes.foreach { id =>
           val f = asked(List(id), Nil)
           val _ = (
-            r.renderInputs(id, states, f),
+            r.byteSlotValues(id, states, f),
             r.renderNodeById(id, states, Viewing(ui, f))
           )
         }

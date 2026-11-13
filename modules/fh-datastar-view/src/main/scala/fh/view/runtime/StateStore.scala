@@ -19,11 +19,7 @@ case class EntityState(
     attributes: Map[String, Json],
     // So a reconnect's full set cannot clobber a fresher delta. `None` falls
     // back to value dedup.
-    lastUpdated: Option[Instant] = None,
-    // The store version at which this entity's content last moved — not the
-    // store's version, which untouched entities do not carry. The render key's
-    // stand-in for the value ([[Renderer.renderInputs]], ADR 0012).
-    contentVersion: Long = 0L
+    lastUpdated: Option[Instant] = None
 ) {
 
   val domain: String = entityId.takeWhile(_ != '.')
@@ -264,25 +260,14 @@ class StateStore private (
                   value: EntityState,
                   previous: Option[EntityState]
               ) =
-                // Stored and published with the same stamp, or a render would
-                // be keyed to a version the snapshot never had.
-                previous.filter(EntityState.sameContent(_, value)) match {
-                  case Some(same) =>
-                    (
-                      m.updated(
-                        value.entityId,
-                        value.copy(contentVersion = same.contentVersion)
-                      ),
+                if (previous.exists(EntityState.sameContent(_, value)))
+                  (m.updated(value.entityId, value), changes)
+                else
+                  (
+                    m.updated(value.entityId, value),
+                    StateChange.Moved(value.entityId, previous, value) ::
                       changes
-                    )
-                  case None =>
-                    val stamped = value.copy(contentVersion = batch)
-                    (
-                      m.updated(value.entityId, stamped),
-                      StateChange.Moved(value.entityId, previous, stamped) ::
-                        changes
-                    )
-                }
+                  )
 
               val previous = m.get(ingest.entityId)
               ingest match {

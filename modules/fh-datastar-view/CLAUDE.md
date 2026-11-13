@@ -259,7 +259,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   another's readout (ADR 0025). TWO render forms: the DOCUMENT form
   (value inline + a node-level `data-signals` seed on the `.fh-cell` wrapper; what a page load,
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
-  `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
+  `renderNodeById` sends, which is why a node's byte-slot values stand still and the morph is
+  suppressed).
   The slot's `signal` names the BINDING KIND (`SignalBind`, an object on the wire): `Text`
   (`data-text`), `Style(property)` (`data-style:<prop>`, custom properties included), `Attr(name)`,
   `Class(name)`, `Bind` (`data-bind`, two-way on a form control), or `Handler` (NO binding at

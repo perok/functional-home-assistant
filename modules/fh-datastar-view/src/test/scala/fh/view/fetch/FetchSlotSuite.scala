@@ -32,14 +32,7 @@ import fh.view.model.{
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{
-  EntityState,
-  Evaluator,
-  RenderInputs,
-  Renderer,
-  Selections,
-  sharedOf
-}
+import fh.view.runtime.{EntityState, Evaluator, Renderer, Selections, sharedOf}
 import io.circe.Json
 import io.github.iltotore.iron.*
 import fh.view.FHError
@@ -47,10 +40,10 @@ import fh.view.testkit.DashboardBuilders.declared
 
 import java.time.Instant
 
-/** A node reading a fetch contributes nothing to candidacy and everything to
-  * the render key.
+/** A node reading a fetch contributes nothing to candidacy, and its answer
+  * reaches the bytes through the slot.
   */
-class FetchRenderInputsSuite extends munit.CatsEffectSuite {
+class FetchSlotSuite extends munit.CatsEffectSuite {
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
@@ -166,7 +159,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // unresolved fetch is loud, not an empty hole.
     val q = read()
     val f = FetchSnapshot.of(Map(q -> Staged(100L, "<svg/>")))
-    assertEquals(f.versions(List(ask().fixed)), Map(q -> 100L))
+    assertEquals(f.staged(ask().fixed).version, 100L)
     assertEquals(f.staged(ask().fixed).value, "<svg/>")
 
     val miss = intercept[FHError](FetchSnapshot.empty.staged(ask().fixed).value)
@@ -313,37 +306,11 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         f.staged(ask(width = 1).fixed).value,
         Staged.failed(drawn()).value
       )
-      // Below any real version, so the next good answer moves the key.
       assertEquals(
-        f.versions(List(ask(width = 1).fixed)),
-        Map(bad -> Staged.FailedVersion)
+        f.staged(ask(width = 1).fixed).version,
+        Staged.FailedVersion
       )
     }
-  }
-
-  private def key(fetches: (SlotRead, Long)*) =
-    RenderInputs(Map("sensor.t" -> 1L), fetches.toMap)
-
-  test("a later version is ahead of an earlier one") {
-    assert(key(read() -> 200L).isAtLeast(key(read() -> 100L)))
-    assert(!key(read() -> 100L).isAtLeast(key(read() -> 200L)))
-    assert(key(read() -> 100L).isAtLeast(key(read() -> 100L)))
-  }
-
-  test("different fetches are not ordered, so neither overwrites the other") {
-    // Unordered means separate generations; otherwise one viewer is served a
-    // chart of the wrong span, silently.
-    assert(!key(read("24h") -> 100L).isAtLeast(key(read("1h") -> 100L)))
-    assert(!key(read("1h") -> 100L).isAtLeast(key(read("24h") -> 100L)))
-  }
-
-  test("gaining a fetch is not being ahead") {
-    assert(!key(read() -> 100L).isAtLeast(key()))
-    assert(!key().isAtLeast(key(read() -> 100L)))
-  }
-
-  test("a moved fetch alone moves the key, with state standing still") {
-    assertNotEquals(key(read() -> 100L), key(read() -> 200L))
   }
 
   test("a surface's fetches are found before it is rendered") {

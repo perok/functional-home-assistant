@@ -55,8 +55,8 @@ class SharedPassSuite extends ServerHarness {
   )
 
   test("a session records what its own connection was actually sent") {
-    // The digest kept must be of the bytes that went out, and the position the
-    // version they were rendered at.
+    // What is kept must be what the bytes that went out were rendered from, and
+    // the position the version they were rendered at.
     live(twoLeafDash, ab0) { ts =>
       for {
         _ <- ts.connect()

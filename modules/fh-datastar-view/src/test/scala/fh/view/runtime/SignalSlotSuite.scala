@@ -165,40 +165,27 @@ class SignalSlotSuite extends ServerHarness {
     assert(plain.contains("data-on:x=\"\""), clue = plain)
   }
 
-  test("a node with no signal slot renders one form, by reference") {
-    val plain = Dashboard(
-      Map("plain" -> TestCard("<b>{{value}}</b>")),
-      LayoutNode.Component(
-        "plain",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-          "value" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.a")))
-          )
-        )
-      )
-    )
-    // A signal-free node must not pay for a second template execute. Asserted
-    // on one walk, the only place the two forms can share bytes. Structure has
-    // no patch form at all (`Traced` carries none), so there is nothing to
-    // check for it.
-    val freeR = Renderer.create(plain)
-    val free =
-      freeR.renderBodyTraced(
-        Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      )
-    val freeId = free.own.keys.head
-    assert(
-      free.own(freeId).digest == Digest.of(free.html),
-      clue = "a signal-free node rendered twice"
-    )
+  test("a walk records a node's byte-slot values, never its signal slots") {
+    // What a session compares a tick against: the patch form's inputs, which
+    // leave a signal slot's value out (it moves by a signal frame).
     val signalled =
       renderer.renderBodyTraced(
         Shared.of(at("21.4")),
         Viewing(Selections.none, FetchSnapshot.empty)
       )
     val signalledId = signalled.own.keys.head
+    assertEquals(
+      Some(signalled.own(signalledId).values),
+      renderer.byteSlotValues(
+        signalledId,
+        Shared.of(at("21.4")),
+        FetchSnapshot.empty
+      )
+    )
+    assert(
+      !signalled.own(signalledId).values.values.toList.contains("21.4"),
+      clue = signalled.own(signalledId).values
+    )
     val signalledPatch = renderer
       .renderNodeById(
         signalledId,
@@ -206,8 +193,6 @@ class SignalSlotSuite extends ServerHarness {
         Viewing(Selections.none, FetchSnapshot.empty)
       )
       .get
-    assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
-    assert(signalled.own(signalledId).digest != Digest.of(signalled.html))
     assert(signalled.html.contains("21.4"), clue = signalled.html)
     assertEquals(signalledPatch.contains("21.4"), false, signalledPatch)
   }
@@ -218,7 +203,7 @@ class SignalSlotSuite extends ServerHarness {
       states: Map[String, EntityState]
   ): Map[NodeId, Held] =
     r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> p.held
     }
 
   private def resumeFrom(
@@ -583,7 +568,7 @@ class SignalSlotSuite extends ServerHarness {
   test(
     "a page load holds structure's seeds, so its first frame sends what moved"
   ) {
-    // Structure has no bytes of its own to digest, but its wrapper seeds its
+    // Structure has no bytes of its own, but its wrapper seeds its
     // signals like any node's. Left out of the page's holds, the first frame
     // after a load re-sent every value the client already had.
     val boxed = Dashboard(
@@ -641,7 +626,7 @@ class SignalSlotSuite extends ServerHarness {
       r,
       log,
       r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> Held(Some(p.digest), p.signals)
+        id -> p.held
       },
       lit(41),
       1L,
@@ -747,7 +732,7 @@ class SignalSlotSuite extends ServerHarness {
       r,
       log,
       r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
-        id -> Held(Some(p.digest), p.signals)
+        id -> p.held
       },
       lock("unlocked"),
       1L,
@@ -951,7 +936,7 @@ class SignalSlotSuite extends ServerHarness {
       .touched(NodeId.derived("c_0"), 1L)
       .touched(NodeId.derived("c_1"), 1L)
     val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> p.held
     }
     val out =
       resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
@@ -1092,7 +1077,7 @@ class SignalSlotSuite extends ServerHarness {
     val next = Shared.of(gone, 1L)
     val sets = List(SetId.of(NodeId.derived("c"), LayoutNode.SetNode()))
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> p.held
     }
     val seededLog = List("c_light_a", "c_light_b")
       .foldLeft(FragmentLog("test"))((l, id) =>

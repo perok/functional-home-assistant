@@ -1,63 +1,42 @@
 package fh.view.runtime
 
 import cats.effect.IO
-import fh.view.model.NodeId
+import fh.view.model.{NodeId, SlotValue}
 
 import java.util.concurrent.ConcurrentHashMap
 
-/** One node's bytes with their digest, so no HTML is hashed twice. */
-private[runtime] case class NodeBytes(html: String, digest: Digest)
-
-private[runtime] object NodeBytes {
-  def of(html: String): NodeBytes = NodeBytes(html, Digest.of(html))
-}
-
-/** Node bytes shared by the sessions one tick wakes, keyed by what the render
-  * reads ([[Renderer.renderInputs]], ADR 0012). Per slug; it outlives a
-  * renderer swap and invalidates by renderer identity.
+/** Node bytes shared by the sessions one tick wakes, keyed by the values they
+  * were rendered from ([[Renderer.byteSlotValues]], ADR 0012). Per slug; it
+  * outlives a renderer swap and invalidates by renderer identity.
   *
-  * '''One generation per node, replaced in place.''' Keying by `(node, inputs)`
-  * would grow forever: every frame mints new entity versions and old ones are
-  * never asked for again. A selection is not in the key: only structure reads
-  * one, and structure is never cached. Fetch reads and the variable values a
-  * node read are per viewer: viewers on one value share the entry, and two
-  * values replace each other's, so a node keeps one entry however many values
-  * are posted.
+  * '''One entry per node, replaced in place.''' A selection is not in the key:
+  * only structure reads one, and structure is never cached. A fetch answer or a
+  * variable reaches the bytes through a slot's value, so viewers on one value
+  * share the entry and two values replace each other's.
   *
   * '''A memo, not single-flight.''' Sessions that miss together each render,
   * and a later install replaces an earlier one. A `Deferred` and a CAS per miss
   * cost 1.5 kB a node against a 3.2 kB render, while sessions woken by one ring
   * rarely miss together (`RenderCacheContentionSuite` holds one render a
-  * frame); a race costs a render, never wrong bytes.
-  *
-  * '''A straggler never displaces a newer generation''': an install is skipped
-  * when what is there is at or ahead of the caller
-  * ([[RenderInputs.isAtLeast]]). Unlocked, so a race can still displace one,
-  * which costs a render.
+  * frame). Bytes are a function of their key, so a race or a straggler costs a
+  * render, never wrong bytes.
   */
 private[runtime] final class RenderCache(
     live: ConcurrentHashMap[NodeId, RenderCache.Entry]
 ) {
 
   /** A failed `render` installs nothing, so the next caller renders again. */
-  def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
+  def apply(id: NodeId, renderer: Renderer, values: Map[String, SlotValue])(
       render: => String
-  ): NodeBytes =
+  ): String =
     live.get(id) match {
       case e: RenderCache.Entry
-          if (e.renderer eq renderer) && e.inputs == inputs =>
-        e.bytes
+          if (e.renderer eq renderer) && e.values == values =>
+        e.html
       case _ =>
-        val bytes = NodeBytes.of(render)
-        val overtaken = live.get(id) match {
-          case e: RenderCache.Entry =>
-            (e.renderer eq renderer) && e.inputs.isAtLeast(inputs)
-          case null => false
-        }
-        if (!overtaken) {
-          val _ = live.put(id, RenderCache.Entry(renderer, inputs, bytes))
-        }
-        bytes
+        val html = render
+        val _ = live.put(id, RenderCache.Entry(renderer, values, html))
+        html
     }
 
   // Test seam.
@@ -68,8 +47,8 @@ private[runtime] object RenderCache {
 
   private[runtime] case class Entry(
       renderer: Renderer,
-      inputs: RenderInputs,
-      bytes: NodeBytes
+      values: Map[String, SlotValue],
+      html: String
   )
 
   def create: IO[RenderCache] =

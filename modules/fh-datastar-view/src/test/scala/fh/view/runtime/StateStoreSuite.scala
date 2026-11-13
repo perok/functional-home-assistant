@@ -136,45 +136,14 @@ class StateStoreSuite extends munit.FunSuite {
     assertEquals(version, 1L)
   }
 
-  test("contentVersion moves only for the entities a batch actually moved") {
-    val (a, b) = (for {
-      s <- StateStore.inMemory(Map("a" -> st("a", "1"), "b" -> st("b", "1")))
-      _ <- s.update(
-        List(Ingest.Replace(st("a", "2")), Ingest.Replace(st("b", "1")))
-      )
-      snap <- s.snapshot
-    } yield (snap("a"), snap("b"))).timeout(10.seconds).unsafeRunSync()
-
-    // `b` keeps its old stamp, so a render keyed on it still hits.
-    assertEquals(a.contentVersion, 1L)
-    assertEquals(b.contentVersion, 0L)
-  }
-
-  test("a timestamp-only bump keeps the contentVersion") {
-    val stamp = (for {
-      s <- StateStore.inMemory(
-        Map("a" -> st("a", "1").copy(contentVersion = 7L))
-      )
-      _ <- s.update(
-        st("a", "1").copy(lastUpdated = Some(java.time.Instant.now()))
-      )
-      snap <- s.snapshot
-    } yield snap("a").contentVersion).timeout(10.seconds).unsafeRunSync()
-
-    // The stored value advances (recency), the stamp does not, so a cached
-    // render stays valid.
-    assertEquals(stamp, 7L)
-  }
-
   test("a full state the store already holds is not re-stored at all") {
     val held = st("a", "1").copy(
-      lastUpdated = Some(java.time.Instant.parse("2026-09-04T06:00:00Z")),
-      contentVersion = 7L
+      lastUpdated = Some(java.time.Instant.parse("2026-09-04T06:00:00Z"))
     )
     val (before, after) = (for {
       s <- StateStore.inMemory(Map("a" -> held))
       // What a reconnect's full set hands back on a steady HA.
-      _ <- s.update(held.copy(contentVersion = 0L))
+      _ <- s.update(held.copy())
       snap <- s.snapshot
     } yield (held, snap("a"))).timeout(10.seconds).unsafeRunSync()
 
@@ -202,30 +171,5 @@ class StateStoreSuite extends munit.FunSuite {
     // Had the bump been skipped, `stale` would wave t12 through, storing
     // content HA superseded three seconds earlier.
     assertEquals(state, "1")
-  }
-
-  test("a published change carries the same stamp the store kept") {
-    val (published, stored) = (for {
-      s <- StateStore.inMemory(Map("a" -> st("a", "1")))
-      collected <- s.changes.take(1).compile.toList.start
-      _ <- s.changeSubscribers.filter(_ >= 1).head.compile.drain
-      _ <- s.update(st("a", "2"))
-      out <- collected.joinWithNever
-      snap <- s.snapshot
-    } yield (
-      out.flatten
-        .collect { case m: StateChange.Moved => m }
-        .head
-        .current
-        .contentVersion,
-      snap("a").contentVersion
-    ))
-      .timeout(10.seconds)
-      .unsafeRunSync()
-
-    // A mismatched `current` would key a render to a version the store never
-    // had.
-    assertEquals(published, stored)
-    assertEquals(published, 1L)
   }
 }

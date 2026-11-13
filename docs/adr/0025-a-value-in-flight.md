@@ -251,7 +251,7 @@ committed value to catch up to and the other does not.
 ## The deeper reason only the server may write a committed signal
 
 The URL is the visible half, but not the load-bearing one. A session's `holds`
-records what THIS client's DOM has — digest and signal values — and every later
+records what THIS client's DOM has — byte-slot values and signal values — and every later
 diff is computed against it. **A client that writes a server-owned signal makes
 `holds` false**, and the server then computes "nothing owed" and never corrects
 it. That is why the rule is "only the server writes", not "the client should

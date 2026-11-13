@@ -90,8 +90,7 @@ None of this was designed separately; all of it fell out.
   it into a Datastar signal must know that a null object FIELD deletes a signal, which an array
   entry never is.
 - **The fetch/draw split is structural.** `FetchSnapshot.resolve` deduplicates one call per FETCH and
-  one drawing per `(fetch, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
-  carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
+  one drawing per `(fetch, stage)` — `SlotRead` is that pair. Two cards charting one sensor over one window at different sizes cost one fetch and two
   drawings *because the keys say so*.
 - **The staged-value cache needs no expiry, and no provider.** A series has a shelf life — it
   stops being current when its bucket rolls, which is what decides when a version moves. A staged
@@ -190,11 +189,10 @@ any span, and statistics at `5minute` up to `year`.
   are given on login?" — which was closed without being answered in the code: every call is still
   the add-on's. For reads the cost is a second HA connection per user, and whether history is
   worth that is a judgement about cost, not a technical blocker.
-- **The render key gained a second dimension**, which issue #209 should know about: its own note
-  says `RenderInputs` is entity versions only and that reintroducing a selection dimension should
-  re-measure `RenderCacheContentionSuite`. It is back, deliberately. The predicted cost is that
-  two sessions holding different reads have *unordered* keys, so neither is a straggler and each
-  install evicts the other — read off `RenderCache`'s source, not measured.
+- **Two viewers on two windows evict each other's cache entry.** The render key is a node's
+  byte-slot values (ADR 0012), a chart's answer among them, so two sessions holding different
+  reads hold different values and each install replaces the other's
+  (`RenderCacheSuite`: a render each, every pull).
 
 ## Open questions
 

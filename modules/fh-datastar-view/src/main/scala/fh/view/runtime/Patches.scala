@@ -127,13 +127,13 @@ private[runtime] object Patches {
     )
   }
 
-  /** Loud, rather than caching `""` forever if `renderInputs` and
+  /** Loud, rather than caching `""` forever if `byteSlotValues` and
     * `renderNodeById` ever disagree.
     */
   private def mustRender(html: Option[String], id: NodeId): String =
     html.getOrElse(
       throw new IllegalStateException(
-        s"'$id' has a render key but no rendering"
+        s"'$id' has byte-slot values but no rendering"
       )
     )
 
@@ -290,8 +290,9 @@ private[runtime] object Patches {
     *
     * '''One rule:''' candidates are the nodes logged at `>= v` plus every node
     * of an open surface (which nothing recorded while unwatched). Render each
-    * now and send it when its digest differs from what this viewer holds, a
-    * missing entry meaning "send". The cursor selects nodes, never content.
+    * now and send it when its byte-slot values differ from what this viewer
+    * holds, a missing entry meaning "send". The cursor selects nodes, never
+    * content.
     *
     * A [[Mutation.Placed]] emits `remove` and `insert`, so it is idempotent
     * whatever the DOM holds, and an arrival and a reorder are one operation.
@@ -551,49 +552,41 @@ private[runtime] object Patches {
       viewing: Viewing,
       id: NodeId
   ): IO[Option[Addressed]] = {
-    // Equal byte-slot values, equal patch bytes (`DigestPropertySuite`): what
-    // this viewer holds already answers, with no render and no cache lookup.
-    // A suppressed morph records nothing, so a node whose values moved without
-    // its bytes renders again on every later tick until its bytes move.
-    val values = renderer.byteSlotValues(id, shared, viewing.fragments)
-    val held = holds.get(id)
-    if (values.isDefined && held.exists(_.values == values)) unchanged
-    else
-      IO(bytes(renderer, cache, id, shared, viewing).flatMap {
-        case NodeBytes(html, digest) =>
-          Option.when(!held.flatMap(_.digest).contains(digest))(
+    // Equal byte-slot values, equal patch bytes (`ByteValuesPropertySuite`):
+    // what this viewer holds already answers, with no render and no cache
+    // lookup. Unequal values are sent: the bytes rarely survive a value change,
+    // and a morph to the bytes the client has changes nothing in its DOM.
+    renderer.byteSlotValues(id, shared, viewing.fragments) match {
+      case Some(values) if !holds.get(id).exists(_.values.contains(values)) =>
+        IO(
+          Some(
             Addressed(
-              Patch.Morph(html),
-              Map(id -> Held(Some(digest), values = values))
+              Patch.Morph(cached(renderer, cache, id, values, shared, viewing)),
+              Map(id -> Held(Some(values)))
             )
           )
-      })
+        )
+      case _ => unchanged
+    }
   }
 
   // Shared: the common tick skips every node, and an `IO` each was 1 kB a tick.
   private val unchanged: IO[Option[Addressed]] = IO.pure(None)
 
   /** Through the slug's [[RenderCache]], so the sessions one tick wakes share a
-    * node's render; a node without a sound key renders uncached. Runs inside
-    * its caller's `IO`.
+    * node's render. Runs inside its caller's `IO`.
     */
-  private def bytes(
+  private def cached(
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
+      values: Map[String, SlotValue],
       shared: Shared,
       viewing: Viewing
-  ): Option[NodeBytes] =
-    renderer.renderInputs(id, shared, viewing.fragments) match {
-      case Some(inputs) =>
-        Some(
-          cache(id, renderer, inputs)(
-            mustRender(renderer.renderNodeById(id, shared, viewing), id)
-          )
-        )
-      case None =>
-        renderer.renderNodeById(id, shared, viewing).map(NodeBytes.of)
-    }
+  ): String =
+    cache(id, renderer, values)(
+      mustRender(renderer.renderNodeById(id, shared, viewing), id)
+    )
 
   /** What a placed member inserts and claims. A member that is a leaf comes
     * through the cache as any target does; one holding nodes renders per viewer
@@ -608,8 +601,12 @@ private[runtime] object Patches {
   ): IO[Option[(String, Map[NodeId, Held])]] =
     IO(
       if (renderer.memberIsTarget(id))
-        bytes(renderer, cache, id, shared, viewing)
-          .map(b => b.html -> Map(id -> Held.bytes(b.digest)))
+        renderer
+          .byteSlotValues(id, shared, viewing.fragments)
+          .map(v =>
+            cached(renderer, cache, id, v, shared, viewing) ->
+              Map(id -> Held(Some(v)))
+          )
       else
         renderer
           .renderMemberTraced(id, shared, viewing)

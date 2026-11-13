@@ -6,11 +6,6 @@ package fh.view.runtime
   */
 private[runtime] sealed abstract class Sink extends java.io.Writer {
 
-  /** Digest exactly the bytes `f` wrote. A buffer bounds the run by offsets; a
-    * stream catches it on the way past and copies it once.
-    */
-  def digesting(f: Sink => Unit): Digest
-
   override def flush(): Unit = ()
   override def close(): Unit = ()
 }
@@ -32,12 +27,6 @@ private[runtime] object Sink {
     }
     override def append(c: Char): this.type = { val _ = sb.append(c); this }
 
-    def digesting(f: Sink => Unit): Digest = {
-      val start = sb.length
-      f(this)
-      Digest.ofRange(sb, start, sb.length)
-    }
-
     def result: String = sb.toString
 
     private[runtime] def reset(): Unit = sb.setLength(0)
@@ -47,11 +36,8 @@ private[runtime] object Sink {
     private[runtime] def trim(): Unit = sb.trimToSize()
   }
 
-  /** The page's sink: `digesting` buffers one node at a time, so the peak is
-    * the largest own-rendering subtree, not the document. Not a
-    * `DigestOutputStream`: bounding a run in the byte stream needs a flush per
-    * leaf, against a `BufferedWriter` worth 729 kB. Still 219 kB cheaper than
-    * the buffer (`RenderBench.pageWalkStreamPlain` vs `page`).
+  /** The page's sink: straight through to the response's writer, so the page is
+    * never held whole (`RenderBench.pageWalkStream` vs `page`).
     */
   final class Streaming(w: java.io.Writer) extends Sink {
     override def write(cbuf: Array[Char], off: Int, len: Int): Unit =
@@ -65,12 +51,6 @@ private[runtime] object Sink {
     }
     override def append(c: Char): this.type = { val _ = w.append(c); this }
     override def flush(): Unit = w.flush()
-
-    def digesting(f: Sink => Unit): Digest = {
-      val bytes = Sink.scratched { buf => f(buf); buf.result }
-      w.write(bytes)
-      Digest.of(bytes)
-    }
   }
 
   def buffer(sizeHint: Int): Sink.Buffer = new Sink.Buffer(
