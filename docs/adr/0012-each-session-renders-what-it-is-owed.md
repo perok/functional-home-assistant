@@ -89,10 +89,12 @@ B/op, then time (escape analysis on, two forks):
 
 | Bench | versions + digests | values | µs before -> after |
 |---|---:|---:|---|
-| `page` | 1,677,274 | 1,419,146 | 605 -> 545 |
-| `pageWalkStream` | 1,429,203 | 1,070,963 | 829 -> 657 |
-| `resumeMorphs` (1 client) | 202,327 | 171,216 | 94 -> 84 |
-| `resumeMorphsFanout` (10) | 777,625 | 657,305 | 277 -> 232 |
+| `page` | 1,677,274 | 1,398,282 | 605 -> 538 |
+| `pageWalkStream` | 1,429,203 | 1,050,098 | 829 -> 607 |
+| `pageSet` | 1,659,010 | 1,321,522 | 652 -> 576 |
+| `resumeMorphs` (1 client) | 202,327 | 170,416 | 94 -> 87 |
+| `resumeMorphsFanout` (10) | 777,625 | 650,745 | 277 -> 228 |
+| `resumeMembers` | 231,354 | 135,419 | 97 -> 59 |
 
 The page walk no longer hashes each node or renders a node with a signal slot a second time in
 patch form; the live path no longer builds a version key or hashes the bytes it sends.
