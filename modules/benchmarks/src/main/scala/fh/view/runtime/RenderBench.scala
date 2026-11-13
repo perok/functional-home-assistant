@@ -75,7 +75,7 @@ import java.util.concurrent.TimeUnit
   * pageSetPlain           763.8     1,553,136     …signal-less members
   * pageShared           1,339.5     3,474,212     200 leaves, 40 entities
   * -- a live tick, the REAL path ----------------------------------------
-  * resumeSignals          261.7       442,296     MOVED -> 102 us / 151 kB
+  * resumeSignals          261.7       442,296     MOVED -> 54 us / 81 kB
   * resumeSignalsPure      101.4       138,575     …no byte slot reads it
   * resumeMorphs           231.5       430,638     1 client, bytes moved
   * resumeSignalsFanout    892.3     1,491,181     MOVED with resumeSignals
@@ -112,10 +112,8 @@ import java.util.concurrent.TimeUnit
   * 836 µs. [[page]], which has no signal slots, stayed put — the control that
   * says the change reached only what it meant to.
   *
-  * '''Then the scratch buffers went.''' The patch form each own-rendering node
-  * renders only to be fingerprinted was allocating `char[1024]` plus a
-  * `toString` per node; [[Sink.scratched]] lends one per thread to the whole
-  * walk. [[pageWalkStream]] '''1,322 kB -> 1,113 kB, −15.8%''', time unchanged.
+  * '''Then the scratch buffers went.''' A patch render borrows one buffer per
+  * thread ([[Sink.scratched]]) rather than allocating its own `char[1024]`.
   *
   * '''Profile [[pageWalkStream]], not [[pageSignals]].''' `pageSignals` buffers
   * the whole document, which production does not — that alone is ~19% of its
@@ -166,28 +164,26 @@ import java.util.concurrent.TimeUnit
   * That row is here to map onto issue #237's whole-page-open numbers, not to
   * compare sinks with.
   *
-  * '''An extra client on a tick costs 70 us and 117 kB''' —
-  * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 262 us for
-  * the first client, so the [[RenderCache]] is removing about three quarters of
-  * each further client's work. It is earning its place.
+  * '''An extra client on a signals tick costs 15 us and 36 kB''' —
+  * `resumeSignalsFanout` minus `resumeSignals`, over nine, against 54 us and 81
+  * kB for the first (2026-11-13, `-f 2 -prof gc`). A version's signal values
+  * are worked out once for every session (ADR 0012).
   *
-  * '''Sharing the encoded frame is a much smaller prize than it looks.'''
+  * '''Sharing the encoded frame is a smaller prize than it looks.'''
   * [[wireCommon]] vs [[wireCommonShared]] is 10x — but that measures the encode
-  * in ISOLATION. One encode is 3.2 us and ~10.7 kB, against a marginal client
-  * cost of 70 us and 117 kB: about '''5% of the time and 9% of the bytes'''.
-  * The other 95% is the decision — the changelog read, the visibility
-  * narrowing, the per-node values compare and cache lookup, the signal diff. Do
-  * not quote the 10x as if it were a tick-level number.
+  * in ISOLATION. One encode is 1.5 us and ~5.8 kB, against that marginal
+  * client: about '''10% of the time and 16% of the bytes'''. The rest is the
+  * decision — the changelog read, the visibility narrowing, the byte-slot
+  * values compare, the signal diff. Do not quote the 10x as if it were a
+  * tick-level number.
   *
   * '''A signals tick is the cheap one, and [[resumeSignalsPure]] is what says
-  * so.''' `resumeSignals` is 102 us / 151 kB against `resumeSignalsPure`'s 106
-  * us — the shipped card, whose name reads `friendly_name`, now costs what a
-  * card with a literal name costs. It did not: rendering a morph is how we
-  * discover its bytes did not move, and the shipped name re-admitted the entity
-  * to the cache key on every tick, so a signals tick cost 262 us / 442 kB —
-  * MORE than `resumeMorphs`. `Patches.bytes` now hands the cache the resolved
-  * byte-slot values and an entry carrying the same ones is reused (ADR 0012).
-  * Keep this pair: it is the only thing that would catch the regression.
+  * so.''' `resumeSignals` is 54 us / 81 kB against `resumeSignalsPure`'s 50 us
+  * / 79 kB: the shipped card, whose name reads `friendly_name`, costs what a
+  * card with a literal name costs, because its byte-slot values equal what the
+  * session holds and nothing renders (ADR 0012). When a name re-admitted the
+  * entity to the key, a signals tick cost more than `resumeMorphs`. Keep this
+  * pair: it is the only thing that would catch that regression.
   *
   * ==Why it exists==
   *
@@ -624,11 +620,8 @@ class RenderBench {
   @Benchmark
   def pageSet(bh: Blackhole): Unit = bh.consume(set.renderPageTraced(st))
 
-  /** [[pageSet]] with signal-less members — every member's two forms are
-    * byte-identical, so the patch fingerprint is a slice of the document bytes
-    * and the second render per member dies. The gap against [[pageSet]] is what
-    * the slice saves where it applies; [[pageSet]] is the worst case where
-    * every member carries a signal slot and nothing can be shared.
+  /** [[pageSet]] with signal-less members: the gap is what the members' signal
+    * slots cost a page open.
     */
   @Benchmark
   def pageSetPlain(bh: Blackhole): Unit =
@@ -2127,11 +2120,6 @@ object RenderBench {
   /** The same leaves, as one candidate set: every entity a candidate, each with
     * a single unguarded clause rendering the same card. Membership is therefore
     * total, so this measures the RENDER path rather than predicate evaluation.
-    *
-    * `signals` toggles the member leaves' signal slots: `true` is the worst
-    * case (every member carries a signal slot, so its patch fingerprint needs
-    * its own render), `false` the signal-less case where the two forms are
-    * byte-identical and the fingerprint is sliced from the document bytes.
     */
   def setTree(
       leaves: Int,
