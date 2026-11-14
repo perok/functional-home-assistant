@@ -57,7 +57,8 @@ its `data` key, and a call may carry any number of `data` keys.
 A declaration has no subject, and the id is a hash of it: two locks' declarations would
 otherwise be equal and share an id.
 
-**The id** is the first 16 hex characters of the SHA-256 of the decoded declaration. Scala
+**The id** is the first 16 hex characters of the SHA-256 of the decoded declaration, encoded
+as JSON with its keys sorted, so the order of two `.with` calls does not move it. Scala
 computes it in the `Ready` walk, so Pkl never hashes, and a set's members cost no hashing in
 the eval. Pkl's `setId` goes the same way.
 
@@ -76,8 +77,12 @@ switch, say):
   and `<name>.seen`, what the press confirms (below).
 - The template places one piece per call, `tapMod.post(call)`. It writes the URL
   `'sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}'` and builds the body from the same
-  call: `posted` from its `Posted` sources, and `seen: {{{tap.seen}}}`. No card spells a body
-  key. It replaces the three spellings above, so the slider and the wheel stop knowing the route.
+  call: `posted` from its `Posted` sources, and `seen: {{{tap.seen}}}`. It replaces the three
+  spellings above, so the slider and the wheel stop knowing the route.
+- A `Posted` source carries, hidden from the wire, the page expression that gives its value:
+  the slider's `Number($slide)`, or `[Number($slide), 100]` for a hue. The card that builds the
+  source writes it there, so a key and its value are one Pkl value, and no card spells a body
+  key.
 
 **What the page sends.** The press posts the call id, the node, and a body of two halves:
 
@@ -89,8 +94,14 @@ switch, say):
 **Which fields are seen is decided per node, at build.** For each node and each call it places,
 the `Ready` walk takes the call's `service` and each `data` field that reads state. A read is an
 entity and the part read: its state, one attribute, or the whole. A field is seen on that node
-when one of the node's painted slots reads one of its reads. A slot is painted unless it is a
-`Handler`, which paints nothing (`tapDisabled`).
+when a painted slot of the node, or of a node inside it, reads one of its reads: what is inside
+the pressed element is what the viewer pressed. A painted slot is a template slot that is not a
+`Handler`, which paints nothing (`tapDisabled`). The cell's live classes and styles
+(`cellClassWhen`, `cellStyle`) do not count. Moving them onto the slot model is a follow-up.
+
+A field that reads a fetch is never seen. The press would answer the fetch again, and a history
+window moves between the render and the press, so the two answers need not agree. It is
+decided at the press.
 
 - **A seen field** gets a slot the walk adds: the field's own value expression, as a `Handler`
   signal. The template has no hole for it and the card never declares it; it rides the node's
@@ -109,14 +120,18 @@ the signals it carries today.
 
 **What the server does at the press:**
 
-1. **Look up the id** in `Dashboard.calls`, and which of its fields the node sees. A miss on
-   either is refused: admission by declaration is ADR 0023's rule, and a node that does not place
-   the call has nothing to check against.
+1. **Look up the id** in `Dashboard.calls`, and which of its fields the node sees, the node as
+   it stands now (a set member is its current clause). A miss on either is refused: admission by
+   declaration is ADR 0023's rule, and a node that does not place the call has nothing to check
+   against.
 2. **Decode each `posted` value** as its source's declared type, and run the fields. A field
    that ends with no value (a failed `Check`, C) refuses the press and names the field.
 3. **Evaluate every field now.** A field that reads a fetch has it answered first, as a set
-   call's guard has today (`Server.decided`). Each field the node sees must give exactly what
-   `seen` posted for it; a mismatch or a missing key is refused.
+   call's guard has today (`Server.decided`). Each field the node sees is converted to the slot
+   value its signal carries (text or a boolean, and a number after step 5) and must equal what
+   `seen` posted for it. `seen` must name exactly those fields. A missing or extra key is
+   refused, and that is what a set member's page posts when its case changed after the page drew
+   it. A refusal names the field and both values: `service: lock/unlock shown, lock/lock now`.
 4. **Call HA** with what the server evaluated.
 
 **Trust.** The server only ever runs its own evaluation of a declared call:
@@ -203,12 +218,15 @@ a string inside a slot.
 **Tests:**
 
 - a property: equal declarations share an id, and different ones never do;
-- a property: a node sees exactly the `service`/`data` fields that share a read with one of its
-  painted slots;
+- a property: reordering a declaration's `data` keys keeps its id;
+- a property: a node sees exactly the `service`/`data` fields that share a read with a painted
+  slot of it or of a node inside it, never one that reads a fetch;
+- `WireShapeSuite` covers `CallDecl`;
 - presses that are refused:
   - an unknown id;
   - a node that does not place the call;
   - a `seen` that does not match now;
+  - a `seen` with a key missing or one too many, as a set member posts after its case changed;
   - a forged `seen`;
   - a posted value of the wrong type;
   - a missing posted key;
@@ -266,8 +284,9 @@ candidate today, which matters for big sets, not for B.
 ```
 
 **At the press**, the server evaluates `exclude` with the rest, unconfirmed (A), and sends it to
-HA as `exclude`, which HA resolves against the target. A set target with no member present is
-still the `NoContent` it is today.
+HA as `exclude`, which HA resolves against the target. A key whose expressions give no ids is
+left out, and `exclude` goes when no key is left, so HA never sees `entity_id: []`. A target
+left with no key is the `NoContent` that a set target with no member present is today.
 
 The entities a guard reads join `watchedEntities`, as a set call's guards do.
 
@@ -338,6 +357,9 @@ place a `jsValue`, or a number or bool slot.
   refusal for a press that worked. A literal service has no `seen`, so its retry acts again, as
   today;
 - ADR 0035: the `Posted` source and the `Check` step;
+- ADR 0017: a `Handler` slot the build adds;
+- `docs/architecture-rendering-pipeline.md`: the route, the press path and the slots the build
+  adds, in the same commit as each;
 - `writing-dashboards.md`: exclude;
 - `writing-components.md`: `tapMod.post` and the number slot;
 - `terminology.md`: declared call, call id, posted, seen, painted slot, exclusion;
@@ -352,7 +374,8 @@ All on 2026-11-14:
 - No shortcut for one entity yet.
 - No HA version check.
 - Devices and labels come later, and the shape allows them.
-- The id is a content hash, computed by Scala from the decoded declaration.
+- The id is a content hash, computed by Scala from the decoded declaration as JSON with sorted
+  keys.
 - A node may place several calls, each by name, with `<name>.callId` and `<name>.seen` filled
   by the renderer.
 - Every field is a value expression: the `Match` is reused, with no `ByState` type.
@@ -360,10 +383,16 @@ All on 2026-11-14:
   - `seen` holds the output of each field of what the call does (`service`, `data`) that reads
     something the node paints, decided per node at build. Each is a `Handler` slot the build
     adds, and a mismatch is refused;
-  - a field reading nothing the node paints, and what the call reaches, are decided at the
-    press;
+  - painted means a non-`Handler` template slot of the node or of a node inside it; cell
+    classes and styles do not count yet;
+  - `seen` names exactly the fields the node sees, compared as slot values, and a refusal names
+    the field and both values;
+  - a field reading nothing the node paints, a field reading a fetch, and what the call reaches
+    are decided at the press;
   - only `posted` values are client input to HA.
-- A call field may read a fetch, answered at the press.
+- A call field may read a fetch, answered at the press, and is then never seen.
+- A `Posted` source carries its page expression, so a card never spells a body key.
+- An id key that comes out empty is left out, and so is an empty `exclude`.
 - Putting every tap on one post with `conn` is a later step, not this plan.
 - `Posted(key, type)` is the source for a posted value, not `Var`.
 - Every entity read in a declaration names its entity.
