@@ -2,7 +2,8 @@ package fh.view.runtime
 
 import fh.view.model.{SlotValue, ValueType}
 
-import dev.cel.common.{CelAbstractSyntaxTree, CelFunctionDecl, CelOverloadDecl}
+import dev.cel.bundle.{CelFactory, CelFunction}
+import dev.cel.common.CelAbstractSyntaxTree
 import dev.cel.common.ast.CelExpr
 import dev.cel.common.navigation.CelNavigableAst
 import dev.cel.common.types.{
@@ -16,15 +17,17 @@ import dev.cel.common.types.{
   StructType
 }
 import dev.cel.common.values.{NullValue, StructValue}
-import dev.cel.compiler.{CelCompiler, CelCompilerFactory}
+import dev.cel.compiler.CelCompiler
 import dev.cel.extensions.{CelExtensions, CelOptionalLibrary}
-import dev.cel.parser.CelParserFactory
-import dev.cel.runtime.{
-  CelFunctionBinding,
-  CelFunctionOverload,
-  CelRuntimeFactory,
-  CelVariableResolver
+import dev.cel.parser.CelStandardMacro.{
+  ALL,
+  EXISTS,
+  FILTER,
+  HAS,
+  MAP,
+  MAP_FILTER
 }
+import dev.cel.runtime.{CelRuntimeLibrary, CelVariableResolver}
 
 import java.util.Optional
 
@@ -90,35 +93,16 @@ object Cel {
     case other =>
       throw new IllegalArgumentException(s"cannot parse number: $other")
 
-  private val STR_OVERLOAD = "str_dyn"
-  private val NUM_OVERLOAD = "num_dyn"
-
-  private def dynToStringOverload(id: String): CelOverloadDecl =
-    CelOverloadDecl
-      .newBuilder()
-      .setOverloadId(id)
-      .setIsInstanceFunction(false)
-      .addParameterTypes(SimpleType.DYN)
-      .setResultType(SimpleType.STRING)
+  private def dynFunction(name: String, result: CelType)(
+      f: Object => Object
+  ): CelFunction =
+    CelFunction
+      .newBuilder(name)
+      .addGlobalOverload(result, SimpleType.DYN, classOf[Object], f(_))
       .build()
 
-  private def dynToDoubleOverload(id: String): CelOverloadDecl =
-    CelOverloadDecl
-      .newBuilder()
-      .setOverloadId(id)
-      .setIsInstanceFunction(false)
-      .addParameterTypes(SimpleType.DYN)
-      .setResultType(SimpleType.DOUBLE)
-      .build()
-
-  private val strDecl = CelFunctionDecl.newFunctionDeclaration(
-    "str",
-    dynToStringOverload(STR_OVERLOAD)
-  )
-  private val numDecl = CelFunctionDecl.newFunctionDeclaration(
-    "num",
-    dynToDoubleOverload(NUM_OVERLOAD)
-  )
+  private val str = dynFunction("str", SimpleType.STRING)(stringLike)
+  private val num = dynFunction("num", SimpleType.DOUBLE)(parseNum)
 
   private val entityType: StructType = StructType.create(
     "fh.Entity",
@@ -158,57 +142,29 @@ object Cel {
     override def toString: String = e.entityId
   }
 
-  private val compiler = CelCompilerFactory
-    .standardCelCompilerBuilder()
+  // A library missing at runtime still compiles, then fails at eval.
+  private val libraries = List(
+    CelExtensions.strings(),
+    CelExtensions.lists(),
+    CelExtensions.math(),
+    CelExtensions.comprehensions(),
+    CelOptionalLibrary.INSTANCE
+  )
+
+  private val cel: dev.cel.bundle.Cel = CelFactory
+    .plannerCelBuilder()
     .setTypeProvider(types)
-    .addLibraries(
-      CelExtensions.bindings(),
-      CelExtensions.strings(),
-      CelExtensions.lists(),
-      CelExtensions.math(),
-      CelExtensions.comprehensions(),
-      // On both builders, or the runtime cannot evaluate what compiles.
-      CelOptionalLibrary.INSTANCE
-    )
-    // No macros: `has(attr.x)` is an undeclared reference here (cel 0.14.0).
-    // `setStandardMacros(CelStandardMacro.HAS)` would enable just that one.
+    .setStandardMacros(HAS, ALL, EXISTS, MAP, MAP_FILTER, FILTER)
+    .addCompilerLibraries((CelExtensions.bindings() :: libraries)*)
+    // Spread as-is, the intersection erases to its first type: a
+    // `CelCompilerLibrary[]`, and a ClassCastException at init.
+    .addRuntimeLibraries(libraries.map(l => l: CelRuntimeLibrary)*)
     .addVar("dashboard_slug", SimpleType.STRING)
     .addVar("time_zone", SimpleType.STRING)
-    .addFunctionDeclarations(strDecl, numDecl)
+    .addFunctions(str, num)
     .build()
 
-  private val runtime = CelRuntimeFactory
-    .plannerRuntimeBuilder()
-    .addLibraries(
-      CelExtensions.strings(),
-      CelExtensions.lists(),
-      CelExtensions.math(),
-      CelExtensions.comprehensions(),
-      CelOptionalLibrary.INSTANCE
-    )
-    .addFunctionBindings(
-      CelFunctionBinding.from(
-        STR_OVERLOAD,
-        java.util.List.of(classOf[Object]),
-        new CelFunctionOverload {
-          def apply(args: Array[Object]): Object =
-            if (args.isEmpty) ""
-            else stringLike(args(0))
-        }
-      ),
-      CelFunctionBinding.from(
-        NUM_OVERLOAD,
-        java.util.List.of(classOf[Object]),
-        new CelFunctionOverload {
-          def apply(args: Array[Object]): Object =
-            parseNum(args(0))
-        }
-      )
-    )
-    .build()
-
-  // The compile-time optimizers were measured and declined: no CPU gain and
-  // ~1-2% more allocation per eval, since no shipped shape repeats a subtree.
+  // The compile-time optimizers are declined (ADR 0027).
 
   /** Read once: a running server does not follow a later change of HA's zone.
     */
@@ -253,7 +209,7 @@ object Cel {
       env: List[(String, ValueType)],
       value: Option[ValueType]
   ): Either[String, Program] =
-    compiled(src, env, value).map(ast => runtime.createProgram(ast))
+    compiled(src, env, value).map(ast => cel.createProgram(ast))
 
   /** What `src` produces, or why it does not compile. A result no step or slot
     * takes (a map, a timestamp) is refused here.
@@ -336,12 +292,12 @@ object Cel {
       env: List[(String, ValueType)],
       value: Option[ValueType]
   ): CelCompiler =
-    if (env.isEmpty && value.isEmpty) compiler
+    if (env.isEmpty && value.isEmpty) cel
     else
       compilers.getOrElseUpdate(
         (env, value),
         (value.map("value" -> _).toList ++ env)
-          .foldLeft(compiler.toCompilerBuilder()) { case (b, (name, ty)) =>
+          .foldLeft(cel.toCompilerBuilder()) { case (b, (name, ty)) =>
             b.addVar(name, celType(ty))
           }
           .build()
@@ -358,8 +314,6 @@ object Cel {
     case ValueType.Entity   => entityType
     case ValueType.List(of) => ListType.create(celType(of))
 
-  private val parser = CelParserFactory.standardCelParserBuilder().build()
-
   /** The names `src` reads, from its parse alone — no declarations needed, and
     * a word inside a string literal is not one. Empty when it does not parse,
     * which [[parse]] reports.
@@ -368,7 +322,7 @@ object Cel {
     // Asked per CEL by typing, binding and the input checks alike.
     names.getOrElseUpdate(
       src, {
-        val result = parser.parse(src.trim)
+        val result = cel.parse(src.trim)
         if (result.hasError) Set.empty
         else {
           val b = Set.newBuilder[String]

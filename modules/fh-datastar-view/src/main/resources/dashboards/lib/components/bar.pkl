@@ -34,13 +34,11 @@ function remainingOfPeak(left: hass.SensorEntity): barMod.ProgressBar =
   (barMod.partOf(stateOf(left), peakOf(left))) { down = true }
 
 /// `[epochMillis, value]` points in, the highest value after the last 0 out.
-/// `transformList` filters and maps in one: this CEL has no `filter`/`map`
-/// macros.
 const local peakSinceZero: String =
   """
-  cel.bind(zeros, past.transformList(i, p, p[1] <= 0.0, p[0]),
+  cel.bind(zeros, past.map(p, p[1] <= 0.0, p[0]),
     cel.bind(since, size(zeros) == 0 ? 0.0 : math.greatest(zeros),
-      math.greatest(past.transformList(i, p, p[0] > since, p[1]) + [num(value)])))
+      math.greatest(past.map(p, p[0] > since, p[1]) + [num(value)])))
   """.trim()
 
 local function peakOf(left: hass.SensorEntity): slotMod.Reading = new {
