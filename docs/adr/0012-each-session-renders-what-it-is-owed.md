@@ -283,8 +283,8 @@ other.
   cached, so no node's bytes mention a selection any more, and the cache holds ONE generation
   per node. `RenderCacheContentionSuite` measures two viewers on two tabs at one render a frame
   where the old shape needed two. A slot reading a variable's value does not bring the buckets
-  back: two values over one node replace each other's entry and each render, which costs only
-  on ticks where the node's entities moved; sharing across values is issue #689's question.
+  back: the value is in the key, so two values over one node replace each other's entry and each
+  render, which costs only on ticks where that node's byte-slot values moved.
 - **Rotating the cache on a renderer swap** instead of naming the renderer in each entry.
   Leaves a window where a pull that read the previous renderer writes its bytes into the
   fresh map — the same bug with a smaller target.

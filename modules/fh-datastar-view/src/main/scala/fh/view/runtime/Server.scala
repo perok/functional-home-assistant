@@ -1763,8 +1763,9 @@ class Server(
         }
         .onFinalize(fetch.cancel)
       resp <- Ok(body)
-      // nginx (the add-on's proxy) otherwise buffers and gzips the whole page
-      // before the first byte, so the head no longer arrives first.
+      // A buffering nginx in front (Nginx Proxy Manager here) otherwise gzips
+      // the whole page before its first byte, so the head no longer arrives
+      // first.
     } yield resp
       .withContentType(`Content-Type`(MediaType.text.html))
       .putHeaders(Header.Raw(CIString("X-Accel-Buffering"), "no"))

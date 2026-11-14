@@ -1113,11 +1113,12 @@ answer, and a version names one, so `FetchResolver` keys every stage's output �
 `json` answer alike, for any provider — by `(question, stage, version)` and replaces in place, and
 eviction is that replacement.
 
-**The render cache still keys a chart node, and earns it.** A node's bytes are the splice of its
-SVG plus that SVG's SHA-256 digest, so without the node cache every session re-renders a chart node
-each time it is pulled — measured at ~2 µs per kB of SVG (`FetchBench.pullChart`: 26 against
-13 µs at 5 kB, 48 against 19 at 15 kB). A warm hit costs the answer lookups and nothing more,
-since an answer is cached encoded.
+**The render cache still keys a chart node, and earns it.** A chart node's bytes splice its SVG,
+so without the node cache every session whose values moved renders it again: ~2 µs per kB of SVG
+as measured when each render also hashed its bytes (`FetchBench.pullChart`: 26 against 13 µs at
+5 kB, 48 against 19 at 15 kB), a hash the values key has since removed. A session that already
+holds the values renders nothing (ADR 0012), and a warm hit costs the answer lookups and nothing
+more, since an answer is cached encoded.
 
 Three boxes move, and no others:
 

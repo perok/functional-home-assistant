@@ -29,10 +29,12 @@ case class EntityState(
   /** What CEL reads as `value.attr`: each attribute converted when first read,
     * so a light's `effect_list` costs nothing to a card reading `brightness`.
     *
-    * A CEL value, because cel-java 0.14.0 converts a plain `java.util.Map` on
-    * every read of `attr` by walking every attribute: a quarter of
-    * `RenderBench.page`. `TransformsSuite` pins that it reads as a plain map
-    * does.
+    * A CEL value, because cel-java (0.15 too) converts a plain `java.util.Map`
+    * by walking every attribute whenever `value.attr` is read: as a plain map,
+    * lazy or eager, `RenderBench.cel` measured 632 -> 1,000+ µs and
+    * `resumeSignalsLight` 57 -> 94+ µs. `CelValue` is `@Internal`; should an
+    * upgrade break it, a plain map is the fallback, at that cost.
+    * `TransformsSuite` pins that it reads as a plain map does.
     */
   lazy val javaAttributes: java.util.Map[Object, Object] =
     EntityState.LazyAttrs(attributes)

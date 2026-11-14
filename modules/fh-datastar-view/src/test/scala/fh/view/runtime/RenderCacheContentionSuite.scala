@@ -370,11 +370,7 @@ class RenderCacheContentionSuite extends ServerHarness {
         IO(cache("c_0_bar_0", renderer, v(n))(s"<b>$n</b>"))
       )
       afterChurn <- cache.size
-      nodes <- cache.size
-    } yield {
-      assertEquals(afterChurn, 1, "50 frames, one entry")
-      assertEquals(nodes, 1)
-    }
+    } yield assertEquals(afterChurn, 1, "50 frames, one entry")
   }
 
   private def at(v: Long): Map[String, SlotValue] = Map("state" -> s"v$v")

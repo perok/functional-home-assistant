@@ -184,8 +184,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   query-affected dynamic groups — **per-entity**: an in-place member tick morphs one
   `{gid}_{entity}` child, small membership deltas patch `remove`/`before`/`append`, and only
   a host whose whole content arrived or left at once, or a post-reload group,
-  repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
-  keeps a per-node last-rendered cache; http4s ember).
+  repaints wholesale — and pushes a session only the nodes whose byte-slot values moved from
+  what that session holds (`holds`, ADR 0012; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
   children unescaped at a raw hole named after the region, `{{{children}}}`; other raw author values (action
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
