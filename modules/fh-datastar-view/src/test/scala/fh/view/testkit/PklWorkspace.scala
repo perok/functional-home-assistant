@@ -20,7 +20,7 @@ object PklWorkspace {
   /** Plus the `.fh/machine.json` a reader writes for itself: the instance takes
     * its two values from `FH_PKL_CACHE_DIR`/`FH_INSTANCE_URL`, and a test
     * cannot set env vars per case. Without it the workspace would resolve
-    * through the developer's own `~/.pkl/cache`.
+    * through the developer's own pkl cache.
     */
   def bootstrapInto(
       ws: os.Path,

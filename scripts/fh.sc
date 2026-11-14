@@ -3,7 +3,7 @@
 //> using scala 3.7.4
 //> using jvm 17
 //> using toolkit typelevel:0.2.0
-//> using dep org.pkl-lang:pkl-core:0.32.1
+//> using dep org.pkl-lang:pkl-core:0.33.0
 //> using dep org.slf4j:slf4j-nop:1.7.36
 
 // TODO use @main
@@ -18,7 +18,7 @@
 // (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim and writes the two
 // files this laptop needs — `.fh/machine.json` (the instance URL) and
 // `.fh/pins.json` (the version pins); `fh pull` re-pins @fh-home. The package
-// cache is not written anywhere: it is pkl's own `~/.pkl/cache` unless
+// cache is not written anywhere: it is pkl's own (`~/.cache/pkl`) unless
 // `FH_PKL_CACHE_DIR` says otherwise.
 //
 // `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
@@ -150,14 +150,17 @@ def sha256(bytes: Array[Byte]): String =
 // does internally), never a second hand-built copy.
 
 // The package cache this script resolves through: `FH_PKL_CACHE_DIR` if set,
-// else pkl's OWN default (`~/.pkl/cache`) asked of pkl-core — the same two
+// else pkl's OWN default (`~/.cache/pkl`) asked of pkl-core — the same two
 // steps `base.pkl` and `AddonBootstrap` take, so this script, an instance, the
 // `pkl` CLI and pkl-lsp share one cache without any of them declaring a path.
 val cacheDir =
   sys.env
     .get("FH_PKL_CACHE_DIR")
     .map(Paths.get(_))
-    .getOrElse(org.pkl.core.util.IoUtils.getDefaultModuleCacheDir())
+    .orElse(Option(org.pkl.core.util.IoUtils.getSystemModuleCacheDir()))
+    .getOrElse(
+      sys.error("pkl has no default package cache dir; set FH_PKL_CACHE_DIR")
+    )
     .toAbsolutePath
 
 /** The cache a LOADED workspace resolves through: what its manifest declares
@@ -381,7 +384,7 @@ def writeScaffold(client: Client[IO], url: String): IO[Unit] =
 /** The one per-reader value `base.pkl` cannot default: WHICH instance serves
   * the packages. Gitignored; never committed.
   *
-  * No `cacheDir`: this laptop wants pkl's own `~/.pkl/cache`, which base.pkl
+  * No `cacheDir`: this laptop wants pkl's own `~/.cache/pkl`, which base.pkl
   * falls back to on its own, and writing a path here would impose it on
   * everyone else reading the same directory — the add-on doing exactly that is
   * what broke a shared workspace. Set `FH_PKL_CACHE_DIR` to override.
@@ -1015,14 +1018,13 @@ def backupPath(of: Path): Path = {
     )
 }
 
-/** Where the pkl CLI reads OS-user-level settings from (`~/.pkl/settings.pkl`,
-  * the documented location).
+/** Where the pkl CLI reads OS-user-level settings from: pkl's own lookup, so
+  * `~/.config/pkl/settings.pkl`, or a legacy `~/.pkl/settings.pkl` that exists.
   */
-def pklUserSettings: Path =
-  Paths.get(System.getProperty("user.home"), ".pkl", "settings.pkl")
+def pklUserSettings: Path = org.pkl.core.util.IoUtils.getSystemSettingsFile()
 
 /** The user-level settings `init-lsp-fix` installs: the workspace's own
-  * fh.invalid rewrite, lifted to `~/.pkl/settings.pkl`. Needed because the pkl
+  * fh.invalid rewrite, lifted to the user settings.pkl. Needed because the pkl
   * CLI applies a project's `evaluatorSettings.http.rewrites` only when invoked
   * FROM the project directory — `pkl project resolve <dir>` from elsewhere
   * (exactly how the IntelliJ plugin syncs) ignores them and dials `fh.invalid`
@@ -1149,7 +1151,7 @@ val opts: Opts[IO[ExitCode]] = Opts
   .orElse(
     Opts.subcommand(
       "init-lsp-fix",
-      "Write ~/.pkl/settings.pkl with this workspace's fh.invalid rewrite, " +
+      "Write the user settings.pkl (~/.config/pkl) with this workspace's fh.invalid rewrite, " +
         "so IntelliJ / the pkl CLI resolve packages when invoked from outside " +
         "the workspace (dated backup of any existing settings)."
     )(Opts(cmdInitLspFix().as(ExitCode.Success)))
