@@ -1,17 +1,19 @@
 # Plan: a tap names a declared call, and a call can exclude
 
-Three things, in one round because each needs the one before it:
+Three things in one round. B needs A, because a press has to name which exclusion applies,
+and today's URL names a call only by service, target and value key. C's call value lives in A's
+declaration. C's `number` slot type needs neither.
 
-1. **A call is declared once and the page names it by id**, the design round
+A. **A call is declared once and the page names it by id**, the design round
    `plan-value-model-follow-ups.md` lists as "the tap call design". This was the maintainer's idea:
    the call id is the only thing in the template besides live values.
-2. **HA 2026.11's `exclude`** (#692): a call on a floor or room can leave entities out. Those are
+B. **HA 2026.11's `exclude`** (#692): a call on a floor or room can leave entities out. Those are
    either fixed, or the ones a value expression picks at the press ("the kitchen light, while
    it is night").
-3. **Numbers:** the `number` slot type that slot-views point 4 deferred to this round, and a
+C. **Numbers:** the `number` slot type that slot-views point 4 deferred to this round, and a
    call's value typed by its declaration ("services/values are another layer").
 
-Nothing here is built. Questions are numbered at the end.
+Nothing here is built. The parts are A, B and C; steps and questions are numbered.
 
 ## Today
 
@@ -31,7 +33,7 @@ An exclusion has nowhere to go:
 - the URL cannot carry a condition;
 - the allowlist key cannot tell apart two calls that differ only in what they leave out.
 
-## 1. A declared call, named by id
+## A. A declared call, named by id
 
 **Pkl.**
 
@@ -39,7 +41,7 @@ An exclusion has nowhere to go:
   slot: a `CallSlot extends Slot` with a `hidden declares: Mapping<String, CallDecl>`.
 - The node's wire field `fixed calls: Mapping<String, CallDecl>` is computed from its slots, as
   `templateSlots` is. No card changes.
-- `CallDecl` is the call as data: `service`, `target`, `exclude` (§2) and `data` (§3).
+- `CallDecl` is the call as data: `service`, `target`, `exclude` (B) and `data` (C).
 - The id is `renderValue(decl).sha256.take(16)`, as `setId` is today:
   - equal calls on two cards share one id;
   - an edit elsewhere in the dashboard keeps the id;
@@ -63,7 +65,7 @@ press. Today the set's tally is a JSON string inside a slot; here it is decoded 
 }
 ```
 
-`data` is `{"kind": "Fixed", "key", "value"}` or `{"kind": "Supplied", "key", "type", …}` (§3).
+`data` is `{"kind": "Fixed", "key", "value"}` or `{"kind": "Supplied", "key", "type", …}` (C).
 
 **A service the state picks** (the four `CallByState` domains): `callId` is a handler signal over
 the same `Match`, but its arms are ids and each arm's call is declared. ADR 0016's "you send what
@@ -92,7 +94,7 @@ the wheel stop knowing the route.
 **Measure:** every tap's bytes change. Run RenderBench before and after (`page`, `tickRender`),
 plus the goldens, which a press changes wholesale.
 
-## 2. Exclude
+## B. Exclude
 
 **HA** (core#187290, in 2026.11): a target takes `exclude:` with the target's own keys (`entity_id`,
 `device_id`, `area_id`, `floor_id`, `label_id`).
@@ -150,7 +152,7 @@ the dump. Each would be one more key in the declaration and in `ServiceTarget`.
 **No HA version check.** HA before 2026.11 refuses `exclude`, and that refusal is the normal
 refused-press path (ADR 0024).
 
-## 3. Numbers
+## C. Numbers
 
 **A call's value is declared.** `CallDecl.data` takes one of two forms:
 
@@ -175,12 +177,12 @@ is to place a `jsValue`, or a number or bool slot.
 ## Steps
 
 1. **ha-api `ServiceTarget`:** HA's shape with `exclude`. Pure, JSON-tested.
-2. **Declared calls and the id route** (§1): Pkl `CallDecl`/`CallSlot`/node `calls`, the Scala
+2. **Declared calls and the id route** (A): Pkl `CallDecl`/`CallSlot`/node `calls`, the Scala
    decode, `Dashboard.calls` by id, the route, `tapMod.post`, deletions. Bench and goldens.
-3. **Typed values** (§3, first half): fixed values leave the page; card values are checked.
-4. **Exclude** (§2): fixed and decided; `watchedEntities`; a `UseCaseSuite` case with a floor, an
+3. **Typed values** (C, first half): fixed values leave the page; card values are checked.
+4. **Exclude** (B): fixed and decided; `watchedEntities`; a `UseCaseSuite` case with a floor, an
    excluded room and a guarded light.
-5. **The `number` slot type** (§3, second half) and the slider moved onto it.
+5. **The `number` slot type** (C, second half) and the slider moved onto it.
 6. **Point 4's check**, if 5 lands clean.
 
 **Docs, with the steps:**
@@ -200,14 +202,19 @@ is to place a `jsValue`, or a number or bool slot.
 Decided on 2026-11-14:
 
 - an exclusion is decided at the press;
-- §3 is what "the number addition" meant;
+- C is what "the number addition" meant;
 - no shortcut yet;
 - no HA version check;
-- devices and labels come later, with the shape allowing them (§2).
+- devices and labels come later, with the shape allowing them (B);
+- the call id is the first 16 hex characters of the SHA-256 of the declaration as the wire
+  carries it, as `setId` is today.
 
 Open:
 
-1. **The call id:** the first 16 hex characters of the SHA-256 of the declaration as the wire
-   carries it (recommended). The other way is node-keyed.
-2. **Order:** land §3's call value with the declared calls in step 2 (recommended). Its `data`
-   field is shaped there. The `number` slot type stays after exclude.
+1. **Order:** land C's call value with the declared calls in step 2 (recommended), since its
+   `data` field is shaped there. The `number` slot type depends on nothing and stays after
+   exclude.
+2. **A service the state picks:** one declaration whose `service` is the `CallByState` table,
+   with the page sending the state it showed (recommended), instead of an id per arm.
+3. **`data` as a map of keys,** each fixed or supplied, so one call can mix the two: a drag's
+   brightness with a fixed transition.
