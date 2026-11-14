@@ -40,7 +40,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 1
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 255
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -224,7 +246,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 2000
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 6500
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -412,7 +456,18 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "list(real)"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Cel",
+                                            "src" : "value.size() > 0 && value[0] >= 0.0 && value[0] <= 360.0"
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -628,7 +683,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 1
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 255
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -794,7 +871,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 1
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 255
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -968,7 +1067,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 1
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 255
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -1163,7 +1284,29 @@
                                 "key" : "slide",
                                 "kind" : "Posted",
                                 "type" : "int"
-                              }
+                              },
+                              "steps" : [
+                                {
+                                  "kind" : "Check",
+                                  "steps" : [
+                                    {
+                                      "kind" : "Compare",
+                                      "op" : "gte",
+                                      "to" : 1
+                                    }
+                                  ]
+                                },
+                                {
+                                  "kind" : "Check",
+                                  "steps" : [
+                                    {
+                                      "kind" : "Compare",
+                                      "op" : "lte",
+                                      "to" : 255
+                                    }
+                                  ]
+                                }
+                              ]
                             }
                           },
                           "service" : "light/turn_on",
@@ -1331,7 +1474,29 @@
                                 "key" : "slide",
                                 "kind" : "Posted",
                                 "type" : "int"
-                              }
+                              },
+                              "steps" : [
+                                {
+                                  "kind" : "Check",
+                                  "steps" : [
+                                    {
+                                      "kind" : "Compare",
+                                      "op" : "gte",
+                                      "to" : 2000
+                                    }
+                                  ]
+                                },
+                                {
+                                  "kind" : "Check",
+                                  "steps" : [
+                                    {
+                                      "kind" : "Compare",
+                                      "op" : "lte",
+                                      "to" : 6500
+                                    }
+                                  ]
+                                }
+                              ]
                             }
                           },
                           "service" : "light/turn_on",
@@ -1503,7 +1668,18 @@
                                 "key" : "slide",
                                 "kind" : "Posted",
                                 "type" : "list(real)"
-                              }
+                              },
+                              "steps" : [
+                                {
+                                  "kind" : "Check",
+                                  "steps" : [
+                                    {
+                                      "kind" : "Cel",
+                                      "src" : "value.size() > 0 && value[0] >= 0.0 && value[0] <= 360.0"
+                                    }
+                                  ]
+                                }
+                              ]
                             }
                           },
                           "service" : "light/turn_on",
@@ -1982,7 +2158,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 1
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 255
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -2166,7 +2364,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 2000
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 6500
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -2354,7 +2574,18 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "list(real)"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Cel",
+                                            "src" : "value.size() > 0 && value[0] >= 0.0 && value[0] <= 360.0"
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -2756,7 +2987,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 1
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 255
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -2940,7 +3193,29 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "int"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "gte",
+                                            "to" : 2000
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "lte",
+                                            "to" : 6500
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -3128,7 +3403,18 @@
                                       "key" : "slide",
                                       "kind" : "Posted",
                                       "type" : "list(real)"
-                                    }
+                                    },
+                                    "steps" : [
+                                      {
+                                        "kind" : "Check",
+                                        "steps" : [
+                                          {
+                                            "kind" : "Cel",
+                                            "src" : "value.size() > 0 && value[0] >= 0.0 && value[0] <= 360.0"
+                                          }
+                                        ]
+                                      }
+                                    ]
                                   }
                                 },
                                 "service" : "light/turn_on",
@@ -3510,7 +3796,29 @@
                           "key" : "slide",
                           "kind" : "Posted",
                           "type" : "int"
-                        }
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "gte",
+                                "to" : 1
+                              }
+                            ]
+                          },
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "lte",
+                                "to" : 255
+                              }
+                            ]
+                          }
+                        ]
                       }
                     },
                     "service" : "light/turn_on",
@@ -3852,7 +4160,29 @@
                           "key" : "slide",
                           "kind" : "Posted",
                           "type" : "int"
-                        }
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "gte",
+                                "to" : 1
+                              }
+                            ]
+                          },
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "lte",
+                                "to" : 255
+                              }
+                            ]
+                          }
+                        ]
                       }
                     },
                     "service" : "light/turn_on",

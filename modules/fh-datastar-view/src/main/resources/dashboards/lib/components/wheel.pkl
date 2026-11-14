@@ -77,7 +77,9 @@ class ColourWheel extends nodes.Node {
   }
   hidden light: hass.LightEntity(colour != null)
   hidden setColour: tapMod.Call =
-    (tapMod.call("light/turn_on", light).posting("hs_color", picked)) { busyVisual = false }
+    (tapMod.call("light/turn_on", light).postingChecked("hs_color", picked, List(
+      simpleMod.checkCel("value.size() == 2 && value[0] >= 0.0 && value[0] <= 360.0 && value[1] >= 0.0 && value[1] <= 100.0")
+    ))) { busyVisual = false }
   slots {
     slotMod.signalled(hue, new slotMod.Reading {
       entityId = light.entity_id

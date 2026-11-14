@@ -41,9 +41,19 @@ anything reads it, so a value of another type refuses the press. It is not `Var`
 held per viewer across requests and read by any slot, while a posted value lives for one request
 and only its call reads one, which `validate` holds every slot to.
 
+**A `Check` step keeps a value to a test.** Its steps run over the incoming value and must end in
+a bool (`Compare`, `Match` or CEL; the build refuses any other end). While they come out `true`
+the value passes through unchanged, and otherwise the result is `null`, which is what a posted
+value out of range needs: a slot's `default` fills it, and a call's field with no value refuses
+the press, naming the field. Its type is its input's. Two bounds are two checks in a row. The
+slider checks its drag to the range its track draws, and the wheel its `[h, s]`, so a page
+cannot send HA a value its own control could not. The test reads the value again where the
+step before it is read (a `Run` takes no value in), so a check follows cheap reads.
+
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
 entity does not report, a JSON `null`. And a step with no result: `First` over an empty list,
-`Percent`, `Fill` and `Duration` over text that is not a number, CEL returning `null`. A `once`
+`Percent`, `Fill` and `Duration` over text that is not a number, a failed `Check`, CEL returning
+`null`. A `once`
 read is of *which entity this is* (a service picked by its domain), which it is whether or not
 the store holds it, so it reads the entity's identity and never gives `null`.
 

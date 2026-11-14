@@ -144,7 +144,7 @@ final case class ValueExpr(
     (source match
       case Value.Cel(src, in) => List(src -> in)
       case _                  => Nil
-    ) ++ steps.collect { case Step.Cel(src, in) => src -> in }
+    ) ++ steps.flatMap(Step.cels)
 
   /** It and every expression inside it ([[parts]]) at any depth, each with
     * whether its CELs see the node's inputs: a guard and an order term, read
@@ -249,18 +249,33 @@ final case class ValueExpr(
       case _ => None
     }
     val checked = orderErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
-    steps.foldLeft(checked)((acc, step) =>
-      acc.flatMap(t =>
-        step match
-          case Step.Cel(src, own) => cel(src, own, Some(t.out), t.keys)
-          case s                  =>
-            ValueType
-              .after(s, t.out)
-              .left
-              .map(ValueExpr.Mistyped(_))
-              .map(o => t.copy(out = o))
+    def through(
+        from: Either[ValueExpr.Mistyped, ValueExpr.Typed],
+        ss: List[Step]
+    ): Either[ValueExpr.Mistyped, ValueExpr.Typed] =
+      ss.foldLeft(from)((acc, step) =>
+        acc.flatMap(t =>
+          step match
+            case Step.Cel(src, own) => cel(src, own, Some(t.out), t.keys)
+            case Step.Check(test)   =>
+              through(Right(t), test).flatMap(tested =>
+                Either.cond(
+                  tested.out == ValueType.Bool,
+                  t.copy(keys = tested.keys),
+                  ValueExpr.Mistyped(
+                    s"has a check whose test is ${tested.out.name}, not a bool"
+                  )
+                )
+              )
+            case s =>
+              ValueType
+                .after(s, t.out)
+                .left
+                .map(ValueExpr.Mistyped(_))
+                .map(o => t.copy(out = o))
+        )
       )
-    )
+    through(checked, steps)
 
   /** Live: what it answers moves, so a once-read cannot hold it. */
   lazy val isLive: Boolean =
@@ -451,6 +466,7 @@ object ValueType:
       case _: Step.Chart     => takes(in == Series, "a fetch's series", TextRaw)
       case Step.ThemeClasses => takes(in == Text, "text", Text)
       case _: Step.Cel       => Right(Dyn)
+      case _: Step.Check     => Right(in)
 
   /** What becomes text where it meets its slot, and only there: between steps
     * nothing converts. `dyn` passes, since an attribute or CEL's `dyn` may be
@@ -768,6 +784,13 @@ object Step:
   final case class Match(cases: Map[String, Lit], otherwise: Value.Operand)
       extends Simple
 
+  /** The value, while the `steps` over it come out `true`; otherwise no value.
+    * The test sees the value and ends in a bool, and the value itself passes
+    * through unchanged: a slot's `default` fills a failed check, and a call's
+    * field refuses the press.
+    */
+  final case class Check(steps: List[Step]) extends Step
+
   /** The renderer's own steps. */
   sealed trait Stage extends Step
 
@@ -813,6 +836,7 @@ object Step:
       case Fill(a, b)     => Fill(v(a), v(b))
       case Match(cs, o)   => Match(cs, v(o))
       case Compare(op, t) => Compare(op, v(t))
+      case Check(ss)      => Check(ss.map(about(subject)))
       case s @ (_: Cel | _: First | _: Duration | Count | AllOf | AnyOf | Not |
           ThemeClasses | Json | JsonText | _: Chart) =>
         s
@@ -844,6 +868,7 @@ object Step:
     case Json         => "json"
     case JsonText     => "jsonText"
     case _: Chart     => "chart"
+    case _: Check     => "check"
 
   /** [[ValueExpr.parts]] of a step. */
   def parts(s: Step): List[ValueExpr.Inner] =
@@ -858,6 +883,7 @@ object Step:
       case Compare(_, t)  => List(Operand(t))
       case Cel(_, inputs) => inputs.values.toList.map(Input(_))
       case First(orderBy) => orderBy.map(o => PerMember(o.by))
+      case Check(ss)      => ss.flatMap(parts)
       case _: Duration | Count | AllOf | AnyOf | Not | ThemeClasses | Json |
           JsonText | _: Chart =>
         Nil
@@ -893,6 +919,13 @@ object Step:
       case Json           => "json"
       case JsonText       => "jsonText"
       case Chart(style)   => s"chart:$style"
+      case Check(ss)      => ss.map(key).mkString("check(", ",", ")")
+
+  /** Every CEL of a step, a check's test's included. */
+  def cels(s: Step): List[(String, Map[String, ValueExpr])] = s match
+    case Cel(src, in) => List(src -> in)
+    case Check(ss)    => ss.flatMap(cels)
+    case _            => Nil
 
   given Decoder[Step] =
     ConfiguredDecoder.derived(using Strict.configuration)

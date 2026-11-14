@@ -440,6 +440,11 @@ The server reads the value as that type and refuses a press that posts anything
 else. A value fixed at build time is not posted at all: `.with("transition", 2)`
 goes straight into the call.
 
+A page can post anything, so keep the value to what the field takes. `postingChecked`
+takes checks, and a value they refuse refuses the press before Home Assistant hears of
+it: `.postingChecked("brightness", dragged, simpleMod.within(0, 255))`, or
+`simpleMod.checkCel("value.size() == 2 && value[0] <= 360.0")` for a list.
+
 ---
 
 ## Cards that hold other cards

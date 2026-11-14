@@ -132,8 +132,11 @@ class EntitySlider extends sliderBase.Slider {
   // The drag supplies the value. Refuses only while unavailable — an
   // `opening` cover takes a new position.
   hidden commitTap: tapMod.Call =
-    tapMod.call(action, entity).posting(key,
-      (sliderBase.slide) { type = if (axis.sentWith.isEmpty) "int" else "list(real)" })
+    tapMod.call(action, entity).postingChecked(key,
+      (sliderBase.slide) { type = if (axis.sentWith.isEmpty) "int" else "list(real)" },
+      // The range the track draws, so the two cannot disagree.
+      if (axis.sentWith.isEmpty) simpleMod.within(rangeMin, rangeMax)
+      else List(simpleMod.checkCel("value.size() > 0 && value[0] >= \(minExpr) && value[0] <= \(maxExpr)")))
   /// The badge, defaulting to the entity's own icon ([[iconFor]]). An MDI name
   /// overrides it; `null` renders none.
   hidden icon: String? = icons.iconFor(entity)

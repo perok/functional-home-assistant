@@ -290,6 +290,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("AnyOfStep", Step.AnyOf)
     check("CompareStep", Step.Compare(Op.Eq, lit))
     check("NotStep", Step.Not)
+    check("CheckStep", Step.Check(Nil))
     check("FirstStep", Step.First())
     check("ThemeClassesStage", Step.ThemeClasses)
     check("JsonStage", Step.Json)
@@ -344,6 +345,7 @@ class WireShapeSuite extends munit.FunSuite {
         "AnyOfStep",
         "CompareStep",
         "NotStep",
+        "CheckStep",
         "FirstStep",
         "ThemeClassesStage",
         "JsonStage",

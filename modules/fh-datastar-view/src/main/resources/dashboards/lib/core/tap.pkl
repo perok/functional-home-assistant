@@ -75,8 +75,14 @@ class Call extends TapAction {
   function with(key: String, value: CallValue): this =
     let (self = this) (self) { data { [key] = value } }
   /// `key` set to what the press posts as `p`: a drag's position.
-  function posting(key: String, p: slotMod.PostedRead): this =
-    let (self = this) (self) { data { [key] = new slotMod.Expr { source = p } } }
+  function posting(key: String, p: slotMod.PostedRead): this = postingChecked(key, p, List())
+  /// [[posting]] kept to what `checks` ([[simpleMod.within]], [[simpleMod.checkCel]])
+  /// let through: a posted value outside them gives the field no value, and the
+  /// press is refused before HA hears of it.
+  function postingChecked(key: String, p: slotMod.PostedRead, checks: List<simpleMod.Step>): this =
+    let (self = this) (self) {
+      data { [key] = new slotMod.Expr { source = p; steps { ...checks } } }
+    }
   /// States of the target in which this call is meaningless, so every card that
   /// sends it refuses the press. On the call rather than the card, so a second
   /// card sending the same call cannot go unguarded. Not the busy guard: this

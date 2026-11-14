@@ -1137,7 +1137,7 @@ facts {
         bypassUnavailable = false
       }
       reading = simpleMod.state()
-      commit = c.tap.call("light/turn_on", kitchen).posting("brightness", (sliderBase.slide) { type = "int" })
+      commit = c.tap.call("light/turn_on", kitchen).postingChecked("brightness", (sliderBase.slide) { type = "int" }, simpleMod.within(1, 255))
       subject = kitchen.entity_id
       active = slotMod.activeOf(kitchen)!!
     }

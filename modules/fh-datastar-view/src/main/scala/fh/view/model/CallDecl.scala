@@ -42,7 +42,9 @@ object CallDecl:
   /** HA's own names; `exclude` takes the same. */
   val TargetKeys: List[String] = List("entity_id", "area_id", "floor_id")
 
-  private def ordered[A: Decoder](c: ACursor): Decoder.Result[ListMap[String, A]] =
+  private def ordered[A: Decoder](
+      c: ACursor
+  ): Decoder.Result[ListMap[String, A]] =
     c.as[JsonObject]
       .flatMap(_.toList.traverse((k, v) => v.as[A].map(k -> _)))
       .map(ListMap.from)
@@ -82,7 +84,13 @@ object CallId:
       m.toList.sortBy(_._1).map((k, v) => sized(k) + sized(v)).mkString
     val canonical =
       sized(d.service.inputKey) +
-        sized(keyed(d.target.map((k, es) => k -> es.map(e => sized(e.inputKey)).mkString))) +
+        sized(
+          keyed(
+            d.target.map((k, es) =>
+              k -> es.map(e => sized(e.inputKey)).mkString
+            )
+          )
+        ) +
         sized(keyed(d.data.map((k, e) => k -> e.inputKey)))
     MessageDigest
       .getInstance("SHA-256")

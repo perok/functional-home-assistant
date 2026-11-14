@@ -403,6 +403,18 @@ private[view] object Evaluator {
               case ids: List[?] => leader(ids, keys, states, fetched)
               case _            => null
         )
+    // The test is a chain over `prev` that ends in a bool, so `prev` runs
+    // twice: a Run takes no value in, and a check's value is a posted one or a
+    // cheap read.
+    case Step.Check(test) =>
+      test
+        .foldLeftM(prev)((acc, s) => step(s, acc, programs, scope, named))
+        .map(tested =>
+          (subject, states, fetched) =>
+            if (holds(tested(subject, states, fetched)))
+              prev(subject, states, fetched)
+            else null
+        )
     case f: Step.Simple => Right(simple(f, prev))
     // The renderer's own, applied after the run.
     case _: Step.Stage => Right(prev)

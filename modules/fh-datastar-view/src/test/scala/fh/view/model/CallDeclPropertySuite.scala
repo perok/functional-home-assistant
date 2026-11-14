@@ -32,9 +32,12 @@ class CallDeclPropertySuite extends HedgehogSuite {
   ) {
     for n <- genNode.forAll
     yield {
-      val painted = (n.own ++ n.child).collect {
-        case (r, kind) if kind != Kind.Handler => r.reads
-      }.flatten.toSet
+      val painted = (n.own ++ n.child)
+        .collect {
+          case (r, kind) if kind != Kind.Handler => r.reads
+        }
+        .flatten
+        .toSet
       val expected = n.doing.collect {
         case (field, r) if !r.fetchy && r.reads.exists(painted) => field
       }.toSet
@@ -82,7 +85,9 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
   test("a call is refused what the press could not run once for everyone") {
     val lit = ValueExpr.literal("light/toggle")
     val cases = List(
-      on(ValueExpr(Value.Entity(None))) -> "service reads an entity it does not name",
+      on(
+        ValueExpr(Value.Entity(None))
+      ) -> "service reads an entity it does not name",
       on(ValueExpr(Value.Var("v"))) -> "reads the node variable 'v'",
       on(lit, "entity_id" -> lit) -> "named like a target key",
       on(lit, "exclude" -> lit) -> "named like a target key",
@@ -110,7 +115,11 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
 object CallDeclPropertySuite {
 
   /** An expression and, by construction, what it reads. */
-  final case class Read(expr: ValueExpr, reads: Set[(String, Part)], fetchy: Boolean = false)
+  final case class Read(
+      expr: ValueExpr,
+      reads: Set[(String, Part)],
+      fetchy: Boolean = false
+  )
 
   private def state(e: String) =
     Read(ValueExpr(Value.Entity(Some(e))), Set(e -> Part.State))
@@ -214,7 +223,9 @@ object CallDeclPropertySuite {
     )
 
   private def genSlots(kinds: List[Kind], max: Int): Gen[List[(Read, Kind)]] =
-    (for { a <- Gen.elementUnsafe(painting); b <- Gen.elementUnsafe(kinds) } yield (a, b))
+    (for {
+      a <- Gen.elementUnsafe(painting); b <- Gen.elementUnsafe(kinds)
+    } yield (a, b))
       .list(Range.linear(0, max))
 
   val genDecl: Gen[CallDecl] =

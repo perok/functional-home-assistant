@@ -146,6 +146,45 @@ class LightSliderSuite extends CatsEffectSuite {
     }
   }
 
+  test("a drag outside the track's range is refused, and HA never hears it") {
+    served(dimmer) { ts =>
+      for {
+        at <- ts.pressWhere(_.data.contains("brightness"))
+        within <- ts.post(at, body = """{"posted":{"slide":60}}""")
+        past <- ts.postResult(at, body = """{"posted":{"slide":256}}""")
+        below <- ts.postResult(at, body = """{"posted":{"slide":0}}""")
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assertEquals(within, Status.NoContent)
+        List(past, below).foreach { (status, body) =>
+          assertEquals(status, Status.Ok)
+          assert(body.contains("gives no value"), clue = body)
+        }
+        assertEquals(calls.size, 1)
+      }
+    }
+  }
+
+  test("a hue list whose first element leaves the range is refused") {
+    served(lamp) { ts =>
+      for {
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        refused <- ts.postResult(
+          at,
+          body = """{"posted":{"slide":[361,100]}}"""
+        )
+        empty <- ts.postResult(at, body = """{"posted":{"slide":[]}}""")
+        calls <- ts.fake.recordedCalls
+      } yield {
+        List(refused, empty).foreach { (status, body) =>
+          assertEquals(status, Status.Ok)
+          assert(body.contains("gives no value"), clue = body)
+        }
+        assertEquals(calls, Vector.empty)
+      }
+    }
+  }
+
   test(
     "rows from the chooser switch with their head, greyed where they lack it"
   ) {

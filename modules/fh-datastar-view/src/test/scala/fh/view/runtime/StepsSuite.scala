@@ -641,6 +641,70 @@ class StepsSuite extends munit.FunSuite {
 
   private def decode(src: String) = io.circe.parser.decode[Step](src)
 
+  private def whole(n: Long): Value.Operand = Value.Literal(Lit.Whole(n))
+  private def within(lo: Long, hi: Long): List[Step] = List(
+    Step.Check(List(Step.Compare(Op.Gte, whole(lo)))),
+    Step.Check(List(Step.Compare(Op.Lte, whole(hi))))
+  )
+
+  test("a check passes the value through while its test holds") {
+    val kept = state(within(0, 100)*).copy(default = Some(Lit.Text("none")))
+    assertEquals(runShape(kept, es("50")), "50")
+    assertEquals(runShape(kept, es("0")), "0")
+    assertEquals(runShape(kept, es("100")), "100")
+  }
+
+  test("a failed check is no value, so the slot's default shows") {
+    val kept = state(within(0, 100)*).copy(default = Some(Lit.Text("none")))
+    List("101", "-1", "unknown").foreach(s =>
+      assertEquals(runShape(kept, es(s)), "none", clue = s)
+    )
+    assertEquals(
+      Conds.run(state(within(0, 100)*))(
+        es("101"),
+        Map.empty,
+        Evaluator.unanswered
+      ),
+      null
+    )
+  }
+
+  test("a check may test in CEL, over the value") {
+    val kept = state(
+      Step.Check(List(Step.Cel("value.size() > 2")))
+    ).copy(default = Some(Lit.Text("short")))
+    assertEquals(runShape(kept, es("abc")), "abc")
+    assertEquals(runShape(kept, es("ab")), "short")
+  }
+
+  test("a check's test must end in a bool") {
+    assert(
+      state(Step.Check(List(Step.Count))).typed(Nil).isLeft ||
+        state(Step.Check(List(Step.Prefix(text("x"))))).typed(Nil).isLeft
+    )
+    val bad = state(Step.Check(List(Step.Prefix(text("x")))))
+    assert(bad.typed(Nil).left.exists(_.message.contains("not a bool")))
+    assertEquals(
+      state(Step.Check(List(Step.Compare(Op.Gte, whole(1)))))
+        .typed(Nil)
+        .map(_.out),
+      Right(ValueType.Text)
+    )
+  }
+
+  test("a check's CEL is among its expression's CELs, in order") {
+    val e = state(Step.Cel("value"), Step.Check(List(Step.Cel("value != ''"))))
+    assertEquals(e.cels.map(_._1), List("value", "value != ''"))
+    assertEquals(e.typed(Nil).map(_.keys.size), Right(2))
+  }
+
+  test("a check is part of an expression's key") {
+    assertNotEquals(
+      state(within(0, 100)*).key,
+      state(within(0, 99)*).key
+    )
+  }
+
   test("every step the Pkl module can spell decodes into a runtime shape") {
     // Written in two languages, so only this checks they agree; a literal,
     // since a list derived from the Scala enum would agree with itself.
@@ -653,6 +717,7 @@ class StepsSuite extends munit.FunSuite {
       """{"kind":"Duration","scale":60}""",
       """{"kind":"Match","cases":{"on":"Open"},"otherwise":"Closed"}""",
       """{"kind":"Cel","src":"value.state"}""",
+      """{"kind":"Check","steps":[{"kind":"Compare","op":"gte","to":1}]}""",
       """{"kind":"Chart"}"""
     ).foreach { src =>
       assert(
