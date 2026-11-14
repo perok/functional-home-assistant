@@ -48,6 +48,23 @@ An exclusion has nowhere to go:
 - It is not node-keyed: `pathId` ids move on edit, and the maintainer ruled out a build
   parameter on the press.
 
+**The wire.** A declaration uses HA's target keys, each a list, so `device_id` and `label_id`
+can join later as keys and need no new shape. A set is our own key: it is narrowed at the
+press. Today the set's tally is a JSON string inside a slot; here it is decoded as an object.
+
+```json
+"templateSlots": { "callId": { "source": "9c1e0b7a44d2f310", "type": "textRaw" } },
+"calls": {
+  "9c1e0b7a44d2f310": {
+    "service": "light/turn_off",
+    "target": { "floor_id": ["loft"] },
+    "exclude": { "area_id": ["soverom"], "sets": [ { "kind": "Present", "candidates": ["light.kjokken"], "when": { … } } ] }
+  }
+}
+```
+
+`data` is `{"kind": "Fixed", "key", "value"}` or `{"kind": "Supplied", "key", "type", …}` (§3).
+
 **A service the state picks** (the four `CallByState` domains): `callId` is a handler signal over
 the same `Match`, but its arms are ids and each arm's call is declared. ADR 0016's "you send what
 you saw" holds as it does today: the signal arrives in the frame that paints the state.
@@ -99,13 +116,20 @@ c.tap.lights.off(dump.floors.loft)
   .exclude(q.from(List(dump.lights.kjokken)).where((e) -> q.entity(dump.entities.binary_sensor_natt).stateIs("on")))
 ```
 
+The `where` belongs to the set, not to the call: the exclusion IS the set, and what it leaves
+out is its members present at the press. A guard can then differ per member (each light's own
+motion sensor), and the same set can be counted in a label. A shortcut for one entity under
+one condition, whose lambda ignores its member, is a later design.
+
 A set lowers to its tally (`Value.Present`): candidates, and a guard per candidate. Any
 condition is a guard: the simple shapes, CEL, an entity named with `q.entity`, a count. So the
 exclusion is whatever the value expressions can decide. Time is only an example: an HA helper
 such as Times of the Day or Schedule turns it into an entity's state, which the store already
 follows. Nothing new is needed in the value language.
 
-**At the press:**
+**At the press**, decided then by the set call's rule rather than ADR 0016's "you send what
+you saw". ADR 0016's case is a service that inverts, where fresh state does the opposite of what
+was shown. An exclusion is membership, which a set call already decides at the press.
 
 - fixed exclusions go to HA as they are;
 - each set is narrowed by `presentOf`, the code a set call uses, to `exclude.entity_id`;
@@ -118,6 +142,13 @@ unchanged. Entities a guard reads join `watchedEntities`, as a set call's guards
 
 **ha-api.** `ServiceTarget` becomes HA's shape: id lists per key, plus an exclude of the same
 shape. `Entities` is a list.
+
+**Not now, but the shape allows it:** devices and labels, in the target and in `exclude`. HA
+takes `device_id` and `label_id` in both. The dump has devices; labels would first need to join
+the dump. Each would be one more key in the declaration and in `ServiceTarget`.
+
+**No HA version check.** HA before 2026.11 refuses `exclude`, and that refusal is the normal
+refused-press path (ADR 0024).
 
 ## 3. Numbers
 
@@ -166,19 +197,17 @@ is to place a `jsValue`, or a number or bool slot.
 
 ## Questions
 
-1. **When an exclusion is decided:** at the press (recommended), by the set call's rule rather
-   than ADR 0016's "you send what you saw". ADR 0016's case is a service that inverts, where
-   fresh state does the opposite of what was shown. An exclusion is membership, which a set call
-   already decides at the press. The other way is a handler signal holding the excluded ids,
-   posted in the body. That is safe, since it only narrows, but it needs a list-valued signal.
-2. **The call id:** a content hash (recommended), or node-keyed.
-3. **"Numbers":** is §3 what "the number addition" meant: a typed call value plus the `number`
-   slot type? If it meant something else, §3 is rewritten.
-4. **Sugar:** `.excludeWhile(x, cond)` for one entity under one condition, lowering to the set
-   form above. Or is the set form enough?
-5. **HA before 2026.11:** no version gate (recommended). HA refuses `exclude` with its own
-   message, which the press shows as a toast. The other way is a build error naming the HA
-   version.
-6. **What can be excluded:** entities, rooms, floors and sets. HA also takes `device_id` and
-   `label_id`. The dump has devices but no labels, so devices are one more case and labels wait
-   on the dump.
+Decided on 2026-11-14:
+
+- an exclusion is decided at the press;
+- §3 is what "the number addition" meant;
+- no shortcut yet;
+- no HA version check;
+- devices and labels come later, with the shape allowing them (§2).
+
+Open:
+
+1. **The call id:** the first 16 hex characters of the SHA-256 of the declaration as the wire
+   carries it (recommended). The other way is node-keyed.
+2. **Order:** land §3's call value with the declared calls in step 2 (recommended). Its `data`
+   field is shaped there. The `number` slot type stays after exclude.
