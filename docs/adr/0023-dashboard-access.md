@@ -264,6 +264,10 @@ it got. The page sends two things beside the id:
   field reading nothing the node paints, and the target are decided at the
   press. `seen` can only refuse.
 
+No call field reads a node variable, and `validate` refuses one: the press is
+answered as a decision, which reads no viewer's variable. Allowing it would mean
+the press carrying its viewer.
+
 A service the target's state picks is such a field: a lock tile paints the
 lock's state, so the tile sees its service, and a press that races a lock
 change it showed is refused rather than acting on what the screen did not show
